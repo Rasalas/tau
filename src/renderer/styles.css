@@ -197,43 +197,55 @@ button > svg { pointer-events: none; }
   border-right: 1px solid var(--line);
   background: var(--rail);
 }
-.sidebar-controls { padding: 12px 12px 6px; display: flex; flex-direction: column; gap: 8px; }
-.project-scope-row { display: flex; gap: 6px; }
-.project-scope {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px;
-  height: 36px; border: 0; border-radius: 8px; background: transparent;
-  color: var(--ink); padding: 0 8px; text-align: left; cursor: pointer;
-}
-.project-scope:hover { background: var(--raised); }
-.project-scope > i.all-projects-icon {
-  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
-  border-radius: 6px; background: var(--raised); color: var(--muted);
-  font-size: 13px; font-style: normal;
-}
-.project-scope > span { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-scope > b { display: grid; place-items: center; color: var(--faint); }
-.icon-action {
-  width: 36px; height: 36px; flex: none; display: grid; place-items: center;
-  border: 1px solid var(--line-control); border-radius: 8px;
-  background: transparent; color: var(--acid); cursor: pointer;
-}
-.icon-action:hover { background: var(--acid-bg); }
+.sidebar-controls { padding: 10px 8px 6px; display: flex; flex-direction: column; gap: 2px; }
+.thread-search-row, .project-scope-row { display: flex; align-items: center; gap: 4px; }
 
+/* Both rows read as plain text with a leading icon; the fill only appears on use. */
 .thread-search {
-  display: flex; align-items: center; gap: 8px; height: 34px;
-  border-radius: 8px; background: var(--sunken); padding: 0 10px; color: var(--faint);
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px;
+  height: 38px; padding: 0 10px; border-radius: 8px;
+  background: transparent; color: var(--muted);
 }
-.thread-search:focus-within { box-shadow: inset 0 0 0 1px var(--line-field); }
-.thread-search > svg { color: var(--faint); }
+.thread-search:hover { background: #1a1a17; }
+.thread-search:focus-within { background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-field); }
+.thread-search > svg { color: var(--muted); }
 .thread-search input {
   flex: 1; min-width: 0; border: 0; background: transparent;
-  color: var(--ink); font-size: 12px; outline: none;
+  color: var(--ink); font: 500 13.5px var(--sans); outline: none;
 }
-.thread-search input::placeholder { color: var(--faint); }
+.thread-search input::placeholder { color: var(--muted); }
+.thread-search button {
+  display: grid; place-items: center; border: 0; background: transparent;
+  color: var(--faint); cursor: pointer; padding: 0 2px;
+}
+.thread-search button:hover { color: var(--ink); }
+
+.project-scope {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px;
+  height: 38px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--muted); padding: 0 10px; text-align: left; cursor: pointer;
+}
+.project-scope:hover { background: #1a1a17; color: var(--ink-2); }
+.project-scope > i.all-projects-icon { display: grid; place-items: center; color: inherit; font-style: normal; }
+.project-scope > span {
+  flex: 1; min-width: 0; font: 500 13.5px var(--sans);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-scope > b { display: grid; place-items: center; color: var(--faint); }
+
+.sidebar-action {
+  width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.sidebar-action:hover { background: var(--raised); color: var(--ink); }
+
 .thread-search kbd {
   font: 10px var(--mono); border: 1px solid var(--line-strong);
   border-radius: 4px; padding: 1px 5px; color: var(--faint);
+  opacity: 0; transition: opacity .12s ease;
 }
+.thread-search:hover kbd, .thread-search:focus-within kbd { opacity: 1; }
 .thread-search button {
   border: 0; background: transparent; color: var(--faint);
   cursor: pointer; font-size: 13px; padding: 0 2px;

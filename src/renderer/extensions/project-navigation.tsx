@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, LayoutGrid, Plus, Search, Settings, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import type {
   ContributionOwner,
@@ -147,11 +147,18 @@ function ProjectScope({ actions }: SidebarContributionProps) {
     <>
       <div className="project-scope-row">
         <button className="project-scope" onClick={() => { setAddOpen(false); setSearchOpen(true); }}>
-          <i className="all-projects-icon"><LayoutGrid size={13} /></i>
+          <i className="all-projects-icon"><Folder size={15} /></i>
           <span>All projects</span>
-          <b><ChevronDown size={12} /></b>
+          <b><ChevronDown size={14} /></b>
         </button>
-        <button className="icon-action" title="Add project" aria-label="Add project" onClick={() => { setSearchOpen(false); setAddOpen(true); }}><Plus size={15} /></button>
+        <button
+          className="sidebar-action"
+          title="Add project"
+          aria-label="Add project"
+          onClick={() => { setSearchOpen(false); setAddOpen(true); }}
+        >
+          <FolderPlus size={16} />
+        </button>
       </div>
       <ProjectPicker
         activePath={snapshot?.cwd}
@@ -309,20 +316,30 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   return (
     <aside className="session-rail">
       <div className="sidebar-controls">
+        <div className="thread-search-row">
+          <label className="thread-search">
+            <Search size={15} />
+            <input
+              ref={searchRef}
+              value={threadQuery}
+              onChange={(event) => setThreadQuery(event.target.value)}
+              placeholder="Search"
+              aria-label="Search threads"
+            />
+            {threadQuery ? (
+              <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
+            ) : <kbd>/</kbd>}
+          </label>
+          <button
+            className="sidebar-action"
+            title="New thread (⌘N)"
+            aria-label="New thread"
+            onClick={() => actions.newSession()}
+          >
+            <SquarePen size={16} />
+          </button>
+        </div>
         <ProjectScope actions={actions} />
-        <label className="thread-search">
-          <Search size={13} />
-          <input
-            ref={searchRef}
-            value={threadQuery}
-            onChange={(event) => setThreadQuery(event.target.value)}
-            placeholder="Search threads"
-            aria-label="Search threads"
-          />
-          {threadQuery ? (
-            <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
-          ) : <kbd>/</kbd>}
-        </label>
       </div>
 
       <nav
