@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
-
 :root {
   /* Surfaces, back to front. */
   --shell: #131311;
@@ -49,8 +47,9 @@
   --diff-del-bg: #2b1a17;
   --diff-del-ink: #e0a89e;
 
-  --mono: "DM Mono", ui-monospace, monospace;
-  --sans: Manrope, system-ui, sans-serif;
+  /* System stacks keep first paint offline and use stable, locally available metrics. */
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   font-family: var(--sans);
   color: var(--ink);
@@ -101,6 +100,19 @@ button > svg { pointer-events: none; }
 .app-shell.no-sidebar { --sidebar-width: 0px; }
 .app-shell.no-dock { --dock-width: 0px; }
 .app-shell.no-dock .instrument-dock { display: none; }
+
+.lazy-feature-loading,
+.lazy-feature-error {
+  display: grid; gap: 8px; place-items: center;
+  min-height: 96px; padding: 18px; color: var(--muted);
+  font: 11px var(--mono); text-align: center;
+}
+.lazy-feature-error strong { color: var(--ink-2); font-family: var(--sans); }
+.lazy-feature-error button {
+  border: 1px solid var(--line-control); border-radius: 6px;
+  background: var(--raised); color: var(--ink-2); padding: 5px 12px; cursor: pointer;
+}
+.lazy-feature-error button:hover { color: var(--ink); border-color: var(--line-strong); }
 
 /* ------------------------------------------------------------- titlebar */
 
@@ -754,7 +766,7 @@ button > svg { pointer-events: none; }
 
 .palette-backdrop {
   position: fixed; inset: 0; z-index: 80;
-  background: #0a0a09aa; backdrop-filter: blur(3px);
+  background: #0a0a09e8;
   display: flex; justify-content: center; align-items: flex-start; padding-top: 64px;
 }
 .command-palette {
@@ -929,7 +941,7 @@ button > svg { pointer-events: none; }
 
 .modal-scrim {
   position: fixed; inset: 0; z-index: 70;
-  background: #0a0a09b0; backdrop-filter: blur(3px);
+  background: #0a0a09ed;
   display: grid; place-items: center; padding: 40px;
 }
 .settings-modal {
@@ -1163,7 +1175,7 @@ button > svg { pointer-events: none; }
 
 .project-picker-scrim, .project-modal-scrim {
   position: fixed; inset: 0; z-index: 70; border: 0;
-  background: #0a0a09a0; backdrop-filter: blur(2px); cursor: default;
+  background: #0a0a09e8; cursor: default;
 }
 .project-picker, .project-modal {
   position: fixed; z-index: 71; top: 76px; left: 50%; transform: translateX(-50%);

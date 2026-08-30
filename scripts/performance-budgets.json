@@ -1,0 +1,12 @@
+{
+  "initialJavascriptBytes": 650000,
+  "initialJavascriptGzipBytes": 275000,
+  "initialCssBytes": 70000,
+  "initialCssGzipBytes": 20000,
+  "totalJavascriptBytes": 950000,
+  "totalJavascriptGzipBytes": 400000,
+  "buildTimeMs": 10000,
+  "firstPaintMs": 1500,
+  "externalNetworkRequests": 0,
+  "overlayCompositionMs": 4
+}

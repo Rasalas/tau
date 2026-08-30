@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-30T08:28:22.750Z",
+  "buildTimeMs": null,
+  "sourcemaps": false,
+  "initial": {
+    "javascript": {
+      "bytes": 441763,
+      "gzipBytes": 137606,
+      "files": 1
+    },
+    "css": {
+      "bytes": 52659,
+      "gzipBytes": 9246,
+      "files": 1
+    },
+    "sourcemaps": {
+      "bytes": 0,
+      "gzipBytes": 0,
+      "files": 0
+    }
+  },
+  "lazy": {
+    "javascript": {
+      "bytes": 85876,
+      "gzipBytes": 33184,
+      "files": 20
+    },
+    "css": {
+      "bytes": 0,
+      "gzipBytes": 0,
+      "files": 0
+    },
+    "sourcemaps": {
+      "bytes": 0,
+      "gzipBytes": 0,
+      "files": 0
+    }
+  },
+  "assets": [
+    {
+      "file": "assets/bash-I8pq0VWm.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 3162,
+      "gzipBytes": 1573
+    },
+    {
+      "file": "assets/CommandPalette-DXbbLRT9.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 2719,
+      "gzipBytes": 1268
+    },
+    {
+      "file": "assets/css-AVCICof-.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 13455,
+      "gzipBytes": 4384
+    },
+    {
+      "file": "assets/diff-BLTryEFx.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 583,
+      "gzipBytes": 312
+    },
+    {
+      "file": "assets/go-4VmnRw3R.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 1449,
+      "gzipBytes": 708
+    },
+    {
+      "file": "assets/index-DP2EWjhj.css",
+      "kind": "css",
+      "phase": "initial",
+      "bytes": 52659,
+      "gzipBytes": 9246
+    },
+    {
+      "file": "assets/index-xuPY1vHW.js",
+      "kind": "javascript",
+      "phase": "initial",
+      "bytes": 441763,
+      "gzipBytes": 137606
+    },
+    {
+      "file": "assets/javascript-DUNaicwC.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 6504,
+      "gzipBytes": 2626
+    },
+    {
+      "file": "assets/json-DdsocbVI.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 595,
+      "gzipBytes": 420
+    },
+    {
+      "file": "assets/markdown-fzgiUVUV.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 2096,
+      "gzipBytes": 895
+    },
+    {
+      "file": "assets/observatory-panel-JYS47IhJ.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 1361,
+      "gzipBytes": 589
+    },
+    {
+      "file": "assets/project-navigation-DvopGZD_.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 13972,
+      "gzipBytes": 4734
+    },
+    {
+      "file": "assets/python-CXf-_D6G.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 3533,
+      "gzipBytes": 1505
+    },
+    {
+      "file": "assets/ReviewMode-Dz3Lht4C.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 5087,
+      "gzipBytes": 1834
+    },
+    {
+      "file": "assets/rust-DsMvwcVK.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 2935,
+      "gzipBytes": 1436
+    },
+    {
+      "file": "assets/SettingsModal-CcSVnf14.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 7573,
+      "gzipBytes": 2605
+    },
+    {
+      "file": "assets/shell-DYhVHYSm.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 229,
+      "gzipBytes": 208
+    },
+    {
+      "file": "assets/sql-BC88IN-V.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 6492,
+      "gzipBytes": 2423
+    },
+    {
+      "file": "assets/typescript-5pldp2kO.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 7777,
+      "gzipBytes": 3079
+    },
+    {
+      "file": "assets/workspace-panels-5ZQn80A2.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 2628,
+      "gzipBytes": 987
+    },
+    {
+      "file": "assets/xml-FcirFJJ2.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 1872,
+      "gzipBytes": 766
+    },
+    {
+      "file": "assets/yaml-drsDnIKT.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 1854,
+      "gzipBytes": 832
+    }
+  ],
+  "overlayComposition": {
+    "strategy": "opaque-scrim",
+    "backdropBlur": false,
+    "budgetMs": 4
+  }
+}

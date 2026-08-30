@@ -1,28 +1,45 @@
-import { memo, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/core";
-import bash from "highlight.js/lib/languages/bash";
-import css from "highlight.js/lib/languages/css";
-import diff from "highlight.js/lib/languages/diff";
-import go from "highlight.js/lib/languages/go";
-import javascript from "highlight.js/lib/languages/javascript";
-import json from "highlight.js/lib/languages/json";
-import markdown from "highlight.js/lib/languages/markdown";
-import python from "highlight.js/lib/languages/python";
-import rust from "highlight.js/lib/languages/rust";
-import shell from "highlight.js/lib/languages/shell";
-import sql from "highlight.js/lib/languages/sql";
-import typescript from "highlight.js/lib/languages/typescript";
-import xml from "highlight.js/lib/languages/xml";
-import yaml from "highlight.js/lib/languages/yaml";
+import type { LanguageFn } from "highlight.js";
+type LanguageDefinition = LanguageFn;
 
-// Each definition also registers its own aliases (ts/tsx, js/jsx, sh, html, yml, …).
-for (const [name, language] of Object.entries({
-  bash, css, diff, go, javascript, json, markdown, python, rust, shell, sql, typescript, xml, yaml,
-})) {
-  hljs.registerLanguage(name, language);
+const LANGUAGE_LOADERS: Record<string, () => Promise<{ default: LanguageDefinition }>> = {
+  bash: () => import("highlight.js/lib/languages/bash"),
+  css: () => import("highlight.js/lib/languages/css"),
+  diff: () => import("highlight.js/lib/languages/diff"),
+  go: () => import("highlight.js/lib/languages/go"),
+  javascript: () => import("highlight.js/lib/languages/javascript"),
+  json: () => import("highlight.js/lib/languages/json"),
+  markdown: () => import("highlight.js/lib/languages/markdown"),
+  python: () => import("highlight.js/lib/languages/python"),
+  rust: () => import("highlight.js/lib/languages/rust"),
+  shell: () => import("highlight.js/lib/languages/shell"),
+  sql: () => import("highlight.js/lib/languages/sql"),
+  typescript: () => import("highlight.js/lib/languages/typescript"),
+  xml: () => import("highlight.js/lib/languages/xml"),
+  yaml: () => import("highlight.js/lib/languages/yaml"),
+};
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  js: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript",
+  sh: "shell", zsh: "shell", html: "xml", xhtml: "xml", yml: "yaml",
+};
+const languagePromises = new Map<string, Promise<void>>();
+
+function loadLanguage(language: string): Promise<void> {
+  const canonical = LANGUAGE_ALIASES[language] ?? language;
+  const existing = languagePromises.get(canonical);
+  if (existing) return existing;
+  const loader = LANGUAGE_LOADERS[canonical];
+  if (!loader) return Promise.resolve();
+  const promise = loader().then(({ default: definition }) => {
+    if (!hljs.getLanguage(canonical)) hljs.registerLanguage(canonical, definition);
+  });
+  languagePromises.set(canonical, promise);
+  return promise;
 }
 
 export const HIGHLIGHT_CACHE_LIMIT = 96;
@@ -58,9 +75,27 @@ export function highlightCacheSize(): number {
 
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const canonicalLanguage = language ? (LANGUAGE_ALIASES[language] ?? language) : undefined;
+  const [languageReady, setLanguageReady] = useState(() => Boolean(canonicalLanguage && hljs.getLanguage(canonicalLanguage)));
+
+  useEffect(() => {
+    if (!canonicalLanguage || hljs.getLanguage(canonicalLanguage)) {
+      setLanguageReady(true);
+      return;
+    }
+    let cancelled = false;
+    setLanguageReady(false);
+    void loadLanguage(canonicalLanguage).finally(() => {
+      if (!cancelled) setLanguageReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [canonicalLanguage]);
 
   // hljs escapes its input, so the produced markup is safe to inject.
-  const highlighted = useMemo(() => highlightedCode(code, language), [code, language]);
+  const highlighted = useMemo(
+    () => languageReady ? highlightedCode(code, canonicalLanguage) : undefined,
+    [canonicalLanguage, code, languageReady],
+  );
 
   const copy = () => {
     const settle = (state: "copied" | "failed") => {

@@ -1,14 +1,21 @@
+import { lazy } from "react";
 import type { DesktopExtension } from "../extension-system";
-import { ChangesPanel, FilesPanel } from "./workspace-panels";
-import { ObservatoryPanel } from "./observatory-panel";
-import { CloneProjectSource, WorkspaceSidebar } from "./project-navigation";
+
+// Keep optional extension UI out of the workbench's first renderer chunk. The
+// registry still owns activation; React loads a contribution when its slot is
+// actually rendered.
+const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ ChangesPanel }) => ({ default: ChangesPanel })));
+const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
+const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
+const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
+const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
 import { titleGeneratorExtension } from "./title-generator";
 
 export const workspaceExtension: DesktopExtension = {
   id: "tau.workspace",
   name: "Workspace Kit",
   activate(plugin) {
-    plugin.registerSidebar({ id: "workspace.sidebar", order: 10, Component: WorkspaceSidebar });
+    plugin.registerSidebar({ id: "workspace.sidebar", order: 10, Component: LazyWorkspaceSidebar });
     plugin.registerProjectSource({
       id: "workspace.local-folder",
       label: "Local folder",
@@ -23,9 +30,9 @@ export const workspaceExtension: DesktopExtension = {
       description: "Clone an HTTPS or SSH URL, then open it as a project.",
       glyph: "⌘",
       order: 20,
-      Component: CloneProjectSource,
+      Component: LazyCloneProjectSource,
     });
-    plugin.registerPanel({ id: "files", label: "Files", glyph: "files", order: 10, Component: FilesPanel });
+    plugin.registerPanel({ id: "files", label: "Files", glyph: "files", order: 10, Component: LazyFilesPanel });
     plugin.registerOptions([
       { id: "group-by-project", kind: "toggle", label: "Group threads by project instead of recency", defaultValue: false },
       { id: "show-settled", kind: "toggle", label: "Show settled shelf", defaultValue: true },
@@ -62,7 +69,7 @@ export const reviewExtension: DesktopExtension = {
   id: "tau.review",
   name: "Review Kit",
   activate(plugin) {
-    plugin.registerPanel({ id: "changes", label: "Changes", glyph: "changes", order: 20, Component: ChangesPanel });
+    plugin.registerPanel({ id: "changes", label: "Changes", glyph: "changes", order: 20, Component: LazyChangesPanel });
     plugin.registerOptions([
       { id: "split-diff", kind: "toggle", label: "Open diffs in split view", defaultValue: false },
       { id: "propose-message", kind: "toggle", label: "Propose a commit message from the diff", defaultValue: true },
@@ -76,7 +83,7 @@ export const observatoryExtension: DesktopExtension = {
   id: "tau.observatory",
   name: "Signals",
   activate(plugin) {
-    plugin.registerPanel({ id: "observatory", label: "Signals", glyph: "signals", order: 30, Component: ObservatoryPanel });
+    plugin.registerPanel({ id: "observatory", label: "Signals", glyph: "signals", order: 30, Component: LazyObservatoryPanel });
     plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", shortcut: "⌘⇧O", run: (app) => app.openPanel("observatory") });
     plugin.registerToolRenderer(
       "observatory.shell-renderer",

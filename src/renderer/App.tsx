@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { PanelRight, PanelRightClose } from "lucide-react";
 import type {
   FileNode,
@@ -13,13 +13,15 @@ import type {
   WorkspaceInfo,
 } from "../shared/contracts";
 import { ChangedFiles } from "./components/ChangedFiles";
-import { CommandPalette } from "./components/CommandPalette";
+import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer } from "./components/Composer";
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { Menu } from "./components/Menu";
 import { Message } from "./components/Message";
-import { ReviewMode } from "./components/ReviewMode";
-import { SettingsModal } from "./components/SettingsModal";
+const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
+const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
+const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
+
 import { TitleBar } from "./components/TitleBar";
 import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
@@ -811,24 +813,32 @@ export default function App() {
           onResolve={resolveApproval}
         />
       ) : null}
-      <CommandPalette
-        open={paletteOpen}
-        commands={commands}
-        extensionCount={registry.getExtensionNames().length}
-        actions={actions}
-        onClose={() => setPaletteOpen(false)}
-      />
+      <LazyFeatureBoundary label="command palette">
+        <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
+          <LazyCommandPalette
+            open={paletteOpen}
+            commands={commands}
+            extensionCount={registry.getExtensionNames().length}
+            actions={actions}
+            onClose={() => setPaletteOpen(false)}
+          />
+        </Suspense>
+      </LazyFeatureBoundary>
       {settingsPage ? (
-        <SettingsModal
-          page={settingsPage}
-          snapshot={snapshot}
-          registry={registry}
-          onSetPage={setSettingsPage}
-          onSetModel={(provider, id) => void setModel(provider, id)}
-          onSetThinking={(level) => void setThinking(level)}
-          onClose={() => setSettingsPage(undefined)}
-          onNotify={setNotice}
-        />
+        <LazyFeatureBoundary label="settings">
+          <Suspense fallback={<LazyFeatureFallback label="settings" />}>
+            <LazySettingsModal
+              page={settingsPage}
+              snapshot={snapshot}
+              registry={registry}
+              onSetPage={setSettingsPage}
+              onSetModel={(provider, id) => void setModel(provider, id)}
+              onSetThinking={(level) => void setThinking(level)}
+              onClose={() => setSettingsPage(undefined)}
+              onNotify={setNotice}
+            />
+          </Suspense>
+        </LazyFeatureBoundary>
       ) : null}
       {notice ? (
         <button className="toast" onClick={() => setNotice(undefined)}>
@@ -845,20 +855,24 @@ export default function App() {
           <WorkbenchContext.Provider value={contextValue}>
             <FilesContext.Provider value={filesContextValue}>
               <ChangesContext.Provider value={changesContextValue}>
-              <ObservatoryContext.Provider value={observatoryContextValue}>
-            <ReviewMode
-              changes={changes}
-              selectedPath={review.path ?? changes.files[0]?.path}
-              editor={activeEditor}
-              busy={committing}
-              onSelect={(path) => setReview({ path })}
-              onBack={() => setReview(undefined)}
-              onCommit={(message, push) => void commit(message, push)}
-              onOpenInEditor={(path) => void openInEditor(path)}
-              loadDiff={async (path) => window.tau
-                ? window.tau.getFileDiff(path)
-                : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }}
-            />
+                <ObservatoryContext.Provider value={observatoryContextValue}>
+                  <LazyFeatureBoundary label="review">
+                    <Suspense fallback={<LazyFeatureFallback label="review" />}>
+                      <LazyReviewMode
+                        changes={changes}
+                        selectedPath={review.path ?? changes.files[0]?.path}
+                        editor={activeEditor}
+                        busy={committing}
+                        onSelect={(path) => setReview({ path })}
+                        onBack={() => setReview(undefined)}
+                        onCommit={(message, push) => void commit(message, push)}
+                        onOpenInEditor={(path) => void openInEditor(path)}
+                        loadDiff={async (path) => window.tau
+                          ? window.tau.getFileDiff(path)
+                          : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }}
+                      />
+                    </Suspense>
+                  </LazyFeatureBoundary>
             {overlays}
               </ObservatoryContext.Provider>
               </ChangesContext.Provider>
@@ -891,7 +905,11 @@ export default function App() {
             />
 
             {sidebarContributions.map((contribution) => (
-              <contribution.Component key={contribution.id} actions={actions} />
+              <LazyFeatureBoundary key={contribution.id} label="sidebar">
+                <Suspense fallback={<LazyFeatureFallback label="sidebar" />}>
+                  <contribution.Component actions={actions} />
+                </Suspense>
+              </LazyFeatureBoundary>
             ))}
 
             <main className="conversation-column">
@@ -967,7 +985,13 @@ export default function App() {
                   <div className="panel-stage">
                     {panels.map((panel) => openedPanels.has(panel.id) ? (
                       <div className={activePanel === panel.id ? "panel active" : "panel"} key={panel.id}>
-                        <panel.Component active={activePanel === panel.id} extensionName={panel.extensionName} />
+                        {activePanel === panel.id ? (
+                          <LazyFeatureBoundary label={panel.label.toLowerCase()}>
+                            <Suspense fallback={<LazyFeatureFallback label={panel.label.toLowerCase()} />}>
+                              <panel.Component active extensionName={panel.extensionName} />
+                            </Suspense>
+                          </LazyFeatureBoundary>
+                        ) : null}
                       </div>
                     ) : null)}
                   </div>

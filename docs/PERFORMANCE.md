@@ -284,6 +284,24 @@ Record the fixture, machine class, build mode, median, p95, and maximum with eac
 - global session index parsed once at bootstrap and refreshed after completed prompts
 - virtualized active thread rows above 80 items with six-row overscan
 - switch timing events and repeatable host smoke measurements
+- production builds use esbuild minification, opt-in source maps, and a durable `reports/build-report.json`
+- Review, Settings, optional panels, and project navigation are demand-loaded; Highlight.js language definitions are separate chunks
+- first paint uses local system font stacks and opaque overlay scrims (no network font CSS or backdrop blur)
+- startup fixture records paint entries, loaded resources, external requests, and overlay style measurements in `reports/start-report.json`
+
+### Build and startup budget evidence
+
+The local budget fixture runs with `npm run build:budget` and `npm run start:budget`; these commands are intentionally separate from the ordinary `npm run build` and `npm run start` commands so CI can opt in to gating. A production run on the development machine reported:
+
+- initial JavaScript: 441.76 kB (137.61 kB gzip), one entry chunk
+- initial CSS: 52.66 kB (9.25 kB gzip)
+- lazy JavaScript: 85.88 kB (33.18 kB gzip) across 20 chunks
+- source maps: 0 bytes (disabled by default; `TAU_SOURCEMAP=true` is an explicit debugging opt-in)
+- build time: 2.4–2.8 s
+- local fixture first paint: 208 ms, two file resources, zero external requests
+- overlay fallback: opaque scrims, zero measured blur composition work in the fixture
+
+The report schema includes each asset's uncompressed and gzip size and classifies entry versus lazy chunks from `dist/index.html`. The Electron start fixture uses Chromium paint and resource timing APIs; it also reports a missing paint as a failed budget rather than silently treating it as zero.
 
 ## Execution order
 

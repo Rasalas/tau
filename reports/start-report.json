@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-30T08:28:18.534Z",
+  "firstPaintMs": 260,
+  "firstContentfulPaintMs": null,
+  "loadedResourceCount": 2,
+  "resources": [
+    {
+      "name": "file:///private/var/folders/kc/4xxlhkrn1zv53y7b61nfh19m0000gn/T/pi-worktree-c685745f-875d-42b6-b332-cfaf1823aaef-0/dist/assets/index-xuPY1vHW.js",
+      "durationMs": 0,
+      "transferSize": 0
+    },
+    {
+      "name": "file:///private/var/folders/kc/4xxlhkrn1zv53y7b61nfh19m0000gn/T/pi-worktree-c685745f-875d-42b6-b332-cfaf1823aaef-0/dist/assets/index-DP2EWjhj.css",
+      "durationMs": 0,
+      "transferSize": 0
+    }
+  ],
+  "externalRequests": [],
+  "paints": [
+    {
+      "name": "first-paint",
+      "startTimeMs": 260
+    }
+  ],
+  "overlayComposition": {
+    "budgetMs": 4,
+    "components": {
+      ".palette-backdrop": {
+        "backdropBlur": false,
+        "measuredMs": 0.1
+      },
+      ".modal-scrim": {
+        "backdropBlur": false,
+        "measuredMs": 0
+      },
+      ".project-picker-scrim": {
+        "backdropBlur": false,
+        "measuredMs": 0
+      }
+    }
+  }
+}

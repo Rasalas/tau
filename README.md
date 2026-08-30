@@ -21,7 +21,7 @@ npm install
 npm start
 ```
 
-`npm start` builds and opens the Electron app. It uses your existing `~/.pi/agent` models, credentials, skills and extensions. The initial workspace is this repository; use the project picker in the left sidebar to open another folder. Recent projects persist in Electron's user-data directory.
+`npm start` performs the minified production build and opens the Electron app. For development, use `npm run dev` (Electron + Vite hot reload) or `npm run dev:web` (browser fixture preview); `npm run start:existing` opens the last production assets without rebuilding. Build and startup measurements are written to `reports/build-report.json` and `reports/start-report.json`; `npm run build:budget` and `npm run start:budget` enforce the local budgets. It uses your existing `~/.pi/agent` models, credentials, skills and extensions. The initial workspace is this repository; use the project picker in the left sidebar to open another folder. Recent projects persist in Electron's user-data directory.
 
 For a UI-only browser preview with fixture data:
 
@@ -34,6 +34,8 @@ Start without Pi or desktop extensions to inspect or recover the minimal core:
 ```bash
 npm run start:safe
 ```
+
+The production renderer is minified and does not ship source maps unless `TAU_SOURCEMAP=true` is explicitly set. Review, Settings, optional panels, and Highlight.js languages are demand-loaded; their slots expose a Retry action if a chunk cannot be loaded.
 
 ## Prototype surface
 
