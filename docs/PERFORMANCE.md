@@ -299,23 +299,23 @@ Record the fixture, machine class, build mode, median, p95, and maximum with eac
 
 The local budget fixture runs with `npm run build:budget` and `npm run start:budget`; these commands are intentionally separate from the ordinary `npm run build` and `npm run start` commands so CI can opt in to gating. A production run on the development machine reported:
 
-- initial JavaScript: 469.43 kB (146.18 kB gzip), one entry chunk
-- initial CSS: 53.91 kB (9.51 kB gzip)
-- lazy JavaScript: 91.91 kB (about 36 kB gzip) across 22 chunks
+- initial JavaScript: 469.44 kB (146.19 kB gzip), one entry chunk
+- initial CSS: 54.19 kB (9.54 kB gzip)
+- lazy JavaScript: 92.59 kB (36.31 kB gzip) across 22 chunks
 - source maps: 0 bytes (disabled by default; `TAU_SOURCEMAP=true` is an explicit debugging opt-in)
-- build time: 2.81 s
-- local fixture first paint: 124 ms, two file resources, zero external requests
+- build time: 2.82 s
+- local fixture first paint: 100 ms, two file resources, zero external requests
 - overlay fallback: opaque scrims, zero measured blur composition work in the fixture
 
 The report schema includes each asset's uncompressed and gzip size and classifies entry versus lazy chunks from `dist/index.html`. The Electron start fixture uses Chromium paint and resource timing APIs; it also reports a missing paint as a failed budget rather than silently treating it as zero.
 
 ### Renderer and host budget evidence
 
-`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. The current development-machine report (`reports/renderer-report.json`) records 17.0–17.6 ms frame p95 across 150 KB highlighted and plain Markdown streams, 1 MB tool output, 1,000 transcript turns, a large diff, and 10,000-item thread, workspace, and picker fixtures. Commit p95 stays below 24 ms, the Long Task observer was available and observed no long task, and the largest DOM count was 1,717 nodes.
+`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. The current development-machine report (`reports/renderer-report.json`) records 17.3–17.6 ms frame p95 across 150 KB highlighted and plain Markdown streams, 1 MB tool output, 1,000 transcript turns, a large diff, and 10,000-item thread, workspace, and picker fixtures. Streaming and interactive commit p95 stays below 24 ms; the one-time 1,000-turn mount has an explicit 40 ms budget and measured 34.8 ms. The Long Task observer was available and observed no long task, and the largest DOM count was 1,717 nodes.
 
-`npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. The current report records Safe Mode warm-switch p95 at 9.5 ms. Full Mode keeps a fresh model/provider and extension runtime per prepared session; its measured warm-switch p95 is 1.7 ms after prewarming. The expensive work remains visible in the report rather than hidden: Full Mode prewarming took 274–339 ms and deferred extension retirement took 174–325 ms on this machine. The CI gate applies the 150 ms p95 budget to the user-visible warm switch while retaining those background timings for regression diagnosis.
+`npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. Branch resolution no longer blocks first content: against the same local fixture, Full Mode bootstrap fell from 2,350.7 ms to 1,445.7 ms, while the current Safe Mode bootstrap is 93.8 ms. CI rejects a critical-path branch phase and requires its duration to remain visible as background work. The current report records Safe Mode warm-switch p95 at 10.3 ms. Full Mode keeps a fresh model/provider and extension runtime per prepared session; its measured warm-switch p95 is 2.5 ms after prewarming. Full Mode prewarming took 359–893 ms and deferred extension retirement took 233–369 ms during the complete release run. Those extension-owned costs remain reported rather than being skipped or moved back into the interactive switch path.
 
-`npm run benchmark:git:check` measures a 1,202-file worktree, overlapping refreshes, timeout cancellation, and 20-project branch fan-out. The current report reduced the measured uncoordinated 18 subprocesses to 6, read no oversized untracked content, capped concurrency at 4, cancelled the slow command in 20.7 ms, and kept many-project branch p95 at 64.9 ms.
+`npm run benchmark:git:check` measures a 1,202-file worktree, overlapping refreshes, timeout cancellation, and 20-project branch fan-out. The current report reduced the measured uncoordinated 18 subprocesses to 6, read no oversized untracked content, capped concurrency at 4, cancelled the slow command in 21.3 ms, and kept many-project branch p95 at 63.5 ms.
 
 Run the complete release fixture with `npm run performance:ci`. Generated JSON reports are uploaded by CI for comparison with failures.
 

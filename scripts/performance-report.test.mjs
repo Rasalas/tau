@@ -57,8 +57,29 @@ describe("performance report checks", () => {
   });
 
   it("fails inconsistent host phases and a slow warm switch", () => {
-    const failures = evaluateHostBudgets({ mode: "full", summaries: { "warm-switch": { median: 100, p95: 200, maximum: 210 } }, phases: [{ scenario: "warm-switch", totalMs: 10, phases: [{ name: "stale", durationMs: 100 }] }] });
+    const failures = evaluateHostBudgets({ mode: "full", summaries: { bootstrap: { median: 100, p95: 100, maximum: 100 }, "warm-switch": { median: 100, p95: 200, maximum: 210 } }, phases: [{ scenario: "warm-switch", totalMs: 10, phases: [{ name: "stale", durationMs: 100 }] }], background: [{ name: "branch", durationMs: 10 }] });
     expect(failures).toHaveLength(2);
+  });
+
+  it("fails a slow host bootstrap instead of hiding branch work", () => {
+    const failures = evaluateHostBudgets({ mode: "full", summaries: {
+      bootstrap: { median: 2_100, p95: 2_300, maximum: 2_300 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [], background: [{ name: "branch", durationMs: 10 }] });
+    expect(failures).toEqual([
+      "full bootstrap p95 2300.0ms > 2000ms (median 2100.0ms, p95 2300.0ms, max 2300.0ms)",
+    ]);
+  });
+
+  it("rejects branch resolution in the critical bootstrap path", () => {
+    const failures = evaluateHostBudgets({ mode: "safe", summaries: {
+      bootstrap: { median: 100, p95: 100, maximum: 100 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [{ scenario: "bootstrap", totalMs: 100, phases: [{ name: "branch", durationMs: 80 }] }], background: [] });
+    expect(failures).toEqual([
+      "bootstrap still waits 80.0ms for branch resolution",
+      "background branch duration was not reported by the host fixture",
+    ]);
   });
 
   it("fails Git fan-out and missing measurements", () => {
@@ -89,6 +110,24 @@ describe("performance report checks", () => {
       rendererDomNodes: 5_000,
     });
     expect(failures).toHaveLength(4);
+  });
+
+  it("supports explicit scenario budgets for one-time transcript mounting", () => {
+    const report = { scenarios: [{
+      id: "transcript-1000-turns",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      longTasksMs: { maximum: 0 },
+      commitDurationsMs: { median: 22, p95: 32, maximum: 32 },
+      domNodes: 100,
+    }] };
+    expect(evaluateRendererBudgets(report, {
+      rendererFrameP95Ms: 24,
+      rendererLongTaskMs: 50,
+      rendererCommitP95Ms: 24,
+      rendererDomNodes: 5_000,
+      rendererScenarioBudgets: { "transcript-1000-turns": { commitP95Ms: 40 } },
+    })).toEqual([]);
   });
 
   it("rejects missing renderer scenarios and measurements", () => {

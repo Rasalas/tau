@@ -270,6 +270,8 @@ export class PiHost {
   private readonly detailStore = new ThreadDetailStore(5);
   private activeIndexPublish?: ReturnType<typeof setTimeout>;
   private indexRecoveryTimer?: ReturnType<typeof setInterval>;
+  private projectBranch?: string;
+  private branchResolution?: Promise<void>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   private invalidationCount = 0;
   private accessLevel: AccessLevel = "full";
@@ -363,6 +365,7 @@ export class PiHost {
       try {
         await this.projectHistory.remember(this.cwd);
         await this.initializeRuntime(SessionManager.continueRecent(this.cwd));
+        this.resolveProjectBranchInBackground();
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
         // The global index is independent of the active detail. Publish it when
@@ -384,7 +387,7 @@ export class PiHost {
   }
 
   async bootstrap(): Promise<HostBootstrap> {
-    const host = await this.snapshot();
+    const host = { ...this.snapshotSync(await this.ensureModels()), branch: this.projectBranch };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
       threadIndex: this.threadIndexSnapshot(),
@@ -663,6 +666,7 @@ export class PiHost {
       return branch;
     });
     const [models, branch] = await Promise.all([this.ensureModels(), branchPromise]);
+    this.projectBranch = branch;
     return { ...this.snapshotSync(models), branch };
   }
 
@@ -850,6 +854,25 @@ export class PiHost {
     } finally {
       session.dispose();
     }
+  }
+
+  private resolveProjectBranchInBackground(): void {
+    if (this.branchResolution) return;
+    const cwd = this.cwd;
+    const startedAt = performance.now();
+    const pending = this.resolveBranch(cwd).then((branch) => {
+      if (this.cwd !== cwd) return;
+      this.projectBranch = branch;
+      this.emitUpdate({
+        version: HOST_PROTOCOL_VERSION,
+        type: "project",
+        project: { cwd, branch },
+      });
+    }).catch((error) => this.fail(error)).finally(() => {
+      this.recordBackgroundLifecycle("branch", startedAt);
+      if (this.branchResolution === pending) this.branchResolution = undefined;
+    });
+    this.branchResolution = pending;
   }
 
   private queueRuntimeRetirement(runtime: AgentSessionRuntime, targetSessionFile: string): void {

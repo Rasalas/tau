@@ -1,69 +1,69 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T10:20:53.712Z",
+  "generatedAt": "2026-08-30T10:53:03.512Z",
   "mode": "full",
   "wallClock": [
     {
       "scenario": "bootstrap",
-      "durationMs": 2930.494041
+      "durationMs": 1445.6697500000002
     },
     {
       "scenario": "cold-switch",
-      "durationMs": 1003.4003749999997
+      "durationMs": 2175.8264169999998
     },
     {
       "scenario": "prewarm",
-      "durationMs": 273.97700000000077
+      "durationMs": 670.8298750000004
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 1.2105830000000424
+      "durationMs": 1.7828339999996388
     },
     {
       "scenario": "prewarm",
-      "durationMs": 314.42862499999956
+      "durationMs": 892.5380420000001
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.9927090000001044
+      "durationMs": 1.2229159999997137
     },
     {
       "scenario": "prewarm",
-      "durationMs": 316.60383399999955
+      "durationMs": 359.0747079999992
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.9760000000005675
+      "durationMs": 2.4570420000000013
     },
     {
       "scenario": "prewarm",
-      "durationMs": 339.181458
+      "durationMs": 381.06237500000043
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 1.7379590000000462
+      "durationMs": 1.512749999999869
     }
   ],
   "summaries": {
     "bootstrap": {
-      "median": 2930.494041,
-      "p95": 2930.494041,
-      "maximum": 2930.494041
+      "median": 1445.6697500000002,
+      "p95": 1445.6697500000002,
+      "maximum": 1445.6697500000002
     },
     "cold-switch": {
-      "median": 1003.4003749999997,
-      "p95": 1003.4003749999997,
-      "maximum": 1003.4003749999997
+      "median": 2175.8264169999998,
+      "p95": 2175.8264169999998,
+      "maximum": 2175.8264169999998
     },
     "prewarm": {
-      "median": 314.42862499999956,
-      "p95": 339.181458,
-      "maximum": 339.181458
+      "median": 381.06237500000043,
+      "p95": 892.5380420000001,
+      "maximum": 892.5380420000001
     },
     "warm-switch": {
-      "median": 0.9927090000001044,
-      "p95": 1.7379590000000462,
-      "maximum": 1.7379590000000462
+      "median": 1.512749999999869,
+      "p95": 2.4570420000000013,
+      "maximum": 2.4570420000000013
     }
   },
   "phases": [
@@ -73,40 +73,36 @@
       "phases": [
         {
           "name": "settings",
-          "durationMs": 1
+          "durationMs": 1.1
         },
         {
           "name": "models",
-          "durationMs": 18.6
+          "durationMs": 19.7
         },
         {
           "name": "resources",
-          "durationMs": 1438.5
+          "durationMs": 1181.6
         },
         {
           "name": "session",
-          "durationMs": 2.2
+          "durationMs": 3.3
         },
         {
           "name": "total",
-          "durationMs": 1460.4
+          "durationMs": 1205.9
         },
         {
           "name": "bind",
-          "durationMs": 173.2
+          "durationMs": 209.4
         },
         {
           "name": "catalog",
-          "durationMs": 1.7
-        },
-        {
-          "name": "branch",
-          "durationMs": 1277.5
+          "durationMs": 1.4
         }
       ],
-      "totalMs": 2930.4,
-      "subprocesses": 11,
-      "ipcBytes": 111430
+      "totalMs": 1445.6,
+      "subprocesses": 4,
+      "ipcBytes": 116240
     },
     {
       "mode": "full",
@@ -114,40 +110,40 @@
       "phases": [
         {
           "name": "settings",
-          "durationMs": 0.5
+          "durationMs": 0.6
         },
         {
           "name": "models",
-          "durationMs": 2.8
+          "durationMs": 3.5
         },
         {
           "name": "resources-cache-hit",
-          "durationMs": 99.6
+          "durationMs": 109
         },
         {
           "name": "session",
-          "durationMs": 0.9
+          "durationMs": 0.5
         },
         {
           "name": "total",
-          "durationMs": 103.9
+          "durationMs": 113.6
         },
         {
           "name": "bind",
-          "durationMs": 183.8
+          "durationMs": 1233.3
         },
         {
           "name": "catalog",
-          "durationMs": 1.2
+          "durationMs": 2.3
         },
         {
           "name": "branch",
-          "durationMs": 0
+          "durationMs": 0.1
         }
       ],
-      "totalMs": 1003.3,
-      "subprocesses": 1,
-      "ipcBytes": 111968
+      "totalMs": 2175.8,
+      "subprocesses": 8,
+      "ipcBytes": 113795
     },
     {
       "mode": "full",
@@ -159,11 +155,32 @@
         },
         {
           "name": "catalog",
-          "durationMs": 0.6
+          "durationMs": 1
         },
         {
           "name": "branch",
           "durationMs": 0.1
+        }
+      ],
+      "totalMs": 1.8,
+      "subprocesses": 0,
+      "ipcBytes": 111321
+    },
+    {
+      "mode": "full",
+      "scenario": "warm-switch",
+      "phases": [
+        {
+          "name": "bind-cache-hit",
+          "durationMs": 0
+        },
+        {
+          "name": "catalog",
+          "durationMs": 0.7
+        },
+        {
+          "name": "branch",
+          "durationMs": 0
         }
       ],
       "totalMs": 1.2,
@@ -180,14 +197,14 @@
         },
         {
           "name": "catalog",
-          "durationMs": 0.6
+          "durationMs": 1.8
         },
         {
           "name": "branch",
           "durationMs": 0
         }
       ],
-      "totalMs": 1,
+      "totalMs": 2.4,
       "subprocesses": 0,
       "ipcBytes": 111323
     },
@@ -201,75 +218,58 @@
         },
         {
           "name": "catalog",
-          "durationMs": 0.6
+          "durationMs": 1
         },
         {
           "name": "branch",
           "durationMs": 0
         }
       ],
-      "totalMs": 1,
+      "totalMs": 1.5,
       "subprocesses": 0,
-      "ipcBytes": 111323
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 1.2
-        },
-        {
-          "name": "branch",
-          "durationMs": 0
-        }
-      ],
-      "totalMs": 1.7,
-      "subprocesses": 0,
-      "ipcBytes": 111323
+      "ipcBytes": 111321
     }
   ],
   "background": [
     {
+      "name": "branch",
+      "durationMs": 2045
+    },
+    {
       "name": "session-index",
-      "durationMs": 1279.3
+      "durationMs": 2036.3
     },
     {
       "name": "prewarm",
-      "durationMs": 273.9
+      "durationMs": 670.7
     },
     {
       "name": "retire",
-      "durationMs": 303
+      "durationMs": 233.3
     },
     {
       "name": "prewarm",
-      "durationMs": 314.4
+      "durationMs": 892.5
     },
     {
       "name": "retire",
-      "durationMs": 302.4
+      "durationMs": 347.9
     },
     {
       "name": "prewarm",
-      "durationMs": 316.6
+      "durationMs": 359.1
     },
     {
       "name": "retire",
-      "durationMs": 324.9
+      "durationMs": 369.2
     },
     {
       "name": "prewarm",
-      "durationMs": 339.2
+      "durationMs": 381
     },
     {
       "name": "retire",
-      "durationMs": 174
+      "durationMs": 335.4
     }
   ]
 }

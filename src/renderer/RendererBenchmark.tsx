@@ -56,16 +56,21 @@ export default function RendererBenchmark() {
   const [toolOutput, setToolOutput] = useState("");
   const [listQuery, setListQuery] = useState("");
   const commits = useRef<number[]>([]);
-  const updateStartedAt = useRef(performance.now());
   const frames = useRef<number[]>([]);
   const longTasks = useRef<number[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
-  const transcript = useMemo(() => makeTranscript(1_000), []);
-  const listItems = useMemo(() => Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`), []);
+  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
+  const listItems = useMemo(
+    () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
+    [scenario],
+  );
   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
-  const diff = useMemo(makeDiff, []);
+  const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
+  // Fixture construction is setup, not renderer commit work. Start timing only
+  // after the scenario-specific input exists, matching production data flow.
+  const updateStartedAt = useRef(performance.now());
 
   useLayoutEffect(() => {
     commits.current.push(performance.now() - updateStartedAt.current);
@@ -173,7 +178,7 @@ export default function RendererBenchmark() {
       renderItem={(item) => <div key={item} className="benchmark-list-row">{item}</div>}
     />;
   } else {
-    content = <DiffView diff={diff} mode="unified" />;
+    content = <DiffView diff={diff!} mode="unified" />;
   }
 
   return <main className="renderer-benchmark">{content}</main>;

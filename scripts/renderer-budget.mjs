@@ -10,13 +10,14 @@ export function evaluateRendererBudgets(report, budgets) {
     if (!scenarioIds.has(required)) failures.push(`${required} was not reported by the renderer fixture`);
   }
   for (const scenario of scenarios) {
+    const scenarioBudget = budgets.rendererScenarioBudgets?.[scenario.id] ?? {};
     if (scenario.longTaskObserverSupported !== true) {
       failures.push(`${scenario.id} Long Task observer is unavailable`);
     }
     const measurements = [
       ["frame p95", scenario.frameIntervalsMs?.p95, budgets.rendererFrameP95Ms, "ms", scenario.frameIntervalsMs],
       ["long task", scenario.longTasksMs?.maximum, budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
-      ["commit p95", scenario.commitDurationsMs?.p95, budgets.rendererCommitP95Ms, "ms", scenario.commitDurationsMs],
+      ["commit p95", scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.commitDurationsMs],
       ["DOM nodes", scenario.domNodes, budgets.rendererDomNodes, "", undefined],
     ];
     for (const [label, actual, budget, unit, distribution] of measurements) {
