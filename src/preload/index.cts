@@ -4,6 +4,7 @@ import type { HostEvent, TauDesktopApi } from "../shared/contracts.js";
 const api: TauDesktopApi = {
   platform: process.platform,
   bootstrap: () => ipcRenderer.invoke("tau:bootstrap"),
+  loadTranscript: (sessionId, cursor) => ipcRenderer.invoke("tau:transcript-page", sessionId, cursor),
   sendPrompt: (text) => ipcRenderer.invoke("tau:prompt", text),
   steer: (text) => ipcRenderer.invoke("tau:steer", text),
   abort: () => ipcRenderer.invoke("tau:abort"),

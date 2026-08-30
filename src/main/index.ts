@@ -80,6 +80,11 @@ function installIpc(): void {
     await hostReady;
     return host.bootstrap();
   });
+  ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => {
+    await hostReady;
+    if (!host) throw new Error("No host available.");
+    return host.loadTranscript(sessionId, cursor);
+  });
   ipcMain.handle("tau:prompt", (_event, text: string) => host?.prompt(text));
   ipcMain.handle("tau:steer", (_event, text: string) => host?.steer(text));
   ipcMain.handle("tau:abort", () => host?.abort());
@@ -150,6 +155,10 @@ function installIpc(): void {
 app.whenReady().then(async () => {
   projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"));
   await projectHistory.load();
+  // Prepare the host before creating the renderer so bootstrap is a read of
+  // already-started work, not the first expensive lifecycle operation.
+  host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode);
+  hostReady = host.start();
   installIpc();
   await createWindow();
 });

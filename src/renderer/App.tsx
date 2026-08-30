@@ -28,6 +28,8 @@ import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { preferences, type AccessLevel } from "./preferences";
 import { ThreadStore } from "./thread-store";
+import { ThreadDetailStore } from "../shared/thread-detail-store";
+import type { HostUpdate } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -119,9 +121,12 @@ export default function App() {
   const [composer, setComposer] = useState("");
   const [notice, setNotice] = useState<string>();
   const [dockOpen, setDockOpen] = useState(true);
+  const [olderCursor, setOlderCursor] = useState<string>();
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const preserveScrollRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const snapshotCacheRef = useRef(new Map<string, HostSnapshot>());
+  const detailStoreRef = useRef(new ThreadDetailStore(5));
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
   const reasoningRef = useRef(new Map<string, number>());
@@ -157,7 +162,15 @@ export default function App() {
     pendingDeltasRef.current.clear();
     if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
     deltaFrameRef.current = undefined;
-    snapshotCacheRef.current.set(next.sessionId, next);
+    const detail: import("../shared/host-protocol").ThreadDetail = {
+      sessionId: next.sessionId,
+      messages: next.messages,
+      isStreaming: next.isStreaming,
+      activeTools: next.activeTools,
+      contextUsage: next.contextUsage,
+    };
+    detailStoreRef.current.set(detail);
+    setOlderCursor(detail.olderCursor);
     threadStore.applyHostSnapshot(next);
     setSnapshot(next);
     setMessages(next.messages);
@@ -167,6 +180,52 @@ export default function App() {
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
   }, [threadStore]);
+
+  const applyHostUpdate = useCallback((update: HostUpdate) => {
+    if (update.version !== 1) return;
+    if (update.type === "thread-index") {
+      applyThreadIndex(update.index);
+      return;
+    }
+    if (update.type === "thread-shell") {
+      const shell = update.update.shell;
+      if (shell) setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, branch: shell.branch } : current);
+      return;
+    }
+    if (update.type === "thread-detail") {
+      const detail = update.detail;
+      detailStoreRef.current.set(detail);
+      threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
+      setMessages(detail.messages);
+      setSnapshot((current) => current && current.sessionId === detail.sessionId
+        ? { ...current, messages: detail.messages, isStreaming: detail.isStreaming, activeTools: detail.activeTools, contextUsage: detail.contextUsage }
+        : current);
+      return;
+    }
+    if (update.type === "transcript-page") {
+      const page = update.page;
+      detailStoreRef.current.update(page.sessionId, (current) => current
+        ? { ...current, messages: [...page.messages, ...current.messages], olderCursor: page.olderCursor }
+        : current);
+      setOlderCursor(page.olderCursor);
+      setMessages((current) => [...page.messages, ...current]);
+      return;
+    }
+    if (update.type === "catalog") {
+      setSnapshot((current) => current ? { ...current, ...update.catalog } : current);
+      return;
+    }
+    if (update.type === "project") {
+      setSnapshot((current) => current ? { ...current, ...update.project } : current);
+      return;
+    }
+    if (update.type === "run") threadStore.setStreaming(update.event === "started");
+    if (update.type === "error") setNotice(update.message);
+  }, [applyThreadIndex, threadStore]);
+
+  const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult) => {
+    result.updates.forEach((update) => applyHostUpdate(update));
+  }, [applyHostUpdate]);
 
   const addEvent = useCallback((label: string, detail?: string, timestamp = Date.now()) => {
     setEvents((current) => [...current.slice(-99), { id: `${timestamp}-${Math.random()}`, label, detail, timestamp }]);
@@ -193,6 +252,7 @@ export default function App() {
   const handleHostEvent = useCallback((event: HostEvent) => {
     switch (event.type) {
       case "snapshot": applySnapshot(event.snapshot); break;
+      case "host-update": applyHostUpdate(event.update); break;
       case "thread-index": applyThreadIndex(event.threadIndex); break;
       case "agent-status": {
         threadStore.setStreaming(event.running);
@@ -257,7 +317,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, applySnapshot, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, refreshChanges, threadStore]);
+  }, [addEvent, applyHostUpdate, applySnapshot, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, refreshChanges, threadStore]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -265,7 +325,29 @@ export default function App() {
       unsubscribe = window.tau.onHostEvent(handleHostEvent);
       window.tau.bootstrap().then((bootstrap) => {
         applyThreadIndex(bootstrap.threadIndex);
-        applySnapshot(bootstrap.host);
+        if (bootstrap.host) {
+          applySnapshot(bootstrap.host);
+        } else if (bootstrap.detail) {
+          const catalog = bootstrap.catalog;
+          const project = bootstrap.project;
+          const current: HostSnapshot = {
+            cwd: project?.cwd ?? "",
+            branch: project?.branch,
+            sessionId: bootstrap.detail.sessionId,
+            sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail?.sessionId)?.title ?? "Untitled thread",
+            models: catalog?.models ?? [],
+            model: catalog?.model,
+            thinkingLevel: catalog?.thinkingLevel ?? "off",
+            thinkingLevels: catalog?.thinkingLevels ?? [],
+            allTools: catalog?.allTools ?? [],
+            extensionCount: catalog?.extensionCount ?? 0,
+            messages: bootstrap.detail.messages,
+            isStreaming: bootstrap.detail.isStreaming,
+            activeTools: bootstrap.detail.activeTools,
+            contextUsage: bootstrap.detail.contextUsage,
+          };
+          applySnapshot(current);
+        }
         void refreshChanges();
         void refreshWorkspace();
       }).catch((error) => setNotice(String(error)));
@@ -283,8 +365,43 @@ export default function App() {
   }, [settings.accessLevel]);
 
   useEffect(() => {
+    if (preserveScrollRef.current) {
+      preserveScrollRef.current = false;
+      return;
+    }
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, tools]);
+
+  const loadOlder = useCallback(async () => {
+    if (!olderCursor || loadingOlder || !snapshot || !window.tau) return;
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    setLoadingOlder(true);
+    const previousHeight = transcript.scrollHeight;
+    try {
+      const page = await window.tau.loadTranscript(snapshot.sessionId, olderCursor);
+      if (page.sessionId !== snapshot.sessionId) return;
+      preserveScrollRef.current = true;
+      setMessages((current) => [...page.messages, ...current]);
+      setOlderCursor(page.olderCursor);
+      window.requestAnimationFrame(() => {
+        const current = transcriptRef.current;
+        if (current) current.scrollTop += current.scrollHeight - previousHeight;
+      });
+    } catch (error) {
+      setNotice(String(error));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [loadingOlder, olderCursor, snapshot]);
+
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    const onScroll = () => { if (transcript.scrollTop < 120) void loadOlder(); };
+    transcript.addEventListener("scroll", onScroll, { passive: true });
+    return () => transcript.removeEventListener("scroll", onScroll);
+  }, [loadOlder]);
 
   useEffect(() => {
     if (runStartedAt === undefined) return;
@@ -320,7 +437,7 @@ export default function App() {
 
   const createSession = useCallback(async () => {
     const next = await window.tau?.newSession();
-    if (next) applySnapshot(next);
+    if (next) applyActionResult(next);
     else setNotice("New thread requires the Electron host");
   }, [applySnapshot]);
 
@@ -389,15 +506,15 @@ export default function App() {
     const startedAt = performance.now();
     const previous = snapshot;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
-    const cached = target ? snapshotCacheRef.current.get(target.id) : undefined;
-    if (cached) {
-      applySnapshot({ ...cached, isStreaming: false });
+    const cached = target ? detailStoreRef.current.get(target.id) : undefined;
+    if (cached && snapshot) {
+      applySnapshot({ ...snapshot, sessionId: cached.sessionId, messages: cached.messages, isStreaming: false, activeTools: cached.activeTools, contextUsage: cached.contextUsage });
       addEvent("thread.switch.cached", target?.title);
     }
     try {
       const next = await window.tau!.switchSession(path);
-      acceptWorkspace(next);
-      threadStore.markRead(next.sessionId);
+      applyActionResult(next);
+      threadStore.markRead(target?.id ?? "");
       addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
       return true;
     } catch (error) {
@@ -405,46 +522,46 @@ export default function App() {
       setNotice(String(error));
       return false;
     }
-  }, [acceptWorkspace, addEvent, applySnapshot, requireHost, snapshot, threadStore]);
+  }, [acceptWorkspace, addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
 
   const generateThreadTitle = useCallback(async (provider: string, modelId: string, force = false): Promise<boolean> => {
     if (!requireHost("Title generation")) return false;
     try {
-      applySnapshot(await window.tau!.generateThreadTitle(provider, modelId, force));
+      applyActionResult(await window.tau!.generateThreadTitle(provider, modelId, force));
       return true;
     } catch (error) {
       setNotice(String(error));
       return false;
     }
-  }, [applySnapshot, requireHost]);
+  }, [applyActionResult, requireHost]);
 
   const setModel = useCallback(async (provider: string, id: string) => {
     if (!requireHost("Model selection")) return;
     try {
-      applySnapshot(await window.tau!.setModel(provider, id));
+      applyActionResult(await window.tau!.setModel(provider, id));
     } catch (error) {
       setNotice(String(error));
     }
-  }, [applySnapshot, requireHost]);
+  }, [applyActionResult, requireHost]);
 
   const setThinking = useCallback(async (level: string) => {
     if (!requireHost("Thinking level")) return;
     try {
-      applySnapshot(await window.tau!.setThinkingLevel(level));
+      applyActionResult(await window.tau!.setThinkingLevel(level));
     } catch (error) {
       setNotice(String(error));
     }
-  }, [applySnapshot, requireHost]);
+  }, [applyActionResult, requireHost]);
 
   const compactContext = useCallback(async () => {
     if (!requireHost("Compaction")) return;
     try {
-      applySnapshot(await window.tau!.compactContext());
+      applyActionResult(await window.tau!.compactContext());
       setNotice("Context compacted.");
     } catch (error) {
       setNotice(String(error));
     }
-  }, [applySnapshot, requireHost]);
+  }, [applyActionResult, requireHost]);
 
   const openInEditor = useCallback(async (path?: string) => {
     const editorId = settings.editorId ?? editors[0]?.id;

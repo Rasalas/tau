@@ -33,6 +33,11 @@ import type {
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
+import { ThreadDetailStore } from "../shared/thread-detail-store.js";
+import { TranscriptPager } from "../shared/transcript-pager.js";
+import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
+import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { createAccessExtension, type AccessDecision } from "./access-extension.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
@@ -134,8 +139,9 @@ function cleanGeneratedTitle(value: string): string {
   return title.length > 80 ? `${title.slice(0, 77).trimEnd()}…` : title;
 }
 
-async function gitBranch(cwd: string): Promise<string | undefined> {
+async function gitBranch(cwd: string, onSubprocess?: () => void): Promise<string | undefined> {
   try {
+    onSubprocess?.();
     const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd,
       timeout: 2500,
@@ -198,10 +204,13 @@ export class PiHost {
   private currentAssistantId?: string;
   private tools = new Map<string, UiToolRun>();
   private branchCache = new Map<string, { branch?: string; checkedAt: number }>();
-  private modelsByCwd = new Map<string, UiModel[]>();
+  private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private sessions: UiSession[] = [];
   private lifecycleQueue: Promise<void> = Promise.resolve();
   private threadIndexRefresh?: Promise<ThreadIndexSnapshot>;
+  private readonly detailStore = new ThreadDetailStore(5);
+  private readonly lifecycleMetrics = new HostLifecycleInstrumentation();
+  private activeIndexPublish?: ReturnType<typeof setTimeout>;
   private invalidationCount = 0;
   private accessLevel: AccessLevel = "full";
   private pendingApprovals = new Map<string, (decision: AccessDecision) => void>();
@@ -213,6 +222,9 @@ export class PiHost {
     sessionStartEvent,
   }) => {
     const reason = sessionStartEvent?.reason ?? "initial";
+    const scenario = reason === "initial" ? "bootstrap" : reason === "resume" ? "cold-switch" : "warm-switch";
+    const ownsMeasurement = !this.lifecycleMetrics.isActive();
+    if (ownsMeasurement) this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", scenario);
     const totalStartedAt = performance.now();
 
     const settingsStartedAt = performance.now();
@@ -248,6 +260,7 @@ export class PiHost {
     });
     this.logRuntimePhase("session", sessionStartedAt, reason, cwd);
     this.logRuntimePhase("total", totalStartedAt, reason, cwd);
+    if (ownsMeasurement) this.lifecycleMetrics.end();
 
     return {
       ...created,
@@ -274,18 +287,75 @@ export class PiHost {
 
   async start(): Promise<HostBootstrap> {
     return this.runLifecycle(async () => {
-      await this.projectHistory.remember(this.cwd);
-      await this.initializeRuntime(SessionManager.continueRecent(this.cwd));
-      await Promise.all([this.ensureModels(), this.refreshThreadIndex(false)]);
-      return this.bootstrap();
+      this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
+      try {
+        await this.projectHistory.remember(this.cwd);
+        await this.initializeRuntime(SessionManager.continueRecent(this.cwd));
+        const indexStartedAt = performance.now();
+        this.log("bootstrap.first-content");
+        // The global index is independent of the active detail. Publish it when
+        // ready rather than making first content wait for every session file.
+        void this.refreshThreadIndex(true).then(() => {
+          this.lifecycleMetrics.phase("session-index", indexStartedAt);
+          this.log("bootstrap.full-ready");
+        }).catch((error) => this.fail(error));
+        const result = await this.bootstrap();
+        this.lifecycleMetrics.end();
+        return result;
+      } catch (error) {
+        this.lifecycleMetrics.end();
+        throw error;
+      }
     });
   }
 
   async bootstrap(): Promise<HostBootstrap> {
+    const host = await this.snapshot();
+    const detail = this.detailForSnapshot(host);
     return {
-      host: await this.snapshot(),
       threadIndex: this.threadIndexSnapshot(),
+      version: HOST_PROTOCOL_VERSION,
+      detail,
+      catalog: catalogFromSnapshot(host),
+      project: { cwd: host.cwd, branch: host.branch },
     };
+  }
+
+  /** Focused active detail endpoint; it never includes catalogs or project metadata. */
+  async getThreadDetail(cursor?: string): Promise<TranscriptPage | ThreadDetail> {
+    const snapshot = await this.snapshot();
+    if (cursor !== undefined) return TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, 40, cursor);
+    return this.detailForSnapshot(snapshot);
+  }
+
+  async loadTranscript(sessionId: string, cursor?: string): Promise<TranscriptPage> {
+    const snapshot = await this.snapshot();
+    if (snapshot.sessionId !== sessionId) throw new Error("Cannot load a non-active session transcript");
+    return TranscriptPager.pageFor(sessionId, snapshot.messages, 40, cursor);
+  }
+
+  getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
+
+  private detailForSnapshot(snapshot: HostSnapshot): ThreadDetail {
+    // A fresh runtime snapshot is authoritative; only the renderer uses the
+    // cached record for optimistic selection between host confirmations.
+    const detail = detailFromSnapshot(snapshot);
+    this.detailStore.set(detail);
+    return detail;
+  }
+
+  private actionResult(updates: HostUpdate[]): HostActionResult {
+    return { version: HOST_PROTOCOL_VERSION, updates };
+  }
+
+  private lifecycleUpdates(snapshot: HostSnapshot): HostUpdate[] {
+    const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
+    return [
+      { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) },
+      { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
+      { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
+      ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
+    ];
   }
 
   async setWorkspace(cwd: string): Promise<HostSnapshot> {
@@ -301,21 +371,25 @@ export class PiHost {
       await this.swapRootRuntime(nextRuntime);
       await this.projectHistory.remember(this.cwd);
       this.logReplacement("workspace", startedAt);
-      this.publishThreadIndex();
+      this.refreshActiveThreadIndex();
       return this.snapshot();
     });
   }
 
-  async newSession(): Promise<HostSnapshot> {
+  async newSession(): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
       const result = await this.replaceSession("new", (runtime) => runtime.newSession());
-      if (!result.cancelled) this.logReplacement("new", startedAt);
-      return this.snapshot();
+      if (!result.cancelled) {
+        this.logReplacement("new", startedAt);
+        this.refreshActiveThreadIndex();
+      }
+      const snapshot = await this.snapshot();
+      return this.actionResult(this.lifecycleUpdates(snapshot));
     });
   }
 
-  async switchSession(path: string): Promise<HostSnapshot> {
+  async switchSession(path: string): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
       const result = await this.replaceSession("resume", (runtime) => runtime.switchSession(path));
@@ -323,8 +397,10 @@ export class PiHost {
         this.cwd = this.requireRuntime().cwd;
         await this.projectHistory.remember(this.cwd);
         this.logReplacement("resume", startedAt);
+        this.refreshActiveThreadIndex();
       }
-      return this.snapshot();
+      const snapshot = await this.snapshot();
+      return this.actionResult(this.lifecycleUpdates(snapshot));
     });
   }
 
@@ -335,7 +411,7 @@ export class PiHost {
       await session.prompt(text, {
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
       });
-      await this.refreshThreadIndex(true);
+      this.refreshActiveThreadIndex();
     } catch (error) {
       this.fail(error);
       throw error;
@@ -356,29 +432,35 @@ export class PiHost {
     await this.requireSession().abort();
   }
 
-  async setModel(provider: string, id: string): Promise<HostSnapshot> {
+  async setModel(provider: string, id: string): Promise<HostActionResult> {
     const session = this.requireSession();
     const model = session.modelRuntime.getModel(provider, id);
     if (!model) throw new Error(`Unknown model: ${provider}/${id}`);
     await session.setModel(model);
     this.log("model.changed", `${provider}/${id}`);
-    return this.snapshot();
+    const snapshot = await this.snapshot();
+    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+    this.emitUpdate(catalog);
+    return this.actionResult([catalog]);
   }
 
-  async setThinkingLevel(level: string): Promise<HostSnapshot> {
+  async setThinkingLevel(level: string): Promise<HostActionResult> {
     const session = this.requireSession();
     if (!session.getAvailableThinkingLevels().includes(level as never)) {
       throw new Error(`Thinking level is not available: ${level}`);
     }
     session.setThinkingLevel(level as never);
     this.log("thinking.changed", level);
-    return this.snapshot();
+    const snapshot = await this.snapshot();
+    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+    this.emitUpdate(catalog);
+    return this.actionResult([catalog]);
   }
 
-  async generateThreadTitle(provider: string, modelId: string, force = false): Promise<HostSnapshot> {
+  async generateThreadTitle(provider: string, modelId: string, force = false): Promise<HostActionResult> {
     const session = this.requireSession();
     if (session.isStreaming) throw new Error("Wait for the active agent run before generating a title.");
-    if (session.sessionName && !force) return this.snapshot();
+    if (session.sessionName && !force) return { version: HOST_PROTOCOL_VERSION, updates: [] };
     const model = session.modelRuntime.getModel(provider, modelId);
     if (!model) throw new Error(`Unknown title model: ${provider}/${modelId}`);
     const conversation = session.messages
@@ -414,14 +496,20 @@ export class PiHost {
       throw new Error(response.errorMessage || "The title model did not complete.");
     }
     const title = cleanGeneratedTitle(textFromContent(response.content));
-    if (this.runtime?.session !== session) return this.snapshot();
+    if (this.runtime?.session !== session) return { version: HOST_PROTOCOL_VERSION, updates: [] };
     session.setSessionName(title);
     this.sessions = this.sessions.map((thread) =>
       thread.id === session.sessionId ? { ...thread, title, modifiedAt: Date.now() } : thread,
     );
     this.publishThreadIndex();
     this.log("title.generated", title);
-    return this.snapshot();
+    const update: HostUpdate = {
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-shell",
+      update: { sessionId: session.sessionId, shell: this.sessions.find((thread) => thread.id === session.sessionId) },
+    };
+    this.emitUpdate(update);
+    return this.actionResult([update]);
   }
 
   setAccessLevel(level: AccessLevel): void {
@@ -444,10 +532,13 @@ export class PiHost {
     this.pendingApprovals.delete(id);
   }
 
-  async compactContext(): Promise<HostSnapshot> {
+  async compactContext(): Promise<HostActionResult> {
     await this.requireSession().compact();
     this.log("context.compacted");
-    return this.snapshot();
+    const snapshot = await this.snapshot();
+    const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
+    this.emitUpdate(update);
+    return this.actionResult([update]);
   }
 
   async snapshot(): Promise<HostSnapshot> {
@@ -611,10 +702,23 @@ export class PiHost {
       throw new Error("Pi runtime changed while binding a session");
     }
     this.cwd = runtime.cwd;
-    this.modelsByCwd.set(runtime.cwd, models);
+    this.modelCatalogCache.set(this.resourceFingerprint(runtime.cwd), models);
     this.extensionCount = session.resourceLoader.getExtensions().extensions.length;
     this.unsubscribe?.();
     this.attachEvents(session);
+    this.emitUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "catalog",
+      catalog: {
+        models,
+        model: session.model ? mapModel(session.model) : undefined,
+        thinkingLevel: session.thinkingLevel,
+        thinkingLevels: session.getAvailableThinkingLevels(),
+        allTools: session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+        extensionCount: this.extensionCount,
+      },
+    });
+    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: runtime.cwd } });
     this.log("session.opened", session.sessionId.slice(0, 8));
   }
 
@@ -708,6 +812,7 @@ export class PiHost {
     this.unsubscribe = session.subscribe((event) => {
       switch (event.type) {
         case "agent_start":
+          this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId: session.sessionId });
           this.emit({ type: "agent-status", running: true });
           this.log("agent.started");
           break;
@@ -715,6 +820,7 @@ export class PiHost {
           this.log("agent.ended", `${event.messages.length} messages`);
           break;
         case "agent_settled":
+          this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId: session.sessionId });
           this.emit({ type: "agent-status", running: false });
           this.log("agent.settled");
           break;
@@ -792,11 +898,21 @@ export class PiHost {
   }
 
   private async ensureModels(): Promise<UiModel[]> {
-    const cached = this.modelsByCwd.get(this.cwd);
+    const key = this.resourceFingerprint(this.cwd);
+    const cached = this.modelCatalogCache.get(key);
     if (cached) return cached;
     const models = (await this.requireSession().modelRuntime.getAvailable()).map(mapModel);
-    this.modelsByCwd.set(this.cwd, models);
+    this.modelCatalogCache.set(key, models);
     return models;
+  }
+
+  private resourceFingerprint(cwd: string): string {
+    return runtimeResourceFingerprint({
+      cwd,
+      settings: { safeMode: this.safeMode, accessLevel: this.accessLevel },
+      extensions: { enabled: !this.safeMode, accessGate: true },
+      providerState: { agentDir: this.agentDir },
+    });
   }
 
   private async refreshThreadIndex(publish: boolean): Promise<ThreadIndexSnapshot> {
@@ -812,6 +928,34 @@ export class PiHost {
     const threadIndex = await this.threadIndexRefresh;
     if (publish) this.emit({ type: "thread-index", threadIndex });
     return threadIndex;
+  }
+
+  /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
+  private refreshActiveThreadIndex(): void {
+    const session = this.runtime?.session;
+    if (!session) return;
+    const projectPath = this.cwd;
+    const shell: UiSession = {
+      id: session.sessionId,
+      path: session.sessionFile ?? session.sessionManager.getSessionFile() ?? session.sessionId,
+      title: session.sessionName || firstSentence(textFromContent(session.messages.find((message) => message.role === "user")?.content)),
+      modifiedAt: Date.now(),
+      projectPath,
+      projectName: basename(projectPath) || projectPath,
+      branch: this.branchCache.get(projectPath)?.branch,
+      messageCount: session.messages.length,
+    };
+    this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
+    this.publishThreadIndexSoon();
+  }
+
+  private publishThreadIndexSoon(): void {
+    if (this.activeIndexPublish !== undefined) return;
+    this.activeIndexPublish = setTimeout(() => {
+      this.activeIndexPublish = undefined;
+      this.emit({ type: "thread-index", threadIndex: this.threadIndexSnapshot() });
+    }, 0);
+    this.activeIndexPublish.unref?.();
   }
 
   private threadIndexSnapshot(): ThreadIndexSnapshot {
@@ -898,7 +1042,7 @@ export class PiHost {
   private async resolveBranch(cwd: string): Promise<string | undefined> {
     const cached = this.branchCache.get(cwd);
     if (cached && Date.now() - cached.checkedAt < 30_000) return cached.branch;
-    const branch = await gitBranch(cwd);
+    const branch = await gitBranch(cwd, () => this.lifecycleMetrics.countSubprocess());
     this.branchCache.set(cwd, { branch, checkedAt: Date.now() });
     return branch;
   }
@@ -938,6 +1082,7 @@ export class PiHost {
   }
 
   private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string): void {
+    this.lifecycleMetrics.phase(phase, startedAt);
     const elapsed = Math.round((performance.now() - startedAt) * 10) / 10;
     const detail = `${elapsed}ms · ${reason} · ${basename(cwd) || cwd}`;
     this.log(`runtime.${phase}.ready`, note ? `${detail} · ${note}` : detail);
@@ -948,8 +1093,15 @@ export class PiHost {
     this.log("runtime.replace.ready", `${elapsed}ms · ${reason}`);
   }
 
+  private emitUpdate(update: HostUpdate): void {
+    this.lifecycleMetrics.recordIpc(update);
+    this.emit({ type: "host-update", update });
+  }
+
   private log(label: string, detail?: string): void {
-    this.emit({ type: "event-log", label, detail, timestamp: Date.now() });
+    const event = { type: "event-log" as const, label, detail, timestamp: Date.now() };
+    this.lifecycleMetrics.recordIpc(event);
+    this.emit(event);
   }
 
   private errorMessage(error: unknown): string {

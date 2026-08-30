@@ -78,6 +78,10 @@ export class ThreadStore {
     this.publish({ ...this.snapshot, isStreaming });
   }
 
+  setActiveThread(activeThreadId: string, isStreaming = false): void {
+    this.publish({ ...this.snapshot, activeThreadId, isStreaming, runningToolName: undefined });
+  }
+
   toolStarted(id: string, name: string): void {
     this.runningTools.set(id, name);
     this.publish({ ...this.snapshot, runningToolName: name });
