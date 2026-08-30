@@ -1,12 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "../shared/contracts.js";
-import { mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates } from "./pi-host.js";
+import { buildTitleConversation, mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates } from "./pi-host.js";
 
 function shell(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/sessions/${id}.jsonl`, title, modifiedAt, projectPath: "/project", projectName: "project", messageCount: 1 };
 }
 
 describe("session index reconciliation", () => {
+  it("titles a persisted conversation when the fresh runtime buffer is not ready", () => {
+    expect(buildTitleConversation([], [
+      { role: "user", content: "Persisted question" },
+      { role: "assistant", content: [{ type: "text", text: "Persisted answer" }] },
+    ])).toBe("user: Persisted question\n\nassistant: Persisted answer");
+  });
+
+  it("skips non-text assistant records before applying the title context limit", () => {
+    const toolOnly = { role: "assistant", content: [{ type: "toolCall", name: "read" }] };
+    expect(buildTitleConversation([
+      toolOnly, toolOnly, toolOnly, toolOnly,
+      { role: "user", content: "Visible request" },
+    ])).toBe("user: Visible request");
+  });
+
   it("does not rename or reorder an existing shell merely because it was selected", () => {
     const existing = shell("selected", 100, "Stable title");
     const selected = reconcileActiveThreadShell({

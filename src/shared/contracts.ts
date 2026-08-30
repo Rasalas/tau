@@ -243,7 +243,7 @@ export interface TauDesktopApi {
   chooseWorkspace(): Promise<HostActionResult | undefined>;
   openProject(path: string): Promise<HostActionResult>;
   cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
-  generateThreadTitle(provider: string, modelId: string, force?: boolean): Promise<import("./host-protocol.js").HostActionResult>;
+  generateThreadTitle(provider: string, modelId: string, force?: boolean, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   getFileTree(path?: string): Promise<FileNode[]>;
   getChanges(): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;

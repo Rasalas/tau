@@ -127,6 +127,27 @@ function firstSentence(value: string): string {
   return sentence.length > 96 ? `${sentence.slice(0, 93).trimEnd()}…` : sentence;
 }
 
+interface TitleMessage {
+  role?: string;
+  content?: unknown;
+}
+
+export function buildTitleConversation(
+  runtimeMessages: readonly TitleMessage[],
+  persistedMessages: readonly TitleMessage[] = [],
+): string {
+  function render(messages: readonly TitleMessage[]): string {
+    return messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .map((message) => `${message.role}: ${textFromContent(message.content)}`)
+      .filter((line) => line.trim().length > line.indexOf(":") + 1)
+      .slice(0, 4)
+      .join("\n\n")
+      .slice(0, 6000);
+  }
+  return render(runtimeMessages) || render(persistedMessages);
+}
+
 function cleanGeneratedTitle(value: string): string {
   const firstLine = value.split(/\r?\n/u).find((line) => line.trim())?.trim() ?? "";
   const title = firstLine
@@ -467,10 +488,10 @@ export class PiHost {
   private lifecycleUpdates(snapshot: HostSnapshot): HostUpdate[] {
     const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
     return [
+      ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
       { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) },
       { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
       { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
-      ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
     ];
   }
 
@@ -607,19 +628,21 @@ export class PiHost {
     });
   }
 
-  async generateThreadTitle(provider: string, modelId: string, force = false): Promise<HostActionResult> {
-    const session = this.requireSession();
+  async generateThreadTitle(provider: string, modelId: string, force = false, expectedSessionId?: string): Promise<HostActionResult> {
+    const session = await this.runLifecycle(async () => {
+      const active = this.requireSession();
+      if (expectedSessionId && active.sessionId !== expectedSessionId) {
+        throw new Error("The selected thread did not finish loading. Try renaming it again.");
+      }
+      return active;
+    });
     if (session.isStreaming) throw new Error("Wait for the active agent run before generating a title.");
     if (session.sessionName && !force) return { version: HOST_PROTOCOL_VERSION, updates: [] };
     const model = session.modelRuntime.getModel(provider, modelId);
     if (!model) throw new Error(`Unknown title model: ${provider}/${modelId}`);
-    const conversation = session.messages
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .slice(0, 4)
-      .map((message) => `${message.role}: ${textFromContent(message.content)}`)
-      .filter((line) => line.trim().length > line.indexOf(":") + 1)
-      .join("\n\n")
-      .slice(0, 6000);
+    const persistedMessages = session.sessionManager.getBranch()
+      .flatMap((entry) => entry.type === "message" ? [entry.message] : []);
+    const conversation = buildTitleConversation(session.messages, persistedMessages);
     if (!conversation) throw new Error("The thread has no conversation to title yet.");
 
     this.log("title.started", `${provider}/${modelId}`);

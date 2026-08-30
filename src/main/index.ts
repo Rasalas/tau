@@ -98,7 +98,7 @@ function installIpc(): void {
   ipcMain.handle("tau:compact-context", async () => (await requireHostReady()).compactContext());
   ipcMain.handle("tau:set-access-level", async (_event, level: AccessLevel) => (await requireHostReady()).setAccessLevel(level));
   ipcMain.handle("tau:resolve-tool-approval", async (_event, id: string, allowed: boolean) => (await requireHostReady()).resolveToolApproval(id, allowed));
-  ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean) => (await requireHostReady()).generateThreadTitle(provider, modelId, force));
+  ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean, expectedSessionId?: string) => (await requireHostReady()).generateThreadTitle(provider, modelId, force, expectedSessionId));
   ipcMain.handle("tau:file-tree", async (_event, path?: string) => (await requireHostReady()).getFileTree(path));
   ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());
   ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));

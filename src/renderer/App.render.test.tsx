@@ -11,7 +11,7 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { MountedPanel } from "./App";
+import App, { MountedPanel, optimisticThreadSnapshot } from "./App";
 
 afterEach(cleanup);
 
@@ -20,6 +20,39 @@ describe("App render isolation", () => {
     messageRenders.count = 0;
     localStorage.clear();
     delete window.tau;
+  });
+
+  it("switches cached content and its title in the same optimistic snapshot", () => {
+    const current = {
+      cwd: "/project",
+      sessionId: "current",
+      sessionTitle: "Current title",
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      messages: [],
+      isStreaming: false,
+      activeTools: [],
+      allTools: [],
+      extensionCount: 0,
+    };
+    const target = {
+      id: "target",
+      path: "/sessions/target.jsonl",
+      title: "Target title",
+      modifiedAt: 1,
+      projectPath: "/project",
+      projectName: "project",
+      messageCount: 2,
+    };
+    const next = optimisticThreadSnapshot(current, target, {
+      sessionId: "target",
+      messages: [{ id: "message", role: "user", text: "Cached content", timestamp: 1 }],
+      isStreaming: false,
+      activeTools: [],
+    });
+    expect(next.sessionTitle).toBe("Target title");
+    expect(next.messages[0]?.text).toBe("Cached content");
   });
 
   it("preserves opened panel state and skips unrelated parent renders while hidden", () => {

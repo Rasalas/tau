@@ -7,6 +7,7 @@ import type {
   ThreadIndexSnapshot,
   UiEditor,
   UiMessage,
+  UiSession,
   ToolApprovalRequest,
   UiToolRun,
   UiWorkspaceChanges,
@@ -53,7 +54,7 @@ import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
 import { ThreadStore } from "./thread-store";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
-import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
+import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -65,6 +66,24 @@ import {
 } from "./workbench-context";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+
+export function optimisticThreadSnapshot(
+  snapshot: HostSnapshot,
+  target: UiSession,
+  detail: ThreadDetail,
+): HostSnapshot {
+  return {
+    ...snapshot,
+    sessionId: detail.sessionId,
+    sessionName: undefined,
+    sessionTitle: target.title,
+    branch: target.branch,
+    messages: detail.messages,
+    isStreaming: false,
+    activeTools: detail.activeTools,
+    contextUsage: detail.contextUsage,
+  };
+}
 
 const mockSnapshot: HostSnapshot = {
   cwd: "/workspace/tau",
@@ -642,8 +661,8 @@ export default function App() {
     const previous = snapshot;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
     const cached = target ? detailStoreRef.current.get(target.id) : undefined;
-    if (cached && snapshot) {
-      applySnapshot({ ...snapshot, sessionId: cached.sessionId, messages: cached.messages, isStreaming: false, activeTools: cached.activeTools, contextUsage: cached.contextUsage });
+    if (cached && snapshot && target) {
+      applySnapshot(optimisticThreadSnapshot(snapshot, target, cached));
       addEvent("thread.switch.cached", target?.title);
     }
     try {
@@ -662,13 +681,18 @@ export default function App() {
   const generateThreadTitle = useCallback(async (provider: string, modelId: string, force = false): Promise<boolean> => {
     if (!requireHost("Title generation")) return false;
     try {
-      applyActionResult(await window.tau!.generateThreadTitle(provider, modelId, force));
+      applyActionResult(await window.tau!.generateThreadTitle(
+        provider,
+        modelId,
+        force,
+        threadStore.getSnapshot().activeThreadId,
+      ));
       return true;
     } catch (error) {
       setNotice(String(error));
       return false;
     }
-  }, [applyActionResult, requireHost]);
+  }, [applyActionResult, requireHost, threadStore]);
 
   const setModel = useCallback(async (provider: string, id: string) => {
     if (!requireHost("Model selection")) return;
