@@ -1,12 +1,28 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "../shared/contracts.js";
-import { mergeSessionIndexScan, sessionIndexUpdates } from "./pi-host.js";
+import { mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates } from "./pi-host.js";
 
 function shell(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/sessions/${id}.jsonl`, title, modifiedAt, projectPath: "/project", projectName: "project", messageCount: 1 };
 }
 
 describe("session index reconciliation", () => {
+  it("does not rename or reorder an existing shell merely because it was selected", () => {
+    const existing = shell("selected", 100, "Stable title");
+    const selected = reconcileActiveThreadShell({
+      id: existing.id,
+      path: existing.path,
+      derivedTitle: "Different first message",
+      now: 200,
+      projectPath: existing.projectPath,
+      projectName: existing.projectName,
+      branch: "main",
+      messageCount: 5,
+    }, existing, false);
+    expect(selected.title).toBe("Stable title");
+    expect(selected.modifiedAt).toBe(100);
+  });
+
   it("publishes create, rename, project move, and delete as focused shell updates", () => {
     const moved = { ...shell("renamed", 120, "New title"), projectPath: "/other", projectName: "other" };
     const updates = sessionIndexUpdates(

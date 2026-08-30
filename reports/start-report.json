@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T11:04:19.967Z",
+  "generatedAt": "2026-08-30T11:13:19.132Z",
   "firstPaintMs": 104,
   "firstContentfulPaintMs": null,
   "loadedResourceCount": 2,
   "resources": [
     {
-      "name": "file:///path/to/tau/dist/assets/index-WftbdVKL.js",
+      "name": "file:///path/to/tau/dist/assets/index-CmQy-7jn.js",
       "durationMs": 0,
       "transferSize": 0
     },

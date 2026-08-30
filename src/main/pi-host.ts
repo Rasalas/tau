@@ -191,6 +191,35 @@ export function sessionIndexUpdates(previous: UiSession[], next: UiSession[]): H
   return updates;
 }
 
+export interface ActiveThreadShellInput {
+  id: string;
+  path: string;
+  explicitTitle?: string;
+  derivedTitle: string;
+  now: number;
+  projectPath: string;
+  projectName: string;
+  branch?: string;
+  messageCount: number;
+}
+
+export function reconcileActiveThreadShell(
+  input: ActiveThreadShellInput,
+  existing: UiSession | undefined,
+  touch: boolean,
+): UiSession {
+  return {
+    id: input.id,
+    path: input.path,
+    title: input.explicitTitle || (!touch ? existing?.title : undefined) || input.derivedTitle,
+    modifiedAt: touch ? input.now : existing?.modifiedAt ?? input.now,
+    projectPath: input.projectPath,
+    projectName: input.projectName,
+    branch: input.branch,
+    messageCount: input.messageCount,
+  };
+}
+
 export function mergeSessionIndexScan(scanned: UiSession[], current: UiSession[], scanStartedAt: number): UiSession[] {
   const newer = new Map(current
     .filter((session) => session.modifiedAt >= scanStartedAt)
@@ -462,7 +491,7 @@ export class PiHost {
     await this.swapRootRuntime(nextRuntime);
     await this.projectHistory.remember(this.cwd);
     this.logReplacement("workspace", startedAt);
-    await this.refreshActiveThreadIndex();
+    await this.refreshActiveThreadIndex(false);
     return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
   }
 
@@ -498,7 +527,7 @@ export class PiHost {
           this.cwd = this.requireRuntime().cwd;
           await this.projectHistory.remember(this.cwd);
           this.logReplacement("resume", startedAt);
-          await this.refreshActiveThreadIndex();
+          await this.refreshActiveThreadIndex(false);
           this.scheduleRuntimePrewarm();
         }
         const snapshot = await this.snapshot();
@@ -1280,20 +1309,22 @@ export class PiHost {
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
-  private async refreshActiveThreadIndex(): Promise<void> {
+  private async refreshActiveThreadIndex(touch = true): Promise<void> {
     const session = this.runtime?.session;
     if (!session) return;
     const projectPath = this.cwd;
-    const shell: UiSession = {
+    const existing = this.sessions.find((thread) => thread.id === session.sessionId);
+    const shell = reconcileActiveThreadShell({
       id: session.sessionId,
       path: session.sessionFile ?? session.sessionManager.getSessionFile() ?? session.sessionId,
-      title: session.sessionName || firstSentence(textFromContent(session.messages.find((message) => message.role === "user")?.content)),
-      modifiedAt: Date.now(),
+      explicitTitle: session.sessionName,
+      derivedTitle: firstSentence(textFromContent(session.messages.find((message) => message.role === "user")?.content)),
+      now: Date.now(),
       projectPath,
       projectName: basename(projectPath) || projectPath,
       branch: await this.resolveBranch(projectPath),
       messageCount: session.messages.length,
-    };
+    }, existing, touch);
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishThreadShellSoon(shell);
   }

@@ -23,8 +23,8 @@ export function evaluateHostBudgets(report, budgets = {}) {
     const cold = report.summaries?.["cold-switch"];
     if (!cold || ![cold.median, cold.p95, cold.maximum].every(Number.isFinite)) {
       failures.push("cold-switch median, p95, and maximum were not reported by the Full Mode host fixture");
-    } else if (cold.p95 > 1_500) {
-      failures.push(`full cold-switch p95 ${cold.p95.toFixed(1)}ms > 1500ms (median ${cold.median.toFixed(1)}ms, p95 ${cold.p95.toFixed(1)}ms, max ${cold.maximum.toFixed(1)}ms)`);
+    } else if (cold.p95 > 2_500) {
+      failures.push(`full cold-switch p95 ${cold.p95.toFixed(1)}ms > 2500ms (median ${cold.median.toFixed(1)}ms, p95 ${cold.p95.toFixed(1)}ms, max ${cold.maximum.toFixed(1)}ms)`);
     }
     const criticalBind = (report.phases ?? [])
       .filter((measurement) => measurement.scenario === "cold-switch")

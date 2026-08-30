@@ -17,6 +17,14 @@ export const WORKSPACE_EXTENSION_ID = "tau.workspace";
 
 const ROW_STRIDE = 94;
 
+type NavigationRow =
+  | { kind: "group"; id: string; label: string; count: number }
+  | { kind: "thread"; id: string; session: UiSession };
+
+export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
+  return rows[index]?.id ?? index;
+}
+
 function projectName(cwd?: string): string {
   return cwd?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "workspace";
 }
@@ -270,7 +278,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
   const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];
 
-  type NavigationRow = { kind: "group"; id: string; label: string; count: number } | { kind: "thread"; id: string; session: UiSession };
   const navigationRows: NavigationRow[] = groupByProject
     ? [...activeThreads.reduce((groups, session) => {
         const group = groups.get(session.projectName);
@@ -286,6 +293,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     count: navigationRows.length,
     getScrollElement: () => listRef.current,
     estimateSize: (index) => navigationRows[index]?.kind === "group" ? 28 : ROW_STRIDE,
+    getItemKey: (index) => navigationRowKey(navigationRows, index),
     overscan: 6,
   });
 

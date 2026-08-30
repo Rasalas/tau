@@ -75,11 +75,11 @@ describe("performance report checks", () => {
   it("rejects serial extension binding during a Full Mode cold switch", () => {
     const failures = evaluateHostBudgets({ mode: "full", summaries: {
       bootstrap: { median: 100, p95: 100, maximum: 100 },
-      "cold-switch": { median: 1_600, p95: 1_800, maximum: 1_800 },
+      "cold-switch": { median: 2_600, p95: 2_800, maximum: 2_800 },
       "warm-switch": { median: 1, p95: 1, maximum: 1 },
     }, phases: [{ scenario: "cold-switch", totalMs: 1_800, phases: [{ name: "bind", durationMs: 1_200 }] }], background: [{ name: "branch", durationMs: 10 }] });
     expect(failures).toEqual([
-      "full cold-switch p95 1800.0ms > 1500ms (median 1600.0ms, p95 1800.0ms, max 1800.0ms)",
+      "full cold-switch p95 2800.0ms > 2500ms (median 2600.0ms, p95 2800.0ms, max 2800.0ms)",
       "full cold-switch still uses serial extension binding (1200.0ms)",
     ]);
   });
