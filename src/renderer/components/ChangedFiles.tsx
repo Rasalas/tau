@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { UiWorkspaceChanges } from "../../shared/contracts";
+import { VirtualList } from "./VirtualList";
 
 export function ChangedFiles({
   changes,
@@ -30,13 +31,11 @@ export function ChangedFiles({
           Open diff
         </span>
       </button>
-      {open ? changes.files.map((file) => (
+      {open ? <VirtualList items={changes.files} itemHeight={35} className="changed-files-list" renderItem={(file) => (
         <button className="changed-file-row" key={file.path} onClick={() => onOpenDiff(file.path)}>
-          <span className="path" title={file.path}>{file.path}</span>
-          <span className="stat-add">+{file.added}</span>
-          <span className="stat-del">−{file.removed}</span>
+          <span className="path" title={file.path}>{file.path}</span><span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
         </button>
-      )) : null}
+      )} /> : null}
     </section>
   );
 }

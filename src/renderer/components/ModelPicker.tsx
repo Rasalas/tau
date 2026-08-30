@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { Search, Star } from "lucide-react";
 import type { UiModel } from "../../shared/contracts";
 import { preferences } from "../preferences";
+import { VirtualList } from "./VirtualList";
 
 /** Sentinel for the pinned tab; never rendered verbatim. */
 const FAVOURITES = "\u0000favourites";
@@ -37,7 +38,6 @@ export function ModelPicker({
   const [provider, setProvider] = useState<string>();
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   const entries = useMemo<Entry[]>(
     () => models.map((model) => {
@@ -87,9 +87,7 @@ export function ModelPicker({
   const ordered = useMemo(() => grouped.flatMap(([, list]) => list), [grouped]);
 
   useEffect(() => setCursor(0), [needle, provider]);
-  useEffect(() => {
-    listRef.current?.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
-  }, [cursor, needle, provider]);
+
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") { onClose(); return; }
@@ -148,45 +146,25 @@ export function ModelPicker({
             ))}
           </nav>
 
-          <div className="model-list" ref={listRef} onKeyDown={onKeyDown}>
-            {grouped.map(([name, list]) => (
-              <div key={name}>
-                {needle ? <div className="palette-group">{name.toUpperCase()}</div> : null}
-                {list.map((entry) => {
-                  const index = ordered.indexOf(entry);
-                  return (
-                    <div
-                      key={entry.key}
-                      className={`model-row ${index === cursor ? "selected" : ""} ${entry.key === activeKey ? "current" : ""}`}
-                      onMouseMove={() => setCursor(index)}
-                    >
-                      <button
-                        className="model-choose"
-                        onClick={() => { onSelect(entry.model); onClose(); }}
-                      >
-                        <strong>{entry.model.name}</strong>
-                        <small>{entry.model.id}</small>
-                      </button>
-                      {entry.key === activeKey ? <em>in use</em> : null}
-                      <button
-                        className={`model-star ${entry.favourite ? "on" : ""}`}
-                        aria-label={entry.favourite ? `Unfavourite ${entry.model.name}` : `Favourite ${entry.model.name}`}
-                        aria-pressed={entry.favourite}
-                        onClick={() => preferences.toggleFavouriteModel(entry.key)}
-                      >
-                        <Star size={14} fill={entry.favourite ? "currentColor" : "none"} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-            {ordered.length === 0 ? (
-              <p className="palette-empty">
-                {needle ? `No model matches “${query}”.` : "No models from this provider."}
-              </p>
-            ) : null}
-          </div>
+          <VirtualList
+            items={ordered}
+            itemHeight={47}
+            className="model-list"
+            scrollToIndex={cursor}
+            empty={<p className="palette-empty">{needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
+            renderItem={(entry, index) => <div
+              key={entry.key}
+              data-provider={entry.model.provider}
+              className={`model-row ${index === cursor ? "selected" : ""} ${entry.key === activeKey ? "current" : ""}`}
+              onMouseMove={() => setCursor(index)}
+            >
+              <button className="model-choose" onClick={() => { onSelect(entry.model); onClose(); }}>
+                <strong>{entry.model.name}</strong><small>{entry.model.id}</small>
+              </button>
+              {entry.key === activeKey ? <em>in use</em> : null}
+              <button className={`model-star ${entry.favourite ? "on" : ""}`} aria-label={entry.favourite ? `Unfavourite ${entry.model.name}` : `Favourite ${entry.model.name}`} aria-pressed={entry.favourite} onClick={() => preferences.toggleFavouriteModel(entry.key)}><Star size={14} fill={entry.favourite ? "currentColor" : "none"} /></button>
+            </div>}
+          />
         </div>
 
         <footer>

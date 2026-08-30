@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type {
   ChangeStatus,
   CommitResult,
+  DiffLoadOptions,
   UiChangedFile,
   UiDiffHunk,
   UiDiffLine,
@@ -19,6 +20,11 @@ import type {
 const execFileAsync = promisify(execFile);
 
 const EMPTY_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+
+// Diff ceilings keep generated files from turning one review into an unbounded IPC payload.
+export const MAX_DIFF_BYTES = 1_024 * 1_024;
+export const MAX_DIFF_LINES = 10_000;
+export const MAX_DIFF_HUNKS = 120;
 
 /** Editors we know how to launch, in the order the "Open in…" menu offers them. */
 const KNOWN_EDITORS: ReadonlyArray<UiEditor> = [
@@ -259,7 +265,7 @@ export async function readProjectGitState(
   }
 }
 
-function parseUnifiedDiff(path: string, patch: string): UiFileDiff {
+export function parseUnifiedDiff(path: string, patch: string, options: DiffLoadOptions = {}): UiFileDiff {
   const hunks: UiDiffHunk[] = [];
   let current: UiDiffHunk | undefined;
   let oldLine = 0;
@@ -267,7 +273,12 @@ function parseUnifiedDiff(path: string, patch: string): UiFileDiff {
   let added = 0;
   let removed = 0;
 
-  for (const raw of patch.split("\n")) {
+  const byteTruncated = Buffer.byteLength(patch, "utf8") > MAX_DIFF_BYTES;
+  const boundedPatch = patch.slice(0, MAX_DIFF_BYTES);
+  const rawLines = boundedPatch.split("\n");
+  const lineTruncated = rawLines.length > MAX_DIFF_LINES;
+  const boundedLines = rawLines.slice(0, MAX_DIFF_LINES);
+  for (const raw of boundedLines) {
     const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/u.exec(raw);
     if (header) {
       oldLine = Number(header[1]);
@@ -293,10 +304,22 @@ function parseUnifiedDiff(path: string, patch: string): UiFileDiff {
     current.lines.push(line);
   }
 
-  return { path, added, removed, hunks };
+  const offset = Math.max(0, options.hunkOffset ?? 0);
+  const limit = Math.min(MAX_DIFF_HUNKS, Math.max(1, options.hunkLimit ?? MAX_DIFF_HUNKS));
+  const visibleHunks = hunks.slice(offset, offset + limit);
+  const truncated = byteTruncated || lineTruncated || hunks.length > offset + limit;
+  return {
+    path,
+    added,
+    removed,
+    hunks: visibleHunks,
+    truncated,
+    nextHunkOffset: truncated ? offset + visibleHunks.length : undefined,
+    note: truncated ? `Showing ${visibleHunks.length} of a large diff. Load more to continue.` : undefined,
+  };
 }
 
-export async function getFileDiff(cwd: string, path: string): Promise<UiFileDiff> {
+export async function getFileDiff(cwd: string, path: string, options: DiffLoadOptions = {}): Promise<UiFileDiff> {
   const empty = (note: string): UiFileDiff => ({ path, added: 0, removed: 0, hunks: [], note });
   try {
     let patch = await git(cwd, ["diff", "--no-ext-diff", "-U3", "HEAD", "--", path]);
@@ -307,7 +330,7 @@ export async function getFileDiff(cwd: string, path: string): Promise<UiFileDiff
     }
     if (!patch.trim()) return empty("No textual changes.");
     if (/^Binary files /mu.test(patch)) return empty("Binary file — no line diff.");
-    return parseUnifiedDiff(path, patch);
+    return parseUnifiedDiff(path, patch, options);
   } catch {
     return empty("Could not read this diff.");
   }

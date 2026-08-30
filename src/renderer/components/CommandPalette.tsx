@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CommandContribution, ContributionOwner, WorkbenchActions } from "../extension-system";
+import { VirtualList } from "./VirtualList";
 
 type Command = CommandContribution & ContributionOwner;
 
@@ -42,7 +43,6 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   const needle = query.trim().toLowerCase();
   const matches = useMemo(
@@ -75,9 +75,7 @@ export function CommandPalette({
 
   useEffect(() => setCursor(0), [needle]);
 
-  useEffect(() => {
-    listRef.current?.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
-  }, [cursor, needle]);
+
 
   if (!open) return null;
 
@@ -120,29 +118,22 @@ export function CommandPalette({
           />
           <kbd>esc</kbd>
         </div>
-        <div className="palette-results" ref={listRef}>
-          {groups.map(([group, entries]) => (
-            <div key={group}>
-              <div className="palette-group">{group.toUpperCase()}</div>
-              {entries.map((command) => {
-                const index = ordered.indexOf(command);
-                return (
-                  <button
-                    key={command.id}
-                    className={index === cursor ? "selected" : ""}
-                    onMouseMove={() => setCursor(index)}
-                    onClick={() => run(command)}
-                  >
-                    <span>{highlight(command.label, needle)}</span>
-                    <small>{command.extensionName.toLowerCase()}</small>
-                    {command.shortcut ? <kbd>{command.shortcut}</kbd> : null}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-          {ordered.length === 0 ? <p className="palette-empty">No commands match “{query}”.</p> : null}
-        </div>
+        <VirtualList
+          items={ordered}
+          itemHeight={38}
+          className="palette-results"
+          scrollToIndex={cursor}
+          empty={<p className="palette-empty">No commands match “{query}”.</p>}
+          renderItem={(command, index) => <button
+            key={command.id}
+            className={index === cursor ? "selected" : ""}
+            data-group={command.group}
+            onMouseMove={() => setCursor(index)}
+            onClick={() => run(command)}
+          >
+            <span>{highlight(command.label, needle)}</span><small>{command.extensionName.toLowerCase()}</small>{command.shortcut ? <kbd>{command.shortcut}</kbd> : null}
+          </button>}
+        />
         <footer>
           <span>↑↓ navigate</span>
           <span>↵ run</span>

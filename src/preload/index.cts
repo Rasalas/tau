@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { HostEvent, TauDesktopApi } from "../shared/contracts.js";
+import type { DiffLoadOptions, HostEvent, TauDesktopApi } from "../shared/contracts.js";
 
 const api: TauDesktopApi = {
   platform: process.platform,
@@ -19,9 +19,9 @@ const api: TauDesktopApi = {
   chooseWorkspace: () => ipcRenderer.invoke("tau:choose-workspace"),
   openProject: (path) => ipcRenderer.invoke("tau:open-project", path),
   cloneProject: (repositoryUrl) => ipcRenderer.invoke("tau:clone-project", repositoryUrl),
-  getFileTree: () => ipcRenderer.invoke("tau:file-tree"),
+  getFileTree: (path) => ipcRenderer.invoke("tau:file-tree", path),
   getChanges: () => ipcRenderer.invoke("tau:changes"),
-  getFileDiff: (path) => ipcRenderer.invoke("tau:file-diff", path),
+  getFileDiff: (path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:file-diff", path, options),
   commit: (message, push) => ipcRenderer.invoke("tau:commit", message, push),
   getWorkspaceInfo: () => ipcRenderer.invoke("tau:workspace-info"),
   createWorktree: (branch) => ipcRenderer.invoke("tau:create-worktree", branch),

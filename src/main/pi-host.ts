@@ -1,5 +1,5 @@
 import { readdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   createAgentSessionFromServices,
@@ -17,6 +17,7 @@ import {
 import type {
   AccessLevel,
   CommitResult,
+  DiffLoadOptions,
   FileNode,
   HostBootstrap,
   HostEvent,
@@ -533,16 +534,18 @@ export class PiHost {
     return { ...this.snapshotSync(models), branch };
   }
 
-  async getFileTree(): Promise<FileNode[]> {
-    return this.readTree(this.cwd, 0, { count: 0 });
+  async getFileTree(path?: string): Promise<FileNode[]> {
+    const root = path ?? this.cwd;
+    if (root !== this.cwd && !root.startsWith(`${this.cwd}${sep}`)) throw new Error("File tree path is outside the workspace.");
+    return this.readTree(root, 0, { count: 0 });
   }
 
   async getChanges(): Promise<UiWorkspaceChanges> {
     return this.gitCoordinator.getChanges(this.cwd);
   }
 
-  async getFileDiff(path: string): Promise<UiFileDiff> {
-    return workspaceGit.getFileDiff(this.cwd, path);
+  async getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff> {
+    return workspaceGit.getFileDiff(this.cwd, path, options);
   }
 
   async commit(message: string, push: boolean): Promise<CommitResult> {
@@ -1095,7 +1098,6 @@ export class PiHost {
         path: fullPath,
         kind: entry.isDirectory() ? "directory" : "file",
       };
-      if (entry.isDirectory()) node.children = await this.readTree(fullPath, depth + 1, budget);
       nodes.push(node);
     }
     return nodes;

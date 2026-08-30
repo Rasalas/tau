@@ -18,6 +18,7 @@ export interface WorkbenchContextValue {
   changes: UiWorkspaceChanges;
   registry: ExtensionRegistry;
   refreshFiles(): Promise<void>;
+  loadFiles(path: string): Promise<FileNode[]>;
   refreshChanges(): Promise<void>;
   openReview(path?: string): void;
   applySnapshot(snapshot: HostSnapshot): void;
@@ -34,6 +35,7 @@ export interface FilesContextValue {
   fileTree: FileNode[];
   snapshot?: HostSnapshot;
   refreshFiles(): Promise<void>;
+  loadFiles(path: string): Promise<FileNode[]>;
 }
 
 export interface ChangesContextValue {

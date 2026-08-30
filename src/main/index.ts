@@ -100,17 +100,17 @@ function installIpc(): void {
   ipcMain.handle("tau:generate-thread-title", (_event, provider: string, modelId: string, force?: boolean) =>
     host?.generateThreadTitle(provider, modelId, force),
   );
-  ipcMain.handle("tau:file-tree", async () => {
+  ipcMain.handle("tau:file-tree", async (_event, path?: string) => {
     await hostReady;
-    return host?.getFileTree() ?? [];
+    return host?.getFileTree(path) ?? [];
   });
   ipcMain.handle("tau:changes", async () => {
     await hostReady;
     return host?.getChanges() ?? { files: [], added: 0, removed: 0 };
   });
-  ipcMain.handle("tau:file-diff", async (_event, path: string) => {
+  ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => {
     await hostReady;
-    return host?.getFileDiff(path) ?? { path, added: 0, removed: 0, hunks: [], note: "No host available." };
+    return host?.getFileDiff(path, options) ?? { path, added: 0, removed: 0, hunks: [], note: "No host available." };
   });
   ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => {
     await hostReady;

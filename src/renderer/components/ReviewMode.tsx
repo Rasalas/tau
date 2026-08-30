@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { ArrowLeft, ExternalLink, GitCommitHorizontal } from "lucide-react";
-import type { UiEditor, UiFileDiff, UiWorkspaceChanges } from "../../shared/contracts";
+import type { DiffLoadOptions, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../../shared/contracts";
 import { DiffView } from "./DiffView";
+import { VirtualList } from "./VirtualList";
 
 const STATUS_GLYPH: Record<string, string> = {
   modified: "M",
@@ -31,7 +32,7 @@ export function ReviewMode({
   onBack(): void;
   onCommit(message: string, push: boolean): void;
   onOpenInEditor(path: string): void;
-  loadDiff(path: string): Promise<UiFileDiff>;
+  loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
 }) {
   const [diff, setDiff] = useState<UiFileDiff>();
   const [mode, setMode] = useState<"unified" | "split">("unified");
@@ -42,7 +43,7 @@ export function ReviewMode({
     if (!selectedPath) { setDiff(undefined); return; }
     let cancelled = false;
     setDiff(undefined);
-    void loadDiff(selectedPath).then((next) => { if (!cancelled) setDiff(next); });
+    void loadDiff(selectedPath, { hunkLimit: 40 }).then((next) => { if (!cancelled) setDiff(next); });
     return () => { cancelled = true; };
   }, [loadDiff, selectedPath]);
 
@@ -84,21 +85,21 @@ export function ReviewMode({
             <span className="stat-del">−{changes.removed}</span>
           </header>
           <div className="review-files">
-            {changes.files.map((file) => (
-              <button
+            <VirtualList
+              items={changes.files}
+              itemHeight={43}
+              className="review-files-virtual"
+              empty={<p className="empty-copy">The worktree is clean.</p>}
+              renderItem={(file) => <button
                 key={file.path}
                 className={`review-file ${file.path === selectedPath ? "active" : ""}`}
                 onClick={() => onSelect(file.path)}
               >
                 <i>{STATUS_GLYPH[file.status] ?? "M"}</i>
-                <span className="meta">
-                  <strong>{file.name}</strong>
-                  <small>{file.directory || "."}</small>
-                </span>
-                <span className="stat-add">+{file.added}</span>
-                <span className="stat-del">−{file.removed}</span>
-              </button>
-            ))}
+                <span className="meta"><strong>{file.name}</strong><small>{file.directory || "."}</small></span>
+                <span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
+              </button>}
+            />
             {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : null}
 
             {changes.files.length > 0 ? (
@@ -145,7 +146,15 @@ export function ReviewMode({
               </button>
             ) : null}
           </header>
-          {selectedPath ? <DiffView diff={diff} mode={mode} /> : <div className="diff-empty">Pick a file to review.</div>}
+          {selectedPath ? <DiffView
+            diff={diff}
+            mode={mode}
+            onLoadMore={diff?.truncated && diff.nextHunkOffset !== undefined ? () => {
+              void loadDiff(selectedPath, { hunkOffset: diff.nextHunkOffset, hunkLimit: 40 }).then((next) => {
+                setDiff((current) => current ? { ...next, hunks: [...current.hunks, ...next.hunks], truncated: next.truncated, nextHunkOffset: next.nextHunkOffset } : next);
+              });
+            } : undefined}
+          /> : <div className="diff-empty">Pick a file to review.</div>}
         </div>
       </div>
     </div>

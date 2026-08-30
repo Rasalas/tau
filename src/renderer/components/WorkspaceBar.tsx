@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Folder, FolderGit2, GitBranch, History, Plus, Search } from "lucide-react";
 import type { WorkspaceInfo } from "../../shared/contracts";
+import { VirtualList } from "./VirtualList";
 
 type OpenPanel = "workspace" | "refs" | undefined;
 
@@ -60,11 +61,13 @@ export function WorkspaceBar({
   const [open, setOpen] = useState<OpenPanel>();
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
+  const [refCursor, setRefCursor] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open !== "refs") return;
     setQuery("");
+    setRefCursor(0);
     requestAnimationFrame(() => searchRef.current?.focus());
   }, [open]);
 
@@ -90,7 +93,9 @@ export function WorkspaceBar({
     [info?.refs, needle],
   );
 
+  useEffect(() => setRefCursor(0), [needle]);
   const close = () => { setOpen(undefined); setCreating(false); };
+  const chooseRef = (refName: string) => { if (!refs.find((ref) => ref.name === refName)?.isCurrent) onSwitchRef(refName); close(); };
 
   return (
     <div className="workspace-bar">
@@ -172,23 +177,29 @@ export function WorkspaceBar({
                 ref={searchRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") { event.preventDefault(); setRefCursor((value) => refs.length ? (value + 1) % refs.length : 0); }
+                  if (event.key === "ArrowUp") { event.preventDefault(); setRefCursor((value) => refs.length ? (value - 1 + refs.length) % refs.length : 0); }
+                  if (event.key === "Enter" && refs[refCursor]) { event.preventDefault(); chooseRef(refs[refCursor].name); }
+                }}
                 placeholder="Search refs…"
                 aria-label="Search refs"
               />
             </div>
-            <div className="ref-list">
-              {refs.map((ref) => (
-                <button
-                  key={ref.name}
-                  className={ref.isCurrent ? "selected" : ""}
-                  onClick={() => { if (!ref.isCurrent) onSwitchRef(ref.name); close(); }}
-                >
-                  <span>{ref.name}</span>
-                  {ref.isCurrent ? <small>current</small> : ref.worktreePath ? <small>worktree</small> : null}
-                </button>
-              ))}
-              {refs.length === 0 ? <p>No ref matches “{query}”.</p> : null}
-            </div>
+            <VirtualList
+              items={refs}
+              itemHeight={32}
+              className="ref-list"
+              empty={<p>No ref matches “{query}”.</p>}
+              scrollToIndex={refCursor}
+              renderItem={(ref, index) => <button
+                key={ref.name}
+                className={ref.isCurrent || index === refCursor ? "selected" : ""}
+                onClick={() => chooseRef(ref.name)}
+              >
+                <span>{ref.name}</span>{ref.isCurrent ? <small>current</small> : ref.worktreePath ? <small>worktree</small> : null}
+              </button>}
+            />
             {info?.isDirty ? (
               <div className="ref-note">
                 Uncommitted changes — a ref without a worktree cannot be checked out in place.

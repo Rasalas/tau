@@ -29,6 +29,18 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.messageCount === right.messageCount;
 }
 
+function stabilizeProjects(
+  previous: readonly UiProject[],
+  incoming: readonly UiProject[],
+): readonly UiProject[] {
+  const previousByPath = new Map(previous.map((project) => [project.path, project] as const));
+  const next = incoming.map((project) => {
+    const old = previousByPath.get(project.path);
+    return old && old.name === project.name && old.lastOpenedAt === project.lastOpenedAt ? old : project;
+  });
+  return next.length === previous.length && next.every((project, index) => project === previous[index]) ? previous : next;
+}
+
 function stabilizeThreads(
   previous: readonly UiSession[],
   incoming: readonly UiSession[],
@@ -46,14 +58,37 @@ function stabilizeThreads(
 
 export class ThreadStore {
   private snapshot: ThreadStoreSnapshot = EMPTY_SNAPSHOT;
+  private threadIds: readonly string[] = [];
   private listeners = new Set<() => void>();
+  private idListeners = new Set<() => void>();
+  private shellListeners = new Map<string, Set<() => void>>();
   private runningTools = new Map<string, string>();
 
   getSnapshot = (): ThreadStoreSnapshot => this.snapshot;
+  getThreadIds = (): readonly string[] => this.threadIds;
+  getProjects = (): readonly UiProject[] => this.snapshot.projects;
+  getThread = (id: string): UiSession | undefined => this.snapshot.threads.find((thread) => thread.id === id);
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  };
+
+  /** Subscribe only to navigation order; shell updates do not invalidate this listener. */
+  subscribeToIds = (listener: () => void): (() => void) => {
+    this.idListeners.add(listener);
+    return () => this.idListeners.delete(listener);
+  };
+
+  /** Subscribe to one shell record, preserving row-level render isolation. */
+  subscribeToThread = (id: string, listener: () => void): (() => void) => {
+    let listeners = this.shellListeners.get(id);
+    if (!listeners) { listeners = new Set(); this.shellListeners.set(id, listeners); }
+    listeners.add(listener);
+    return () => {
+      listeners?.delete(listener);
+      if (listeners?.size === 0) this.shellListeners.delete(id);
+    };
   };
 
   applyHostSnapshot(snapshot: HostSnapshot): void {
@@ -69,7 +104,7 @@ export class ThreadStore {
   applyThreadIndex(threadIndex: ThreadIndexSnapshot): void {
     this.publish({
       ...this.snapshot,
-      projects: threadIndex.projects,
+      projects: stabilizeProjects(this.snapshot.projects, threadIndex.projects),
       threads: stabilizeThreads(this.snapshot.threads, threadIndex.sessions),
     });
   }
@@ -115,7 +150,23 @@ export class ThreadStore {
       next.runningToolName === this.snapshot.runningToolName &&
       next.unreadThreadIds === this.snapshot.unreadThreadIds
     ) return;
+    const previous = this.snapshot;
     this.snapshot = next;
+    if (next.threads !== previous.threads) {
+      const nextIds = next.threads.map((thread) => thread.id);
+      const idsChanged = this.threadIds.length !== nextIds.length || this.threadIds.some((id, index) => id !== nextIds[index]);
+      if (idsChanged) this.threadIds = nextIds;
+      else if (nextIds.length === 0) this.threadIds = [];
+
+      const previousIds = previous.threads.map((thread) => thread.id);
+      if (previousIds.length !== this.threadIds.length || previousIds.some((id, index) => id !== this.threadIds[index])) {
+        this.idListeners.forEach((listener) => listener());
+      }
+      const previousById = new Map(previous.threads.map((thread) => [thread.id, thread] as const));
+      next.threads.forEach((thread) => {
+        if (previousById.get(thread.id) !== thread) this.shellListeners.get(thread.id)?.forEach((listener) => listener());
+      });
+    }
     this.listeners.forEach((listener) => listener());
   }
 }

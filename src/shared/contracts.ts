@@ -105,12 +105,20 @@ export interface UiDiffHunk {
   lines: UiDiffLine[];
 }
 
+export interface DiffLoadOptions {
+  /** Zero-based hunk page. The host still enforces its byte and line ceilings. */
+  hunkOffset?: number;
+  hunkLimit?: number;
+}
+
 export interface UiFileDiff {
   path: string;
   added: number;
   removed: number;
   hunks: UiDiffHunk[];
   note?: string;
+  truncated?: boolean;
+  nextHunkOffset?: number;
 }
 
 export interface UiWorktree {
@@ -238,9 +246,9 @@ export interface TauDesktopApi {
   openProject(path: string): Promise<HostSnapshot>;
   cloneProject(repositoryUrl: string): Promise<HostSnapshot | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean): Promise<import("./host-protocol.js").HostActionResult>;
-  getFileTree(): Promise<FileNode[]>;
+  getFileTree(path?: string): Promise<FileNode[]>;
   getChanges(): Promise<UiWorkspaceChanges>;
-  getFileDiff(path: string): Promise<UiFileDiff>;
+  getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;
   createWorktree(branch: string): Promise<HostSnapshot>;

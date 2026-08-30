@@ -184,7 +184,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [threadQuery, setThreadQuery] = useState("");
   const [settledOpen, setSettledOpen] = useState(true);
+  const [settledLimit, setSettledLimit] = useState(40);
   const [virtualRange, setVirtualRange] = useState({ start: 0, end: 30 });
+  const [navigationIndex, setNavigationIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
   const scrollFrameRef = useRef<number | undefined>(undefined);
@@ -222,7 +224,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
   const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];
 
-  const virtualized = !groupByProject && activeThreads.length > 80;
+  // Group headers use the same fixed row budget as thread rows. This keeps both
+  // navigation layouts bounded instead of falling back to a full grouped mount.
+  const virtualized = activeThreads.length > 80;
   const updateVirtualRange = useCallback(() => {
     if (!virtualized) {
       setVirtualRange({ start: 0, end: activeThreads.length });
@@ -285,6 +289,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   );
 
   const visible = virtualized ? activeThreads.slice(virtualRange.start, virtualRange.end) : activeThreads;
+  const visibleSettled = settledThreads.slice(0, settledLimit);
   const grouped = groupByProject
     ? [...visible.reduce((map, session) => {
         const entries = map.get(session.projectName);
@@ -313,7 +318,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         </label>
       </div>
 
-      <nav ref={listRef} className="session-list" aria-label="Threads" onScroll={handleListScroll}>
+      <nav
+        ref={listRef}
+        className="session-list"
+        aria-label="Threads"
+        tabIndex={0}
+        onScroll={handleListScroll}
+        onKeyDown={(event) => {
+          const choices = [...activeThreads, ...(settledOpen ? visibleSettled : [])];
+          if (!choices.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
+          event.preventDefault();
+          if (event.key === "Enter") { void actions.switchSession(choices[navigationIndex % choices.length].path); return; }
+          setNavigationIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length);
+        }}
+      >
         {virtualized && virtualRange.start > 0 ? (
           <div className="thread-virtual-spacer" style={{ height: virtualRange.start * ROW_STRIDE }} aria-hidden />
         ) : null}
@@ -351,7 +369,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
               SETTLED · {settledThreads.length}<i />
               <b>{settledOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</b>
             </button>
-            {settledOpen ? settledThreads.map((session) => renderRow(session, "settled")) : null}
+            {settledOpen ? visibleSettled.map((session) => renderRow(session, "settled")) : null}
+            {settledOpen && visibleSettled.length < settledThreads.length ? (
+              <button className="settled-show-more" onClick={() => setSettledLimit((limit) => Math.min(settledThreads.length, limit + 40))}>
+                Show more settled threads ({settledThreads.length - visibleSettled.length})
+              </button>
+            ) : null}
           </section>
         ) : null}
       </nav>

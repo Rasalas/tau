@@ -493,6 +493,17 @@ export default function App() {
     ]);
   }, []);
 
+  const loadFiles = useCallback(async (path: string): Promise<FileNode[]> => {
+    const children = window.tau ? ((await window.tau.getFileTree(path)) ?? []) : [];
+    setFileTree((current) => {
+      const attach = (nodes: FileNode[]): FileNode[] => nodes.map((node) => node.path === path
+        ? { ...node, children }
+        : node.children ? { ...node, children: attach(node.children) } : node);
+      return attach(current);
+    });
+    return children;
+  }, []);
+
   const createSession = useCallback(async () => {
     const next = await window.tau?.newSession();
     if (next) applyActionResult(next);
@@ -774,11 +785,11 @@ export default function App() {
   }, [messages, snapshot?.contextUsage, tools]);
 
   const contextValue = useMemo(
-    () => ({ snapshot, tools, events, fileTree, changes, registry, refreshFiles, refreshChanges, openReview, applySnapshot, handleHostEvent }),
-    [snapshot, tools, events, fileTree, changes, registry, refreshFiles, refreshChanges, openReview, applySnapshot, handleHostEvent],
+    () => ({ snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, applySnapshot, handleHostEvent }),
+    [snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, applySnapshot, handleHostEvent],
   );
   const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
-  const filesContextValue = useMemo(() => ({ fileTree, snapshot, refreshFiles }), [fileTree, snapshot, refreshFiles]);
+  const filesContextValue = useMemo(() => ({ fileTree, snapshot, refreshFiles, loadFiles }), [fileTree, snapshot, refreshFiles, loadFiles]);
   const changesContextValue = useMemo(() => ({ changes, snapshot, refreshChanges, openReview }), [changes, snapshot, refreshChanges, openReview]);
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
   const sidebarContributions = registry.getSidebarContributions();

@@ -1080,6 +1080,12 @@ button > svg { pointer-events: none; }
 .review-list > header > small { font: 11px var(--mono); color: var(--muted); }
 .review-list > header .spacer { flex: 1; }
 .review-files { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
+.review-files-virtual { min-height: 0; overflow: auto; }
+.changed-files-list { max-height: 360px; overflow: auto; }
+.diff-virtual-list { min-height: 100%; }
+.diff-load-more { display: block; margin: 10px auto 18px; padding: 7px 12px; border: 1px solid var(--line-control); border-radius: 6px; background: var(--raised); color: var(--ink-2); cursor: pointer; }
+.file-tree-error { display: block; padding: 3px 10px 5px 28px; color: var(--removed); font: 10px var(--mono); }
+.settled-show-more { margin: 6px 8px; padding: 6px; border: 1px solid var(--line-control); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .review-file {
   display: flex; align-items: center; gap: 9px; padding: 8px 10px;
   border: 0; border-radius: 8px; background: transparent;
