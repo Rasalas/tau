@@ -1,8 +1,21 @@
 # Performance architecture
 
-An extension boundary does not require a performance penalty. Tau core must provide efficient state and lifecycle primitives, while extensions subscribe only to the state they render. Moving the sidebar into Workspace Kit changes ownership, not the amount of work required to switch threads.
+Tau's extension boundary does not require a performance penalty. Core must provide bounded state, lifecycle, and transport primitives. Extensions should subscribe only to the state they render. Moving the sidebar into Workspace Kit changes ownership, not the amount of work required to switch threads.
 
-## Baseline
+This document records measured baselines, known bottlenecks, target architecture, and release budgets. It covers Tau-owned renderer and Electron host code. Pi SDK internals and third-party extensions remain black boxes unless a trace names them.
+
+## Measurement rules
+
+Treat measurements as one of these two classes:
+
+- **Observed:** reproduced in a runtime profile or build comparison.
+- **Static risk:** visible in code, but its user impact still needs a benchmark or trace.
+
+Development-machine timings are useful for finding dominant phases. They are not release benchmarks. Every performance change should use the same fixture before and after the change, report median and p95 where possible, and preserve correctness under concurrent lifecycle requests.
+
+## Baselines
+
+### Safe-mode lifecycle work
 
 The first local safe-mode smoke run measured 514 ms for bootstrap and 109 ms for a cross-project switch across three indexed threads.
 
@@ -21,50 +34,179 @@ After moving replacement onto `AgentSessionRuntime`, serializing lifecycle mutat
 - two concurrently requested switches, serialized safely: 55 ms total
 - `SessionManager.listAll()` calls across bootstrap and all switches: 1
 
-Warm runtime creation spent roughly 2–5 ms creating a fresh isolated model runtime, 11–21 ms rebuilding cwd-bound resources, 0–3 ms creating the session, under 1 ms binding extensions, and under 4 ms resolving the UI model catalog. Measurements vary with filesystem caches; they are development-machine observations rather than release benchmarks.
+Warm runtime creation spent roughly 2 to 5 ms creating a fresh isolated model runtime, 11 to 21 ms rebuilding cwd-bound resources, 0 to 3 ms creating the session, under 1 ms binding extensions, and under 4 ms resolving the UI model catalog.
 
-The current renderer and host still have avoidable work:
+### Full-mode lifecycle profile
 
-- `App.tsx` owns active transcript arrays, although streaming commits are now frame-batched.
-- Correct session replacement still rebuilds cwd-bound resources; resource discovery is now the dominant measured switch phase.
-- Transcript messages are cached as complete snapshots rather than normalized entities.
-- Branch and session metadata refresh after completed prompts rather than through filesystem/session change notifications.
+A real Electron profile with the configured extension set measured:
+
+- runtime startup total: about 1.31 s
+- startup resource discovery: about 1.23 s
+- first full-mode thread switch: about 670 ms
+- later full-mode switches: about 342 to 593 ms
+- warm safe-mode switches in the same environment: about 21 to 86 ms
+
+Resource discovery dominated full-mode startup and switching. This is the strongest host-side bottleneck found in the audit.
+
+### Renderer stress profile
+
+A temporary CDP fixture exercised the production renderer with synthetic transcripts and streaming updates:
+
+- short histories with 10, 60, and 180 turns produced no tasks above 50 ms
+- a growing 138 KB fenced-code response produced a median frame interval of 85.7 ms, p95 of 114.2 ms, and a maximum of 142.8 ms
+- a growing 154 KB plain-text response produced a median frame interval of 53.3 ms and p95 of 78.2 ms
+- cumulative tool output reaching about 811 KB produced a median frame interval of 16.6 ms and p95 of 36.7 ms
+- typing stayed usable in the fixture, although each keystroke still rerendered the workbench root
+
+Long active responses are the strongest renderer-side bottleneck. Short ordinary histories alone did not reproduce the same stalls.
+
+### Build profile
+
+The current production renderer build produced:
+
+- JavaScript: 1,264.44 kB, 247.70 kB gzip
+- CSS: about 62 kB
+- source map: 2,449.21 kB
+- build time: about 1.68 s
+
+An esbuild-minified comparison reduced JavaScript to about 522 kB and CSS to about 52 kB. The renderer still shipped as one large eager chunk.
+
+## Observed bottlenecks
+
+### Growing Markdown is reprocessed in full
+
+Assistant deltas are frame-batched, which prevents one React commit per token. Each commit still replaces the complete active message string. `ReactMarkdown` reparses the complete message, and Highlight.js re-highlights every fenced code block.
+
+Cost grows with the response. The 138 KB code-stream fixture missed every 16 ms frame budget by a wide margin.
+
+The streaming path should render a cheap mutable tail while a response is active. Settled blocks can be parsed once, cached by content and language, then moved into the normal Markdown tree.
+
+### Transcript scrolling restarts on every update
+
+Every message or tool update reads transcript `scrollHeight` and starts a new smooth scroll. This combines a layout read with a repeatedly restarted animation.
+
+Scroll work should run only while the viewport is pinned to the tail. Streaming should use an immediate or coalesced tail adjustment. Smooth scrolling belongs to discrete navigation, not token delivery.
+
+### Renderer invalidation is too broad
+
+`App.tsx` owns composer input, messages, tools, timers, panels, notices, queue state, and workspace state. Composer input and the one-second elapsed timer rerender the workbench root. Registry accessors return freshly sorted arrays. The root keydown effect is also reinstalled on each render.
+
+The workbench context carries unrelated transcript, tool, event, file-tree, and Git state. Inactive panels stay mounted and receive those updates even though CSS hides them.
+
+Split state by update frequency and ownership. Composer input, elapsed labels, active message records, tool runs, panel data, and shell navigation need separate subscriptions. Hidden heavy panels should mount on demand.
+
+### Transcript and tool state are unbounded
+
+The renderer mounts every transcript message. Completed tool outputs remain in host and renderer memory. The renderer snapshot cache keeps complete snapshots for every visited session without an eviction policy.
+
+Bound each layer independently:
+
+- page old transcript turns
+- virtualize the visible timeline
+- collapse and truncate settled tool output
+- retain only a small LRU of thread details
+- keep shell metadata outside detail snapshots
+
+### Tool output crosses IPC without backpressure
+
+Each tool output update crosses Electron IPC immediately. The renderer maps the complete tool array and replaces the output string for each update. Large cumulative output missed the frame budget even without Markdown highlighting.
+
+The host should coalesce output per tool. The renderer should apply at most one update per animation frame, retain a bounded tail for display, and provide explicit access to the complete artifact when one exists.
+
+### Resource discovery dominates runtime replacement
+
+Correct session replacement currently rebuilds cwd-bound resources. In full mode, that phase costs hundreds of milliseconds and can exceed one second at startup.
+
+Reuse requires a fingerprint that includes cwd, extension configuration, relevant settings, and provider state. A cache hit must not allow mutable extension state to leak between runtimes. Prefetching is useful only after the cache boundary is correct.
+
+### Bootstrap waits for unrelated global work
+
+The host starts only after the renderer requests bootstrap. Initial detail waits for runtime creation, model discovery, the global session index, and branch resolution. The UI cannot show a cached shell and transcript while global metadata refreshes.
+
+Start host preparation before the renderer asks for it. Return a cached shell and active detail first. Refresh catalogs, branches, and the global index independently.
+
+### Git and process work is duplicated
+
+Startup can launch editor discovery, changes, workspace-info, and branch subprocesses together. A single changes refresh starts multiple Git commands. Changes refresh after startup, edits, writes, run completion, review entry, and some panel transitions. Calls have no single-flight guard, cancellation, or stale-result protection.
+
+Thread-index branch enrichment can fan out across up to 80 unique project paths. Untracked-file line counts read each file in full and do so serially.
+
+Git state needs one project-scoped service with cached status, deduplicated in-flight work, bounded concurrency, invalidation, cancellation, and versioned results.
+
+### Prompt completion rebuilds the global session index
+
+After each completed prompt, Tau runs `SessionManager.listAll()`, rebuilds and sorts every thread shell, resolves branches, and publishes the complete index.
+
+Session-file and Git invalidation events should update only changed shells. A full scan remains a recovery path, not the normal prompt-completion path.
+
+### Metadata actions return full host snapshots
+
+Model changes, thinking-level changes, compaction, title generation, and several workspace actions return a complete `HostSnapshot`. The payload includes messages, models, tool descriptions, and usage even when only one field changed.
+
+Split the protocol into thread shell updates, active detail, run events, model and extension catalogs, and project metadata. IPC cost for a metadata action should stay constant as transcript length grows.
+
+### Large diffs render in full
+
+Tau accepts a multi-megabyte patch, parses every line into objects, and mounts every line in the DOM. A large generated file can freeze review mode.
+
+Diff loading needs file and hunk limits, a truncated state, incremental loading, and row virtualization. The UI must keep navigation and approval controls responsive while a large file loads.
+
+### Sidebar work is only partly bounded
+
+Active flat lists virtualize above 80 rows. Grouped lists and the settled shelf do not. Search, sorting, grouping, and project derivation still run over the complete index when the store changes. Consumers subscribe to the whole thread store instead of individual shell records.
+
+The sidebar should subscribe to an ordered ID list plus stable shell records. Grouped and settled views need the same bounded rendering policy as the flat list.
+
+## Static risks awaiting focused measurement
+
+These code paths are plausible costs, but the audit did not isolate their runtime impact:
+
+- file-tree recursion and repeated workspace-info scans lack cache invalidation
+- Git commands lack timeouts and cancellation for locks, hooks, credentials, and slow filesystems
+- branch caches can remain stale after Git commands run through tools
+- model and command pickers use repeated index lookups during render and do not virtualize long lists
+- branch, changed-file, and model lists mount every row
+- full-screen backdrop blurs add GPU composition work
+- external Google Font imports add network-dependent first-paint work
+- settings, review, Highlight.js, and other heavy panels load in the initial renderer chunk
+
+Each item needs a fixture that can go red before implementation starts.
 
 ## Patterns adapted from T3 Code
 
-The local T3 Code source uses several patterns worth carrying into Tau:
+The local T3 Code source provides concrete patterns for Tau.
 
 ### Shell and detail are separate
 
-Thread shells contain the small, frequently visible index used by navigation. Thread details and messages are loaded through separate state. A sidebar does not subscribe to a full conversation.
+Thread shells contain the small index used by navigation. Thread details and messages load through separate state. A sidebar never subscribes to a full conversation.
 
-Relevant T3 Code modules:
+Relevant modules:
 
 - `packages/client-runtime/src/state/threadShell.ts`
 - `packages/client-runtime/src/state/threadDetail.ts`
 - `apps/web/src/state/entities.ts`
 
+### Timeline work is bounded
+
+T3 Code initially loads only the latest ten user turns, pages older history in batches, and renders the timeline through `@legendapp/list`. Stable row identities keep an active update from invalidating settled rows.
+
 ### Entities have stable identities
 
-T3 Code builds indexes and atom families for individual threads. Derived arrays reuse their previous references when their elements have not changed. One thread update does not need to invalidate every row.
+Atom families address individual threads. Derived arrays reuse their previous references when elements have not changed. One shell update does not invalidate every row.
 
-### Rows are memoized
+### Settled work collapses aggressively
 
-Sidebar draft rows, thread rows, and search rows are memoized. Expensive derived maps and sorted collections are computed with stable dependencies.
+Completed work logs expose a small visible tail and explicit expansion. Settled threads also use a bounded shelf. Tau should use separate limits for active output, settled output, and archived transcript pages.
 
-### Cached data remains renderable
+### Expensive rendering is cached or deferred
 
-Stale-while-revalidate state lets the client display cached data while refreshing it. A route can render from an existing thread shell while detail loading continues.
-
-### Large inactive tails are bounded
-
-Settled threads have an explicit visible tail and a show-more mechanism. Animation is applied at the list boundary rather than through per-frame application state.
+T3 Code caches syntax highlighting, applies content visibility to inactive rows, updates elapsed labels locally, and lazy-loads heavy panels. Cached data remains renderable while refresh work runs.
 
 ## Tau target model
 
 ### Thread index
 
-Core should own a normalized thread-shell store keyed by session ID. Each shell contains only navigation data:
+Core owns a normalized thread-shell store keyed by session ID. Each shell contains only navigation data:
 
 - project identity
 - title
@@ -73,47 +215,57 @@ Core should own a normalized thread-shell store keyed by session ID. Each shell 
 - activity and unread state
 - settled state
 
-Workspace Kit should subscribe to the ordered ID list and the individual shells it renders. It should not receive transcript messages, tool output bodies, file trees, or Git diffs through the same subscription.
+Workspace Kit subscribes to the ordered ID list and the individual shells it renders. It does not receive transcript messages, tool output bodies, file trees, or Git diffs through the same subscription.
 
 ### Active thread detail
 
-The active transcript belongs in a separate store keyed by session ID. Recently visited transcripts should remain in a small LRU cache. Selecting a cached thread should update the route and transcript immediately while the host confirms or refreshes the session.
+The active transcript lives in a separate store keyed by session ID. Recently visited transcripts remain in a small LRU cache. Selecting a cached thread updates navigation and transcript immediately while the host confirms or refreshes the session.
+
+History loads in pages. The DOM contains only a bounded viewport and overscan rather than every loaded message.
 
 ### Streaming
 
-Host deltas may arrive faster than the display refresh rate. The renderer should buffer text and thinking deltas and flush them at most once per animation frame. A delta should update only the active message rather than map and recreate the complete message array.
+The host may emit deltas faster than the display refresh rate. The renderer buffers text, thinking, and tool-output deltas and flushes each record at most once per animation frame. A delta updates one active record rather than mapping the complete collection.
 
-### Host snapshots
+Active Markdown uses a cheap streaming representation. Settled content moves into cached parsed blocks.
 
-The host should separate these messages:
+### Host protocol
+
+The host separates these messages:
 
 - thread index snapshot and incremental shell updates
-- active thread detail snapshot
+- active thread detail snapshot and history pages
 - streaming run events
 - model and extension catalog updates
 - project and Git metadata updates
 
-Switching threads should not relist every session or model. Branch lookups, model availability, and session indexes need independent caches and invalidation rules.
+Switching threads does not relist every session or model. Branch lookups, model availability, session indexes, and Git state have independent caches and invalidation rules.
 
 ### Extension interface
 
-Desktop extensions should consume selector-based stores and capability-specific events. Core remains responsible for batching, cache coherence, backpressure, cancellation, and protocol versioning. Extensions remain responsible for local derivation and rendering.
+Desktop extensions consume selector-based stores and capability-specific events. Core remains responsible for batching, cache coherence, backpressure, cancellation, and protocol versioning. Extensions remain responsible for local derivation and rendering.
 
-An extension that requests an entire workbench snapshot for every token is using the wrong interface. The fix belongs at the seam rather than by moving the feature back into core.
+An extension that requests an entire workbench snapshot for every token is using the wrong interface. Fix the seam rather than moving the feature back into core. This preserves the ownership boundaries in ADR 0002 and ADR 0003.
 
 ## Interaction budgets
 
 Initial local targets:
 
-- selected thread feedback within one 16 ms frame
+- selected-thread feedback within one 16 ms frame
 - cached transcript visible within 50 ms
 - local host switch confirmed within 150 ms at p95
-- no more than one transcript commit per animation frame while streaming
+- one transcript commit per animation frame while streaming
+- 150 KB plain-text and fenced-code streams below 24 ms frame p95 after initial block parsing
+- no task above 50 ms during steady-state streaming
+- one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
 - unchanged sidebar rows do not rerender when another row changes
 - sidebar search remains responsive with 10,000 thread shells
-- opening a cached project picker does not perform filesystem or Git work
+- transcript DOM size remains bounded with 1,000 loaded turns
+- metadata IPC payload size remains constant as transcript length grows
+- opening cached project navigation performs no filesystem or Git work
+- full-mode local thread switches stay below 150 ms at p95 after cache warm-up
 
-Each target needs instrumentation before it becomes a release gate.
+Record the fixture, machine class, build mode, median, p95, and maximum with each result. Promote a budget to a release gate only after the fixture is repeatable in CI.
 
 ## Implemented baseline
 
@@ -133,12 +285,15 @@ Each target needs instrumentation before it becomes a release gate.
 - virtualized active thread rows above 80 items with six-row overscan
 - switch timing events and repeatable host smoke measurements
 
-## Next sequence
+## Execution order
 
-1. Normalize active messages so a delta mutates one message record rather than mapping the array.
-2. Prefetch likely next sessions on hover or keyboard selection.
-3. Investigate fingerprinted resource reuse without weakening cwd or extension isolation.
-4. Replace prompt-completion index refreshes with session-file and Git invalidation events.
-5. Add React render-count tests and host timing tests to CI.
+1. Add repeatable renderer, IPC, Git, and lifecycle fixtures for the observed failures.
+2. Isolate streaming records and render an active Markdown tail without reparsing settled content.
+3. Bound transcript, tool-output, diff, and sidebar rendering.
+4. Split root state, workbench context, and host snapshots by update frequency.
+5. Cache fingerprinted runtime resources and move global refresh work off the switch path.
+6. Consolidate Git work behind deduplication, bounded concurrency, invalidation, and cancellation.
+7. Minify the production build, split heavy panels, and add bundle budgets.
+8. Promote stable fixtures to CI gates.
 
-Performance work should preserve the extension ownership recorded in ADR 0002. The intended result is a fast extension system, not a fast monolith.
+Performance work must preserve extension ownership from ADR 0002 and thread ownership from ADR 0003. The target is a fast extension system, not a fast monolith.
