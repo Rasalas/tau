@@ -29,13 +29,55 @@ export interface WorkbenchShellContextValue {
   registry: ExtensionRegistry;
 }
 
+/** Narrow contexts keep panel updates local to the data they display. */
+export interface FilesContextValue {
+  fileTree: FileNode[];
+  snapshot?: HostSnapshot;
+  refreshFiles(): Promise<void>;
+}
+
+export interface ChangesContextValue {
+  changes: UiWorkspaceChanges;
+  snapshot?: HostSnapshot;
+  refreshChanges(): Promise<void>;
+  openReview(path?: string): void;
+}
+
+export interface ObservatoryContextValue {
+  events: TimelineEvent[];
+  snapshot?: HostSnapshot;
+  tools: UiToolRun[];
+  registry: ExtensionRegistry;
+}
+
 export const WorkbenchContext = createContext<WorkbenchContextValue | undefined>(undefined);
+export const FilesContext = createContext<FilesContextValue | undefined>(undefined);
+export const ChangesContext = createContext<ChangesContextValue | undefined>(undefined);
+export const ObservatoryContext = createContext<ObservatoryContextValue | undefined>(undefined);
 export const WorkbenchShellContext = createContext<WorkbenchShellContextValue | undefined>(undefined);
 export const ThreadStoreContext = createContext<ThreadStore | undefined>(undefined);
 
 export function useWorkbench(): WorkbenchContextValue {
   const value = useContext(WorkbenchContext);
   if (!value) throw new Error("WorkbenchContext is not available");
+  return value;
+}
+
+export function useFiles(): FilesContextValue {
+  const value = useContext(FilesContext);
+  if (!value) throw new Error("FilesContext is not available");
+  return value;
+}
+
+export function useChanges(): ChangesContextValue {
+  const value = useContext(ChangesContext);
+  if (!value) throw new Error("ChangesContext is not available");
+  return value;
+}
+
+export function useObservatory(): ObservatoryContextValue {
+  const value = useContext(ObservatoryContext);
+  if (!value) throw new Error("ObservatoryContext is not available");
   return value;
 }
 

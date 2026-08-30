@@ -13,7 +13,8 @@
     "start:safe": "TAU_NO_EXTENSIONS=1 npm start",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "benchmark:renderer": "node scripts/renderer-benchmark.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.4",

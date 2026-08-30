@@ -1,8 +1,8 @@
 import type { PanelProps } from "../extension-system";
-import { useWorkbench } from "../workbench-context";
+import { useObservatory } from "../workbench-context";
 
 export function ObservatoryPanel({ extensionName }: PanelProps) {
-  const { events, snapshot, tools, registry } = useWorkbench();
+  const { events, snapshot, tools, registry } = useObservatory();
 
   return (
     <section className="panel-body">

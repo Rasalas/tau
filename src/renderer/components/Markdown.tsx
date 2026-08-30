@@ -25,18 +25,42 @@ for (const [name, language] of Object.entries({
   hljs.registerLanguage(name, language);
 }
 
+export const HIGHLIGHT_CACHE_LIMIT = 96;
+const highlightCache = new Map<string, string>();
+
+/** Bounded syntax cache: streaming responses must not retain every intermediate token. */
+export function highlightedCode(code: string, language?: string): string | undefined {
+  if (!language || !hljs.getLanguage(language)) return undefined;
+  const key = `${language}\0${code}`;
+  const cached = highlightCache.get(key);
+  if (cached !== undefined) {
+    highlightCache.delete(key);
+    highlightCache.set(key, cached);
+    return cached;
+  }
+  try {
+    const highlighted = hljs.highlight(code, { language, ignoreIllegals: true }).value;
+    highlightCache.set(key, highlighted);
+    if (highlightCache.size > HIGHLIGHT_CACHE_LIMIT) highlightCache.delete(highlightCache.keys().next().value!);
+    return highlighted;
+  } catch {
+    return undefined;
+  }
+}
+
+export function clearHighlightCache(): void {
+  highlightCache.clear();
+}
+
+export function highlightCacheSize(): number {
+  return highlightCache.size;
+}
+
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   // hljs escapes its input, so the produced markup is safe to inject.
-  const highlighted = useMemo(() => {
-    if (!language || !hljs.getLanguage(language)) return undefined;
-    try {
-      return hljs.highlight(code, { language, ignoreIllegals: true }).value;
-    } catch {
-      return undefined;
-    }
-  }, [code, language]);
+  const highlighted = useMemo(() => highlightedCode(code, language), [code, language]);
 
   const copy = () => {
     const settle = (state: "copied" | "failed") => {
@@ -94,15 +118,27 @@ const COMPONENTS: Components = {
  * Renders agent and user text. Raw HTML is deliberately not enabled, so anything
  * HTML-shaped in a model response stays inert text.
  */
-export const Markdown = memo(function Markdown({ children }: { children: string }) {
+const MarkdownTree = memo(function MarkdownTree({ children }: { children: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={COMPONENTS}>
+      {children}
+    </ReactMarkdown>
+  );
+});
+
+/** Keep the mutable tail cheap; settled paragraphs are parsed only when a boundary is crossed. */
+export const Markdown = memo(function Markdown({ children, streaming = false }: { children: string; streaming?: boolean }) {
+  if (!streaming || children.length < 512) {
+    return <div className="markdown"><MarkdownTree>{children}</MarkdownTree></div>;
+  }
+  const boundary = children.lastIndexOf("\n\n");
+  if (boundary < 0) return <div className="markdown"><pre className="streaming-tail">{children}</pre></div>;
+  const settled = children.slice(0, boundary + 2);
+  const tail = children.slice(boundary + 2);
   return (
     <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        components={COMPONENTS}
-      >
-        {children}
-      </ReactMarkdown>
+      <MarkdownTree>{settled}</MarkdownTree>
+      <pre className="streaming-tail">{tail}</pre>
     </div>
   );
 });

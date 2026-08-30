@@ -159,6 +159,7 @@ export class ExtensionRegistry {
   private activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
   private listeners = new Set<() => void>();
   private version = 0;
+  private sortedCache = new Map<string, { version: number; value: unknown[] }>();
 
   /** Make an extension known without activating it, so settings can list and enable it. */
   addKnown(extension: DesktopExtension): void {
@@ -240,19 +241,19 @@ export class ExtensionRegistry {
   }
 
   getPanels(): Array<Owned<PanelContribution>> {
-    return [...this.panels.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    return this.sorted("panels", this.panels);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
-    return [...this.sidebarContributions.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    return this.sorted("sidebar", this.sidebarContributions);
   }
 
   getProjectSources(): Array<Owned<ProjectSourceContribution>> {
-    return [...this.projectSources.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    return this.sorted("sources", this.projectSources);
   }
 
   getCommands(): Array<Owned<CommandContribution>> {
-    return [...this.commands.values()];
+    return this.sorted("commands", this.commands, false);
   }
 
   getExtensionSummaries(): ExtensionSummary[] {
@@ -308,6 +309,21 @@ export class ExtensionRegistry {
     disposers.push(dispose);
     this.changed();
     return dispose;
+  }
+
+  private sorted<T>(
+    key: string,
+    map: Map<string, T>,
+    byOrder = true,
+  ): T[] {
+    const cached = this.sortedCache.get(key);
+    if (cached?.version === this.version) return cached.value as T[];
+    const value = [...map.values()];
+    if (byOrder) value.sort((a, b) =>
+      ((a as { order?: number }).order ?? 0) - ((b as { order?: number }).order ?? 0),
+    );
+    this.sortedCache.set(key, { version: this.version, value });
+    return value;
   }
 
   private changed(): void {

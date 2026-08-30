@@ -1,17 +1,22 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { UiToolRun } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
+import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
 
 function seconds(from: number, to: number): string {
   return `${Math.max(1, Math.round((to - from) / 1000))}s`;
 }
 
-function ToolRun({ tool, registry }: { tool: UiToolRun; registry: ExtensionRegistry }) {
+const ToolRun = memo(function ToolRun({ tool, registry }: { tool: UiToolRun; registry: ExtensionRegistry }) {
   const running = tool.status === "running";
   // A running tool shows what it has produced so far without needing a click.
   const [collapsed, setCollapsed] = useState(false);
   const view = registry.presentTool(tool);
-  const showOutput = Boolean(tool.output) && (running ? !collapsed : collapsed);
+  const bounded = boundToolOutput(tool.output, running ? ACTIVE_TOOL_OUTPUT_LIMIT : SETTLED_TOOL_OUTPUT_LIMIT);
+  const showOutput = Boolean(bounded.text) && (running ? !collapsed : collapsed);
+  const copyFullOutput = () => {
+    if (tool.output) void navigator.clipboard?.writeText(tool.output);
+  };
 
   return (
     <div className={`tool-run tone-${view.tone}`}>
@@ -27,10 +32,19 @@ function ToolRun({ tool, registry }: { tool: UiToolRun; registry: ExtensionRegis
               : tool.endedAt ? seconds(tool.startedAt, tool.endedAt) : "✓"}
         </span>
       </button>
-      {showOutput ? <pre className="tool-output">{tool.output}</pre> : null}
+      {showOutput ? (
+        <pre className="tool-output">
+          {bounded.truncated ? (
+            <button className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); copyFullOutput(); }}>
+              … earlier output hidden · copy full output
+            </button>
+          ) : null}
+          {bounded.text}
+        </pre>
+      ) : null}
     </div>
   );
-}
+});
 
 export function ToolGroup({ tools, registry }: { tools: UiToolRun[]; registry: ExtensionRegistry }) {
   if (tools.length === 0) return null;

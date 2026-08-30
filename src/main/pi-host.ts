@@ -40,6 +40,7 @@ import { createAccessExtension, type AccessDecision } from "./access-extension.j
 import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
+import { ToolOutputBatcher } from "./tool-output-batcher.js";
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
 
 type Emit = (event: HostEvent) => void;
@@ -197,6 +198,7 @@ export class PiHost {
   private accessLevel: AccessLevel = "full";
   private pendingApprovals = new Map<string, (decision: AccessDecision) => void>();
   private approvalCounter = 0;
+  private readonly toolOutputBatcher: ToolOutputBatcher;
   private readonly createRuntime: CreateAgentSessionRuntimeFactory = async ({
     cwd,
     agentDir,
@@ -265,6 +267,9 @@ export class PiHost {
   ) {
     this.cwd = cwd;
     this.emit = emit;
+    this.toolOutputBatcher = new ToolOutputBatcher((updates) => {
+      for (const [id, output] of updates) this.emit({ type: "tool-update", id, output });
+    });
   }
 
   async start(): Promise<HostBootstrap> {
@@ -597,6 +602,7 @@ export class PiHost {
 
   async dispose(): Promise<void> {
     return this.runLifecycle(async () => {
+      this.toolOutputBatcher.dispose();
       const runtime = this.runtime;
       let teardownErrors: unknown[] = [];
       if (runtime) teardownErrors = await this.shutdownRuntime(runtime);
@@ -869,14 +875,16 @@ export class PiHost {
           this.log("tool.started", event.toolName);
           break;
         }
-        case "tool_execution_update":
-          this.emit({
-            type: "tool-update",
-            id: event.toolCallId,
-            output: resultText(event.partialResult),
-          });
+        case "tool_execution_update": {
+          const output = resultText(event.partialResult);
+          const previous = this.tools.get(event.toolCallId);
+          if (previous) this.tools.set(event.toolCallId, { ...previous, output });
+          this.toolOutputBatcher.push(event.toolCallId, output);
           break;
+        }
         case "tool_execution_end": {
+          // Never let a delayed batch arrive after the terminal event.
+          this.toolOutputBatcher.flushId(event.toolCallId);
           const previous = this.tools.get(event.toolCallId);
           const tool: UiToolRun = {
             id: event.toolCallId,
@@ -890,6 +898,9 @@ export class PiHost {
           this.tools.set(tool.id, tool);
           this.invalidateGitAfterTool(tool);
           this.emit({ type: "tool-end", tool });
+          // Settled output belongs to the renderer/artifact store, not the host's
+          // active-run map. Do not retain every completed tool forever.
+          this.tools.delete(tool.id);
           this.log("tool.ended", `${event.toolName}:${tool.status}`);
           break;
         }

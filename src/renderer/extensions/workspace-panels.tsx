@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { FileNode } from "../../shared/contracts";
 import type { PanelProps } from "../extension-system";
-import { useWorkbench } from "../workbench-context";
+import { useChanges, useFiles } from "../workbench-context";
 
 function FileRow({
   node,
@@ -39,7 +39,8 @@ function FileRow({
 }
 
 export function FilesPanel({ active, extensionName }: PanelProps) {
-  const { fileTree, refreshFiles, snapshot, changes } = useWorkbench();
+  const { fileTree, refreshFiles, snapshot } = useFiles();
+  const { changes } = useChanges();
   useEffect(() => {
     if (active) void refreshFiles();
   }, [active, refreshFiles, snapshot?.cwd]);
@@ -66,7 +67,7 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
 }
 
 export function ChangesPanel({ active, extensionName }: PanelProps) {
-  const { changes, refreshChanges, openReview, snapshot } = useWorkbench();
+  const { changes, refreshChanges, openReview, snapshot } = useChanges();
   useEffect(() => {
     if (active) void refreshChanges();
   }, [active, refreshChanges, snapshot?.cwd]);

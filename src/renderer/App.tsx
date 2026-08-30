@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { PanelRight, PanelRightClose } from "lucide-react";
 import type {
   FileNode,
@@ -34,6 +34,9 @@ import {
   ThreadStoreContext,
   WorkbenchContext,
   WorkbenchShellContext,
+  FilesContext,
+  ChangesContext,
+  ObservatoryContext,
   type TimelineEvent,
 } from "./workbench-context";
 
@@ -84,6 +87,50 @@ function elapsedLabel(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
+function LiveStatus({ startedAt }: { startedAt?: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (startedAt === undefined) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  return <div className="live-status"><span className="spinner" /><span>Pi is working{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
+}
+
+function useTailScroll(
+  ref: RefObject<HTMLDivElement | null>,
+  updates: readonly unknown[],
+): void {
+  const pinnedRef = useRef(true);
+  const frameRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const onScroll = () => {
+      pinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+    };
+    node.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => node.removeEventListener("scroll", onScroll);
+  }, [ref]);
+  useEffect(() => {
+    if (!pinnedRef.current || frameRef.current !== undefined) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = undefined;
+      const node = ref.current;
+      if (node && pinnedRef.current) node.scrollTop = node.scrollHeight;
+    });
+    return () => {
+      if (frameRef.current !== undefined) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = undefined;
+      }
+    };
+  // The array identity is intentionally controlled by the caller's visible records.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, updates);
+}
+
 export default function App() {
   const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
   const [registry] = useState(() => {
@@ -111,24 +158,25 @@ export default function App() {
   const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
   const [workedMs, setWorkedMs] = useState<Record<string, number>>({});
   const [runStartedAt, setRunStartedAt] = useState<number>();
-  const [now, setNow] = useState(Date.now());
   const [activePanel, setActivePanel] = useState("");
+  const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<string>();
   const [threadMenuOpen, setThreadMenuOpen] = useState(false);
   const [review, setReview] = useState<{ path?: string }>();
   const [committing, setCommitting] = useState(false);
-  const [composer, setComposer] = useState("");
+  const [composerSeed, setComposerSeed] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [dockOpen, setDockOpen] = useState(true);
   const [olderCursor, setOlderCursor] = useState<string>();
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const preserveScrollRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
+  const pendingToolUpdatesRef = useRef(new Map<string, string>());
+  const toolFrameRef = useRef<number | undefined>(undefined);
   const reasoningRef = useRef(new Map<string, number>());
   const runningThreadRef = useRef<string>("");
 
@@ -158,8 +206,27 @@ export default function App() {
     }
   }, [flushAssistantDeltas]);
 
+  const flushToolUpdates = useCallback(() => {
+    toolFrameRef.current = undefined;
+    const pending = pendingToolUpdatesRef.current;
+    if (pending.size === 0) return;
+    pendingToolUpdatesRef.current = new Map();
+    setTools((current) => current.map((tool) => {
+      const output = pending.get(tool.id);
+      return output === undefined || output === tool.output ? tool : { ...tool, output };
+    }));
+  }, []);
+
+  const queueToolUpdate = useCallback((id: string, output: string) => {
+    pendingToolUpdatesRef.current.set(id, output);
+    if (toolFrameRef.current === undefined) toolFrameRef.current = requestAnimationFrame(flushToolUpdates);
+  }, [flushToolUpdates]);
+
   const applySnapshot = useCallback((next: HostSnapshot) => {
     pendingDeltasRef.current.clear();
+    pendingToolUpdatesRef.current.clear();
+    if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
+    toolFrameRef.current = undefined;
     if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
     deltaFrameRef.current = undefined;
     const detail: import("../shared/host-protocol").ThreadDetail = {
@@ -300,9 +367,10 @@ export default function App() {
         setTools((current) => [...current.filter((tool) => tool.id !== event.tool.id), event.tool]);
         break;
       case "tool-update":
-        setTools((current) => current.map((tool) => tool.id === event.id ? { ...tool, output: event.output } : tool));
+        queueToolUpdate(event.id, event.output);
         break;
       case "tool-end":
+        pendingToolUpdatesRef.current.delete(event.tool.id);
         threadStore.toolEnded(event.tool.id);
         setTools((current) => current.map((tool) => tool.id === event.tool.id ? event.tool : tool));
         if (event.tool.name === "edit" || event.tool.name === "write") void refreshChanges();
@@ -317,7 +385,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, applyHostUpdate, applySnapshot, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, refreshChanges, threadStore]);
+  }, [addEvent, applyHostUpdate, applySnapshot, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, threadStore]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -364,13 +432,7 @@ export default function App() {
     void window.tau?.setAccessLevel(settings.accessLevel);
   }, [settings.accessLevel]);
 
-  useEffect(() => {
-    if (preserveScrollRef.current) {
-      preserveScrollRef.current = false;
-      return;
-    }
-    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, tools]);
+  useTailScroll(transcriptRef, [messages, tools]);
 
   const loadOlder = useCallback(async () => {
     if (!olderCursor || loadingOlder || !snapshot || !window.tau) return;
@@ -381,7 +443,6 @@ export default function App() {
     try {
       const page = await window.tau.loadTranscript(snapshot.sessionId, olderCursor);
       if (page.sessionId !== snapshot.sessionId) return;
-      preserveScrollRef.current = true;
       setMessages((current) => [...page.messages, ...current]);
       setOlderCursor(page.olderCursor);
       window.requestAnimationFrame(() => {
@@ -404,12 +465,6 @@ export default function App() {
   }, [loadOlder]);
 
   useEffect(() => {
-    if (runStartedAt === undefined) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [runStartedAt]);
-
-  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(undefined), 5000);
     return () => window.clearTimeout(timer);
@@ -418,7 +473,10 @@ export default function App() {
   const panels = registry.getPanels();
   useEffect(() => {
     if (panels.length === 0) { setActivePanel(""); return; }
-    if (!panels.some((panel) => panel.id === activePanel)) setActivePanel(panels[0].id);
+    if (!panels.some((panel) => panel.id === activePanel)) {
+      setActivePanel(panels[0].id);
+      setOpenedPanels((current) => current.has(panels[0].id) ? current : new Set(current).add(panels[0].id));
+    }
   }, [activePanel, panels]);
 
   const refreshFiles = useCallback(async () => {
@@ -441,7 +499,11 @@ export default function App() {
     else setNotice("New thread requires the Electron host");
   }, [applySnapshot]);
 
-  const openPanel = useCallback((id: string) => { setActivePanel(id); setDockOpen(true); }, []);
+  const openPanel = useCallback((id: string) => {
+    setActivePanel(id);
+    setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
+    setDockOpen(true);
+  }, []);
   const openReview = useCallback((path?: string) => {
     void refreshChanges();
     setReview({ path });
@@ -623,7 +685,7 @@ export default function App() {
     switchSession,
     settleActiveThread,
     abort: () => void window.tau?.abort(),
-    focusComposer: (seed) => { if (seed) setComposer(seed); composerRef.current?.focus(); },
+    focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     chooseWorkspace,
     openWorkspace,
@@ -639,10 +701,9 @@ export default function App() {
     openReview, openWorkspace, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
-  const submit = useCallback(async () => {
-    const text = composer.trim();
+  const submit = useCallback(async (value: string) => {
+    const text = value.trim();
     if (!text) return;
-    setComposer("");
     if (snapshot?.isStreaming) {
       if (window.tau) {
         try { await window.tau.steer(text); } catch (error) { setNotice(String(error)); }
@@ -675,7 +736,7 @@ export default function App() {
         setRunStartedAt(undefined);
       }, 650);
     }
-  }, [actions, composer, registry, snapshot, threadStore]);
+  }, [actions, registry, snapshot, threadStore]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -693,7 +754,7 @@ export default function App() {
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  });
+  }, [createSession, openReview, paletteOpen, settleActiveThread, snapshot?.isStreaming]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -717,6 +778,9 @@ export default function App() {
     [snapshot, tools, events, fileTree, changes, registry, refreshFiles, refreshChanges, openReview, applySnapshot, handleHostEvent],
   );
   const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
+  const filesContextValue = useMemo(() => ({ fileTree, snapshot, refreshFiles }), [fileTree, snapshot, refreshFiles]);
+  const changesContextValue = useMemo(() => ({ changes, snapshot, refreshChanges, openReview }), [changes, snapshot, refreshChanges, openReview]);
+  const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
@@ -768,6 +832,9 @@ export default function App() {
       <ThreadStoreContext.Provider value={threadStore}>
         <WorkbenchShellContext.Provider value={shellContextValue}>
           <WorkbenchContext.Provider value={contextValue}>
+            <FilesContext.Provider value={filesContextValue}>
+              <ChangesContext.Provider value={changesContextValue}>
+              <ObservatoryContext.Provider value={observatoryContextValue}>
             <ReviewMode
               changes={changes}
               selectedPath={review.path ?? changes.files[0]?.path}
@@ -782,6 +849,9 @@ export default function App() {
                 : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }}
             />
             {overlays}
+              </ObservatoryContext.Provider>
+              </ChangesContext.Provider>
+            </FilesContext.Provider>
           </WorkbenchContext.Provider>
         </WorkbenchShellContext.Provider>
       </ThreadStoreContext.Provider>
@@ -792,6 +862,9 @@ export default function App() {
     <ThreadStoreContext.Provider value={threadStore}>
       <WorkbenchShellContext.Provider value={shellContextValue}>
         <WorkbenchContext.Provider value={contextValue}>
+          <FilesContext.Provider value={filesContextValue}>
+            <ChangesContext.Provider value={changesContextValue}>
+            <ObservatoryContext.Provider value={observatoryContextValue}>
           <div className={shellClassName}>
             <TitleBar
               cwd={snapshot?.cwd}
@@ -840,30 +913,29 @@ export default function App() {
 
               <div className="transcript" ref={transcriptRef}>
                 <div className="transcript-inner">
-                  {messages.map((message) => (
-                    <Message key={message.id} message={message} workedMs={workedMs[message.id]} />
+                  {messages.map((message, index) => (
+                    <Message
+                      key={message.id}
+                      message={message}
+                      workedMs={workedMs[message.id]}
+                      streaming={Boolean(snapshot?.isStreaming && index === messages.length - 1 && message.role === "assistant")}
+                    />
                   ))}
                   <ToolGroup tools={tools} registry={registry} />
                   <ChangedFiles changes={changes} onOpenDiff={openReview} />
-                  {snapshot?.isStreaming ? (
-                    <div className="live-status">
-                      <span className="spinner" />
-                      <span>Pi is working{runStartedAt ? ` · ${elapsedLabel(now - runStartedAt)}` : ""}</span>
-                    </div>
-                  ) : null}
+                  {snapshot?.isStreaming ? <LiveStatus startedAt={runStartedAt} /> : null}
                 </div>
               </div>
 
               <Composer
                 snapshot={snapshot}
-                value={composer}
+                seed={composerSeed}
                 queue={queue}
                 accessLevel={settings.accessLevel}
                 contextUsage={snapshot?.contextUsage}
                 contextBreakdown={contextBreakdown}
                 textareaRef={composerRef}
-                onChange={setComposer}
-                onSubmit={() => void submit()}
+                onSubmit={(text) => void submit(text ?? "")}
                 onAbort={() => void window.tau?.abort()}
                 onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
                 onSetModel={(provider, id) => void setModel(provider, id)}
@@ -882,11 +954,11 @@ export default function App() {
               <aside className="instrument-dock">
                 {dockOpen ? (
                   <div className="panel-stage">
-                    {panels.map((panel) => (
+                    {panels.map((panel) => openedPanels.has(panel.id) ? (
                       <div className={activePanel === panel.id ? "panel active" : "panel"} key={panel.id}>
                         <panel.Component active={activePanel === panel.id} extensionName={panel.extensionName} />
                       </div>
-                    ))}
+                    ) : null)}
                   </div>
                 ) : null}
                 <nav className="panel-rail">
@@ -914,6 +986,9 @@ export default function App() {
             ) : null}
           </div>
           {overlays}
+            </ObservatoryContext.Provider>
+            </ChangesContext.Provider>
+          </FilesContext.Provider>
         </WorkbenchContext.Provider>
       </WorkbenchShellContext.Provider>
     </ThreadStoreContext.Provider>

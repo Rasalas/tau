@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Sparkles, X, Zap } from "lucide-react";
 import type { HostSnapshot, UiContextUsage, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
@@ -12,6 +12,7 @@ type OpenMenu = "thinking" | "access" | undefined;
 export function Composer({
   snapshot,
   value,
+  seed,
   queue,
   accessLevel,
   contextUsage,
@@ -32,14 +33,15 @@ export function Composer({
   onSwitchRef,
 }: {
   snapshot?: HostSnapshot;
-  value: string;
+  value?: string;
+  seed?: string;
   queue: string[];
   accessLevel: AccessLevel;
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
-  onChange(value: string): void;
-  onSubmit(): void;
+  onChange?(value: string): void;
+  onSubmit(text?: string): void;
   onAbort(): void;
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
@@ -53,6 +55,16 @@ export function Composer({
   onSwitchRef(ref: string): void;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
+  const [draft, setDraft] = useState("");
+  const text = value ?? draft;
+  const appliedSeed = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
+      appliedSeed.current = seed;
+      setDraft(seed);
+    }
+  }, [seed, value]);
+  const updateDraft = (next: string) => { if (value === undefined) setDraft(next); onChange?.(next); };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const streaming = Boolean(snapshot?.isStreaming);
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
@@ -77,12 +89,13 @@ export function Composer({
         <textarea
           ref={textareaRef}
           rows={1}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+          value={text}
+          onChange={(event) => updateDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              onSubmit();
+              onSubmit(text);
+              updateDraft("");
             }
           }}
           placeholder={
@@ -153,8 +166,8 @@ export function Composer({
             <button
               className="send-button"
               title="Send"
-              disabled={value.trim().length === 0}
-              onClick={onSubmit}
+              disabled={text.trim().length === 0}
+              onClick={() => { onSubmit(text); updateDraft(""); }}
             >
               <ArrowUp size={16} />
             </button>

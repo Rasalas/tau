@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "startConditions": {
+    "build": "npm run build",
+    "mode": "production renderer",
+    "viewport": "1440x900",
+    "throttle": "none",
+    "warmupRuns": 2,
+    "sampleRuns": 5
+  },
+  "scenarios": [
+    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript" },
+    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600 },
+    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576 },
+    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000 },
+    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152 }
+  ]
+}

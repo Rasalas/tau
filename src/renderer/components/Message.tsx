@@ -15,9 +15,11 @@ function duration(ms: number): string {
 export const Message = memo(function Message({
   message,
   workedMs,
+  streaming = false,
 }: {
   message: UiMessage;
   workedMs?: number;
+  streaming?: boolean;
 }) {
   const [reasoningOpen, setReasoningOpen] = useState(false);
 
@@ -45,7 +47,7 @@ export const Message = memo(function Message({
       ) : null}
       <div className="message-text">
         {message.text
-          ? <Markdown>{message.text}</Markdown>
+          ? <Markdown streaming={streaming}>{message.text}</Markdown>
           : <span className="typing-mark">thinking</span>}
       </div>
     </article>
