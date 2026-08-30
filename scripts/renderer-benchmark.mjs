@@ -1,58 +1,73 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { performance } from "node:perf_hooks";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 
-const execFileAsync = promisify(execFile);
-const fixture = JSON.parse(await readFile(new URL("../benchmarks/renderer-fixtures.json", import.meta.url), "utf8"));
-const outputPath = process.argv[2] ?? "benchmarks/renderer-results.json";
-await execFileAsync("npm", ["run", "build"], { stdio: "inherit" });
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
+const fixture = JSON.parse(await readFile(join(ROOT, "benchmarks", "renderer-fixtures.json"), "utf8"));
+const budgets = JSON.parse(await readFile(join(ROOT, "scripts", "performance-budgets.json"), "utf8"));
+const args = process.argv.slice(2);
+const check = args.includes("--check");
+const skipBuild = args.includes("--no-build");
+const outputArg = args.find((arg) => !arg.startsWith("--"));
+const outputPath = join(ROOT, outputArg ?? "reports/renderer-report.json");
 
 function percentile(values, p) {
+  if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
 }
-function runScenario(scenario) {
+
+function run(command, commandArgs) {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const result = spawnSync(command, commandArgs, { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (result.status !== 0) throw new Error(result.stderr || result.stdout || `${command} failed`);
+  return result.stdout;
+}
+
+if (!skipBuild) run("npm", ["run", "build"]);
+
+function sampleScenario(scenario) {
   const samples = [];
-  const frameIntervalsMs = [];
-  const size = scenario.bytes ?? scenario.turns * 128;
-  for (let run = 0; run < fixture.startConditions.sampleRuns; run += 1) {
-    const started = performance.now();
-    // The fixture is intentionally chunked at the display refresh boundary. An
-    // instrumented Electron run can replace this loop with browser trace samples.
-    let checksum = 0;
-    let previous = started;
-    for (let offset = 0; offset < size; offset += 4096) {
-      checksum = (checksum + offset) % 1000003;
-      const current = performance.now();
-      if (run === fixture.startConditions.sampleRuns - 1) frameIntervalsMs.push(current - previous);
-      previous = current;
-    }
-    samples.push(performance.now() - started + checksum * 0);
+  for (let runIndex = 0; runIndex < fixture.startConditions.warmupRuns + fixture.startConditions.sampleRuns; runIndex += 1) {
+    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id]);
+    const line = stdout.trim().split("\n").reverse().find((candidate) => candidate.startsWith("{"));
+    if (!line) throw new Error(`renderer fixture returned no JSON for ${scenario.id}`);
+    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(JSON.parse(line));
   }
+  const frames = samples.flatMap((sample) => sample.frameIntervalsMs);
+  const longTasks = samples.flatMap((sample) => sample.longTasksMs);
+  const commitDurations = samples.flatMap((sample) => sample.commitDurationsMs);
+  const heaps = samples.map((sample) => sample.heapBytes ?? 0);
   return {
     id: scenario.id,
-    samplesMs: samples,
-    medianMs: percentile(samples, 0.5),
-    p95Ms: percentile(samples, 0.95),
-    maximumMs: Math.max(...samples),
     fixture: scenario,
-    metrics: {
-      frameIntervalsMs,
-      longTasksMs: frameIntervalsMs.filter((value) => value >= 50),
-      commits: Math.ceil(size / 4096),
-      domNodes: scenario.kind === "transcript" ? scenario.turns * 4 : Math.ceil(size / 32),
-      heapBytes: process.memoryUsage().heapUsed,
-    },
+    sampleRuns: samples.length,
+    longTaskObserverSupported: samples.every((sample) => sample.longTaskObserverSupported === true),
+    frameIntervalsMs: { median: percentile(frames, 0.5), p95: percentile(frames, 0.95), maximum: Math.max(0, ...frames) },
+    longTasksMs: { count: longTasks.length, median: percentile(longTasks, 0.5), p95: percentile(longTasks, 0.95), maximum: Math.max(0, ...longTasks) },
+    commitDurationsMs: { median: percentile(commitDurations, 0.5), p95: percentile(commitDurations, 0.95), maximum: Math.max(0, ...commitDurations) },
+    commits: Math.max(...samples.map((sample) => sample.commits)),
+    domNodes: Math.max(...samples.map((sample) => sample.domNodes)),
+    heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
   };
 }
-const results = {
-  version: 1,
+
+const report = {
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   startConditions: fixture.startConditions,
-  scenarios: fixture.scenarios.map(runScenario),
-  note: "Run in the production build; browser metrics are populated by the CDP fixture when available.",
+  scenarios: fixture.scenarios.map(sampleScenario),
 };
-await mkdir(new URL("../" + outputPath.replace(/\/[^/]*$/, ""), import.meta.url), { recursive: true }).catch(() => {});
-await writeFile(outputPath, JSON.stringify(results, null, 2) + "\n");
-console.log(`Renderer benchmark results written to ${outputPath}`);
+await mkdir(dirname(outputPath), { recursive: true });
+await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+
+const failures = check ? evaluateRendererBudgets(report, budgets) : [];
+console.log(`Renderer report: ${outputPath}`);
+if (failures.length > 0) {
+  console.error(`Renderer budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
+  process.exitCode = 1;
+}

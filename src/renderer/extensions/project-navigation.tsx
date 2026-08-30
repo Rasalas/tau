@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, LayoutGrid, Plus, Search, Settings, X } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import type {
@@ -126,7 +127,7 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
 function ProjectScope({ actions }: SidebarContributionProps) {
   const { snapshot, registry } = useWorkbenchShell();
   const threadStore = useThreadStore();
-  const threadIndex = useSyncExternalStore(threadStore.subscribe, threadStore.getSnapshot);
+  const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const [searchOpen, setSearchOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const projectSources = useMemo(() => registry.getProjectSources(), [registry, addOpen]);
@@ -155,7 +156,7 @@ function ProjectScope({ actions }: SidebarContributionProps) {
       <ProjectPicker
         activePath={snapshot?.cwd}
         open={searchOpen}
-        projects={threadIndex.projects}
+        projects={projects}
         onBrowse={() => { setSearchOpen(false); setAddOpen(true); }}
         onClose={() => setSearchOpen(false)}
         onSelect={(project) => { setSearchOpen(false); void actions.openWorkspace(project.path); }}
@@ -177,19 +178,57 @@ function sessionAge(timestamp: number): string {
     : new Date(timestamp).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+const ConnectedThreadRow = memo(function ConnectedThreadRow({
+  id,
+  active,
+  activity,
+  activityLabel,
+  compact,
+  onSelect,
+}: {
+  id: string;
+  active: boolean;
+  activity: ThreadActivity;
+  activityLabel?: string;
+  compact: boolean;
+  onSelect(path: string): Promise<boolean>;
+}) {
+  const store = useThreadStore();
+  const session = useSyncExternalStore(
+    useCallback((listener: () => void) => store.subscribeToThread(id, listener), [id, store]),
+    useCallback(() => store.getThread(id), [id, store]),
+  );
+  if (!session) return null;
+  return (
+    <ThreadRow
+      session={session}
+      active={active}
+      age={sessionAge(session.modifiedAt)}
+      activity={activity}
+      activityLabel={activityLabel}
+      compact={compact}
+      onSelect={onSelect}
+      onToggleSettled={(threadId) => preferences.toggleSettled(threadId)}
+    />
+  );
+});
+
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
   const { snapshot } = useWorkbenchShell();
   const threadStore = useThreadStore();
-  const threadIndex = useSyncExternalStore(threadStore.subscribe, threadStore.getSnapshot);
-  const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [threadQuery, setThreadQuery] = useState("");
+  const navigationSnapshot = useSyncExternalStore(
+    threadQuery ? threadStore.subscribe : threadStore.subscribeToIds,
+    threadStore.getSnapshot,
+  );
+  const activityState = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
+  const threads = navigationSnapshot.threads;
+  const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [settledOpen, setSettledOpen] = useState(true);
   const [settledLimit, setSettledLimit] = useState(40);
-  const [virtualRange, setVirtualRange] = useState({ start: 0, end: 30 });
   const [navigationIndex, setNavigationIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
-  const scrollFrameRef = useRef<number | undefined>(undefined);
 
   const option = (id: string, fallback: boolean) =>
     settings.extensionOptions[`${WORKSPACE_EXTENSION_ID}.${id}`] ?? fallback;
@@ -212,7 +251,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   }, []);
 
   const needle = threadQuery.trim().toLocaleLowerCase();
-  const matching = threadIndex.threads
+  const matching = threads
     .filter(
       (session) =>
         !needle ||
@@ -224,80 +263,48 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
   const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];
 
-  // Group headers use the same fixed row budget as thread rows. This keeps both
-  // navigation layouts bounded instead of falling back to a full grouped mount.
-  const virtualized = activeThreads.length > 80;
-  const updateVirtualRange = useCallback(() => {
-    if (!virtualized) {
-      setVirtualRange({ start: 0, end: activeThreads.length });
-      return;
-    }
-    const node = listRef.current;
-    if (!node) return;
-    const overscan = 6;
-    const start = Math.min(activeThreads.length, Math.max(0, Math.floor(node.scrollTop / ROW_STRIDE) - overscan));
-    const end = Math.min(
-      activeThreads.length,
-      Math.ceil((node.scrollTop + node.clientHeight) / ROW_STRIDE) + overscan,
-    );
-    setVirtualRange((current) => current.start === start && current.end === end ? current : { start, end });
-  }, [activeThreads.length, virtualized]);
-
-  const handleListScroll = useCallback(() => {
-    if (scrollFrameRef.current !== undefined) return;
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = undefined;
-      updateVirtualRange();
-    });
-  }, [updateVirtualRange]);
-
-  useEffect(() => {
-    updateVirtualRange();
-    const node = listRef.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateVirtualRange);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [updateVirtualRange]);
-
-  useEffect(() => () => {
-    if (scrollFrameRef.current !== undefined) cancelAnimationFrame(scrollFrameRef.current);
-  }, []);
+  type NavigationRow = { kind: "group"; id: string; label: string; count: number } | { kind: "thread"; id: string; session: UiSession };
+  const navigationRows: NavigationRow[] = groupByProject
+    ? [...activeThreads.reduce((groups, session) => {
+        const group = groups.get(session.projectName);
+        if (group) group.push(session);
+        else groups.set(session.projectName, [session]);
+        return groups;
+      }, new Map<string, UiSession[]>())].flatMap(([project, sessions]) => [
+        { kind: "group" as const, id: `group:${project}`, label: project, count: sessions.length },
+        ...sessions.map((session) => ({ kind: "thread" as const, id: session.id, session })),
+      ])
+    : activeThreads.map((session) => ({ kind: "thread" as const, id: session.id, session }));
+  const rowVirtualizer = useVirtualizer({
+    count: navigationRows.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: (index) => navigationRows[index]?.kind === "group" ? 28 : ROW_STRIDE,
+    overscan: 6,
+  });
 
   const activityFor = (sessionId: string): { activity: ThreadActivity; label?: string } => {
-    if (sessionId === threadIndex.activeThreadId) {
-      if (threadIndex.runningToolName) return { activity: "tool", label: threadIndex.runningToolName.toUpperCase() };
-      if (threadIndex.isStreaming) return { activity: "working", label: "WORKING" };
+    if (sessionId === activityState.activeThreadId) {
+      if (activityState.runningToolName) return { activity: "tool", label: activityState.runningToolName.toUpperCase() };
+      if (activityState.isStreaming) return { activity: "working", label: "WORKING" };
     }
     // Ready means "finished while you were elsewhere"; opening the thread clears it.
-    if (threadIndex.unreadThreadIds.includes(sessionId)) return { activity: "ready", label: "READY" };
+    if (activityState.unreadThreadIds.includes(sessionId)) return { activity: "ready", label: "READY" };
     return { activity: "idle", label: "IDLE" };
   };
 
   const renderRow = (session: UiSession, activity: ThreadActivity, label?: string) => (
-    <ThreadRow
+    <ConnectedThreadRow
       key={session.id}
-      session={session}
-      active={session.id === threadIndex.activeThreadId}
-      age={sessionAge(session.modifiedAt)}
+      id={session.id}
+      active={session.id === activityState.activeThreadId}
       activity={activity}
       activityLabel={label}
       compact={compactRows && activity !== "settled"}
       onSelect={actions.switchSession}
-      onToggleSettled={(id) => preferences.toggleSettled(id)}
     />
   );
 
-  const visible = virtualized ? activeThreads.slice(virtualRange.start, virtualRange.end) : activeThreads;
   const visibleSettled = settledThreads.slice(0, settledLimit);
-  const grouped = groupByProject
-    ? [...visible.reduce((map, session) => {
-        const entries = map.get(session.projectName);
-        if (entries) entries.push(session);
-        else map.set(session.projectName, [session]);
-        return map;
-      }, new Map<string, UiSession[]>())]
-    : [["", visible] as const];
 
   return (
     <aside className="session-rail">
@@ -323,7 +330,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         className="session-list"
         aria-label="Threads"
         tabIndex={0}
-        onScroll={handleListScroll}
         onKeyDown={(event) => {
           const choices = [...activeThreads, ...(settledOpen ? visibleSettled : [])];
           if (!choices.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
@@ -332,32 +338,27 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           setNavigationIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length);
         }}
       >
-        {virtualized && virtualRange.start > 0 ? (
-          <div className="thread-virtual-spacer" style={{ height: virtualRange.start * ROW_STRIDE }} aria-hidden />
-        ) : null}
-
-        {grouped.map(([group, sessions]) => (
-          <div key={group || "all"} style={{ display: "contents" }}>
-            {group ? (
-              <div className="thread-group-label">
-                {group.toUpperCase()} · {sessions.length}
-                <i />
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
+          {rowVirtualizer.getVirtualItems().map((item) => {
+            const row = navigationRows[item.index];
+            if (!row) return null;
+            return (
+              <div
+                key={row.id}
+                ref={rowVirtualizer.measureElement}
+                data-index={item.index}
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
+              >
+                {row.kind === "group" ? (
+                  <div className="thread-group-label">{row.label.toUpperCase()} · {row.count}<i /></div>
+                ) : (() => {
+                  const status = activityFor(row.session.id);
+                  return renderRow(row.session, status.activity, status.label);
+                })()}
               </div>
-            ) : null}
-            {sessions.map((session) => {
-              const status = activityFor(session.id);
-              return renderRow(session, status.activity, status.label);
-            })}
-          </div>
-        ))}
-
-        {virtualized && virtualRange.end < activeThreads.length ? (
-          <div
-            className="thread-virtual-spacer"
-            style={{ height: (activeThreads.length - virtualRange.end) * ROW_STRIDE }}
-            aria-hidden
-          />
-        ) : null}
+            );
+          })}
+        </div>
 
         {matching.length === 0 ? (
           <p className="sidebar-empty">{threadQuery ? "No threads found" : "No recent threads"}</p>

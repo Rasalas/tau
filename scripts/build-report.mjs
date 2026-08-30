@@ -90,6 +90,9 @@ export async function collectBuildReport(distDirectory = DEFAULT_DIST, { buildTi
 }
 
 export function evaluateBuildBudgets(report, budgets) {
+  const failures = report.buildTimeMs == null && budgets.buildTimeMs !== undefined
+    ? ["buildTimeMs was not reported by the build fixture"]
+    : [];
   const checks = [
     ["initial.javascript.bytes", report.initial.javascript.bytes, budgets.initialJavascriptBytes],
     ["initial.javascript.gzipBytes", report.initial.javascript.gzipBytes, budgets.initialJavascriptGzipBytes],
@@ -97,19 +100,25 @@ export function evaluateBuildBudgets(report, budgets) {
     ["initial.css.gzipBytes", report.initial.css.gzipBytes, budgets.initialCssGzipBytes],
     ["total.javascript.bytes", report.initial.javascript.bytes + report.lazy.javascript.bytes, budgets.totalJavascriptBytes],
     ["total.javascript.gzipBytes", report.initial.javascript.gzipBytes + report.lazy.javascript.gzipBytes, budgets.totalJavascriptGzipBytes],
-    ["buildTimeMs", report.buildTimeMs ?? 0, budgets.buildTimeMs],
+    ["buildTimeMs", report.buildTimeMs, budgets.buildTimeMs],
     ["overlayCompositionMs", report.overlayComposition.backdropBlur ? budgets.overlayCompositionMs + 1 : 0, budgets.overlayCompositionMs],
   ];
-  return checks
-    .filter(([, actual, budget]) => budget !== undefined && actual > budget)
-    .map(([name, actual, budget]) => `${name} ${actual} > budget ${budget}`);
+  return failures.concat(checks
+    .filter(([, actual, budget]) => budget !== undefined && actual != null && actual > budget)
+    .map(([name, actual, budget]) => `${name} ${actual} > budget ${budget}`));
 }
 
 async function main() {
   const dist = process.env.TAU_DIST ? join(ROOT, process.env.TAU_DIST) : DEFAULT_DIST;
-  const report = await collectBuildReport(dist, {
-    buildTimeMs: process.env.TAU_BUILD_TIME_MS ? Number(process.env.TAU_BUILD_TIME_MS) : undefined,
-  });
+  let buildTimeMs = process.env.TAU_BUILD_TIME_MS ? Number(process.env.TAU_BUILD_TIME_MS) : undefined;
+  if (buildTimeMs === undefined && process.argv.includes("--check")) {
+    try {
+      buildTimeMs = JSON.parse(await readFile(REPORT_PATH, "utf8")).buildTimeMs ?? undefined;
+    } catch {
+      // The evaluator below rejects a missing measurement.
+    }
+  }
+  const report = await collectBuildReport(dist, { buildTimeMs });
   await mkdir(join(ROOT, "reports"), { recursive: true });
   await writeFile(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
   if (process.argv.includes("--check")) {

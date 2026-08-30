@@ -31,16 +31,18 @@ export interface WorkbenchShellContextValue {
 }
 
 /** Narrow contexts keep panel updates local to the data they display. */
+export interface PanelProjectSnapshot { cwd: string }
+
 export interface FilesContextValue {
   fileTree: FileNode[];
-  snapshot?: HostSnapshot;
+  snapshot?: PanelProjectSnapshot;
   refreshFiles(): Promise<void>;
   loadFiles(path: string): Promise<FileNode[]>;
 }
 
 export interface ChangesContextValue {
   changes: UiWorkspaceChanges;
-  snapshot?: HostSnapshot;
+  snapshot?: PanelProjectSnapshot;
   refreshChanges(): Promise<void>;
   openReview(path?: string): void;
 }

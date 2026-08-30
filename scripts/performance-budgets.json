@@ -8,5 +8,25 @@
   "buildTimeMs": 10000,
   "firstPaintMs": 1500,
   "externalNetworkRequests": 0,
-  "overlayCompositionMs": 4
+  "overlayCompositionMs": 4,
+  "rendererFrameP95Ms": 24,
+  "rendererLongTaskMs": 50,
+  "rendererCommitP95Ms": 24,
+  "rendererDomNodes": 5000,
+  "gitSubprocesses": 6,
+  "gitOverlapSubprocesses": 6,
+  "gitMaxParallelSubprocesses": 4,
+  "gitSlowCommandMs": 150,
+  "gitManyProjectP95Ms": 500,
+  "gitBytesRead": 524288,
+  "rendererRequiredScenarios": [
+    "markdown-code-stream-150kb",
+    "markdown-plain-stream-150kb",
+    "tool-output-1mb",
+    "transcript-1000-turns",
+    "diff-2mb",
+    "thread-shells-10000",
+    "workspace-files-10000",
+    "picker-catalog-10000"
+  ]
 }

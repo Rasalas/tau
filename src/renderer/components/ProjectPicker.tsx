@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
+import { VirtualList } from "./VirtualList";
 
 interface ProjectPickerProps {
   activePath?: string;
@@ -98,8 +99,15 @@ export function ProjectPicker({
           <span>Projects</span>
           <small>{matches.length}</small>
         </div>
-        <div className="project-picker-results" role="listbox">
-          {matches.map((project, index) => (
+        <VirtualList
+          items={matches}
+          itemHeight={56}
+          overscan={6}
+          className="project-picker-results"
+          role="listbox"
+          scrollToIndex={selected}
+          empty={<p>No matching projects</p>}
+          renderItem={(project, index) => (
             <button
               key={project.path}
               role="option"
@@ -115,9 +123,8 @@ export function ProjectPicker({
               </span>
               {project.path === activePath ? <em>active</em> : null}
             </button>
-          ))}
-          {matches.length === 0 ? <p>No matching projects</p> : null}
-        </div>
+          )}
+        />
         <footer>
           <button onClick={onBrowse}><span>＋</span> Add project from another source…</button>
           <small><kbd>↑↓</kbd> select <kbd>↵</kbd> open</small>

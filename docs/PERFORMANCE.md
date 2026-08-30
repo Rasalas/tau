@@ -231,7 +231,7 @@ Active Markdown uses a cheap streaming representation. Settled content moves int
 
 ### Host protocol
 
-The host separates these messages:
+Protocol version 1 rejects malformed or unknown update types at the preload boundary. Normal runtime traffic uses the final granular contract; legacy full-snapshot messages are not part of the active IPC surface. The host separates these messages:
 
 - thread index snapshot and incremental shell updates
 - active thread detail snapshot and history pages
@@ -274,34 +274,50 @@ Record the fixture, machine class, build mode, median, p95, and maximum with eac
 - dedicated thread-store subscription separate from panel and transcript context
 - streaming text and thinking flushed at most once per animation frame
 - separate host bootstrap/detail and thread-index payloads
-- renderer transcript snapshot cache with immediate optimistic selection
+- renderer transcript snapshot cache plus a bounded persisted bootstrap cache for immediate first content
+- variable-height transcript virtualization with a 1,000-turn fixture
 - per-project model catalog cache
 - fresh `ModelRuntime` instances per Pi runtime so extension provider state cannot leak across replacements
 - `AgentSessionRuntime` ownership of replacement, shutdown, extension rebinding, and failure recovery
 - serialized lifecycle mutations with stale-runtime guards and cleanup on abort, bind, or recovery failure
 - phase timings for settings, model runtime, resources, session creation, extension binding, model catalog, and total replacement
 - recent-project writes debounced off the switch path and flushed on shutdown
-- global session index parsed once at bootstrap and refreshed after completed prompts
-- virtualized active thread rows above 80 items with six-row overscan
+- bounded, isolated Full Mode runtime prewarming; extension startup and teardown stay extension-owned but run outside the interactive switch path
+- fingerprinted reuse of immutable skills, prompts, themes, and context files without reusing extension or provider runtimes
+- global session index parsed once at bootstrap, updated per active shell after prompts, and reconciled by a background recovery scan that publishes focused shell updates
+- virtualized active, grouped, settled, file, change, model, command, and project rows with bounded overscan
 - switch timing events and repeatable host smoke measurements
 - production builds use esbuild minification, opt-in source maps, and a durable `reports/build-report.json`
 - Review, Settings, optional panels, and project navigation are demand-loaded; Highlight.js language definitions are separate chunks
 - first paint uses local system font stacks and opaque overlay scrims (no network font CSS or backdrop blur)
 - startup fixture records paint entries, loaded resources, external requests, and overlay style measurements in `reports/start-report.json`
+- project-scoped Git coordinator deduplicates status/branch/worktree reads, bounds subprocess concurrency, supports cancellation, and keeps the last valid state on timeout
+- file diffs stream only the requested hunk window from Git, discard skipped hunks, and stop the subprocess at page, byte, or line ceilings
+- pull requests run the type, test, build, host, renderer, and startup budgets in `.github/workflows/performance.yml`
 
 ### Build and startup budget evidence
 
 The local budget fixture runs with `npm run build:budget` and `npm run start:budget`; these commands are intentionally separate from the ordinary `npm run build` and `npm run start` commands so CI can opt in to gating. A production run on the development machine reported:
 
-- initial JavaScript: 441.76 kB (137.61 kB gzip), one entry chunk
-- initial CSS: 52.66 kB (9.25 kB gzip)
-- lazy JavaScript: 85.88 kB (33.18 kB gzip) across 20 chunks
+- initial JavaScript: 469.43 kB (146.18 kB gzip), one entry chunk
+- initial CSS: 53.91 kB (9.51 kB gzip)
+- lazy JavaScript: 91.91 kB (about 36 kB gzip) across 22 chunks
 - source maps: 0 bytes (disabled by default; `TAU_SOURCEMAP=true` is an explicit debugging opt-in)
-- build time: 2.4–2.8 s
-- local fixture first paint: 208 ms, two file resources, zero external requests
+- build time: 2.81 s
+- local fixture first paint: 124 ms, two file resources, zero external requests
 - overlay fallback: opaque scrims, zero measured blur composition work in the fixture
 
 The report schema includes each asset's uncompressed and gzip size and classifies entry versus lazy chunks from `dist/index.html`. The Electron start fixture uses Chromium paint and resource timing APIs; it also reports a missing paint as a failed budget rather than silently treating it as zero.
+
+### Renderer and host budget evidence
+
+`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. The current development-machine report (`reports/renderer-report.json`) records 17.0–17.6 ms frame p95 across 150 KB highlighted and plain Markdown streams, 1 MB tool output, 1,000 transcript turns, a large diff, and 10,000-item thread, workspace, and picker fixtures. Commit p95 stays below 24 ms, the Long Task observer was available and observed no long task, and the largest DOM count was 1,717 nodes.
+
+`npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. The current report records Safe Mode warm-switch p95 at 9.5 ms. Full Mode keeps a fresh model/provider and extension runtime per prepared session; its measured warm-switch p95 is 1.7 ms after prewarming. The expensive work remains visible in the report rather than hidden: Full Mode prewarming took 274–339 ms and deferred extension retirement took 174–325 ms on this machine. The CI gate applies the 150 ms p95 budget to the user-visible warm switch while retaining those background timings for regression diagnosis.
+
+`npm run benchmark:git:check` measures a 1,202-file worktree, overlapping refreshes, timeout cancellation, and 20-project branch fan-out. The current report reduced the measured uncoordinated 18 subprocesses to 6, read no oversized untracked content, capped concurrency at 4, cancelled the slow command in 20.7 ms, and kept many-project branch p95 at 64.9 ms.
+
+Run the complete release fixture with `npm run performance:ci`. Generated JSON reports are uploaded by CI for comparison with failures.
 
 ## Execution order
 

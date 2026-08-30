@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type RefObject } from "react";
 import { PanelRight, PanelRightClose } from "lucide-react";
 import type {
   FileNode,
@@ -17,21 +17,43 @@ import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeatu
 import { Composer } from "./components/Composer";
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { Menu } from "./components/Menu";
-import { Message } from "./components/Message";
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
+
+
+export const MountedPanel = memo(function MountedPanel({
+  Component,
+  active,
+  label,
+  extensionName,
+}: {
+  Component: ComponentType<{ active: boolean; extensionName: string }>;
+  active: boolean;
+  label: string;
+  extensionName: string;
+}) {
+  return <div className={active ? "panel active" : "panel"}>
+    <LazyFeatureBoundary label={label.toLowerCase()}>
+      <Suspense fallback={<LazyFeatureFallback label={label.toLowerCase()} />}>
+        <Component active={active} extensionName={extensionName} />
+      </Suspense>
+    </LazyFeatureBoundary>
+  </div>;
+});
 
 import { TitleBar } from "./components/TitleBar";
 import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
+import { VirtualTranscript } from "./components/VirtualTranscript";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
+import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
 import { ThreadStore } from "./thread-store";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
-import type { HostUpdate } from "../shared/host-protocol";
+import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -135,6 +157,7 @@ function useTailScroll(
 
 export default function App() {
   const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
+  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
   const [registry] = useState(() => {
     const value = new ExtensionRegistry();
     bundledExtensions.forEach((extension) => {
@@ -144,11 +167,18 @@ export default function App() {
     return value;
   });
   useSyncExternalStore(registry.subscribe, registry.getVersion);
-  const [threadStore] = useState(() => new ThreadStore());
+  const [threadStore] = useState(() => {
+    const store = new ThreadStore();
+    if (cachedBootstrap) {
+      store.applyThreadIndex(cachedBootstrap.threadIndex);
+      store.applyHostSnapshot(cachedBootstrap.snapshot);
+    }
+    return store;
+  });
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
 
-  const [snapshot, setSnapshot] = useState<HostSnapshot>();
-  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [snapshot, setSnapshot] = useState<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  const [messages, setMessages] = useState<UiMessage[]>(cachedBootstrap?.snapshot.messages ?? []);
   const [tools, setTools] = useState<UiToolRun[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
@@ -175,6 +205,11 @@ export default function App() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
+  const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
+  const changesRequestRef = useRef(0);
+  const workspaceRequestRef = useRef(0);
+  const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
   const pendingToolUpdatesRef = useRef(new Map<string, string>());
@@ -244,10 +279,15 @@ export default function App() {
     setSnapshot(next);
     setMessages(next.messages);
     setTools([]);
+    cachedSnapshotRef.current = next;
+    activeWorkspaceRef.current = next.cwd;
+    writeBootstrapCache(next, cachedIndexRef.current);
   }, [threadStore]);
 
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
+    cachedIndexRef.current = threadIndex;
+    writeBootstrapCache(cachedSnapshotRef.current, threadIndex);
   }, [threadStore]);
 
   const applyHostUpdate = useCallback((update: HostUpdate) => {
@@ -258,6 +298,7 @@ export default function App() {
     }
     if (update.type === "thread-shell") {
       const shell = update.update.shell;
+      threadStore.applyThreadShell(update.update.sessionId, shell, update.update.removed);
       if (shell) setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, branch: shell.branch } : current);
       return;
     }
@@ -265,10 +306,24 @@ export default function App() {
       const detail = update.detail;
       detailStoreRef.current.set(detail);
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
+      setOlderCursor(detail.olderCursor);
       setMessages(detail.messages);
-      setSnapshot((current) => current && current.sessionId === detail.sessionId
-        ? { ...current, messages: detail.messages, isStreaming: detail.isStreaming, activeTools: detail.activeTools, contextUsage: detail.contextUsage }
-        : current);
+      setSnapshot((current) => {
+        if (!current) return current;
+        const shell = threadStore.getThread(detail.sessionId);
+        const next = {
+          ...current,
+          sessionId: detail.sessionId,
+          sessionTitle: shell?.title ?? current.sessionTitle,
+          messages: detail.messages,
+          isStreaming: detail.isStreaming,
+          activeTools: detail.activeTools,
+          contextUsage: detail.contextUsage,
+        };
+        cachedSnapshotRef.current = next;
+        writeBootstrapCache(next, cachedIndexRef.current);
+        return next;
+      });
       return;
     }
     if (update.type === "transcript-page") {
@@ -285,10 +340,13 @@ export default function App() {
       return;
     }
     if (update.type === "project") {
+      activeWorkspaceRef.current = update.project.cwd;
       setSnapshot((current) => current ? { ...current, ...update.project } : current);
       return;
     }
-    if (update.type === "run") threadStore.setStreaming(update.event === "started");
+    if (update.type === "run" && update.sessionId === threadStore.getSnapshot().activeThreadId) {
+      threadStore.setStreaming(update.event === "started");
+    }
     if (update.type === "error") setNotice(update.message);
   }, [applyThreadIndex, threadStore]);
 
@@ -302,28 +360,34 @@ export default function App() {
 
   const refreshChanges = useCallback(async () => {
     if (!window.tau) return;
+    const request = ++changesRequestRef.current;
+    const cwd = activeWorkspaceRef.current;
     try {
-      setChanges(await window.tau.getChanges());
+      const next = await window.tau.getChanges();
+      if (request === changesRequestRef.current && cwd === activeWorkspaceRef.current) setChanges(next);
     } catch (error) {
-      setNotice(String(error));
+      if (request === changesRequestRef.current) setNotice(String(error));
     }
   }, []);
 
   const refreshWorkspace = useCallback(async () => {
     if (!window.tau) return;
+    const request = ++workspaceRequestRef.current;
+    const cwd = activeWorkspaceRef.current;
     try {
-      setWorkspace(await window.tau.getWorkspaceInfo());
+      const next = await window.tau.getWorkspaceInfo();
+      if (request === workspaceRequestRef.current && cwd === activeWorkspaceRef.current) setWorkspace(next);
     } catch (error) {
-      setNotice(String(error));
+      if (request === workspaceRequestRef.current) setNotice(String(error));
     }
   }, []);
 
   const handleHostEvent = useCallback((event: HostEvent) => {
     switch (event.type) {
-      case "snapshot": applySnapshot(event.snapshot); break;
       case "host-update": applyHostUpdate(event.update); break;
       case "thread-index": applyThreadIndex(event.threadIndex); break;
       case "agent-status": {
+        if (event.sessionId !== threadStore.getSnapshot().activeThreadId) break;
         threadStore.setStreaming(event.running);
         setSnapshot((current) => {
           if (event.running && current) runningThreadRef.current = current.sessionId;
@@ -387,7 +451,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, applyHostUpdate, applySnapshot, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, threadStore]);
+  }, [addEvent, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, threadStore]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -395,29 +459,24 @@ export default function App() {
       unsubscribe = window.tau.onHostEvent(handleHostEvent);
       window.tau.bootstrap().then((bootstrap) => {
         applyThreadIndex(bootstrap.threadIndex);
-        if (bootstrap.host) {
-          applySnapshot(bootstrap.host);
-        } else if (bootstrap.detail) {
-          const catalog = bootstrap.catalog;
-          const project = bootstrap.project;
-          const current: HostSnapshot = {
-            cwd: project?.cwd ?? "",
-            branch: project?.branch,
-            sessionId: bootstrap.detail.sessionId,
-            sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail?.sessionId)?.title ?? "Untitled thread",
-            models: catalog?.models ?? [],
-            model: catalog?.model,
-            thinkingLevel: catalog?.thinkingLevel ?? "off",
-            thinkingLevels: catalog?.thinkingLevels ?? [],
-            allTools: catalog?.allTools ?? [],
-            extensionCount: catalog?.extensionCount ?? 0,
-            messages: bootstrap.detail.messages,
-            isStreaming: bootstrap.detail.isStreaming,
-            activeTools: bootstrap.detail.activeTools,
-            contextUsage: bootstrap.detail.contextUsage,
-          };
-          applySnapshot(current);
-        }
+        const current: HostSnapshot = {
+          cwd: bootstrap.project.cwd,
+          branch: bootstrap.project.branch,
+          sessionId: bootstrap.detail.sessionId,
+          sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
+          models: bootstrap.catalog.models,
+          model: bootstrap.catalog.model,
+          thinkingLevel: bootstrap.catalog.thinkingLevel,
+          thinkingLevels: bootstrap.catalog.thinkingLevels,
+          allTools: bootstrap.catalog.allTools,
+          extensionCount: bootstrap.catalog.extensionCount,
+          messages: bootstrap.detail.messages,
+          isStreaming: bootstrap.detail.isStreaming,
+          activeTools: bootstrap.detail.activeTools,
+          contextUsage: bootstrap.detail.contextUsage,
+        };
+        applySnapshot(current);
+        setOlderCursor(bootstrap.detail.olderCursor);
         void refreshChanges();
         void refreshWorkspace();
       }).catch((error) => setNotice(String(error)));
@@ -510,7 +569,7 @@ export default function App() {
     const next = await window.tau?.newSession();
     if (next) applyActionResult(next);
     else setNotice("New thread requires the Electron host");
-  }, [applySnapshot]);
+  }, [applyActionResult]);
 
   const openPanel = useCallback((id: string) => {
     setActivePanel(id);
@@ -522,15 +581,16 @@ export default function App() {
     setReview({ path });
   }, [refreshChanges]);
 
-  const acceptWorkspace = useCallback((next: HostSnapshot) => {
-    applySnapshot(next);
-    if (next.cwd !== snapshot?.cwd) {
+  const acceptWorkspace = useCallback((result: HostActionResult) => {
+    const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
+    applyActionResult(result);
+    if (cwd && cwd !== snapshot?.cwd) {
       setFileTree([]);
       setChanges(NO_CHANGES);
     }
     void refreshChanges();
     void refreshWorkspace();
-  }, [applySnapshot, refreshChanges, refreshWorkspace, snapshot?.cwd]);
+  }, [applyActionResult, refreshChanges, refreshWorkspace, snapshot?.cwd]);
 
   const requireHost = useCallback((what: string): boolean => {
     if (window.tau) return true;
@@ -597,7 +657,7 @@ export default function App() {
       setNotice(String(error));
       return false;
     }
-  }, [acceptWorkspace, addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
+  }, [addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
 
   const generateThreadTitle = useCallback(async (provider: string, modelId: string, force = false): Promise<boolean> => {
     if (!requireHost("Title generation")) return false;
@@ -666,7 +726,7 @@ export default function App() {
     }
   }, [addEvent, refreshWorkspace, requireHost]);
 
-  const runWorkspaceAction = useCallback(async (action: () => Promise<HostSnapshot>) => {
+  const runWorkspaceAction = useCallback(async (action: () => Promise<HostActionResult>) => {
     if (!requireHost("Worktrees")) return;
     setWorkspaceBusy(true);
     try {
@@ -791,8 +851,9 @@ export default function App() {
     [snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, applySnapshot, handleHostEvent],
   );
   const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
-  const filesContextValue = useMemo(() => ({ fileTree, snapshot, refreshFiles, loadFiles }), [fileTree, snapshot, refreshFiles, loadFiles]);
-  const changesContextValue = useMemo(() => ({ changes, snapshot, refreshChanges, openReview }), [changes, snapshot, refreshChanges, openReview]);
+  const panelProject = useMemo(() => snapshot ? { cwd: snapshot.cwd } : undefined, [snapshot?.cwd]);
+  const filesContextValue = useMemo(() => ({ fileTree, snapshot: panelProject, refreshFiles, loadFiles }), [fileTree, panelProject, refreshFiles, loadFiles]);
+  const changesContextValue = useMemo(() => ({ changes, snapshot: panelProject, refreshChanges, openReview }), [changes, panelProject, refreshChanges, openReview]);
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
@@ -942,14 +1003,12 @@ export default function App() {
 
               <div className="transcript" ref={transcriptRef}>
                 <div className="transcript-inner">
-                  {messages.map((message, index) => (
-                    <Message
-                      key={message.id}
-                      message={message}
-                      workedMs={workedMs[message.id]}
-                      streaming={Boolean(snapshot?.isStreaming && index === messages.length - 1 && message.role === "assistant")}
-                    />
-                  ))}
+                  <VirtualTranscript
+                    messages={messages}
+                    scrollRef={transcriptRef}
+                    workedMs={workedMs}
+                    isStreaming={Boolean(snapshot?.isStreaming)}
+                  />
                   <ToolGroup tools={tools} registry={registry} />
                   <ChangedFiles changes={changes} onOpenDiff={openReview} />
                   {snapshot?.isStreaming ? <LiveStatus startedAt={runStartedAt} /> : null}
@@ -984,15 +1043,13 @@ export default function App() {
                 {dockOpen ? (
                   <div className="panel-stage">
                     {panels.map((panel) => openedPanels.has(panel.id) ? (
-                      <div className={activePanel === panel.id ? "panel active" : "panel"} key={panel.id}>
-                        {activePanel === panel.id ? (
-                          <LazyFeatureBoundary label={panel.label.toLowerCase()}>
-                            <Suspense fallback={<LazyFeatureFallback label={panel.label.toLowerCase()} />}>
-                              <panel.Component active extensionName={panel.extensionName} />
-                            </Suspense>
-                          </LazyFeatureBoundary>
-                        ) : null}
-                      </div>
+                      <MountedPanel
+                        key={panel.id}
+                        Component={panel.Component}
+                        active={activePanel === panel.id}
+                        label={panel.label}
+                        extensionName={panel.extensionName}
+                      />
                     ) : null)}
                   </div>
                 ) : null}

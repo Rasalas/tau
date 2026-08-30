@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { AccessLevel, HostEvent } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
+import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -70,6 +71,12 @@ async function createWindow(): Promise<void> {
   }
 }
 
+async function requireHostReady(): Promise<PiHost> {
+  await hostReady;
+  if (!host) throw new Error("No host available.");
+  return host;
+}
+
 function installIpc(): void {
   ipcMain.handle("tau:bootstrap", async () => {
     if (!host) {
@@ -80,75 +87,49 @@ function installIpc(): void {
     await hostReady;
     return host.bootstrap();
   });
-  ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => {
-    await hostReady;
-    if (!host) throw new Error("No host available.");
-    return host.loadTranscript(sessionId, cursor);
-  });
-  ipcMain.handle("tau:prompt", (_event, text: string) => host?.prompt(text));
-  ipcMain.handle("tau:steer", (_event, text: string) => host?.steer(text));
-  ipcMain.handle("tau:abort", () => host?.abort());
-  ipcMain.handle("tau:new-session", () => host?.newSession());
-  ipcMain.handle("tau:switch-session", (_event, path: string) => host?.switchSession(path));
-  ipcMain.handle("tau:set-model", (_event, provider: string, id: string) => host?.setModel(provider, id));
-  ipcMain.handle("tau:set-thinking", (_event, level: string) => host?.setThinkingLevel(level));
-  ipcMain.handle("tau:compact-context", () => host?.compactContext());
-  ipcMain.handle("tau:set-access-level", (_event, level: AccessLevel) => host?.setAccessLevel(level));
-  ipcMain.handle("tau:resolve-tool-approval", (_event, id: string, allowed: boolean) =>
-    host?.resolveToolApproval(id, allowed),
-  );
-  ipcMain.handle("tau:generate-thread-title", (_event, provider: string, modelId: string, force?: boolean) =>
-    host?.generateThreadTitle(provider, modelId, force),
-  );
-  ipcMain.handle("tau:file-tree", async (_event, path?: string) => {
-    await hostReady;
-    return host?.getFileTree(path) ?? [];
-  });
-  ipcMain.handle("tau:changes", async () => {
-    await hostReady;
-    return host?.getChanges() ?? { files: [], added: 0, removed: 0 };
-  });
-  ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => {
-    await hostReady;
-    return host?.getFileDiff(path, options) ?? { path, added: 0, removed: 0, hunks: [], note: "No host available." };
-  });
-  ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => {
-    await hostReady;
-    if (!host) throw new Error("No host available.");
-    return host.commit(message, push);
-  });
-  ipcMain.handle("tau:workspace-info", async () => {
-    await hostReady;
-    return host?.getWorkspaceInfo();
-  });
-  ipcMain.handle("tau:create-worktree", (_event, branch: string) => host?.createWorktree(branch));
-  ipcMain.handle("tau:switch-ref", (_event, ref: string) => host?.switchRef(ref));
-  ipcMain.handle("tau:list-editors", () => host?.listEditors() ?? []);
-  ipcMain.handle("tau:open-in-editor", (_event, editorId: string, path?: string) =>
-    host?.openInEditor(editorId, path),
-  );
+  ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
+  ipcMain.handle("tau:prompt", async (_event, text: string) => (await requireHostReady()).prompt(text));
+  ipcMain.handle("tau:steer", async (_event, text: string) => (await requireHostReady()).steer(text));
+  ipcMain.handle("tau:abort", async () => (await requireHostReady()).abort());
+  ipcMain.handle("tau:new-session", async () => (await requireHostReady()).newSession());
+  ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
+  ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));
+  ipcMain.handle("tau:set-thinking", async (_event, level: string) => (await requireHostReady()).setThinkingLevel(level));
+  ipcMain.handle("tau:compact-context", async () => (await requireHostReady()).compactContext());
+  ipcMain.handle("tau:set-access-level", async (_event, level: AccessLevel) => (await requireHostReady()).setAccessLevel(level));
+  ipcMain.handle("tau:resolve-tool-approval", async (_event, id: string, allowed: boolean) => (await requireHostReady()).resolveToolApproval(id, allowed));
+  ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean) => (await requireHostReady()).generateThreadTitle(provider, modelId, force));
+  ipcMain.handle("tau:file-tree", async (_event, path?: string) => (await requireHostReady()).getFileTree(path));
+  ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());
+  ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));
+  ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => (await requireHostReady()).commit(message, push));
+  ipcMain.handle("tau:workspace-info", async () => (await requireHostReady()).getWorkspaceInfo());
+  ipcMain.handle("tau:create-worktree", async (_event, branch: string) => (await requireHostReady()).createWorktree(branch));
+  ipcMain.handle("tau:switch-ref", async (_event, ref: string) => (await requireHostReady()).switchRef(ref));
+  ipcMain.handle("tau:list-editors", async () => (await requireHostReady()).listEditors());
+  ipcMain.handle("tau:open-in-editor", async (_event, editorId: string, path?: string) => (await requireHostReady()).openInEditor(editorId, path));
   ipcMain.handle("tau:choose-workspace", async () => {
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ["openDirectory"] });
     const selected = result.filePaths[0];
-    return selected && host ? host.setWorkspace(selected) : undefined;
+    return selected ? (await requireHostReady()).setWorkspace(selected) : undefined;
   });
-  ipcMain.handle("tau:open-project", (_event, path: string) => host?.setWorkspace(path));
+  ipcMain.handle("tau:open-project", async (_event, path: string) => (await requireHostReady()).setWorkspace(path));
   ipcMain.handle("tau:clone-project", async (_event, repositoryUrl: string) => {
-    const url = repositoryUrl.trim();
-    if (!url || url.includes("\0")) throw new Error("Enter a valid Git repository URL.");
+    const url = assertAllowedCloneSource(repositoryUrl);
     const result = await dialog.showOpenDialog(mainWindow!, {
       buttonLabel: "Clone here",
       message: "Choose the parent folder for the cloned project",
       properties: ["openDirectory", "createDirectory"],
     });
     const parent = result.filePaths[0];
-    if (!parent || !host) return undefined;
+    if (!parent) return undefined;
+    const readyHost = await requireHostReady();
     const destination = join(parent, repositoryFolderName(url));
     await execFileAsync("git", ["clone", "--", url, destination], {
       timeout: 10 * 60 * 1000,
       maxBuffer: 4 * 1024 * 1024,
     });
-    return host.setWorkspace(destination);
+    return readyHost.setWorkspace(destination);
   });
 }
 

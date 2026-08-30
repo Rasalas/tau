@@ -23,6 +23,7 @@ export interface GitCoordinatorOptions {
   maxConcurrency?: number;
   runGit?: GitRunner;
   untrackedStats?: UntrackedStatsOptions;
+  onSubprocess?: () => void;
 }
 
 export interface GitCoordinatorMetrics {
@@ -51,15 +52,19 @@ class Semaphore {
     if (signal.aborted) throw abortError();
     if (this.active >= this.limit) {
       await new Promise<void>((resolve, reject) => {
+        let waiter: () => void;
         const onAbort = () => {
+          const index = this.waiters.indexOf(waiter);
+          if (index >= 0) this.waiters.splice(index, 1);
           signal.removeEventListener("abort", onAbort);
           reject(abortError());
         };
-        signal.addEventListener("abort", onAbort, { once: true });
-        this.waiters.push(() => {
+        waiter = () => {
           signal.removeEventListener("abort", onAbort);
           resolve();
-        });
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        this.waiters.push(waiter);
       });
     }
     if (signal.aborted) throw abortError();
@@ -92,6 +97,7 @@ export class GitCoordinator {
   private readonly semaphore: Semaphore;
   private readonly runGit: GitRunner;
   private readonly untrackedStats?: UntrackedStatsOptions;
+  private readonly onSubprocess?: () => void;
   private metricsValue: GitCoordinatorMetrics = {
     subprocesses: 0,
     activeSubprocesses: 0,
@@ -105,6 +111,7 @@ export class GitCoordinator {
     this.semaphore = new Semaphore(options.maxConcurrency ?? 4);
     this.runGit = options.runGit ?? runGitCommand;
     this.untrackedStats = options.untrackedStats;
+    this.onSubprocess = options.onSubprocess;
   }
 
   /** Reads the shared project state. Equal requests share the same promise. */
@@ -126,6 +133,7 @@ export class GitCoordinator {
           const state = await readProjectGitState(cwd, {
             runGit: async (path, args, maxBuffer, scanSignal) => this.semaphore.run(async () => {
               this.metricsValue.subprocesses += 1;
+              this.onSubprocess?.();
               this.metricsValue.activeSubprocesses += 1;
               this.metricsValue.maxParallelSubprocesses = Math.max(
                 this.metricsValue.maxParallelSubprocesses,

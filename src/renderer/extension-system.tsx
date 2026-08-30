@@ -198,6 +198,7 @@ export class ExtensionRegistry {
         return this.register(this.renderers, id, { id, match, render, ...owner }, disposers);
       },
       registerOptions: (options) => {
+        if (this.options.has(extension.id)) throw new Error(`Extension ${extension.id} registered options more than once`);
         this.options.set(extension.id, options);
         const dispose = () => {
           this.options.delete(extension.id);
@@ -208,23 +209,34 @@ export class ExtensionRegistry {
         return dispose;
       },
     };
-    const extensionDispose = extension.activate(context);
-    if (extensionDispose) disposers.push(extensionDispose);
-    this.contributionKinds.set(extension.id, kinds);
-    this.activeExtensions.set(extension.id, {
-      extension,
-      dispose: () => disposers.reverse().forEach((dispose) => dispose()),
-    });
-    this.changed();
+    try {
+      const extensionDispose = extension.activate(context);
+      if (extensionDispose) disposers.push(extensionDispose);
+      this.contributionKinds.set(extension.id, kinds);
+      this.activeExtensions.set(extension.id, {
+        extension,
+        dispose: () => this.disposeAll(disposers),
+      });
+      this.changed();
+    } catch (error) {
+      let cleanupError: unknown;
+      try { this.disposeAll(disposers); } catch (failure) { cleanupError = failure; }
+      this.contributionKinds.delete(extension.id);
+      this.activeExtensions.delete(extension.id);
+      if (cleanupError) throw new AggregateError([error, cleanupError], `Extension ${extension.id} activation and cleanup failed`);
+      throw error;
+    }
   }
 
   deactivate(id: string): void {
     const active = this.activeExtensions.get(id);
     if (!active) return;
-    active.dispose();
+    let cleanupError: unknown;
+    try { active.dispose(); } catch (error) { cleanupError = error; }
     this.activeExtensions.delete(id);
     this.contributionKinds.delete(id);
     this.changed();
+    if (cleanupError) throw cleanupError;
   }
 
   setActive(id: string, active: boolean): void {
@@ -300,7 +312,20 @@ export class ExtensionRegistry {
   /** Cheap identity for useSyncExternalStore — changes whenever contributions change. */
   getVersion = (): number => this.version;
 
+  private disposeAll(disposers: Array<() => void>): void {
+    const errors: unknown[] = [];
+    for (const dispose of [...disposers].reverse()) {
+      try { dispose(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Extension contribution cleanup failed");
+  }
+
   private register<T>(map: Map<string, T>, id: string, value: T, disposers: Array<() => void>): () => void {
+    const existing = map.get(id) as (T & Partial<ContributionOwner>) | undefined;
+    const incoming = value as T & Partial<ContributionOwner>;
+    if (existing) {
+      throw new Error(`Contribution id ${id} from ${incoming.extensionId ?? "unknown"} collides with ${existing.extensionId ?? "another extension"}`);
+    }
     map.set(id, value);
     const dispose = () => {
       if (map.get(id) === value) map.delete(id);

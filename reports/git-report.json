@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-30T10:20:42.911Z",
+  "startConditions": {
+    "files": 1200,
+    "maxConcurrency": 4,
+    "build": "production Electron host modules"
+  },
+  "workload": {
+    "files": 1202,
+    "baselineSubprocesses": 18,
+    "baselineElapsedMs": 2922.1189159999994,
+    "coordinatedSubprocesses": 6,
+    "elapsedMs": 1011.8032080000003,
+    "maxParallelSubprocesses": 4,
+    "bytesRead": 0,
+    "overlappingRefreshSubprocesses": 6,
+    "slowCommandMs": 20.741833000000042,
+    "slowCommandState": "error",
+    "manyProjectBranchP95Ms": 64.9052499999998,
+    "manyProjectMaxParallelSubprocesses": 4
+  }
+}

@@ -117,6 +117,21 @@ describe("GitCoordinator", () => {
     expect(calls.get("/project-9")).toBe(before);
   });
 
+  it("removes aborted queued work without starving later projects", async () => {
+    const fake = fakeGit({}, 2);
+    const coordinator = new GitCoordinator({ runGit: fake.run, maxConcurrency: 1, timeoutMs: 1_000 });
+    const first = coordinator.getBranch("/project-a");
+    const aborted = coordinator.getBranch("/project-b");
+    coordinator.invalidate("/project-b");
+    const later = coordinator.getBranch("/project-c");
+    await expect(Promise.race([
+      later,
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("starved")), 500)),
+    ])).resolves.toBe("main");
+    await first;
+    await aborted;
+  });
+
   it("returns a safe non-repository state after a Git error", async () => {
     const coordinator = new GitCoordinator({ runGit: async () => { throw new Error("not a repository"); } });
     const workspace = await coordinator.getWorkspaceInfo("/plain-folder");

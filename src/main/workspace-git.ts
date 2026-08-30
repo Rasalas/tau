@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, open, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -243,7 +243,7 @@ export async function readProjectGitState(
     const heldByWorktree = new Map(
       worktrees.filter((tree) => tree.branch).map((tree) => [tree.branch as string, tree.path]),
     );
-    const refs: UiRef[] = refOut.split("\\n").map((line) => line.trim()).filter(Boolean).map((name) => ({
+    const refs: UiRef[] = refOut.split("\n").map((line) => line.trim()).filter(Boolean).map((name) => ({
       name,
       isCurrent: name === branch,
       worktreePath: heldByWorktree.get(name),
@@ -265,7 +265,7 @@ export async function readProjectGitState(
   }
 }
 
-export function parseUnifiedDiff(path: string, patch: string, options: DiffLoadOptions = {}): UiFileDiff {
+export function parseUnifiedDiff(path: string, patch: string, options: DiffLoadOptions = {}, sourceTruncated = false): UiFileDiff {
   const hunks: UiDiffHunk[] = [];
   let current: UiDiffHunk | undefined;
   let oldLine = 0;
@@ -273,8 +273,10 @@ export function parseUnifiedDiff(path: string, patch: string, options: DiffLoadO
   let added = 0;
   let removed = 0;
 
-  const byteTruncated = Buffer.byteLength(patch, "utf8") > MAX_DIFF_BYTES;
-  const boundedPatch = patch.slice(0, MAX_DIFF_BYTES);
+  const patchBytes = Buffer.from(patch, "utf8");
+  const byteTruncated = sourceTruncated || patchBytes.length > MAX_DIFF_BYTES;
+  const bytePrefix = byteTruncated ? patchBytes.subarray(0, MAX_DIFF_BYTES).toString("utf8") : patch;
+  const boundedPatch = byteTruncated ? bytePrefix.slice(0, bytePrefix.lastIndexOf("\n") + 1) : bytePrefix;
   const rawLines = boundedPatch.split("\n");
   const lineTruncated = rawLines.length > MAX_DIFF_LINES;
   const boundedLines = rawLines.slice(0, MAX_DIFF_LINES);
@@ -307,30 +309,160 @@ export function parseUnifiedDiff(path: string, patch: string, options: DiffLoadO
   const offset = Math.max(0, options.hunkOffset ?? 0);
   const limit = Math.min(MAX_DIFF_HUNKS, Math.max(1, options.hunkLimit ?? MAX_DIFF_HUNKS));
   const visibleHunks = hunks.slice(offset, offset + limit);
-  const truncated = byteTruncated || lineTruncated || hunks.length > offset + limit;
+  const hasMoreParsedHunks = hunks.length > offset + visibleHunks.length;
+  const truncated = byteTruncated || lineTruncated || hasMoreParsedHunks;
   return {
     path,
     added,
     removed,
     hunks: visibleHunks,
     truncated,
-    nextHunkOffset: truncated ? offset + visibleHunks.length : undefined,
-    note: truncated ? `Showing ${visibleHunks.length} of a large diff. Load more to continue.` : undefined,
+    nextHunkOffset: hasMoreParsedHunks ? offset + visibleHunks.length : undefined,
+    note: hasMoreParsedHunks
+      ? `Showing ${visibleHunks.length} hunks. Load more to continue.`
+      : byteTruncated || lineTruncated
+        ? "Diff truncated at the host byte or line limit. Open the file in an editor for the complete patch."
+        : undefined,
   };
+}
+
+interface StreamedPatch {
+  patch: string;
+  capturedHunks: number;
+  hasMoreHunks: boolean;
+  terminalTruncation: boolean;
+}
+
+/**
+ * Reads only the requested hunk window from git's stdout. Earlier hunks are
+ * scanned but never retained, and the child is stopped as soon as the next
+ * page or a terminal byte/line ceiling is known.
+ */
+async function streamFilePatch(
+  cwd: string,
+  args: string[],
+  options: DiffLoadOptions,
+  allowNoIndexDifference = false,
+): Promise<StreamedPatch> {
+  const offset = Math.max(0, options.hunkOffset ?? 0);
+  const limit = Math.min(MAX_DIFF_HUNKS, Math.max(1, options.hunkLimit ?? MAX_DIFF_HUNKS));
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    let pending = "";
+    let stderr = "";
+    let header = "";
+    let selected = "";
+    let hunkIndex = -1;
+    let capturedHunks = 0;
+    let selectedLines = 0;
+    let selectedBytes = 0;
+    let hasMoreHunks = false;
+    let terminalTruncation = false;
+    let stopped = false;
+    let discardingLine = false;
+
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      child.kill("SIGTERM");
+    };
+    const appendSelected = (line: string) => {
+      const bytes = Buffer.byteLength(`${line}\n`, "utf8");
+      if (selectedLines >= MAX_DIFF_LINES || selectedBytes + bytes > MAX_DIFF_BYTES) {
+        terminalTruncation = true;
+        stop();
+        return;
+      }
+      selected += `${line}\n`;
+      selectedLines += 1;
+      selectedBytes += bytes;
+    };
+    const consumeLine = (line: string) => {
+      if (line.startsWith("@@")) {
+        hunkIndex += 1;
+        if (hunkIndex >= offset + limit) {
+          hasMoreHunks = true;
+          stop();
+          return;
+        }
+        if (hunkIndex >= offset) capturedHunks += 1;
+      }
+      if (hunkIndex < 0) {
+        if (Buffer.byteLength(header, "utf8") < 64 * 1024) header += `${line}\n`;
+      } else if (hunkIndex >= offset) {
+        appendSelected(line);
+      }
+    };
+    child.stdout.on("data", (chunk: string) => {
+      pending += chunk;
+      if (discardingLine) {
+        const newline = pending.indexOf("\n");
+        if (newline < 0) { pending = ""; return; }
+        pending = pending.slice(newline + 1);
+        discardingLine = false;
+      }
+      let newline = pending.indexOf("\n");
+      while (!stopped && newline >= 0) {
+        consumeLine(pending.slice(0, newline));
+        pending = pending.slice(newline + 1);
+        newline = pending.indexOf("\n");
+      }
+      if (stopped) return;
+      const pendingBytes = Buffer.byteLength(pending, "utf8");
+      if (hunkIndex >= 0 && hunkIndex < offset && pendingBytes > 64 * 1024) {
+        pending = "";
+        discardingLine = true;
+      } else if (hunkIndex >= offset && selectedBytes + pendingBytes > MAX_DIFF_BYTES) {
+        pending = "";
+        terminalTruncation = true;
+        stop();
+      } else if (hunkIndex < 0 && pendingBytes > 64 * 1024) {
+        pending = "";
+        terminalTruncation = true;
+        stop();
+      }
+    });
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.on("error", reject);
+    const timeout = setTimeout(() => {
+      terminalTruncation = true;
+      stop();
+    }, 10_000);
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (!stopped && pending) consumeLine(pending);
+      if (!stopped && code !== 0 && !(allowNoIndexDifference && code === 1)) {
+        reject(new Error(stderr.trim() || `git diff exited with ${code}`));
+        return;
+      }
+      resolve({ patch: header + selected, capturedHunks, hasMoreHunks, terminalTruncation });
+    });
+  });
 }
 
 export async function getFileDiff(cwd: string, path: string, options: DiffLoadOptions = {}): Promise<UiFileDiff> {
   const empty = (note: string): UiFileDiff => ({ path, added: 0, removed: 0, hunks: [], note });
   try {
-    let patch = await git(cwd, ["diff", "--no-ext-diff", "-U3", "HEAD", "--", path]);
-    if (!patch.trim()) {
+    let streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", "-U3", "HEAD", "--", path], options);
+    if (!streamed.patch.trim()) {
       // Untracked files have no HEAD side; diff them against an empty tree.
-      patch = await git(cwd, ["diff", "--no-ext-diff", "-U3", "--no-index", "--", "/dev/null", path])
-        .catch((error: { stdout?: string }) => error.stdout ?? "");
+      streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", "-U3", "--no-index", "--", "/dev/null", path], options, true);
     }
-    if (!patch.trim()) return empty("No textual changes.");
-    if (/^Binary files /mu.test(patch)) return empty("Binary file — no line diff.");
-    return parseUnifiedDiff(path, patch, options);
+    if (!streamed.patch.trim()) return empty("No textual changes.");
+    if (/^Binary files /mu.test(streamed.patch)) return empty("Binary file — no line diff.");
+    const result = parseUnifiedDiff(path, streamed.patch, { hunkLimit: MAX_DIFF_HUNKS }, streamed.terminalTruncation);
+    if (streamed.hasMoreHunks) {
+      const offset = Math.max(0, options.hunkOffset ?? 0);
+      return {
+        ...result,
+        truncated: true,
+        nextHunkOffset: offset + streamed.capturedHunks,
+        note: `Showing ${streamed.capturedHunks} hunks. Load more to continue.`,
+      };
+    }
+    return result;
   } catch {
     return empty("Could not read this diff.");
   }

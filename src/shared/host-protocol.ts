@@ -70,27 +70,41 @@ export interface HostActionResult {
   updates: HostUpdate[];
 }
 
-/**
- * Bootstrap is shell-first: the active detail and project metadata are useful
- * before catalogs and the global index have finished loading. `host` is only a
- * bounded recovery field for pre-v1 clients and is never emitted by normal
- * actions.
- */
+/** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */
 export interface GranularHostBootstrap {
   version: HostProtocolVersion;
   detail: ThreadDetail;
-  catalog?: HostCatalog;
+  catalog: HostCatalog;
   project: ProjectMetadata;
   index?: ThreadIndexUpdate;
-  host?: HostSnapshot;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
 export function isHostUpdate(value: unknown): value is HostUpdate {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as { version?: unknown; type?: unknown };
-  return candidate.version === HOST_PROTOCOL_VERSION && typeof candidate.type === "string" && [
-    "thread-index", "thread-shell", "thread-detail", "transcript-page", "catalog", "project", "run", "error",
-  ].includes(candidate.type);
+  const candidate = record(value);
+  if (!candidate || candidate.version !== HOST_PROTOCOL_VERSION || typeof candidate.type !== "string") return false;
+  const payload = record(candidate[
+    candidate.type === "thread-index" ? "index" :
+      candidate.type === "thread-shell" ? "update" :
+        candidate.type === "thread-detail" ? "detail" :
+          candidate.type === "transcript-page" ? "page" :
+            candidate.type === "catalog" ? "catalog" :
+              candidate.type === "project" ? "project" : ""
+  ]);
+  switch (candidate.type) {
+    case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
+    case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
+    case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
+    case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean");
+    case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
+    case "project": return Boolean(payload && typeof payload.cwd === "string");
+    case "run": return typeof candidate.sessionId === "string" && ["started", "settled", "aborted"].includes(String(candidate.event));
+    case "error": return typeof candidate.message === "string";
+    default: return false;
+  }
 }
 
 /** Unknown versions/types are ignored rather than interpreted as snapshots. */

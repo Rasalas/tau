@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type AriaRole, type ReactNode } from "react";
 
 /** Fixed-row virtualization used by large navigation and review collections. */
 export function VirtualList<T>({
@@ -9,6 +9,7 @@ export function VirtualList<T>({
   empty,
   renderItem,
   scrollToIndex,
+  role,
 }: {
   items: readonly T[];
   itemHeight: number;
@@ -17,6 +18,7 @@ export function VirtualList<T>({
   empty?: ReactNode;
   renderItem(item: T, index: number): ReactNode;
   scrollToIndex?: number;
+  role?: AriaRole;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState({ start: 0, end: Math.min(items.length, 30) });
@@ -37,7 +39,7 @@ export function VirtualList<T>({
   }, [itemHeight, scrollToIndex]);
   const visible = items.slice(range.start, range.end);
   return (
-    <div ref={ref} className={className} onScroll={update}>
+    <div ref={ref} className={className} role={role} onScroll={update}>
       {items.length === 0 ? empty : <>
         <div aria-hidden style={{ height: range.start * itemHeight }} />
         {visible.map((item, offset) => renderItem(item, range.start + offset))}

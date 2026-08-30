@@ -14,7 +14,13 @@ describe("host protocol", () => {
   it("accepts only the current version and known focused messages", () => {
     const update = { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 } };
     expect(isHostUpdate(update)).toBe(true);
-    expect(decodeHostUpdates([update, { version: 99, type: "snapshot" }, { type: "catalog" }])).toEqual([update]);
+    expect(decodeHostUpdates([
+      update,
+      { version: 99, type: "snapshot" },
+      { type: "catalog" },
+      { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: { sessionId: 42 } },
+      { version: HOST_PROTOCOL_VERSION, type: "run", sessionId: "session", event: "unknown" },
+    ])).toEqual([update]);
   });
 
   it("derives bounded detail without catalogs or project state", () => {

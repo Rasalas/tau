@@ -1,3 +1,5 @@
+import type { HostActionResult } from "./host-protocol.js";
+
 export type UiRole = "user" | "assistant" | "notice";
 
 export interface UiMessage {
@@ -186,11 +188,9 @@ export interface ThreadIndexSnapshot {
 }
 
 export interface HostBootstrap {
-  /** Legacy recovery payload. New clients should consume the granular fields. */
-  host?: HostSnapshot;
   threadIndex: ThreadIndexSnapshot;
-  version?: 1;
-  detail?: {
+  version: 1;
+  detail: {
     sessionId: string;
     messages: UiMessage[];
     isStreaming: boolean;
@@ -198,7 +198,7 @@ export interface HostBootstrap {
     contextUsage?: UiContextUsage;
     olderCursor?: string;
   };
-  catalog?: {
+  catalog: {
     models: UiModel[];
     model?: UiModel;
     thinkingLevel: string;
@@ -206,15 +206,13 @@ export interface HostBootstrap {
     allTools: Array<{ name: string; description: string }>;
     extensionCount: number;
   };
-  project?: { cwd: string; branch?: string };
+  project: { cwd: string; branch?: string };
 }
 
 export type HostEvent =
-  /** Recovery only; normal lifecycle paths use host-update and focused events. */
-  | { type: "snapshot"; snapshot: HostSnapshot }
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
-  | { type: "agent-status"; running: boolean }
+  | { type: "agent-status"; sessionId: string; running: boolean }
   | { type: "assistant-start"; id: string; timestamp: number }
   | { type: "assistant-delta"; id: string; delta: string }
   | { type: "assistant-thinking"; id: string; delta: string }
@@ -242,17 +240,17 @@ export interface TauDesktopApi {
   compactContext(): Promise<import("./host-protocol.js").HostActionResult>;
   setAccessLevel(level: AccessLevel): Promise<void>;
   resolveToolApproval(id: string, allowed: boolean): Promise<void>;
-  chooseWorkspace(): Promise<HostSnapshot | undefined>;
-  openProject(path: string): Promise<HostSnapshot>;
-  cloneProject(repositoryUrl: string): Promise<HostSnapshot | undefined>;
+  chooseWorkspace(): Promise<HostActionResult | undefined>;
+  openProject(path: string): Promise<HostActionResult>;
+  cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean): Promise<import("./host-protocol.js").HostActionResult>;
   getFileTree(path?: string): Promise<FileNode[]>;
   getChanges(): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;
-  createWorktree(branch: string): Promise<HostSnapshot>;
-  switchRef(ref: string): Promise<HostSnapshot>;
+  createWorktree(branch: string): Promise<HostActionResult>;
+  switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, path?: string): Promise<void>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;

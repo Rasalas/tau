@@ -11,8 +11,13 @@ describe("durable Git workload fixture", () => {
       expect(report.coordinatedSubprocesses).toBeLessThan(report.baselineSubprocesses);
       expect(report.maxParallelSubprocesses).toBeLessThanOrEqual(4);
       expect(report.bytesRead).toBeLessThan(512_000);
+      expect(report.overlappingRefreshSubprocesses).toBeLessThanOrEqual(6);
+      expect(report.slowCommandState).toBe("error");
+      expect(report.slowCommandMs).toBeLessThan(150);
+      expect(report.manyProjectMaxParallelSubprocesses).toBeLessThanOrEqual(4);
+      expect(report.manyProjectBranchP95Ms).toBeLessThan(250);
     } finally {
       await fixture.cleanup();
     }
-  });
+  }, 20_000);
 });

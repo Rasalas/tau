@@ -1,5 +1,5 @@
-import { readdir } from "node:fs/promises";
-import { basename, join, sep } from "node:path";
+import { readdir, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   createAgentSessionFromServices,
@@ -37,6 +37,7 @@ import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import { TranscriptPager } from "../shared/transcript-pager.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
+import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
 import { createAccessExtension, type AccessDecision } from "./access-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
@@ -165,6 +166,64 @@ async function mapSessions(
   });
 }
 
+function sessionShellEqual(left: UiSession, right: UiSession): boolean {
+  return left.id === right.id && left.path === right.path && left.title === right.title &&
+    left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
+    left.projectName === right.projectName && left.branch === right.branch &&
+    left.messageCount === right.messageCount;
+}
+
+export function sessionIndexUpdates(previous: UiSession[], next: UiSession[]): HostUpdate[] {
+  const previousById = new Map(previous.map((session) => [session.id, session] as const));
+  const nextById = new Map(next.map((session) => [session.id, session] as const));
+  const updates: HostUpdate[] = [];
+  for (const shell of next) {
+    const old = previousById.get(shell.id);
+    if (!old || !sessionShellEqual(old, shell)) {
+      updates.push({ version: HOST_PROTOCOL_VERSION, type: "thread-shell", update: { sessionId: shell.id, shell } });
+    }
+  }
+  for (const shell of previous) {
+    if (!nextById.has(shell.id)) {
+      updates.push({ version: HOST_PROTOCOL_VERSION, type: "thread-shell", update: { sessionId: shell.id, removed: true } });
+    }
+  }
+  return updates;
+}
+
+export function mergeSessionIndexScan(scanned: UiSession[], current: UiSession[], scanStartedAt: number): UiSession[] {
+  const newer = new Map(current
+    .filter((session) => session.modifiedAt >= scanStartedAt)
+    .map((session) => [session.id, session]));
+  const merged = scanned.map((session) => newer.get(session.id) ?? session);
+  const scannedIds = new Set(merged.map((session) => session.id));
+  for (const session of newer.values()) {
+    if (!scannedIds.has(session.id)) merged.push(session);
+  }
+  return merged;
+}
+
+function within(root: string, target: string): boolean {
+  return target === root || target.startsWith(`${root}${sep}`);
+}
+
+export async function assertWorkspacePath(cwd: string, path: string): Promise<void> {
+  const target = resolve(cwd, path);
+  if (!within(cwd, target)) throw new Error("Path is outside the workspace.");
+  const rootReal = await realpath(cwd);
+  let probe = target;
+  while (true) {
+    try {
+      if (!within(rootReal, await realpath(probe))) throw new Error("Path is outside the workspace.");
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.message === "Path is outside the workspace.") throw error;
+      if (probe === cwd) throw error;
+      probe = dirname(probe);
+    }
+  }
+}
+
 function approvalSummary(toolName: string, input: Record<string, unknown>): string {
   if (toolName === "bash" || toolName === "powershell") return String(input.command ?? "shell command");
   const path = input.path;
@@ -178,6 +237,14 @@ function resultText(result: unknown): string {
   return textFromContent(content);
 }
 
+export const MAX_HOST_TOOL_OUTPUT_BYTES = 128 * 1024;
+export function boundedToolOutput(output: string): string {
+  const bytes = Buffer.from(output, "utf8");
+  if (bytes.length <= MAX_HOST_TOOL_OUTPUT_BYTES) return output;
+  const tail = bytes.subarray(bytes.length - MAX_HOST_TOOL_OUTPUT_BYTES).toString("utf8");
+  return `[Earlier tool output truncated by host; showing the latest ${MAX_HOST_TOOL_OUTPUT_BYTES} bytes.]\n${tail}`;
+}
+
 export class PiHost {
   private cwd: string;
   private emit: Emit;
@@ -187,14 +254,23 @@ export class PiHost {
   private extensionCount = 0;
   private currentAssistantId?: string;
   private tools = new Map<string, UiToolRun>();
-  private readonly gitCoordinator = new GitCoordinator();
+  private readonly lifecycleMetrics = new HostLifecycleInstrumentation();
+  private readonly gitCoordinator = new GitCoordinator({ onSubprocess: () => this.lifecycleMetrics.countSubprocess() });
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
+  private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
+  private readonly prewarmedRuntimes = new Map<string, Promise<AgentSessionRuntime | undefined>>();
+  private readonly prewarmManagers = new WeakSet<SessionManager>();
+  private readonly preboundSessions = new WeakSet<AgentSession>();
+  private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
+  private retirementQueue: Promise<void> = Promise.resolve();
+  private prewarmTimer?: ReturnType<typeof setTimeout>;
   private sessions: UiSession[] = [];
   private lifecycleQueue: Promise<void> = Promise.resolve();
   private threadIndexRefresh?: Promise<ThreadIndexSnapshot>;
   private readonly detailStore = new ThreadDetailStore(5);
-  private readonly lifecycleMetrics = new HostLifecycleInstrumentation();
   private activeIndexPublish?: ReturnType<typeof setTimeout>;
+  private indexRecoveryTimer?: ReturnType<typeof setInterval>;
+  private readonly pendingShellUpdates = new Map<string, UiSession>();
   private invalidationCount = 0;
   private accessLevel: AccessLevel = "full";
   private pendingApprovals = new Map<string, (decision: AccessDecision) => void>();
@@ -208,7 +284,7 @@ export class PiHost {
   }) => {
     const reason = sessionStartEvent?.reason ?? "initial";
     const scenario = reason === "initial" ? "bootstrap" : reason === "resume" ? "cold-switch" : "warm-switch";
-    const ownsMeasurement = !this.lifecycleMetrics.isActive();
+    const ownsMeasurement = !this.lifecycleMetrics.isActive() && !this.prewarmManagers.has(sessionManager);
     if (ownsMeasurement) this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", scenario);
     const totalStartedAt = performance.now();
 
@@ -224,18 +300,22 @@ export class PiHost {
     this.logRuntimePhase("models", modelsStartedAt, reason, cwd);
 
     const resourcesStartedAt = performance.now();
+    const resourceKey = this.resourceFingerprint(cwd, settingsManager);
+    const cachedResources = this.resourceDiscoveryCache.get(resourceKey);
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
       settingsManager,
       modelRuntime,
       resourceLoaderOptions: {
+        ...(cachedResources ? cachedResourceOptions(cachedResources) : {}),
         noExtensions: this.safeMode,
         // Inline factories load even in safe mode, so the access gate is never bypassed.
         extensionFactories: [{ name: "tau-access", factory: this.accessExtension }],
       },
     });
-    this.logRuntimePhase("resources", resourcesStartedAt, reason, cwd);
+    if (!cachedResources) this.resourceDiscoveryCache.set(resourceKey, captureResourceDiscovery(services.resourceLoader));
+    this.logRuntimePhase(cachedResources ? "resources-cache-hit" : "resources", resourcesStartedAt, reason, cwd);
 
     const sessionStartedAt = performance.now();
     const created = await createAgentSessionFromServices({
@@ -265,9 +345,13 @@ export class PiHost {
     emit: Emit,
     private readonly projectHistory: ProjectHistory,
     private readonly safeMode = false,
+    private readonly automaticPrewarm = true,
   ) {
     this.cwd = cwd;
-    this.emit = emit;
+    this.emit = (event) => {
+      this.lifecycleMetrics.recordIpc(event);
+      emit(event);
+    };
     this.toolOutputBatcher = new ToolOutputBatcher((updates) => {
       for (const [id, output] of updates) this.emit({ type: "tool-update", id, output });
     });
@@ -284,8 +368,10 @@ export class PiHost {
         // The global index is independent of the active detail. Publish it when
         // ready rather than making first content wait for every session file.
         void this.refreshThreadIndex(true).then(() => {
-          this.lifecycleMetrics.phase("session-index", indexStartedAt);
+          this.recordBackgroundLifecycle("session-index", indexStartedAt);
           this.log("bootstrap.full-ready");
+          this.startIndexRecovery();
+          this.scheduleRuntimePrewarm();
         }).catch((error) => this.fail(error));
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
@@ -300,29 +386,37 @@ export class PiHost {
   async bootstrap(): Promise<HostBootstrap> {
     const host = await this.snapshot();
     const detail = this.detailForSnapshot(host);
-    return {
+    const result: HostBootstrap = {
       threadIndex: this.threadIndexSnapshot(),
       version: HOST_PROTOCOL_VERSION,
       detail,
       catalog: catalogFromSnapshot(host),
       project: { cwd: host.cwd, branch: host.branch },
     };
+    this.lifecycleMetrics.recordIpc(result);
+    return result;
   }
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */
   async getThreadDetail(cursor?: string): Promise<TranscriptPage | ThreadDetail> {
     const snapshot = await this.snapshot();
-    if (cursor !== undefined) return TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, 40, cursor);
-    return this.detailForSnapshot(snapshot);
+    const result = cursor !== undefined
+      ? TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, 40, cursor)
+      : this.detailForSnapshot(snapshot);
+    this.lifecycleMetrics.recordIpc(result);
+    return result;
   }
 
   async loadTranscript(sessionId: string, cursor?: string): Promise<TranscriptPage> {
-    const snapshot = await this.snapshot();
-    if (snapshot.sessionId !== sessionId) throw new Error("Cannot load a non-active session transcript");
-    return TranscriptPager.pageFor(sessionId, snapshot.messages, 40, cursor);
+    const session = this.requireSession();
+    if (session.sessionId !== sessionId) throw new Error("Cannot load a non-active session transcript");
+    const result = TranscriptPager.pageFor(sessionId, this.messageSnapshot(), 40, cursor);
+    this.lifecycleMetrics.recordIpc(result);
+    return result;
   }
 
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
+  getBackgroundLifecycleMeasurements() { return this.backgroundLifecycle.map((item) => ({ ...item })); }
 
   private detailForSnapshot(snapshot: HostSnapshot): ThreadDetail {
     // A fresh runtime snapshot is authoritative; only the renderer uses the
@@ -333,7 +427,9 @@ export class PiHost {
   }
 
   private actionResult(updates: HostUpdate[]): HostActionResult {
-    return { version: HOST_PROTOCOL_VERSION, updates };
+    const result = { version: HOST_PROTOCOL_VERSION, updates } satisfies HostActionResult;
+    this.lifecycleMetrics.recordIpc(result);
+    return result;
   }
 
   private lifecycleUpdates(snapshot: HostSnapshot): HostUpdate[] {
@@ -346,22 +442,25 @@ export class PiHost {
     ];
   }
 
-  async setWorkspace(cwd: string): Promise<HostSnapshot> {
-    return this.runLifecycle(async () => {
-      if (cwd === this.cwd) return this.snapshot();
-      const startedAt = performance.now();
-      const previousSessionFile = this.runtime?.session.sessionFile;
-      const nextRuntime = await this.createRootRuntime(
-        cwd,
-        SessionManager.continueRecent(cwd),
-        { type: "session_start", reason: "resume", previousSessionFile },
-      );
-      await this.swapRootRuntime(nextRuntime);
-      await this.projectHistory.remember(this.cwd);
-      this.logReplacement("workspace", startedAt);
-      await this.refreshActiveThreadIndex();
-      return this.snapshot();
-    });
+  async setWorkspace(cwd: string): Promise<HostActionResult> {
+    return this.runLifecycle(() => this.setWorkspaceNow(cwd));
+  }
+
+  private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
+    if (cwd === this.cwd) return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+    void this.clearPreparedRuntimes().catch((error) => this.fail(error));
+    const startedAt = performance.now();
+    const previousSessionFile = this.runtime?.session.sessionFile;
+    const nextRuntime = await this.createRootRuntime(
+      cwd,
+      SessionManager.continueRecent(cwd),
+      { type: "session_start", reason: "resume", previousSessionFile },
+    );
+    await this.swapRootRuntime(nextRuntime);
+    await this.projectHistory.remember(this.cwd);
+    this.logReplacement("workspace", startedAt);
+    await this.refreshActiveThreadIndex();
+    return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
   }
 
   async newSession(): Promise<HostActionResult> {
@@ -380,16 +479,38 @@ export class PiHost {
   async switchSession(path: string): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
-      const result = await this.replaceSession("resume", (runtime) => runtime.switchSession(path));
-      if (!result.cancelled) {
-        this.cwd = this.requireRuntime().cwd;
-        await this.projectHistory.remember(this.cwd);
-        this.logReplacement("resume", startedAt);
-        await this.refreshActiveThreadIndex();
+      const prepared = this.prewarmedRuntimes.get(path);
+      this.prewarmedRuntimes.delete(path);
+      this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", prepared ? "warm-switch" : "cold-switch");
+      try {
+        const preparedRuntime = prepared ? await prepared : undefined;
+        const result = preparedRuntime
+          ? await this.activatePreparedRuntime(path, preparedRuntime)
+          : await this.replaceSession("resume", (runtime) => runtime.switchSession(path));
+        if (!result.cancelled) {
+          this.cwd = this.requireRuntime().cwd;
+          await this.projectHistory.remember(this.cwd);
+          this.logReplacement("resume", startedAt);
+          await this.refreshActiveThreadIndex();
+          this.scheduleRuntimePrewarm();
+        }
+        const snapshot = await this.snapshot();
+        return this.actionResult(this.lifecycleUpdates(snapshot));
+      } finally {
+        this.lifecycleMetrics.end();
       }
-      const snapshot = await this.snapshot();
-      return this.actionResult(this.lifecycleUpdates(snapshot));
     });
+  }
+
+  /** Prepares a fresh, isolated runtime without binding its extension lifecycle. */
+  async prewarmSession(path: string): Promise<void> {
+    if (this.safeMode || path === this.runtime?.session.sessionFile || this.prewarmedRuntimes.has(path)) return;
+    const promise = this.createPreparedRuntime(path).catch((error) => {
+      this.log("runtime.prewarm.failed", this.errorMessage(error));
+      return undefined;
+    });
+    this.prewarmedRuntimes.set(path, promise);
+    await promise;
   }
 
   async prompt(text: string): Promise<void> {
@@ -399,8 +520,9 @@ export class PiHost {
       await session.prompt(text, {
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
       });
-      await this.refreshActiveThreadIndex();
+      if (this.runtime?.session === session) await this.refreshActiveThreadIndex();
     } catch (error) {
+      if (this.runtime?.session !== session) return;
       this.fail(error);
       throw error;
     }
@@ -421,28 +543,32 @@ export class PiHost {
   }
 
   async setModel(provider: string, id: string): Promise<HostActionResult> {
-    const session = this.requireSession();
-    const model = session.modelRuntime.getModel(provider, id);
-    if (!model) throw new Error(`Unknown model: ${provider}/${id}`);
-    await session.setModel(model);
-    this.log("model.changed", `${provider}/${id}`);
-    const snapshot = await this.snapshot();
-    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
-    this.emitUpdate(catalog);
-    return this.actionResult([catalog]);
+    return this.runLifecycle(async () => {
+      const session = this.requireSession();
+      const model = session.modelRuntime.getModel(provider, id);
+      if (!model) throw new Error(`Unknown model: ${provider}/${id}`);
+      await session.setModel(model);
+      this.log("model.changed", `${provider}/${id}`);
+      const snapshot = await this.snapshot();
+      const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+      this.emitUpdate(catalog);
+      return this.actionResult([catalog]);
+    });
   }
 
   async setThinkingLevel(level: string): Promise<HostActionResult> {
-    const session = this.requireSession();
-    if (!session.getAvailableThinkingLevels().includes(level as never)) {
-      throw new Error(`Thinking level is not available: ${level}`);
-    }
-    session.setThinkingLevel(level as never);
-    this.log("thinking.changed", level);
-    const snapshot = await this.snapshot();
-    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
-    this.emitUpdate(catalog);
-    return this.actionResult([catalog]);
+    return this.runLifecycle(async () => {
+      const session = this.requireSession();
+      if (!session.getAvailableThinkingLevels().includes(level as never)) {
+        throw new Error(`Thinking level is not available: ${level}`);
+      }
+      session.setThinkingLevel(level as never);
+      this.log("thinking.changed", level);
+      const snapshot = await this.snapshot();
+      const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+      this.emitUpdate(catalog);
+      return this.actionResult([catalog]);
+    });
   }
 
   async generateThreadTitle(provider: string, modelId: string, force = false): Promise<HostActionResult> {
@@ -489,7 +615,6 @@ export class PiHost {
     this.sessions = this.sessions.map((thread) =>
       thread.id === session.sessionId ? { ...thread, title, modifiedAt: Date.now() } : thread,
     );
-    this.publishThreadIndex();
     this.log("title.generated", title);
     const update: HostUpdate = {
       version: HOST_PROTOCOL_VERSION,
@@ -521,22 +646,29 @@ export class PiHost {
   }
 
   async compactContext(): Promise<HostActionResult> {
-    await this.requireSession().compact();
-    this.log("context.compacted");
-    const snapshot = await this.snapshot();
-    const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
-    this.emitUpdate(update);
-    return this.actionResult([update]);
+    return this.runLifecycle(async () => {
+      await this.requireSession().compact();
+      this.log("context.compacted");
+      const snapshot = await this.snapshot();
+      const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
+      this.emitUpdate(update);
+      return this.actionResult([update]);
+    });
   }
 
   async snapshot(): Promise<HostSnapshot> {
-    const [models, branch] = await Promise.all([this.ensureModels(), this.resolveBranch(this.cwd)]);
+    const branchStartedAt = performance.now();
+    const branchPromise = this.resolveBranch(this.cwd).then((branch) => {
+      this.lifecycleMetrics.phase("branch", branchStartedAt);
+      return branch;
+    });
+    const [models, branch] = await Promise.all([this.ensureModels(), branchPromise]);
     return { ...this.snapshotSync(models), branch };
   }
 
   async getFileTree(path?: string): Promise<FileNode[]> {
     const root = path ?? this.cwd;
-    if (root !== this.cwd && !root.startsWith(`${this.cwd}${sep}`)) throw new Error("File tree path is outside the workspace.");
+    await assertWorkspacePath(this.cwd, root);
     return this.readTree(root, 0, { count: 0 });
   }
 
@@ -545,6 +677,7 @@ export class PiHost {
   }
 
   async getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff> {
+    await assertWorkspacePath(this.cwd, path);
     return workspaceGit.getFileDiff(this.cwd, path, options);
   }
 
@@ -568,31 +701,35 @@ export class PiHost {
     return this.gitCoordinator.getWorkspaceInfo(this.cwd);
   }
 
-  async createWorktree(branch: string): Promise<HostSnapshot> {
-    const project = this.cwd;
-    try {
-      const destination = await workspaceGit.createWorktree(project, branch, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
-      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-      this.log("git.worktree.added", destination);
-      return this.setWorkspace(destination);
-    } catch (error) {
-      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-      throw error;
-    }
+  async createWorktree(branch: string): Promise<HostActionResult> {
+    return this.runLifecycle(async () => {
+      const project = this.cwd;
+      try {
+        const destination = await workspaceGit.createWorktree(project, branch, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
+        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+        this.log("git.worktree.added", destination);
+        return this.setWorkspaceNow(destination);
+      } catch (error) {
+        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+        throw error;
+      }
+    });
   }
 
-  async switchRef(ref: string): Promise<HostSnapshot> {
-    const project = this.cwd;
-    try {
-      const target = await workspaceGit.resolveRefTarget(project, ref, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
-      this.log("git.ref.switch", `${ref} → ${target}`);
-      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-      if (target === this.cwd) return this.snapshot();
-      return this.setWorkspace(target);
-    } catch (error) {
-      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-      throw error;
-    }
+  async switchRef(ref: string): Promise<HostActionResult> {
+    return this.runLifecycle(async () => {
+      const project = this.cwd;
+      try {
+        const target = await workspaceGit.resolveRefTarget(project, ref, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
+        this.log("git.ref.switch", `${ref} → ${target}`);
+        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+        if (target === this.cwd) return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+        return this.setWorkspaceNow(target);
+      } catch (error) {
+        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+        throw error;
+      }
+    });
   }
 
   async listEditors(): Promise<UiEditor[]> {
@@ -600,15 +737,23 @@ export class PiHost {
   }
 
   async openInEditor(editorId: string, path?: string): Promise<void> {
+    if (path) await assertWorkspacePath(this.cwd, path);
     await workspaceGit.openInEditor(this.cwd, editorId, path);
   }
 
   async dispose(): Promise<void> {
     return this.runLifecycle(async () => {
       this.toolOutputBatcher.dispose();
+      if (this.activeIndexPublish) clearTimeout(this.activeIndexPublish);
+      this.activeIndexPublish = undefined;
+      if (this.indexRecoveryTimer) clearInterval(this.indexRecoveryTimer);
+      this.indexRecoveryTimer = undefined;
+      this.pendingShellUpdates.clear();
+      const teardownErrors: unknown[] = [];
+      try { await this.clearPreparedRuntimes(); } catch (error) { teardownErrors.push(error); }
+      try { await this.retirementQueue; } catch (error) { teardownErrors.push(error); }
       const runtime = this.runtime;
-      let teardownErrors: unknown[] = [];
-      if (runtime) teardownErrors = await this.shutdownRuntime(runtime);
+      if (runtime) teardownErrors.push(...await this.shutdownRuntime(runtime));
       if (this.runtime === runtime) this.runtime = undefined;
       this.unsubscribe?.();
       this.unsubscribe = undefined;
@@ -649,6 +794,137 @@ export class PiHost {
       sessionManager,
       sessionStartEvent,
     });
+  }
+
+  private async createPreparedRuntime(path: string): Promise<AgentSessionRuntime> {
+    const startedAt = performance.now();
+    const manager = SessionManager.open(path);
+    let runtime: AgentSessionRuntime | undefined;
+    this.prewarmManagers.add(manager);
+    try {
+      runtime = await this.createRootRuntime(
+        manager.getCwd(),
+        manager,
+        { type: "session_start", reason: "resume", previousSessionFile: this.runtime?.session.sessionFile },
+      );
+      this.preboundSessions.add(runtime.session);
+      await runtime.session.bindExtensions({ onError: (error) => this.fail(error) });
+      this.log("runtime.prewarm.ready", basename(path));
+      return runtime;
+    } catch (error) {
+      if (runtime) {
+        try { await this.discardPreparedRuntime(runtime); } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], "Runtime prewarm and cleanup failed");
+        }
+      }
+      throw error;
+    } finally {
+      this.prewarmManagers.delete(manager);
+      this.recordBackgroundLifecycle("prewarm", startedAt);
+    }
+  }
+
+  private async clearPreparedRuntimes(): Promise<void> {
+    if (this.prewarmTimer) clearTimeout(this.prewarmTimer);
+    this.prewarmTimer = undefined;
+    const prepared = [...this.prewarmedRuntimes.values()];
+    this.prewarmedRuntimes.clear();
+    const errors: unknown[] = [];
+    for (const pending of prepared) {
+      try {
+        const runtime = await pending;
+        if (runtime) await this.discardPreparedRuntime(runtime);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Prepared runtime cleanup failed");
+  }
+
+  private async discardPreparedRuntime(runtime: AgentSessionRuntime): Promise<void> {
+    const session = runtime.session;
+    try {
+      if (this.preboundSessions.delete(session) && session.extensionRunner.hasHandlers("session_shutdown")) {
+        await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      }
+    } finally {
+      session.dispose();
+    }
+  }
+
+  private queueRuntimeRetirement(runtime: AgentSessionRuntime, targetSessionFile: string): void {
+    this.retirementQueue = this.retirementQueue.then(async () => {
+      const startedAt = performance.now();
+      try {
+        const runner = runtime.session.extensionRunner;
+        if (runner.hasHandlers("session_shutdown")) {
+          await runner.emit({ type: "session_shutdown", reason: "resume", targetSessionFile });
+        }
+      } finally {
+        runtime.session.dispose();
+        this.recordBackgroundLifecycle("retire", startedAt);
+      }
+    }).catch((error) => this.fail(error));
+  }
+
+  private recordBackgroundLifecycle(name: string, startedAt: number): void {
+    this.backgroundLifecycle.push({ name, durationMs: Math.round((performance.now() - startedAt) * 10) / 10 });
+    if (this.backgroundLifecycle.length > 100) this.backgroundLifecycle.shift();
+  }
+
+  private scheduleRuntimePrewarm(): void {
+    if (!this.automaticPrewarm || this.safeMode || this.prewarmTimer || this.prewarmedRuntimes.size >= 2) return;
+    this.prewarmTimer = setTimeout(() => {
+      this.prewarmTimer = undefined;
+      const active = this.runtime?.session.sessionFile;
+      const candidates = this.sessions
+        .filter((session) => session.projectPath === this.cwd && session.path !== active && !this.prewarmedRuntimes.has(session.path))
+        .slice(0, 2 - this.prewarmedRuntimes.size);
+      for (const session of candidates) void this.prewarmSession(session.path);
+    }, 1_000);
+    this.prewarmTimer.unref?.();
+  }
+
+  private async activatePreparedRuntime(path: string, nextRuntime: AgentSessionRuntime): Promise<{ cancelled: boolean }> {
+    const previous = this.requireRuntime();
+    const runner = previous.session.extensionRunner;
+    try {
+      if (runner.hasHandlers("session_before_switch")) {
+        const result = await runner.emit({ type: "session_before_switch", reason: "resume", targetSessionFile: path });
+        if (result?.cancel === true) {
+          await this.discardPreparedRuntime(nextRuntime);
+          return { cancelled: true };
+        }
+      }
+      await previous.session.abort();
+    } catch (error) {
+      await this.discardPreparedRuntime(nextRuntime);
+      throw error;
+    }
+
+    this.invalidationCount += 1;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.resetSessionState();
+    this.installRuntime(nextRuntime);
+    try {
+      const alreadyBound = this.preboundSessions.delete(nextRuntime.session);
+      await this.bindSession(nextRuntime, nextRuntime.session, alreadyBound);
+      this.queueRuntimeRetirement(previous, path);
+      return { cancelled: false };
+    } catch (error) {
+      const cleanupErrors = await this.shutdownRuntime(nextRuntime);
+      if (this.runtime === nextRuntime) this.runtime = undefined;
+      this.installRuntime(previous);
+      try {
+        await this.bindSession(previous, previous.session, true);
+      } catch (recoveryError) {
+        throw new AggregateError([error, ...cleanupErrors, recoveryError], "Prewarmed runtime activation and recovery failed");
+      }
+      throw cleanupErrors.length > 0
+        ? new AggregateError([error, ...cleanupErrors], "Prewarmed runtime activation failed")
+        : error;
+    }
   }
 
   private installRuntime(runtime: AgentSessionRuntime): void {
@@ -697,13 +973,15 @@ export class PiHost {
     }
   }
 
-  private async bindSession(runtime: AgentSessionRuntime, session: AgentSession): Promise<void> {
+  private async bindSession(runtime: AgentSessionRuntime, session: AgentSession, alreadyBound = false): Promise<void> {
     if (runtime.session !== session) throw new Error("Cannot bind a stale Pi session");
     const bindStartedAt = performance.now();
-    await session.bindExtensions({
-      onError: (error) => this.fail(error),
-    });
-    this.logRuntimePhase("bind", bindStartedAt, "active", runtime.cwd);
+    if (!alreadyBound) {
+      await session.bindExtensions({
+        onError: (error) => this.fail(error),
+      });
+    }
+    this.logRuntimePhase(alreadyBound ? "bind-cache-hit" : "bind", bindStartedAt, "active", runtime.cwd);
 
     const catalogStartedAt = performance.now();
     const models = (await session.modelRuntime.getAvailable()).map(mapModel);
@@ -824,7 +1102,7 @@ export class PiHost {
       switch (event.type) {
         case "agent_start":
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId: session.sessionId });
-          this.emit({ type: "agent-status", running: true });
+          this.emit({ type: "agent-status", sessionId: session.sessionId, running: true });
           this.log("agent.started");
           break;
         case "agent_end":
@@ -832,7 +1110,7 @@ export class PiHost {
           break;
         case "agent_settled":
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId: session.sessionId });
-          this.emit({ type: "agent-status", running: false });
+          this.emit({ type: "agent-status", sessionId: session.sessionId, running: false });
           this.log("agent.settled");
           break;
         case "message_start":
@@ -879,7 +1157,7 @@ export class PiHost {
           break;
         }
         case "tool_execution_update": {
-          const output = resultText(event.partialResult);
+          const output = boundedToolOutput(resultText(event.partialResult));
           const previous = this.tools.get(event.toolCallId);
           if (previous) this.tools.set(event.toolCallId, { ...previous, output });
           this.toolOutputBatcher.push(event.toolCallId, output);
@@ -894,7 +1172,7 @@ export class PiHost {
             name: event.toolName,
             args: (previous?.args ?? {}) as Record<string, unknown>,
             status: event.isError ? "error" : "done",
-            output: resultText(event.result),
+            output: boundedToolOutput(resultText(event.result)),
             startedAt: previous?.startedAt ?? Date.now(),
             endedAt: Date.now(),
           };
@@ -923,10 +1201,12 @@ export class PiHost {
     return models;
   }
 
-  private resourceFingerprint(cwd: string): string {
+  private resourceFingerprint(cwd: string, settingsManager?: SettingsManager): string {
     return runtimeResourceFingerprint({
       cwd,
-      settings: { safeMode: this.safeMode, accessLevel: this.accessLevel },
+      settings: settingsManager
+        ? { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings(), safeMode: this.safeMode, accessLevel: this.accessLevel }
+        : { safeMode: this.safeMode, accessLevel: this.accessLevel },
       extensions: { enabled: !this.safeMode, accessGate: true },
       providerState: { agentDir: this.agentDir },
     });
@@ -934,9 +1214,11 @@ export class PiHost {
 
   private async refreshThreadIndex(publish: boolean): Promise<ThreadIndexSnapshot> {
     if (!this.threadIndexRefresh) {
+      const scanStartedAt = Date.now();
       this.threadIndexRefresh = (async () => {
         const sessionInfos = await SessionManager.listAll();
-        this.sessions = await mapSessions(sessionInfos, this.cwd, (cwd) => this.resolveBranch(cwd));
+        const scanned = await mapSessions(sessionInfos, this.cwd, (cwd) => this.resolveBranch(cwd));
+        this.sessions = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt);
         return this.threadIndexSnapshot();
       })().finally(() => {
         this.threadIndexRefresh = undefined;
@@ -945,6 +1227,24 @@ export class PiHost {
     const threadIndex = await this.threadIndexRefresh;
     if (publish) this.emit({ type: "thread-index", threadIndex });
     return threadIndex;
+  }
+
+  private startIndexRecovery(): void {
+    if (this.indexRecoveryTimer) return;
+    this.indexRecoveryTimer = setInterval(() => {
+      void this.recoverThreadIndex().catch((error) => this.fail(error));
+    }, 30_000);
+    this.indexRecoveryTimer.unref?.();
+  }
+
+  private async recoverThreadIndex(): Promise<void> {
+    const previous = this.sessions;
+    const scanStartedAt = Date.now();
+    const sessionInfos = await SessionManager.listAll();
+    const scanned = await mapSessions(sessionInfos, this.cwd, (cwd) => this.resolveBranch(cwd));
+    const next = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt);
+    this.sessions = next;
+    for (const update of sessionIndexUpdates(previous, next)) this.emitUpdate(update);
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
@@ -963,14 +1263,23 @@ export class PiHost {
       messageCount: session.messages.length,
     };
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
-    this.publishThreadIndexSoon();
+    this.publishThreadShellSoon(shell);
   }
 
-  private publishThreadIndexSoon(): void {
+  private publishThreadShellSoon(shell: UiSession): void {
+    this.pendingShellUpdates.set(shell.id, shell);
     if (this.activeIndexPublish !== undefined) return;
     this.activeIndexPublish = setTimeout(() => {
       this.activeIndexPublish = undefined;
-      this.emit({ type: "thread-index", threadIndex: this.threadIndexSnapshot() });
+      const updates = [...this.pendingShellUpdates.values()];
+      this.pendingShellUpdates.clear();
+      for (const pending of updates) {
+        this.emitUpdate({
+          version: HOST_PROTOCOL_VERSION,
+          type: "thread-shell",
+          update: { sessionId: pending.id, shell: pending },
+        });
+      }
     }, 0);
     this.activeIndexPublish.unref?.();
   }
@@ -991,8 +1300,10 @@ export class PiHost {
     return { projects, sessions: this.sessions };
   }
 
-  private publishThreadIndex(): void {
-    this.emit({ type: "thread-index", threadIndex: this.threadIndexSnapshot() });
+  private messageSnapshot(): UiMessage[] {
+    return this.requireSession().messages
+      .map((message, index) => mapMessage(message, index))
+      .filter((message): message is UiMessage => Boolean(message?.text));
   }
 
   private snapshotSync(models: UiModel[]): HostSnapshot {
@@ -1008,9 +1319,7 @@ export class PiHost {
       models,
       thinkingLevel: session.thinkingLevel,
       thinkingLevels: session.getAvailableThinkingLevels(),
-      messages: session.messages
-        .map((message, index) => mapMessage(message, index))
-        .filter((message): message is UiMessage => Boolean(message?.text)),
+      messages: this.messageSnapshot(),
       isStreaming: session.isStreaming,
       activeTools: session.getActiveToolNames(),
       allTools: session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
@@ -1066,7 +1375,7 @@ export class PiHost {
     if (tool.name === "edit" || tool.name === "write" || mutatesGit) {
       this.gitCoordinator.invalidate(this.cwd, mutatesGit
         ? ["status", "branch", "workspace"]
-        : ["status"]);
+        : ["status", "workspace"]);
     }
   }
 
@@ -1116,13 +1425,11 @@ export class PiHost {
   }
 
   private emitUpdate(update: HostUpdate): void {
-    this.lifecycleMetrics.recordIpc(update);
     this.emit({ type: "host-update", update });
   }
 
   private log(label: string, detail?: string): void {
     const event = { type: "event-log" as const, label, detail, timestamp: Date.now() };
-    this.lifecycleMetrics.recordIpc(event);
     this.emit(event);
   }
 

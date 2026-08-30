@@ -29,7 +29,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 };
 const languagePromises = new Map<string, Promise<void>>();
 
-function loadLanguage(language: string): Promise<void> {
+export function loadHighlightLanguage(language: string): Promise<void> {
   const canonical = LANGUAGE_ALIASES[language] ?? language;
   const existing = languagePromises.get(canonical);
   if (existing) return existing;
@@ -85,7 +85,7 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
     }
     let cancelled = false;
     setLanguageReady(false);
-    void loadLanguage(canonicalLanguage).finally(() => {
+    void loadHighlightLanguage(canonicalLanguage).finally(() => {
       if (!cancelled) setLanguageReady(true);
     });
     return () => { cancelled = true; };
@@ -161,19 +161,31 @@ const MarkdownTree = memo(function MarkdownTree({ children }: { children: string
   );
 });
 
-/** Keep the mutable tail cheap; settled paragraphs are parsed only when a boundary is crossed. */
+const SettledMarkdownBlock = memo(function SettledMarkdownBlock({ children }: { children: string }) {
+  return <MarkdownTree>{children}</MarkdownTree>;
+});
+
+const StreamingChunk = memo(function StreamingChunk({ children }: { children: string }) {
+  return <span>{children}</span>;
+});
+
+function StreamingTail({ children }: { children: string }) {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < children.length; offset += 8_192) chunks.push(children.slice(offset, offset + 8_192));
+  return <pre className="streaming-tail">{chunks.map((chunk, index) => <StreamingChunk key={index}>{chunk}</StreamingChunk>)}</pre>;
+}
+
+/** Keep the mutable tail cheap and parse each completed block only once. */
 export const Markdown = memo(function Markdown({ children, streaming = false }: { children: string; streaming?: boolean }) {
   if (!streaming || children.length < 512) {
     return <div className="markdown"><MarkdownTree>{children}</MarkdownTree></div>;
   }
-  const boundary = children.lastIndexOf("\n\n");
-  if (boundary < 0) return <div className="markdown"><pre className="streaming-tail">{children}</pre></div>;
-  const settled = children.slice(0, boundary + 2);
-  const tail = children.slice(boundary + 2);
+  const blocks = children.split("\n\n");
+  const tail = blocks.pop() ?? "";
   return (
     <div className="markdown">
-      <MarkdownTree>{settled}</MarkdownTree>
-      <pre className="streaming-tail">{tail}</pre>
+      {blocks.map((block, index) => <SettledMarkdownBlock key={index}>{`${block}\n\n`}</SettledMarkdownBlock>)}
+      <StreamingTail>{tail}</StreamingTail>
     </div>
   );
 });
