@@ -8,6 +8,7 @@ const snapshot: HostSnapshot = {
     { id: "1", role: "user", text: "hello", timestamp: 1 },
     { id: "2", role: "assistant", text: "world", timestamp: 2 },
   ], isStreaming: false, activeTools: [], allTools: [], extensionCount: 0,
+  serviceTier: "standard", serviceTierAvailable: false,
 };
 
 describe("host protocol", () => {

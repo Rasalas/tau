@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Sparkles, X, Zap } from "lucide-react";
-import type { HostSnapshot, UiContextUsage, WorkspaceInfo } from "../../shared/contracts";
+import type { HostSnapshot, ServiceTier, UiContextUsage, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -8,6 +8,20 @@ import { ModelPicker, modelKey } from "./ModelPicker";
 import { WorkspaceBar } from "./WorkspaceBar";
 
 type OpenMenu = "thinking" | "access" | undefined;
+
+/** Pi's out-of-the-box reasoning level; shown as the Default badge. */
+const DEFAULT_THINKING = "medium";
+
+/** Pi's level ids are identifiers; these are how they read in the menu. */
+const THINKING_LABELS: Record<string, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
 
 export function Composer({
   snapshot,
@@ -24,6 +38,7 @@ export function Composer({
   onCancelQueued,
   onSetModel,
   onSetThinking,
+  onSetServiceTier,
   onSetAccess,
   onCompactContext,
   workspace,
@@ -46,6 +61,7 @@ export function Composer({
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
+  onSetServiceTier(tier: ServiceTier): void;
   onSetAccess(level: AccessLevel): void;
   onCompactContext(): void;
   workspace?: WorkspaceInfo;
@@ -66,6 +82,8 @@ export function Composer({
   }, [seed, value]);
   const updateDraft = (next: string) => { if (value === undefined) setDraft(next); onChange?.(next); };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const fastTier = snapshot?.serviceTier === "fast";
+  const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
 
@@ -116,18 +134,48 @@ export function Composer({
             <button className="runtime-chip" onClick={() => setMenu(menu === "thinking" ? undefined : "thinking")}>
               <Zap size={13} />
               {snapshot?.thinkingLevel ?? "—"}
+              {fastTier ? <i className="tier-mark">fast</i> : null}
               <ChevronDown size={12} className="chev" />
             </button>
             {menu === "thinking" ? (
               <Menu
                 placement="above"
-                heading="Thinking"
-                items={(snapshot?.thinkingLevels ?? []).map((level) => ({
-                  id: level,
-                  label: level,
-                  selected: level === snapshot?.thinkingLevel,
-                }))}
-                onSelect={onSetThinking}
+                sections={[
+                  {
+                    heading: "Reasoning",
+                    items: (snapshot?.thinkingLevels ?? []).map((level) => ({
+                      id: `thinking:${level}`,
+                      label: THINKING_LABELS[level] ?? level,
+                      badge: level === DEFAULT_THINKING ? "Default" : undefined,
+                      selected: level === snapshot?.thinkingLevel,
+                    })),
+                  },
+                  {
+                    heading: "Service tier",
+                    items: [
+                      {
+                        id: "tier:standard",
+                        label: "Standard",
+                        badge: "Default",
+                        selected: !fastTier,
+                      },
+                      {
+                        id: "tier:fast",
+                        label: "Fast",
+                        description: tierAvailable
+                          ? "Priority routing, higher cost"
+                          : "Not offered for this model's provider",
+                        selected: fastTier,
+                        disabled: !tierAvailable,
+                      },
+                    ],
+                  },
+                ]}
+                onSelect={(id) => {
+                  const [group, value] = id.split(":");
+                  if (group === "thinking") onSetThinking(value);
+                  else onSetServiceTier(value as ServiceTier);
+                }}
                 onClose={() => setMenu(undefined)}
               />
             ) : null}

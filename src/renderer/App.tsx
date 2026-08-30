@@ -8,6 +8,7 @@ import type {
   UiEditor,
   UiMessage,
   UiSession,
+  ServiceTier,
   ToolApprovalRequest,
   UiToolRun,
   UiWorkspaceChanges,
@@ -95,6 +96,8 @@ const mockSnapshot: HostSnapshot = {
   models: [{ provider: "anthropic", id: "preview", name: "sonnet-4.6" }],
   thinkingLevel: "high",
   thinkingLevels: ["off", "low", "medium", "high"],
+  serviceTier: "standard",
+  serviceTierAvailable: true,
   messages: [
     { id: "welcome-user", role: "user", text: "Split the full host snapshots, stop calling SessionManager.listAll() on every switch, and virtualize the thread list for large sessions.", timestamp: Date.now() - 120000 },
     { id: "welcome-pi", role: "assistant", text: "Core keeps thread and session semantics; extensions only subscribe to individual thread shells. Press ⌘K to inspect the contribution registry.", timestamp: Date.now() - 110000 },
@@ -487,6 +490,8 @@ export default function App() {
           model: bootstrap.catalog.model,
           thinkingLevel: bootstrap.catalog.thinkingLevel,
           thinkingLevels: bootstrap.catalog.thinkingLevels,
+          serviceTier: bootstrap.catalog.serviceTier,
+          serviceTierAvailable: bootstrap.catalog.serviceTierAvailable,
           allTools: bootstrap.catalog.allTools,
           extensionCount: bootstrap.catalog.extensionCount,
           messages: bootstrap.detail.messages,
@@ -707,6 +712,15 @@ export default function App() {
     if (!requireHost("Thinking level")) return;
     try {
       applyActionResult(await window.tau!.setThinkingLevel(level));
+    } catch (error) {
+      setNotice(String(error));
+    }
+  }, [applyActionResult, requireHost]);
+
+  const setServiceTier = useCallback(async (tier: ServiceTier) => {
+    if (!requireHost("Service tier")) return;
+    try {
+      applyActionResult(await window.tau!.setServiceTier(tier));
     } catch (error) {
       setNotice(String(error));
     }
@@ -1052,6 +1066,7 @@ export default function App() {
                 onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
                 onSetModel={(provider, id) => void setModel(provider, id)}
                 onSetThinking={(level) => void setThinking(level)}
+                onSetServiceTier={(tier) => void setServiceTier(tier)}
                 onSetAccess={(level: AccessLevel) => preferences.setAccessLevel(level)}
                 onCompactContext={() => void compactContext()}
                 workspace={workspace}

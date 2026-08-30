@@ -63,6 +63,12 @@ export interface UiContextUsage {
  */
 export type AccessLevel = "read-only" | "ask" | "full";
 
+/**
+ * Pi has no service-tier concept either; Tau maps "fast" onto the provider's own
+ * priority tier through the before_provider_request hook, where the API has one.
+ */
+export type ServiceTier = "standard" | "fast";
+
 export interface ToolApprovalRequest {
   id: string;
   toolName: string;
@@ -180,6 +186,9 @@ export interface HostSnapshot {
   allTools: Array<{ name: string; description: string }>;
   extensionCount: number;
   contextUsage?: UiContextUsage;
+  serviceTier: ServiceTier;
+  /** False when the active model's API has no priority tier to ask for. */
+  serviceTierAvailable: boolean;
 }
 
 export interface ThreadIndexSnapshot {
@@ -203,6 +212,8 @@ export interface HostBootstrap {
     model?: UiModel;
     thinkingLevel: string;
     thinkingLevels: string[];
+    serviceTier: ServiceTier;
+    serviceTierAvailable: boolean;
     allTools: Array<{ name: string; description: string }>;
     extensionCount: number;
   };
@@ -238,6 +249,7 @@ export interface TauDesktopApi {
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
   setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;
   compactContext(): Promise<import("./host-protocol.js").HostActionResult>;
+  setServiceTier(tier: ServiceTier): Promise<import("./host-protocol.js").HostActionResult>;
   setAccessLevel(level: AccessLevel): Promise<void>;
   resolveToolApproval(id: string, allowed: boolean): Promise<void>;
   chooseWorkspace(): Promise<HostActionResult | undefined>;

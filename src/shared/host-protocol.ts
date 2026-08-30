@@ -1,5 +1,6 @@
 import type {
   HostSnapshot,
+  ServiceTier,
   ThreadIndexSnapshot,
   UiContextUsage,
   UiMessage,
@@ -45,6 +46,8 @@ export interface HostCatalog {
   model?: UiModel;
   thinkingLevel: string;
   thinkingLevels: string[];
+  serviceTier: ServiceTier;
+  serviceTierAvailable: boolean;
   allTools: Array<{ name: string; description: string }>;
   extensionCount: number;
 }
@@ -131,6 +134,8 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     model: snapshot.model,
     thinkingLevel: snapshot.thinkingLevel,
     thinkingLevels: [...snapshot.thinkingLevels],
+    serviceTier: snapshot.serviceTier,
+    serviceTierAvailable: snapshot.serviceTierAvailable,
     allTools: [...snapshot.allTools],
     extensionCount: snapshot.extensionCount,
   };

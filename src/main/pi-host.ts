@@ -16,6 +16,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
   AccessLevel,
+  ServiceTier,
   CommitResult,
   DiffLoadOptions,
   FileNode,
@@ -39,6 +40,7 @@ import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
 import { createAccessExtension, type AccessDecision } from "./access-extension.js";
+import { createServiceTierExtension, SERVICE_TIER_APIS } from "./service-tier-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
@@ -325,6 +327,7 @@ export class PiHost {
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   private invalidationCount = 0;
   private accessLevel: AccessLevel = "full";
+  private serviceTier: ServiceTier = "standard";
   private pendingApprovals = new Map<string, (decision: AccessDecision) => void>();
   private approvalCounter = 0;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -363,7 +366,10 @@ export class PiHost {
         ...(cachedResources ? cachedResourceOptions(cachedResources) : {}),
         noExtensions: this.safeMode,
         // Inline factories load even in safe mode, so the access gate is never bypassed.
-        extensionFactories: [{ name: "tau-access", factory: this.accessExtension }],
+        extensionFactories: [
+          { name: "tau-access", factory: this.accessExtension },
+          { name: "tau-service-tier", factory: this.serviceTierExtension },
+        ],
       },
     });
     if (!cachedResources) this.resourceDiscoveryCache.set(resourceKey, captureResourceDiscovery(services.resourceLoader));
@@ -390,6 +396,12 @@ export class PiHost {
     level: () => this.accessLevel,
     onBlocked: (toolName, reason) => this.log("access.blocked", `${toolName}: ${reason}`),
     requestApproval: (toolCallId, toolName, input) => this.requestApproval(toolCallId, toolName, input),
+  });
+
+  private readonly serviceTierExtension = createServiceTierExtension({
+    fastRequested: () => this.serviceTier === "fast",
+    available: () => this.serviceTierAvailable(),
+    onApplied: () => this.log("service-tier.applied", "priority"),
   });
 
   constructor(
@@ -702,6 +714,23 @@ export class PiHost {
       reason: allowed ? undefined : "Blocked by Tau: you declined this tool call.",
     });
     this.pendingApprovals.delete(id);
+  }
+
+  async setServiceTier(tier: ServiceTier): Promise<HostActionResult> {
+    return this.runLifecycle(async () => {
+      this.serviceTier = tier;
+      this.log("service-tier.changed", tier);
+      const snapshot = await this.snapshot();
+      const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+      this.emitUpdate(catalog);
+      return this.actionResult([catalog]);
+    });
+  }
+
+  /** The active model's API decides whether a priority tier can be asked for at all. */
+  private serviceTierAvailable(): boolean {
+    const api = (this.runtime?.session.model as { api?: string } | undefined)?.api;
+    return Boolean(api && SERVICE_TIER_APIS.has(api));
   }
 
   async compactContext(): Promise<HostActionResult> {
@@ -1087,6 +1116,8 @@ export class PiHost {
         model: session.model ? mapModel(session.model) : undefined,
         thinkingLevel: session.thinkingLevel,
         thinkingLevels: session.getAvailableThinkingLevels(),
+        serviceTier: this.serviceTier,
+        serviceTierAvailable: this.serviceTierAvailable(),
         allTools: session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
         extensionCount: this.extensionCount,
       },
@@ -1410,6 +1441,8 @@ export class PiHost {
       activeTools: session.getActiveToolNames(),
       allTools: session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
       extensionCount: this.extensionCount,
+      serviceTier: this.serviceTier,
+      serviceTierAvailable: this.serviceTierAvailable(),
       contextUsage: usage && usage.tokens !== null && usage.percent !== null
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined,

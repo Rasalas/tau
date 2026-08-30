@@ -6,6 +6,7 @@ const snapshot: HostSnapshot = {
   cwd: "/project", sessionId: "session", sessionTitle: "Cached", models: [{ provider: "p", id: "m", name: "M" }],
   thinkingLevel: "off", thinkingLevels: ["off"], messages: Array.from({ length: 50 }, (_, index) => ({ id: String(index), role: "user", text: String(index), timestamp: index })),
   isStreaming: true, activeTools: ["bash"], allTools: [{ name: "bash", description: "shell" }], extensionCount: 1,
+  serviceTier: "standard", serviceTierAvailable: false,
 };
 
 describe("bootstrap cache", () => {

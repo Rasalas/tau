@@ -13,6 +13,7 @@ const api: TauDesktopApi = {
   setModel: (provider, id) => ipcRenderer.invoke("tau:set-model", provider, id),
   setThinkingLevel: (level) => ipcRenderer.invoke("tau:set-thinking", level),
   compactContext: () => ipcRenderer.invoke("tau:compact-context"),
+  setServiceTier: (tier) => ipcRenderer.invoke("tau:set-service-tier", tier),
   setAccessLevel: (level) => ipcRenderer.invoke("tau:set-access-level", level),
   resolveToolApproval: (id, allowed) => ipcRenderer.invoke("tau:resolve-tool-approval", id, allowed),
   generateThreadTitle: (provider, modelId, force, expectedSessionId) => ipcRenderer.invoke("tau:generate-thread-title", provider, modelId, force, expectedSessionId),

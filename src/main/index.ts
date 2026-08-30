@@ -3,7 +3,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { AccessLevel, HostEvent } from "../shared/contracts.js";
+import type { AccessLevel, HostEvent, ServiceTier } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
