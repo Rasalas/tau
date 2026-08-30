@@ -18,7 +18,7 @@ import { ChangedFiles } from "./components/ChangedFiles";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer } from "./components/Composer";
 import type { ContextBreakdown } from "./components/ContextMeter";
-import { Menu } from "./components/Menu";
+import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
@@ -216,7 +216,6 @@ export default function App() {
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<string>();
-  const [threadMenuOpen, setThreadMenuOpen] = useState(false);
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
@@ -683,6 +682,20 @@ export default function App() {
     }
   }, [addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
 
+  const renameThread = useCallback(async (title: string): Promise<boolean> => {
+    if (!requireHost("Thread rename")) return false;
+    try {
+      applyActionResult(await window.tau!.renameThread(
+        title,
+        threadStore.getSnapshot().activeThreadId,
+      ));
+      return true;
+    } catch (error) {
+      setNotice(String(error));
+      return false;
+    }
+  }, [applyActionResult, requireHost, threadStore]);
+
   const generateThreadTitle = useCallback(async (provider: string, modelId: string, force = false): Promise<boolean> => {
     if (!requireHost("Title generation")) return false;
     try {
@@ -814,6 +827,24 @@ export default function App() {
     if (!activeId) return;
     preferences.toggleSettled(activeId);
   }, [threadStore]);
+
+  const copyThreadValue = useCallback(async (kind: "path" | "branch" | "thread-id") => {
+    const value = kind === "path"
+      ? snapshot?.cwd
+      : kind === "branch"
+        ? snapshot?.branch
+        : snapshot?.sessionId;
+    if (!value) {
+      setNotice(`${kind === "branch" ? "Branch" : "Value"} is unavailable.`);
+      return;
+    }
+    try {
+      await window.tau?.copyText(value);
+      setNotice(`${kind === "path" ? "Path" : kind === "branch" ? "Branch" : "Thread ID"} copied.`);
+    } catch (error) {
+      setNotice(String(error));
+    }
+  }, [snapshot?.branch, snapshot?.cwd, snapshot?.sessionId]);
 
   const actions: WorkbenchActions = useMemo(() => ({
     openPanel,
@@ -1045,30 +1076,20 @@ export default function App() {
 
             <main className="conversation-column">
               <header className="conversation-header">
-                <h1>{snapshot?.sessionTitle || "Untitled thread"}</h1>
-                {snapshot?.branch ? <span className="branch-chip">{snapshot.branch}</span> : null}
+                <ThreadTitleMenu
+                  title={snapshot?.sessionTitle || "Untitled thread"}
+                  branch={snapshot?.branch}
+                  pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
+                  settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
+                  onNewThread={() => void createSession()}
+                  onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
+                  onToggleSettled={settleActiveThread}
+                  onRename={renameThread}
+                  onRegenerate={() => void actions.regenerateTitle(true)}
+                  onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
+                  onCopy={(kind) => void copyThreadValue(kind)}
+                />
                 <span className="title-spacer" />
-                <span className="menu-anchor">
-                  <button className="chrome-ghost glyph" aria-label="Thread actions" onClick={() => setThreadMenuOpen(true)}>⋯</button>
-                  {threadMenuOpen ? (
-                    <Menu
-                      align="right"
-                      items={[
-                        { id: "rename", label: "Rename this thread" },
-                        { id: "settle", label: "Settle thread", hint: "⌘⇧S" },
-                        { id: "review", label: "Review changes", hint: "⌘⇧D" },
-                        { id: "editor", label: activeEditor ? `Open in ${activeEditor.name}` : "Open in editor" },
-                      ]}
-                      onSelect={(id) => {
-                        if (id === "rename") void actions.regenerateTitle(true);
-                        if (id === "settle") settleActiveThread();
-                        if (id === "review") openReview();
-                        if (id === "editor") void openInEditor();
-                      }}
-                      onClose={() => setThreadMenuOpen(false)}
-                    />
-                  ) : null}
-                </span>
               </header>
 
               <div className="transcript" ref={transcriptRef}>

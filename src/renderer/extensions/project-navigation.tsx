@@ -273,7 +273,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         `${session.projectName} ${session.title} ${session.branch ?? ""}`.toLocaleLowerCase().includes(needle),
     )
     .slice()
-    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+    .sort((left, right) => {
+      const pinOrder = Number(settings.pinnedThreadIds.includes(right.id)) - Number(settings.pinnedThreadIds.includes(left.id));
+      return pinOrder || right.modifiedAt - left.modifiedAt;
+    });
   const settledIds = new Set(settings.settledThreadIds);
   const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
   const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];

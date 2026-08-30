@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -99,6 +99,8 @@ function installIpc(): void {
   ipcMain.handle("tau:compact-context", async () => (await requireHostReady()).compactContext());
   ipcMain.handle("tau:set-access-level", async (_event, level: AccessLevel) => (await requireHostReady()).setAccessLevel(level));
   ipcMain.handle("tau:resolve-tool-approval", async (_event, id: string, allowed: boolean) => (await requireHostReady()).resolveToolApproval(id, allowed));
+  ipcMain.handle("tau:rename-thread", async (_event, title: string, expectedSessionId?: string) => (await requireHostReady()).renameThread(title, expectedSessionId));
+  ipcMain.handle("tau:copy-text", (_event, text: string) => clipboard.writeText(text));
   ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean, expectedSessionId?: string) => (await requireHostReady()).generateThreadTitle(provider, modelId, force, expectedSessionId));
   ipcMain.handle("tau:file-tree", async (_event, path?: string) => (await requireHostReady()).getFileTree(path));
   ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());

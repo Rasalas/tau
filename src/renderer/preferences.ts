@@ -12,6 +12,7 @@ export interface PreferencesState {
   accessLevel: AccessLevel;
   editorId?: string;
   settledThreadIds: readonly string[];
+  pinnedThreadIds: readonly string[];
   /** Favourite models, keyed `provider/id`. */
   favouriteModels: readonly string[];
   /** Keyed `extensionId.optionId`. */
@@ -24,6 +25,7 @@ const STORAGE_KEY = "tau.preferences";
 const DEFAULTS: PreferencesState = {
   accessLevel: "full",
   settledThreadIds: [],
+  pinnedThreadIds: [],
   favouriteModels: [],
   extensionOptions: {},
   disabledExtensions: [],
@@ -48,6 +50,7 @@ function load(): PreferencesState {
       accessLevel: isAccessLevel(raw.accessLevel) ? raw.accessLevel : DEFAULTS.accessLevel,
       editorId: typeof raw.editorId === "string" ? raw.editorId : undefined,
       settledThreadIds: stringList(raw.settledThreadIds),
+      pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
       extensionOptions: options,
       disabledExtensions: stringList(raw.disabledExtensions),
@@ -114,6 +117,19 @@ export class PreferencesStore {
       settledThreadIds: settled.includes(threadId)
         ? settled.filter((id) => id !== threadId)
         : [...settled, threadId],
+    });
+  }
+
+  isPinned(threadId: string): boolean {
+    return this.state.pinnedThreadIds.includes(threadId);
+  }
+
+  togglePinned(threadId: string): void {
+    const pinned = this.state.pinnedThreadIds;
+    this.update({
+      pinnedThreadIds: pinned.includes(threadId)
+        ? pinned.filter((id) => id !== threadId)
+        : [...pinned, threadId],
     });
   }
 

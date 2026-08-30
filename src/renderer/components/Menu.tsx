@@ -33,7 +33,7 @@ export function Menu({
   onClose,
 }: {
   placement?: "below" | "above";
-  align?: "right";
+  align?: "left" | "right";
   items?: MenuItem[];
   sections?: MenuSection[];
   heading?: string;

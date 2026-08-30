@@ -1,69 +1,69 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T12:07:29.165Z",
+  "generatedAt": "2026-08-30T12:19:49.666Z",
   "mode": "full",
   "wallClock": [
     {
       "scenario": "bootstrap",
-      "durationMs": 1462.074834
+      "durationMs": 1461.243042
     },
     {
       "scenario": "cold-switch",
-      "durationMs": 1696.6565
+      "durationMs": 1508.7444169999999
     },
     {
       "scenario": "prewarm",
-      "durationMs": 1334.2877909999997
+      "durationMs": 733.0404160000003
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 5.915791999999783
+      "durationMs": 1.2035830000004353
     },
     {
       "scenario": "prewarm",
-      "durationMs": 573.3950839999998
+      "durationMs": 367.0740000000005
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 12.598792000000685
+      "durationMs": 0.980333000000428
     },
     {
       "scenario": "prewarm",
-      "durationMs": 454.8186660000001
+      "durationMs": 369.0779169999996
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 1.7796669999997903
+      "durationMs": 1.8750829999999041
     },
     {
       "scenario": "prewarm",
-      "durationMs": 404.412875
+      "durationMs": 447.86804200000006
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 1.1271669999996448
+      "durationMs": 0.979457999999795
     }
   ],
   "summaries": {
     "bootstrap": {
-      "median": 1462.074834,
-      "p95": 1462.074834,
-      "maximum": 1462.074834
+      "median": 1461.243042,
+      "p95": 1461.243042,
+      "maximum": 1461.243042
     },
     "cold-switch": {
-      "median": 1696.6565,
-      "p95": 1696.6565,
-      "maximum": 1696.6565
+      "median": 1508.7444169999999,
+      "p95": 1508.7444169999999,
+      "maximum": 1508.7444169999999
     },
     "prewarm": {
-      "median": 454.8186660000001,
-      "p95": 1334.2877909999997,
-      "maximum": 1334.2877909999997
+      "median": 369.0779169999996,
+      "p95": 733.0404160000003,
+      "maximum": 733.0404160000003
     },
     "warm-switch": {
-      "median": 1.7796669999997903,
-      "p95": 12.598792000000685,
-      "maximum": 12.598792000000685
+      "median": 0.980333000000428,
+      "p95": 1.8750829999999041,
+      "maximum": 1.8750829999999041
     }
   },
   "phases": [
@@ -73,36 +73,36 @@
       "phases": [
         {
           "name": "settings",
-          "durationMs": 1.1
+          "durationMs": 1
         },
         {
           "name": "models",
-          "durationMs": 20.7
+          "durationMs": 19.4
         },
         {
           "name": "resources",
-          "durationMs": 1215.6
+          "durationMs": 1236.6
         },
         {
           "name": "session",
-          "durationMs": 3
+          "durationMs": 2.4
         },
         {
           "name": "total",
-          "durationMs": 1240.5
+          "durationMs": 1259.5
         },
         {
           "name": "bind",
-          "durationMs": 184.5
+          "durationMs": 165.4
         },
         {
           "name": "catalog",
-          "durationMs": 1.6
+          "durationMs": 1.3
         }
       ],
-      "totalMs": 1462,
+      "totalMs": 1461.2,
       "subprocesses": 4,
-      "ipcBytes": 117821
+      "ipcBytes": 112835
     },
     {
       "mode": "full",
@@ -114,23 +114,23 @@
         },
         {
           "name": "models",
-          "durationMs": 3.2
+          "durationMs": 2.3
         },
         {
           "name": "resources-cache-hit",
-          "durationMs": 96.7
+          "durationMs": 114.7
         },
         {
           "name": "session",
-          "durationMs": 1
+          "durationMs": 1.1
         },
         {
           "name": "total",
-          "durationMs": 101.2
+          "durationMs": 118.4
         },
         {
           "name": "bind-prepared",
-          "durationMs": 761.9
+          "durationMs": 741.6
         },
         {
           "name": "bind-cache-hit",
@@ -138,79 +138,16 @@
         },
         {
           "name": "catalog",
-          "durationMs": 0.9
+          "durationMs": 0.7
         },
         {
           "name": "branch",
-          "durationMs": 0.2
+          "durationMs": 0.1
         }
       ],
-      "totalMs": 1696.6,
+      "totalMs": 1508.7,
       "subprocesses": 8,
-      "ipcBytes": 114519
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 1.6
-        },
-        {
-          "name": "branch",
-          "durationMs": 0.1
-        }
-      ],
-      "totalMs": 5.9,
-      "subprocesses": 0,
-      "ipcBytes": 111429
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 11.6
-        },
-        {
-          "name": "branch",
-          "durationMs": 0.1
-        }
-      ],
-      "totalMs": 12.6,
-      "subprocesses": 0,
-      "ipcBytes": 111431
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 0.9
-        },
-        {
-          "name": "branch",
-          "durationMs": 0
-        }
-      ],
-      "totalMs": 1.8,
-      "subprocesses": 0,
-      "ipcBytes": 111429
+      "ipcBytes": 114522
     },
     {
       "mode": "full",
@@ -229,7 +166,70 @@
           "durationMs": 0.1
         }
       ],
-      "totalMs": 1.1,
+      "totalMs": 1.2,
+      "subprocesses": 0,
+      "ipcBytes": 111429
+    },
+    {
+      "mode": "full",
+      "scenario": "warm-switch",
+      "phases": [
+        {
+          "name": "bind-cache-hit",
+          "durationMs": 0
+        },
+        {
+          "name": "catalog",
+          "durationMs": 0.6
+        },
+        {
+          "name": "branch",
+          "durationMs": 0
+        }
+      ],
+      "totalMs": 1,
+      "subprocesses": 0,
+      "ipcBytes": 111429
+    },
+    {
+      "mode": "full",
+      "scenario": "warm-switch",
+      "phases": [
+        {
+          "name": "bind-cache-hit",
+          "durationMs": 0
+        },
+        {
+          "name": "catalog",
+          "durationMs": 1.4
+        },
+        {
+          "name": "branch",
+          "durationMs": 0
+        }
+      ],
+      "totalMs": 1.9,
+      "subprocesses": 0,
+      "ipcBytes": 111429
+    },
+    {
+      "mode": "full",
+      "scenario": "warm-switch",
+      "phases": [
+        {
+          "name": "bind-cache-hit",
+          "durationMs": 0
+        },
+        {
+          "name": "catalog",
+          "durationMs": 0.5
+        },
+        {
+          "name": "branch",
+          "durationMs": 0.1
+        }
+      ],
+      "totalMs": 1,
       "subprocesses": 0,
       "ipcBytes": 111429
     }
@@ -237,47 +237,47 @@
   "background": [
     {
       "name": "branch",
-      "durationMs": 1706.2
+      "durationMs": 1516.9
     },
     {
       "name": "session-index",
-      "durationMs": 1698.2
+      "durationMs": 1509.6
     },
     {
       "name": "retire",
-      "durationMs": 944.9
+      "durationMs": 663.2
     },
     {
       "name": "prewarm",
-      "durationMs": 1334.3
+      "durationMs": 733
     },
     {
       "name": "retire",
-      "durationMs": 493.1
+      "durationMs": 304.3
     },
     {
       "name": "prewarm",
-      "durationMs": 573.4
+      "durationMs": 367.1
     },
     {
       "name": "retire",
-      "durationMs": 388.7
+      "durationMs": 306
     },
     {
       "name": "prewarm",
-      "durationMs": 454.8
+      "durationMs": 369.1
     },
     {
       "name": "retire",
-      "durationMs": 341.4
+      "durationMs": 157.9
     },
     {
       "name": "prewarm",
-      "durationMs": 404.4
+      "durationMs": 447.9
     },
     {
       "name": "retire",
-      "durationMs": 299.7
+      "durationMs": 156.3
     }
   ]
 }

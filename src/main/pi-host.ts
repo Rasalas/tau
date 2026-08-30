@@ -663,6 +663,33 @@ export class PiHost {
     });
   }
 
+  async renameThread(rawTitle: string, expectedSessionId?: string): Promise<HostActionResult> {
+    return this.runLifecycle(async () => {
+      const title = rawTitle.trim();
+      if (!title) throw new Error("Thread titles cannot be empty.");
+      if (title.length > 120) throw new Error("Thread titles must be 120 characters or fewer.");
+      const session = this.requireSession();
+      if (expectedSessionId && session.sessionId !== expectedSessionId) {
+        throw new Error("The selected thread did not finish loading. Try renaming it again.");
+      }
+      session.setSessionName(title);
+      const now = Date.now();
+      this.sessions = this.sessions.map((thread) =>
+        thread.id === session.sessionId ? { ...thread, title, modifiedAt: now } : thread,
+      );
+      const shell = this.sessions.find((thread) => thread.id === session.sessionId);
+      if (!shell) throw new Error("The active thread is missing from the session index.");
+      this.log("title.renamed", title);
+      const update: HostUpdate = {
+        version: HOST_PROTOCOL_VERSION,
+        type: "thread-shell",
+        update: { sessionId: session.sessionId, shell },
+      };
+      this.emitUpdate(update);
+      return this.actionResult([update]);
+    });
+  }
+
   async generateThreadTitle(provider: string, modelId: string, force = false, expectedSessionId?: string): Promise<HostActionResult> {
     const session = await this.runLifecycle(async () => {
       const active = this.requireSession();

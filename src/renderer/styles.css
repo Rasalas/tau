@@ -197,6 +197,7 @@ button > svg { pointer-events: none; }
   animation: fade-up .12s ease;
 }
 .menu.below { top: calc(100% + 7px); right: 0; }
+.menu.below.left { right: auto; left: 0; }
 .menu.above { bottom: calc(100% + 9px); left: 0; }
 .menu.above.right { left: auto; right: 0; }
 .menu > button {
@@ -421,14 +422,31 @@ button > svg { pointer-events: none; }
   flex: none; display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 24px; border-bottom: 1px solid var(--line);
 }
-.conversation-header > h1 {
-  margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.thread-title-control { min-width: 0; }
+.thread-title-trigger {
+  min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;
+  padding: 5px 7px; margin-left: -7px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--ink); cursor: pointer;
+  font: 700 15px var(--sans); letter-spacing: -.01em; text-align: left;
 }
-.branch-chip {
-  flex: none; font: 11px var(--mono); color: var(--muted);
-  border: 1px solid var(--line-control); border-radius: 5px; padding: 2px 7px;
+.thread-title-trigger:hover, .thread-title-trigger[aria-expanded="true"] { background: var(--raised); }
+.thread-title-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-title-trigger > svg { flex: none; color: var(--faint); }
+.thread-title-control > .menu {
+  width: 292px; padding: 9px; border-radius: 16px; background: #151716;
+  box-shadow: 0 20px 48px #000c;
 }
+.thread-title-control > .menu > .menu-section > button {
+  min-height: 36px; padding: 7px 12px; border-radius: 8px; font-size: 14px;
+}
+.thread-title-control > .menu > .menu-section > hr { margin: 7px 12px; width: calc(100% - 24px); }
+.thread-title-rename { width: min(560px, 48vw); min-width: 220px; }
+.thread-title-rename input {
+  width: 100%; border: 1px solid var(--line-control); border-radius: 7px;
+  background: var(--sunken); color: var(--ink); padding: 6px 8px; outline: none;
+  font: 700 15px var(--sans); letter-spacing: -.01em;
+}
+.thread-title-rename input:focus { border-color: var(--line-strong); }
 
 .transcript { flex: 1; min-height: 0; overflow: auto; padding: 26px 32px 12px; }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
