@@ -18,6 +18,7 @@ export function ReviewMode({
   selectedPath,
   editor,
   busy,
+  primaryPush,
   onSelect,
   onBack,
   onCommit,
@@ -28,6 +29,7 @@ export function ReviewMode({
   selectedPath?: string;
   editor?: UiEditor;
   busy: boolean;
+  primaryPush: boolean;
   onSelect(path: string): void;
   onBack(): void;
   onCommit(message: string, push: boolean): void;
@@ -69,9 +71,9 @@ export function ReviewMode({
         <button
           className="chrome-button accent"
           disabled={busy || changes.files.length === 0 || message.trim().length === 0}
-          onClick={() => onCommit(message, true)}
+          onClick={() => onCommit(message, primaryPush)}
         >
-          <GitCommitHorizontal size={13} /> {busy ? "Working…" : "Commit & push"}
+          <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
         </button>
       </header>
 

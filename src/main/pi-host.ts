@@ -23,6 +23,8 @@ import type {
   HostBootstrap,
   HostEvent,
   HostSnapshot,
+  PushResult,
+  ShellActionResult,
   ThreadIndexSnapshot,
   UiEditor,
   UiFileDiff,
@@ -597,6 +599,27 @@ export class PiHost {
     }
   }
 
+  async runShellAction(command: string, includeInContext = false, expectedCwd?: string): Promise<ShellActionResult> {
+    const shellCommand = command.trim();
+    if (!shellCommand) throw new Error("An action command is required.");
+    const session = await this.runLifecycle(async () => {
+      if (expectedCwd && this.cwd !== expectedCwd) {
+        throw new Error("The selected project did not finish loading. Run the action again.");
+      }
+      return this.requireSession();
+    });
+    if (session.isBashRunning) throw new Error("Another project action is already running.");
+    const result = await session.executeBash(shellCommand, undefined, { excludeFromContext: !includeInContext });
+    if (this.runtime?.session === session) await this.refreshActiveThreadIndex();
+    this.log("action.shell", `${result.exitCode ?? "cancelled"} · ${shellCommand}`);
+    return {
+      output: boundedToolOutput(result.output),
+      exitCode: result.exitCode,
+      cancelled: result.cancelled,
+      truncated: result.truncated,
+    };
+  }
+
   async steer(text: string): Promise<void> {
     try {
       await this.requireSession().steer(text);
@@ -788,6 +811,19 @@ export class PiHost {
 
   async getWorkspaceInfo(): Promise<WorkspaceInfo> {
     return this.gitCoordinator.getWorkspaceInfo(this.cwd);
+  }
+
+  async push(): Promise<PushResult> {
+    const project = this.cwd;
+    try {
+      const result = await workspaceGit.push(project);
+      this.gitCoordinator.invalidate(project);
+      this.log("git.push", result.detail);
+      return result;
+    } catch (error) {
+      this.gitCoordinator.invalidate(project);
+      throw error;
+    }
   }
 
   async createWorktree(branch: string): Promise<HostActionResult> {

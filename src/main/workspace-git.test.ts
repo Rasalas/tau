@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getFileDiff, MAX_DIFF_BYTES, MAX_DIFF_HUNKS, parseUnifiedDiff, readProjectGitState } from "./workspace-git.js";
+import { getFileDiff, MAX_DIFF_BYTES, MAX_DIFF_HUNKS, parseUnifiedDiff, push, readProjectGitState } from "./workspace-git.js";
 
 describe("large diff bounds", () => {
   it("pages hunks and marks the bounded payload", () => {
@@ -51,6 +51,18 @@ describe("large diff bounds", () => {
   });
 });
 
+describe("workspace publishing", () => {
+  it("pushes the current upstream without creating another commit", async () => {
+    const calls: string[][] = [];
+    const result = await push("/project", async (_cwd, args) => {
+      calls.push(args);
+      return args[0] === "rev-parse" ? "abc123\n" : "";
+    });
+    expect(calls).toEqual([["push"], ["rev-parse", "--short", "HEAD"]]);
+    expect(result.detail).toBe("Pushed abc123");
+  });
+});
+
 describe("workspace refs", () => {
   it("reports detached HEAD without inventing a stale branch", async () => {
     const state = await readProjectGitState("/project", { runGit: async (_cwd, args) => {
@@ -61,6 +73,26 @@ describe("workspace refs", () => {
     }, throwOnError: true });
     expect(state.branch).toBe("detached");
     expect(state.workspace.branch).toBe("detached");
+  });
+
+  it("reports upstream divergence without adding another Git process", async () => {
+    let commands = 0;
+    const state = await readProjectGitState("/project", { runGit: async (_cwd, args) => {
+      commands += 1;
+      if (args[0] === "rev-parse") return "/project\n";
+      if (args[0] === "worktree") return "worktree /project\nbranch refs/heads/main\n";
+      if (args[0] === "for-each-ref") return "main\torigin/main\t[ahead 2, behind 1]\n";
+      if (args[0] === "remote") return "origin\n";
+      return "";
+    }, throwOnError: true });
+    expect(commands).toBe(6);
+    expect(state.workspace).toMatchObject({
+      branch: "main",
+      upstream: "origin/main",
+      ahead: 2,
+      behind: 1,
+      hasRemote: true,
+    });
   });
 
   it("parses multiple real newline-delimited refs", async () => {

@@ -3,6 +3,7 @@ import { useEffect, type ReactNode } from "react";
 export interface MenuItem {
   id: string;
   label: string;
+  icon?: ReactNode;
   hint?: string;
   /** Small pill after the label, e.g. "Default". */
   badge?: string;
@@ -70,6 +71,7 @@ export function Menu({
                 title={item.disabled ? item.description : undefined}
                 onClick={() => { onSelect(item.id); onClose(); }}
               >
+                {item.icon}
                 <span>
                   <em>
                     {item.label}

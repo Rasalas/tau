@@ -89,6 +89,7 @@ function installIpc(): void {
   });
   ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
   ipcMain.handle("tau:prompt", async (_event, text: string) => (await requireHostReady()).prompt(text));
+  ipcMain.handle("tau:run-shell-action", async (_event, command: string, includeInContext?: boolean, expectedCwd?: string) => (await requireHostReady()).runShellAction(command, includeInContext, expectedCwd));
   ipcMain.handle("tau:steer", async (_event, text: string) => (await requireHostReady()).steer(text));
   ipcMain.handle("tau:abort", async () => (await requireHostReady()).abort());
   ipcMain.handle("tau:new-session", async () => (await requireHostReady()).newSession());
@@ -103,6 +104,7 @@ function installIpc(): void {
   ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());
   ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));
   ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => (await requireHostReady()).commit(message, push));
+  ipcMain.handle("tau:push", async () => (await requireHostReady()).push());
   ipcMain.handle("tau:workspace-info", async () => (await requireHostReady()).getWorkspaceInfo());
   ipcMain.handle("tau:create-worktree", async (_event, branch: string) => (await requireHostReady()).createWorktree(branch));
   ipcMain.handle("tau:switch-ref", async (_event, ref: string) => (await requireHostReady()).switchRef(ref));

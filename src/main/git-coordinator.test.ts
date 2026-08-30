@@ -57,7 +57,7 @@ describe("GitCoordinator", () => {
       if (args[0] === "rev-parse") return scan === 1 ? "old\n" : "new\n";
       if (args[0] === "status") return "";
       if (args[0] === "diff") return "";
-      if (args[0] === "worktree") return "worktree /project\nbranch refs/heads/main\n";
+      if (args[0] === "worktree") return `worktree /project\nbranch refs/heads/${scan === 1 ? "old" : "new"}\n`;
       return "main\n";
     };
     const coordinator = new GitCoordinator({ runGit: run, timeoutMs: 5_000 });

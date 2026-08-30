@@ -153,6 +153,11 @@ export interface WorkspaceInfo {
   /** Uncommitted changes present, which blocks an in-place ref switch. */
   isDirty: boolean;
   branch?: string;
+  /** Tracking ref and divergence used to choose a safe primary Git action. */
+  upstream?: string;
+  ahead?: number;
+  behind?: number;
+  hasRemote?: boolean;
   worktrees: UiWorktree[];
   refs: UiRef[];
   /** Where a new worktree would be created. */
@@ -168,6 +173,17 @@ export interface CommitResult {
   changes: UiWorkspaceChanges;
   pushed: boolean;
   detail: string;
+}
+
+export interface PushResult {
+  detail: string;
+}
+
+export interface ShellActionResult {
+  output: string;
+  exitCode?: number;
+  cancelled: boolean;
+  truncated: boolean;
 }
 
 export interface HostSnapshot {
@@ -242,6 +258,7 @@ export interface TauDesktopApi {
   bootstrap(): Promise<HostBootstrap>;
   loadTranscript(sessionId: string, cursor?: string): Promise<import("./host-protocol.js").TranscriptPage>;
   sendPrompt(text: string): Promise<void>;
+  runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
   steer(text: string): Promise<void>;
   abort(): Promise<void>;
   newSession(): Promise<import("./host-protocol.js").HostActionResult>;
@@ -260,6 +277,7 @@ export interface TauDesktopApi {
   getChanges(): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   commit(message: string, push: boolean): Promise<CommitResult>;
+  push(): Promise<PushResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;
   createWorktree(branch: string): Promise<HostActionResult>;
   switchRef(ref: string): Promise<HostActionResult>;

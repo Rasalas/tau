@@ -217,7 +217,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<string>();
   const [threadMenuOpen, setThreadMenuOpen] = useState(false);
-  const [review, setReview] = useState<{ path?: string }>();
+  const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -600,10 +600,10 @@ export default function App() {
     setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
     setDockOpen(true);
   }, []);
-  const openReview = useCallback((path?: string) => {
+  const openReview = useCallback((path?: string, primaryPush = Boolean(workspace?.upstream)) => {
     void refreshChanges();
-    setReview({ path });
-  }, [refreshChanges]);
+    setReview({ path, primaryPush });
+  }, [refreshChanges, workspace?.upstream]);
 
   const acceptWorkspace = useCallback((result: HostActionResult) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
@@ -736,8 +736,8 @@ export default function App() {
     }
   }, [applyActionResult, requireHost]);
 
-  const openInEditor = useCallback(async (path?: string) => {
-    const editorId = settings.editorId ?? editors[0]?.id;
+  const openInEditor = useCallback(async (path?: string, editorOverride?: string) => {
+    const editorId = editorOverride ?? settings.editorId ?? editors[0]?.id;
     if (!editorId) { setNotice("No supported editor found on PATH"); return; }
     if (!requireHost("Opening an editor")) return;
     try {
@@ -763,6 +763,34 @@ export default function App() {
       setCommitting(false);
     }
   }, [addEvent, refreshWorkspace, requireHost]);
+
+  const pushWorkspace = useCallback(async () => {
+    if (!requireHost("Pushing")) return;
+    setCommitting(true);
+    try {
+      const result = await window.tau!.push();
+      setNotice(result.detail);
+      addEvent("git.push", result.detail);
+      await Promise.all([refreshChanges(), refreshWorkspace()]);
+    } catch (error) {
+      setNotice(String(error));
+    } finally {
+      setCommitting(false);
+    }
+  }, [addEvent, refreshChanges, refreshWorkspace, requireHost]);
+
+  const runShellAction = useCallback(async (command: string, includeInContext: boolean, name: string) => {
+    if (!requireHost("Project actions")) return;
+    try {
+      setNotice(`Running ${name}…`);
+      const result = await window.tau!.runShellAction(command, includeInContext, snapshot?.cwd);
+      const tail = result.output.trim().split("\n").at(-1);
+      setNotice(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`);
+      await Promise.all([refreshChanges(), refreshWorkspace()]);
+    } catch (error) {
+      setNotice(String(error));
+    }
+  }, [refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
 
   const runWorkspaceAction = useCallback(async (action: () => Promise<HostActionResult>) => {
     if (!requireHost("Worktrees")) return;
@@ -962,7 +990,8 @@ export default function App() {
                         selectedPath={review.path ?? changes.files[0]?.path}
                         editor={activeEditor}
                         busy={committing}
-                        onSelect={(path) => setReview({ path })}
+                        primaryPush={review.primaryPush}
+                        onSelect={(path) => setReview((current) => ({ path, primaryPush: current?.primaryPush ?? Boolean(workspace?.upstream) }))}
                         onBack={() => setReview(undefined)}
                         onCommit={(message, push) => void commit(message, push)}
                         onOpenInEditor={(path) => void openInEditor(path)}
@@ -994,12 +1023,15 @@ export default function App() {
               cwd={snapshot?.cwd}
               editors={editors}
               activeEditor={activeEditor}
-              changedCount={changes.files.length}
+              changes={changes}
+              workspace={workspace}
+              gitBusy={committing}
               dockOpen={dockOpen}
-              onOpenInEditor={() => void openInEditor()}
+              onOpenInEditor={(editorId) => void openInEditor(undefined, editorId)}
               onChooseEditor={(id) => preferences.setEditor(id)}
-              onCommit={() => openReview()}
-              onOpenPalette={() => setPaletteOpen(true)}
+              onOpenReview={(push) => openReview(undefined, push)}
+              onPush={() => void pushWorkspace()}
+              onRunAction={(command, includeInContext, name) => void runShellAction(command, includeInContext, name)}
               onToggleDock={() => setDockOpen((value) => !value)}
             />
 

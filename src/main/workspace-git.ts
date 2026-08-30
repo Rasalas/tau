@@ -11,6 +11,7 @@ import type {
   UiDiffLine,
   UiEditor,
   UiFileDiff,
+  PushResult,
   UiRef,
   UiWorktree,
   UiWorkspaceChanges,
@@ -204,16 +205,17 @@ export async function readProjectGitState(
     return runGit(cwd, args, maxBuffer, options.signal);
   };
   try {
-    const [rootOut, branchOut, statusOut, numstatOut, worktreeOut, refOut] = await Promise.all([
+    const [rootOut, remoteOut, statusOut, numstatOut, worktreeOut, refOut] = await Promise.all([
       run(["rev-parse", "--show-toplevel"]),
-      run(["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => ""),
+      run(["remote"]).catch(() => ""),
       run(["status", "--porcelain", "-z"]),
       run(["diff", "--numstat", "-z", "HEAD"]).catch(() => ""),
       run(["worktree", "list", "--porcelain"]),
-      run(["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads"]),
+      run(["for-each-ref", "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)", "--sort=-committerdate", "refs/heads"]),
     ]);
     const workspaceRoot = rootOut.trim() || cwd;
-    const branch = branchOut.trim() && branchOut.trim() !== "HEAD" ? branchOut.trim() : branchOut.trim() ? "detached" : undefined;
+    const worktrees = parseWorktrees(worktreeOut, workspaceRoot);
+    const branch = worktrees.find((tree) => tree.isCurrent)?.branch;
     const statuses = parseStatus(statusOut);
     const counts = parseNumstat(numstatOut);
     const files: UiChangedFile[] = [];
@@ -239,21 +241,34 @@ export async function readProjectGitState(
       proposedMessage: proposeMessage(files),
     };
 
-    const worktrees = parseWorktrees(worktreeOut, workspaceRoot);
     const heldByWorktree = new Map(
-      worktrees.filter((tree) => tree.branch).map((tree) => [tree.branch as string, tree.path]),
+      worktrees.filter((tree) => tree.branch && tree.branch !== "detached").map((tree) => [tree.branch as string, tree.path]),
     );
-    const refs: UiRef[] = refOut.split("\n").map((line) => line.trim()).filter(Boolean).map((name) => ({
+    const refMetadata = refOut.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+      const [name, upstream, tracking = ""] = line.split("\t");
+      return {
+        name,
+        upstream: upstream || undefined,
+        ahead: Number(/ahead (\d+)/u.exec(tracking)?.[1] ?? 0),
+        behind: Number(/behind (\d+)/u.exec(tracking)?.[1] ?? 0),
+      };
+    });
+    const refs: UiRef[] = refMetadata.map(({ name }) => ({
       name,
       isCurrent: name === branch,
       worktreePath: heldByWorktree.get(name),
     }));
+    const currentRef = refMetadata.find((ref) => ref.name === branch);
     const mainRoot = worktrees.find((tree) => tree.isMain)?.path ?? workspaceRoot;
     const workspace: WorkspaceInfo = {
       root: workspaceRoot,
       isRepo: true,
       isDirty: statusOut.trim().length > 0,
       branch,
+      upstream: currentRef?.upstream,
+      ahead: currentRef?.ahead,
+      behind: currentRef?.behind,
+      hasRemote: remoteOut.trim().length > 0,
       worktrees,
       refs,
       worktreeParent: worktreeParentFor(mainRoot),
@@ -489,6 +504,12 @@ export async function commit(
   return { changes: await readChanges(cwd), pushed, detail };
 }
 
+export async function push(cwd: string, runGit: GitRunner = git): Promise<PushResult> {
+  await runGit(cwd, ["push"], 8 * 1024 * 1024);
+  const committed = (await runGit(cwd, ["rev-parse", "--short", "HEAD"])).trim();
+  return { detail: `Pushed ${committed}` };
+}
+
 export async function listEditors(): Promise<UiEditor[]> {
   const found = await Promise.all(KNOWN_EDITORS.map(async (editor) => {
     try {
@@ -526,7 +547,7 @@ function parseWorktrees(stdout: string, cwd: string): UiWorktree[] {
   for (const block of stdout.split("\n\n")) {
     const path = /^worktree (.+)$/mu.exec(block)?.[1];
     if (!path) continue;
-    const branch = /^branch refs\/heads\/(.+)$/mu.exec(block)?.[1];
+    const branch = /^branch refs\/heads\/(.+)$/mu.exec(block)?.[1] ?? (/^detached$/mu.test(block) ? "detached" : undefined);
     worktrees.push({
       path,
       name: basename(path),
