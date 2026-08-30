@@ -77,6 +77,7 @@ export function ChangesPanel({ active, extensionName }: PanelProps) {
         <h2>Changes</h2>
         <small>{extensionName.toLowerCase()}</small>
         <span className="spacer" />
+        {changes.refreshStatus?.state === "error" ? <small title={changes.refreshStatus.message}>stale · refresh failed</small> : null}
         <button className="text-button" onClick={() => void refreshChanges()}>rescan</button>
       </header>
       {changes.files.length === 0 ? (

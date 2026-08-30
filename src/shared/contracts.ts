@@ -82,6 +82,8 @@ export interface UiChangedFile {
 
 export interface UiWorkspaceChanges {
   branch?: string;
+  /** Last refresh outcome; stale data may remain visible after a failed scan. */
+  refreshStatus?: { state: "ready" | "refreshing" | "error"; message?: string };
   files: UiChangedFile[];
   added: number;
   removed: number;
@@ -128,6 +130,8 @@ export interface UiRef {
 }
 
 export interface WorkspaceInfo {
+  /** Last refresh outcome; metadata may remain stale after a failed scan. */
+  refreshStatus?: { state: "ready" | "refreshing" | "error"; message?: string };
   root: string;
   isRepo: boolean;
   /** Uncommitted changes present, which blocks an in-place ref switch. */

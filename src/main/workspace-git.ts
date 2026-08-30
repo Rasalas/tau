@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, open, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -30,10 +30,19 @@ const KNOWN_EDITORS: ReadonlyArray<UiEditor> = [
   { id: "nvim", name: "Neovim" },
 ];
 
-async function git(cwd: string, args: string[], maxBuffer = 4 * 1024 * 1024): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], { cwd, maxBuffer });
+export type GitRunner = (cwd: string, args: string[], maxBuffer?: number, signal?: AbortSignal) => Promise<string>;
+
+export async function runGitCommand(cwd: string, args: string[], maxBuffer = 4 * 1024 * 1024, signal?: AbortSignal): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], {
+    cwd,
+    maxBuffer,
+    timeout: 10_000,
+    signal,
+  });
   return stdout;
 }
+
+const git: GitRunner = runGitCommand;
 
 function statusFromCode(code: string): ChangeStatus {
   if (code.includes("?")) return "untracked";
@@ -91,11 +100,51 @@ function parseNumstat(stdout: string): Map<string, { added: number; removed: num
   return counts;
 }
 
-async function countLines(cwd: string, path: string): Promise<number> {
+export interface UntrackedStatsOptions {
+  /** Never read a complete large file just to produce a review statistic. */
+  maxBytes?: number;
+  onBytesRead?: (bytes: number) => void;
+  signal?: AbortSignal;
+}
+
+/**
+ * Counts only a bounded UTF-8 text prefix. NUL bytes identify binary content,
+ * for which line statistics are intentionally omitted. This keeps status scans
+ * from loading large artifacts into memory or serially decoding them in full.
+ */
+export async function countUntrackedLines(
+  cwd: string,
+  path: string,
+  options: UntrackedStatsOptions = {},
+): Promise<number> {
+  const maxBytes = options.maxBytes ?? 256 * 1024;
   try {
-    const contents = await readFile(join(cwd, path), "utf8");
-    if (!contents) return 0;
-    return contents.endsWith("\n") ? contents.split("\n").length - 1 : contents.split("\n").length;
+    const file = await stat(join(cwd, path));
+    if (!file.isFile() || file.size > maxBytes) return 0;
+    const handle = await open(join(cwd, path), "r");
+    try {
+      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, maxBytes));
+      let offset = 0;
+      let lines = 0;
+      let pending = 0;
+      while (offset < file.size) {
+        if (options.signal?.aborted) return 0;
+        const length = Math.min(buffer.length, file.size - offset);
+        const result = await handle.read(buffer, 0, length, offset);
+        if (result.bytesRead === 0) break;
+        offset += result.bytesRead;
+        options.onBytesRead?.(result.bytesRead);
+        const chunk = buffer.subarray(0, result.bytesRead);
+        if (chunk.includes(0)) return 0;
+        for (const byte of chunk) {
+          if (byte === 10) lines += 1;
+          pending = byte;
+        }
+      }
+      return file.size === 0 ? 0 : lines + (pending === 10 ? 0 : 1);
+    } finally {
+      await handle.close();
+    }
   } catch {
     return 0;
   }
@@ -110,38 +159,104 @@ function proposeMessage(files: UiChangedFile[]): string | undefined {
   return `chore(${scope}): update ${subject}`;
 }
 
-export async function getChanges(cwd: string): Promise<UiWorkspaceChanges> {
-  let branch: string | undefined;
-  let statuses: Map<string, ChangeStatus>;
-  let counts: Map<string, { added: number; removed: number }>;
-  try {
-    const [branchOut, statusOut, numstatOut] = await Promise.all([
-      git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => ""),
-      git(cwd, ["status", "--porcelain", "-z"]),
-      git(cwd, ["diff", "--numstat", "-z", "HEAD"]).catch(() => ""),
-    ]);
-    branch = branchOut.trim() || undefined;
-    statuses = parseStatus(statusOut);
-    counts = parseNumstat(numstatOut);
-  } catch {
-    return EMPTY_CHANGES;
-  }
+export interface ProjectGitState {
+  changes: UiWorkspaceChanges;
+  workspace: WorkspaceInfo;
+  branch?: string;
+}
 
-  const files: UiChangedFile[] = [];
-  for (const [path, status] of statuses) {
-    const counted = counts.get(path);
-    const added = counted?.added ?? (status === "untracked" ? await countLines(cwd, path) : 0);
-    files.push({ path, ...describe(path), status, added, removed: counted?.removed ?? 0 });
-  }
-  files.sort((left, right) => left.path.localeCompare(right.path));
+export interface ProjectScanOptions {
+  runGit?: GitRunner;
+  untrackedStats?: UntrackedStatsOptions;
+  onGitCommand?: () => void;
+  signal?: AbortSignal;
+  throwOnError?: boolean;
+}
 
+export function emptyProjectGitState(cwd: string): ProjectGitState {
   return {
-    branch,
-    files,
-    added: files.reduce((total, file) => total + file.added, 0),
-    removed: files.reduce((total, file) => total + file.removed, 0),
-    proposedMessage: proposeMessage(files),
+    changes: EMPTY_CHANGES,
+    workspace: {
+      root: cwd,
+      isRepo: false,
+      isDirty: false,
+      worktrees: [],
+      refs: [],
+      worktreeParent: worktreeParentFor(cwd),
+    },
   };
+}
+
+/** One bounded scan supplies all project metadata consumers need. */
+export async function readProjectGitState(
+  cwd: string,
+  options: ProjectScanOptions = {},
+): Promise<ProjectGitState> {
+  const runGit = options.runGit ?? git;
+  const run = (args: string[], maxBuffer?: number): Promise<string> => {
+    options.onGitCommand?.();
+    return runGit(cwd, args, maxBuffer, options.signal);
+  };
+  try {
+    const [rootOut, branchOut, statusOut, numstatOut, worktreeOut, refOut] = await Promise.all([
+      run(["rev-parse", "--show-toplevel"]),
+      run(["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => ""),
+      run(["status", "--porcelain", "-z"]),
+      run(["diff", "--numstat", "-z", "HEAD"]).catch(() => ""),
+      run(["worktree", "list", "--porcelain"]),
+      run(["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads"]),
+    ]);
+    const workspaceRoot = rootOut.trim() || cwd;
+    const branch = branchOut.trim() && branchOut.trim() !== "HEAD" ? branchOut.trim() : branchOut.trim() ? "detached" : undefined;
+    const statuses = parseStatus(statusOut);
+    const counts = parseNumstat(numstatOut);
+    const files: UiChangedFile[] = [];
+    const untracked = [...statuses].filter(([, status]) => status === "untracked");
+    const stats = new Map<string, number>();
+    const limit = 4;
+    for (let index = 0; index < untracked.length; index += limit) {
+      await Promise.all(untracked.slice(index, index + limit).map(async ([path]) => {
+        stats.set(path, await countUntrackedLines(cwd, path, options.untrackedStats));
+      }));
+    }
+    for (const [path, status] of statuses) {
+      const counted = counts.get(path);
+      const added = counted?.added ?? (status === "untracked" ? stats.get(path) ?? 0 : 0);
+      files.push({ path, ...describe(path), status, added, removed: counted?.removed ?? 0 });
+    }
+    files.sort((left, right) => left.path.localeCompare(right.path));
+    const changes: UiWorkspaceChanges = {
+      branch,
+      files,
+      added: files.reduce((total, file) => total + file.added, 0),
+      removed: files.reduce((total, file) => total + file.removed, 0),
+      proposedMessage: proposeMessage(files),
+    };
+
+    const worktrees = parseWorktrees(worktreeOut, workspaceRoot);
+    const heldByWorktree = new Map(
+      worktrees.filter((tree) => tree.branch).map((tree) => [tree.branch as string, tree.path]),
+    );
+    const refs: UiRef[] = refOut.split("\\n").map((line) => line.trim()).filter(Boolean).map((name) => ({
+      name,
+      isCurrent: name === branch,
+      worktreePath: heldByWorktree.get(name),
+    }));
+    const mainRoot = worktrees.find((tree) => tree.isMain)?.path ?? workspaceRoot;
+    const workspace: WorkspaceInfo = {
+      root: workspaceRoot,
+      isRepo: true,
+      isDirty: statusOut.trim().length > 0,
+      branch,
+      worktrees,
+      refs,
+      worktreeParent: worktreeParentFor(mainRoot),
+    };
+    return { changes, workspace, branch };
+  } catch (error) {
+    if (options.throwOnError) throw error;
+    return emptyProjectGitState(cwd);
+  }
 }
 
 function parseUnifiedDiff(path: string, patch: string): UiFileDiff {
@@ -198,7 +313,12 @@ export async function getFileDiff(cwd: string, path: string): Promise<UiFileDiff
   }
 }
 
-export async function commit(cwd: string, message: string, push: boolean): Promise<CommitResult> {
+export async function commit(
+  cwd: string,
+  message: string,
+  push: boolean,
+  readChanges: (cwd: string) => Promise<UiWorkspaceChanges> = async (path) => (await readProjectGitState(path)).changes,
+): Promise<CommitResult> {
   const subject = message.trim();
   if (!subject) throw new Error("A commit message is required.");
   await git(cwd, ["add", "-A"]);
@@ -211,7 +331,7 @@ export async function commit(cwd: string, message: string, push: boolean): Promi
     pushed = true;
     detail = `Committed ${committed} and pushed`;
   }
-  return { changes: await getChanges(cwd), pushed, detail };
+  return { changes: await readChanges(cwd), pushed, detail };
 }
 
 export async function listEditors(): Promise<UiEditor[]> {
@@ -263,51 +383,6 @@ function parseWorktrees(stdout: string, cwd: string): UiWorktree[] {
   return worktrees;
 }
 
-export async function getWorkspaceInfo(cwd: string): Promise<WorkspaceInfo> {
-  const empty: WorkspaceInfo = {
-    root: cwd,
-    isRepo: false,
-    isDirty: false,
-    worktrees: [],
-    refs: [],
-    worktreeParent: worktreeParentFor(cwd),
-  };
-  try {
-    const [root, branchOut, statusOut, worktreeOut, refOut] = await Promise.all([
-      git(cwd, ["rev-parse", "--show-toplevel"]),
-      git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => ""),
-      git(cwd, ["status", "--porcelain"]),
-      git(cwd, ["worktree", "list", "--porcelain"]),
-      git(cwd, ["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads"]),
-    ]);
-
-    const workspaceRoot = root.trim() || cwd;
-    const branch = branchOut.trim() || undefined;
-    const worktrees = parseWorktrees(worktreeOut, workspaceRoot);
-    const heldByWorktree = new Map(
-      worktrees.filter((tree) => tree.branch).map((tree) => [tree.branch as string, tree.path]),
-    );
-    const refs: UiRef[] = refOut.split("\n").map((line) => line.trim()).filter(Boolean).map((name) => ({
-      name,
-      isCurrent: name === branch,
-      worktreePath: heldByWorktree.get(name),
-    }));
-    const mainRoot = worktrees.find((tree) => tree.isMain)?.path ?? workspaceRoot;
-
-    return {
-      root: workspaceRoot,
-      isRepo: true,
-      isDirty: statusOut.trim().length > 0,
-      branch,
-      worktrees,
-      refs,
-      worktreeParent: worktreeParentFor(mainRoot),
-    };
-  } catch {
-    return empty;
-  }
-}
-
 /** Defers to git's own rules rather than guessing at them. */
 async function assertValidBranchName(cwd: string, name: string): Promise<void> {
   const invalid = new Error(`"${name}" is not a valid branch name.`);
@@ -320,11 +395,15 @@ async function assertValidBranchName(cwd: string, name: string): Promise<void> {
 }
 
 /** Creates a branch and a worktree for it, and returns the new worktree path. */
-export async function createWorktree(cwd: string, branch: string): Promise<string> {
+export async function createWorktree(
+  cwd: string,
+  branch: string,
+  readWorkspace: (cwd: string) => Promise<WorkspaceInfo> = async (path) => (await readProjectGitState(path)).workspace,
+): Promise<string> {
   const name = branch.trim();
   if (!name) throw new Error("A branch name is required.");
   await assertValidBranchName(cwd, name);
-  const info = await getWorkspaceInfo(cwd);
+  const info = await readWorkspace(cwd);
   if (!info.isRepo) throw new Error("This workspace is not a Git repository.");
 
   const existing = info.refs.find((ref) => ref.name === name);
@@ -343,8 +422,12 @@ export async function createWorktree(cwd: string, branch: string): Promise<strin
  * Resolves a ref to a workspace path. A ref already held by a worktree is opened
  * there; otherwise it is checked out in place, which requires a clean tree.
  */
-export async function resolveRefTarget(cwd: string, ref: string): Promise<string> {
-  const info = await getWorkspaceInfo(cwd);
+export async function resolveRefTarget(
+  cwd: string,
+  ref: string,
+  readWorkspace: (cwd: string) => Promise<WorkspaceInfo> = async (path) => (await readProjectGitState(path)).workspace,
+): Promise<string> {
+  const info = await readWorkspace(cwd);
   if (!info.isRepo) throw new Error("This workspace is not a Git repository.");
 
   const target = info.refs.find((entry) => entry.name === ref);

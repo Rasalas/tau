@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { promisify } from "node:util";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -39,10 +37,9 @@ import { TranscriptPager } from "../shared/transcript-pager.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { createAccessExtension, type AccessDecision } from "./access-extension.js";
+import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
-
-const execFileAsync = promisify(execFile);
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
 
 type Emit = (event: HostEvent) => void;
@@ -139,21 +136,6 @@ function cleanGeneratedTitle(value: string): string {
   return title.length > 80 ? `${title.slice(0, 77).trimEnd()}…` : title;
 }
 
-async function gitBranch(cwd: string, onSubprocess?: () => void): Promise<string | undefined> {
-  try {
-    onSubprocess?.();
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd,
-      timeout: 2500,
-      maxBuffer: 64 * 1024,
-    });
-    const branch = stdout.trim();
-    return branch && branch !== "HEAD" ? branch : branch ? "detached" : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 async function mapSessions(
   sessions: SessionInfo[],
   fallbackCwd: string,
@@ -203,7 +185,7 @@ export class PiHost {
   private extensionCount = 0;
   private currentAssistantId?: string;
   private tools = new Map<string, UiToolRun>();
-  private branchCache = new Map<string, { branch?: string; checkedAt: number }>();
+  private readonly gitCoordinator = new GitCoordinator();
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private sessions: UiSession[] = [];
   private lifecycleQueue: Promise<void> = Promise.resolve();
@@ -371,7 +353,7 @@ export class PiHost {
       await this.swapRootRuntime(nextRuntime);
       await this.projectHistory.remember(this.cwd);
       this.logReplacement("workspace", startedAt);
-      this.refreshActiveThreadIndex();
+      await this.refreshActiveThreadIndex();
       return this.snapshot();
     });
   }
@@ -382,7 +364,7 @@ export class PiHost {
       const result = await this.replaceSession("new", (runtime) => runtime.newSession());
       if (!result.cancelled) {
         this.logReplacement("new", startedAt);
-        this.refreshActiveThreadIndex();
+        await this.refreshActiveThreadIndex();
       }
       const snapshot = await this.snapshot();
       return this.actionResult(this.lifecycleUpdates(snapshot));
@@ -397,7 +379,7 @@ export class PiHost {
         this.cwd = this.requireRuntime().cwd;
         await this.projectHistory.remember(this.cwd);
         this.logReplacement("resume", startedAt);
-        this.refreshActiveThreadIndex();
+        await this.refreshActiveThreadIndex();
       }
       const snapshot = await this.snapshot();
       return this.actionResult(this.lifecycleUpdates(snapshot));
@@ -411,7 +393,7 @@ export class PiHost {
       await session.prompt(text, {
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
       });
-      this.refreshActiveThreadIndex();
+      await this.refreshActiveThreadIndex();
     } catch (error) {
       this.fail(error);
       throw error;
@@ -551,7 +533,7 @@ export class PiHost {
   }
 
   async getChanges(): Promise<UiWorkspaceChanges> {
-    return workspaceGit.getChanges(this.cwd);
+    return this.gitCoordinator.getChanges(this.cwd);
   }
 
   async getFileDiff(path: string): Promise<UiFileDiff> {
@@ -559,30 +541,50 @@ export class PiHost {
   }
 
   async commit(message: string, push: boolean): Promise<CommitResult> {
-    const result = await workspaceGit.commit(this.cwd, message, push);
-    this.log("git.commit", result.detail);
-    this.branchCache.delete(this.cwd);
-    return result;
+    const project = this.cwd;
+    try {
+      const result = await workspaceGit.commit(project, message, push, async (cwd) => {
+        this.gitCoordinator.invalidate(cwd);
+        return this.gitCoordinator.getChanges(cwd);
+      });
+      this.gitCoordinator.invalidate(project);
+      this.log("git.commit", result.detail);
+      return result;
+    } catch (error) {
+      this.gitCoordinator.invalidate(project);
+      throw error;
+    }
   }
 
   async getWorkspaceInfo(): Promise<WorkspaceInfo> {
-    return workspaceGit.getWorkspaceInfo(this.cwd);
+    return this.gitCoordinator.getWorkspaceInfo(this.cwd);
   }
 
   async createWorktree(branch: string): Promise<HostSnapshot> {
-    const destination = await workspaceGit.createWorktree(this.cwd, branch);
-    this.log("git.worktree.added", destination);
-    return this.setWorkspace(destination);
+    const project = this.cwd;
+    try {
+      const destination = await workspaceGit.createWorktree(project, branch, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
+      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+      this.log("git.worktree.added", destination);
+      return this.setWorkspace(destination);
+    } catch (error) {
+      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+      throw error;
+    }
   }
 
   async switchRef(ref: string): Promise<HostSnapshot> {
-    const target = await workspaceGit.resolveRefTarget(this.cwd, ref);
-    this.log("git.ref.switch", `${ref} → ${target}`);
-    if (target === this.cwd) {
-      this.branchCache.delete(this.cwd);
-      return this.snapshot();
+    const project = this.cwd;
+    try {
+      const target = await workspaceGit.resolveRefTarget(project, ref, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
+      this.log("git.ref.switch", `${ref} → ${target}`);
+      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+      if (target === this.cwd) return this.snapshot();
+      return this.setWorkspace(target);
+    } catch (error) {
+      this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
+      throw error;
     }
-    return this.setWorkspace(target);
   }
 
   async listEditors(): Promise<UiEditor[]> {
@@ -886,6 +888,7 @@ export class PiHost {
             endedAt: Date.now(),
           };
           this.tools.set(tool.id, tool);
+          this.invalidateGitAfterTool(tool);
           this.emit({ type: "tool-end", tool });
           this.log("tool.ended", `${event.toolName}:${tool.status}`);
           break;
@@ -931,7 +934,7 @@ export class PiHost {
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
-  private refreshActiveThreadIndex(): void {
+  private async refreshActiveThreadIndex(): Promise<void> {
     const session = this.runtime?.session;
     if (!session) return;
     const projectPath = this.cwd;
@@ -942,7 +945,7 @@ export class PiHost {
       modifiedAt: Date.now(),
       projectPath,
       projectName: basename(projectPath) || projectPath,
-      branch: this.branchCache.get(projectPath)?.branch,
+      branch: await this.resolveBranch(projectPath),
       messageCount: session.messages.length,
     };
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
@@ -1039,12 +1042,18 @@ export class PiHost {
     pending.forEach((settle) => settle(decision));
   }
 
-  private async resolveBranch(cwd: string): Promise<string | undefined> {
-    const cached = this.branchCache.get(cwd);
-    if (cached && Date.now() - cached.checkedAt < 30_000) return cached.branch;
-    const branch = await gitBranch(cwd, () => this.lifecycleMetrics.countSubprocess());
-    this.branchCache.set(cwd, { branch, checkedAt: Date.now() });
-    return branch;
+  private resolveBranch(cwd: string): Promise<string | undefined> {
+    return this.gitCoordinator.getBranch(cwd);
+  }
+
+  private invalidateGitAfterTool(tool: UiToolRun): void {
+    const command = typeof tool.args.command === "string" ? tool.args.command : "";
+    const mutatesGit = /\bgit\s+(?:checkout|switch|branch|reset|worktree|commit|merge|rebase|pull|fetch)\b/iu.test(command);
+    if (tool.name === "edit" || tool.name === "write" || mutatesGit) {
+      this.gitCoordinator.invalidate(this.cwd, mutatesGit
+        ? ["status", "branch", "workspace"]
+        : ["status"]);
+    }
   }
 
   private resetSessionState(): void {
