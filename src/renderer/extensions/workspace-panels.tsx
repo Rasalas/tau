@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { FileNode } from "../../shared/contracts";
 import { VirtualList } from "../components/VirtualList";
+import { FileKindIcon } from "../components/FileKindIcon";
 import type { PanelProps } from "../extension-system";
 import { useChanges, useFiles } from "../workbench-context";
 
@@ -54,6 +55,7 @@ function FileTree({ nodes, changedPaths, cwd, loadFiles }: {
       const relative = cwd && node.path.startsWith(cwd) ? node.path.slice(cwd.length + 1) : node.path;
       const changed = changedPaths.has(relative);
       const pending = loading.has(node.path);
+      const open = node.kind === "directory" && expanded.has(node.path);
       return <div key={node.path}>
         <button
           className={`file-row ${node.kind} ${changed ? "selected" : ""}`}
@@ -61,7 +63,8 @@ function FileTree({ nodes, changedPaths, cwd, loadFiles }: {
           onClick={() => void toggle(node)}
           title={node.path}
         >
-          <span>{node.kind === "directory" ? (pending ? "…" : expanded.has(node.path) ? <ChevronDown size={11} /> : <ChevronRight size={11} />) : null}</span>
+          <span className="file-disclosure">{node.kind === "directory" ? (pending ? "…" : open ? <ChevronDown size={11} /> : <ChevronRight size={11} />) : null}</span>
+          <span className="file-kind-icon"><FileKindIcon name={node.name} directory={node.kind === "directory"} open={open} /></span>
           <span className="name">{node.name}</span>
           {changed ? <em>M</em> : null}
         </button>

@@ -9,6 +9,7 @@ const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPane
 const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
+import { computerUsePresentationExtension } from "./computer-use";
 import { titleGeneratorExtension } from "./title-generator";
 
 export const workspaceExtension: DesktopExtension = {
@@ -107,6 +108,7 @@ export const settingsExtension: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", shortcut: "⌘N", run: (app) => app.newSession() });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", shortcut: "Esc", run: (app) => app.abort() });
+    plugin.registerCommand({ id: "runtime.reload", label: "Reload Pi and desktop extensions", group: "Runtime", run: async (app) => { await app.reloadRuntime(); } });
   },
 };
 
@@ -114,6 +116,7 @@ export const bundledExtensions = [
   workspaceExtension,
   reviewExtension,
   observatoryExtension,
+  computerUsePresentationExtension,
   titleGeneratorExtension,
   settingsExtension,
 ];

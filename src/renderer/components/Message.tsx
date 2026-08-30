@@ -1,3 +1,4 @@
+import { Bot, ChevronRight } from "lucide-react";
 import { memo, useState } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
@@ -6,23 +7,49 @@ function clockTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function duration(ms: number): string {
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+interface AsyncActivity {
+  label: string;
+  detail: string;
+  attention?: boolean;
+}
+
+export function parseAsyncActivity(text: string): AsyncActivity | undefined {
+  if (text.startsWith("Subagent needs attention:")) {
+    return { label: "Subagent needs attention", detail: text, attention: true };
+  }
+  if (!text.startsWith("Background task completed:")) return undefined;
+
+  const count = /completed with (\d+) child run\(s\)/i.exec(text)?.[1];
+  const label = count
+    ? `${count} subagent ${count === "1" ? "run" : "runs"} completed`
+    : "Background task completed";
+  return { label, detail: text };
+}
+
+function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className={`activity-disclosure${activity.attention ? " attention" : ""}`}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <Bot size={16} strokeWidth={1.7} />
+        <span>{activity.label}</span>
+        <ChevronRight className="activity-chevron" size={14} />
+      </button>
+      {open ? <pre>{activity.detail}</pre> : null}
+    </section>
+  );
 }
 
 export const Message = memo(function Message({
   message,
-  workedMs,
   streaming = false,
 }: {
   message: UiMessage;
-  workedMs?: number;
   streaming?: boolean;
 }) {
-  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const activity = parseAsyncActivity(message.text);
 
+  if (activity) return <ActivityDisclosure activity={activity} />;
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
@@ -34,21 +61,12 @@ export const Message = memo(function Message({
     );
   }
 
+  if (!message.text) return null;
+
   return (
     <article className="message assistant">
-      {message.thinking ? (
-        <>
-          <button className="reasoning-toggle" onClick={() => setReasoningOpen((open) => !open)}>
-            {workedMs ? `Worked for ${duration(workedMs)}` : "Reasoning"}
-            <i>{reasoningOpen ? "⌄" : "›"}</i>
-          </button>
-          {reasoningOpen ? <pre className="reasoning-body">{message.thinking}</pre> : null}
-        </>
-      ) : null}
       <div className="message-text">
-        {message.text
-          ? <Markdown streaming={streaming}>{message.text}</Markdown>
-          : <span className="typing-mark">thinking</span>}
+        <Markdown streaming={streaming}>{message.text}</Markdown>
       </div>
     </article>
   );

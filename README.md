@@ -37,6 +37,12 @@ npm run start:safe
 
 The production renderer is minified and does not ship source maps unless `TAU_SOURCEMAP=true` is explicitly set. Review, Settings, optional panels, and Highlight.js languages are demand-loaded; their slots expose a Retry action if a chunk cannot be loaded.
 
+### Share a live session with Pi
+
+Tau can attach to a Pi TUI that already owns the active session instead of opening a second `SessionManager`. Open Pi in the project first. For an already-running Pi session, run `/reload` once so Pi loads `.pi/extensions/tau-session-bridge.ts`, then start or restart Tau. Prompts, steering, aborts, assistant streaming, tool activity, model changes, thinking changes, compaction, and thread renames travel over an authenticated local socket and remain visible in both clients.
+
+The Pi TUI is the sole writer while attached. Tau will not fall back to writing the same session if the owner is alive but unreachable. It retries a lost socket with bounded backoff and resnapshots automatically after Pi reloads or restarts the bridge. Enter `/reload` in Tau, or run “Reload Pi and desktop extensions” from the command palette, to reload Pi resources and rebuild the renderer-side extension registry. Electron main-process and preload changes still require an app restart; production source changes must be built first. Image prompts, Tau project-shell actions, Tau access-policy changes, new-session creation, and automatic title generation remain Pi-side operations in this mode. Safe mode refuses to attach because it cannot enforce safe-mode tool policy on a runtime owned by another process.
+
 ## Prototype surface
 
 - real Pi SDK session with streamed text, thinking and tool events
@@ -49,7 +55,8 @@ The production renderer is minified and does not ship source maps unless `TAU_SO
 - composer-level model, thinking and access controls, plus a context dial wired to Pi's own usage and manual compaction
 - model picker with provider tabs, cross-provider search and favourites
 - clickable workspace bar under the composer: switch between the checkout and its worktrees, create a worktree for a new branch, and pick a ref from a searchable list
-- enforced access levels: Pi has no permission model, so Tau installs an inline Pi extension that blocks `edit`, `write`, `bash` and `powershell` on read-only, and prompts for approval on ask-before-edits
+- enforced access levels: Tau's inline Pi extension gates workspace mutations and computer-control actions; read-only threads retain inspection tools, while ask-before-edits requires approval before clicks, typing, launches, shell commands, and file changes
+- built-in cross-platform computer use through `@amaster.ai/pi-computer-use` (Apache-2.0) and its bundled Cua Driver assets; safe mode excludes it, and an explicitly configured Pi package wins over Tau's bundled registration
 - grouped command palette (`Cmd/Ctrl+K`) with arrow-key navigation, attributing every command to the extension that contributed it
 - one settings page: workbench defaults, keybindings, and a click-through list of extensions rendered from the options each one declares
 - Markdown rendering of messages — GFM tables, task lists, inline code, and syntax-highlighted code blocks with copy, all styled on the workbench palette; raw HTML is deliberately not enabled

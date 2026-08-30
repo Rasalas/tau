@@ -29,6 +29,7 @@
     "benchmark:git:check": "node scripts/git-benchmark.mjs --check"
   },
   "dependencies": {
+    "@amaster.ai/pi-computer-use": "^0.1.12",
     "@earendil-works/pi-coding-agent": "0.84.4",
     "@tanstack/react-virtual": "^3.13.12",
     "highlight.js": "^11.12.0",

@@ -16,6 +16,7 @@ import type {
   WorkspaceInfo,
 } from "../shared/contracts";
 import { ChangedFiles } from "./components/ChangedFiles";
+import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer } from "./components/Composer";
 import type { ContextBreakdown } from "./components/ContextMeter";
@@ -83,6 +84,7 @@ export function optimisticThreadSnapshot(
     messages: detail.messages,
     isStreaming: false,
     activeTools: detail.activeTools,
+    turnActivity: detail.turnActivity,
     contextUsage: detail.contextUsage,
   };
 }
@@ -144,35 +146,79 @@ function LiveStatus({ startedAt }: { startedAt?: number }) {
   return <div className="live-status"><span className="spinner" /><span>Pi is working{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
 }
 
-function useTailScroll(
+export function useTailScroll(
   ref: RefObject<HTMLDivElement | null>,
   updates: readonly unknown[],
+  resetKey?: unknown,
 ): void {
   const pinnedRef = useRef(true);
   const frameRef = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const onScroll = () => {
-      pinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
-    };
-    node.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => node.removeEventListener("scroll", onScroll);
-  }, [ref]);
-  useEffect(() => {
+  const scheduleTail = () => {
     if (!pinnedRef.current || frameRef.current !== undefined) return;
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = undefined;
       const node = ref.current;
       if (node && pinnedRef.current) node.scrollTop = node.scrollHeight;
     });
-    return () => {
-      if (frameRef.current !== undefined) {
-        cancelAnimationFrame(frameRef.current);
-        frameRef.current = undefined;
-      }
+  };
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    // A fresh transcript starts at scrollTop 0 even when it is several screens
+    // tall. Treat it as pinned until the first tail placement completes.
+    pinnedRef.current = true;
+    let pointerDown = false;
+    let touchY: number | undefined;
+    const nearTail = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+    const onScroll = () => {
+      if (nearTail()) pinnedRef.current = true;
+      else if (pointerDown) pinnedRef.current = false;
     };
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) pinnedRef.current = false;
+    };
+    const onPointerDown = () => { pointerDown = true; };
+    const onPointerUp = () => { pointerDown = false; };
+    const onTouchStart = (event: TouchEvent) => { touchY = event.touches[0]?.clientY; };
+    const onTouchMove = (event: TouchEvent) => {
+      const nextY = event.touches[0]?.clientY;
+      if (touchY !== undefined && nextY !== undefined && nextY > touchY) pinnedRef.current = false;
+      touchY = nextY;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) pinnedRef.current = false;
+      if (event.key === "End") pinnedRef.current = true;
+    };
+    node.addEventListener("scroll", onScroll, { passive: true });
+    node.addEventListener("wheel", onWheel, { passive: true });
+    node.addEventListener("pointerdown", onPointerDown, { passive: true });
+    window.addEventListener("pointerup", onPointerUp, { passive: true });
+    node.addEventListener("touchstart", onTouchStart, { passive: true });
+    node.addEventListener("touchmove", onTouchMove, { passive: true });
+    node.addEventListener("keydown", onKeyDown);
+    const content = node.firstElementChild ?? node;
+    const observer = typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(() => scheduleTail());
+    observer?.observe(content);
+    scheduleTail();
+    return () => {
+      node.removeEventListener("scroll", onScroll);
+      node.removeEventListener("wheel", onWheel);
+      node.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
+      node.removeEventListener("touchstart", onTouchStart);
+      node.removeEventListener("touchmove", onTouchMove);
+      node.removeEventListener("keydown", onKeyDown);
+      observer?.disconnect();
+      if (frameRef.current !== undefined) cancelAnimationFrame(frameRef.current);
+      frameRef.current = undefined;
+    };
+  }, [ref, resetKey]);
+
+  useEffect(() => {
+    scheduleTail();
   // The array identity is intentionally controlled by the caller's visible records.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, updates);
@@ -203,15 +249,17 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
   const [messages, setMessages] = useState<UiMessage[]>(cachedBootstrap?.snapshot.messages ?? []);
   const [tools, setTools] = useState<UiToolRun[]>([]);
+  const [toolAnchorId, setToolAnchorId] = useState<string>();
+  const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [changes, setChanges] = useState<UiWorkspaceChanges>(NO_CHANGES);
+  const [turnBaseline, setTurnBaseline] = useState<UiWorkspaceChanges>();
   const [editors, setEditors] = useState<UiEditor[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
-  const [workedMs, setWorkedMs] = useState<Record<string, number>>({});
   const [runStartedAt, setRunStartedAt] = useState<number>();
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
@@ -230,13 +278,18 @@ export default function App() {
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
   const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
   const changesRequestRef = useRef(0);
+  const changesRef = useRef(changes);
+  changesRef.current = changes;
   const workspaceRequestRef = useRef(0);
   const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const toolAnchorRef = useRef<string | undefined>(undefined);
+  toolAnchorRef.current = toolAnchorId;
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
   const pendingToolUpdatesRef = useRef(new Map<string, string>());
   const toolFrameRef = useRef<number | undefined>(undefined);
-  const reasoningRef = useRef(new Map<string, number>());
   const runningThreadRef = useRef<string>("");
 
   const flushAssistantDeltas = useCallback(() => {
@@ -293,14 +346,20 @@ export default function App() {
       messages: next.messages,
       isStreaming: next.isStreaming,
       activeTools: next.activeTools,
+      turnActivity: next.turnActivity,
       contextUsage: next.contextUsage,
     };
     detailStoreRef.current.set(detail);
     setOlderCursor(detail.olderCursor);
     threadStore.applyHostSnapshot(next);
+    const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     setSnapshot(next);
     setMessages(next.messages);
-    setTools([]);
+    const restoredActivity = cachedActivity ?? next.turnActivity;
+    setTools(restoredActivity?.tools ?? []);
+    setToolAnchorId(restoredActivity?.anchorMessageId);
+    setTurnBaseline(cachedActivity?.baseline);
+    setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
     cachedSnapshotRef.current = next;
     activeWorkspaceRef.current = next.cwd;
     writeBootstrapCache(next, cachedIndexRef.current);
@@ -330,6 +389,12 @@ export default function App() {
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       setOlderCursor(detail.olderCursor);
       setMessages(detail.messages);
+      const cachedActivity = readCachedTurnActivity(window.localStorage, detail.sessionId);
+      const restoredActivity = cachedActivity ?? detail.turnActivity;
+      setTools(restoredActivity?.tools ?? []);
+      setToolAnchorId(restoredActivity?.anchorMessageId);
+      setTurnBaseline(cachedActivity?.baseline);
+      setTurnActivitySessionId(restoredActivity ? detail.sessionId : undefined);
       setSnapshot((current) => {
         if (!current) return current;
         const shell = threadStore.getThread(detail.sessionId);
@@ -340,6 +405,7 @@ export default function App() {
           messages: detail.messages,
           isStreaming: detail.isStreaming,
           activeTools: detail.activeTools,
+          turnActivity: detail.turnActivity,
           contextUsage: detail.contextUsage,
         };
         cachedSnapshotRef.current = next;
@@ -410,6 +476,15 @@ export default function App() {
       case "thread-index": applyThreadIndex(event.threadIndex); break;
       case "agent-status": {
         if (event.sessionId !== threadStore.getSnapshot().activeThreadId) break;
+        if (event.running) {
+          pendingToolUpdatesRef.current.clear();
+          if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
+          toolFrameRef.current = undefined;
+          setTools([]);
+          setToolAnchorId(undefined);
+          setTurnBaseline(changesRef.current);
+          setTurnActivitySessionId(event.sessionId);
+        }
         threadStore.setStreaming(event.running);
         setSnapshot((current) => {
           if (event.running && current) runningThreadRef.current = current.sessionId;
@@ -427,33 +502,30 @@ export default function App() {
         break;
       }
       case "assistant-start":
-        reasoningRef.current.set(event.id, event.timestamp);
         setMessages((current) => current.some((message) => message.id === event.id)
           ? current
           : [...current, { id: event.id, role: "assistant", text: "", timestamp: event.timestamp }]);
         break;
-      case "assistant-delta": {
-        // The first visible token ends the reasoning stretch we report as "Worked for…".
-        const startedAt = reasoningRef.current.get(event.id);
-        if (startedAt !== undefined) {
-          reasoningRef.current.delete(event.id);
-          setWorkedMs((current) => ({ ...current, [event.id]: Date.now() - startedAt }));
-        }
+      case "assistant-delta":
         queueAssistantDelta(event.id, "text", event.delta);
         break;
-      }
       case "assistant-thinking":
-        queueAssistantDelta(event.id, "thinking", event.delta);
+        // Pi presents this phase as working state rather than transcript content.
         break;
       case "assistant-end":
         flushAssistantDeltas();
-        reasoningRef.current.delete(event.message.id);
         setMessages((current) => current.map((message) => message.id === event.message.id ? event.message : message));
         break;
-      case "tool-start":
+      case "tool-start": {
         threadStore.toolStarted(event.tool.id, event.tool.name);
+        if (!toolAnchorRef.current) {
+          const anchor = [...messagesRef.current].reverse().find((message) => message.text.trim())?.id;
+          toolAnchorRef.current = anchor;
+          setToolAnchorId(anchor);
+        }
         setTools((current) => [...current.filter((tool) => tool.id !== event.tool.id), event.tool]);
         break;
+      }
       case "tool-update":
         queueToolUpdate(event.id, event.output);
         break;
@@ -497,6 +569,7 @@ export default function App() {
           messages: bootstrap.detail.messages,
           isStreaming: bootstrap.detail.isStreaming,
           activeTools: bootstrap.detail.activeTools,
+          turnActivity: bootstrap.detail.turnActivity,
           contextUsage: bootstrap.detail.contextUsage,
         };
         applySnapshot(current);
@@ -517,7 +590,7 @@ export default function App() {
     void window.tau?.setAccessLevel(settings.accessLevel);
   }, [settings.accessLevel]);
 
-  useTailScroll(transcriptRef, [messages, tools]);
+  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId);
 
   const loadOlder = useCallback(async () => {
     if (!olderCursor || loadingOlder || !snapshot || !window.tau) return;
@@ -847,6 +920,19 @@ export default function App() {
     }
   }, [snapshot?.branch, snapshot?.cwd, snapshot?.sessionId]);
 
+  const reloadRuntime = useCallback(async () => {
+    if (!requireHost("Runtime reload")) return false;
+    try {
+      setNotice("Reloading Pi and desktop extensions…");
+      await window.tau!.reloadRuntime();
+      window.location.reload();
+      return true;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [requireHost]);
+
   const actions: WorkbenchActions = useMemo(() => ({
     openPanel,
     openCommandPalette: () => setPaletteOpen(true),
@@ -856,6 +942,7 @@ export default function App() {
     switchSession,
     settleActiveThread,
     abort: () => void window.tau?.abort(),
+    reloadRuntime,
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     chooseWorkspace,
@@ -869,12 +956,16 @@ export default function App() {
     },
   }), [
     chooseWorkspace, cloneWorkspace, createSession, generateThreadTitle, openPanel,
-    openReview, openWorkspace, settleActiveThread, snapshot?.model, switchSession,
+    openReview, openWorkspace, reloadRuntime, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
   const submit = useCallback(async (value: string, attachments: UiPromptAttachment[] = []) => {
     const text = value.trim();
     if (!text && attachments.length === 0) return;
+    if (text === "/reload" && attachments.length === 0) {
+      await reloadRuntime();
+      return;
+    }
     if (snapshot?.isStreaming) {
       if (window.tau) {
         try { await window.tau.steer(text, attachments); } catch (error) { setNotice(String(error)); }
@@ -908,7 +999,7 @@ export default function App() {
         setRunStartedAt(undefined);
       }, 650);
     }
-  }, [actions, registry, snapshot, threadStore]);
+  }, [actions, registry, reloadRuntime, snapshot, threadStore]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -927,6 +1018,22 @@ export default function App() {
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   }, [createSession, openReview, paletteOpen, settleActiveThread, snapshot?.isStreaming]);
+
+  useEffect(() => {
+    const sessionId = snapshot?.sessionId;
+    if (!sessionId || turnActivitySessionId !== sessionId || !turnBaseline) return;
+    writeCachedTurnActivity(window.localStorage, {
+      sessionId,
+      baseline: turnBaseline,
+      tools,
+      anchorMessageId: toolAnchorId,
+    });
+  }, [snapshot?.sessionId, toolAnchorId, tools, turnActivitySessionId, turnBaseline]);
+
+  const turnChanges = useMemo(
+    () => turnBaseline ? changesSinceTurn(turnBaseline, changes) : changesTouchedByTools(tools, changes),
+    [changes, tools, turnBaseline],
+  );
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -1099,11 +1206,11 @@ export default function App() {
                   <VirtualTranscript
                     messages={messages}
                     scrollRef={transcriptRef}
-                    workedMs={workedMs}
                     isStreaming={Boolean(snapshot?.isStreaming)}
+                    activity={tools.length > 0 ? <ToolGroup tools={tools} registry={registry} /> : undefined}
+                    activityAfterMessageId={toolAnchorId}
                   />
-                  <ToolGroup tools={tools} registry={registry} />
-                  <ChangedFiles changes={changes} onOpenDiff={openReview} />
+                  <ChangedFiles changes={turnChanges} onOpenDiff={openReview} />
                   {snapshot?.isStreaming ? <LiveStatus startedAt={runStartedAt} /> : null}
                 </div>
               </div>

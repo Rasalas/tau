@@ -97,6 +97,7 @@ function installIpc(): void {
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));
   ipcMain.handle("tau:set-thinking", async (_event, level: string) => (await requireHostReady()).setThinkingLevel(level));
   ipcMain.handle("tau:compact-context", async () => (await requireHostReady()).compactContext());
+  ipcMain.handle("tau:reload-runtime", async () => (await requireHostReady()).reloadRuntime());
   ipcMain.handle("tau:set-access-level", async (_event, level: AccessLevel) => (await requireHostReady()).setAccessLevel(level));
   ipcMain.handle("tau:resolve-tool-approval", async (_event, id: string, allowed: boolean) => (await requireHostReady()).resolveToolApproval(id, allowed));
   ipcMain.handle("tau:rename-thread", async (_event, title: string, expectedSessionId?: string) => (await requireHostReady()).renameThread(title, expectedSessionId));

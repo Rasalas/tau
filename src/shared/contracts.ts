@@ -195,6 +195,12 @@ export interface ShellActionResult {
   truncated: boolean;
 }
 
+export interface UiTurnActivity {
+  tools: UiToolRun[];
+  /** Last visible message rendered before the first tool call in this turn. */
+  anchorMessageId?: string;
+}
+
 export interface HostSnapshot {
   cwd: string;
   branch?: string;
@@ -208,6 +214,7 @@ export interface HostSnapshot {
   messages: UiMessage[];
   isStreaming: boolean;
   activeTools: string[];
+  turnActivity?: UiTurnActivity;
   allTools: Array<{ name: string; description: string }>;
   extensionCount: number;
   contextUsage?: UiContextUsage;
@@ -229,6 +236,7 @@ export interface HostBootstrap {
     messages: UiMessage[];
     isStreaming: boolean;
     activeTools: string[];
+    turnActivity?: UiTurnActivity;
     contextUsage?: UiContextUsage;
     olderCursor?: string;
   };
@@ -275,6 +283,8 @@ export interface TauDesktopApi {
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
   setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;
   compactContext(): Promise<import("./host-protocol.js").HostActionResult>;
+  /** Reload Pi resources first; the renderer then reloads its desktop extensions. */
+  reloadRuntime(): Promise<void>;
   setServiceTier(tier: ServiceTier): Promise<import("./host-protocol.js").HostActionResult>;
   setAccessLevel(level: AccessLevel): Promise<void>;
   resolveToolApproval(id: string, allowed: boolean): Promise<void>;

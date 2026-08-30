@@ -1,4 +1,5 @@
-import { memo, useState } from "react";
+import { ChevronRight, Hammer } from "lucide-react";
+import { memo, useEffect, useState } from "react";
 import type { UiToolRun } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
@@ -13,7 +14,7 @@ const ToolRun = memo(function ToolRun({ tool, registry }: { tool: UiToolRun; reg
   const [collapsed, setCollapsed] = useState(false);
   const view = registry.presentTool(tool);
   const bounded = boundToolOutput(tool.output, running ? ACTIVE_TOOL_OUTPUT_LIMIT : SETTLED_TOOL_OUTPUT_LIMIT);
-  const showOutput = Boolean(bounded.text) && (running ? !collapsed : collapsed);
+  const showOutput = view.output !== "hidden" && Boolean(bounded.text) && (running ? !collapsed : collapsed);
   const copyFullOutput = () => {
     if (tool.output) void navigator.clipboard?.writeText(tool.output);
   };
@@ -46,19 +47,46 @@ const ToolRun = memo(function ToolRun({ tool, registry }: { tool: UiToolRun; reg
   );
 });
 
+function activitySummary(tools: UiToolRun[], live: number): string {
+  const commands = tools.filter((tool) => tool.name === "bash" || tool.name === "powershell").length;
+  const otherTools = tools.length - commands;
+  const toolLabel = `${otherTools} ${otherTools === 1 ? "tool" : "tools"}`;
+  const commandLabel = `${commands} ${commands === 1 ? "command" : "commands"}`;
+  if (live > 0) {
+    const counts = commands > 0 && otherTools > 0
+      ? `${toolLabel} and ${commandLabel}`
+      : commands > 0 ? commandLabel : toolLabel;
+    return `Using ${counts} · ${live} running`;
+  }
+  if (commands > 0 && otherTools > 0) return `Used ${toolLabel} and ran ${commandLabel}`;
+  if (commands > 0) return `Ran ${commandLabel}`;
+  return `Used ${toolLabel}`;
+}
+
 export function ToolGroup({ tools, registry }: { tools: UiToolRun[]; registry: ExtensionRegistry }) {
-  if (tools.length === 0) return null;
   const live = tools.filter((tool) => tool.status === "running").length;
-  const done = tools.length - live;
+  const [expanded, setExpanded] = useState(live > 0);
+  useEffect(() => setExpanded(live > 0), [live]);
+  if (tools.length === 0) return null;
+  const summary = activitySummary(tools, live);
 
   return (
-    <section className="transcript-card">
-      <header className="tool-group-header">
-        {live > 0 ? <span className="spinner acid small" /> : null}
-        <b>{live > 0 ? "RUNNING TOOLS" : "TOOL RUNS"}</b>
-        <span>{done} done{live > 0 ? ` · ${live} live` : ""}</span>
-      </header>
-      {tools.map((tool) => <ToolRun key={tool.id} tool={tool} registry={registry} />)}
+    <section className={`tool-activity${expanded ? " expanded" : ""}`}>
+      <button
+        type="button"
+        className="tool-activity-summary"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {live > 0 ? <span className="spinner acid small" /> : <Hammer size={16} strokeWidth={1.7} />}
+        <span>{summary}</span>
+        <ChevronRight className="activity-chevron" size={14} />
+      </button>
+      {expanded ? (
+        <div className="tool-activity-detail">
+          {tools.map((tool) => <ToolRun key={tool.id} tool={tool} registry={registry} />)}
+        </div>
+      ) : null}
     </section>
   );
 }

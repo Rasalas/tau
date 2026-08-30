@@ -33,6 +33,7 @@ import type {
   UiPromptAttachment,
   UiSession,
   UiToolRun,
+  UiTurnActivity,
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts.js";
@@ -43,16 +44,24 @@ import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
 import { createAccessExtension, type AccessDecision } from "./access-extension.js";
+import { computerUseExtensionFactories } from "./computer-use-extension.js";
 import { createServiceTierExtension, SERVICE_TIER_APIS } from "./service-tier-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
+import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
+import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
 
 type Emit = (event: HostEvent) => void;
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
+
+function processIsAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+}
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -126,6 +135,71 @@ function mapMessage(message: unknown, index: number): UiMessage | undefined {
   }
 
   return undefined;
+}
+
+export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivity | undefined {
+  let turnStart = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as { role?: string } | undefined;
+    if (message?.role === "user") {
+      turnStart = index;
+      break;
+    }
+  }
+  if (turnStart < 0) return undefined;
+
+  const tools: UiToolRun[] = [];
+  const toolIndexes = new Map<string, number>();
+  let anchorMessageId: string | undefined;
+  let lastVisibleMessageId: string | undefined;
+
+  for (let index = turnStart; index < messages.length; index += 1) {
+    const raw = messages[index];
+    if (!raw || typeof raw !== "object") continue;
+    const message = raw as {
+      role?: string;
+      content?: unknown;
+      timestamp?: number;
+      toolCallId?: string;
+      toolName?: string;
+      isError?: boolean;
+    };
+    const mapped = mapMessage(message, index);
+    if (mapped && (mapped.role === "user" || mapped.text.trim())) lastVisibleMessageId = mapped.id;
+
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (!part || typeof part !== "object") continue;
+        const call = part as { type?: string; id?: string; name?: string; arguments?: unknown };
+        if (call.type !== "toolCall" || !call.id || !call.name) continue;
+        anchorMessageId ??= lastVisibleMessageId;
+        toolIndexes.set(call.id, tools.length);
+        tools.push({
+          id: call.id,
+          name: call.name,
+          args: call.arguments && typeof call.arguments === "object" ? call.arguments as Record<string, unknown> : {},
+          status: "running",
+          startedAt: message.timestamp ?? Date.now(),
+        });
+      }
+    }
+
+    if (message.role === "toolResult" && message.toolCallId) {
+      const toolIndex = toolIndexes.get(message.toolCallId);
+      if (toolIndex === undefined) continue;
+      const tool = tools[toolIndex];
+      const output = textFromContent(message.content);
+      tools[toolIndex] = {
+        ...tool,
+        name: message.toolName ?? tool.name,
+        status: message.isError ? "error" : "done",
+        output: output.length > 8_192 ? `${output.slice(0, 8_192)}\n[Restored output truncated]` : output,
+        endedAt: message.timestamp ?? tool.startedAt,
+      };
+    }
+  }
+
+  return tools.length > 0 ? { tools, anchorMessageId } : undefined;
 }
 
 function mapModel(model: { provider: string; id: string; name?: string }): UiModel {
@@ -312,6 +386,9 @@ export class PiHost {
   private cwd: string;
   private emit: Emit;
   private runtime?: AgentSessionRuntime;
+  private bridge?: PiBridgeClient;
+  private bridgeSnapshot?: PiBridgeSnapshot;
+  private readonly bridgeReconnectLoop = new PiBridgeReconnectLoop();
   private unsubscribe?: () => void;
   private readonly agentDir = getAgentDir();
   private extensionCount = 0;
@@ -380,6 +457,7 @@ export class PiHost {
         extensionFactories: [
           { name: "tau-access", factory: this.accessExtension },
           { name: "tau-service-tier", factory: this.serviceTierExtension },
+          ...(this.safeMode ? [] : computerUseExtensionFactories(settingsManager)),
         ],
       },
     });
@@ -437,7 +515,13 @@ export class PiHost {
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
         await this.projectHistory.remember(this.cwd);
-        await this.initializeRuntime(SessionManager.continueRecent(this.cwd));
+        const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
+        if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
+          throw new Error("Pi already owns this session. Close Pi before opening the project in Tau safe mode.");
+        }
+        if (!(await this.attachAvailableBridge(this.cwd))) {
+          await this.initializeRuntime(SessionManager.continueRecent(this.cwd));
+        }
         this.resolveProjectBranchInBackground();
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
@@ -484,8 +568,8 @@ export class PiHost {
   }
 
   async loadTranscript(sessionId: string, cursor?: string): Promise<TranscriptPage> {
-    const session = this.requireSession();
-    if (session.sessionId !== sessionId) throw new Error("Cannot load a non-active session transcript");
+    const activeSessionId = this.bridgeSnapshot?.sessionId ?? this.requireSession().sessionId;
+    if (activeSessionId !== sessionId) throw new Error("Cannot load a non-active session transcript");
     const result = TranscriptPager.pageFor(sessionId, this.messageSnapshot(), 40, cursor);
     this.lifecycleMetrics.recordIpc(result);
     return result;
@@ -524,6 +608,12 @@ export class PiHost {
 
   private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
     if (cwd === this.cwd) return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+    if (await this.attachAvailableBridge(cwd)) {
+      await this.projectHistory.remember(this.cwd);
+      await this.refreshActiveThreadIndex(false);
+      return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+    }
+    this.detachBridge();
     void this.clearPreparedRuntimes().catch((error) => this.fail(error));
     const startedAt = performance.now();
     const previousSessionFile = this.runtime?.session.sessionFile;
@@ -540,6 +630,7 @@ export class PiHost {
   }
 
   async newSession(): Promise<HostActionResult> {
+    if (this.bridge) throw new Error("Create the new session in Pi while Tau is attached to its runtime.");
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
       const result = await this.replaceSession("new", (runtime) => runtime.newSession());
@@ -555,6 +646,23 @@ export class PiHost {
   async switchSession(path: string): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
+      if (await this.attachAvailableBridge(dirname(path), path)) {
+        this.cwd = this.bridgeSnapshot!.cwd;
+        await this.projectHistory.remember(this.cwd);
+        await this.refreshActiveThreadIndex(false);
+        return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+      }
+      this.detachBridge();
+      if (!this.runtime) {
+        const nextRuntime = await this.createRootRuntime(dirname(path), SessionManager.open(path), {
+          type: "session_start", reason: "resume", previousSessionFile: undefined,
+        });
+        await this.swapRootRuntime(nextRuntime);
+        this.cwd = nextRuntime.cwd;
+        await this.projectHistory.remember(this.cwd);
+        await this.refreshActiveThreadIndex(false);
+        return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+      }
       const prepared = this.prewarmedRuntimes.get(path);
       this.prewarmedRuntimes.delete(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", prepared ? "warm-switch" : "cold-switch");
@@ -584,7 +692,7 @@ export class PiHost {
 
   /** Prepares a fresh, isolated runtime without binding its extension lifecycle. */
   async prewarmSession(path: string): Promise<void> {
-    if (this.safeMode || path === this.runtime?.session.sessionFile || this.prewarmedRuntimes.has(path)) return;
+    if (this.bridge || this.safeMode || path === this.runtime?.session.sessionFile || this.prewarmedRuntimes.has(path)) return;
     const promise = this.createPreparedRuntime(path).catch((error) => {
       this.log("runtime.prewarm.failed", this.errorMessage(error));
       return undefined;
@@ -594,6 +702,12 @@ export class PiHost {
   }
 
   async prompt(text: string, attachments: UiPromptAttachment[] = []): Promise<void> {
+    if (this.bridge) {
+      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      await this.bridge.command({ command: "prompt", text });
+      this.log("prompt.accepted", text.slice(0, 80));
+      return;
+    }
     const session = this.requireSession();
     const images = promptImages(attachments);
     this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
@@ -611,6 +725,7 @@ export class PiHost {
   }
 
   async runShellAction(command: string, includeInContext = false, expectedCwd?: string): Promise<ShellActionResult> {
+    if (this.bridge) throw new Error("Run project actions in Pi while Tau is attached to its runtime.");
     const shellCommand = command.trim();
     if (!shellCommand) throw new Error("An action command is required.");
     const session = await this.runLifecycle(async () => {
@@ -632,6 +747,11 @@ export class PiHost {
   }
 
   async steer(text: string, attachments: UiPromptAttachment[] = []): Promise<void> {
+    if (this.bridge) {
+      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      await this.bridge.command({ command: "prompt", text, deliverAs: "steer" });
+      return;
+    }
     try {
       await this.requireSession().steer(text, promptImages(attachments));
     } catch (error) {
@@ -642,11 +762,23 @@ export class PiHost {
 
   async abort(): Promise<void> {
     this.settleAllApprovals({ allowed: false, reason: "Blocked by Tau: the run was stopped." });
+    if (this.bridge) {
+      await this.bridge.command({ command: "abort" });
+      return;
+    }
     await this.requireSession().abort();
   }
 
   async setModel(provider: string, id: string): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
+      if (this.bridge) {
+        await this.bridge.command({ command: "set_model", provider, id });
+        await this.refreshBridgeSnapshot();
+        const snapshot = await this.snapshot();
+        const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+        this.emitUpdate(catalog);
+        return this.actionResult([catalog]);
+      }
       const session = this.requireSession();
       const model = session.modelRuntime.getModel(provider, id);
       if (!model) throw new Error(`Unknown model: ${provider}/${id}`);
@@ -661,6 +793,14 @@ export class PiHost {
 
   async setThinkingLevel(level: string): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
+      if (this.bridge) {
+        await this.bridge.command({ command: "set_thinking", level });
+        await this.refreshBridgeSnapshot();
+        const snapshot = await this.snapshot();
+        const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+        this.emitUpdate(catalog);
+        return this.actionResult([catalog]);
+      }
       const session = this.requireSession();
       if (!session.getAvailableThinkingLevels().includes(level as never)) {
         throw new Error(`Thinking level is not available: ${level}`);
@@ -679,22 +819,27 @@ export class PiHost {
       const title = rawTitle.trim();
       if (!title) throw new Error("Thread titles cannot be empty.");
       if (title.length > 120) throw new Error("Thread titles must be 120 characters or fewer.");
-      const session = this.requireSession();
-      if (expectedSessionId && session.sessionId !== expectedSessionId) {
+      const sessionId = this.bridgeSnapshot?.sessionId ?? this.requireSession().sessionId;
+      if (expectedSessionId && sessionId !== expectedSessionId) {
         throw new Error("The selected thread did not finish loading. Try renaming it again.");
       }
-      session.setSessionName(title);
+      if (this.bridge) {
+        await this.bridge.command({ command: "set_session_name", name: title });
+        await this.refreshBridgeSnapshot();
+      } else {
+        this.requireSession().setSessionName(title);
+      }
       const now = Date.now();
       this.sessions = this.sessions.map((thread) =>
-        thread.id === session.sessionId ? { ...thread, title, modifiedAt: now } : thread,
+        thread.id === sessionId ? { ...thread, title, modifiedAt: now } : thread,
       );
-      const shell = this.sessions.find((thread) => thread.id === session.sessionId);
+      const shell = this.sessions.find((thread) => thread.id === sessionId);
       if (!shell) throw new Error("The active thread is missing from the session index.");
       this.log("title.renamed", title);
       const update: HostUpdate = {
         version: HOST_PROTOCOL_VERSION,
         type: "thread-shell",
-        update: { sessionId: session.sessionId, shell },
+        update: { sessionId, shell },
       };
       this.emitUpdate(update);
       return this.actionResult([update]);
@@ -702,6 +847,7 @@ export class PiHost {
   }
 
   async generateThreadTitle(provider: string, modelId: string, force = false, expectedSessionId?: string): Promise<HostActionResult> {
+    if (this.bridge) throw new Error("Generate the thread title in Pi while Tau is attached to its runtime.");
     const session = await this.runLifecycle(async () => {
       const active = this.requireSession();
       if (expectedSessionId && active.sessionId !== expectedSessionId) {
@@ -758,6 +904,7 @@ export class PiHost {
   }
 
   setAccessLevel(level: AccessLevel): void {
+    if (this.bridge) throw new Error("Tau access controls are unavailable while Pi owns the runtime.");
     if (level === this.accessLevel) return;
     this.accessLevel = level;
     this.log("access.level", level);
@@ -794,9 +941,32 @@ export class PiHost {
     return Boolean(api && SERVICE_TIER_APIS.has(api));
   }
 
+  async reloadRuntime(): Promise<void> {
+    return this.runLifecycle(async () => {
+      if (this.bridge) {
+        await this.bridge.command({ command: "reload" });
+        this.log("runtime.reload.requested", "Pi owner");
+        return;
+      }
+      const session = this.requireSession();
+      if (session.isStreaming) throw new Error("Wait for the active run before reloading Pi.");
+      await session.reload();
+      this.modelCatalogCache.invalidate();
+      this.resourceDiscoveryCache.invalidate();
+      this.log("runtime.reloaded");
+      const snapshot = await this.snapshot();
+      for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
+    });
+  }
+
   async compactContext(): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
-      await this.requireSession().compact();
+      if (this.bridge) {
+        await this.bridge.command({ command: "compact" }, 120_000);
+        await this.refreshBridgeSnapshot();
+      } else {
+        await this.requireSession().compact();
+      }
       this.log("context.compacted");
       const snapshot = await this.snapshot();
       const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
@@ -915,6 +1085,7 @@ export class PiHost {
       const teardownErrors: unknown[] = [];
       try { await this.clearPreparedRuntimes(); } catch (error) { teardownErrors.push(error); }
       try { await this.retirementQueue; } catch (error) { teardownErrors.push(error); }
+      this.detachBridge();
       const runtime = this.runtime;
       if (runtime) teardownErrors.push(...await this.shutdownRuntime(runtime));
       if (this.runtime === runtime) this.runtime = undefined;
@@ -1286,20 +1457,145 @@ export class PiHost {
     return result;
   }
 
+  private async attachAvailableBridge(
+    cwd: string,
+    sessionFile?: string,
+    options: { ownerPid?: number } = {},
+  ): Promise<boolean> {
+    if (this.safeMode) return false;
+    const descriptor = await findPiBridge(cwd, sessionFile, options.ownerPid);
+    if (!descriptor) return false;
+    if (this.bridge?.descriptor.epoch === descriptor.epoch && this.bridge.isConnected) return true;
+    const client = new PiBridgeClient(descriptor);
+    let bridgeSnapshot: PiBridgeSnapshot;
+    try {
+      bridgeSnapshot = await client.open();
+    } catch (error) {
+      client.close();
+      this.log("bridge.connect.failed", this.errorMessage(error));
+      if (!processIsAlive(descriptor.pid)) return false;
+      throw new Error(`Pi owns this session, but Tau could not connect to it: ${this.errorMessage(error)}`);
+    }
+    const runtime = this.runtime;
+    if (runtime) {
+      const errors = await this.shutdownRuntime(runtime);
+      if (this.runtime === runtime) this.runtime = undefined;
+      for (const error of errors) this.fail(error);
+    }
+    this.detachBridge(false);
+    this.bridge = client;
+    this.bridgeSnapshot = bridgeSnapshot;
+    this.cwd = bridgeSnapshot.cwd;
+    this.resetSessionState();
+    const unsubscribeEvents = client.subscribe((frame) => this.handleBridgeFrame(frame));
+    const unsubscribeDisconnect = client.subscribeDisconnect(() => {
+      if (this.bridge === client) this.reconnectBridge(client);
+    });
+    this.unsubscribe = () => { unsubscribeEvents(); unsubscribeDisconnect(); };
+    this.log("bridge.attached", bridgeSnapshot.sessionId.slice(0, 8));
+    return true;
+  }
+
+  private detachBridge(cancelReconnect = true): void {
+    if (cancelReconnect) this.bridgeReconnectLoop.cancel();
+    if (!this.bridge) return;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.bridge.close();
+    this.bridge = undefined;
+    this.bridgeSnapshot = undefined;
+    this.resetSessionState();
+  }
+
+  private reconnectBridge(disconnected: PiBridgeClient): void {
+    const { cwd, sessionFile, pid } = disconnected.descriptor;
+    this.emit({ type: "event-log", label: "bridge.reconnecting", detail: "Pi session bridge", timestamp: Date.now() });
+    this.bridgeReconnectLoop.start(
+      async () => {
+        if (await this.attachAvailableBridge(cwd, sessionFile)) return true;
+        return this.attachAvailableBridge(cwd, undefined, { ownerPid: pid });
+      },
+      () => {
+        void this.refreshActiveThreadIndex(false).then(async () => {
+          const snapshot = await this.snapshot();
+          for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
+          this.emit({ type: "event-log", label: "bridge.reconnected", detail: "Pi session bridge", timestamp: Date.now() });
+        }).catch((error) => this.fail(error));
+      },
+      (error) => this.log("bridge.reconnect.retry", this.errorMessage(error)),
+    );
+  }
+
+  private handleBridgeFrame(frame: PiBridgeServerFrame): void {
+    if (frame.type === "event") {
+      this.handleSessionEvent(frame.event, frame.sessionId);
+      return;
+    }
+    if (frame.type !== "snapshot") return;
+    this.bridgeSnapshot = frame.snapshot;
+    this.cwd = frame.snapshot.cwd;
+    void this.snapshot().then((snapshot) => {
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) });
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
+    }).catch((error) => this.fail(error));
+  }
+
+  private async refreshBridgeSnapshot(): Promise<void> {
+    if (!this.bridge) return;
+    this.bridgeSnapshot = await this.bridge.command({ command: "snapshot" }) as PiBridgeSnapshot;
+  }
+
+  private bridgeHostSnapshot(): HostSnapshot {
+    const snapshot = this.bridgeSnapshot;
+    if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
+    const messages = snapshot.messages
+      .map((message, index) => mapMessage(message, index))
+      .filter((message): message is UiMessage => Boolean(message?.text));
+    const firstUserMessage = snapshot.messages.find((message) =>
+      Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
+    );
+    return {
+      cwd: snapshot.cwd,
+      sessionId: snapshot.sessionId,
+      sessionName: snapshot.sessionName,
+      sessionTitle: snapshot.sessionName || firstSentence(firstUserMessage
+        ? textFromContent((firstUserMessage as { content?: unknown }).content)
+        : ""),
+      model: snapshot.model ? mapModel(snapshot.model) : undefined,
+      models: snapshot.models.map(mapModel),
+      thinkingLevel: snapshot.thinkingLevel,
+      thinkingLevels: snapshot.thinkingLevels,
+      messages,
+      isStreaming: snapshot.isStreaming,
+      activeTools: snapshot.activeTools,
+      turnActivity: lastTurnActivityFromMessages(snapshot.messages),
+      allTools: snapshot.allTools,
+      extensionCount: 0,
+      serviceTier: "standard",
+      serviceTierAvailable: false,
+      contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
+        ? { tokens: snapshot.contextUsage.tokens, contextWindow: snapshot.contextUsage.contextWindow, percent: snapshot.contextUsage.percent }
+        : undefined,
+    };
+  }
+
   private attachEvents(session: AgentSession): void {
-    this.unsubscribe = session.subscribe((event) => {
+    this.unsubscribe = session.subscribe((event) => this.handleSessionEvent(event, session.sessionId));
+  }
+
+  private handleSessionEvent(event: any, sessionId: string): void {
       switch (event.type) {
         case "agent_start":
-          this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId: session.sessionId });
-          this.emit({ type: "agent-status", sessionId: session.sessionId, running: true });
+          this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
+          this.emit({ type: "agent-status", sessionId, running: true });
           this.log("agent.started");
           break;
         case "agent_end":
           this.log("agent.ended", `${event.messages.length} messages`);
           break;
         case "agent_settled":
-          this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId: session.sessionId });
-          this.emit({ type: "agent-status", sessionId: session.sessionId, running: false });
+          this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
+          this.emit({ type: "agent-status", sessionId, running: false });
           this.log("agent.settled");
           break;
         case "message_start":
@@ -1378,10 +1674,10 @@ export class PiHost {
           this.emit({ type: "queue", steering: [...event.steering], followUp: [...event.followUp] });
           break;
       }
-    });
   }
 
   private async ensureModels(): Promise<UiModel[]> {
+    if (this.bridgeSnapshot) return this.bridgeSnapshot.models.map(mapModel);
     const key = this.resourceFingerprint(this.cwd);
     const cached = this.modelCatalogCache.get(key);
     if (cached) return cached;
@@ -1492,12 +1788,14 @@ export class PiHost {
   }
 
   private messageSnapshot(): UiMessage[] {
+    if (this.bridgeSnapshot) return this.bridgeHostSnapshot().messages;
     return this.requireSession().messages
       .map((message, index) => mapMessage(message, index))
       .filter((message): message is UiMessage => Boolean(message?.text));
   }
 
   private snapshotSync(models: UiModel[]): HostSnapshot {
+    if (this.bridgeSnapshot) return { ...this.bridgeHostSnapshot(), models };
     const session = this.requireSession();
     const firstUserMessage = session.messages.find((message) => message.role === "user");
     const usage = session.getContextUsage();
@@ -1513,6 +1811,7 @@ export class PiHost {
       messages: this.messageSnapshot(),
       isStreaming: session.isStreaming,
       activeTools: session.getActiveToolNames(),
+      turnActivity: lastTurnActivityFromMessages(session.messages),
       allTools: session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
       extensionCount: this.extensionCount,
       serviceTier: this.serviceTier,

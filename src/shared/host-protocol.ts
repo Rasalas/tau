@@ -6,6 +6,7 @@ import type {
   UiMessage,
   UiModel,
   UiToolRun,
+  UiTurnActivity,
   UiWorkspaceChanges,
 } from "./contracts.js";
 
@@ -29,6 +30,7 @@ export interface ThreadDetail {
   messages: UiMessage[];
   isStreaming: boolean;
   activeTools: string[];
+  turnActivity?: UiTurnActivity;
   contextUsage?: UiContextUsage;
   /** Cursor for the next page of older transcript records. */
   olderCursor?: string;
@@ -123,6 +125,7 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDe
     messages,
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
+    turnActivity: snapshot.turnActivity,
     contextUsage: snapshot.contextUsage,
     ...(snapshot.messages.length > messages.length ? { olderCursor: String(snapshot.messages.length - messages.length) } : {}),
   };

@@ -14,6 +14,7 @@ export interface WorkbenchActions {
   switchSession(path: string): Promise<boolean>;
   settleActiveThread(): void;
   abort(): void;
+  reloadRuntime(): Promise<boolean>;
   focusComposer(seed?: string): void;
   notify(message: string): void;
   chooseWorkspace(): Promise<boolean>;
@@ -102,6 +103,8 @@ export interface ToolPresentation {
   title: string;
   tone: "neutral" | "read" | "write" | "shell";
   detail: string;
+  /** Structured tools can keep their machine payload out of the transcript. */
+  output?: "default" | "hidden";
 }
 
 /** Options an extension declares at activation; Tau renders the settings page from these. */

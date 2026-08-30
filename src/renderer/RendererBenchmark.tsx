@@ -167,7 +167,7 @@ export default function RendererBenchmark() {
     content = <ToolGroup tools={[tool]} registry={registry} />;
   } else if (scenario === "transcript-1000-turns") {
     content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
-      <VirtualTranscript messages={transcript} scrollRef={scrollRef} workedMs={{}} isStreaming={false} />
+      <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />
     </div></div>;
   } else if (scenario.endsWith("-10000")) {
     content = <VirtualList
