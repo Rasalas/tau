@@ -72,7 +72,7 @@ export function Menu({
                 onClick={() => { onSelect(item.id); onClose(); }}
               >
                 {item.icon}
-                <span>
+                <span className="menu-label">
                   <em>
                     {item.label}
                     {item.badge ? <b>{item.badge}</b> : null}

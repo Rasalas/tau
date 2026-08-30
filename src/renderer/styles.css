@@ -190,7 +190,7 @@ button > svg { pointer-events: none; }
 .menu-anchor { position: relative; display: flex; }
 .menu-scrim { position: fixed; inset: 0; z-index: 60; border: 0; background: transparent; cursor: default; }
 .menu {
-  position: absolute; z-index: 61; min-width: 190px;
+  position: absolute; z-index: 61; min-width: 200px;
   display: flex; flex-direction: column; padding: 6px;
   border: 1px solid var(--line-float); border-radius: 10px;
   background: #1f1f1b; box-shadow: 0 16px 40px #000a;
@@ -200,50 +200,54 @@ button > svg { pointer-events: none; }
 .menu.below.left { right: auto; left: 0; }
 .menu.above { bottom: calc(100% + 9px); left: 0; }
 .menu.above.right { left: auto; right: 0; }
-.menu > button {
-  display: flex; align-items: center; gap: 9px; text-align: left;
-  border: 0; border-radius: 7px; background: transparent;
-  color: var(--ink-2); font: 500 12.5px var(--sans);
-  padding: 7px 9px; cursor: pointer;
-}
-.menu > button:hover { background: var(--raised); color: var(--ink); }
+
+/* Sections are layout-transparent, so headings, rules and items share one column. */
 .menu-section { display: contents; }
-.menu > .menu-section > button {
-  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
-  border: 0; border-radius: 7px; background: transparent;
-  color: var(--ink-2); font: 500 12.5px var(--sans);
-  padding: 7px 9px; cursor: pointer;
-}
-.menu > .menu-section > button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
-.menu > .menu-section > button.selected { background: var(--raised); color: var(--ink); }
-.menu > .menu-section > button:disabled { opacity: .45; cursor: default; }
-.menu > .menu-section > button > span {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
-}
-.menu > .menu-section > button em {
-  display: flex; align-items: baseline; gap: 7px; font-style: normal;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.menu > .menu-section > button em > b {
-  font: 500 10px var(--mono); color: var(--faint); font-weight: 500;
-  background: var(--line-control); border-radius: 4px; padding: 1px 5px;
-}
-.menu > .menu-section > button > span > small {
-  font: 11px var(--sans); color: var(--faint); white-space: normal; line-height: 1.35;
-}
-.menu > .menu-section > hr { width: 100%; height: 1px; border: 0; background: var(--line); margin: 5px 0; }
-.menu .menu-hint { font: 10px var(--mono); color: var(--faint); }
-.menu > button > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.menu > button > small { font: 10px var(--mono); color: var(--faint); }
-.menu > button.selected { color: var(--ink); }
-.menu > button > svg { color: var(--faint); }
-.menu > button.selected { background: var(--raised); }
-.menu > button.selected > svg { color: var(--acid); }
-.menu > .menu-heading {
-  padding: 7px 9px 4px; font: 500 10px var(--mono);
+
+/* 10px of horizontal padding on both headings and rows keeps one left edge. */
+.menu .menu-heading {
+  padding: 9px 10px 5px; font: 500 10px var(--mono);
   color: var(--faint); letter-spacing: .1em;
 }
-.menu > hr { width: 100%; height: 1px; border: 0; background: var(--line); margin: 5px 0; }
+.menu-section:first-child .menu-heading, .menu > .menu-heading:first-child { padding-top: 3px; }
+.menu hr { width: auto; height: 1px; border: 0; background: var(--line); margin: 6px 4px; }
+
+.menu button {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  border: 0; border-radius: 7px; background: transparent;
+  color: var(--ink-2); font: 500 13px var(--sans);
+  padding: 7px 10px; cursor: pointer;
+}
+.menu button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.menu button.selected { background: var(--raised); color: var(--ink); }
+.menu button:disabled { opacity: .45; cursor: default; }
+.menu button > svg { color: var(--faint); }
+.menu button.selected > svg { color: var(--acid); }
+
+/* Plain rows: a single line of text that may need truncating. */
+.menu button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu button > small { font: 10px var(--mono); color: var(--faint); flex: none; }
+
+/* Rich rows: label with optional badge, and an optional second line under it. */
+.menu-label {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  overflow: visible; white-space: normal;
+}
+.menu-label > em {
+  display: flex; align-items: center; gap: 8px; font-style: normal;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.menu-label > em > b {
+  flex: none; font: 500 9.5px var(--mono); letter-spacing: .04em;
+  color: var(--faint); background: var(--line-control);
+  border-radius: 4px; padding: 2px 5px;
+}
+.menu-label > small {
+  font: 11px var(--sans); color: var(--faint);
+  line-height: 1.35; white-space: normal;
+}
+.menu button.selected .menu-label > small { color: var(--muted); }
+.menu .menu-hint { font: 10px var(--mono); color: var(--faint); flex: none; }
 
 /* -------------------------------------------------------------- sidebar */
 
