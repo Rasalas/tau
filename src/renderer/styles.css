@@ -673,6 +673,25 @@ button > svg { pointer-events: none; }
 }
 .composer-frame.stacked { margin-top: -9px; }
 .composer-frame:focus-within { border-color: #404036; }
+.composer-attachments {
+  display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 2px;
+}
+.composer-attachment {
+  position: relative; width: 68px; height: 68px; flex: none;
+  border: 1px solid var(--line-control); border-radius: 11px; background: var(--sunken);
+}
+.attachment-preview-button {
+  width: 100%; height: 100%; display: block; overflow: hidden;
+  border: 0; border-radius: 10px; background: transparent; padding: 0; cursor: zoom-in;
+}
+.attachment-preview-button img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.attachment-remove {
+  position: absolute; top: -7px; right: -7px; width: 24px; height: 24px;
+  display: grid; place-items: center; border: 1px solid #ffffff26; border-radius: 50%;
+  background: #272824; color: var(--ink-2); cursor: pointer; box-shadow: 0 3px 10px #000a;
+}
+.attachment-remove:hover { background: #34352f; color: var(--ink); }
+.composer-attachment-error { padding: 7px 16px 0; color: #d88c83; font: 11px/1.4 var(--sans); }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
   color: var(--ink); padding: 13px 16px 6px; font-size: 13px; line-height: 1.55;
@@ -692,6 +711,30 @@ button > svg { pointer-events: none; }
   background: var(--acid-bg); border-radius: 4px; padding: 1px 5px;
 }
 .composer-toolbar .spacer { flex: 1; }
+.attach-button {
+  width: 32px; height: 32px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
+}
+.attach-button:hover { background: var(--raised); color: var(--ink); }
+.attachment-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.attachment-lightbox {
+  position: fixed; inset: 0; z-index: 92; display: grid; place-items: center; padding: 52px;
+  background: #050505ed; cursor: zoom-out;
+}
+.attachment-lightbox figure {
+  position: relative; margin: 0; max-width: min(920px, 86vw); max-height: 86vh;
+  display: flex; flex-direction: column; align-items: center; gap: 12px; cursor: default;
+}
+.attachment-lightbox img {
+  display: block; max-width: 100%; max-height: calc(86vh - 34px); object-fit: contain;
+  border-radius: 10px; box-shadow: 0 24px 80px #000;
+}
+.attachment-lightbox figcaption { color: var(--muted); font: 11px var(--mono); }
+.attachment-lightbox figure > button {
+  position: absolute; top: -14px; right: -14px; z-index: 1; width: 32px; height: 32px;
+  display: grid; place-items: center; border: 1px solid #ffffff24; border-radius: 50%;
+  background: #242521; color: var(--ink-2); cursor: pointer; box-shadow: 0 4px 18px #000b;
+}
 .send-button {
   width: 34px; height: 34px; flex: none; border: 0; border-radius: 50%;
   background: var(--acid); color: var(--acid-ink);

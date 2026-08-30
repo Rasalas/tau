@@ -1,69 +1,69 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T12:19:49.666Z",
+  "generatedAt": "2026-08-30T12:42:58.908Z",
   "mode": "full",
   "wallClock": [
     {
       "scenario": "bootstrap",
-      "durationMs": 1461.243042
+      "durationMs": 1252.96625
     },
     {
       "scenario": "cold-switch",
-      "durationMs": 1508.7444169999999
+      "durationMs": 1136.7578750000002
     },
     {
       "scenario": "prewarm",
-      "durationMs": 733.0404160000003
+      "durationMs": 584.5034579999997
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 1.2035830000004353
+      "durationMs": 1.1114589999997406
     },
     {
       "scenario": "prewarm",
-      "durationMs": 367.0740000000005
+      "durationMs": 394.76224999999977
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.980333000000428
+      "durationMs": 0.9689579999994749
     },
     {
       "scenario": "prewarm",
-      "durationMs": 369.0779169999996
+      "durationMs": 300.35820799999965
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 1.8750829999999041
+      "durationMs": 2.6549580000000788
     },
     {
       "scenario": "prewarm",
-      "durationMs": 447.86804200000006
+      "durationMs": 393.0392920000004
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.979457999999795
+      "durationMs": 0.997958999999355
     }
   ],
   "summaries": {
     "bootstrap": {
-      "median": 1461.243042,
-      "p95": 1461.243042,
-      "maximum": 1461.243042
+      "median": 1252.96625,
+      "p95": 1252.96625,
+      "maximum": 1252.96625
     },
     "cold-switch": {
-      "median": 1508.7444169999999,
-      "p95": 1508.7444169999999,
-      "maximum": 1508.7444169999999
+      "median": 1136.7578750000002,
+      "p95": 1136.7578750000002,
+      "maximum": 1136.7578750000002
     },
     "prewarm": {
-      "median": 369.0779169999996,
-      "p95": 733.0404160000003,
-      "maximum": 733.0404160000003
+      "median": 393.0392920000004,
+      "p95": 584.5034579999997,
+      "maximum": 584.5034579999997
     },
     "warm-switch": {
-      "median": 0.980333000000428,
-      "p95": 1.8750829999999041,
-      "maximum": 1.8750829999999041
+      "median": 0.997958999999355,
+      "p95": 2.6549580000000788,
+      "maximum": 2.6549580000000788
     }
   },
   "phases": [
@@ -77,32 +77,32 @@
         },
         {
           "name": "models",
-          "durationMs": 19.4
+          "durationMs": 17.6
         },
         {
           "name": "resources",
-          "durationMs": 1236.6
+          "durationMs": 1029.3
         },
         {
           "name": "session",
-          "durationMs": 2.4
+          "durationMs": 2.7
         },
         {
           "name": "total",
-          "durationMs": 1259.5
+          "durationMs": 1050.7
         },
         {
           "name": "bind",
-          "durationMs": 165.4
+          "durationMs": 154.9
         },
         {
           "name": "catalog",
-          "durationMs": 1.3
+          "durationMs": 1.1
         }
       ],
-      "totalMs": 1461.2,
+      "totalMs": 1252.9,
       "subprocesses": 4,
-      "ipcBytes": 112835
+      "ipcBytes": 114783
     },
     {
       "mode": "full",
@@ -118,19 +118,19 @@
         },
         {
           "name": "resources-cache-hit",
-          "durationMs": 114.7
+          "durationMs": 86.2
         },
         {
           "name": "session",
-          "durationMs": 1.1
+          "durationMs": 0.5
         },
         {
           "name": "total",
-          "durationMs": 118.4
+          "durationMs": 89.3
         },
         {
           "name": "bind-prepared",
-          "durationMs": 741.6
+          "durationMs": 505.9
         },
         {
           "name": "bind-cache-hit",
@@ -138,16 +138,16 @@
         },
         {
           "name": "catalog",
-          "durationMs": 0.7
+          "durationMs": 1.2
         },
         {
           "name": "branch",
-          "durationMs": 0.1
+          "durationMs": 0.2
         }
       ],
-      "totalMs": 1508.7,
+      "totalMs": 1136.7,
       "subprocesses": 8,
-      "ipcBytes": 114522
+      "ipcBytes": 114488
     },
     {
       "mode": "full",
@@ -166,7 +166,7 @@
           "durationMs": 0.1
         }
       ],
-      "totalMs": 1.2,
+      "totalMs": 1.1,
       "subprocesses": 0,
       "ipcBytes": 111429
     },
@@ -180,7 +180,7 @@
         },
         {
           "name": "catalog",
-          "durationMs": 0.6
+          "durationMs": 0.5
         },
         {
           "name": "branch",
@@ -201,14 +201,14 @@
         },
         {
           "name": "catalog",
-          "durationMs": 1.4
+          "durationMs": 2.1
         },
         {
           "name": "branch",
           "durationMs": 0
         }
       ],
-      "totalMs": 1.9,
+      "totalMs": 2.6,
       "subprocesses": 0,
       "ipcBytes": 111429
     },
@@ -237,47 +237,47 @@
   "background": [
     {
       "name": "branch",
-      "durationMs": 1516.9
+      "durationMs": 1143.8
     },
     {
       "name": "session-index",
-      "durationMs": 1509.6
+      "durationMs": 1137.7
     },
     {
       "name": "retire",
-      "durationMs": 663.2
+      "durationMs": 529.8
     },
     {
       "name": "prewarm",
-      "durationMs": 733
+      "durationMs": 584.5
     },
     {
       "name": "retire",
-      "durationMs": 304.3
+      "durationMs": 246
     },
     {
       "name": "prewarm",
-      "durationMs": 367.1
+      "durationMs": 394.8
     },
     {
       "name": "retire",
-      "durationMs": 306
+      "durationMs": 240.6
     },
     {
       "name": "prewarm",
-      "durationMs": 369.1
+      "durationMs": 300.4
     },
     {
       "name": "retire",
-      "durationMs": 157.9
+      "durationMs": 129.9
     },
     {
       "name": "prewarm",
-      "durationMs": 447.9
+      "durationMs": 393
     },
     {
       "name": "retire",
-      "durationMs": 156.3
+      "durationMs": 131.3
     }
   ]
 }

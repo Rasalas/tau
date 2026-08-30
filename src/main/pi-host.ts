@@ -30,6 +30,7 @@ import type {
   UiFileDiff,
   UiMessage,
   UiModel,
+  UiPromptAttachment,
   UiSession,
   UiToolRun,
   UiWorkspaceChanges,
@@ -47,6 +48,7 @@ import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
+import { promptImages } from "./prompt-attachments.js";
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
 
 type Emit = (event: HostEvent) => void;
@@ -64,6 +66,11 @@ function textFromContent(content: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function imageCountFromContent(content: unknown): number {
+  if (!Array.isArray(content)) return 0;
+  return content.filter((part) => part && typeof part === "object" && (part as { type?: string }).type === "image").length;
 }
 
 function thinkingFromContent(content: unknown): string | undefined {
@@ -89,10 +96,12 @@ function mapMessage(message: unknown, index: number): UiMessage | undefined {
   };
 
   if (value.role === "user") {
+    const text = textFromContent(value.content);
+    const imageCount = imageCountFromContent(value.content);
     return {
       id: `user-${value.timestamp ?? index}-${index}`,
       role: "user",
-      text: textFromContent(value.content),
+      text: text || (imageCount ? `[${imageCount} image${imageCount === 1 ? "" : "s"} attached]` : ""),
       timestamp: value.timestamp ?? Date.now(),
     };
   }
@@ -584,11 +593,13 @@ export class PiHost {
     await promise;
   }
 
-  async prompt(text: string): Promise<void> {
+  async prompt(text: string, attachments: UiPromptAttachment[] = []): Promise<void> {
     const session = this.requireSession();
-    this.log("prompt.accepted", text.slice(0, 80));
+    const images = promptImages(attachments);
+    this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
     try {
       await session.prompt(text, {
+        images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
       });
       if (this.runtime?.session === session) await this.refreshActiveThreadIndex();
@@ -620,9 +631,9 @@ export class PiHost {
     };
   }
 
-  async steer(text: string): Promise<void> {
+  async steer(text: string, attachments: UiPromptAttachment[] = []): Promise<void> {
     try {
-      await this.requireSession().steer(text);
+      await this.requireSession().steer(text, promptImages(attachments));
     } catch (error) {
       this.fail(error);
       throw error;

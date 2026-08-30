@@ -10,6 +10,15 @@ export interface UiMessage {
   timestamp: number;
 }
 
+/** Bounded image payload selected in the desktop composer. Data is raw base64. */
+export interface UiPromptAttachment {
+  kind: "image";
+  name: string;
+  mimeType: string;
+  data: string;
+  size: number;
+}
+
 export interface UiToolRun {
   id: string;
   name: string;
@@ -257,9 +266,9 @@ export interface TauDesktopApi {
   readonly platform: string;
   bootstrap(): Promise<HostBootstrap>;
   loadTranscript(sessionId: string, cursor?: string): Promise<import("./host-protocol.js").TranscriptPage>;
-  sendPrompt(text: string): Promise<void>;
+  sendPrompt(text: string, attachments?: UiPromptAttachment[]): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
-  steer(text: string): Promise<void>;
+  steer(text: string, attachments?: UiPromptAttachment[]): Promise<void>;
   abort(): Promise<void>;
   newSession(): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;

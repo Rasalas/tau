@@ -7,6 +7,7 @@ import type {
   ThreadIndexSnapshot,
   UiEditor,
   UiMessage,
+  UiPromptAttachment,
   UiSession,
   ServiceTier,
   ToolApprovalRequest,
@@ -871,23 +872,24 @@ export default function App() {
     openReview, openWorkspace, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
-  const submit = useCallback(async (value: string) => {
+  const submit = useCallback(async (value: string, attachments: UiPromptAttachment[] = []) => {
     const text = value.trim();
-    if (!text) return;
+    if (!text && attachments.length === 0) return;
     if (snapshot?.isStreaming) {
       if (window.tau) {
-        try { await window.tau.steer(text); } catch (error) { setNotice(String(error)); }
+        try { await window.tau.steer(text, attachments); } catch (error) { setNotice(String(error)); }
       } else {
-        setQueue((current) => [...current, text]);
+        setQueue((current) => [...current, text || attachments.map((attachment) => attachment.name).join(", ")]);
       }
       return;
     }
     if (snapshot) threadStore.markRead(snapshot.sessionId);
-    const optimistic: UiMessage = { id: `local-${Date.now()}`, role: "user", text, timestamp: Date.now() };
+    const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
+    const optimistic: UiMessage = { id: `local-${Date.now()}`, role: "user", text: optimisticText, timestamp: Date.now() };
     setMessages((current) => [...current, optimistic]);
     if (window.tau) {
       try {
-        await window.tau.sendPrompt(text);
+        await window.tau.sendPrompt(text, attachments);
         await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
       } catch (error) {
         setNotice(String(error));

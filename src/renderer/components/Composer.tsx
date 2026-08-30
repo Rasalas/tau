@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Sparkles, X, Zap } from "lucide-react";
-import type { HostSnapshot, ServiceTier, UiContextUsage, WorkspaceInfo } from "../../shared/contracts";
+import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
+import type { HostSnapshot, ServiceTier, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -22,6 +22,46 @@ const THINKING_LABELS: Record<string, string> = {
   xhigh: "Extra high",
   max: "Max",
 };
+
+const MAX_ATTACHMENTS = 4;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+let nextAttachmentId = 0;
+
+type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+
+function readImage(file: File): Promise<PendingAttachment> {
+  return new Promise((resolve, reject) => {
+    if (!IMAGE_MIME_TYPES.has(file.type)) {
+      reject(new Error(`${file.name} is not a supported PNG, JPEG, GIF, or WebP image.`));
+      return;
+    }
+    if (file.size < 1 || file.size > MAX_IMAGE_BYTES) {
+      reject(new Error(`${file.name} must be 10 MB or smaller.`));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`${file.name} could not be read.`));
+    reader.onload = () => {
+      const previewUrl = typeof reader.result === "string" ? reader.result : "";
+      const separator = previewUrl.indexOf(",");
+      if (separator < 0) {
+        reject(new Error(`${file.name} could not be decoded.`));
+        return;
+      }
+      resolve({
+        id: nextAttachmentId++,
+        kind: "image",
+        name: file.name,
+        mimeType: file.type,
+        data: previewUrl.slice(separator + 1),
+        size: file.size,
+        previewUrl,
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export function Composer({
   snapshot,
@@ -56,7 +96,7 @@ export function Composer({
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onChange?(value: string): void;
-  onSubmit(text?: string): void;
+  onSubmit(text?: string, attachments?: UiPromptAttachment[]): void;
   onAbort(): void;
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
@@ -72,6 +112,10 @@ export function Composer({
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string>();
+  const [previewId, setPreviewId] = useState<number>();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const text = value ?? draft;
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -86,6 +130,28 @@ export function Composer({
   const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
+  const preview = attachments.find((attachment) => attachment.id === previewId);
+
+  const addFiles = async (files: FileList | readonly File[]) => {
+    const available = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+    const candidates = Array.from(files).slice(0, available);
+    if (candidates.length < files.length) setAttachmentError(`Attach at most ${MAX_ATTACHMENTS} images.`);
+    const results = await Promise.allSettled(candidates.map(readImage));
+    const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (rejection) setAttachmentError(rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason));
+    else if (candidates.length === files.length) setAttachmentError(undefined);
+    if (accepted.length > 0) setAttachments((current) => [...current, ...accepted].slice(0, MAX_ATTACHMENTS));
+  };
+
+  const submitCurrent = () => {
+    if (!text.trim() && attachments.length === 0) return;
+    onSubmit(text, attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment));
+    updateDraft("");
+    setAttachments([]);
+    setAttachmentError(undefined);
+    setPreviewId(undefined);
+  };
 
   return (
     <footer className="composer-zone">
@@ -103,7 +169,43 @@ export function Composer({
         </div>
       ) : null}
 
-      <div className={`composer-frame ${queue.length > 0 ? "stacked" : ""}`}>
+      <div
+        className={`composer-frame ${queue.length > 0 ? "stacked" : ""}`}
+        onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return;
+          event.preventDefault();
+          void addFiles(event.dataTransfer.files);
+        }}
+        onPaste={(event) => {
+          if (event.clipboardData.files.length === 0) return;
+          event.preventDefault();
+          void addFiles(event.clipboardData.files);
+        }}
+      >
+        {attachments.length > 0 ? (
+          <div className="composer-attachments" aria-label="Attached files">
+            {attachments.map((attachment) => (
+              <div className="composer-attachment" key={attachment.id}>
+                <button
+                  className="attachment-preview-button"
+                  aria-label={`Preview ${attachment.name}`}
+                  onClick={() => setPreviewId(attachment.id)}
+                >
+                  <img src={attachment.previewUrl} alt="" />
+                </button>
+                <button
+                  className="attachment-remove"
+                  aria-label={`Remove ${attachment.name}`}
+                  onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
         <textarea
           ref={textareaRef}
           rows={1}
@@ -112,8 +214,7 @@ export function Composer({
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              onSubmit(text);
-              updateDraft("");
+              submitCurrent();
             }
           }}
           placeholder={
@@ -142,7 +243,7 @@ export function Composer({
                 placement="above"
                 sections={[
                   {
-                    heading: "Reasoning",
+                    heading: "REASONING",
                     items: (snapshot?.thinkingLevels ?? []).map((level) => ({
                       id: `thinking:${level}`,
                       label: THINKING_LABELS[level] ?? level,
@@ -151,7 +252,7 @@ export function Composer({
                     })),
                   },
                   {
-                    heading: "Service tier",
+                    heading: "SERVICE TIER",
                     items: [
                       {
                         id: "tier:standard",
@@ -204,6 +305,22 @@ export function Composer({
 
           <span className="spacer" />
 
+          <button className="attach-button" type="button" title="Attach files" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>
+            <Paperclip size={17} />
+          </button>
+          <input
+            ref={fileInputRef}
+            className="attachment-input"
+            aria-label="Choose attachment files"
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            onChange={(event) => {
+              if (event.target.files) void addFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+
           {contextUsage ? (
             <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
           ) : null}
@@ -214,14 +331,25 @@ export function Composer({
             <button
               className="send-button"
               title="Send"
-              disabled={text.trim().length === 0}
-              onClick={() => { onSubmit(text); updateDraft(""); }}
+              aria-label="Send"
+              disabled={text.trim().length === 0 && attachments.length === 0}
+              onClick={submitCurrent}
             >
               <ArrowUp size={16} />
             </button>
           )}
         </div>
       </div>
+
+      {preview ? (
+        <div className="attachment-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={() => setPreviewId(undefined)}>
+          <figure onMouseDown={(event) => event.stopPropagation()}>
+            <button aria-label="Close preview" onClick={() => setPreviewId(undefined)}><X size={18} /></button>
+            <img src={preview.previewUrl} alt={preview.name} />
+            <figcaption>{preview.name}</figcaption>
+          </figure>
+        </div>
+      ) : null}
 
       {modelPickerOpen ? (
         <ModelPicker

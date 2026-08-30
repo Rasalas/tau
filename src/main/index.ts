@@ -3,7 +3,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron"
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { AccessLevel, HostEvent, ServiceTier } from "../shared/contracts.js";
+import type { AccessLevel, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
@@ -88,9 +88,9 @@ function installIpc(): void {
     return host.bootstrap();
   });
   ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
-  ipcMain.handle("tau:prompt", async (_event, text: string) => (await requireHostReady()).prompt(text));
+  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[]) => (await requireHostReady()).prompt(text, attachments));
   ipcMain.handle("tau:run-shell-action", async (_event, command: string, includeInContext?: boolean, expectedCwd?: string) => (await requireHostReady()).runShellAction(command, includeInContext, expectedCwd));
-  ipcMain.handle("tau:steer", async (_event, text: string) => (await requireHostReady()).steer(text));
+  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[]) => (await requireHostReady()).steer(text, attachments));
   ipcMain.handle("tau:abort", async () => (await requireHostReady()).abort());
   ipcMain.handle("tau:new-session", async () => (await requireHostReady()).newSession());
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
