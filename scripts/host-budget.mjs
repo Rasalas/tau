@@ -19,6 +19,19 @@ export function evaluateHostBudgets(report, budgets = {}) {
   } else if (bootstrap.p95 > bootstrapP95Ms) {
     failures.push(`${report.mode} bootstrap p95 ${bootstrap.p95.toFixed(1)}ms > ${bootstrapP95Ms}ms (median ${bootstrap.median.toFixed(1)}ms, p95 ${bootstrap.p95.toFixed(1)}ms, max ${bootstrap.maximum.toFixed(1)}ms)`);
   }
+  if (report.mode === "full") {
+    const cold = report.summaries?.["cold-switch"];
+    if (!cold || ![cold.median, cold.p95, cold.maximum].every(Number.isFinite)) {
+      failures.push("cold-switch median, p95, and maximum were not reported by the Full Mode host fixture");
+    } else if (cold.p95 > 1_500) {
+      failures.push(`full cold-switch p95 ${cold.p95.toFixed(1)}ms > 1500ms (median ${cold.median.toFixed(1)}ms, p95 ${cold.p95.toFixed(1)}ms, max ${cold.maximum.toFixed(1)}ms)`);
+    }
+    const criticalBind = (report.phases ?? [])
+      .filter((measurement) => measurement.scenario === "cold-switch")
+      .flatMap((measurement) => measurement.phases ?? [])
+      .find((phase) => phase.name === "bind");
+    if (criticalBind) failures.push(`full cold-switch still uses serial extension binding (${criticalBind.durationMs.toFixed(1)}ms)`);
+  }
   const warm = report.summaries?.["warm-switch"];
   if (!warm || ![warm.median, warm.p95, warm.maximum].every(Number.isFinite)) {
     failures.push("warm-switch median, p95, and maximum were not reported by the host fixture");

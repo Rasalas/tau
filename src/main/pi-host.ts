@@ -486,7 +486,11 @@ export class PiHost {
       this.prewarmedRuntimes.delete(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", prepared ? "warm-switch" : "cold-switch");
       try {
-        const preparedRuntime = prepared ? await prepared : undefined;
+        const preparedRuntime = prepared
+          ? await prepared
+          : this.safeMode
+            ? undefined
+            : await this.createPreparedRuntime(path, false);
         const result = preparedRuntime
           ? await this.activatePreparedRuntime(path, preparedRuntime)
           : await this.replaceSession("resume", (runtime) => runtime.switchSession(path));
@@ -800,7 +804,7 @@ export class PiHost {
     });
   }
 
-  private async createPreparedRuntime(path: string): Promise<AgentSessionRuntime> {
+  private async createPreparedRuntime(path: string, background = true): Promise<AgentSessionRuntime> {
     const startedAt = performance.now();
     const manager = SessionManager.open(path);
     let runtime: AgentSessionRuntime | undefined;
@@ -812,7 +816,9 @@ export class PiHost {
         { type: "session_start", reason: "resume", previousSessionFile: this.runtime?.session.sessionFile },
       );
       this.preboundSessions.add(runtime.session);
+      const bindStartedAt = performance.now();
       await runtime.session.bindExtensions({ onError: (error) => this.fail(error) });
+      this.logRuntimePhase("bind-prepared", bindStartedAt, "resume", runtime.cwd);
       this.log("runtime.prewarm.ready", basename(path));
       return runtime;
     } catch (error) {
@@ -824,7 +830,7 @@ export class PiHost {
       throw error;
     } finally {
       this.prewarmManagers.delete(manager);
-      this.recordBackgroundLifecycle("prewarm", startedAt);
+      if (background) this.recordBackgroundLifecycle("prewarm", startedAt);
     }
   }
 
@@ -877,6 +883,9 @@ export class PiHost {
 
   private queueRuntimeRetirement(runtime: AgentSessionRuntime, targetSessionFile: string): void {
     this.retirementQueue = this.retirementQueue.then(async () => {
+      // Let the focused lifecycle response complete before extension shutdown
+      // competes for the main-process event loop. Ownership and hooks are unchanged.
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
       const startedAt = performance.now();
       try {
         const runner = runtime.session.extensionRunner;

@@ -57,17 +57,30 @@ describe("performance report checks", () => {
   });
 
   it("fails inconsistent host phases and a slow warm switch", () => {
-    const failures = evaluateHostBudgets({ mode: "full", summaries: { bootstrap: { median: 100, p95: 100, maximum: 100 }, "warm-switch": { median: 100, p95: 200, maximum: 210 } }, phases: [{ scenario: "warm-switch", totalMs: 10, phases: [{ name: "stale", durationMs: 100 }] }], background: [{ name: "branch", durationMs: 10 }] });
+    const failures = evaluateHostBudgets({ mode: "full", summaries: { bootstrap: { median: 100, p95: 100, maximum: 100 }, "cold-switch": { median: 100, p95: 100, maximum: 100 }, "warm-switch": { median: 100, p95: 200, maximum: 210 } }, phases: [{ scenario: "warm-switch", totalMs: 10, phases: [{ name: "stale", durationMs: 100 }] }], background: [{ name: "branch", durationMs: 10 }] });
     expect(failures).toHaveLength(2);
   });
 
   it("fails a slow host bootstrap instead of hiding branch work", () => {
     const failures = evaluateHostBudgets({ mode: "full", summaries: {
       bootstrap: { median: 2_100, p95: 2_300, maximum: 2_300 },
+      "cold-switch": { median: 100, p95: 100, maximum: 100 },
       "warm-switch": { median: 1, p95: 1, maximum: 1 },
     }, phases: [], background: [{ name: "branch", durationMs: 10 }] });
     expect(failures).toEqual([
       "full bootstrap p95 2300.0ms > 2000ms (median 2100.0ms, p95 2300.0ms, max 2300.0ms)",
+    ]);
+  });
+
+  it("rejects serial extension binding during a Full Mode cold switch", () => {
+    const failures = evaluateHostBudgets({ mode: "full", summaries: {
+      bootstrap: { median: 100, p95: 100, maximum: 100 },
+      "cold-switch": { median: 1_600, p95: 1_800, maximum: 1_800 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [{ scenario: "cold-switch", totalMs: 1_800, phases: [{ name: "bind", durationMs: 1_200 }] }], background: [{ name: "branch", durationMs: 10 }] });
+    expect(failures).toEqual([
+      "full cold-switch p95 1800.0ms > 1500ms (median 1600.0ms, p95 1800.0ms, max 1800.0ms)",
+      "full cold-switch still uses serial extension binding (1200.0ms)",
     ]);
   });
 

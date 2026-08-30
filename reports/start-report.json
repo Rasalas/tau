@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T10:54:03.790Z",
-  "firstPaintMs": 100,
+  "generatedAt": "2026-08-30T11:04:19.967Z",
+  "firstPaintMs": 104,
   "firstContentfulPaintMs": null,
   "loadedResourceCount": 2,
   "resources": [
@@ -20,7 +20,7 @@
   "paints": [
     {
       "name": "first-paint",
-      "startTimeMs": 100
+      "startTimeMs": 104
     }
   ],
   "overlayComposition": {
