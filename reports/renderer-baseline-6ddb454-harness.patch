@@ -85,23 +85,31 @@ index 86cab23..7260f4c 100644
 +      result.gpuInfo = undefined;
 +    }
 diff --git a/scripts/renderer-benchmark.mjs b/scripts/renderer-benchmark.mjs
-index 2420729..1c970c6 100644
+index 2420729..4eac3a9 100644
 --- a/scripts/renderer-benchmark.mjs
 +++ b/scripts/renderer-benchmark.mjs
 @@ -1 +1,3 @@
 -import { spawnSync } from "node:child_process";
 +import { execFileSync, spawnSync } from "node:child_process";
 +import { createHash } from "node:crypto";
-+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-@@ -3 +5 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
++import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+@@ -3 +5,2 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 -import { dirname, join } from "node:path";
-+import { dirname, isAbsolute, join } from "node:path";
-@@ -5,0 +8 @@ import { evaluateRendererBudgets } from "./renderer-budget.mjs";
++import os from "node:os";
++import { dirname, isAbsolute, join, resolve } from "node:path";
+@@ -5,0 +9 @@ import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 +import { machineClass } from "./machine-class.mjs";
-@@ -15 +18 @@ const outputArg = args.find((arg) => !arg.startsWith("--"));
+@@ -15 +19,8 @@ const outputArg = args.find((arg) => !arg.startsWith("--"));
 -const outputPath = join(ROOT, outputArg ?? "reports/renderer-report.json");
 +const outputPath = outputArg ? (isAbsolute(outputArg) ? outputArg : join(ROOT, outputArg)) : join(ROOT, "reports/renderer-report.json");
-@@ -30,0 +34,52 @@ function run(command, commandArgs) {
++const seriesId = process.env.TAU_BENCHMARK_SERIES_ID ?? null;
++const seriesSide = process.env.TAU_BENCHMARK_SERIES_SIDE ?? null;
++const archivePath = process.env.TAU_BENCHMARK_ARCHIVE ? resolve(process.env.TAU_BENCHMARK_ARCHIVE) : null;
++const archiveSequenceOffset = Number(process.env.TAU_BENCHMARK_SEQUENCE_OFFSET ?? 0);
++if (!Number.isInteger(archiveSequenceOffset) || archiveSequenceOffset < 0) throw new Error("benchmark archive sequence offset is malformed");
++let archiveSequence = archiveSequenceOffset;
++if (archivePath && (!seriesId || !seriesSide)) throw new Error("benchmark archive requires a series ID and side");
+@@ -30,0 +42,60 @@ function run(command, commandArgs) {
 +function commitSha() {
 +  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
 +}
@@ -109,6 +117,14 @@ index 2420729..1c970c6 100644
 +function requireSha(value, label, length) {
 +  if (!new RegExp(`^[0-9a-f]{${length}}$`).test(value ?? "")) throw new Error(`${label} is missing or malformed`);
 +  return value;
++}
++
++function loadMetadata() {
++  return {
++    logicalCores: os.cpus().length,
++    loadAverage1m: os.loadavg()[0],
++    loadAverage5m: os.loadavg()[1],
++  };
 +}
 +
 +const reportCommit = requireSha(commitSha(), "report commit", 40);
@@ -154,10 +170,11 @@ index 2420729..1c970c6 100644
 +requireSha(harnessPatchSha256, "harness patch SHA-256", 64);
 +const harnessBundleSha256 = createHash("sha256").update(`${harnessSourceSha256}\0${harnessPatchSha256}\0${harnessFiles.join("\0")}`).digest("hex");
 +
-@@ -36 +91 @@ function sampleScenario(scenario) {
+@@ -36 +107,2 @@ function sampleScenario(scenario) {
 -    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id]);
++    const startedAt = new Date().toISOString();
 +    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id, JSON.stringify(scenario)]);
-@@ -39 +94,42 @@ function sampleScenario(scenario) {
+@@ -39 +111,61 @@ function sampleScenario(scenario) {
 -    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(JSON.parse(line));
 +    const result = JSON.parse(line);
 +    const sanity = scenario.sanity ?? {};
@@ -200,28 +217,47 @@ index 2420729..1c970c6 100644
 +    if (scenario.id === "long-user-message" && (!result.longMessageInteraction || !["expand", "prop-update"].includes(result.longMessageInteraction.mode) || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
 +      throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
 +    }
++    if (archivePath) {
++      const archiveRecord = {
++        event: "sample",
++        seriesId,
++        side: seriesSide,
++        sequence: archiveSequence++,
++        runId: `${seriesId}:${seriesSide}:${scenario.id}:${runIndex}`,
++        scenario: scenario.id,
++        scenarioIndex: fixture.scenarios.findIndex((candidate) => candidate.id === scenario.id),
++        runIndex,
++        phase: runIndex < fixture.startConditions.warmupRuns ? "warmup" : "sample",
++        startedAt,
++        finishedAt: new Date().toISOString(),
++        load: loadMetadata(),
++        result,
++      };
++      mkdirSync(dirname(archivePath), { recursive: true });
++      appendFileSync(archivePath, `${JSON.stringify(archiveRecord)}\n`);
++    }
 +    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
-@@ -43 +139,3 @@ function sampleScenario(scenario) {
+@@ -43 +175,3 @@ function sampleScenario(scenario) {
 -  const commitDurations = samples.flatMap((sample) => sample.commitDurationsMs);
 +  const startupLongTasks = samples.flatMap((sample) => sample.startupLongTasksMs);
 +  const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
 +  const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
-@@ -44,0 +143,3 @@ function sampleScenario(scenario) {
+@@ -44,0 +179,3 @@ function sampleScenario(scenario) {
 +  if (samples.length === 0 || frames.length === 0 || mountDurations.length === 0 || updateDurations.length === 0) {
 +    throw new Error(`renderer fixture produced no accepted measurements for ${scenario.id}`);
 +  }
-@@ -48,0 +150,5 @@ function sampleScenario(scenario) {
+@@ -48,0 +186,5 @@ function sampleScenario(scenario) {
 +    environment: {
 +      electronVersion: samples[0].electronVersion,
 +      gpuFeatureStatus: samples[0].gpuFeatureStatus,
 +      gpuInfo: samples[0].gpuInfo ?? null,
 +    },
-@@ -52 +158,3 @@ function sampleScenario(scenario) {
+@@ -52 +194,3 @@ function sampleScenario(scenario) {
 -    commitDurationsMs: { median: percentile(commitDurations, 0.5), p95: percentile(commitDurations, 0.95), maximum: Math.max(0, ...commitDurations) },
 +    startupLongTasksMs: { count: startupLongTasks.length, median: percentile(startupLongTasks, 0.5), p95: percentile(startupLongTasks, 0.95), maximum: Math.max(0, ...startupLongTasks) },
 +    mountDurationsMs: { median: percentile(mountDurations, 0.5), p95: percentile(mountDurations, 0.95), maximum: Math.max(0, ...mountDurations) },
 +    updateDurationsMs: { median: percentile(updateDurations, 0.5), p95: percentile(updateDurations, 0.95), maximum: Math.max(0, ...updateDurations) },
-@@ -55,0 +164,14 @@ function sampleScenario(scenario) {
+@@ -55,0 +200,14 @@ function sampleScenario(scenario) {
 +    ...(scenario.id === "diff-2mb" ? { payloadBytes: Math.min(...samples.map((sample) => sample.payloadBytes)) } : {}),
 +    ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.map((sample) => sample.longMessageInteraction?.mode), interactionModes: [...new Set(samples.map((sample) => sample.longMessageInteraction?.mode))] } : {}),
 +    rawSamples: samples.map((sample) => ({
@@ -236,7 +272,7 @@ index 2420729..1c970c6 100644
 +      payloadBytes: sample.payloadBytes,
 +      longMessageInteraction: sample.longMessageInteraction,
 +    })),
-@@ -61,0 +184,18 @@ const report = {
+@@ -61,0 +220,19 @@ const report = {
 +  commitSha: reportCommit,
 +  subjectCommit,
 +  harnessCommit,
@@ -252,12 +288,13 @@ index 2420729..1c970c6 100644
 +    parallelRuns: 1,
 +    harnessFiles,
 +    harnessPatchFile,
++    ...(archivePath ? { seriesId, seriesSide, archivePath, archiveSequenceCount: archiveSequence } : {}),
 +    caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
 +  },
 +  machine: machineClass(),
-@@ -62,0 +203 @@ const report = {
+@@ -62,0 +240 @@ const report = {
 +  aggregation: { warmupRuns: fixture.startConditions.warmupRuns, sampleRuns: fixture.startConditions.sampleRuns, percentile: "nearest-rank", rawSamples: true },
-@@ -64,0 +206,13 @@ const report = {
+@@ -64,0 +243,13 @@ const report = {
 +report.execution.gpu = {
 +  mode: "default",
 +  featureStatus: report.scenarios[0]?.environment.gpuFeatureStatus ?? {},
