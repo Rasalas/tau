@@ -202,45 +202,217 @@ export function useTailScroll(
   ref: RefObject<HTMLDivElement | null>,
   updates: readonly unknown[],
   resetKey?: unknown,
-): void {
-  const pinnedRef = useRef(true);
+  anchorId?: string,
+  mountKey?: unknown,
+): {
+  isFollowing: boolean;
+  canJumpToLatest: boolean;
+  jumpToLatest: () => void;
+} {
+  const followingRef = useRef(true);
+  const [isFollowing, setIsFollowing] = useState(true);
+  const [canJumpToLatest, setCanJumpToLatest] = useState(false);
   const frameRef = useRef<number | undefined>(undefined);
+  const sessionRef = useRef(resetKey);
+  const anchorRef = useRef(anchorId);
+  const requestedAnchorRef = useRef(anchorId);
+  const attachedNodeRef = useRef<HTMLDivElement | null>(null);
+  const anchorPendingRef = useRef(false);
+  const anchorLockedRef = useRef(false);
+
+  const scrollMetrics = (node: HTMLDivElement) => ({
+    maxScrollTop: Math.max(0, node.scrollHeight - node.clientHeight),
+    hasOverflow: node.scrollHeight > node.clientHeight + 1,
+  });
+
+  const updateJumpAvailability = (node: HTMLDivElement) => {
+    const { hasOverflow } = scrollMetrics(node);
+    const canJump = !followingRef.current && hasOverflow;
+    setCanJumpToLatest((current) => current === canJump ? current : canJump);
+  };
+
+  const findAnchor = (node: HTMLDivElement): HTMLElement | undefined => {
+    const id = anchorRef.current;
+    if (!id) return undefined;
+    return [...node.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((element) => element.dataset.messageId === id);
+  };
+
+  const paddingTop = (node: HTMLDivElement): number => {
+    const value = Number.parseFloat(window.getComputedStyle(node).paddingTop);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  const contentTop = (node: HTMLDivElement, element: HTMLElement): number => {
+    const nodeRect = node.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    // Real layout has useful rects, including the virtual row's transform. The
+    // offset fallback keeps this deterministic in jsdom and during first paint.
+    if (elementRect.height > 0 || elementRect.top !== 0 || nodeRect.top !== 0) {
+      return node.scrollTop + elementRect.top - nodeRect.top;
+    }
+    const explicitOffset = Number(element.dataset.transcriptOffset);
+    if (Number.isFinite(explicitOffset)) return explicitOffset;
+    let top = 0;
+    let current: HTMLElement | null = element;
+    while (current && current !== node) {
+      top += current.offsetTop;
+      current = current.offsetParent as HTMLElement | null;
+    }
+    return top;
+  };
+
+  const viewportTop = (node: HTMLDivElement, element: HTMLElement): number | undefined => {
+    const nodeRect = node.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    if (elementRect.height > 0 || elementRect.top !== 0 || nodeRect.top !== 0) {
+      return elementRect.top - nodeRect.top;
+    }
+    return undefined;
+  };
+
+  const placeAtTail = (node: HTMLDivElement) => {
+    // Assigning scrollHeight intentionally mirrors the browser's clamping
+    // behavior while keeping the lightweight preview/test DOM predictable.
+    node.scrollTop = node.scrollHeight;
+  };
+
+  const placeAnchor = (node: HTMLDivElement): boolean => {
+    const anchor = findAnchor(node);
+    if (!anchor) {
+      placeAtTail(node);
+      return false;
+    }
+    const top = contentTop(node, anchor);
+    const target = top - paddingTop(node);
+    const { maxScrollTop } = scrollMetrics(node);
+    // A short thread cannot put its newest prompt at the top without inventing
+    // blank scroll space. Keep it at the natural tail until the answer grows.
+    if (target < 0 || target > maxScrollTop) {
+      placeAtTail(node);
+      return false;
+    }
+    node.scrollTop = target;
+    anchorLockedRef.current = true;
+    return true;
+  };
+
+  const preserveAnchor = (node: HTMLDivElement) => {
+    const anchor = findAnchor(node);
+    if (!anchor) return;
+    const currentTop = viewportTop(node, anchor);
+    if (currentTop === undefined) return;
+    const desiredTop = paddingTop(node);
+    const delta = currentTop - desiredTop;
+    if (Math.abs(delta) < 0.5) return;
+    const { maxScrollTop } = scrollMetrics(node);
+    node.scrollTop = Math.max(0, Math.min(maxScrollTop, node.scrollTop + delta));
+  };
+
   const scheduleTail = () => {
-    if (!pinnedRef.current || frameRef.current !== undefined) return;
+    if (!followingRef.current || frameRef.current !== undefined) return;
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = undefined;
       const node = ref.current;
-      if (node && pinnedRef.current) node.scrollTop = node.scrollHeight;
+      if (!node || !followingRef.current) return;
+      if (anchorPendingRef.current) {
+        if (placeAnchor(node)) anchorPendingRef.current = false;
+      } else if (anchorLockedRef.current) {
+        preserveAnchor(node);
+      } else {
+        placeAtTail(node);
+      }
+      updateJumpAvailability(node);
     });
   };
+
+  const scheduleRef = useRef(scheduleTail);
+  scheduleRef.current = scheduleTail;
+
+  const jumpToLatest = useCallback(() => {
+    const node = ref.current;
+    if (!node) return;
+    followingRef.current = true;
+    anchorPendingRef.current = false;
+    anchorLockedRef.current = false;
+    anchorRef.current = undefined;
+    setIsFollowing(true);
+    setCanJumpToLatest(false);
+    if (typeof node.scrollTo === "function") {
+      node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+    } else {
+      placeAtTail(node);
+      scheduleRef.current();
+    }
+  }, [ref]);
 
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
     // A fresh transcript starts at scrollTop 0 even when it is several screens
-    // tall. Treat it as pinned until the first tail placement completes.
-    pinnedRef.current = true;
+    // tall. Treat it as following until the first tail placement completes.
+    if (sessionRef.current !== resetKey) {
+      followingRef.current = true;
+      setIsFollowing(true);
+      setCanJumpToLatest(false);
+      sessionRef.current = resetKey;
+      anchorRef.current = anchorId;
+      requestedAnchorRef.current = anchorId;
+      anchorPendingRef.current = false;
+      anchorLockedRef.current = false;
+    }
+    attachedNodeRef.current = node;
     let pointerDown = false;
     let touchY: number | undefined;
+    let lastTouchScrollTop: number | undefined;
+    let downwardIntent = false;
     const nearTail = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+    const stopFollowing = () => {
+      followingRef.current = false;
+      setIsFollowing(false);
+      updateJumpAvailability(node);
+    };
     const onScroll = () => {
-      if (nearTail()) pinnedRef.current = true;
-      else if (pointerDown) pinnedRef.current = false;
+      if (nearTail() && (pointerDown || downwardIntent)) {
+        followingRef.current = true;
+        setIsFollowing(true);
+        anchorPendingRef.current = false;
+        anchorLockedRef.current = false;
+        anchorRef.current = undefined;
+      } else if (pointerDown && !nearTail()) {
+        stopFollowing();
+      }
+      updateJumpAvailability(node);
     };
     const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) pinnedRef.current = false;
+      if (event.deltaY < 0) stopFollowing();
+      else if (event.deltaY > 0) downwardIntent = true;
     };
     const onPointerDown = () => { pointerDown = true; };
-    const onPointerUp = () => { pointerDown = false; };
-    const onTouchStart = (event: TouchEvent) => { touchY = event.touches[0]?.clientY; };
+    const onPointerUp = () => { pointerDown = false; downwardIntent = false; };
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY;
+      lastTouchScrollTop = node.scrollTop;
+    };
     const onTouchMove = (event: TouchEvent) => {
       const nextY = event.touches[0]?.clientY;
-      if (touchY !== undefined && nextY !== undefined && nextY > touchY) pinnedRef.current = false;
+      const scrollingUp = lastTouchScrollTop !== undefined && node.scrollTop < lastTouchScrollTop;
+      if (touchY !== undefined && nextY !== undefined && (nextY > touchY || scrollingUp)) stopFollowing();
+      if (touchY !== undefined && nextY !== undefined && nextY < touchY) downwardIntent = true;
       touchY = nextY;
+      lastTouchScrollTop = node.scrollTop;
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) pinnedRef.current = false;
-      if (event.key === "End") pinnedRef.current = true;
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) stopFollowing();
+      if (["ArrowDown", "PageDown"].includes(event.key)) downwardIntent = true;
+      if (event.key === "End") {
+        followingRef.current = true;
+        setIsFollowing(true);
+        anchorPendingRef.current = false;
+        anchorLockedRef.current = false;
+        anchorRef.current = undefined;
+        scheduleTail();
+      }
     };
     node.addEventListener("scroll", onScroll, { passive: true });
     node.addEventListener("wheel", onWheel, { passive: true });
@@ -253,9 +425,11 @@ export function useTailScroll(
     const observer = typeof ResizeObserver === "undefined"
       ? undefined
       : new ResizeObserver(() => scheduleTail());
+    observer?.observe(node);
     observer?.observe(content);
     scheduleTail();
     return () => {
+      if (attachedNodeRef.current === node) attachedNodeRef.current = null;
       node.removeEventListener("scroll", onScroll);
       node.removeEventListener("wheel", onWheel);
       node.removeEventListener("pointerdown", onPointerDown);
@@ -267,13 +441,40 @@ export function useTailScroll(
       if (frameRef.current !== undefined) cancelAnimationFrame(frameRef.current);
       frameRef.current = undefined;
     };
-  }, [ref, resetKey]);
+  }, [mountKey, ref, resetKey]);
+
+  useEffect(() => {
+    if (sessionRef.current !== resetKey) {
+      sessionRef.current = resetKey;
+      anchorRef.current = anchorId;
+      requestedAnchorRef.current = anchorId;
+      anchorPendingRef.current = false;
+      anchorLockedRef.current = false;
+      followingRef.current = true;
+      setIsFollowing(true);
+      setCanJumpToLatest(false);
+      scheduleRef.current();
+      return;
+    }
+    if (requestedAnchorRef.current === anchorId) return;
+    requestedAnchorRef.current = anchorId;
+    sessionRef.current = resetKey;
+    anchorRef.current = anchorId;
+    anchorPendingRef.current = Boolean(anchorId);
+    anchorLockedRef.current = false;
+    followingRef.current = true;
+    setIsFollowing(true);
+    setCanJumpToLatest(false);
+    scheduleRef.current();
+  }, [anchorId, resetKey]);
 
   useEffect(() => {
     scheduleTail();
   // The array identity is intentionally controlled by the caller's visible records.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, updates);
+
+  return { isFollowing, canJumpToLatest, jumpToLatest };
 }
 
 export default function App() {
@@ -812,8 +1013,6 @@ export default function App() {
     }, 60);
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
-
-  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId);
 
   const loadOlder = useCallback(async () => {
     if (!olderCursor || loadingOlder || !snapshot || !window.tau) return;
@@ -1560,6 +1759,17 @@ export default function App() {
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
     && conversationPrompts.length === 0;
+  const latestConversationUserMessageId = [...conversationMessages]
+    .reverse()
+    .find((message) => message.role === "user")
+    ?.id;
+  const transcriptScroll = useTailScroll(
+    transcriptRef,
+    [conversationMessages, conversationActivityTools, conversationSnapshot?.taskHistory, turnChanges],
+    snapshot?.sessionId,
+    latestConversationUserMessageId,
+    showStartScreen,
+  );
   const startProjectPath = conversationSnapshot?.cwd ?? "";
   const startProjectName = pendingNewThread?.projectName
     ?? projects.find((project) => project.path === startProjectPath)?.name
@@ -1775,7 +1985,13 @@ export default function App() {
                 <span className="title-spacer" />
               </header>
 
-              <div className="transcript" ref={transcriptRef}>
+              <div
+                className="transcript"
+                ref={transcriptRef}
+                tabIndex={0}
+                role="log"
+                aria-label="Thread transcript"
+              >
                 <div className="transcript-inner">
                   <VirtualTranscript
                     messages={conversationMessages}
@@ -1806,6 +2022,18 @@ export default function App() {
                     ? <LiveStatus startedAt={runStartedAt} />
                     : null}
                 </div>
+                {transcriptScroll.canJumpToLatest ? (
+                  <button
+                    type="button"
+                    className="transcript-jump"
+                    aria-label="Jump to latest"
+                    title="Jump to latest"
+                    onClick={transcriptScroll.jumpToLatest}
+                  >
+                    <ChevronDown size={14} />
+                    <span>Jump to latest</span>
+                  </button>
+                ) : null}
               </div>
 
               {!pendingNewThread && turnChanges.files.length > 0 ? (
