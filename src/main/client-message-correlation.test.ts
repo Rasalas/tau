@@ -143,4 +143,21 @@ describe("client message correlation", () => {
     expect(branchMessagesWithClientMessageIds(entries, ["tdd"])).toEqual([wrapper]);
     expect(unclaimedClientMessageIds(entries, ["tdd"])).toEqual(["request-unknown"]);
   });
+
+  it("keeps known digest-collision strings distinct while matching out of order", () => {
+    // These strings collide under the former 32-bit FNV implementation.
+    const first = "ahikxw";
+    const second = "arjtra";
+    expect(clientMessageFingerprint(first)).not.toBe(clientMessageFingerprint(second));
+    const entries = [
+      marker(CLIENT_MESSAGE_MARKER, "request-first", first),
+      marker(CLIENT_MESSAGE_MARKER, "request-second", second),
+      { type: "message", id: "entry-second", message: { role: "user", content: second, timestamp: 9 } },
+      { type: "message", id: "entry-first", message: { role: "user", content: first, timestamp: 10 } },
+    ];
+    expect(branchMessagesWithClientMessageIds(entries)).toEqual([
+      { role: "user", content: second, timestamp: 9, clientMessageId: "request-second" },
+      { role: "user", content: first, timestamp: 10, clientMessageId: "request-first" },
+    ]);
+  });
 });

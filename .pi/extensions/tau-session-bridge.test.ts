@@ -48,8 +48,12 @@ function fakeBridge(): FakeBridge {
     getActiveTools: () => [],
     getAllTools: () => [],
     // Keep a normal prompt in flight until the test emits its message events.
-    // The real Pi promise resolves after the run settles.
-    sendUserMessage: vi.fn(() => new Promise<void>(() => {})),
+    // The real ExtensionAPI method is a synchronous void dispatch. The
+    // authoritative message events below prove persistence separately.
+    sendUserMessage: vi.fn(() => undefined),
+    appendEntry: vi.fn((customType: string, data: unknown) => {
+      entries.push({ type: "custom", customType, data });
+    }),
     setThinkingLevel: vi.fn(),
     setModel: vi.fn(),
     setSessionName: vi.fn(),
@@ -153,7 +157,7 @@ describe("Tau session bridge handler", () => {
     expect(exported).not.toContain("/Users/me/.pi/skills");
   });
 
-  it("removes a complete wrapper from export even after its skill is unavailable", async () => {
+  it("keeps an unknown complete wrapper lossless in export", async () => {
     const bridge = fakeBridge();
     bridge.context.sessionManager.getBranch = () => [
       { type: "message", id: "user", message: {
@@ -173,15 +177,14 @@ describe("Tau session bridge handler", () => {
 
     const result = await client.command({ command: "export_markdown" }) as { messages: Array<{ content?: Array<{ text?: string }> }> };
     const exported = result.messages.map((message) => message.content?.map((part) => part.text ?? "").join("\n") ?? "").join("\n");
+    expect(exported).toContain('<skill name="removed" location="/private/removed/SKILL.md">');
+    expect(exported).toContain("SECRET BODY");
     expect(exported).toContain("Keep the request");
-    expect(exported).not.toContain("<skill");
-    expect(exported).not.toContain("SECRET BODY");
-    expect(exported).not.toContain("location=");
   });
 
   it("cancels a failed bridge request before the next message can claim its id", async () => {
     const bridge = fakeBridge();
-    bridge.pi.sendUserMessage = vi.fn(async () => {
+    bridge.pi.sendUserMessage = vi.fn(() => {
       throw new Error(`<skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">injected body</skill>`);
     });
     await bridge.events.get("session_start")?.({}, bridge.context);
@@ -195,7 +198,7 @@ describe("Tau session bridge handler", () => {
     });
     await client.open();
 
-    await expect(client.command({ command: "prompt", text: "$tdd failed", clientMessageId: "failed-request" })).resolves.toMatchObject({ accepted: true });
+    await expect(client.command({ command: "prompt", text: "$tdd failed", clientMessageId: "failed-request" })).rejects.toThrow("injected body");
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(bridge.context.sessionManager.getBranch()).toContainEqual({
       type: "custom",
@@ -215,10 +218,8 @@ describe("Tau session bridge handler", () => {
     expect(nextMessage).not.toHaveProperty("clientMessageId");
   });
 
-  it("keeps a started request tracked when Pi rejects before message_end", async () => {
+  it("keeps an accepted request tracked until Pi's authoritative message event", async () => {
     const bridge = fakeBridge();
-    let rejectSend!: (error: Error) => void;
-    bridge.pi.sendUserMessage = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectSend = reject; }));
     await bridge.events.get("session_start")?.({}, bridge.context);
     const descriptor = await findPiBridge(bridge.context.cwd);
     const client = new PiBridgeClient(descriptor as PiBridgeDescriptor);
@@ -235,22 +236,37 @@ describe("Tau session bridge handler", () => {
     const userMessage = { role: "user", content: [{ type: "text", text: "/skill:tdd failed after start" }], timestamp: 3 };
     await bridge.events.get("message_start")?.({ message: userMessage }, bridge.context);
     expect(userMessage).toHaveProperty("clientMessageId", "started-request");
+    expect(bridge.context.sessionManager.getBranch()).not.toContainEqual(expect.objectContaining({ customType: "tau-client-message-cancel" }));
+    expect(frames).not.toContainEqual(expect.objectContaining({
+      type: "event",
+      event: expect.objectContaining({ type: "user_message_failed", clientMessageId: "started-request" }),
+    }));
+  });
 
-    rejectSend(new Error("runtime failed after message_start"));
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  it("reports a synchronous void-dispatch failure without claiming the prompt was accepted", async () => {
+    const bridge = fakeBridge();
+    bridge.pi.sendUserMessage = vi.fn(() => { throw new Error("Pi dispatch failed"); });
+    await bridge.events.get("session_start")?.({}, bridge.context);
+    const descriptor = await findPiBridge(bridge.context.cwd);
+    const client = new PiBridgeClient(descriptor as PiBridgeDescriptor);
+    const frames: unknown[] = [];
+    client.subscribe((frame) => frames.push(frame));
+    cleanups.push(async () => {
+      await bridge.events.get("session_shutdown")?.({}, bridge.context);
+      client.close();
+    });
+    await client.open();
 
+    await expect(client.command({ command: "prompt", text: "$tdd dispatch fails", clientMessageId: "dispatch-failed" }))
+      .rejects.toThrow("Pi dispatch failed");
     expect(bridge.context.sessionManager.getBranch()).toContainEqual({
       type: "custom",
       customType: "tau-client-message-cancel",
-      data: { clientMessageId: "started-request" },
+      data: { clientMessageId: "dispatch-failed" },
     });
-    for (let attempt = 0; attempt < 20 && !frames.some((frame) => (
-      frame && typeof frame === "object" && (frame as { type?: unknown }).type === "event"
-      && (frame as { event?: { type?: unknown } }).event?.type === "user_message_failed"
-    )); attempt += 1) await new Promise<void>((resolve) => setTimeout(resolve, 5));
     expect(frames).toContainEqual(expect.objectContaining({
       type: "event",
-      event: expect.objectContaining({ type: "user_message_failed", clientMessageId: "started-request" }),
+      event: expect.objectContaining({ clientMessageId: "dispatch-failed" }),
     }));
   });
 

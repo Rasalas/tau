@@ -30,6 +30,11 @@ export interface ThreadIndexUpdate {
 }
 
 export interface ThreadDetail {
+  /** Canonical Tau thread owner; sessionId is retained for v1 clients. */
+  threadId?: string;
+  /** Provider-owned runtime session id, when the backend has one. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
   /** Runtime lifecycle owner for this thread; absent for old clients. */
   backendKind?: ThreadBackendKind;
@@ -45,6 +50,11 @@ export interface ThreadDetail {
 }
 
 export interface TranscriptPage {
+  /** Canonical Tau thread owner; sessionId is retained for v1 clients. */
+  threadId?: string;
+  /** Provider-owned runtime session id, when the backend has one. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
   messages: UiMessage[];
   olderCursor?: string;
@@ -133,6 +143,8 @@ export function decodeHostUpdates(value: unknown): HostUpdate[] {
 export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDetail {
   const messages = snapshot.messages.length > limit ? snapshot.messages.slice(-limit) : snapshot.messages;
   return {
+    threadId: snapshot.threadId ?? snapshot.sessionId,
+    ...(snapshot.providerSessionId ? { providerSessionId: snapshot.providerSessionId } : {}),
     sessionId: snapshot.sessionId,
     ...(snapshot.backendKind ? { backendKind: snapshot.backendKind } : {}),
     messages,

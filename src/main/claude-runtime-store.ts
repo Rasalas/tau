@@ -2,9 +2,10 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { UiMessage, UiSkillInvocation } from "../shared/contracts.js";
-import { visibleSkillEnvelopeText } from "./skill-invocation.js";
+import { parseSkillEnvelope } from "../shared/skill-envelope.js";
 
-const MAX_TEXT_LENGTH = 512 * 1024;
+/** Large messages are represented as UTF-8-safe chunks on disk, never dropped. */
+const TEXT_CHUNK_BYTES = 256 * 1024;
 const MAX_TITLE_LENGTH = 120;
 const MAX_ID_LENGTH = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -22,7 +23,8 @@ export interface ClaudeStoredMessage {
 
 export interface ClaudeRuntimeSessionRecord {
   backendKind: "claude-code";
-  tauSessionId: string;
+  /** Stable Tau thread key; never use the provider's session id here. */
+  tauThreadId: string;
   claudeSessionId: string;
   cwd: string;
   started: boolean;
@@ -42,6 +44,54 @@ export interface ClaudeRuntimeSessionRecord {
 export interface ClaudeRuntimeSessionStoreOptions {
   filePath: string;
   now?(): number;
+  /** Skill names proven by the current runtime catalog before wrapper migration. */
+  knownSkillNames?: readonly string[];
+}
+
+interface StoredMessageOnDisk {
+  role: "user" | "assistant";
+  text?: string;
+  textChunks?: string[];
+  timestamp: number;
+  clientMessageId?: string;
+  skill?: UiSkillInvocation;
+}
+
+function chunkText(value: string, maxBytes = TEXT_CHUNK_BYTES): string[] {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return [value];
+  const chunks: string[] = [];
+  let start = 0;
+  let bytes = 0;
+  for (let index = 0; index < value.length;) {
+    const codePoint = value.codePointAt(index);
+    const width = codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
+    const part = value.slice(index, index + width);
+    const partBytes = Buffer.byteLength(part, "utf8");
+    if (index > start && bytes + partBytes > maxBytes) {
+      chunks.push(value.slice(start, index));
+      start = index;
+      bytes = 0;
+    }
+    bytes += partBytes;
+    index += width;
+  }
+  if (start < value.length) chunks.push(value.slice(start));
+  return chunks;
+}
+
+function serializeMessage(message: ClaudeStoredMessage): StoredMessageOnDisk {
+  const chunks = chunkText(message.text);
+  return {
+    role: message.role,
+    ...(chunks.length === 1 ? { text: chunks[0] } : { textChunks: chunks }),
+    timestamp: message.timestamp,
+    ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
+    ...(message.skill ? { skill: { ...message.skill } } : {}),
+  };
+}
+
+function serializeRecord(record: ClaudeRuntimeSessionRecord): Omit<ClaudeRuntimeSessionRecord, "messages"> & { messages: StoredMessageOnDisk[] } {
+  return { ...record, messages: record.messages.map(serializeMessage) };
 }
 
 function boundedString(value: unknown, maxLength: number): string | undefined {
@@ -49,45 +99,83 @@ function boundedString(value: unknown, maxLength: number): string | undefined {
   return value;
 }
 
-function storedSkill(value: unknown): Pick<UiSkillInvocation, "name" | "command"> | undefined {
+function storedSkill(value: unknown): UiSkillInvocation | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
   const name = boundedString(item.name, MAX_ID_LENGTH);
   const command = boundedString(item.command, MAX_ID_LENGTH);
-  if (!name || !command || !SKILL_NAME.test(name)) return undefined;
+  const copyText = typeof item.copyText === "string" ? item.copyText : undefined;
+  if (!name || !command || !copyText || !SKILL_NAME.test(name)) return undefined;
   if (!/^\/(?:skill:)?[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(command)) return undefined;
-  return { name, command };
+  const commandName = command.replace(/^\/skill:/u, "").replace(/^\//u, "");
+  if (commandName !== name) return undefined;
+  return { name, command, copyText };
 }
 
 function skillCopyText(skill: Pick<UiSkillInvocation, "command">, visibleText: string): string {
   return visibleText ? `${skill.command} ${visibleText}` : skill.command;
 }
 
-function visibleStoredText(role: "user" | "assistant", text: string): string {
+function runtimeLikeEnvelope(text: string): boolean {
+  return /^(?:\uFEFF)?(?:(?:[ \t]{0,3})\r?\n)*[ \t]{0,3}<skill(?:[ \t\r\n>])/u.test(text);
+}
+
+function visibleStoredText(
+  role: "user" | "assistant",
+  text: string,
+  metadata: UiSkillInvocation | undefined,
+  knownSkills: ReadonlySet<string>,
+): string {
   if (role !== "user") return text;
-  const envelope = visibleSkillEnvelopeText(text);
-  if (envelope !== undefined) return envelope;
-  return /^\uFEFF?(?:[ \t]*\r?\n)*[ \t]*<skill\b/iu.test(text) ? "Skill invocation" : text;
+  // A runtime envelope is hidden only when the host persisted matching,
+  // validated skill metadata with it. Without that proof, unknown and
+  // malformed wrappers are ordinary user text and must survive reload.
+  const envelope = parseSkillEnvelope(text);
+  if (envelope && metadata && knownSkills.has(metadata.name)) {
+    const parsedName = envelope.name;
+    const commandName = metadata.command.replace(/^\/skill:/u, "").replace(/^\//u, "");
+    if (parsedName === metadata.name && parsedName === commandName) return envelope.userMessage;
+  }
+  return text;
 }
 
 function visibleStoredTitle(text: string): string {
-  const visible = visibleStoredText("user", text);
-  // A malformed title must never turn runtime attributes or a local path into
-  // sidebar data. Complete envelopes already return only their visible suffix.
-  return visible === text && /<skill\b|\blocation\s*=/iu.test(text) ? "Skill invocation" : visible;
+  // Titles have no skill metadata channel. Never derive a title from raw
+  // runtime syntax or a local location; use a generic safe label instead.
+  return /<skill\b/iu.test(text) ? "Skill invocation" : text;
 }
 
-function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
+function storedMessage(value: unknown, knownSkills: ReadonlySet<string> = new Set()): ClaudeStoredMessage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
   if (item.role !== "user" && item.role !== "assistant") return undefined;
-  const rawText = typeof item.text === "string" && item.text.length <= MAX_TEXT_LENGTH ? item.text : undefined;
+  const rawText = typeof item.text === "string"
+    ? item.text
+    : Array.isArray(item.textChunks) && item.textChunks.every((chunk) => typeof chunk === "string")
+      ? item.textChunks.join("")
+      : undefined;
   const timestamp = typeof item.timestamp === "number" && Number.isFinite(item.timestamp) ? item.timestamp : undefined;
   if (rawText === undefined || timestamp === undefined) return undefined;
-  const text = visibleStoredText(item.role, rawText);
   const clientMessageId = boundedString(item.clientMessageId, MAX_ID_LENGTH);
   const parsedSkill = item.role === "user" ? storedSkill(item.skill) : undefined;
-  const skill = parsedSkill ? { ...parsedSkill, copyText: skillCopyText(parsedSkill, text) } : undefined;
+  const text = visibleStoredText(item.role, rawText, parsedSkill, knownSkills);
+  const envelope = parseSkillEnvelope(rawText);
+  const envelopeMatchesMetadata = envelope !== undefined
+    && parsedSkill !== undefined
+    && envelope.name === parsedSkill.name
+    && envelope.name === parsedSkill.command.replace(/^\/skill:/u, "").replace(/^\//u, "");
+  // When the catalog was not available during the first disk read, validate
+  // the copy text against the envelope's visible suffix without exposing that
+  // suffix yet. This lets a later backend catalog re-run the migration.
+  const metadataText = envelopeMatchesMetadata ? envelope.userMessage : text;
+  const metadataIsConsistent = parsedSkill !== undefined
+    && parsedSkill.copyText === skillCopyText(parsedSkill, metadataText)
+    && (!runtimeLikeEnvelope(rawText) || envelope !== undefined);
+ // Keep untrusted metadata attached while the catalog is unavailable so a
+ // later backend can revalidate it; only a known name is allowed to hide an
+ // envelope in visibleStoredText above.
+  const catalogAllowsMetadata = knownSkills.size === 0 || (parsedSkill !== undefined && knownSkills.has(parsedSkill.name));
+  const skill = catalogAllowsMetadata && metadataIsConsistent ? parsedSkill : undefined;
   return {
     role: item.role,
     text,
@@ -97,17 +185,19 @@ function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
   };
 }
 
-function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
+function storedRecord(value: unknown, knownSkills: ReadonlySet<string> = new Set()): ClaudeRuntimeSessionRecord | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
-  const tauSessionId = boundedString(item.tauSessionId, MAX_ID_LENGTH);
+  // Read the pre-backend-ownership key once for migration, but always expose
+  // the canonical Tau thread name to the rest of the application.
+  const tauThreadId = boundedString(item.tauThreadId ?? item.tauSessionId, MAX_ID_LENGTH);
   const claudeSessionId = boundedString(item.claudeSessionId, MAX_ID_LENGTH);
   const cwd = boundedString(item.cwd, 4_096);
   const updatedAt = typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt) ? item.updatedAt : undefined;
-  if (!tauSessionId || !claudeSessionId || !UUID.test(claudeSessionId) || !cwd || updatedAt === undefined) return undefined;
+  if (!tauThreadId || !claudeSessionId || !UUID.test(claudeSessionId) || !cwd || updatedAt === undefined) return undefined;
   const messages = Array.isArray(item.messages)
     ? item.messages.flatMap((message) => {
-      const parsed = storedMessage(message);
+      const parsed = storedMessage(message, knownSkills);
       return parsed ? [parsed] : [];
     })
     : [];
@@ -120,7 +210,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     : undefined;
   return {
     backendKind: "claude-code",
-    tauSessionId,
+    tauThreadId,
     claudeSessionId,
     cwd,
     started: item.started === true,
@@ -151,9 +241,18 @@ function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRe
   return { ...record, messages: record.messages.map(cloneMessage) };
 }
 
+function sameStoredMessage(left: ClaudeStoredMessage, right: ClaudeStoredMessage): boolean {
+  return left.role === right.role
+    && left.text === right.text
+    && left.timestamp === right.timestamp
+    && left.clientMessageId === right.clientMessageId
+    && JSON.stringify(left.skill ?? null) === JSON.stringify(right.skill ?? null);
+}
+
 /** App-data persistence for Claude session ids and the visible Tau projection. */
 export class ClaudeRuntimeSessionStore {
   private readonly now: () => number;
+  private readonly knownSkills: Set<string>;
   private readonly records = new Map<string, ClaudeRuntimeSessionRecord>();
   private loaded = false;
   private loading?: Promise<void>;
@@ -161,6 +260,7 @@ export class ClaudeRuntimeSessionStore {
 
   constructor(private readonly options: ClaudeRuntimeSessionStoreOptions) {
     this.now = options.now ?? Date.now;
+    this.knownSkills = new Set((options.knownSkillNames ?? []).filter((name) => SKILL_NAME.test(name)));
   }
 
   static defaultPath(agentDir: string): string {
@@ -173,6 +273,36 @@ export class ClaudeRuntimeSessionStore {
     await this.loading;
   }
 
+  /**
+   * Supplies the runtime catalog before migrating a legacy expanded envelope.
+   * The set is monotonic because app-data can contain threads from different
+   * workspaces while the host is indexing them.
+   */
+  async setKnownSkillNames(names: Iterable<string>): Promise<void> {
+    let changed = false;
+    for (const name of names) {
+      if (!SKILL_NAME.test(name) || this.knownSkills.has(name)) continue;
+      this.knownSkills.add(name);
+      changed = true;
+    }
+    if (!changed || !this.loaded) return;
+    let recordsChanged = false;
+    for (const record of this.records.values()) {
+      const next = record.messages.map((message) => storedMessage({
+        role: message.role,
+        text: message.text,
+        timestamp: message.timestamp,
+        ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
+        ...(message.skill ? { skill: message.skill } : {}),
+      }, this.knownSkills));
+      if (next.every((message, index) => message && sameStoredMessage(message, record.messages[index]!))) continue;
+      record.messages = next.flatMap((message) => message ? [message] : []);
+      record.updatedAt = this.now();
+      recordsChanged = true;
+    }
+    if (recordsChanged) await this.persist();
+  }
+
   private async readFromDisk(): Promise<void> {
     try {
       const parsed = JSON.parse(await readFile(this.options.filePath, "utf8")) as unknown;
@@ -180,8 +310,8 @@ export class ClaudeRuntimeSessionStore {
         ? (parsed as { sessions: unknown[] }).sessions
         : [];
       for (const value of values) {
-        const record = storedRecord(value);
-        if (record) this.records.set(record.tauSessionId, record);
+        const record = storedRecord(value, this.knownSkills);
+        if (record) this.records.set(record.tauThreadId, record);
       }
       await chmod(this.options.filePath, 0o600).catch(() => undefined);
     } catch {
@@ -192,9 +322,9 @@ export class ClaudeRuntimeSessionStore {
     }
   }
 
-  async get(tauSessionId: string): Promise<ClaudeRuntimeSessionRecord | undefined> {
+  async get(tauThreadId: string): Promise<ClaudeRuntimeSessionRecord | undefined> {
     await this.load();
-    const record = this.records.get(tauSessionId);
+    const record = this.records.get(tauThreadId);
     return record ? cloneRecord(record) : undefined;
   }
 
@@ -207,14 +337,14 @@ export class ClaudeRuntimeSessionStore {
       .map(cloneRecord);
   }
 
-  async ensure(tauSessionId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
+  async ensure(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
     await this.load();
-    const existing = this.records.get(tauSessionId);
+    const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd === cwd) return cloneRecord(existing);
     if (existing) throw new Error("Claude runtime session belongs to another workspace.");
     const record: ClaudeRuntimeSessionRecord = {
       backendKind: "claude-code",
-      tauSessionId,
+      tauThreadId,
       claudeSessionId: randomUUID(),
       cwd,
       started: false,
@@ -224,14 +354,14 @@ export class ClaudeRuntimeSessionStore {
       messages: [],
       updatedAt: this.now(),
     };
-    this.records.set(tauSessionId, record);
+    this.records.set(tauThreadId, record);
     await this.persist();
     return cloneRecord(record);
   }
 
-  async markStarted(tauSessionId: string, cwd: string): Promise<void> {
-    const record = await this.ensure(tauSessionId, cwd);
-    const current = this.records.get(tauSessionId);
+  async markStarted(tauThreadId: string, cwd: string): Promise<void> {
+    const record = await this.ensure(tauThreadId, cwd);
+    const current = this.records.get(tauThreadId);
     if (!current || current.claudeSessionId !== record.claudeSessionId || current.started) return;
     current.started = true;
     current.attempted = true;
@@ -241,9 +371,9 @@ export class ClaudeRuntimeSessionStore {
   }
 
   /** Records the attempt before a child process is created. */
-  async markAttempted(tauSessionId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
-    await this.ensure(tauSessionId, cwd);
-    const record = this.records.get(tauSessionId);
+  async markAttempted(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
     if (!record) throw new Error("Claude runtime session could not be persisted.");
     record.attempted = true;
     record.attemptCount += 1;
@@ -255,12 +385,12 @@ export class ClaudeRuntimeSessionStore {
   }
 
   async markAttemptOutcome(
-    tauSessionId: string,
+    tauThreadId: string,
     cwd: string,
     outcome: "started" | "missing" | "failed" | "aborted",
   ): Promise<void> {
-    await this.ensure(tauSessionId, cwd);
-    const record = this.records.get(tauSessionId);
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
     if (!record) return;
     record.attempted = true;
     record.lastAttemptOutcome = outcome;
@@ -268,9 +398,9 @@ export class ClaudeRuntimeSessionStore {
     await this.persist();
   }
 
-  async markCreateFallbackUsed(tauSessionId: string, cwd: string): Promise<void> {
-    await this.ensure(tauSessionId, cwd);
-    const record = this.records.get(tauSessionId);
+  async markCreateFallbackUsed(tauThreadId: string, cwd: string): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
     if (!record || record.createFallbackUsed) return;
     record.createFallbackUsed = true;
     record.updatedAt = this.now();
@@ -278,42 +408,52 @@ export class ClaudeRuntimeSessionStore {
   }
 
   async appendExchange(
-    tauSessionId: string,
+    tauThreadId: string,
     cwd: string,
     messages: readonly UiMessage[],
   ): Promise<void> {
-    await this.ensure(tauSessionId, cwd);
-    const record = this.records.get(tauSessionId);
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
     if (!record) return;
+    const additions: ClaudeStoredMessage[] = [];
     for (const message of messages) {
       if (message.role !== "user" && message.role !== "assistant") continue;
-      const visibleText = visibleStoredText(message.role, message.text);
       const parsedSkill = message.role === "user" && message.skill
         ? storedSkill(message.skill)
         : undefined;
+      const visibleText = visibleStoredText(message.role, message.text, parsedSkill, this.knownSkills);
+      const clientMessageId = boundedString(message.clientMessageId, MAX_ID_LENGTH);
       const stored: ClaudeStoredMessage = {
         role: message.role,
         text: visibleText,
         timestamp: message.timestamp,
-        ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
-        ...(parsedSkill ? { skill: { ...parsedSkill, copyText: skillCopyText(parsedSkill, visibleText) } } : {}),
+        ...(clientMessageId ? { clientMessageId } : {}),
+        ...(parsedSkill && this.knownSkills.has(parsedSkill.name)
+          && parsedSkill.copyText === skillCopyText(parsedSkill, visibleText)
+          && (!runtimeLikeEnvelope(message.text) || parseSkillEnvelope(message.text) !== undefined)
+          ? { skill: parsedSkill }
+          : {}),
       };
-      // Only a stable client id makes a user turn idempotent. Timestamp/text
-      // pairs are not identities: two identical assistant replies can be
-      // legitimate turns and must remain in the append-only history.
-      const existing = stored.clientMessageId
-        ? record.messages.findIndex((item) => item.role === stored.role && item.clientMessageId === stored.clientMessageId)
-        : -1;
-      if (existing >= 0) record.messages[existing] = stored;
-      else record.messages.push(stored);
+      // Only a stable client id makes a replay idempotent. Identical replays
+      // are ignored after verification; a conflicting replay is rejected so
+      // append-only history can never be silently replaced.
+      if (stored.clientMessageId) {
+        const existing = [...record.messages, ...additions].find((item) => item.clientMessageId === stored.clientMessageId);
+        if (existing) {
+          if (sameStoredMessage(existing, stored)) continue;
+          throw new Error(`Claude transcript already contains a conflicting message id '${stored.clientMessageId}'.`);
+        }
+      }
+      additions.push(stored);
     }
+    record.messages.push(...additions);
     record.updatedAt = this.now();
     await this.persist();
   }
 
-  async setTitle(tauSessionId: string, cwd: string, title: string, source: ClaudeTitleSource): Promise<void> {
-    await this.ensure(tauSessionId, cwd);
-    const record = this.records.get(tauSessionId);
+  async setTitle(tauThreadId: string, cwd: string, title: string, source: ClaudeTitleSource): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
     if (!record) return;
     const safeTitle = visibleStoredTitle(title).slice(0, MAX_TITLE_LENGTH);
     if (safeTitle) record.title = safeTitle;
@@ -325,7 +465,7 @@ export class ClaudeRuntimeSessionStore {
 
   private persist(): Promise<void> {
     this.writeQueue = this.writeQueue.catch(() => undefined).then(async () => {
-      const contents = `${JSON.stringify({ version: 1, sessions: [...this.records.values()] }, null, 2)}\n`;
+      const contents = `${JSON.stringify({ version: 1, sessions: [...this.records.values()].map(serializeRecord) }, null, 2)}\n`;
       const directory = dirname(this.options.filePath);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       await chmod(directory, 0o700).catch(() => undefined);

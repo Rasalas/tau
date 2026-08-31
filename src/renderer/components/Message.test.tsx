@@ -146,6 +146,23 @@ describe("Message skill invocations", () => {
     expect(view.container.querySelector(".markdown-inline")).toBeNull();
   });
 
+  it("keeps a one-column GFM table outside the inline chip span", () => {
+    const view = render(<Message
+      message={{
+        id: "skill-table",
+        role: "user",
+        text: "| skill |\n| --- |\n| tdd |",
+        skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd | skill |\n| --- |\n| tdd |" },
+        timestamp: 0,
+      }}
+    />);
+
+    const table = view.container.querySelector("table");
+    expect(table).toBeTruthy();
+    expect(table?.closest("span")).toBeNull();
+    expect(view.container.querySelector(".markdown-inline")).toBeNull();
+  });
+
   it.each(["dark", "light"])("keeps the icon and text label available in the %s theme", (theme) => {
     document.documentElement.dataset.theme = theme;
     render(<Message message={{

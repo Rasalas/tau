@@ -6,6 +6,11 @@ export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
 export interface PiBridgeDescriptor {
   protocolVersion: 1;
   epoch: string;
+  /** Canonical Tau owner id; sessionId is retained for the v1 bridge wire. */
+  threadId?: string;
+  /** Pi's provider session id (equal to its Tau thread id for this adapter). */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
   sessionFile: string;
   cwd: string;
@@ -16,6 +21,11 @@ export interface PiBridgeDescriptor {
 }
 
 export interface PiBridgeSnapshot {
+  /** Canonical Tau owner id; sessionId is retained for old bridges. */
+  threadId?: string;
+  /** Provider session id owned by Pi. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
   sessionFile: string;
   cwd: string;
@@ -55,7 +65,7 @@ export interface PiBridgePreparedPrompt {
 }
 
 export type PiBridgeCommand =
-  | { command: "prepare_prompt"; text: string; skillName?: string }
+  | { command: "prepare_prompt"; text: string; skill?: import("./contracts.js").UiSkillDraft }
   | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp"; clientMessageId?: string; prepared?: PiBridgePreparedPrompt }
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
@@ -95,6 +105,8 @@ export function isPiBridgeDescriptor(value: unknown): value is PiBridgeDescripto
   const item = value as Record<string, unknown>;
   return item.protocolVersion === PI_BRIDGE_PROTOCOL_VERSION
     && typeof item.epoch === "string"
+    && (item.threadId === undefined || typeof item.threadId === "string")
+    && (item.providerSessionId === undefined || typeof item.providerSessionId === "string")
     && typeof item.sessionId === "string"
     && typeof item.sessionFile === "string"
     && typeof item.cwd === "string"

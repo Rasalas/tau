@@ -5,7 +5,7 @@ const api: TauDesktopApi = {
   platform: process.platform,
   bootstrap: () => ipcRenderer.invoke("tau:bootstrap"),
   loadTranscript: (sessionId, cursor) => ipcRenderer.invoke("tau:transcript-page", sessionId, cursor),
-  preparePrompt: (text, sessionId, skillName) => ipcRenderer.invoke("tau:prepare-prompt", text, sessionId, skillName),
+  preparePrompt: (text, sessionId, skill) => ipcRenderer.invoke("tau:prepare-prompt", text, sessionId, skill),
   sendPrompt: (text, attachments, sessionId, clientMessageId, prepared) => ipcRenderer.invoke("tau:prompt", text, attachments, sessionId, clientMessageId, prepared),
   runShellAction: (command, includeInContext, expectedCwd) => ipcRenderer.invoke("tau:run-shell-action", command, includeInContext, expectedCwd),
   steer: (text, attachments, sessionId, clientMessageId, prepared) => ipcRenderer.invoke("tau:steer", text, attachments, sessionId, clientMessageId, prepared),

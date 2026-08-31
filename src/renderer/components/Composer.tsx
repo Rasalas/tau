@@ -61,10 +61,11 @@ export function selectedSkillDraft(text: string, selection?: SelectedSkill): UiS
   if (text.slice(0, selection.start).trim()) return undefined;
   const suffix = text.slice(selection.end);
   return {
+    source: "skill",
     name: selection.name,
     // The autocomplete separator is not part of the user's instruction. Only
     // that one separator is removed; all remaining whitespace is meaningful.
-    visibleText: suffix.startsWith(" ") ? suffix.slice(1) : suffix,
+    visibleText: /^[ \t]/u.test(suffix) ? suffix.slice(1) : suffix,
     command: selection.command,
   };
 }
@@ -218,6 +219,9 @@ export function Composer({
   const fastTier = snapshot?.serviceTier === "fast";
   const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
+  const claudeCode = snapshot?.backendKind === "claude-code";
+  const modelSelectionAvailable = !claudeCode && (snapshot?.models.length ?? 0) > 0;
+  const thinkingSelectionAvailable = !claudeCode && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
@@ -433,18 +437,32 @@ export function Composer({
         />
 
         <div className="composer-toolbar">
-          <button className="runtime-chip" onClick={() => setModelPickerOpen(true)}>
+          <button
+            className="runtime-chip"
+            disabled={!modelSelectionAvailable}
+            title={modelSelectionAvailable ? "Select model" : claudeCode ? "Claude Code selects its model in the Claude runtime." : "No models are available for this runtime."}
+            aria-label={modelSelectionAvailable ? "Select model" : "Model selection unavailable"}
+            onClick={() => { if (modelSelectionAvailable) setModelPickerOpen(true); }}
+          >
             <Sparkles size={13} className="accent" />
-            {snapshot?.model?.name ?? "select model"}
-            <ChevronDown size={12} className="chev" />
+            {snapshot?.model?.name ?? (claudeCode ? "Claude Code model" : "select model")}
+            {modelSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
           </button>
 
           <span className="menu-anchor">
-            <button className="runtime-chip" onClick={() => setMenu(menu === "thinking" ? undefined : "thinking")}>
+            <button
+              className="runtime-chip"
+              disabled={!thinkingSelectionAvailable && !tierAvailable}
+              title={thinkingSelectionAvailable || tierAvailable ? "Reasoning and service tier" : claudeCode ? "Claude Code does not expose Pi thinking levels or service tiers." : "Reasoning controls are unavailable."}
+              aria-label={thinkingSelectionAvailable || tierAvailable ? "Reasoning and service tier" : "Reasoning controls unavailable"}
+              onClick={() => {
+                if (thinkingSelectionAvailable || tierAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
+              }}
+            >
               <Zap size={13} />
               {snapshot?.thinkingLevel ?? "—"}
               {fastTier ? <i className="tier-mark">fast</i> : null}
-              <ChevronDown size={12} className="chev" />
+              {thinkingSelectionAvailable || tierAvailable ? <ChevronDown size={12} className="chev" /> : null}
             </button>
             {menu === "thinking" ? (
               <Menu
@@ -457,6 +475,8 @@ export function Composer({
                       label: THINKING_LABELS[level] ?? level,
                       badge: level === DEFAULT_THINKING ? "Default" : undefined,
                       selected: level === snapshot?.thinkingLevel,
+                      disabled: !thinkingSelectionAvailable,
+                      description: !thinkingSelectionAvailable && claudeCode ? "Claude Code controls reasoning in its own runtime." : undefined,
                     })),
                   },
                   {
@@ -504,6 +524,10 @@ export function Composer({
                   id: level.id,
                   label: level.label,
                   selected: level.id === accessLevel,
+                  disabled: claudeCode && level.id === "ask",
+                  description: claudeCode && level.id === "ask"
+                    ? "Claude Code print mode cannot surface interactive approvals; choose read-only or full access."
+                    : undefined,
                 }))}
                 onSelect={(id) => onSetAccess(id as AccessLevel)}
                 onClose={() => setMenu(undefined)}

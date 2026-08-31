@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo, useState, type ReactElement, type ReactNode }
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import hljs from "highlight.js/lib/core";
 import type { LanguageFn } from "highlight.js";
 type LanguageDefinition = LanguageFn;
@@ -28,6 +30,8 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   sh: "shell", zsh: "shell", html: "xml", xhtml: "xml", yml: "yaml",
 };
 const languagePromises = new Map<string, Promise<void>>();
+/** The same block grammar used by the renderer, kept synchronous for layout decisions. */
+const markdownBlockParser = unified().use(remarkParse).use(remarkGfm).use(remarkBreaks);
 
 export function loadHighlightLanguage(language: string): Promise<void> {
   const canonical = LANGUAGE_ALIASES[language] ?? language;
@@ -184,15 +188,22 @@ function StreamingTail({ children }: { children: string }) {
 
 /** Block Markdown must keep its block DOM; only a simple inline instruction can sit beside a chip. */
 export function isInlineMarkdown(text: string): boolean {
-  const lines = text.split(/\r?\n/u);
-  const hasTable = lines.some((line, index) => {
-    const separator = /^ {0,3}\|?\s*:?-{1,}:?\s*(?:\|\s*:?-{1,}:?\s*)+\|?\s*$/u.test(line);
-    const header = lines[index - 1] ?? "";
-    return separator && header.includes("|") && header.trim().length > 0;
-  });
-  const hasBlockLine = /^(?:[ \t]{4}| {0,3}(?:`{3,}|~{3,}|#{1,6}\s|[-+*]\s|\d+\.\s|>|\*\*\*+\s*$|---+\s*$))/mu.test(text);
-  const hasHtmlBlock = /^ {0,3}<(?:address|article|aside|blockquote|details|dialog|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|summary|table|ul)\b/imu.test(text);
-  return !hasBlockLine && !hasTable && !hasHtmlBlock && !/\n\s*\n/u.test(text);
+  try {
+    const tree = markdownBlockParser.parse(text);
+    // A chip can share a line only with a single paragraph. This lets the
+    // actual GFM AST classify tables (including one-column tables), lists,
+    // fenced/indented code, block quotes, HTML blocks, and thematic breaks;
+    // none can accidentally end up inside a span wrapper.
+    if (tree.children.length !== 1 || tree.children[0]?.type !== "paragraph") return false;
+    // CommonMark treats indentation after a non-blank paragraph as a lazy
+    // continuation. Keep it block-shaped anyway so the user's source
+    // indentation remains visible rather than collapsing in an inline span.
+    return !text.split(/\r?\n/u).some((line, index) => index > 0 && /^ {4}/u.test(line));
+  } catch {
+    // A parser failure must preserve valid DOM structure: block rendering is
+    // the safe fallback and never places unknown content in a span.
+    return false;
+  }
 }
 
 /** Keep the mutable tail cheap and parse each completed block only once. */

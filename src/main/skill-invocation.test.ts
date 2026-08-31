@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiComposerCommand } from "../shared/contracts.js";
 import {
+  prepareSkillPrompt,
   normalizeSkillInvocationForRuntime,
   normalizePiBridgePrompt,
   PI_RUNTIME_ADAPTER,
@@ -102,5 +103,32 @@ describe("skill runtime boundary", () => {
       { name: "skill:review", source: "skill" as const },
     ];
     expect(normalizeSkillInvocationForRuntime("/review this", claudeCodeAdapter, collision)).toBe("/review this");
+  });
+
+  it("keeps selected skill metadata authoritative over a colliding raw command", () => {
+    const collision = [
+      ...commands,
+      { name: "tdd", source: "extension" as const, description: "An extension command with the same spelling" },
+    ];
+    const prepared = prepareSkillPrompt(
+      "/tdd inspect this",
+      claudeCodeAdapter,
+      collision,
+      { source: "skill", name: "tdd", visibleText: "inspect this", command: "/tdd" },
+    );
+    expect(prepared).toMatchObject({
+      text: "inspect this",
+      runtimeText: "/tdd inspect this",
+      skill: { name: "tdd", command: "/tdd" },
+    });
+  });
+
+  it("rejects selected metadata from a non-skill source", () => {
+    expect(() => prepareSkillPrompt(
+      "/tdd inspect this",
+      claudeCodeAdapter,
+      commands,
+      { source: "extension" as never, name: "tdd", visibleText: "inspect this", command: "/tdd" },
+    )).toThrow("no longer available");
   });
 });

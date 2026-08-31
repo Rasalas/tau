@@ -6,7 +6,8 @@ interface TranscriptMessage {
 export interface ChatTranscriptInput {
   title?: string;
   cwd: string;
-  sessionId: string;
+  /** Canonical Tau thread id; provider session ids are not export keys. */
+  threadId: string;
   messages: readonly TranscriptMessage[];
   exportedAt?: Date;
 }
@@ -40,7 +41,7 @@ export function formatChatTranscript(input: ChatTranscriptInput): string {
   const header = [
     `# ${title}`,
     `> **Project:** \`${input.cwd}\`  `,
-    `> **Thread:** \`${input.sessionId}\`  `,
+    `> **Thread:** \`${input.threadId}\`  `,
     `> **Exported:** ${exportedAt}`,
   ].join("\n\n");
   return [header, ...sections].join("\n\n---\n\n") + "\n";

@@ -14,8 +14,10 @@ import {
   unclaimedClientMessageIds,
 } from "../../src/shared/client-message-correlation.js";
 import { knownSkillNames } from "../../src/shared/skill-envelope.js";
-import { canonicalSkillName, PI_RUNTIME_ADAPTER, prepareSkillPrompt, skillInvocationCommand, skillMessagePresentation, visibleSkillEnvelopeText } from "../../src/main/skill-invocation.js";
+import { PI_RUNTIME_ADAPTER, prepareSkillPrompt, skillInvocationCommand, skillMessagePresentation } from "../../src/main/skill-invocation.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
+import type { UiSkillDraft } from "../../src/shared/contracts.js";
+import { validatePreparedPrompt } from "../../src/shared/prepared-prompt.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -53,20 +55,23 @@ function textFromContent(content: unknown): string {
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
   const correlationSkillNames = (): Set<string> => knownSkillNames(pi.getCommands());
-  const preparedPrompt = (text: string, skillName?: string): PiBridgePreparedPrompt => {
+  const preparedPrompt = (text: string, skill?: UiSkillDraft): PiBridgePreparedPrompt => {
     const commands = pi.getCommands();
     const effectiveCommands = commands;
-    if (skillName && !correlationSkillNames().has(canonicalSkillName(skillName))) {
-      throw new Error(`The selected skill '${skillName}' is no longer available in Pi.`);
-    }
-    const prepared = prepareSkillPrompt(text, PI_RUNTIME_ADAPTER, effectiveCommands);
-    return {
+    const prepared = prepareSkillPrompt(text, PI_RUNTIME_ADAPTER, effectiveCommands, skill);
+    const result: PiBridgePreparedPrompt = {
       visibleText: prepared.text,
       runtimeText: prepared.runtimeText,
       runtimeCapabilities: PI_RUNTIME_ADAPTER.capabilities,
       ...(prepared.skill ? { skill: prepared.skill } : {}),
       sourceFingerprint: clientMessageFingerprint(text, knownSkillNames(effectiveCommands)),
     };
+    validatePreparedPrompt(text, { ...result, backendKind: "pi" }, {
+      backendKind: "pi",
+      runtimeCapabilities: PI_RUNTIME_ADAPTER.capabilities,
+      commands: effectiveCommands,
+    });
+    return result;
   };
   /**
    * Prepared data comes back over the authenticated socket, so validate its
@@ -79,30 +84,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (candidate === undefined) return preparedPrompt(text);
     if (!candidate || typeof candidate !== "object") throw new Error("Pi bridge received an invalid prepared prompt.");
     const value = candidate as Partial<PiBridgePreparedPrompt>;
-    if (typeof value.visibleText !== "string"
-      || typeof value.runtimeText !== "string"
-      || typeof value.sourceFingerprint !== "string"
-      || value.runtimeCapabilities?.skillInvocationDialect !== "pi") {
-      throw new Error("Pi bridge received a prepared prompt for another runtime.");
-    }
-    const known = correlationSkillNames();
-    if (value.skill) {
-      const skill = value.skill;
-      if (typeof skill !== "object"
-        || typeof skill.name !== "string"
-        || typeof skill.copyText !== "string"
-        || !known.has(canonicalSkillName(skill.name))
-        || skill.command !== skillInvocationCommand(canonicalSkillName(skill.name), PI_RUNTIME_ADAPTER)
-        || skill.copyText !== (value.visibleText ? `${skill.command} ${value.visibleText}` : skill.command)
-        || value.runtimeText !== skill.copyText) {
-        throw new Error("Pi bridge received an unavailable skill.");
-      }
-    } else if (value.visibleText !== text || value.runtimeText !== text) {
-      throw new Error("Pi bridge received a prepared prompt for different text.");
-    }
-    if (value.sourceFingerprint !== clientMessageFingerprint(text, known)) {
-      throw new Error("Pi bridge received a prepared prompt for different text.");
-    }
+    validatePreparedPrompt(text, { ...value, backendKind: "pi" }, {
+      backendKind: "pi",
+      runtimeCapabilities: PI_RUNTIME_ADAPTER.capabilities,
+      commands: pi.getCommands(),
+    });
     return value as PiBridgePreparedPrompt;
   };
   const pendingClientMessageIds: string[] = [];
@@ -113,26 +99,35 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   const failedClientMessageIds = new Set<string>();
 
   const appendClientMessageMarker = (
-    ctx: ExtensionContext,
+    appendEntry: (customType: string, data?: unknown) => void,
     clientMessageId: string | undefined,
     correlationText?: string,
     preparedFingerprint?: string,
   ): boolean => {
     if (!clientMessageId) return false;
-    pendingClientMessageIds.push(clientMessageId);
     const fingerprint = preparedFingerprint ?? (correlationText === undefined ? undefined : clientMessageFingerprint(correlationText, correlationSkillNames()));
+    appendEntry(CLIENT_MESSAGE_MARKER, { clientMessageId, ...(fingerprint ? { fingerprint } : {}) });
+    // Only expose a marker to correlation after Pi has durably accepted it.
+    // This keeps a synchronous append failure from leaving an in-memory id
+    // that can be assigned to a later, unrelated user message.
+    pendingClientMessageIds.push(clientMessageId);
     if (fingerprint) pendingClientMessageFingerprints.set(clientMessageId, fingerprint);
-    ctx.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, { clientMessageId, ...(fingerprint ? { fingerprint } : {}) });
     return true;
   };
 
-  const cancelClientMessageMarker = (ctx: ExtensionContext, clientMessageId: string | undefined): boolean => {
+  const cancelClientMessageMarker = (
+    appendEntry: (customType: string, data?: unknown) => void,
+    clientMessageId: string | undefined,
+  ): boolean => {
     if (!clientMessageId) return false;
     const wasPending = pendingClientMessageIds.includes(clientMessageId);
-    const wasInFlight = inFlightClientMessageIds.delete(clientMessageId);
+    const wasInFlight = inFlightClientMessageIds.has(clientMessageId);
     if (!wasPending && !wasInFlight) return false;
+    // Keep the claim live until Pi has accepted the append. This makes a
+    // transient persistence failure retryable and prevents a later user turn
+    // from claiming the orphaned request id.
+    appendEntry(CLIENT_MESSAGE_CANCEL_MARKER, { clientMessageId });
     forgetClientMessageId(clientMessageId);
-    ctx.sessionManager.appendCustomEntry(CLIENT_MESSAGE_CANCEL_MARKER, { clientMessageId });
     return true;
   };
 
@@ -162,13 +157,17 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     }),
   );
 
-  const failClientMessageIfUnpersisted = (ctx: ExtensionContext, clientMessageId: string | undefined): boolean => {
+  const failClientMessageIfUnpersisted = (
+    ctx: ExtensionContext,
+    clientMessageId: string | undefined,
+    appendEntry: (customType: string, data?: unknown) => void = (customType, data) => pi.appendEntry(customType, data),
+  ): boolean => {
     if (!clientMessageId) return false;
     if (persistedClientMessageIds(ctx).has(clientMessageId)) {
       forgetClientMessageId(clientMessageId);
       return false;
     }
-    const cancelled = cancelClientMessageMarker(ctx, clientMessageId);
+    const cancelled = cancelClientMessageMarker(appendEntry, clientMessageId);
     if (cancelled) broadcastUserMessageFailure(ctx, clientMessageId);
     return cancelled;
   };
@@ -230,10 +229,10 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (value.role === "assistant") return { role: "assistant", content: value.content };
     const text = textFromContent(value.content);
     const presentation = skillMessagePresentation(text, PI_RUNTIME_ADAPTER, pi.getCommands());
-    // Full-chat export never carries a runtime wrapper. A skill that is no
-    // longer present in Pi's live registry is still safe to export by its
-    // visible suffix; malformed/fenced lookalikes remain untouched.
-    const visibleText = presentation?.text ?? visibleSkillEnvelopeText(text);
+    // Only a skill proven by Pi's live command registry may be projected to
+    // its visible suffix. Unknown or malformed wrappers are user-authored
+    // text and must remain byte-for-byte lossless in exports.
+    const visibleText = presentation?.text;
     if (visibleText === undefined) return { role: "user", content: value.content };
     const images = Array.isArray(value.content)
       ? value.content.filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "image")
@@ -259,18 +258,28 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const initialPrompt = typeof payload.initialPrompt === "string" ? payload.initialPrompt : undefined;
       const clientMessageId = typeof payload.clientMessageId === "string" ? payload.clientMessageId : undefined;
       const prepared = payload.prepared && typeof payload.prepared === "object" ? payload.prepared as PiBridgePreparedPrompt : undefined;
+      const resolved = initialPrompt ? resolvePreparedPrompt(initialPrompt, prepared) : undefined;
+      let marker = false;
+      let appendNewSessionEntry: ((customType: string, data?: unknown) => void) | undefined;
       await ctx.newSession({
-        ...(initialPrompt ? { withSession: async (fresh) => {
-          const resolved = resolvePreparedPrompt(initialPrompt, prepared);
-          const marker = appendClientMessageMarker(fresh, clientMessageId, initialPrompt, resolved.sourceFingerprint);
-          try {
-            await fresh.sendUserMessage(resolved.runtimeText, { expandPromptTemplates: true });
-            if (marker) failClientMessageIfUnpersisted(fresh, clientMessageId);
-          } catch (error) {
-            if (marker) failClientMessageIfUnpersisted(fresh, clientMessageId);
-            throw error;
-          }
-        } } : {}),
+        ...(initialPrompt ? {
+          // `setup` is the only replacement-session hook with a writable
+          // SessionManager. The regular extension context intentionally exposes
+          // read-only session state, so markers are appended here before the
+          // authoritative replacement-session dispatch.
+          setup: async (sessionManager) => {
+            appendNewSessionEntry = (customType, data) => { sessionManager.appendCustomEntry(customType, data); };
+            marker = appendClientMessageMarker(appendNewSessionEntry, clientMessageId, initialPrompt, resolved!.sourceFingerprint);
+          },
+          withSession: async (fresh) => {
+            try {
+              await fresh.sendUserMessage(resolved!.runtimeText, { expandPromptTemplates: true });
+            } catch (error) {
+              if (marker && appendNewSessionEntry) failClientMessageIfUnpersisted(fresh, clientMessageId, appendNewSessionEntry);
+              throw error;
+            }
+          },
+        } : {}),
       });
     },
   });
@@ -308,6 +317,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const branchMessages = ctx.sessionManager.getBranch()
       .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
     return {
+      threadId: ctx.sessionManager.getSessionId(),
+      providerSessionId: ctx.sessionManager.getSessionId(),
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       cwd: ctx.cwd,
@@ -440,29 +451,27 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
         case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
         case "prepare_prompt": {
-          respond(client, frame.id, true, preparedPrompt(frame.text, frame.skillName));
+          respond(client, frame.id, true, preparedPrompt(frame.text, frame.skill));
           break;
         }
         case "prompt": {
           const resolved = resolvePreparedPrompt(frame.text, frame.prepared);
-          const marker = appendClientMessageMarker(ctx, frame.clientMessageId, frame.text, resolved.sourceFingerprint);
+          const wasIdle = ctx.isIdle();
+          const commandName = resolved.runtimeText.startsWith("/")
+            ? resolved.runtimeText.slice(1).split(/[ \t\r\n]/u, 1)[0]
+            : "";
+          const isExtensionCommand = pi.getCommands().some((command) => command.source === "extension" && command.name === commandName);
+          // `pi.sendUserMessage` is a synchronous void dispatch. A successful
+          // return is the transport acknowledgement; later persistence is
+          // proven only by Pi's authoritative message events. Extension
+          // commands do not create a user message, so they get no marker.
+          const marker = isExtensionCommand
+            ? false
+            : appendClientMessageMarker((customType, data) => pi.appendEntry(customType, data), frame.clientMessageId, frame.text, resolved.sourceFingerprint);
           try {
-            const wasIdle = ctx.isIdle();
-            const commandName = resolved.runtimeText.startsWith("/")
-              ? resolved.runtimeText.slice(1).split(/[ \t\r\n]/u, 1)[0]
-              : "";
-            const isExtensionCommand = pi.getCommands().some((command) => command.source === "extension" && command.name === commandName);
-            const send = pi.sendUserMessage(resolved.runtimeText, {
+            pi.sendUserMessage(resolved.runtimeText, {
               ...(wasIdle ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
               expandPromptTemplates: true,
-            });
-            void send.then(() => {
-              // Extension commands can complete without creating a user
-              // message, whether or not another run is active. Remove their
-              // marker so it cannot label the next turn.
-              if (marker && (wasIdle || isExtensionCommand)) failClientMessageIfUnpersisted(ctx, frame.clientMessageId);
-            }).catch(() => {
-              if (marker) failClientMessageIfUnpersisted(ctx, frame.clientMessageId);
             });
           } catch (error) {
             if (marker) failClientMessageIfUnpersisted(ctx, frame.clientMessageId);
@@ -551,7 +560,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     await stop();
     for (const clientMessageId of unclaimedClientMessageIds(ctx.sessionManager.getBranch(), correlationSkillNames())) {
-      ctx.sessionManager.appendCustomEntry(CLIENT_MESSAGE_CANCEL_MARKER, { clientMessageId });
+      pi.appendEntry(CLIENT_MESSAGE_CANCEL_MARKER, { clientMessageId });
       failedClientMessageIds.add(clientMessageId);
     }
     pendingClientMessageIds.length = 0;
@@ -599,6 +608,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     descriptor = {
       protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
       epoch,
+      threadId: ctx.sessionManager.getSessionId(),
+      providerSessionId: ctx.sessionManager.getSessionId(),
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile,
       cwd: ctx.cwd,

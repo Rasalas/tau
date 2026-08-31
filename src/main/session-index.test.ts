@@ -24,7 +24,7 @@ describe("session index reconciliation", () => {
 
   it("removes runtime skill wrappers from fallback title context", () => {
     const wrapper = `<skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions\n</skill>\n\nReview the parser`;
-    const conversation = buildTitleConversation([{ role: "user", content: wrapper }]);
+    const conversation = buildTitleConversation([{ role: "user", content: wrapper, skill: { name: "tdd", command: "/skill:tdd" } }]);
     expect(conversation).toBe("user: Review the parser");
     expect(conversation).not.toContain("Injected instructions");
     expect(conversation).not.toContain("/Users/me/.pi/skills");

@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiComposerCommand } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { prepareSkillPrompt } from "./skill-invocation.js";
 
 const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", description: "Test-driven development" }];
 
@@ -38,8 +40,30 @@ function localHost(adapter: AgentRuntimeAdapter) {
     followUp,
     abort: vi.fn(async () => undefined),
   };
+  const textFromContent = (content: unknown): string => typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.flatMap((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "text"
+        && typeof (part as { text?: unknown }).text === "string" ? [(part as { text: string }).text] : []).join("\n")
+      : "";
+  const visibleMessage = (entry: any, index: number) => {
+    const message = entry?.message ?? entry;
+    const text = textFromContent(message?.content);
+    const knownSkill = /^<skill\s+name="tdd"[^>]*>[\s\S]*?<\/skill>\s*/u.exec(text);
+    const visibleText = knownSkill ? text.slice(knownSkill[0].length) : text;
+    return {
+      id: entry?.id ?? `${message?.role ?? "message"}-${index}`,
+      role: message?.role,
+      text: visibleText,
+      ...(message?.role === "user" && knownSkill ? {
+        skill: { name: "tdd", command: adapter.id === "claude-code" ? "/tdd" : "/skill:tdd", copyText: `${adapter.id === "claude-code" ? "/tdd" : "/skill:tdd"}${visibleText ? ` ${visibleText}` : ""}` },
+      } : {}),
+      timestamp: message?.timestamp ?? index,
+    };
+  };
   const thread: any = {
     session,
+    threadId: "session",
     sessionId: "session",
     cwd: "/repo",
     sessionFile: "/tmp/session.jsonl",
@@ -54,22 +78,94 @@ function localHost(adapter: AgentRuntimeAdapter) {
   thread.backend = {
     kind: adapter.id,
     runtimeAdapter: adapter,
+    threadId: "session",
+    providerSessionId: "session",
     sessionId: "session",
     cwd: "/repo",
-    isStreaming: () => false,
-    isIdle: () => true,
-    transcript: async () => thread.adapterMessages,
-    detail: async () => ({ title: undefined }),
-    prompt: async (input: { text: string; delivery: "prompt" | "steer" | "followUp"; prepared?: { runtimeText: string } }) => {
-      if (adapter.id !== "claude-code") return;
+    isStreaming: () => session.isStreaming,
+    isIdle: () => session.isIdle,
+    composerCommands: () => commands,
+    sessionFile: () => session.sessionFile,
+    sessionName: () => session.sessionName,
+    branchEntries: () => session.sessionManager.getBranch(),
+    hasMessages: () => session.messages.length > 0 || session.sessionManager.getBranch().some((entry: any) => entry.type === "message"),
+    appendCustomEntry: (customType: string, data: unknown) => { session.sessionManager.appendCustomEntry(customType, data); },
+    appendMessage: (message: unknown) => { session.sessionManager.entries.push({ type: "message", id: `message-${session.sessionManager.entries.length}`, message }); },
+    bind: async () => undefined,
+    unbind: () => undefined,
+    setLifecycleHooks: () => undefined,
+    reload: async () => undefined,
+    extensionCount: () => 0,
+    isBashRunning: () => false,
+    executeBash: async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }),
+    createFork: () => undefined,
+    waitForIdle: async () => undefined,
+    completeTitle: async () => "Test title",
+    modelApi: () => undefined,
+    model: () => ({ provider: session.model.provider, id: session.model.id, name: session.model.id }),
+    thinkingLevel: () => "off",
+    thinkingLevels: () => ["off"],
+    activeToolNames: () => [],
+    allTools: () => [],
+    contextUsage: () => undefined,
+    preparePrompt: async (text: string, selectedSkill?: any) => {
+      const prepared = prepareSkillPrompt(text, adapter, commands, selectedSkill);
+      return {
+        tauThreadId: "session",
+        providerSessionId: "session",
+        sessionId: "session",
+        backendKind: adapter.id,
+        runtimeCapabilities: adapter.capabilities,
+        visibleText: prepared.text,
+        runtimeText: prepared.runtimeText,
+        ...(prepared.skill ? { skill: prepared.skill } : {}),
+        sourceFingerprint: clientMessageFingerprint(text, ["tdd"]),
+      };
+    },
+    transcript: async () => thread.adapterMessages.length > 0
+      ? thread.adapterMessages
+      : session.sessionManager.getBranch().flatMap((entry: any, index: number) => entry.type === "message" ? [visibleMessage(entry, index)] : []),
+    detail: async () => ({
+      backendKind: adapter.id,
+      threadId: "session",
+      providerSessionId: "session",
+      sessionId: "session",
+      cwd: "/repo",
+      title: session.sessionName,
+      messages: await thread.backend.transcript(),
+      isStreaming: false,
+      activeTools: [],
+      catalog: {
+        models: adapter.id === "pi" ? [{ provider: session.model.provider, id: session.model.id, name: session.model.id }] : [],
+        model: adapter.id === "pi" ? { provider: session.model.provider, id: session.model.id, name: session.model.id } : undefined,
+        runtimeCapabilities: adapter.capabilities,
+        thinkingLevel: "off",
+        thinkingLevels: ["off"],
+        allTools: [],
+        composerCommands: commands,
+      },
+    }),
+    prompt: async (input: { text: string; delivery: "prompt" | "steer" | "followUp"; prepared?: { runtimeText: string }; promptOptions?: unknown; images?: unknown }) => {
+      if (adapter.id === "pi") {
+        const runtimeText = input.prepared?.runtimeText
+          ?? prepareSkillPrompt(input.text, adapter, commands).runtimeText;
+        const invoke = session[input.delivery === "prompt" ? "prompt" : input.delivery === "steer" ? "steer" : "followUp"] as (text: string, options?: unknown) => Promise<unknown>;
+        await invoke(
+          runtimeText,
+          input.promptOptions ?? input.images,
+        );
+        return {};
+      }
       await adapter.transport.sendPrompt({
         cwd: "/repo",
+        tauThreadId: "session",
         sessionId: "session",
         text: input.prepared?.runtimeText
           ?? (input.text.startsWith("$tdd ") ? `/tdd ${input.text.slice("$tdd ".length)}` : input.text),
         delivery: input.delivery,
         permissionPolicy: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
       });
+      return {};
     },
     abort: async () => { if (adapter.id === "claude-code") await adapter.transport.abort?.("session"); },
   };
@@ -86,12 +182,12 @@ function localHost(adapter: AgentRuntimeAdapter) {
 
 async function adopt(host: ReturnType<typeof localHost>): Promise<void> {
   await host.internals.threads.adopt({
-    sessionId: host.thread.sessionId,
+    threadId: host.thread.threadId,
     cwd: host.thread.cwd,
     runtime: host.thread,
     isolation: "in-process",
   });
-  host.internals.threads.setActive(host.thread.sessionId);
+  host.internals.threads.setActive(host.thread.threadId);
 }
 
 describe("PiHost skill delivery", () => {
@@ -184,6 +280,20 @@ describe("PiHost skill delivery", () => {
       sessionId: "session",
       permissionPolicy: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
     }));
+  });
+
+  it("reprojects supplied skill catalogs through the selected Claude dialect", () => {
+    const adapter: AgentRuntimeAdapter = {
+      id: "claude-code",
+      capabilities: { skillInvocationDialect: "claude-code" },
+      transport: { sendPrompt: vi.fn(async () => ({})) },
+    };
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, {
+      runtimeAdapter: adapter,
+      runtimeCommands: [{ ...commands[0], skillCommand: "/skill:tdd" }],
+    });
+    const claudeCommands = (host as unknown as { claudeComposerCommands(cwd: string): UiComposerCommand[] }).claudeComposerCommands("/repo");
+    expect(claudeCommands).toEqual([{ ...commands[0], skillCommand: "/tdd" }]);
   });
 
   it("routes abort through the selected adapter and never calls Pi abort", async () => {
@@ -306,8 +416,10 @@ describe("PiHost skill delivery", () => {
 
     const markdown = await fixture.host.exportThreadMarkdown("session");
     expect(markdown).toContain("Keep the request");
-    expect(markdown).not.toContain("<skill");
-    expect(markdown).not.toContain("SECRET BODY");
-    expect(markdown).not.toContain("location=");
+    // A wrapper without validated Tau skill metadata is user-authored text;
+    // exports must preserve it losslessly rather than silently deleting it.
+    expect(markdown).toContain("<skill name=\"removed\" location=\"/private/removed/SKILL.md\">");
+    expect(markdown).toContain("SECRET BODY");
+    expect(markdown).toContain("location=\"/private/removed/SKILL.md\"");
   });
 });

@@ -35,13 +35,32 @@ describe("PiHost.generateThreadTitle", () => {
       sessionManager: { getBranch: () => [] },
       setSessionName: (title: string) => { session.sessionName = title; },
     };
-    const thread = { session, sessionId: "session", cwd: "/repo" };
+    const backend = {
+      kind: "pi" as const,
+      runtimeAdapter: { id: "pi" as const, capabilities: { skillInvocationDialect: "pi" as const } },
+      threadId: "session",
+      providerSessionId: "session",
+      sessionId: "session",
+      cwd: "/repo",
+      isStreaming: () => session.isStreaming,
+      isIdle: () => !session.isStreaming,
+      waitForIdle: session.waitForIdle,
+      sessionName: () => session.sessionName,
+      transcript: async () => [{ id: "user", role: "user" as const, text: "Fix automatic titles", timestamp: 1 }],
+      completeTitle: async () => session.modelRuntime.completeSimple().then((result) => result.content[0].text),
+      setTitle: async (title: string) => { session.setSessionName(title); },
+      // The title path does not use the remaining backend operations; these
+      // stubs keep this test's runtime-owner seam explicit and typed enough for
+      // the host's registry fixture.
+      detail: async () => ({ title: session.sessionName }),
+    };
+    const thread = { backend, runtime: { session }, threadId: "session", sessionId: "session", cwd: "/repo" };
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as {
       threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
       sessions: Array<Record<string, unknown>>;
     };
-    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
     internals.threads.setActive("session");
     internals.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 1 }];
 

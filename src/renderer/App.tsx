@@ -1389,7 +1389,7 @@ export default function App() {
         prepared = await window.tau.preparePrompt(
           text,
           pendingNewThread ? undefined : snapshot?.sessionId,
-          skillDraft?.name,
+          skillDraft,
         );
       } catch (error) {
         const draftKeyForFailure = pendingNewThread

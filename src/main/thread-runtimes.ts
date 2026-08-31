@@ -3,7 +3,7 @@
  *
  * Tau historically held exactly one runtime and swapped it on every thread
  * switch, which is why only one thread could ever be working. This holds many,
- * keyed by session, and serialises work per thread instead of globally.
+ * keyed by Tau thread id, and serialises work per thread instead of globally.
  *
  * It is generic over the runtime so the same registry can hold an in-process
  * `AgentSessionRuntime` or a handle to one living in its own process — the
@@ -13,7 +13,8 @@
 export type ThreadIsolation = "in-process" | "isolated";
 
 export interface ThreadRuntimeRecord<TRuntime> {
-  sessionId: string;
+  /** Stable Tau product id. Provider/session ids are not registry keys. */
+  threadId: string;
   cwd: string;
   runtime: TRuntime;
   isolation: ThreadIsolation;
@@ -42,7 +43,7 @@ export class ThreadRuntimeRegistry<TRuntime> {
   private readonly disposeRuntime: (record: ThreadRuntimeRecord<TRuntime>) => Promise<void>;
   private readonly canEvict: (record: ThreadRuntimeRecord<TRuntime>) => boolean;
   private readonly now: () => number;
-  private activeSessionId?: string;
+  private activeThreadId?: string;
 
   constructor(options: ThreadRuntimeRegistryOptions<TRuntime>) {
     this.maxLive = Math.max(1, options.maxLive ?? 3);
@@ -51,50 +52,50 @@ export class ThreadRuntimeRegistry<TRuntime> {
     this.now = options.now ?? Date.now;
   }
 
-  /** Takes ownership of a runtime. Replacing a session disposes the old one. */
+  /** Takes ownership of a runtime. Replacing a thread disposes the old one. */
   async adopt(record: ThreadRuntimeRecord<TRuntime>): Promise<void> {
-    const existing = this.slots.get(record.sessionId);
+    const existing = this.slots.get(record.threadId);
     if (existing && existing.runtime !== record.runtime) {
-      this.slots.delete(record.sessionId);
+      this.slots.delete(record.threadId);
       await this.disposeRuntime(existing);
     }
-    this.slots.set(record.sessionId, {
+    this.slots.set(record.threadId, {
       ...record,
       queue: existing?.queue ?? Promise.resolve(),
       busy: existing?.busy ?? 0,
       lastUsedAt: this.now(),
     });
-    await this.evictIdle(record.sessionId);
+    await this.evictIdle(record.threadId);
   }
 
-  get(sessionId: string): ThreadRuntimeRecord<TRuntime> | undefined {
-    const slot = this.slots.get(sessionId);
+  get(threadId: string): ThreadRuntimeRecord<TRuntime> | undefined {
+    const slot = this.slots.get(threadId);
     return slot ? this.recordOf(slot) : undefined;
   }
 
   private recordOf(slot: ThreadSlot<TRuntime>): ThreadRuntimeRecord<TRuntime> {
-    return { sessionId: slot.sessionId, cwd: slot.cwd, runtime: slot.runtime, isolation: slot.isolation };
+    return { threadId: slot.threadId, cwd: slot.cwd, runtime: slot.runtime, isolation: slot.isolation };
   }
 
-  has(sessionId: string): boolean {
-    return this.slots.has(sessionId);
+  has(threadId: string): boolean {
+    return this.slots.has(threadId);
   }
 
   list(): ThreadRuntimeRecord<TRuntime>[] {
     return [...this.slots.values()].map((slot) => ({
-      sessionId: slot.sessionId, cwd: slot.cwd, runtime: slot.runtime, isolation: slot.isolation,
+      threadId: slot.threadId, cwd: slot.cwd, runtime: slot.runtime, isolation: slot.isolation,
     }));
   }
 
   /** The thread the workbench is showing. It is never evicted. */
-  setActive(sessionId: string | undefined): void {
-    this.activeSessionId = sessionId;
-    const slot = sessionId ? this.slots.get(sessionId) : undefined;
+  setActive(threadId: string | undefined): void {
+    this.activeThreadId = threadId;
+    const slot = threadId ? this.slots.get(threadId) : undefined;
     if (slot) slot.lastUsedAt = this.now();
   }
 
   get active(): ThreadRuntimeRecord<TRuntime> | undefined {
-    return this.activeSessionId ? this.get(this.activeSessionId) : undefined;
+    return this.activeThreadId ? this.get(this.activeThreadId) : undefined;
   }
 
   /** True while any thread is running work — used to decide idleness. */
@@ -102,17 +103,17 @@ export class ThreadRuntimeRegistry<TRuntime> {
     return [...this.slots.values()].reduce((total, slot) => total + slot.busy, 0);
   }
 
-  isBusy(sessionId: string): boolean {
-    return (this.slots.get(sessionId)?.busy ?? 0) > 0;
+  isBusy(threadId: string): boolean {
+    return (this.slots.get(threadId)?.busy ?? 0) > 0;
   }
 
   /**
    * Runs an operation against one thread. Operations on the same thread are
    * serialised; operations on different threads run concurrently.
    */
-  run<T>(sessionId: string, operation: (record: ThreadRuntimeRecord<TRuntime>) => Promise<T>): Promise<T> {
-    const slot = this.slots.get(sessionId);
-    if (!slot) return Promise.reject(new Error(`No runtime for thread ${sessionId}`));
+  run<T>(threadId: string, operation: (record: ThreadRuntimeRecord<TRuntime>) => Promise<T>): Promise<T> {
+    const slot = this.slots.get(threadId);
+    if (!slot) return Promise.reject(new Error(`No runtime for thread ${threadId}`));
     slot.busy += 1;
     slot.lastUsedAt = this.now();
     // Release the busy count before the caller's await settles, so a thread is
@@ -120,7 +121,7 @@ export class ThreadRuntimeRegistry<TRuntime> {
     const task = async () => {
       try {
         return await operation({
-          sessionId: slot.sessionId, cwd: slot.cwd, runtime: slot.runtime, isolation: slot.isolation,
+          threadId: slot.threadId, cwd: slot.cwd, runtime: slot.runtime, isolation: slot.isolation,
         });
       } finally {
         slot.busy = Math.max(0, slot.busy - 1);
@@ -132,18 +133,18 @@ export class ThreadRuntimeRegistry<TRuntime> {
     return result;
   }
 
-  async release(sessionId: string): Promise<void> {
-    const slot = this.slots.get(sessionId);
+  async release(threadId: string): Promise<void> {
+    const slot = this.slots.get(threadId);
     if (!slot) return;
-    this.slots.delete(sessionId);
-    if (this.activeSessionId === sessionId) this.activeSessionId = undefined;
+    this.slots.delete(threadId);
+    if (this.activeThreadId === threadId) this.activeThreadId = undefined;
     await this.disposeRuntime(slot);
   }
 
   async releaseAll(): Promise<void> {
     const slots = [...this.slots.values()];
     this.slots.clear();
-    this.activeSessionId = undefined;
+    this.activeThreadId = undefined;
     await Promise.all(slots.map((slot) => this.disposeRuntime(slot).catch(() => undefined)));
   }
 
@@ -152,18 +153,18 @@ export class ThreadRuntimeRegistry<TRuntime> {
    * megabytes — so idle ones beyond the budget are released, oldest first.
    * Busy threads and the one on screen are always kept.
    */
-  private async evictIdle(keepSessionId?: string): Promise<void> {
+  private async evictIdle(keepThreadId?: string): Promise<void> {
     if (this.slots.size <= this.maxLive) return;
     const candidates = [...this.slots.values()]
       .filter((slot) => slot.busy === 0
-        && slot.sessionId !== this.activeSessionId
-        && slot.sessionId !== keepSessionId
+        && slot.threadId !== this.activeThreadId
+        && slot.threadId !== keepThreadId
         && this.canEvict(this.recordOf(slot)))
       .sort((left, right) => left.lastUsedAt - right.lastUsedAt);
     let overflow = this.slots.size - this.maxLive;
     for (const slot of candidates) {
       if (overflow <= 0) break;
-      this.slots.delete(slot.sessionId);
+      this.slots.delete(slot.threadId);
       overflow -= 1;
       await this.disposeRuntime(slot).catch(() => undefined);
     }

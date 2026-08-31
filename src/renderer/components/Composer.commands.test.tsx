@@ -28,9 +28,9 @@ const snapshot: HostSnapshot = {
   serviceTierAvailable: false,
 };
 
-function renderComposer(onSubmit = vi.fn(), streaming = false) {
+function renderComposer(onSubmit = vi.fn(), streaming = false, snapshotOverride: HostSnapshot = snapshot) {
   render(<Composer
-    snapshot={{ ...snapshot, isStreaming: streaming }}
+    snapshot={{ ...snapshotOverride, isStreaming: streaming }}
     queue={[]}
     accessLevel="full"
     contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
@@ -68,7 +68,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "$tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("$tdd fix the parser", [], undefined, { name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
+    expect(onSubmit).toHaveBeenCalledWith("$tdd fix the parser", [], undefined, { source: "skill", name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
   });
 
   it("finds and executes skills directly from slash", () => {
@@ -82,7 +82,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "/tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", [], undefined, { name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
+    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", [], undefined, { source: "skill", name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
   });
 
   it("queues Enter and steers with Command-Enter while streaming", () => {
@@ -134,7 +134,28 @@ describe("Composer command menu", () => {
       "$tdd  keep this:\n    code",
       [],
       undefined,
-      { name: "tdd", visibleText: " keep this:\n    code", command: "/skill:tdd" },
+      { source: "skill", name: "tdd", visibleText: " keep this:\n    code", command: "/skill:tdd" },
     );
+  });
+
+  it("makes unsupported Claude controls unavailable before invocation", () => {
+    renderComposer(vi.fn(), false, {
+      ...snapshot,
+      backendKind: "claude-code",
+      runtimeCapabilities: { skillInvocationDialect: "claude-code" },
+      models: [],
+      model: undefined,
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      serviceTierAvailable: false,
+    });
+
+    expect(screen.getByRole("button", { name: "Model selection unavailable" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Reasoning controls unavailable" })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByRole("button", { name: /full access/u }));
+    const ask = screen.getByRole("menuitem", { name: /ask before edits/u });
+    expect(ask).toHaveProperty("disabled", true);
+    expect(ask.getAttribute("title")).toContain("interactive approvals");
   });
 });

@@ -31,7 +31,7 @@ describe("thread runtime backends", () => {
     });
 
     await first.create();
-    const prepared = await first.preparePrompt("$tdd\n    preserve this", "tdd");
+    const prepared = await first.preparePrompt("$tdd\n    preserve this", { source: "skill", name: "tdd", command: "/tdd", visibleText: "\n    preserve this" });
     expect(prepared).toMatchObject({
       backendKind: "claude-code",
       visibleText: "\n    preserve this",
@@ -39,7 +39,12 @@ describe("thread runtime backends", () => {
       skill: { name: "tdd", command: "/tdd" },
     });
     await first.prompt({ text: "$tdd\n    preserve this", clientMessageId: "request-1", delivery: "prompt", prepared });
-    expect(sendPrompt).toHaveBeenCalledWith(expect.objectContaining({ text: "/tdd \n    preserve this", sessionId: "tau-thread" }));
+    expect(sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      text: "/tdd \n    preserve this",
+      sessionId: expect.any(String),
+    }));
+    const transportInput = ((sendPrompt.mock.calls as unknown[][])[0]?.[0] as { sessionId: string } | undefined);
+    expect(transportInput?.sessionId).not.toBe("tau-thread");
     expect(await first.transcript()).toMatchObject([
       { role: "user", text: "\n    preserve this", clientMessageId: "request-1", skill: { name: "tdd", command: "/tdd" } },
       { role: "assistant", text: "Claude answer" },
@@ -75,7 +80,7 @@ describe("thread runtime backends", () => {
       permissionPolicy: () => ({ permissionMode: "manual", tools: ["default"] }),
     });
     await backend.create();
-    await expect(backend.preparePrompt("$tdd inspect", "tdd")).rejects.toThrow("manual approvals are unsupported");
+    await expect(backend.preparePrompt("$tdd inspect", { source: "skill", name: "tdd", command: "/tdd", visibleText: "inspect" })).rejects.toThrow("manual approvals are unsupported");
     expect(sendPrompt).not.toHaveBeenCalled();
   });
 });

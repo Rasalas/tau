@@ -43,11 +43,13 @@ describe("runtime adapter selection", () => {
       await writeFile(command, "#!/usr/bin/env node\nconst args = process.argv.slice(2);\nif (args.at(-1) === 'hang') setInterval(() => {}, 1000); else process.stdout.write(JSON.stringify(args));\n", { encoding: "utf8", mode: 0o700 });
       await chmod(command, 0o700);
       const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json") });
-      const first = await adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "session", text: "--help" });
-      const second = await adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "session", text: "continue" });
+      const first = await adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "session", sessionId: "provider-session", text: "--help" });
+      const second = await adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "session", sessionId: "provider-session", text: "continue" });
       expect(first.assistantText).toContain("\"--help\"");
       expect(JSON.parse(second.assistantText ?? "[]")).toContain("--resume");
       expect(second.assistantText).toContain("continue");
+      expect((await adapter.sessionStore?.get("session"))?.claudeSessionId).toBeTypeOf("string");
+      expect(await adapter.sessionStore?.get("provider-session")).toBeUndefined();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -60,18 +62,18 @@ describe("runtime adapter selection", () => {
       await writeFile(command, "#!/usr/bin/env node\nconst args = process.argv.slice(2);\nif (args.at(-1) === 'hang') setInterval(() => {}, 1000); else process.stdout.write('ok');\n", { encoding: "utf8", mode: 0o700 });
       await chmod(command, 0o700);
       const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json"), timeoutMs: 1000, killGraceMs: 20 });
-      const pending = adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "abort-session", text: "hang" });
+      const pending = adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "hang" });
       await new Promise((resolve) => setTimeout(resolve, 20));
-      const queued = adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "abort-session", text: "queued" });
+      const queued = adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "queued" });
       await adapter.transport.abort?.("abort-session");
       await expect(pending).rejects.toMatchObject({ name: "AbortError" });
       await expect(queued).rejects.toMatchObject({ name: "AbortError" });
-      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "abort-session", text: "again" })).resolves.toEqual({ assistantText: "ok" });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "again" })).resolves.toEqual({ assistantText: "ok" });
       const timeoutAdapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "timeout-sessions.json"), timeoutMs: 80, killGraceMs: 20 });
-      await expect(timeoutAdapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "timeout-session", text: "hang" })).rejects.toMatchObject({ name: "AbortError" });
+      await expect(timeoutAdapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "timeout-session", sessionId: "provider-timeout", text: "hang" })).rejects.toMatchObject({ name: "AbortError" });
       const controller = new AbortController();
       const signalAdapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "signal-sessions.json"), timeoutMs: 1_000, killGraceMs: 20 });
-      const signalPending = signalAdapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "signal-session", text: "hang", signal: controller.signal });
+      const signalPending = signalAdapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "signal-session", sessionId: "provider-signal", text: "hang", signal: controller.signal });
       await new Promise((resolve) => setTimeout(resolve, 20));
       controller.abort();
       await expect(signalPending).rejects.toMatchObject({ name: "AbortError" });
@@ -88,13 +90,13 @@ describe("runtime adapter selection", () => {
       await chmod(command, 0o700);
       const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json") });
 
-      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "conflict-session", text: "conflict" })).resolves.toEqual({ assistantText: "resumed" });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "conflict-session", sessionId: "provider-conflict", text: "conflict" })).resolves.toEqual({ assistantText: "resumed" });
       const conflictRecord = await adapter.sessionStore?.get("conflict-session");
       expect(conflictRecord).toMatchObject({ started: true, attempted: true, createFallbackUsed: true, attemptCount: 2 });
-      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "conflict-session", text: "next" })).resolves.toEqual({ assistantText: "resumed" });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "conflict-session", sessionId: "provider-conflict", text: "next" })).resolves.toEqual({ assistantText: "resumed" });
 
-      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "missing-session", text: "first" })).resolves.toEqual({ assistantText: "created" });
-      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "missing-session", text: "missing" })).resolves.toEqual({ assistantText: "created" });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "missing-session", sessionId: "provider-missing", text: "first" })).resolves.toEqual({ assistantText: "created" });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "missing-session", sessionId: "provider-missing", text: "missing" })).resolves.toEqual({ assistantText: "created" });
       const missingRecord = await adapter.sessionStore?.get("missing-session");
       expect(missingRecord).toMatchObject({ started: true, createFallbackUsed: true, attemptCount: 3 });
     } finally {
@@ -109,7 +111,21 @@ describe("runtime adapter selection", () => {
       await writeFile(command, "#!/usr/bin/env node\nprocess.stderr.write('e'.repeat(200)); process.exit(2);\n", { encoding: "utf8", mode: 0o700 });
       await chmod(command, 0o700);
       const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json"), maxBuffer: 64, killGraceMs: 20 });
-      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "stderr-session", text: "fail" })).rejects.toThrow("Claude Code stderr truncated");
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "stderr-session", sessionId: "provider-stderr", text: "fail" })).rejects.toThrow("Claude Code stderr truncated");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("bounds stdout and reports its truncation marker", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-claude-stdout-"));
+    try {
+      const command = join(directory, "claude-stdout-stub.mjs");
+      await writeFile(command, "#!/usr/bin/env node\nprocess.stdout.write('o'.repeat(200)); setInterval(() => {}, 1000);\n", { encoding: "utf8", mode: 0o700 });
+      await chmod(command, 0o700);
+      const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json"), maxBuffer: 128, killGraceMs: 20 });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "stdout-session", sessionId: "provider-stdout", text: "overflow" }))
+        .rejects.toThrow("Claude Code stdout truncated");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -135,7 +151,8 @@ describe("runtime adapter selection", () => {
       const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json") });
       await expect(adapter.transport.sendPrompt({
         cwd: process.cwd(),
-        sessionId: "manual-session",
+        tauThreadId: "manual-session",
+        sessionId: "provider-manual",
         text: "must reject",
         permissionPolicy: runtimePermissionPolicy("ask"),
       })).rejects.toThrow("manual approvals are unsupported");

@@ -3,7 +3,7 @@ import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpd
 import type { HostSnapshot } from "./contracts.js";
 
 const snapshot: HostSnapshot = {
-  cwd: "/tmp/project", sessionId: "session", sessionTitle: "title", models: [],
+  cwd: "/tmp/project", threadId: "thread", providerSessionId: "provider", sessionId: "thread", sessionTitle: "title", models: [],
   thinkingLevel: "off", thinkingLevels: ["off"], messages: [
     { id: "1", role: "user", text: "hello", timestamp: 1 },
     { id: "2", role: "assistant", text: "world", timestamp: 2 },
@@ -28,6 +28,7 @@ describe("host protocol", () => {
     const detail = detailFromSnapshot({ ...snapshot, messages: Array.from({ length: 41 }, (_, i) => ({ id: String(i), role: "user" as const, text: String(i), timestamp: i })) });
     expect(detail.messages).toHaveLength(40);
     expect(detail.olderCursor).toBe("1");
+    expect(detail).toMatchObject({ threadId: "thread", providerSessionId: "provider", sessionId: "thread" });
     expect(detail).not.toHaveProperty("models");
   });
 });

@@ -46,6 +46,9 @@ export function runtimePermissionPolicy(level: AccessLevel): RuntimePermissionPo
 
 export interface RuntimePromptInput {
   cwd: string;
+  /** Stable Tau thread key used for queues and app-data persistence. */
+  tauThreadId: string;
+  /** Provider-owned runtime session id; never use this as a Tau store key. */
   sessionId: string;
   text: string;
   delivery?: "prompt" | "steer" | "followUp";
@@ -60,8 +63,8 @@ export interface RuntimePromptResult {
 
 export interface RuntimeTransport {
   sendPrompt(input: RuntimePromptInput): Promise<RuntimePromptResult>;
-  /** Stops children owned by one Tau session; absent only on test transports. */
-  abort?(sessionId: string): Promise<void>;
+  /** Stops children owned by one Tau thread; absent only on test transports. */
+  abort?(tauThreadId: string): Promise<void>;
 }
 
 export interface PiAgentRuntimeAdapter extends SkillRuntimeAdapter {
@@ -190,6 +193,7 @@ function runClaudeProcess(
   maxBuffer: number,
   timeoutMs: number,
   killGraceMs: number,
+  tauThreadId: string,
   activeProcesses: Map<string, Set<RunningChild>>,
 ): Promise<string> {
   let child: ChildProcess;
@@ -228,15 +232,15 @@ function runClaudeProcess(
     },
   };
   terminateProcess = running.terminate;
-  const active = activeProcesses.get(input.sessionId) ?? new Set<RunningChild>();
+  const active = activeProcesses.get(tauThreadId) ?? new Set<RunningChild>();
   active.add(running);
-  activeProcesses.set(input.sessionId, active);
+  activeProcesses.set(tauThreadId, active);
 
   const cleanup = () => {
     if (timeout !== undefined) clearTimeout(timeout);
     input.signal?.removeEventListener("abort", onAbort);
     active.delete(running);
-    if (active.size === 0) activeProcesses.delete(input.sessionId);
+    if (active.size === 0) activeProcesses.delete(tauThreadId);
   };
   const settle = (error?: Error) => {
     if (settled) return;
@@ -255,8 +259,7 @@ function runClaudeProcess(
       return;
     }
     const marker = "\n[Claude Code stderr truncated]\n";
-    const budget = Math.max(0, maxBuffer - Buffer.byteLength(marker, "utf8"));
-    stderr = `${Buffer.from(next, "utf8").subarray(0, budget).toString("utf8")}${marker}`;
+    stderr = boundedOutputWithMarker(next, marker, maxBuffer);
     stderrTruncated = true;
   };
 
@@ -268,8 +271,7 @@ function runClaudeProcess(
       return;
     }
     const marker = "\n[Claude Code stdout truncated]\n";
-    const budget = Math.max(0, maxBuffer - Buffer.byteLength(marker, "utf8"));
-    stdout = `${Buffer.from(next, "utf8").subarray(0, budget).toString("utf8")}${marker}`;
+    stdout = boundedOutputWithMarker(next, marker, maxBuffer);
     stdoutTruncated = true;
   };
 
@@ -340,14 +342,14 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
         // Reject an unsupported Tau access mode before joining a queue or
         // spawning anything, so a queued request cannot turn into a hang.
         assertClaudePermissionPolicySupported(policy);
-        const generation = abortGenerations.get(input.sessionId) ?? 0;
-        const previous = requestQueues.get(input.sessionId) ?? Promise.resolve();
+        const generation = abortGenerations.get(input.tauThreadId) ?? 0;
+        const previous = requestQueues.get(input.tauThreadId) ?? Promise.resolve();
         const operation = previous.then(async () => {
-          if (generation !== (abortGenerations.get(input.sessionId) ?? 0) || input.signal?.aborted) {
+          if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
             throw abortError("Claude Code request aborted.");
           }
-          const record = await sessionStore.ensure(input.sessionId, input.cwd);
-          if (generation !== (abortGenerations.get(input.sessionId) ?? 0) || input.signal?.aborted) {
+          const record = await sessionStore.ensure(input.tauThreadId, input.cwd);
+          if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
             throw abortError("Claude Code request aborted.");
           }
           // `attempted` is persisted before spawning. On the next request a
@@ -355,8 +357,8 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
           // clear "missing session" response permits one create fallback.
           const resumeFirst = record.started || record.attempted;
           const run = async (started: boolean): Promise<string> => {
-            await sessionStore.markAttempted(input.sessionId, input.cwd);
-            if (generation !== (abortGenerations.get(input.sessionId) ?? 0) || input.signal?.aborted) {
+            await sessionStore.markAttempted(input.tauThreadId, input.cwd);
+            if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
               throw abortError("Claude Code request aborted.");
             }
             return runClaudeProcess(
@@ -366,6 +368,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
               maxBuffer,
               timeoutMs,
               killGraceMs,
+              input.tauThreadId,
               activeProcesses,
             );
           };
@@ -376,7 +379,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
             const message = error instanceof Error ? error.message : String(error);
             const aborted = error instanceof Error && error.name === "AbortError";
             if (aborted) {
-              await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "aborted");
+              await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "aborted");
               throw error;
             }
             // A first create can race an already-created Claude session. A
@@ -385,47 +388,47 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
             const missing = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid)|(?:no|cannot|could not)\s+(?:find\s+)?(?:the\s+)?(?:session|conversation)/iu.test(message);
             const conflict = /(?:session|conversation)[^\n]*(?:already exists|already in use|conflict)/iu.test(message);
             if (resumeFirst && !record.createFallbackUsed && missing) {
-              await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "missing");
-              await sessionStore.markCreateFallbackUsed(input.sessionId, input.cwd);
+              await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "missing");
+              await sessionStore.markCreateFallbackUsed(input.tauThreadId, input.cwd);
               try {
                 assistantText = await run(false);
               } catch (fallbackError) {
-                await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "failed");
+                await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "failed");
                 throw fallbackError;
               }
             } else if (!resumeFirst && conflict) {
-              await sessionStore.markCreateFallbackUsed(input.sessionId, input.cwd);
+              await sessionStore.markCreateFallbackUsed(input.tauThreadId, input.cwd);
               try {
                 assistantText = await run(true);
               } catch (fallbackError) {
-                await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "failed");
+                await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "failed");
                 throw fallbackError;
               }
             } else {
-              await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "failed");
+              await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "failed");
               throw error;
             }
           }
-          if (generation !== (abortGenerations.get(input.sessionId) ?? 0) || input.signal?.aborted) {
-            await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "aborted");
+          if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
+            await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "aborted");
             throw abortError("Claude Code request aborted.");
           }
-          await sessionStore.markStarted(input.sessionId, input.cwd);
+          await sessionStore.markStarted(input.tauThreadId, input.cwd);
           return { assistantText };
         });
         const settled = operation.then(() => undefined, () => undefined);
-        requestQueues.set(input.sessionId, settled);
+        requestQueues.set(input.tauThreadId, settled);
         try {
           return await operation;
         } finally {
-          if (requestQueues.get(input.sessionId) === settled) requestQueues.delete(input.sessionId);
+          if (requestQueues.get(input.tauThreadId) === settled) requestQueues.delete(input.tauThreadId);
         }
       },
-      async abort(sessionId) {
-        abortGenerations.set(sessionId, (abortGenerations.get(sessionId) ?? 0) + 1);
-        const children = [...(activeProcesses.get(sessionId) ?? [])];
+      async abort(tauThreadId) {
+        abortGenerations.set(tauThreadId, (abortGenerations.get(tauThreadId) ?? 0) + 1);
+        const children = [...(activeProcesses.get(tauThreadId) ?? [])];
         await Promise.all(children.map((running) => running.terminate(abortError("Claude Code request aborted."))));
-        const queued = requestQueues.get(sessionId);
+        const queued = requestQueues.get(tauThreadId);
         if (queued) await waitBounded(queued, Math.max(killGraceMs * 2, 100));
       },
     },
@@ -448,4 +451,26 @@ export function selectRuntimeAdapter(
     default:
       throw new Error(`Unsupported TAU_RUNTIME_ADAPTER '${value}'. Use 'pi' or 'claude-code'.`);
   }
+}
+/** Keep captured provider output bounded even when the configured limit is tiny. */
+function boundedOutputWithMarker(value: string, marker: string, maxBytes: number): string {
+  const limit = Math.max(0, maxBytes);
+  if (limit === 0) return "";
+  const markerBytes = Buffer.from(marker, "utf8");
+  if (markerBytes.length >= limit) return markerBytes.subarray(0, limit).toString("utf8");
+  const prefix = utf8Prefix(value, limit - markerBytes.length);
+  return prefix + marker;
+}
+
+/** Keep a truncated UTF-8 prefix valid as well as bounded in bytes. */
+function utf8Prefix(value: string, maxBytes: number): string {
+  const limit = Math.max(0, Math.floor(maxBytes));
+  if (limit === 0) return "";
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.length <= limit) return value;
+  let prefix = bytes.subarray(0, limit).toString("utf8");
+  // Buffer#toString replaces a cut-off code point with U+FFFD, which is
+  // three bytes and could exceed a one- or two-byte budget after re-encoding.
+  while (Buffer.byteLength(prefix, "utf8") > limit) prefix = prefix.slice(0, -1);
+  return prefix;
 }

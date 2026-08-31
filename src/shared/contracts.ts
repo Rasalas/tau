@@ -105,6 +105,8 @@ export interface UiComposerCommand {
 
 /** Structured renderer-to-host skill selection; no runtime wrapper crosses IPC. */
 export interface UiSkillDraft {
+  /** The composer can submit only a catalogued skill, never an extension/prompt command. */
+  source: "skill";
   name: string;
   visibleText: string;
   /** Already resolved by the selected runtime adapter; the renderer never derives it. */
@@ -113,7 +115,11 @@ export interface UiSkillDraft {
 
 /** Opaque host-prepared prompt data returned before an optimistic render. */
 export interface PreparedPrompt {
-  /** Session the host prepared this request for. Undefined means a new thread. */
+  /** Canonical Tau thread owner. Undefined means a new thread. */
+  tauThreadId?: string;
+  /** Provider-owned session id, when the selected backend has one. */
+  providerSessionId?: string;
+  /** @deprecated v1 wire alias for the Tau thread id; never a provider id. */
   sessionId?: string;
   backendKind: ThreadBackendKind;
   runtimeCapabilities: RuntimeCapabilities;
@@ -344,8 +350,13 @@ export interface UiTurnActivity {
 
 export interface HostSnapshot {
   cwd: string;
-  branch?: string;
+  /** Canonical Tau thread owner. `sessionId` remains for v1 renderer clients. */
+  threadId?: string;
+  /** Provider-owned runtime session id; it is not used for Tau indexing. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
+  branch?: string;
   sessionName?: string;
   sessionTitle: string;
   model?: UiModel;
@@ -379,6 +390,10 @@ export interface HostBootstrap {
   threadIndex: ThreadIndexSnapshot;
   version: 1;
   detail: {
+    /** Canonical Tau thread owner; old clients use sessionId. */
+    threadId?: string;
+    /** Provider-owned runtime session id, when available. */
+    providerSessionId?: string;
     sessionId: string;
     /** Lifecycle owner for the active thread; old bootstrap payloads omit it. */
     backendKind?: ThreadBackendKind;
@@ -466,7 +481,7 @@ export interface TauDesktopApi {
   readonly platform: string;
   bootstrap(): Promise<HostBootstrap>;
   loadTranscript(sessionId: string, cursor?: string): Promise<import("./host-protocol.js").TranscriptPage>;
-  preparePrompt(text: string, sessionId?: string, skillName?: string): Promise<PreparedPrompt>;
+  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt>;
   /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
   sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: PreparedPrompt): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;

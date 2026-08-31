@@ -2,9 +2,11 @@ import type {
   RuntimeCapabilities,
   SkillInvocationDialect,
   UiComposerCommand,
+  UiSkillDraft,
   UiSkillInvocation,
 } from "../shared/contracts.js";
 import { parseKnownSkillInvocation } from "../shared/skill-envelope.js";
+import { canonicalPreparedSkillName, runtimeSkillCommand } from "../shared/prepared-prompt.js";
 
 export { visibleSkillEnvelopeText } from "../shared/skill-envelope.js";
 
@@ -19,17 +21,17 @@ export const PI_RUNTIME_ADAPTER = {
 } as const satisfies SkillRuntimeAdapter;
 
 function formatSkillInvocation(name: string, userMessage: string, dialect: SkillInvocationDialect): string {
-  const command = dialect === "claude-code" ? `/${name}` : `/skill:${name}`;
+  const command = runtimeSkillCommand(name, { skillInvocationDialect: dialect });
   return userMessage ? `${command} ${userMessage}` : command;
 }
 
 /** Runtime-owned spelling exposed to the composer as typed command metadata. */
 export function skillInvocationCommand(name: string, adapter: SkillRuntimeAdapter): string {
-  return formatSkillInvocation(name, "", adapter.capabilities.skillInvocationDialect);
+  return runtimeSkillCommand(name, adapter.capabilities);
 }
 
 export function canonicalSkillName(name: string): string {
-  return name.startsWith("skill:") ? name.slice("skill:".length) : name;
+  return canonicalPreparedSkillName(name);
 }
 
 export interface PreparedSkillPrompt {
@@ -47,7 +49,29 @@ export function prepareSkillPrompt(
   raw: string,
   adapter: SkillRuntimeAdapter,
   commands: readonly UiComposerCommand[],
+  selectedSkill?: UiSkillDraft,
 ): PreparedSkillPrompt {
+  if (selectedSkill) {
+    const name = canonicalSkillName(selectedSkill.name);
+    const command = skillInvocationCommand(name, adapter);
+    const catalogEntry = commands.find((candidate) => candidate.source === "skill"
+      && canonicalSkillName(candidate.name) === name);
+    const isKnownSkill = Boolean(catalogEntry);
+    if (selectedSkill.source !== "skill"
+      || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(name)
+      || !isKnownSkill
+      || selectedSkill.command !== command
+      || (catalogEntry?.skillCommand !== undefined && catalogEntry.skillCommand !== command)
+      || typeof selectedSkill.visibleText !== "string") {
+      throw new Error(`The selected skill '${selectedSkill.name}' is no longer available in this runtime.`);
+    }
+    const skill: UiSkillInvocation = {
+      name,
+      command,
+      copyText: formatSkillInvocation(name, selectedSkill.visibleText, adapter.capabilities.skillInvocationDialect),
+    };
+    return { text: selectedSkill.visibleText, runtimeText: skill.copyText, skill };
+  }
   const invocation = parseKnownSkillInvocation(raw, commands);
   if (!invocation) return { text: raw, runtimeText: raw };
   const dialect = adapter.capabilities.skillInvocationDialect;
