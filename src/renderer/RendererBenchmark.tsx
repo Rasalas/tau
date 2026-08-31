@@ -81,6 +81,10 @@ export default function RendererBenchmark() {
   const [listQuery, setListQuery] = useState("");
   const mountDurations = useRef<number[]>([]);
   const updateDurations = useRef<number[]>([]);
+  const mountStartedAt = useRef(performance.now());
+  const updateStartedAt = useRef<number | undefined>(undefined);
+  const profilerReportedMount = useRef(false);
+  const profilerReportedUpdate = useRef(false);
   const frames = useRef<number[]>([]);
   const [benchmarkPulse, setBenchmarkPulse] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -95,9 +99,27 @@ export default function RendererBenchmark() {
   const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage() : undefined, [scenario]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
   const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
-    if (phase === "mount") mountDurations.current.push(actualDuration);
-    else updateDurations.current.push(actualDuration);
+    if (phase === "mount") {
+      profilerReportedMount.current = true;
+      mountDurations.current.push(actualDuration);
+    } else {
+      profilerReportedUpdate.current = true;
+      updateDurations.current.push(actualDuration);
+    }
   };
+
+  useEffect(() => {
+    // Production React may omit Profiler callbacks. Keep the same commit
+    // boundary in that mode while retaining the Profiler instrumentation.
+    if (!profilerReportedMount.current && mountDurations.current.length === 0) {
+      mountDurations.current.push(performance.now() - mountStartedAt.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
+    updateDurations.current.push(performance.now() - updateStartedAt.current);
+  }, [listQuery, text, toolOutput, benchmarkPulse]);
 
   useEffect(() => {
     let frame = 0;
@@ -138,6 +160,7 @@ export default function RendererBenchmark() {
       const append = () => {
         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
         frame += 1;
+        updateStartedAt.current = performance.now();
         setText((current) => {
           const remaining = targetBytes - current.length;
           return remaining > 0 ? current + chunk.slice(0, remaining) : current;
@@ -149,6 +172,7 @@ export default function RendererBenchmark() {
     } else if (scenario === "tool-output-1mb") {
       const chunk = "tool output benchmark line\n".repeat(640);
       const append = () => {
+        updateStartedAt.current = performance.now();
         setToolOutput((current) => current + chunk.slice(0, targetBytes - current.length));
         frame += 1;
         if (frame * chunk.length < targetBytes) requestAnimationFrame(append);
@@ -160,12 +184,14 @@ export default function RendererBenchmark() {
       const update = () => {
         const query = queries.shift();
         if (query === undefined) { finish(); return; }
+        updateStartedAt.current = performance.now();
         setListQuery(query);
         requestAnimationFrame(update);
       };
       requestAnimationFrame(update);
     } else {
       requestAnimationFrame(() => {
+        updateStartedAt.current = performance.now();
         setBenchmarkPulse((pulse) => pulse + 1);
         finish();
       });
