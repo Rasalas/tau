@@ -8,6 +8,7 @@ import { ModelPicker, modelKey } from "./ModelPicker";
 import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
+import { AttachmentImageDialog } from "./AttachmentImageDialog";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
 
 type OpenMenu = "thinking" | "access" | undefined;
@@ -157,7 +158,6 @@ export function Composer({
   const [draft, setDraft] = useState(() => readComposerDraft(window.localStorage, draftStorageKey));
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
-  const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
@@ -205,8 +205,6 @@ export function Composer({
   const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
-  const preview = attachments.find((attachment) => attachment.id === previewId);
-
   const addFiles = async (files: FileList | readonly File[]) => {
     const available = Math.max(0, MAX_ATTACHMENTS - attachments.length);
     const candidates = Array.from(files).slice(0, available);
@@ -244,7 +242,6 @@ export function Composer({
     updateDraft("");
     setAttachments([]);
     setAttachmentError(undefined);
-    setPreviewId(undefined);
   };
 
   return (
@@ -289,26 +286,35 @@ export function Composer({
         }}
       >
         {attachments.length > 0 ? (
-          <div className="composer-attachments" aria-label="Attached files">
-            {attachments.map((attachment) => (
-              <div className="composer-attachment" key={attachment.id}>
-                <button
-                  className="attachment-preview-button"
-                  aria-label={`Preview ${attachment.name}`}
-                  onClick={() => setPreviewId(attachment.id)}
-                >
-                  <img src={attachment.previewUrl} alt="" />
-                </button>
-                <button
-                  className="attachment-remove"
-                  aria-label={`Remove ${attachment.name}`}
-                  onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
+          <AttachmentImageDialog images={attachments.map((attachment) => ({
+            key: String(attachment.id),
+            src: attachment.previewUrl,
+            alt: attachment.name,
+            label: attachment.name,
+          }))}>{(open) =>
+            <div className="composer-attachments" aria-label="Attached files">
+              {attachments.map((attachment, index) => (
+                <div className="composer-attachment" key={attachment.id}>
+                  <button
+                    className="attachment-preview-button"
+                    type="button"
+                    aria-label={`Preview ${attachment.name}`}
+                    onClick={() => open(index)}
+                  >
+                    <img src={attachment.previewUrl} alt="" />
+                  </button>
+                  <button
+                    className="attachment-remove"
+                    type="button"
+                    aria-label={`Remove ${attachment.name}`}
+                    onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          }</AttachmentImageDialog>
         ) : null}
         {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
         {trigger ? (
@@ -520,16 +526,6 @@ export function Composer({
           )}
         </div>
       </div>
-
-      {preview ? (
-        <div className="attachment-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={() => setPreviewId(undefined)}>
-          <figure onMouseDown={(event) => event.stopPropagation()}>
-            <button aria-label="Close preview" onClick={() => setPreviewId(undefined)}><X size={18} /></button>
-            <img src={preview.previewUrl} alt={preview.name} />
-            <figcaption>{preview.name}</figcaption>
-          </figure>
-        </div>
-      ) : null}
 
       {modelPickerOpen ? (
         <ModelPicker

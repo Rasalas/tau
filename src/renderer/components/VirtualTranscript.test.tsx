@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 import { useRef, type ReactNode } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import { VirtualTranscript } from "./VirtualTranscript";
 
-function Fixture({ messages, activity, activityAfterMessageId, activities }: {
+afterEach(cleanup);
+
+function Fixture({ messages, threadKey = "fixture", activity, activityAfterMessageId, activities }: {
   messages: UiMessage[];
+  threadKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
@@ -17,6 +20,7 @@ function Fixture({ messages, activity, activityAfterMessageId, activities }: {
       messages={messages}
       scrollRef={ref}
       isStreaming={false}
+      threadKey={threadKey}
       activity={activity}
       activityAfterMessageId={activityAfterMessageId}
       activities={activities}
@@ -97,6 +101,17 @@ describe("virtual transcript", () => {
     expect(row?.style.flexDirection).toBe("column");
   });
 
+  it("scopes expansion state to the active thread", async () => {
+    const messages: UiMessage[] = [{ id: "reused", role: "user", text: "x".repeat(601), timestamp: 1 }];
+    const view = render(<Fixture messages={messages} threadKey="thread-a" />);
+    await waitFor(() => expect(view.container.querySelector(".virtual-transcript-row")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(screen.getByRole("button", { name: "Show less" })).toBeTruthy();
+
+    view.rerender(<Fixture messages={messages} threadKey="thread-b" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show more" })).toBeTruthy());
+  });
+
   it("keeps a thousand loaded turns out of the DOM", async () => {
     Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
     HTMLElement.prototype.getBoundingClientRect = function () {
@@ -172,24 +187,25 @@ describe("virtual transcript", () => {
       unrelatedObservers.forEach((observer) => observer.trigger(rows[1], 40));
       expect(container.scrollTop).toBe(scrollTop);
       expandObservers.forEach((observer) => observer.trigger(rows[0], 500));
-      // A scroll-end notification must not consume the pending target toggle.
-      container.dispatchEvent(new Event("scroll"));
-      expect(container.scrollTop).toBe(scrollTop);
 
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       expect(container.scrollTop).toBe(scrollTop);
 
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       expect(container.scrollTop).toBe(440);
+      // Scroll events after the target has settled cannot affect its result.
+      container.dispatchEvent(new Event("scroll"));
+      expect(container.scrollTop).toBe(440);
 
       const observersBeforeCollapse = DelayedResizeObserver.instances.length;
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
       const collapseObservers = DelayedResizeObserver.instances.slice(observersBeforeCollapse).filter((instance) => instance.targets.has(rows[0]));
       expect(collapseObservers).toHaveLength(1);
+      fireEvent.wheel(container);
       collapseObservers.forEach((observer) => observer.trigger(rows[0], 300));
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      expect(container.scrollTop).toBe(scrollTop);
+      expect(container.scrollTop).toBe(440);
 
       // A rapid reversal must cancel the first toggle's pending restore.
       const observersBeforeRapidExpand = DelayedResizeObserver.instances.length;
@@ -204,7 +220,7 @@ describe("virtual transcript", () => {
       rapidCollapseObservers.forEach((observer) => observer.trigger(rows[0], 300));
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      expect(container.scrollTop).toBe(scrollTop);
+      expect(container.scrollTop).toBe(440);
 
       // ResizeObserver also delivers an initial observation when the natural
       // row size is unchanged. It must settle the target without a stale jump.
@@ -217,12 +233,91 @@ describe("virtual transcript", () => {
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       container.dispatchEvent(new Event("scroll"));
-      expect(container.scrollTop).toBe(scrollTop);
+      expect(container.scrollTop).toBe(440);
     } finally {
       if (previousClientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", previousClientWidth);
       if (previousClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", previousClientHeight);
       if (previousOffsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", previousOffsetWidth);
       if (previousOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", previousOffsetHeight);
+      DelayedResizeObserver.instances = [];
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses an absolute clamped target when a tail row changes near the bottom", async () => {
+    const rafCallbacks = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 0;
+    vi.stubGlobal("ResizeObserver", DelayedResizeObserver);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++nextFrameId;
+      rafCallbacks.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => { rafCallbacks.delete(id); });
+
+    const previousClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+    const previousClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+    const previousOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    const previousOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    const previousScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 780 });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 780 });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        const node = this as unknown as HTMLElement;
+        if (!node.classList.contains("virtual-transcript-row")) return 600;
+        return node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 300 : 500;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        const node = this as unknown as HTMLElement;
+        if (!node.classList.contains("virtualizer-test-container")) return 0;
+        return node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 700 : 900;
+      },
+    });
+
+    const view = render(<RealVirtualizerFixture messages={[{ id: "tail", role: "user", text: "x".repeat(601), timestamp: 1 }]} />);
+    const container = view.container.querySelector<HTMLDivElement>(".virtualizer-test-container")!;
+    try {
+      await waitFor(() => expect(container.querySelectorAll(".virtual-transcript-row")).toHaveLength(1));
+      const row = container.querySelector<HTMLElement>(".virtual-transcript-row")!;
+      const content = row.querySelector<HTMLElement>(".message-text-content")!;
+      container.getBoundingClientRect = () => ({ top: 0, bottom: 600, height: 600, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
+      row.getBoundingClientRect = () => {
+        const height = content.classList.contains("collapsed") ? 300 : 500;
+        return { top: -200, bottom: -200 + height, height, left: 0, right: 780, width: 780, x: 0, y: -200, toJSON: () => ({}) };
+      };
+
+      container.scrollTop = 100;
+      const beforeExpand = DelayedResizeObserver.instances.length;
+      fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
+      const expandObservers = DelayedResizeObserver.instances.slice(beforeExpand).filter((instance) => instance.targets.has(row));
+      expect(expandObservers).toHaveLength(1);
+      expandObservers.forEach((observer) => observer.trigger(row, 500));
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      expect(container.scrollTop).toBe(300);
+
+      const beforeCollapse = DelayedResizeObserver.instances.length;
+      fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
+      const collapseObservers = DelayedResizeObserver.instances.slice(beforeCollapse).filter((instance) => instance.targets.has(row));
+      expect(collapseObservers).toHaveLength(1);
+      // Model the browser's pre-delivery clamp to the new max scrollTop.
+      container.scrollTop = 100;
+      collapseObservers.forEach((observer) => observer.trigger(row, 300));
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      expect(container.scrollTop).toBe(100);
+    } finally {
+      if (previousClientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", previousClientWidth);
+      if (previousClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", previousClientHeight);
+      if (previousOffsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", previousOffsetWidth);
+      if (previousOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", previousOffsetHeight);
+      if (previousScrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", previousScrollHeight);
       DelayedResizeObserver.instances = [];
       vi.unstubAllGlobals();
     }

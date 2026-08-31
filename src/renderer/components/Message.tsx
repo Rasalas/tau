@@ -1,18 +1,27 @@
-import { Bot, ChevronRight, Copy, GitFork, X } from "lucide-react";
-import { createPortal } from "react-dom";
-import { memo, useEffect, useRef, useState } from "react";
+import { Bot, ChevronRight, Copy, GitFork } from "lucide-react";
+import { memo, useEffect, useState } from "react";
 import type { UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
+import { AttachmentImageDialog, type AttachmentImage } from "./AttachmentImageDialog";
 import { Markdown } from "./Markdown";
 
 export const LONG_MESSAGE_LINE_LIMIT = 8;
 export const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
 
 const MARK = /\p{Mark}/u;
+type HangulJamo = "L" | "V" | "T" | undefined;
+
+function hangulJamoType(codePoint: number): HangulJamo {
+  if ((codePoint >= 0x1100 && codePoint <= 0x115f) || (codePoint >= 0xa960 && codePoint <= 0xa97c)) return "L";
+  if ((codePoint >= 0x1160 && codePoint <= 0x11a7) || (codePoint >= 0xd7b0 && codePoint <= 0xd7c6)) return "V";
+  if ((codePoint >= 0x11a8 && codePoint <= 0x11ff) || (codePoint >= 0xd7cb && codePoint <= 0xd7fb)) return "T";
+  return undefined;
+}
 
 function fallbackGraphemeCount(text: string, limit: number): number {
   let count = 0;
   let joined = false;
   let regionalIndicators = 0;
+  let previousHangul: HangulJamo;
   for (const character of text) {
     const codePoint = character.codePointAt(0)!;
     if (character === "\u200d") {
@@ -20,8 +29,10 @@ function fallbackGraphemeCount(text: string, limit: number): number {
       continue;
     }
     if (MARK.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff)) continue;
+    const hangul = hangulJamoType(codePoint);
     if (joined) {
       joined = false;
+      previousHangul = hangul;
       continue;
     }
     if (codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff) {
@@ -29,8 +40,12 @@ function fallbackGraphemeCount(text: string, limit: number): number {
       if (regionalIndicators % 2 === 1) count += 1;
     } else {
       regionalIndicators = 0;
-      count += 1;
+      const continuesHangul = (hangul === "L" && previousHangul === "L")
+        || (hangul === "V" && (previousHangul === "L" || previousHangul === "V"))
+        || (hangul === "T" && (previousHangul === "V" || previousHangul === "T"));
+      if (!continuesHangul) count += 1;
     }
+    previousHangul = hangul;
     if (count > limit) return count;
   }
   return count;
@@ -142,35 +157,9 @@ function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
   return request;
 }
 
-interface MessageImage {
-  key: string;
-  src: string;
-  alt: string;
-}
-
-function MessageImageGallery({ images }: { images: readonly MessageImage[] }) {
-  const [previewIndex, setPreviewIndex] = useState<number>();
-  const preview = previewIndex === undefined ? undefined : images[previewIndex];
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const previouslyFocused = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!preview) return;
-    previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeButtonRef.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPreviewIndex(undefined);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("keydown", closeOnEscape);
-      previouslyFocused.current?.focus();
-      previouslyFocused.current = null;
-    };
-  }, [previewIndex]);
-
+function MessageImageGallery({ images }: { images: readonly AttachmentImage[] }) {
   if (images.length === 0) return null;
-  return <>
+  return <AttachmentImageDialog images={images}>{(open) =>
     <div className="message-images">
       {images.map((image, index) => (
         <button
@@ -178,29 +167,13 @@ function MessageImageGallery({ images }: { images: readonly MessageImage[] }) {
           key={image.key}
           type="button"
           aria-label={`Open image ${index + 1}`}
-          onClick={() => setPreviewIndex(index)}
+          onClick={() => open(index)}
         >
           <img src={image.src} alt={image.alt} />
         </button>
       ))}
     </div>
-    {preview ? createPortal(
-      <div
-        className="attachment-lightbox"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Image preview"
-        onMouseDown={(event) => { if (event.target === event.currentTarget) setPreviewIndex(undefined); }}
-        onClick={(event) => { if (event.target === event.currentTarget) setPreviewIndex(undefined); }}
-      >
-        <figure onClick={(event) => event.stopPropagation()}>
-          <button ref={closeButtonRef} type="button" aria-label="Close preview" onClick={() => setPreviewIndex(undefined)}><X size={18} /></button>
-          <img src={preview.src} alt={preview.alt} />
-        </figure>
-      </div>,
-      document.body,
-    ) : null}
-  </>;
+  }</AttachmentImageDialog>;
 }
 
 function PersistedMessageImages({ images }: { images: readonly UiMessageImage[] }) {

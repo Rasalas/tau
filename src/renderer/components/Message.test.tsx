@@ -42,7 +42,12 @@ describe("Message images", () => {
     expect(dialog).toBeTruthy();
     expect(dialog.parentElement).toBe(document.body);
     expect(dialog.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close preview" }));
+    const closeButton = screen.getByRole("button", { name: "Close preview" });
+    expect(document.activeElement).toBe(closeButton);
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(closeButton);
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(closeButton);
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull();
@@ -71,6 +76,17 @@ describe("Long user messages", () => {
     expect(isLongMessage("e\u0301".repeat(600) + "e\u0301")).toBe(true);
     expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
     expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600) + "👨‍👩‍👧‍👦")).toBe(true);
+  });
+
+  it("keeps the grapheme fallback bounded for Hangul Jamo clusters", () => {
+    const segmenter = Object.getOwnPropertyDescriptor(Intl, "Segmenter");
+    Object.defineProperty(Intl, "Segmenter", { configurable: true, value: undefined });
+    try {
+      expect(isLongMessage("각".repeat(201))).toBe(false);
+      expect(isLongMessage("각".repeat(600) + "ᄀ")).toBe(true);
+    } finally {
+      if (segmenter) Object.defineProperty(Intl, "Segmenter", segmenter);
+    }
   });
 
   it("starts long messages collapsed and toggles the complete content", () => {

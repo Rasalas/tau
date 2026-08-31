@@ -7,6 +7,7 @@ export interface VirtualTranscriptProps {
   messages: UiMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
   isStreaming: boolean;
+  threadKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
@@ -17,6 +18,7 @@ export interface VirtualTranscriptProps {
 interface ViewportPosition {
   container: HTMLElement;
   scrollTop: number;
+  scrollHeight: number;
   anchor?: HTMLElement;
   anchorTop?: number;
   tracked: HTMLElement;
@@ -30,6 +32,9 @@ interface PendingToggle {
   row: HTMLElement;
   position: ViewportPosition;
 }
+
+const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
+const USER_SCROLL_KEYS = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "End", "Home", "PageDown", "PageUp", " "]);
 
 function captureViewportPosition(container: HTMLElement, messageIndex: number): ViewportPosition | undefined {
   const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
@@ -46,6 +51,7 @@ function captureViewportPosition(container: HTMLElement, messageIndex: number): 
   return {
     container,
     scrollTop: container.scrollTop,
+    scrollHeight: container.scrollHeight,
     anchor,
     anchorTop: anchorRect?.top,
     tracked,
@@ -60,10 +66,14 @@ function restoreViewportPosition(position: ViewportPosition): void {
     return;
   }
 
-  // A tail row has no following anchor. Keep the viewport stable by applying
-  // the measured row-height delta when the row is above the viewport.
+  // A tail row has no following anchor. Compute an absolute target from the
+  // pre-toggle offset and clamp it against the post-layout maximum. Browsers
+  // may already clamp scrollTop when the transcript shrinks.
   if (position.tracked.isConnected && position.trackedTop < position.container.getBoundingClientRect().top) {
-    position.container.scrollTop += position.tracked.getBoundingClientRect().height - position.trackedHeight;
+    const delta = position.tracked.getBoundingClientRect().height - position.trackedHeight;
+    const maxScrollTop = Math.max(0, position.container.scrollHeight - position.container.clientHeight);
+    const targetScrollTop = Math.min(maxScrollTop, Math.max(0, position.scrollTop + delta));
+    position.container.scrollTop = targetScrollTop;
   }
 }
 
@@ -72,6 +82,7 @@ export function VirtualTranscript({
   messages,
   scrollRef,
   isStreaming,
+  threadKey = "default",
   activity,
   activityAfterMessageId,
   activities = [],
@@ -99,14 +110,18 @@ export function VirtualTranscript({
     ? pendingActivities.filter((entry) => entry.id === "turn-activity")
     : [];
 
-  const [expandedMessageIds, setExpandedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [expandedState, setExpandedState] = useState<{ threadKey: string; ids: ReadonlySet<string> }>(() => ({ threadKey, ids: new Set() }));
+  const expandedMessageIds = expandedState.threadKey === threadKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
   const messageIndexes = useRef(new Map<string, number>());
   messageIndexes.current = new Map(messages.map((message, index) => [message.id, index]));
   const scrollRefValue = useRef(scrollRef);
   scrollRefValue.current = scrollRef;
+  const threadKeyValue = useRef(threadKey);
+  threadKeyValue.current = threadKey;
   const nextToggleToken = useRef(0);
   const pendingToggle = useRef<PendingToggle | undefined>(undefined);
   const targetObserver = useRef<ResizeObserver | undefined>(undefined);
+  const pendingInteractionCleanup = useRef<(() => void) | undefined>(undefined);
   const restoreFrames = useRef<[number, number?] | undefined>(undefined);
 
   const cancelRestore = () => {
@@ -120,6 +135,8 @@ export function VirtualTranscript({
     if (pendingToggle.current?.token !== token) return;
     targetObserver.current?.disconnect();
     targetObserver.current = undefined;
+    pendingInteractionCleanup.current?.();
+    pendingInteractionCleanup.current = undefined;
     pendingToggle.current = undefined;
   };
 
@@ -141,28 +158,63 @@ export function VirtualTranscript({
   useEffect(() => () => {
     cancelRestore();
     targetObserver.current?.disconnect();
+    pendingInteractionCleanup.current?.();
   }, []);
+
+  useLayoutEffect(() => {
+    if (expandedState.threadKey === threadKey) return;
+    cancelRestore();
+    if (pendingToggle.current) clearPendingToggle(pendingToggle.current.token);
+    setExpandedState({ threadKey, ids: new Set() });
+  }, [expandedState.threadKey, threadKey]);
 
   const onMessageToggleExpanded = useCallback((messageId: string, expanded: boolean) => {
     const token = ++nextToggleToken.current;
     const container = scrollRefValue.current.current;
     cancelRestore();
-    targetObserver.current?.disconnect();
-    targetObserver.current = undefined;
+    const previous = pendingToggle.current;
+    if (previous) clearPendingToggle(previous.token);
     const messageIndex = messageIndexes.current.get(messageId);
     const capturedPosition = container && messageIndex !== undefined
       ? captureViewportPosition(container, messageIndex)
       : undefined;
-    const previous = pendingToggle.current;
     const position = capturedPosition && previous?.messageId === messageId && previous.position.container === container && previous.position.scrollTop === container.scrollTop
       ? previous.position
       : capturedPosition;
     pendingToggle.current = position ? { token, messageId, row: position.tracked, position } : undefined;
-    setExpandedMessageIds((current) => {
-      const next = new Set(current);
+    if (position && container) {
+      const cancelForUserMovement = (event: Event) => {
+        const pending = pendingToggle.current;
+        if (!pending) return;
+        if (event.type === "scroll" && pending.position.scrollHeight !== container.scrollHeight) return;
+        if (event.type === "keydown" && !USER_SCROLL_KEYS.has((event as KeyboardEvent).key)) return;
+        cancelRestore();
+        clearPendingToggle(pending.token);
+      };
+      container.addEventListener("wheel", cancelForUserMovement, { passive: true });
+      container.addEventListener("touchstart", cancelForUserMovement, { passive: true });
+      container.addEventListener("pointerdown", cancelForUserMovement, { passive: true });
+      container.addEventListener("scroll", cancelForUserMovement, { passive: true });
+      window.addEventListener("wheel", cancelForUserMovement, { passive: true });
+      window.addEventListener("touchstart", cancelForUserMovement, { passive: true });
+      window.addEventListener("pointerdown", cancelForUserMovement, { passive: true });
+      window.addEventListener("keydown", cancelForUserMovement);
+      pendingInteractionCleanup.current = () => {
+        container.removeEventListener("wheel", cancelForUserMovement);
+        container.removeEventListener("touchstart", cancelForUserMovement);
+        container.removeEventListener("pointerdown", cancelForUserMovement);
+        container.removeEventListener("scroll", cancelForUserMovement);
+        window.removeEventListener("wheel", cancelForUserMovement);
+        window.removeEventListener("touchstart", cancelForUserMovement);
+        window.removeEventListener("pointerdown", cancelForUserMovement);
+        window.removeEventListener("keydown", cancelForUserMovement);
+      };
+    }
+    setExpandedState((current) => {
+      const next = new Set(current.threadKey === threadKeyValue.current ? current.ids : EMPTY_MESSAGE_IDS);
       if (expanded) next.add(messageId);
       else next.delete(messageId);
-      return next;
+      return { threadKey: threadKeyValue.current, ids: next };
     });
   }, []);
 
