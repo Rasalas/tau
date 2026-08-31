@@ -206,6 +206,7 @@ export function Composer({
   const streaming = Boolean(snapshot?.isStreaming);
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
   const preview = attachments.find((attachment) => attachment.id === previewId);
+
   const addFiles = async (files: FileList | readonly File[]) => {
     const available = Math.max(0, MAX_ATTACHMENTS - attachments.length);
     const candidates = Array.from(files).slice(0, available);
@@ -289,26 +290,25 @@ export function Composer({
       >
         {attachments.length > 0 ? (
           <div className="composer-attachments" aria-label="Attached files">
-              {attachments.map((attachment) => (
-                <div className="composer-attachment" key={attachment.id}>
-                  <button
-                    className="attachment-preview-button"
-                    aria-label={`Preview ${attachment.name}`}
-                    onClick={() => setPreviewId(attachment.id)}
-                  >
-                    <img src={attachment.previewUrl} alt="" />
-                  </button>
-                  <button
-                    className="attachment-remove"
-                    type="button"
-                    aria-label={`Remove ${attachment.name}`}
-                    onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
+            {attachments.map((attachment) => (
+              <div className="composer-attachment" key={attachment.id}>
+                <button
+                  className="attachment-preview-button"
+                  aria-label={`Preview ${attachment.name}`}
+                  onClick={() => setPreviewId(attachment.id)}
+                >
+                  <img src={attachment.previewUrl} alt="" />
+                </button>
+                <button
+                  className="attachment-remove"
+                  aria-label={`Remove ${attachment.name}`}
+                  onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
         ) : null}
         {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
         {trigger ? (

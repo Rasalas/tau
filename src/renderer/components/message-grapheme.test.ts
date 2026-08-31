@@ -34,15 +34,14 @@ describe("message grapheme boundaries", () => {
     expect(isLongMessage("각".repeat(600) + "가")).toBe(true);
     expect(isLongMessage(("ᄀ\u0301ᅡ").repeat(300) + "x")).toBe(true);
     expect(isLongMessage(("ᄀ‍ᅡ").repeat(301))).toBe(true);
-    expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(true);
+    expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(false);
     expect(isLongMessage("\u0301" + "a".repeat(600))).toBe(true);
     expect(isLongMessage("\u200d" + "a".repeat(600))).toBe(true);
     const englandFlag = "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}";
     expect(isLongMessage(englandFlag.repeat(600))).toBe(false);
     expect(isLongMessage(englandFlag.repeat(600) + "a")).toBe(true);
-    const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
-    expect(bounded.exhausted).toBe(true);
-    // 600 visible clusters * 16 code points plus the documented margin.
-    expect(bounded.examinedCodePoints).toBe(9_664);
+    const extended = fallbackGraphemeCount("a" + "\u0301".repeat(10_000), 600);
+    expect(extended).toMatchObject({ count: 1, exhausted: false });
+    expect(extended.examinedCodePoints).toBe(10_001);
   });
 });

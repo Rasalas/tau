@@ -34,6 +34,11 @@ try {
     TAU_BENCHMARK_HARNESS_PATCH_FILE: "reports/renderer-baseline-6ddb454-harness.patch",
     TAU_BENCHMARK_HARNESS_PATCH_SHA256: harnessPatchSha256,
   });
+  const report = JSON.parse(await readFile(outputFile, "utf8"));
+  const expectedBundle = createHash("sha256").update(`${report.harnessSourceSha256}\0${harnessPatchSha256}\0${report.execution.harnessFiles.join("\0")}`).digest("hex");
+  if (report.subjectCommit !== subjectCommit || report.harnessCommit !== harnessCommit || report.harnessPatchSha256 !== harnessPatchSha256 || report.harnessBundleSha256 !== expectedBundle) {
+    throw new Error("baseline report provenance does not match the applied harness manifest");
+  }
 } finally {
   run("git", ["worktree", "remove", "--force", worktree]);
 }

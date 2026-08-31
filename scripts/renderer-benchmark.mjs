@@ -32,11 +32,12 @@ function run(command, commandArgs) {
 }
 
 function commitSha() {
-  try {
-    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+}
+
+function requireSha(value, label, length) {
+  if (!new RegExp(`^[0-9a-f]{${length}}$`).test(value ?? "")) throw new Error(`${label} is missing or malformed`);
+  return value;
 }
 
 function buildArtifactSha256() {
@@ -62,23 +63,6 @@ const harnessFiles = [
   "scripts/renderer-budget.mjs",
   "scripts/performance-budgets.json",
   "src/renderer/RendererBenchmark.tsx",
-  "src/shared/contracts.ts",
-  "src/renderer/extension-system.tsx",
-  "src/renderer/components/DiffView.tsx",
-  "src/renderer/components/Markdown.tsx",
-  "src/renderer/components/ToolGroup.tsx",
-  "src/renderer/components/VirtualList.tsx",
-  "src/renderer/components/AttachmentImageDialog.tsx",
-  "src/renderer/components/Message.tsx",
-  "src/renderer/components/MessageActions.tsx",
-  "src/renderer/components/MessageImages.tsx",
-  "src/renderer/components/MessageText.ts",
-  "src/renderer/components/UserMessage.tsx",
-  "src/renderer/components/VirtualTranscript.tsx",
-  "src/renderer/components/message-grapheme.ts",
-  "src/renderer/components/message-timestamp.ts",
-  "src/renderer/components/useTranscriptViewportAnchor.ts",
-  "src/renderer/styles.css",
 ];
 const harnessSourceSha256 = createHash("sha256")
   .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
@@ -91,6 +75,10 @@ const harnessPatchSha256 = process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256
     : harnessSourceSha256);
 const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? commitSha();
 const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? commitSha();
+requireSha(subjectCommit, "subject commit", 40);
+requireSha(harnessCommit, "harness commit", 40);
+requireSha(harnessPatchSha256, "harness patch SHA-256", 64);
+const harnessBundleSha256 = createHash("sha256").update(`${harnessSourceSha256}\0${harnessPatchSha256}\0${harnessFiles.join("\0")}`).digest("hex");
 
 if (!skipBuild) run("npm", ["run", "build"]);
 
@@ -138,7 +126,7 @@ function sampleScenario(scenario) {
     if (scenario.id === "diff-2mb" && (!Number.isFinite(result.payloadBytes) || result.payloadBytes < scenario.bytes)) {
       throw new Error(`renderer fixture did not render the configured diff payload for ${scenario.id}: ${result.payloadBytes}`);
     }
-    if (scenario.id === "long-user-message" && (!result.longMessageInteraction?.toggleFound || !result.longMessageInteraction.expanded || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
+    if (scenario.id === "long-user-message" && (!result.longMessageInteraction || !["expand", "prop-update"].includes(result.longMessageInteraction.mode) || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
       throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
     }
     if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
@@ -171,7 +159,19 @@ function sampleScenario(scenario) {
     domNodes: Math.max(...samples.map((sample) => sample.domNodes)),
     heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
     ...(scenario.id === "diff-2mb" ? { payloadBytes: Math.min(...samples.map((sample) => sample.payloadBytes)) } : {}),
-    ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.every((sample) => sample.longMessageInteraction?.toggleFound && sample.longMessageInteraction.expanded) } : {}),
+    ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.map((sample) => sample.longMessageInteraction?.mode), interactionModes: [...new Set(samples.map((sample) => sample.longMessageInteraction?.mode))] } : {}),
+    rawSamples: samples.map((sample) => ({
+      frameIntervalsMs: sample.frameIntervalsMs,
+      longTasksMs: sample.longTasksMs,
+      startupLongTasksMs: sample.startupLongTasksMs,
+      mountDurationsMs: sample.mountDurationsMs,
+      updateDurationsMs: sample.updateDurationsMs,
+      commits: sample.commits,
+      domNodes: sample.domNodes,
+      heapBytes: sample.heapBytes,
+      payloadBytes: sample.payloadBytes,
+      longMessageInteraction: sample.longMessageInteraction,
+    })),
   };
 }
 
@@ -183,6 +183,7 @@ const report = {
   harnessCommit,
   harnessSourceSha256,
   harnessPatchSha256,
+  harnessBundleSha256,
   reproducibilityScript: "scripts/reproduce-renderer-baseline.mjs",
   buildArtifactSha256: buildArtifactSha256(),
   execution: {

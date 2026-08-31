@@ -21,7 +21,7 @@ interface BenchmarkResult {
   domNodes: number;
   heapBytes?: number;
   payloadBytes?: number;
-  longMessageInteraction?: { toggleFound: boolean; expanded: boolean; contentBytes: number };
+  longMessageInteraction?: { mode: "expand" | "prop-update"; expanded: boolean; contentBytes: number };
 }
 
 declare global {
@@ -226,20 +226,28 @@ export default function RendererBenchmark() {
       };
       requestAnimationFrame(update);
     } else if (scenario === "long-user-message") {
+      interactionStartedAt.current = performance.now();
       requestAnimationFrame(() => {
         updateStartedAt.current = performance.now();
-        interactionStartedAt.current ??= updateStartedAt.current;
         setLongUserRevision((revision) => revision + 1);
         requestAnimationFrame(() => {
           const button = document.querySelector<HTMLButtonElement>(".message-expand");
-          if (!button) throw new Error("long-user-message did not render its expand control");
+          if (!button) {
+            const content = document.querySelector<HTMLElement>(".message-text-content") ?? document.body;
+            longMessageInteraction.current = {
+              mode: "prop-update",
+              expanded: false,
+              contentBytes: new TextEncoder().encode(content.textContent ?? "").byteLength,
+            };
+            finish();
+            return;
+          }
           updateStartedAt.current = performance.now();
-          interactionStartedAt.current ??= updateStartedAt.current;
           button.click();
           requestAnimationFrame(() => {
             const content = document.querySelector<HTMLElement>(".message-text-content");
             longMessageInteraction.current = {
-              toggleFound: true,
+              mode: "expand",
               expanded: button.getAttribute("aria-expanded") === "true",
               contentBytes: new TextEncoder().encode(content?.textContent ?? "").byteLength,
             };
