@@ -1,4 +1,4 @@
-import type { ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
+import type { ClientTurnIdentity, ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -38,7 +38,7 @@ export interface PiBridgeSnapshot {
 }
 
 export type PiBridgeCommand =
-  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp" }
+  | ({ command: "prompt"; text: string; deliverAs?: "steer" | "followUp" } & Partial<ClientTurnIdentity>)
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
   | { command: "set_model"; provider: string; id: string }
@@ -46,7 +46,7 @@ export type PiBridgeCommand =
   | { command: "reload" }
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
-  | { command: "new_session"; initialPrompt?: string }
+  | ({ command: "new_session"; initialPrompt?: string } & Partial<ClientTurnIdentity>)
   | { command: "export_markdown" }
   | { command: "snapshot" }
   | { command: "ping" };

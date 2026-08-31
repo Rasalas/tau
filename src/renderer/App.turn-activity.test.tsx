@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HostEvent, TauDesktopApi, UiToolRun } from "../shared/contracts";
+import type { ClientTurnIdentity, HostEvent, TauDesktopApi, UiToolRun } from "../shared/contracts";
 import App from "./App";
 import { preferences } from "./preferences";
 import { writeCachedTurnActivity } from "./turn-activity";
@@ -198,7 +198,7 @@ describe("last-turn activity", () => {
   });
 
   it("keeps an Enter follow-up visible until the current run can process it", async () => {
-    const followUp = vi.fn(async () => undefined);
+    const followUp = vi.fn<TauDesktopApi["followUp"]>(async () => undefined);
     const steer = vi.fn(async () => undefined);
     window.tau!.followUp = followUp;
     window.tau!.steer = steer;
@@ -210,9 +210,46 @@ describe("last-turn activity", () => {
     fireEvent.change(composer, { target: { value: "after this turn" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(followUp).toHaveBeenCalledWith("after this turn", [], "session"));
+    await waitFor(() => expect(followUp).toHaveBeenCalledWith(
+      "after this turn",
+      [],
+      "session",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+    ));
     expect(steer).not.toHaveBeenCalled();
     expect(screen.getByTitle("after this turn")).toBeTruthy();
+  });
+
+  it.each([
+    ["/skill:review", "Expanded skill instructions"],
+    ["/template:ship", "Expanded template instructions"],
+  ])("anchors an expanded queued %s response with the submitted identity", async (submitted, expanded) => {
+    const followUp = vi.fn<TauDesktopApi["followUp"]>(async () => undefined);
+    window.tau!.followUp = followUp;
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+
+    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    fireEvent.change(composer, { target: { value: submitted } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(followUp).toHaveBeenCalled());
+    const identity = followUp.mock.calls[0]?.[3] as ClientTurnIdentity;
+
+    act(() => publish({
+      type: "user-message",
+      sessionId: "session",
+      message: {
+        id: `expanded-${submitted}`,
+        role: "user",
+        text: expanded,
+        timestamp: Date.now(),
+        ...identity,
+      },
+    }));
+
+    const message = await screen.findByText(expanded);
+    await waitFor(() => expect(message.closest(".transcript-current-row")).toBeTruthy());
   });
 
   it("steers with Cmd+Enter and shows the message in the transcript immediately", async () => {
@@ -227,7 +264,12 @@ describe("last-turn activity", () => {
     fireEvent.change(composer, { target: { value: "use this now" } });
     fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
 
-    await waitFor(() => expect(steer).toHaveBeenCalledWith("use this now", [], "session"));
+    await waitFor(() => expect(steer).toHaveBeenCalledWith(
+      "use this now",
+      [],
+      "session",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+    ));
     expect(screen.getByText("use this now")).toBeTruthy();
   });
 

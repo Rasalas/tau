@@ -31,6 +31,7 @@ import type {
   ShellActionResult,
   ThreadIndexSnapshot,
   UiComposerCommand,
+  ClientTurnIdentity,
   UiEditor,
   UiFileDiff,
   UiMessage,
@@ -66,6 +67,7 @@ import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import { ClientTurnLedger, withClientTurnIdentity } from "./client-turn-ledger.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -135,7 +137,16 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
     timestamp?: number;
     customType?: string;
     tauEntryId?: string;
+    clientTurnId?: string;
+    clientMessageId?: string;
+    tauClientTurnId?: string;
+    tauClientMessageId?: string;
   };
+  const clientTurnId = value.clientTurnId ?? value.tauClientTurnId;
+  const clientMessageId = value.clientMessageId ?? value.tauClientMessageId;
+  const clientIdentity = clientTurnId && clientMessageId
+    ? { clientTurnId, clientMessageId }
+    : {};
 
   if (value.role === "user") {
     const text = textFromContent(value.content);
@@ -143,6 +154,7 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
     return {
       id: value.tauEntryId ?? `user-${value.timestamp ?? index}-${index}`,
       sourceEntryId: value.tauEntryId,
+      ...clientIdentity,
       role: "user",
       text: text || (images.length ? `[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""),
       images,
@@ -154,6 +166,7 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
     return {
       id: value.tauEntryId ?? `assistant-${value.timestamp ?? index}-${index}`,
       sourceEntryId: value.tauEntryId,
+      ...clientIdentity,
       role: "assistant",
       text: textFromContent(value.content),
       thinking: thinkingFromContent(value.content),
@@ -165,6 +178,7 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
     return {
       id: value.tauEntryId ?? `notice-${value.timestamp ?? index}-${index}`,
       sourceEntryId: value.tauEntryId,
+      ...clientIdentity,
       role: "notice",
       text: textFromContent(value.content),
       timestamp: value.timestamp ?? Date.now(),
@@ -479,6 +493,8 @@ function samePath(left: string | undefined, right: string | undefined): boolean 
 export class PiHost {
   private cwd: string;
   private emit: Emit;
+  /** Correlates raw Pi user-message events with renderer sends. */
+  private readonly clientTurns = new ClientTurnLedger();
   private bridge?: PiBridgeClient;
   private bridgeSnapshot?: PiBridgeSnapshot;
   /** Set while Tau deliberately takes a thread over from Pi, so it does not re-attach. */
@@ -909,13 +925,20 @@ export class PiHost {
     });
   }
 
-  async newSession(initialPrompt?: string, attachments: UiPromptAttachment[] = [], cwd?: string): Promise<HostActionResult> {
+  async newSession(
+    initialPrompt?: string,
+    attachments: UiPromptAttachment[] = [],
+    cwd?: string,
+    identity?: ClientTurnIdentity,
+  ): Promise<HostActionResult> {
     if (this.bridge && (!cwd || cwd === this.cwd)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      if (identity) this.clientTurns.enqueueAny(identity);
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt });
+        await this.bridgeCommand({ command: "new_session", initialPrompt, ...identity });
         return this.actionResult([]);
       } catch (error) {
+        if (identity) this.clientTurns.cancel(undefined, identity);
         // A new thread is a different session, so Pi has no standing to veto it.
         // Whether it refused because it is busy or stopped answering entirely,
         // Tau creates the thread itself rather than leaving the user stuck.
@@ -944,7 +967,7 @@ export class PiHost {
       if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (initialPrompt || attachments.length > 0) {
-        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId).catch((error) => this.fail(error));
+        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId, identity).catch((error) => this.fail(error));
       }
       this.scheduleSpareThread(targetCwd);
       return this.activeUpdates();
@@ -1051,15 +1074,29 @@ export class PiHost {
     }
   }
 
-  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async prompt(
+    text: string,
+    attachments: UiPromptAttachment[] = [],
+    sessionId?: string,
+    identity?: ClientTurnIdentity,
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text });
+      const bridgeSessionId = this.bridgeSnapshot?.sessionId;
+      if (identity) this.clientTurns.enqueue(bridgeSessionId, identity);
+      try {
+        await this.bridge!.command({ command: "prompt", text, ...identity });
+      } catch (error) {
+        if (identity) this.clientTurns.cancel(bridgeSessionId, identity);
+        throw error;
+      }
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
     const session = thread.session;
+    const wasStreaming = session.isStreaming;
+    if (identity) this.clientTurns.enqueue(thread.sessionId, identity);
     const images = promptImages(attachments);
     this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
     try {
@@ -1067,8 +1104,12 @@ export class PiHost {
         images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
       });
+      // A non-streaming extension command can be handled without creating a
+      // user message. Do not leave a correlation entry behind in that case.
+      if (!wasStreaming && identity) this.clientTurns.cancel(thread.sessionId, identity);
       if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
     } catch (error) {
+      if (identity) this.clientTurns.cancel(thread.sessionId, identity);
       // A thread released mid-run reports nothing: its runtime is gone on purpose.
       if (this.threads.get(thread.sessionId)?.runtime !== thread) return;
       this.fail(error);
@@ -1099,29 +1140,59 @@ export class PiHost {
     };
   }
 
-  async steer(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async steer(
+    text: string,
+    attachments: UiPromptAttachment[] = [],
+    sessionId?: string,
+    identity?: ClientTurnIdentity,
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer" });
+      const bridgeSessionId = this.bridgeSnapshot?.sessionId;
+      if (identity) this.clientTurns.enqueue(bridgeSessionId, identity);
+      try {
+        await this.bridge!.command({ command: "prompt", text, deliverAs: "steer", ...identity });
+      } catch (error) {
+        if (identity) this.clientTurns.cancel(bridgeSessionId, identity);
+        throw error;
+      }
       return;
     }
+    const thread = this.requireThread(sessionId);
+    if (identity) this.clientTurns.enqueue(thread.sessionId, identity);
     try {
-      await this.requireThread(sessionId).session.steer(text, promptImages(attachments));
+      await thread.session.steer(text, promptImages(attachments));
     } catch (error) {
+      if (identity) this.clientTurns.cancel(thread.sessionId, identity);
       this.fail(error);
       throw error;
     }
   }
 
-  async followUp(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async followUp(
+    text: string,
+    attachments: UiPromptAttachment[] = [],
+    sessionId?: string,
+    identity?: ClientTurnIdentity,
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp" });
+      const bridgeSessionId = this.bridgeSnapshot?.sessionId;
+      if (identity) this.clientTurns.enqueue(bridgeSessionId, identity);
+      try {
+        await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp", ...identity });
+      } catch (error) {
+        if (identity) this.clientTurns.cancel(bridgeSessionId, identity);
+        throw error;
+      }
       return;
     }
+    const thread = this.requireThread(sessionId);
+    if (identity) this.clientTurns.enqueue(thread.sessionId, identity);
     try {
-      await this.requireThread(sessionId).session.followUp(text, promptImages(attachments));
+      await thread.session.followUp(text, promptImages(attachments));
     } catch (error) {
+      if (identity) this.clientTurns.cancel(thread.sessionId, identity);
       this.fail(error);
       throw error;
     }
@@ -1982,7 +2053,18 @@ export class PiHost {
             thread.liveAssistant = undefined;
           } else if (event.message.role === "user") {
             const message = mapMessage(event.message, 0);
-            if (message) this.emit({ type: "user-message", sessionId, message });
+            if (message) {
+              const identity = this.clientTurns.claim(sessionId, message, event.message);
+              if (identity && event.message && typeof event.message === "object") {
+                // AgentSession persists this same object after notifying its
+                // subscribers. Keep the namespaced fields on the raw record so
+                // subsequent snapshots retain the correlation as well.
+                const raw = event.message as Record<string, unknown>;
+                raw.tauClientTurnId = identity.clientTurnId;
+                raw.tauClientMessageId = identity.clientMessageId;
+              }
+              this.emit({ type: "user-message", sessionId, message: withClientTurnIdentity(message, identity) });
+            }
           }
           break;
         case "tool_execution_start": {
@@ -2170,7 +2252,14 @@ export class PiHost {
 
   private branchMessagesWithEntryIds(thread: ThreadRuntime): unknown[] {
     return thread.session.sessionManager.getBranch()
-      .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
+      .flatMap((entry, index) => {
+        if (entry.type !== "message") return [];
+        const rawMessage = entry.message as object;
+        const mapped = mapMessage({ ...entry.message, tauEntryId: entry.id }, index);
+        const identity = this.clientTurns.identityForRaw(rawMessage)
+          ?? (mapped ? this.clientTurns.identityForMessage(thread.sessionId, mapped) : undefined);
+        return [{ ...entry.message, tauEntryId: entry.id, ...identity }];
+      });
   }
 
   private messageSnapshot(thread: ThreadRuntime): UiMessage[] {

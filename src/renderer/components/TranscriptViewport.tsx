@@ -10,10 +10,14 @@ export interface TranscriptTurnStart {
   turnId: string;
   sessionId?: string;
   messageId?: string;
+  /** Stable client ID used when Pi expands the submitted text. */
+  clientMessageId?: string;
   text?: string;
   timestamp?: number;
   awaitingMessage?: boolean;
   preserveAcrossSessionChange?: boolean;
+  /** App-owned semantic transcript scope; navigation ignores stale scopes. */
+  scopeKey?: string;
 }
 
 export interface TranscriptViewportProps {
@@ -58,6 +62,12 @@ function resolveTurnMessage(
   turnStart?: TranscriptTurnStart,
 ): UiMessage | undefined {
   if (!turnStart) return undefined;
+  if (turnStart.clientMessageId) {
+    const byClientIdentity = messages.find((message) => message.role === "user"
+      && message.clientTurnId === turnStart.turnId
+      && message.clientMessageId === turnStart.clientMessageId);
+    if (byClientIdentity) return byClientIdentity;
+  }
   if (turnStart.messageId) {
     const byId = messages.find((message) => message.id === turnStart.messageId);
     if (byId) return byId;
@@ -523,6 +533,7 @@ export function useTranscriptNavigation(
     options.turnStart?.turnId,
     options.turnStart?.sessionId,
     options.turnStart?.messageId,
+    options.turnStart?.clientMessageId,
     options.turnStart?.text,
     options.turnStart?.timestamp,
     options.messages,

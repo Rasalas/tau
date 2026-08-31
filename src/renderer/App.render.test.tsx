@@ -151,7 +151,12 @@ describe("App render isolation", () => {
     fireEvent.change(composer, { target: { value: "Build the first screen" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Build the first screen", [], "session"));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
+      "Build the first screen",
+      [],
+      "session",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+    ));
     expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
     const prompt = screen.getByText("Build the first screen");
@@ -202,7 +207,12 @@ describe("App render isolation", () => {
       return textarea;
     });
     fireEvent.keyDown(restored, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("persistent draft", [], "/other"));
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "persistent draft",
+      [],
+      "/other",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+    ));
     expect(screen.getByText("persistent draft")).toBeTruthy();
   });
 
@@ -389,7 +399,12 @@ describe("App render isolation", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "feat-race" })).toBeTruthy());
     fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Must run in the worktree", [], "worktree-thread"));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
+      "Must run in the worktree",
+      [],
+      "worktree-thread",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+    ));
   });
 
   it("refreshes the bottom-left worktree name after changing workspaces", async () => {

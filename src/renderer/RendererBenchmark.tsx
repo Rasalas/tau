@@ -5,6 +5,7 @@ import { Message } from "./components/Message";
 import { ToolGroup } from "./components/ToolGroup";
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import type { TranscriptActivity } from "./components/transcript-activity";
+import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
 
@@ -61,13 +62,19 @@ export default function RendererBenchmark() {
   const longTasks = useRef<number[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
-  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
+  const transcript = useMemo(() => (
+    scenario === "transcript-1000-turns" || scenario === "transcript-viewport-anchored-1000-turns"
+      ? makeTranscript(1_000)
+      : []
+  ), [scenario]);
   const transcriptTurn = transcript[8];
-  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => transcript.slice(0, 128).map((message, index) => ({
-    id: `benchmark-activity-${index}`,
-    afterMessageId: message.id,
-    content: <span>Activity {index}</span>,
-  })), [transcript]);
+  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => scenario === "transcript-viewport-anchored-1000-turns"
+    ? transcript.slice(0, 128).map((message, index) => ({
+      id: `benchmark-activity-${index}`,
+      afterMessageId: message.id,
+      content: <span>Activity {index}</span>,
+    }))
+    : [], [scenario, transcript]);
   const listItems = useMemo(
     () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
     [scenario],
@@ -173,6 +180,10 @@ export default function RendererBenchmark() {
   } else if (scenario === "tool-output-1mb") {
     content = <ToolGroup tools={[tool]} registry={registry} />;
   } else if (scenario === "transcript-1000-turns") {
+    content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
+      <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />
+    </div></div>;
+  } else if (scenario === "transcript-viewport-anchored-1000-turns") {
     content = <TranscriptViewport
       messages={transcript}
       scrollRef={scrollRef}

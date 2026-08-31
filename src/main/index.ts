@@ -5,7 +5,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } fr
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { AccessLevel, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
+import type { AccessLevel, ClientTurnIdentity, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
@@ -128,15 +128,15 @@ function installIpc(): void {
     return host.bootstrap();
   });
   ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
-  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).prompt(text, attachments, sessionId));
+  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, identity?: ClientTurnIdentity) => (await requireHostReady()).prompt(text, attachments, sessionId, identity));
   ipcMain.handle("tau:run-shell-action", async (_event, command: string, includeInContext?: boolean, expectedCwd?: string) => (await requireHostReady()).runShellAction(command, includeInContext, expectedCwd));
-  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).steer(text, attachments, sessionId));
-  ipcMain.handle("tau:follow-up", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).followUp(text, attachments, sessionId));
+  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, identity?: ClientTurnIdentity) => (await requireHostReady()).steer(text, attachments, sessionId, identity));
+  ipcMain.handle("tau:follow-up", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, identity?: ClientTurnIdentity) => (await requireHostReady()).followUp(text, attachments, sessionId, identity));
   // Stopping must not queue behind host readiness: a thread stuck on a question
   // is exactly what the user is trying to get out of.
   ipcMain.handle("tau:abort", async (_event, sessionId?: string) => host?.abort(sessionId));
-  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string) =>
-    (await requireHostReady()).newSession(initialPrompt, attachments, cwd));
+  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, identity?: ClientTurnIdentity) =>
+    (await requireHostReady()).newSession(initialPrompt, attachments, cwd, identity));
   ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));

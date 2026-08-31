@@ -172,6 +172,66 @@ describe("TranscriptViewport navigation", () => {
     await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="saved-follow-up"]')).toBeTruthy());
   });
 
+  it("resolves expanded skill/template text through the stable client identity", async () => {
+    const turnStart: TranscriptTurnStart = {
+      turnId: "logical-expanded",
+      sessionId: "one",
+      messageId: "local-expanded",
+      clientMessageId: "local-expanded",
+      text: "/template:ship",
+      timestamp: 11_000,
+      awaitingMessage: true,
+    };
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} turnStart={turnStart} />);
+    const authoritative: UiMessage = {
+      id: "saved-expanded",
+      role: "user",
+      text: "Expanded template instructions",
+      timestamp: 11_000,
+      clientTurnId: turnStart.turnId,
+      clientMessageId: turnStart.clientMessageId,
+    };
+
+    view.rerender(<Fixture messages={[oldMessage, originalPrompt, authoritative]} turnStart={turnStart} />);
+
+    await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="saved-expanded"]')).toBeTruthy());
+  });
+
+  it("keeps identical expanded prompts distinct when authoritative order differs", async () => {
+    const first: TranscriptTurnStart = {
+      turnId: "logical-first",
+      sessionId: "one",
+      messageId: "local-first",
+      clientMessageId: "local-first",
+      text: "same prompt",
+      timestamp: 12_000,
+    };
+    const second: UiMessage = {
+      id: "saved-second",
+      role: "user",
+      text: "expanded same prompt",
+      timestamp: 12_001,
+      clientTurnId: "logical-second",
+      clientMessageId: "local-second",
+    };
+    const firstAuthoritative: UiMessage = {
+      id: "saved-first",
+      role: "user",
+      text: "expanded same prompt",
+      timestamp: 12_000,
+      clientTurnId: first.turnId,
+      clientMessageId: first.clientMessageId,
+    };
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
+    view.rerender(<Fixture
+      messages={[oldMessage, originalPrompt, second, firstAuthoritative]}
+      turnStart={first}
+    />);
+
+    await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="saved-first"]')).toBeTruthy());
+    expect(view.container.querySelector('.transcript-current-row[data-message-id="saved-second"]')).toBeNull();
+  });
+
   it("resets an explicit anchor on a normal thread switch", async () => {
     const prompt: UiMessage = { id: "local-thread", role: "user", text: "Stay here", timestamp: 8_000 };
     const turnStart: TranscriptTurnStart = { turnId: "logical-thread-turn", sessionId: "one", messageId: prompt.id, text: prompt.text, timestamp: prompt.timestamp };
