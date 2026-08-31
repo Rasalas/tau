@@ -131,6 +131,19 @@ describe("bridge transcript paging", () => {
     expect(result.turnActivityHistory[0]?.tools.every((tool) => tool.status === "done")).toBe(true);
   });
 
+  it("marks an 131084-byte bridge preview as clipped while retaining full-read availability", () => {
+    const suffix = "\nFULL-SUFFIX";
+    const output = `${"x".repeat(131084 - Buffer.byteLength(suffix, "utf8"))}${suffix}`;
+    const result = bridgeTranscriptPage([
+      { role: "user", content: "inspect", tauEntryId: "user", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "large-call", name: "read", arguments: {} }], timestamp: 2 },
+      { role: "toolResult", toolCallId: "large-call", content: output, isError: false, timestamp: 3 },
+    ]);
+    const tool = result.turnActivityHistory[0]?.tools[0];
+    expect(tool?.output).not.toContain("FULL-SUFFIX");
+    expect(tool).toMatchObject({ outputTruncated: true, fullOutputAvailable: true });
+  });
+
   it("keeps the mapped page and duplicated activity payload below one byte budget", () => {
     const records = Array.from({ length: 40 }, (_, index) => [
       { role: "user", content: `question ${index}`, tauEntryId: `user-${index}` },

@@ -151,19 +151,18 @@ describe("TranscriptHistoryController", () => {
     expect(controller.preserveScrollRef.current).toBeUndefined();
   });
 
-  it("keeps renderer-settled activity when an older page arrives", () => {
+  it("keeps host-provided activity when an older page arrives", () => {
     const controller = new TranscriptHistoryController();
-    controller.syncSnapshot(
-      { ...snapshot("thread-a", ["new", "reply"], "2"), turnActivityHistory: [] },
-      { ...detail("thread-a", ["new", "reply"], "2"), turnActivityHistory: [] },
-    );
     const settled = {
       id: "turn-activity-new",
       anchorMessageId: "new",
       status: "completed" as const,
       tools: [{ id: "read", name: "read", args: {}, status: "done" as const, startedAt: 1, endedAt: 2 }],
     };
-    controller.updateTurnActivityHistory("thread-a", [settled]);
+    controller.syncSnapshot(
+      { ...snapshot("thread-a", ["new", "reply"], "2"), turnActivityHistory: [settled] },
+      { ...detail("thread-a", ["new", "reply"], "2"), turnActivityHistory: [settled] },
+    );
     const request = controller.beginLoad({ messageId: "new", viewportOffset: 80 });
 
     const applied = controller.applyPage(page("thread-a", ["old"], "0"), [message("new"), message("reply")], request);

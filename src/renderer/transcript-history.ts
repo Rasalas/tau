@@ -1,4 +1,4 @@
-import type { HostSnapshot, ThreadIndexSnapshot, UiMessage, UiTurnActivityEntry } from "../shared/contracts";
+import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import { hostSnapshotFromThreadDetail, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
@@ -113,15 +113,6 @@ export class TranscriptHistoryController {
 
   getCurrentSnapshot(): HostSnapshot | undefined {
     return this.cache.getSnapshot();
-  }
-
-  /** Keep renderer-derived completion state available to subsequent page merges. */
-  updateTurnActivityHistory(sessionId: string, history: readonly UiTurnActivityEntry[]): void {
-    const detail = this.cache.getDetail(sessionId);
-    if (detail) this.cache.setDetail({ ...detail, turnActivityHistory: [...history] });
-    const snapshot = this.cache.getSnapshot();
-    if (snapshot?.sessionId === sessionId) this.cache.setSnapshot({ ...snapshot, turnActivityHistory: [...history] });
-    this.cache.persist();
   }
 
   persistCache(): void {

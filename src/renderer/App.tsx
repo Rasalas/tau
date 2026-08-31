@@ -17,7 +17,6 @@ import type {
   ServiceTier,
   ToolApprovalRequest,
   UiToolRun,
-  UiTurnActivityEntry,
   UiTurnCheckpoint,
   UiWorkspaceChanges,
   WorkspaceInfo,
@@ -179,47 +178,6 @@ export function latestActivityAnchor(
     if (messages[index]?.role === "user") return messages[index].id;
   }
   return currentAnchorId;
-}
-
-/**
- * Preserve a group that has already received every terminal tool frame. A
- * group containing a running call is deliberately left to the host snapshot;
- * an agent-status(false) event alone cannot prove that call was interrupted.
- */
-function upsertSettledTurnActivity(
-  history: readonly UiTurnActivityEntry[],
-  tools: readonly UiToolRun[],
-  anchorMessageId?: string,
-  turnId?: string,
-): UiTurnActivityEntry[] {
-  if (tools.length === 0 || tools.some((tool) => tool.status === "running")) return [...history];
-  const toolIds = new Set(tools.map((tool) => tool.id));
-  const existingIndex = [...history].reverse().findIndex((entry) => (
-    (anchorMessageId !== undefined && entry.anchorMessageId === anchorMessageId)
-    || entry.tools.some((tool) => toolIds.has(tool.id))
-  ));
-  const resolvedIndex = existingIndex < 0 ? -1 : history.length - 1 - existingIndex;
-  const status: UiTurnActivityEntry["status"] = tools.some((tool) => tool.status === "error")
-    ? "error"
-    : "completed";
-  const nextEntry = resolvedIndex >= 0
-    ? { ...history[resolvedIndex], tools: [...tools], status }
-    : {
-      id: `turn-activity-${turnId ?? anchorMessageId ?? `live-${Date.now()}`}`,
-      ...(anchorMessageId ? { anchorMessageId } : {}),
-      tools: [...tools],
-      status,
-    };
-  if (resolvedIndex < 0) return [...history, nextEntry];
-  return history.map((entry, index) => index === resolvedIndex ? nextEntry : entry);
-}
-
-function turnOwnerMessageId(messages: readonly UiMessage[], anchorMessageId?: string): string | undefined {
-  const anchorIndex = anchorMessageId === undefined
-    ? messages.length
-    : messages.findIndex((message) => message.id === anchorMessageId || message.sourceEntryId === anchorMessageId);
-  const end = anchorIndex < 0 ? messages.length : anchorIndex + 1;
-  return [...messages.slice(0, end)].reverse().find((message) => message.role === "user")?.id;
 }
 
 interface OptimisticUserMessage {
@@ -522,8 +480,6 @@ export default function App() {
   messagesRef.current = messages;
   const toolsRef = useRef(tools);
   toolsRef.current = tools;
-  const turnActivityHistoryRef = useRef(turnActivityHistory);
-  turnActivityHistoryRef.current = turnActivityHistory;
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
   const assistantStartsRef = useRef(new Map<string, number>());
@@ -613,7 +569,6 @@ export default function App() {
     updateTools(restoredActivity?.tools ?? []);
     toolAnchorRef.current = restoredActivity?.anchorMessageId;
     setToolAnchorId(restoredActivity?.anchorMessageId);
-    turnActivityHistoryRef.current = next.turnActivityHistory ?? [];
     setTurnActivityHistory(next.turnActivityHistory ?? []);
     setTurnBaseline(cachedActivity?.baseline);
     setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
@@ -635,7 +590,6 @@ export default function App() {
     if (!application) return false;
     setMessages(application.messages);
     const nextActivityHistory = application.snapshot?.turnActivityHistory ?? application.detail?.turnActivityHistory ?? [];
-    turnActivityHistoryRef.current = nextActivityHistory;
     setTurnActivityHistory(nextActivityHistory);
     if (application.snapshot) setSnapshot(application.snapshot);
     return true;
@@ -700,7 +654,6 @@ export default function App() {
       toolAnchorRef.current = restoredActivity?.anchorMessageId;
       setToolAnchorId(restoredActivity?.anchorMessageId);
       const nextActivityHistory = detailForRender.turnActivityHistory ?? [];
-      turnActivityHistoryRef.current = nextActivityHistory;
       setTurnActivityHistory(nextActivityHistory);
       setTurnBaseline(cachedActivity?.baseline);
       setTurnActivitySessionId(restoredActivity ? detailForRender.sessionId : undefined);
@@ -858,28 +811,6 @@ export default function App() {
           // in the UI so ToolGroup can truthfully present it as interrupted;
           // the host's authoritative detail replaces it when a result exists.
           flushToolUpdates();
-          const settledTools = toolsRef.current;
-          // Completed/error calls are safe to retain for the turn summary. A
-          // running call is intentionally excluded: missing its end frame is
-          // not evidence of an interrupted lifecycle.
-          if (settledTools.length > 0 && settledTools.every((tool) => tool.status !== "running")) {
-            const nextActivityHistory = upsertSettledTurnActivity(
-              turnActivityHistoryRef.current,
-              settledTools,
-              toolAnchorRef.current,
-              turnOwnerMessageId(messagesRef.current, toolAnchorRef.current),
-            );
-            turnActivityHistoryRef.current = nextActivityHistory;
-            setTurnActivityHistory(nextActivityHistory);
-            transcriptHistory.updateTurnActivityHistory(event.sessionId, nextActivityHistory);
-            setSnapshot((current) => {
-              if (!current) return current;
-              const updated = { ...current, turnActivityHistory: nextActivityHistory };
-              cachedSnapshotRef.current = updated;
-              writeBootstrapCache(updated, cachedIndexRef.current);
-              return updated;
-            });
-          }
           // "Ready" is an unread badge: only raise it if the user was not watching this finish.
           const finished = runningThreadRef.current;
           const viewed = threadStore.getSnapshot().activeThreadId;

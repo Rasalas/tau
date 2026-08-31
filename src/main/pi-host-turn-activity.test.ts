@@ -8,6 +8,7 @@ import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
+import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
 
 describe("cleanThreadTitle", () => {
   it("removes Markdown and title-model framing", () => {
@@ -173,6 +174,64 @@ describe("PiHost deliberate tool-output reads", () => {
       totalBytes: Buffer.byteLength(output, "utf8"),
       truncated: false,
     });
+  });
+
+  it("returns the complete local result beyond eight MiB", async () => {
+    const output = `${"x".repeat(8 * 1024 * 1024 + 17)}\nFULL-SUFFIX`;
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: vi.fn(),
+    };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const thread = piPromptThread(session);
+    thread.backend.branchEntries = () => [
+      { type: "message", id: "user", message: { role: "user", content: "inspect" } },
+      { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
+      { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
+    ];
+    const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+
+    await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
+      toolCallId: "call",
+      output,
+      totalBytes: Buffer.byteLength(output, "utf8"),
+      truncated: false,
+    });
+  });
+
+  it("assembles a complete bridge result beyond eight MiB", async () => {
+    const output = `${"x".repeat(8 * 1024 * 1024 + 17)}\nFULL-SUFFIX`;
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const bridgeCommand = vi.fn(async (command: { command: string; toolCallId: string; offset?: number }) => {
+      const offset = command.offset ?? 0;
+      const end = Math.min(output.length, offset + TOOL_OUTPUT_READ_PAGE_CHARACTERS);
+      return {
+        toolCallId: command.toolCallId,
+        offset,
+        output: output.slice(offset, end),
+        totalBytes: Buffer.byteLength(output, "utf8"),
+        ...(end < output.length ? { nextOffset: end } : {}),
+      };
+    });
+    const internals = host as unknown as {
+      bridge: object;
+      bridgeSnapshot: PiBridgeSnapshot;
+      bridgeCommand: typeof bridgeCommand;
+    };
+    internals.bridge = {};
+    internals.bridgeSnapshot = { sessionId: "session" } as PiBridgeSnapshot;
+    internals.bridgeCommand = bridgeCommand;
+
+    await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
+      toolCallId: "call",
+      output,
+      totalBytes: Buffer.byteLength(output, "utf8"),
+      truncated: false,
+    });
+    expect(bridgeCommand.mock.calls.length).toBeGreaterThan(1_000);
   });
 });
 

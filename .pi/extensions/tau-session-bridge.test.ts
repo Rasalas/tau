@@ -63,6 +63,22 @@ describe("Tau bridge tool-output read seam", () => {
     expect(combined).toBe(output);
     expect(toolOutputPageForMessages(messages, "missing")).toBeUndefined();
   });
+
+  it("keeps the suffix reachable beyond the former eight MiB read ceiling", () => {
+    const output = `${"x".repeat(8 * 1024 * 1024 + 17)}\nFULL-SUFFIX`;
+    const messages = [{ role: "toolResult", toolCallId: "large-call", content: output }];
+    let offset = 0;
+    let combined = "";
+    for (;;) {
+      const page = toolOutputPageForMessages(messages, "large-call", offset);
+      expect(page).toBeDefined();
+      combined += page?.output ?? "";
+      if (page?.nextOffset === undefined) break;
+      offset = page.nextOffset;
+    }
+    expect(combined).toBe(output);
+    expect(combined.endsWith("FULL-SUFFIX")).toBe(true);
+  });
 });
 
 describe("Tau Pi bridge capability", () => {

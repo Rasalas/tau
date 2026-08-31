@@ -259,11 +259,13 @@ function activityHistoryForRecords(records: readonly unknown[]): BridgeActivityH
     if (toolIndex === undefined) return;
     const tool = active.tools[toolIndex];
     const output = activityContentText(message.content);
+    const previewTruncated = byteLength(output) > BRIDGE_ACTIVITY_OUTPUT_PREVIEW_BYTES;
     active.tools[toolIndex] = {
       ...tool,
       name: typeof message.toolName === "string" ? message.toolName : tool.name,
       status: message.isError === true ? "error" : "done",
       output: activityOutputPreview(output),
+      ...(previewTruncated ? { outputTruncated: true, fullOutputAvailable: true } : {}),
       endedAt: timestamp,
     };
   });

@@ -149,6 +149,30 @@ describe("ToolGroup computer-use presentation", () => {
     expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 39");
   });
 
+  it("shows the full-output action for a bridge preview clipped below the renderer limit", () => {
+    const readFullOutput = vi.fn();
+    render(<ToolGroup
+      tools={[{
+        id: "bridge-call",
+        name: "bash",
+        args: { command: "verbose" },
+        status: "done",
+        output: "preview tail",
+        outputTruncated: true,
+        fullOutputAvailable: true,
+        startedAt: 0,
+        endedAt: 10,
+      }]}
+      registry={registryWithBundledExtensions()}
+      onCopyOutput={readFullOutput}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Ran 1 command/u }));
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    expect(screen.getByRole("button", { name: /copy full output/u })).toBeTruthy();
+    expect(readFullOutput).not.toHaveBeenCalled();
+  });
+
   it("keeps waiting, interrupted, and failed results distinct in collapsed summaries", () => {
     const registry = registryWithBundledExtensions();
     const { rerender } = render(<ToolGroup

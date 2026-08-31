@@ -45,6 +45,10 @@ const ToolRun = memo(function ToolRun({
   const liveLines = running ? bounded.text.split("\n") : [];
   const liveOutputClipped = running && liveLines.length > 5;
   const visibleOutput = liveOutputClipped ? liveLines.slice(-5).join("\n") : bounded.text;
+  const outputNeedsFullRead = tool.fullOutputAvailable === true
+    || tool.outputTruncated === true
+    || bounded.truncated
+    || liveOutputClipped;
   const showOutput = view.output !== "hidden" && Boolean(visibleOutput) && outputOpen;
   const [copying, setCopying] = useState(false);
   const copyFullOutput = async () => {
@@ -99,7 +103,7 @@ const ToolRun = memo(function ToolRun({
       ) : null}
       {showOutput ? (
         <pre className="tool-output">
-          {bounded.truncated || liveOutputClipped ? (
+          {outputNeedsFullRead ? (
             <button type="button" className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); void copyFullOutput(); }}>
               {copying ? "… loading full output" : "… earlier output hidden · copy full output"}
             </button>

@@ -92,6 +92,10 @@ export interface UiToolRun {
   args: Record<string, unknown>;
   status: "running" | "done" | "error";
   output?: string;
+  /** The visible output is a preview of a durable result. */
+  outputTruncated?: boolean;
+  /** A deliberate host read can retrieve the complete durable result. */
+  fullOutputAvailable?: boolean;
   startedAt: number;
   endedAt?: number;
 }

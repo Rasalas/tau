@@ -77,6 +77,24 @@ describe("last-turn activity", () => {
     expect(localStorage.getItem("tau.bootstrap-cache.v6") ?? "").not.toContain('"status":"interrupted"');
   });
 
+  it("does not persist renderer-derived completion when agent status settles", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+
+    act(() => {
+      publish({ type: "agent-status", sessionId: "session", running: true });
+      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("settled"), status: "running", endedAt: undefined } });
+      publish({ type: "tool-end", sessionId: "session", tool: tool("settled") });
+      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("failed"), status: "running", endedAt: undefined } });
+      publish({ type: "tool-end", sessionId: "session", tool: { ...tool("failed"), status: "error" } });
+      publish({ type: "agent-status", sessionId: "session", running: false });
+    });
+
+    const bootstrapCache = localStorage.getItem("tau.bootstrap-cache.v6") ?? "";
+    expect(bootstrapCache).not.toContain("turn-activity-settled");
+    expect(bootstrapCache).not.toContain("turn-activity-failed");
+  });
+
   it("prefers authoritative completed tools over stale running cache entries", async () => {
     writeCachedTurnActivity(localStorage, {
       sessionId: "session",
@@ -184,7 +202,31 @@ describe("last-turn activity", () => {
       expect.stringContaining("Finished"),
     ]);
 
-    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    act(() => {
+      publish({
+        type: "host-update",
+        update: {
+          version: 1,
+          type: "thread-detail",
+          detail: {
+            sessionId: "session",
+            messages: [
+              { id: "user", role: "user", text: "Do the work", timestamp: 1 },
+              { id: "assistant", role: "assistant", text: "Finished", timestamp: 2 },
+            ],
+            isStreaming: false,
+            activeTools: [],
+            turnActivityHistory: [{
+              id: "turn-activity-user",
+              anchorMessageId: "user",
+              status: "completed",
+              tools: [tool("one")],
+            }],
+          },
+        },
+      });
+      publish({ type: "agent-status", sessionId: "session", running: true });
+    });
     expect(await screen.findByText("Completed")).toBeTruthy();
   });
 

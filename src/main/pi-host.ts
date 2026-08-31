@@ -102,7 +102,7 @@ import {
   type PiBridgeTranscriptPage,
   type PiBridgeTurnFilesPage,
 } from "../shared/pi-bridge-protocol.js";
-import { boundedToolOutputRead, MAX_TOOL_OUTPUT_READ_BYTES } from "../shared/tool-output.js";
+import { completeToolOutputRead, TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
 import { inferUnavailableTranscriptCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import {
@@ -578,11 +578,13 @@ export function turnActivityHistoryFromMessages(messages: unknown[]): UiTurnActi
       if (toolIndex === undefined) return;
       const tool = active.tools[toolIndex];
       const output = textFromContent(message.content);
+      const preview = boundedToolOutput(output);
       active.tools[toolIndex] = {
         ...tool,
         name: message.toolName ?? tool.name,
         status: message.isError ? "error" : "done",
-        output: boundedToolOutput(output),
+        output: preview,
+        ...(preview !== output ? { outputTruncated: true, fullOutputAvailable: true } : {}),
         endedAt: message.timestamp ?? tool.startedAt,
       };
     }
@@ -1411,14 +1413,20 @@ export class PiHost {
       return value.role === "toolResult" && value.toolCallId === toolCallId;
     });
     if (!raw || typeof raw !== "object") return undefined;
-    return boundedToolOutputRead(toolCallId, textFromContent((raw as { content?: unknown }).content));
+    return completeToolOutputRead(toolCallId, textFromContent((raw as { content?: unknown }).content));
   }
 
   private async readBridgeToolOutput(toolCallId: string): Promise<import("../shared/contracts.js").UiToolOutputReadResult | undefined> {
     let offset = 0;
     let totalBytes: number | undefined;
     let output = "";
-    for (let pageCount = 0; pageCount < 2_048; pageCount += 1) {
+    for (let pageCount = 0; ; pageCount += 1) {
+      // The bridge reports the durable byte count on the first page. Use it
+      // only to reject a malformed cursor stream; there is no arbitrary byte
+      // ceiling that could hide a valid suffix from this deliberate read.
+      if (totalBytes !== undefined && pageCount > Math.ceil(totalBytes / TOOL_OUTPUT_READ_PAGE_CHARACTERS) + 1) {
+        throw new Error("Pi returned too many tool output pages for one deliberate read.");
+      }
       const raw = await this.bridgeCommand({
         command: "read_tool_output",
         toolCallId,
@@ -1438,13 +1446,8 @@ export class PiHost {
       if (page.nextOffset <= offset || page.output.length === 0) {
         throw new Error("Pi returned an invalid tool output cursor.");
       }
-      if (this.toolOutputByteLength(output) >= MAX_TOOL_OUTPUT_READ_BYTES) {
-        const bounded = boundedToolOutputRead(toolCallId, output);
-        return { ...bounded, totalBytes, truncated: true };
-      }
       offset = page.nextOffset;
     }
-    throw new Error("Pi returned too many tool output pages.");
   }
 
   private parseToolOutputPage(value: unknown, toolCallId: string, offset: number): PiBridgeToolOutputPage {
@@ -3918,12 +3921,15 @@ export class PiHost {
           // Never let a delayed batch arrive after the terminal event.
           this.toolOutputBatcher.flushId(event.toolCallId);
           const previous = thread.tools.get(event.toolCallId);
+          const output = resultText(event.result);
+          const preview = boundedToolOutput(output);
           const tool: UiToolRun = {
             id: event.toolCallId,
             name: event.toolName,
             args: (previous?.args ?? {}) as Record<string, unknown>,
             status: event.isError ? "error" : "done",
-            output: boundedToolOutput(resultText(event.result)),
+            output: preview,
+            ...(preview !== output ? { outputTruncated: true, fullOutputAvailable: true } : {}),
             startedAt: previous?.startedAt ?? Date.now(),
             endedAt: Date.now(),
           };
