@@ -1,19 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { lastTurnActivityFromMessages } from "./pi-host.js";
+import { cleanThreadTitle, lastTurnActivityFromMessages } from "./pi-host.js";
+
+describe("cleanThreadTitle", () => {
+  it("removes Markdown and title-model framing", () => {
+    expect(cleanThreadTitle("## **Thread title: `Persist Turn Activity`**\nExtra explanation")).toBe("Persist Turn Activity");
+    expect(cleanThreadTitle("Titel: [Sidebar-Namen](https://example.test)."))
+      .toBe("Sidebar-Namen");
+  });
+});
 
 describe("lastTurnActivityFromMessages", () => {
   it("reconstructs completed tools and their transcript anchor", () => {
     const activity = lastTurnActivityFromMessages([
       { role: "user", content: [{ type: "text", text: "older" }], timestamp: 1 },
       { role: "assistant", content: [{ type: "text", text: "older answer" }], timestamp: 2 },
-      { role: "user", content: [{ type: "text", text: "change it" }], timestamp: 3 },
+      { role: "user", content: [{ type: "text", text: "change it" }], timestamp: 3, tauEntryId: "entry-user" },
       { role: "assistant", content: [{ type: "thinking", thinking: "work" }, { type: "toolCall", id: "call", name: "edit", arguments: { path: "/repo/src/a.ts" } }], timestamp: 4 },
       { role: "toolResult", toolCallId: "call", toolName: "edit", content: [{ type: "text", text: "done" }], isError: false, timestamp: 5 },
       { role: "assistant", content: [{ type: "text", text: "finished" }], timestamp: 6 },
     ]);
 
     expect(activity).toEqual({
-      anchorMessageId: "user-3-2",
+      anchorMessageId: "entry-user",
       tools: [{
         id: "call",
         name: "edit",

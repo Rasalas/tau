@@ -13,6 +13,7 @@ Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. T
 - [ADR 0001](docs/adr/0001-embed-pi-behind-a-desktop-host.md) records why Pi runs behind a desktop host.
 - [ADR 0002](docs/adr/0002-core-owns-placement-extensions-own-features.md) records why core owns placement while extensions own features.
 - [ADR 0003](docs/adr/0003-core-owns-threads-extensions-own-navigation.md) records why thread semantics stay in core while navigation remains replaceable.
+- [ADR 0004](docs/adr/0004-one-pi-runtime-per-thread.md) records why every open thread keeps its own Pi runtime.
 
 ## Run
 

@@ -5,6 +5,8 @@ import type {
   UiContextUsage,
   UiMessage,
   UiModel,
+  UiTaskProgress,
+  UiTaskProgressEntry,
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
@@ -31,6 +33,8 @@ export interface ThreadDetail {
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
+  taskProgress?: UiTaskProgress;
+  taskHistory?: UiTaskProgressEntry[];
   contextUsage?: UiContextUsage;
   /** Cursor for the next page of older transcript records. */
   olderCursor?: string;
@@ -126,6 +130,8 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDe
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
     turnActivity: snapshot.turnActivity,
+    taskProgress: snapshot.taskProgress,
+    taskHistory: snapshot.taskHistory,
     contextUsage: snapshot.contextUsage,
     ...(snapshot.messages.length > messages.length ? { olderCursor: String(snapshot.messages.length - messages.length) } : {}),
   };

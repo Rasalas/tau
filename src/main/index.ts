@@ -1,17 +1,51 @@
 import { execFile } from "node:child_process";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
-import { dirname, join } from "node:path";
+import { readdir, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { AccessLevel, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
+import type { AccessLevel, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
+import { readBoundedImagePreview } from "./image-preview.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const execFileAsync = promisify(execFile);
+
+async function rendererImagePreview(path: string) {
+  const preview = await readBoundedImagePreview(path);
+  if (!preview) return undefined;
+  const image = nativeImage.createFromDataURL(preview.dataUrl);
+  const size = image.getSize();
+  const longest = Math.max(size.width, size.height);
+  if (image.isEmpty() || longest <= 1_400) return preview;
+  const scale = 1_400 / longest;
+  const resized = image.resize({
+    width: Math.max(1, Math.round(size.width * scale)),
+    height: Math.max(1, Math.round(size.height * scale)),
+    quality: "best",
+  });
+  return { name: preview.name, dataUrl: `data:image/png;base64,${resized.toPNG().toString("base64")}` };
+}
+
+async function listDirectories(requested?: string) {
+  const candidate = requested?.trim() || homedir();
+  if (!isAbsolute(candidate)) throw new Error("Choose an absolute folder path.");
+  const path = await realpath(candidate);
+  const entries = await readdir(path, { withFileTypes: true });
+  return {
+    path,
+    ...(dirname(path) !== path ? { parent: dirname(path) } : {}),
+    directories: entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => ({ name: entry.name, path: join(path, entry.name) }))
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })),
+  };
+}
 
 function repositoryFolderName(repositoryUrl: string): string {
   const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
@@ -81,6 +115,7 @@ function installIpc(): void {
   ipcMain.handle("tau:bootstrap", async () => {
     if (!host) {
       host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode);
+      host.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
       hostReady = host.start();
       return hostReady;
     }
@@ -88,11 +123,15 @@ function installIpc(): void {
     return host.bootstrap();
   });
   ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
-  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[]) => (await requireHostReady()).prompt(text, attachments));
+  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).prompt(text, attachments, sessionId));
   ipcMain.handle("tau:run-shell-action", async (_event, command: string, includeInContext?: boolean, expectedCwd?: string) => (await requireHostReady()).runShellAction(command, includeInContext, expectedCwd));
-  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[]) => (await requireHostReady()).steer(text, attachments));
-  ipcMain.handle("tau:abort", async () => (await requireHostReady()).abort());
-  ipcMain.handle("tau:new-session", async () => (await requireHostReady()).newSession());
+  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).steer(text, attachments, sessionId));
+  // Stopping must not queue behind host readiness: a thread stuck on a question
+  // is exactly what the user is trying to get out of.
+  ipcMain.handle("tau:abort", async (_event, sessionId?: string) => host?.abort(sessionId));
+  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string) =>
+    (await requireHostReady()).newSession(initialPrompt, attachments, cwd));
+  ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));
   ipcMain.handle("tau:set-thinking", async (_event, level: string) => (await requireHostReady()).setThinkingLevel(level));
@@ -100,8 +139,18 @@ function installIpc(): void {
   ipcMain.handle("tau:reload-runtime", async () => (await requireHostReady()).reloadRuntime());
   ipcMain.handle("tau:set-access-level", async (_event, level: AccessLevel) => (await requireHostReady()).setAccessLevel(level));
   ipcMain.handle("tau:resolve-tool-approval", async (_event, id: string, allowed: boolean) => (await requireHostReady()).resolveToolApproval(id, allowed));
+  // Answering must never wait for a ready host: the host is blocked on this very
+  // question, so requiring readiness here would deadlock startup.
+  ipcMain.handle("tau:answer-extension-ui", (_event, id: string, answer: ExtensionUiAnswer) => host?.answerExtensionUi(id, answer));
+  ipcMain.handle("tau:sync-extension-ui", () => host?.replayOpenUiPrompts());
+  ipcMain.handle("tau:set-service-tier", async (_event, tier: ServiceTier) => (await requireHostReady()).setServiceTier(tier));
+  ipcMain.handle("tau:recover-thread", async () => (await requireHostReady()).recoverThread());
   ipcMain.handle("tau:rename-thread", async (_event, title: string, expectedSessionId?: string) => (await requireHostReady()).renameThread(title, expectedSessionId));
   ipcMain.handle("tau:copy-text", (_event, text: string) => clipboard.writeText(text));
+  ipcMain.handle("tau:copy-thread-markdown", async (_event, expectedSessionId?: string) => {
+    clipboard.writeText(await (await requireHostReady()).exportThreadMarkdown(expectedSessionId));
+  });
+  ipcMain.handle("tau:read-image-preview", async (_event, path: string) => rendererImagePreview(path));
   ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean, expectedSessionId?: string) => (await requireHostReady()).generateThreadTitle(provider, modelId, force, expectedSessionId));
   ipcMain.handle("tau:file-tree", async (_event, path?: string) => (await requireHostReady()).getFileTree(path));
   ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());
@@ -113,12 +162,14 @@ function installIpc(): void {
   ipcMain.handle("tau:switch-ref", async (_event, ref: string) => (await requireHostReady()).switchRef(ref));
   ipcMain.handle("tau:list-editors", async () => (await requireHostReady()).listEditors());
   ipcMain.handle("tau:open-in-editor", async (_event, editorId: string, path?: string) => (await requireHostReady()).openInEditor(editorId, path));
+  ipcMain.handle("tau:list-directories", async (_event, path?: string) => listDirectories(path));
   ipcMain.handle("tau:choose-workspace", async () => {
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ["openDirectory"] });
     const selected = result.filePaths[0];
     return selected ? (await requireHostReady()).setWorkspace(selected) : undefined;
   });
   ipcMain.handle("tau:open-project", async (_event, path: string) => (await requireHostReady()).setWorkspace(path));
+  ipcMain.handle("tau:remove-project", async (_event, path: string) => (await requireHostReady()).removeProject(path));
   ipcMain.handle("tau:clone-project", async (_event, repositoryUrl: string) => {
     const url = assertAllowedCloneSource(repositoryUrl);
     const result = await dialog.showOpenDialog(mainWindow!, {

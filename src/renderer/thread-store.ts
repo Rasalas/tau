@@ -5,6 +5,9 @@ export interface ThreadActivitySnapshot {
   isStreaming: boolean;
   runningToolName?: string;
   unreadThreadIds: readonly string[];
+  waitingThreadIds: readonly string[];
+  /** Threads with a run in flight, whether or not they are the one on screen. */
+  runningThreadIds: readonly string[];
 }
 
 export interface ThreadStoreSnapshot {
@@ -15,6 +18,10 @@ export interface ThreadStoreSnapshot {
   runningToolName?: string;
   /** Threads whose last run finished without the user watching. Cleared on open. */
   unreadThreadIds: readonly string[];
+  /** Threads stalled on an extension question; they cannot continue until answered. */
+  waitingThreadIds: readonly string[];
+  /** Threads with a run in flight, whether or not they are the one on screen. */
+  runningThreadIds: readonly string[];
 }
 
 const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
@@ -23,6 +30,8 @@ const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
   activeThreadId: "",
   isStreaming: false,
   unreadThreadIds: [],
+  waitingThreadIds: [],
+  runningThreadIds: [],
 };
 
 function threadEqual(left: UiSession, right: UiSession): boolean {
@@ -71,7 +80,7 @@ export class ThreadStore {
   private projectListeners = new Set<() => void>();
   private activityListeners = new Set<() => void>();
   private activitySnapshot: ThreadActivitySnapshot = {
-    activeThreadId: "", isStreaming: false, unreadThreadIds: [],
+    activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [], runningThreadIds: [],
   };
   private shellListeners = new Map<string, Set<() => void>>();
   private runningTools = new Map<string, string>();
@@ -153,6 +162,17 @@ export class ThreadStore {
     this.publish({ ...this.snapshot, isStreaming });
   }
 
+  /** Run state belongs to the thread, not to whichever thread is on screen. */
+  setThreadRunning(threadId: string, running: boolean): void {
+    if (!threadId) return;
+    const current = this.snapshot.runningThreadIds;
+    if (running === current.includes(threadId)) return;
+    this.publish({
+      ...this.snapshot,
+      runningThreadIds: running ? [...current, threadId] : current.filter((id) => id !== threadId),
+    });
+  }
+
   setActiveThread(activeThreadId: string, isStreaming = false): void {
     this.publish({ ...this.snapshot, activeThreadId, isStreaming, runningToolName: undefined });
   }
@@ -173,6 +193,13 @@ export class ThreadStore {
     this.publish({ ...this.snapshot, unreadThreadIds: [...this.snapshot.unreadThreadIds, threadId] });
   }
 
+  setWaiting(threadIds: readonly string[]): void {
+    const next = [...new Set(threadIds)].sort();
+    const current = [...this.snapshot.waitingThreadIds].sort();
+    if (next.length === current.length && next.every((id, index) => id === current[index])) return;
+    this.publish({ ...this.snapshot, waitingThreadIds: next });
+  }
+
   markRead(threadId: string): void {
     if (!this.snapshot.unreadThreadIds.includes(threadId)) return;
     this.publish({
@@ -188,7 +215,9 @@ export class ThreadStore {
       next.activeThreadId === this.snapshot.activeThreadId &&
       next.isStreaming === this.snapshot.isStreaming &&
       next.runningToolName === this.snapshot.runningToolName &&
-      next.unreadThreadIds === this.snapshot.unreadThreadIds
+      next.unreadThreadIds === this.snapshot.unreadThreadIds &&
+      next.waitingThreadIds === this.snapshot.waitingThreadIds &&
+      next.runningThreadIds === this.snapshot.runningThreadIds
     ) return;
     const previous = this.snapshot;
     this.snapshot = next;
@@ -197,13 +226,17 @@ export class ThreadStore {
       next.activeThreadId !== previous.activeThreadId ||
       next.isStreaming !== previous.isStreaming ||
       next.runningToolName !== previous.runningToolName ||
-      next.unreadThreadIds !== previous.unreadThreadIds
+      next.unreadThreadIds !== previous.unreadThreadIds ||
+      next.waitingThreadIds !== previous.waitingThreadIds ||
+      next.runningThreadIds !== previous.runningThreadIds
     ) {
       this.activitySnapshot = {
         activeThreadId: next.activeThreadId,
         isStreaming: next.isStreaming,
         runningToolName: next.runningToolName,
         unreadThreadIds: next.unreadThreadIds,
+        waitingThreadIds: next.waitingThreadIds,
+        runningThreadIds: next.runningThreadIds,
       };
       this.activityListeners.forEach((listener) => listener());
     }

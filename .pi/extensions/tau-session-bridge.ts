@@ -4,6 +4,8 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
+import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -11,6 +13,7 @@ import {
   type PiBridgeClientFrame,
   type PiBridgeDescriptor,
   type PiBridgeServerFrame,
+  type PiBridgeAwaitingInput,
   type PiBridgeSnapshot,
 } from "../../src/shared/pi-bridge-protocol.js";
 
@@ -30,10 +33,35 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
   });
+  pi.registerCommand("tau-bridge-new", {
+    description: "Create a new Pi session for an attached Tau client",
+    handler: async (args, ctx) => {
+      const initialPrompt = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as string : undefined;
+      await ctx.newSession({
+        ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
+      });
+    },
+  });
+  pi.registerCommand("tau-bridge-fork", {
+    description: "Fork the active Pi session for an attached Tau client",
+    handler: async (entryId, ctx) => {
+      if (!ctx.sessionManager.getBranch().some((entry) => entry.id === entryId)) {
+        ctx.ui.notify("The selected message is no longer on the active branch.", "error");
+        return;
+      }
+      await ctx.fork(entryId, { position: "at" });
+    },
+  });
 
   let server: Server | undefined;
   let descriptor: PiBridgeDescriptor | undefined;
   let latestContext: ExtensionContext | undefined;
+  /**
+   * Pi owns its own UI context while it owns the runtime, so an extension cannot
+   * intercept another extension's question — it is answered in Pi's terminal.
+   * What Tau can be told is that the thread is stalled on one.
+   */
+  let awaitingInput: PiBridgeAwaitingInput | undefined;
   let sequence = 0;
   const clients = new Set<ClientState>();
 
@@ -45,14 +73,14 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const file = ctx.sessionManager.getSessionFile();
     if (!file) throw new Error("Tau bridge requires a persisted Pi session.");
     const usage = ctx.getContextUsage();
+    const branchMessages = ctx.sessionManager.getBranch()
+      .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       cwd: ctx.cwd,
       sessionName: pi.getSessionName(),
-      messages: boundedBridgeValue(ctx.sessionManager.getBranch()
-        .flatMap((entry) => entry.type === "message" ? [entry.message] : [])
-        .slice(-160)),
+      messages: boundedBridgeValue(branchMessages.slice(-160)),
       isStreaming: !ctx.isIdle(),
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, name: ctx.model.name } : undefined,
       models: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, id: model.id, name: model.name })),
@@ -61,6 +89,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       activeTools: pi.getActiveTools(),
       allTools: pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
       contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : undefined,
+      taskProgress: taskProgressFromMessages(branchMessages),
+      taskHistory: taskProgressHistoryFromMessages(branchMessages),
+      awaitingInput,
     };
   };
 
@@ -125,6 +156,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     }
     const ctx = latestContext;
     if (!ctx) return respond(client, frame.id, false, "Pi session is unavailable.");
+    const responseId = frame.id;
     try {
       switch (frame.command) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
@@ -151,6 +183,45 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           setTimeout(() => pi.sendUserMessage("/tau-bridge-reload", { expandPromptTemplates: true }), 0);
           break;
         case "set_session_name": pi.setSessionName(frame.name); respond(client, frame.id, true); break;
+        case "export_markdown": {
+          const messages = ctx.sessionManager.getBranch()
+            .flatMap((entry) => entry.type === "message" ? [entry.message] : []);
+          const markdown = formatChatTranscript({
+            title: pi.getSessionName(),
+            cwd: ctx.cwd,
+            sessionId: ctx.sessionManager.getSessionId(),
+            messages,
+          });
+          if (Buffer.byteLength(markdown, "utf8") > PI_BRIDGE_MAX_FRAME_BYTES - 1024) {
+            throw new Error("This thread is too large to copy through the Tau bridge.");
+          }
+          respond(client, frame.id, true, { markdown });
+          break;
+        }
+        case "new_session": {
+          if (!ctx.isIdle()) throw new Error("Wait for the active run before creating a new thread.");
+          respond(client, frame.id, true, { accepted: true });
+          setTimeout(() => {
+            const encodedPrompt = frame.initialPrompt
+              ? ` ${Buffer.from(JSON.stringify(frame.initialPrompt), "utf8").toString("base64url")}`
+              : "";
+            pi.sendUserMessage(`/tau-bridge-new${encodedPrompt}`, { expandPromptTemplates: true });
+          }, 0);
+          break;
+        }
+        case "fork": {
+          if (!ctx.isIdle()) throw new Error("Wait for the active run before forking this thread.");
+          if (!ctx.sessionManager.getBranch().some((entry) => entry.id === frame.entryId)) {
+            throw new Error("The selected message is no longer on the active branch.");
+          }
+          respond(client, frame.id, true, { accepted: true });
+          setTimeout(() => {
+            pi.sendUserMessage(`/tau-bridge-fork ${frame.entryId}`, { expandPromptTemplates: true });
+          }, 0);
+          break;
+        }
+        default:
+          respond(client, responseId, false, `Unsupported Pi bridge command. Reload Pi to update the Tau bridge (protocol ${PI_BRIDGE_PROTOCOL_VERSION}).`);
       }
     } catch (error) {
       respond(client, frame.id, false, error instanceof Error ? error.message : String(error));
@@ -250,5 +321,15 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   });
 
   pi.on("session_info_changed", (event, ctx) => { broadcast({ ...event, type: "session_info_changed" }, ctx); broadcastSnapshot(ctx); });
+  // Pi blocks here until the question in its terminal is answered. Tau cannot
+  // answer it, but it can stop pretending the thread is merely "working".
+  pi.on("ui_prompt_start", (event, ctx) => {
+    awaitingInput = { kind: event.kind as PiBridgeAwaitingInput["kind"], title: event.title };
+    broadcastSnapshot(ctx);
+  });
+  pi.on("ui_prompt_end", (_event, ctx) => {
+    awaitingInput = undefined;
+    broadcastSnapshot(ctx);
+  });
   pi.on("session_shutdown", async () => { await stop(); });
 }

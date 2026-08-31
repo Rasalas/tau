@@ -73,7 +73,7 @@ function serve(descriptor: PiBridgeDescriptor, snapshot: PiBridgeSnapshot) {
             id: frame.id,
             epoch: descriptor.epoch,
             ok: true,
-            result: { command: frame.command },
+            result: { command: "command" in frame ? frame.command : undefined },
           }));
         }
       }

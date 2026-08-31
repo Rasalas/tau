@@ -7,8 +7,11 @@ import type {
   ThreadIndexSnapshot,
   UiEditor,
   UiMessage,
+  UiProject,
   UiPromptAttachment,
   UiSession,
+  ExtensionUiAnswer,
+  ExtensionUiPrompt,
   ServiceTier,
   ToolApprovalRequest,
   UiToolRun,
@@ -16,9 +19,11 @@ import type {
   WorkspaceInfo,
 } from "../shared/contracts";
 import { ChangedFiles } from "./components/ChangedFiles";
-import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
+import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer } from "./components/Composer";
+import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
+import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
@@ -51,10 +56,13 @@ import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
 import { VirtualTranscript } from "./components/VirtualTranscript";
+import { TaskProgress } from "./components/TaskProgress";
+import { ProjectPicker } from "./components/ProjectPicker";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
+import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
@@ -69,6 +77,10 @@ import {
 } from "./workbench-context";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+
+function questionKey(sessionId: string, index: number): string {
+  return `${sessionId}:${index}`;
+}
 
 export function optimisticThreadSnapshot(
   snapshot: HostSnapshot,
@@ -85,6 +97,8 @@ export function optimisticThreadSnapshot(
     isStreaming: false,
     activeTools: detail.activeTools,
     turnActivity: detail.turnActivity,
+    taskProgress: detail.taskProgress,
+    taskHistory: detail.taskHistory,
     contextUsage: detail.contextUsage,
   };
 }
@@ -128,6 +142,33 @@ const mockThreadIndex: ThreadIndexSnapshot = {
 /** chars/4, the same heuristic the Pi SDK uses, so the dial's split is a real estimate. */
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+export function latestActivityAnchor(messages: readonly UiMessage[]): string | undefined {
+  return messages.at(-1)?.id;
+}
+
+interface OptimisticUserMessage {
+  scope: string;
+  message: UiMessage;
+}
+
+export function reconcileOptimisticMessages(
+  pending: readonly OptimisticUserMessage[],
+  authoritative: readonly UiMessage[],
+): OptimisticUserMessage[] {
+  const confirmed = authoritative.filter((message) => message.role === "user");
+  const used = new Set<number>();
+  return pending.filter((entry) => {
+    const index = confirmed.findIndex((message, at) =>
+      !used.has(at)
+      && message.text === entry.message.text
+      && message.timestamp >= entry.message.timestamp - 30_000,
+    );
+    if (index < 0) return true;
+    used.add(index);
+    return false;
+  });
 }
 
 function elapsedLabel(ms: number): string {
@@ -245,9 +286,16 @@ export default function App() {
     return store;
   });
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
+  const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
   const [snapshot, setSnapshot] = useState<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  // Run state lives in the thread store, fed by the host's per-thread status
+  // events. Deriving it here keeps the composer, the live row and the rail from
+  // ever disagreeing about whether the visible thread is working.
+  const visibleStreaming = Boolean(snapshot && threadActivity.runningThreadIds.includes(snapshot.sessionId));
   const [messages, setMessages] = useState<UiMessage[]>(cachedBootstrap?.snapshot.messages ?? []);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [tools, setTools] = useState<UiToolRun[]>([]);
   const [toolAnchorId, setToolAnchorId] = useState<string>();
   const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
@@ -260,10 +308,20 @@ export default function App() {
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
+  const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
+  const uiPromptsRef = useRef(uiPrompts);
+  uiPromptsRef.current = uiPrompts;
+  // Picks per questionnaire question, keyed by thread and index. A pick for a
+  // question the extension has not reached yet is sent the moment it asks.
+  const [questionnaireChoices, setQuestionnaireChoices] = useState<Record<string, QuestionnaireChoice>>({});
+  const questionnaireChoicesRef = useRef(questionnaireChoices);
+  questionnaireChoicesRef.current = questionnaireChoices;
   const [runStartedAt, setRunStartedAt] = useState<number>();
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
   const [settingsPage, setSettingsPage] = useState<string>();
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
@@ -286,11 +344,22 @@ export default function App() {
   messagesRef.current = messages;
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
+  const assistantStartsRef = useRef(new Map<string, number>());
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
   const pendingToolUpdatesRef = useRef(new Map<string, string>());
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
+  const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
+  useEffect(() => {
+    const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
+    if (reconciled.length === optimisticMessages.length) return;
+    if (pendingNewThread && reconciled.every((entry) => entry.scope !== activeDraftKey)) {
+      writeNewThreadDraft(window.localStorage);
+      setPendingNewThread(undefined);
+    }
+    setOptimisticMessages(reconciled);
+  }, [activeDraftKey, messages, optimisticMessages, pendingNewThread]);
 
   const flushAssistantDeltas = useCallback(() => {
     if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
@@ -335,6 +404,7 @@ export default function App() {
   }, [flushToolUpdates]);
 
   const applySnapshot = useCallback((next: HostSnapshot) => {
+    assistantStartsRef.current.clear();
     pendingDeltasRef.current.clear();
     pendingToolUpdatesRef.current.clear();
     if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
@@ -347,15 +417,18 @@ export default function App() {
       isStreaming: next.isStreaming,
       activeTools: next.activeTools,
       turnActivity: next.turnActivity,
+      taskProgress: next.taskProgress,
+      taskHistory: next.taskHistory,
       contextUsage: next.contextUsage,
     };
     detailStoreRef.current.set(detail);
     setOlderCursor(detail.olderCursor);
     threadStore.applyHostSnapshot(next);
+    threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     setSnapshot(next);
     setMessages(next.messages);
-    const restoredActivity = cachedActivity ?? next.turnActivity;
+    const restoredActivity = next.turnActivity ?? cachedActivity;
     setTools(restoredActivity?.tools ?? []);
     setToolAnchorId(restoredActivity?.anchorMessageId);
     setTurnBaseline(cachedActivity?.baseline);
@@ -387,10 +460,11 @@ export default function App() {
       const detail = update.detail;
       detailStoreRef.current.set(detail);
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
+      threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
       setOlderCursor(detail.olderCursor);
       setMessages(detail.messages);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detail.sessionId);
-      const restoredActivity = cachedActivity ?? detail.turnActivity;
+      const restoredActivity = detail.turnActivity ?? cachedActivity;
       setTools(restoredActivity?.tools ?? []);
       setToolAnchorId(restoredActivity?.anchorMessageId);
       setTurnBaseline(cachedActivity?.baseline);
@@ -406,6 +480,8 @@ export default function App() {
           isStreaming: detail.isStreaming,
           activeTools: detail.activeTools,
           turnActivity: detail.turnActivity,
+          taskProgress: detail.taskProgress,
+          taskHistory: detail.taskHistory,
           contextUsage: detail.contextUsage,
         };
         cachedSnapshotRef.current = next;
@@ -471,10 +547,23 @@ export default function App() {
   }, []);
 
   const handleHostEvent = useCallback((event: HostEvent) => {
+    // Every thread streams from its own runtime. Transcript and tool events for a
+    // thread that is not on screen are dropped here; its persisted state is
+    // re-read when it is opened.
+    if (
+      (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
+        || event.type === "assistant-end" || event.type === "tool-start" || event.type === "tool-update"
+        || event.type === "tool-end" || event.type === "queue")
+      && event.sessionId !== threadStore.getSnapshot().activeThreadId
+    ) return;
     switch (event.type) {
       case "host-update": applyHostUpdate(event.update); break;
       case "thread-index": applyThreadIndex(event.threadIndex); break;
       case "agent-status": {
+        if (event.running) preferences.unsettle(event.sessionId);
+        // Record the run against its own thread first: a thread keeps its
+        // WORKING state while you are reading a different one.
+        threadStore.setThreadRunning(event.sessionId, event.running);
         if (event.sessionId !== threadStore.getSnapshot().activeThreadId) break;
         if (event.running) {
           pendingToolUpdatesRef.current.clear();
@@ -492,6 +581,11 @@ export default function App() {
         });
         setRunStartedAt(event.running ? Date.now() : undefined);
         if (!event.running) {
+          // A reconnect can miss a final tool-end frame. Pi settling is authoritative:
+          // no tool may remain running after this point.
+          setTools((current) => current.map((tool) => tool.status === "running"
+            ? { ...tool, status: "done", endedAt: Date.now() }
+            : tool));
           // "Ready" is an unread badge: only raise it if the user was not watching this finish.
           const finished = runningThreadRef.current;
           const viewed = threadStore.getSnapshot().activeThreadId;
@@ -502,11 +596,20 @@ export default function App() {
         break;
       }
       case "assistant-start":
-        setMessages((current) => current.some((message) => message.id === event.id)
-          ? current
-          : [...current, { id: event.id, role: "assistant", text: "", timestamp: event.timestamp }]);
+        // Tool-only assistant messages are common. Keep their timestamp off-screen
+        // until a visible text token arrives so virtualization never estimates a
+        // temporary empty row and shifts the transcript.
+        assistantStartsRef.current.set(event.id, event.timestamp);
         break;
       case "assistant-delta":
+        setMessages((current) => current.some((message) => message.id === event.id)
+          ? current
+          : [...current, {
+            id: event.id,
+            role: "assistant",
+            text: "",
+            timestamp: assistantStartsRef.current.get(event.id) ?? Date.now(),
+          }]);
         queueAssistantDelta(event.id, "text", event.delta);
         break;
       case "assistant-thinking":
@@ -514,7 +617,16 @@ export default function App() {
         break;
       case "assistant-end":
         flushAssistantDeltas();
-        setMessages((current) => current.map((message) => message.id === event.message.id ? event.message : message));
+        assistantStartsRef.current.delete(event.message.id);
+        setMessages((current) => {
+          const exists = current.some((message) => message.id === event.message.id);
+          if (!event.message.text) return exists
+            ? current.filter((message) => message.id !== event.message.id)
+            : current;
+          return exists
+            ? current.map((message) => message.id === event.message.id ? event.message : message)
+            : [...current, event.message];
+        });
         break;
       case "tool-start": {
         threadStore.toolStarted(event.tool.id, event.tool.name);
@@ -540,6 +652,41 @@ export default function App() {
       case "tool-approval":
         setApprovals((current) => [...current, event.request]);
         break;
+      case "extension-ui-prompt": {
+        const questionnaire = event.prompt.questionnaire;
+        if (questionnaire) {
+          const sessionId = event.prompt.sessionId;
+          const key = questionKey(sessionId, questionnaire.index);
+          const pick = questionnaire.index === 0 ? undefined : questionnaireChoicesRef.current[key];
+          if (questionnaire.index === 0) {
+            // A fresh questionnaire: picks left from an earlier one in this thread are stale.
+            setQuestionnaireChoices((current) => Object.fromEntries(
+              Object.entries(current).filter(([entry]) => !entry.startsWith(`${sessionId}:`)),
+            ));
+          }
+          const question = questionnaire.questions[questionnaire.index];
+          const value = !pick || pick.answered || pick.labels.length === 0
+            ? undefined
+            : event.prompt.kind === "select"
+              ? optionForLabel(event.prompt.options, pick.labels[0])
+              : event.prompt.kind === "input" && question?.multiSelect
+                ? multiSelectValue(question, pick.labels)
+                : undefined;
+          if (value) {
+            void window.tau?.answerExtensionUi(event.prompt.id, { value });
+            setQuestionnaireChoices((current) => ({ ...current, [key]: { labels: pick!.labels, answered: true } }));
+            break;
+          }
+        }
+        setUiPrompts((current) => [...current, event.prompt]);
+        break;
+      }
+      case "extension-ui-resolved":
+        setUiPrompts((current) => current.filter((entry) => entry.id !== event.id));
+        break;
+      case "notice":
+        setNotice(event.message);
+        break;
       case "queue":
         setQueue([...event.steering, ...event.followUp]);
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
@@ -551,6 +698,9 @@ export default function App() {
     let unsubscribe = () => {};
     if (window.tau) {
       unsubscribe = window.tau.onHostEvent(handleHostEvent);
+      // A question raised while nobody was listening would otherwise stall the
+      // host forever, including during bootstrap itself.
+      void window.tau.syncExtensionUi?.().catch(() => undefined);
       window.tau.bootstrap().then((bootstrap) => {
         applyThreadIndex(bootstrap.threadIndex);
         const current: HostSnapshot = {
@@ -570,6 +720,8 @@ export default function App() {
           isStreaming: bootstrap.detail.isStreaming,
           activeTools: bootstrap.detail.activeTools,
           turnActivity: bootstrap.detail.turnActivity,
+          taskProgress: bootstrap.detail.taskProgress,
+          taskHistory: bootstrap.detail.taskHistory,
           contextUsage: bootstrap.detail.contextUsage,
         };
         applySnapshot(current);
@@ -586,9 +738,31 @@ export default function App() {
     return unsubscribe;
   }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, refreshChanges, refreshWorkspace]);
 
+  // Best-effort sync: while Pi owns the runtime the access gate lives there, so a
+  // refusal is expected on attach and must not surface as an error on every launch.
+  const accessSyncedRef = useRef<AccessLevel | undefined>(undefined);
   useEffect(() => {
-    void window.tau?.setAccessLevel(settings.accessLevel);
+    const previous = accessSyncedRef.current;
+    accessSyncedRef.current = settings.accessLevel;
+    void window.tau?.setAccessLevel(settings.accessLevel).then((result) => {
+      // Only speak up when the user actually changed it, not on the initial push.
+      if (result?.applied !== false) return;
+      if (previous === undefined || previous === settings.accessLevel) return;
+      setNotice(result.reason ?? "Access level could not be applied.");
+    }).catch(() => undefined);
   }, [settings.accessLevel]);
+
+  // Opening or switching a thread should leave you ready to type — but never
+  // steal the caret out of the thread search or a dialog the user is using.
+  useEffect(() => {
+    if (!snapshot?.sessionId) return;
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement;
+      const idle = !active || active === document.body || active.tagName === "HTML";
+      if (idle) composerRef.current?.focus();
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [snapshot?.sessionId]);
 
   useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId);
 
@@ -662,12 +836,6 @@ export default function App() {
     return children;
   }, []);
 
-  const createSession = useCallback(async () => {
-    const next = await window.tau?.newSession();
-    if (next) applyActionResult(next);
-    else setNotice("New thread requires the Electron host");
-  }, [applyActionResult]);
-
   const openPanel = useCallback((id: string) => {
     setActivePanel(id);
     setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
@@ -720,6 +888,27 @@ export default function App() {
     }
   }, [acceptWorkspace, requireHost, snapshot?.cwd]);
 
+  const removeProject = useCallback(async (project: UiProject) => {
+    if (!requireHost("Project removal")) return;
+    try {
+      applyActionResult(await window.tau!.removeProject(project.path));
+    } catch (error) {
+      setNotice(String(error));
+    }
+  }, [applyActionResult, requireHost]);
+
+  const createThreadInProject = useCallback((project: UiProject) => {
+    const draft = { projectPath: project.path, projectName: project.name };
+    writeNewThreadDraft(window.localStorage, draft);
+    setPendingNewThread(draft);
+    setNewThreadOpen(false);
+  }, []);
+
+  const browseForNewThread = useCallback(async () => {
+    setNewThreadOpen(false);
+    await chooseWorkspace();
+  }, [chooseWorkspace]);
+
   const cloneWorkspace = useCallback(async (repositoryUrl: string): Promise<boolean> => {
     if (!requireHost("Git clone")) return false;
     try {
@@ -735,6 +924,8 @@ export default function App() {
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
+    setPendingNewThread(undefined);
+    writeNewThreadDraft(window.localStorage);
     const startedAt = performance.now();
     const previous = snapshot;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
@@ -812,6 +1003,22 @@ export default function App() {
       setNotice(String(error));
     }
   }, [applyActionResult, requireHost]);
+
+  const recoverThread = useCallback(async () => {
+    if (!requireHost("Thread recovery")) return;
+    try {
+      const sessionId = snapshot?.sessionId;
+      applyActionResult(await window.tau!.recoverThread());
+      // The stalled row is restored from a renderer-side cache, so clearing the
+      // session alone would leave the ghost on screen.
+      if (sessionId) clearCachedTurnActivity(window.localStorage, sessionId);
+      setTools([]);
+      setToolAnchorId(undefined);
+      setNotice("Closed the interrupted call. The thread can continue.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
   const compactContext = useCallback(async () => {
     if (!requireHost("Compaction")) return;
@@ -891,6 +1098,57 @@ export default function App() {
     }
   }, [acceptWorkspace, requireHost]);
 
+  useEffect(() => {
+    threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
+  }, [threadStore, uiPrompts]);
+
+  // A prompt must never be unanswerable. Workspace-level questions (project trust
+  // is asked before any session exists) and questions naming a thread we do not
+  // know surface on whatever thread is open; only a known other thread defers to
+  // its own rail badge.
+  const threadPrompts = useMemo(() => {
+    const known = new Set(threadStore.getSnapshot().threads.map((thread) => thread.id));
+    return uiPrompts.filter((entry) =>
+      !entry.sessionId || entry.sessionId === snapshot?.sessionId || !known.has(entry.sessionId));
+  }, [snapshot?.sessionId, threadStore, uiPrompts]);
+
+  const answerUiPrompt = useCallback((id: string, answer: ExtensionUiAnswer) => {
+    const prompt = uiPromptsRef.current.find((entry) => entry.id === id);
+    if (prompt?.questionnaire && "value" in answer) {
+      const question = prompt.questionnaire.questions[prompt.questionnaire.index];
+      // Multi-select answers are option numbers; keep the labels for the page summary.
+      const labels = answer.typed
+        ? [answer.value]
+        : prompt.kind === "input" && question?.multiSelect
+          ? answer.value.split(/[,\s]+/u).flatMap((token) => {
+            const option = question.options[Number(token) - 1];
+            return option ? [option.label] : [];
+          })
+          : [splitOption(answer.value).label];
+      const key = questionKey(prompt.sessionId, prompt.questionnaire.index);
+      setQuestionnaireChoices((current) => ({ ...current, [key]: { labels: labels.length > 0 ? labels : [answer.value], answered: true } }));
+    }
+    setUiPrompts((current) => current.filter((entry) => entry.id !== id));
+    void window.tau?.answerExtensionUi(id, answer);
+  }, []);
+
+  const preselectQuestion = useCallback((index: number, labels: string[]) => {
+    const active = threadPrompts[0];
+    if (!active) return;
+    setQuestionnaireChoices((current) => ({ ...current, [questionKey(active.sessionId, index)]: { labels, answered: false } }));
+  }, [threadPrompts]);
+
+  const promptChoices = useMemo(() => {
+    const active = threadPrompts[0];
+    if (!active?.questionnaire) return undefined;
+    const choices: Record<number, QuestionnaireChoice> = {};
+    active.questionnaire.questions.forEach((_question, index) => {
+      const pick = questionnaireChoices[questionKey(active.sessionId, index)];
+      if (pick) choices[index] = pick;
+    });
+    return choices;
+  }, [questionnaireChoices, threadPrompts]);
+
   const resolveApproval = useCallback((id: string, allowed: boolean) => {
     setApprovals((current) => current.filter((request) => request.id !== id));
     void window.tau?.resolveToolApproval(id, allowed);
@@ -902,7 +1160,17 @@ export default function App() {
     preferences.toggleSettled(activeId);
   }, [threadStore]);
 
-  const copyThreadValue = useCallback(async (kind: "path" | "branch" | "thread-id") => {
+  const copyThreadValue = useCallback(async (kind: "chat" | "path" | "branch" | "thread-id") => {
+    if (kind === "chat") {
+      if (!snapshot?.sessionId || !window.tau) return;
+      try {
+        await window.tau.copyThreadMarkdown(snapshot.sessionId);
+        setNotice("Chat copied as Markdown.");
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     const value = kind === "path"
       ? snapshot?.cwd
       : kind === "branch"
@@ -919,6 +1187,25 @@ export default function App() {
       setNotice(String(error));
     }
   }, [snapshot?.branch, snapshot?.cwd, snapshot?.sessionId]);
+
+  const copyMessage = useCallback(async (message: UiMessage) => {
+    try {
+      await window.tau?.copyText(message.text);
+      setNotice("Message copied.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const forkMessage = useCallback(async (message: UiMessage) => {
+    if (!message.sourceEntryId || !snapshot?.sessionId || !requireHost("Fork thread")) return;
+    try {
+      setNotice("Forking thread…");
+      applyActionResult(await window.tau!.forkThread(message.sourceEntryId, snapshot.sessionId));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
   const reloadRuntime = useCallback(async () => {
     if (!requireHost("Runtime reload")) return false;
@@ -938,12 +1225,12 @@ export default function App() {
     openCommandPalette: () => setPaletteOpen(true),
     openSettings: (page) => setSettingsPage(page ?? "defaults"),
     openReview: () => openReview(),
-    newSession: () => void createSession(),
+    newSession: () => setNewThreadOpen(true),
     switchSession,
     settleActiveThread,
-    abort: () => void window.tau?.abort(),
+    abort: () => void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined),
     reloadRuntime,
-    focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
+    focusComposer: (seed) => { if (seed !== undefined) { setComposerSeed(seed); writeComposerDraft(window.localStorage, activeDraftKey, seed); } composerRef.current?.focus(); },
     notify: setNotice,
     chooseWorkspace,
     openWorkspace,
@@ -955,8 +1242,8 @@ export default function App() {
       return generateThreadTitle(model.provider, model.id, force);
     },
   }), [
-    chooseWorkspace, cloneWorkspace, createSession, generateThreadTitle, openPanel,
-    openReview, openWorkspace, reloadRuntime, settleActiveThread, snapshot?.model, switchSession,
+    chooseWorkspace, cloneWorkspace, generateThreadTitle, openPanel,
+    activeDraftKey, openReview, openWorkspace, reloadRuntime, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
   const submit = useCallback(async (value: string, attachments: UiPromptAttachment[] = []) => {
@@ -966,23 +1253,63 @@ export default function App() {
       await reloadRuntime();
       return;
     }
-    if (snapshot?.isStreaming) {
+    if (!pendingNewThread && visibleStreaming) {
       if (window.tau) {
-        try { await window.tau.steer(text, attachments); } catch (error) { setNotice(String(error)); }
+        try { await window.tau.steer(text, attachments, snapshot?.sessionId); } catch (error) { setNotice(String(error)); }
       } else {
         setQueue((current) => [...current, text || attachments.map((attachment) => attachment.name).join(", ")]);
       }
       return;
     }
-    if (snapshot) threadStore.markRead(snapshot.sessionId);
     const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
     const optimistic: UiMessage = { id: `local-${Date.now()}`, role: "user", text: optimisticText, timestamp: Date.now() };
-    setMessages((current) => [...current, optimistic]);
+    const optimisticScope = activeDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
+    if (pendingNewThread) {
+      const pending = pendingNewThread;
+      const pendingKey = draftKey(undefined, pending);
+      setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+      try {
+        if (!window.tau) throw new Error("New thread requires the Electron host.");
+        const result = await window.tau.newSession(text, attachments, pending.projectPath);
+        const created = result.updates.find((update) => update.type === "thread-detail");
+        const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
+        if (sessionId) {
+          // The optimistic message moves to the real thread before the draft
+          // view closes, so nothing flickers while the host confirms it.
+          setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
+            ? { ...entry, scope: `session:${sessionId}` }
+            : entry));
+          writeNewThreadDraft(window.localStorage);
+          setPendingNewThread(undefined);
+          acceptWorkspace(result);
+          threadStore.markRead(sessionId);
+        } else {
+          // Pi's own TUI creates the thread and reports it later; the draft
+          // view stays until that report arrives.
+          applyActionResult(result);
+        }
+        writeComposerDraft(window.localStorage, pendingKey, "");
+      } catch (error) {
+        setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+        writeComposerDraft(window.localStorage, pendingKey, text);
+        setComposerSeed(text);
+        setNotice(String(error));
+      }
+      return;
+    }
+    if (snapshot) {
+      threadStore.markRead(snapshot.sessionId);
+      preferences.unsettle(snapshot.sessionId);
+    }
+    setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
     if (window.tau) {
       try {
-        await window.tau.sendPrompt(text, attachments);
+        await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
         await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
       } catch (error) {
+        setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+        writeComposerDraft(window.localStorage, activeDraftKey, text);
+        setComposerSeed(text);
         setNotice(String(error));
       }
     } else {
@@ -999,25 +1326,25 @@ export default function App() {
         setRunStartedAt(undefined);
       }, 650);
     }
-  }, [actions, registry, reloadRuntime, snapshot, threadStore]);
+  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, registry, reloadRuntime, snapshot, threadStore, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const meta = event.metaKey || event.ctrlKey;
       if (meta && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteOpen(true); }
-      if (meta && event.key.toLowerCase() === "n") { event.preventDefault(); void createSession(); }
+      if (meta && event.key.toLowerCase() === "n") { event.preventDefault(); setNewThreadOpen(true); }
       if (meta && event.shiftKey && event.key.toLowerCase() === "s") { event.preventDefault(); settleActiveThread(); }
       if (meta && event.shiftKey && event.key.toLowerCase() === "d") { event.preventDefault(); openReview(); }
       if (
         event.key === "Escape" &&
-        snapshot?.isStreaming &&
+        visibleStreaming &&
         !paletteOpen &&
         !document.querySelector('[aria-modal="true"]')
-      ) void window.tau?.abort();
+      ) void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined);
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [createSession, openReview, paletteOpen, settleActiveThread, snapshot?.isStreaming]);
+  }, [openReview, paletteOpen, settleActiveThread, threadStore, visibleStreaming]);
 
   useEffect(() => {
     const sessionId = snapshot?.sessionId;
@@ -1034,6 +1361,7 @@ export default function App() {
     () => turnBaseline ? changesSinceTurn(turnBaseline, changes) : changesTouchedByTools(tools, changes),
     [changes, tools, turnBaseline],
   );
+  const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -1064,6 +1392,22 @@ export default function App() {
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
+  const scopedOptimisticMessages = optimisticMessages.filter((entry) => entry.scope === activeDraftKey);
+  const unconfirmedOptimisticMessages = reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message);
+  const conversationMessages = pendingNewThread
+    ? unconfirmedOptimisticMessages
+    : [...messages, ...unconfirmedOptimisticMessages].sort((left, right) => left.timestamp - right.timestamp);
+  const visibleToolAnchorId = latestActivityAnchor(conversationMessages);
+  const conversationSnapshot = pendingNewThread && snapshot ? {
+    ...snapshot,
+    cwd: pendingNewThread.projectPath,
+    sessionId: `draft:${pendingNewThread.projectPath}`,
+    sessionName: undefined,
+    sessionTitle: "Untitled thread",
+    isStreaming: false,
+    taskProgress: undefined,
+    taskHistory: [],
+  } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
   const shellClassName = [
     "app-shell",
     sidebarContributions.length === 0 ? "no-sidebar" : "",
@@ -1091,6 +1435,14 @@ export default function App() {
           />
         </Suspense>
       </LazyFeatureBoundary>
+      <ProjectPicker
+        open={newThreadOpen}
+        projects={projects}
+        onBrowse={() => void browseForNewThread()}
+        onClose={() => setNewThreadOpen(false)}
+        onRemove={removeProject}
+        onSelect={(project) => createThreadInProject(project)}
+      />
       {settingsPage ? (
         <LazyFeatureBoundary label="settings">
           <Suspense fallback={<LazyFeatureFallback label="settings" />}>
@@ -1186,11 +1538,11 @@ export default function App() {
             <main className="conversation-column">
               <header className="conversation-header">
                 <ThreadTitleMenu
-                  title={snapshot?.sessionTitle || "Untitled thread"}
+                  title={conversationSnapshot?.sessionTitle || "Untitled thread"}
                   branch={snapshot?.branch}
                   pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
                   settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
-                  onNewThread={() => void createSession()}
+                  onNewThread={() => setNewThreadOpen(true)}
                   onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
                   onToggleSettled={settleActiveThread}
                   onRename={renameThread}
@@ -1204,31 +1556,65 @@ export default function App() {
               <div className="transcript" ref={transcriptRef}>
                 <div className="transcript-inner">
                   <VirtualTranscript
-                    messages={messages}
+                    messages={conversationMessages}
                     scrollRef={transcriptRef}
-                    isStreaming={Boolean(snapshot?.isStreaming)}
-                    activity={tools.length > 0 ? <ToolGroup tools={tools} registry={registry} /> : undefined}
-                    activityAfterMessageId={toolAnchorId}
+                    isStreaming={Boolean(conversationSnapshot?.isStreaming)}
+                    activity={!pendingNewThread && activityTools.length > 0 ? (
+                      <ToolGroup
+                        tools={activityTools}
+                        registry={registry}
+                        streaming={conversationSnapshot?.isStreaming}
+                        waiting={threadPrompts.length > 0}
+                        onRecover={() => void recoverThread()}
+                        onStop={() => void window.tau?.abort(snapshot?.sessionId)}
+                      />
+                    ) : undefined}
+                    activityAfterMessageId={visibleToolAnchorId}
+                    activities={(conversationSnapshot?.taskHistory ?? []).filter((entry) => entry.progress.total > 1).map((entry) => ({
+                      id: entry.id,
+                      afterMessageId: entry.anchorMessageId,
+                      content: <TaskProgress progress={entry.progress} placement="transcript" />,
+                    }))}
+                    onCopyMessage={(message) => void copyMessage(message)}
+                    onForkMessage={(message) => void forkMessage(message)}
                   />
-                  <ChangedFiles changes={turnChanges} onOpenDiff={openReview} />
-                  {snapshot?.isStreaming ? <LiveStatus startedAt={runStartedAt} /> : null}
+                  <ChangedFiles changes={pendingNewThread ? NO_CHANGES : turnChanges} onOpenDiff={openReview} />
+                  {/* The tool block already says a run is in flight; two live rows
+                      both duplicate the signal and collide with the virtual list. */}
+                  {conversationSnapshot?.isStreaming && activityTools.length === 0
+                    ? <LiveStatus startedAt={runStartedAt} />
+                    : null}
                 </div>
               </div>
 
               <Composer
-                snapshot={snapshot}
+                snapshot={conversationSnapshot}
                 seed={composerSeed}
+                draftStorageKey={activeDraftKey}
                 queue={queue}
                 accessLevel={settings.accessLevel}
                 contextUsage={snapshot?.contextUsage}
                 contextBreakdown={contextBreakdown}
                 textareaRef={composerRef}
-                onSubmit={(text) => void submit(text ?? "")}
-                onAbort={() => void window.tau?.abort()}
+                onSubmit={(text, attachments) => void submit(text ?? "", attachments)}
+                onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
                 onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
                 onSetModel={(provider, id) => void setModel(provider, id)}
                 onSetThinking={(level) => void setThinking(level)}
                 onSetServiceTier={(tier) => void setServiceTier(tier)}
+                prompt={threadPrompts[0]}
+                promptsPending={Math.max(0, threadPrompts.length - 1)}
+                onAnswerPrompt={(value, typed) => {
+                  const active = threadPrompts[0];
+                  if (!active) return;
+                  answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
+                }}
+                onCancelPrompt={() => {
+                  const active = threadPrompts[0];
+                  if (active) answerUiPrompt(active.id, { cancelled: true });
+                }}
+                promptChoices={promptChoices}
+                onPreselectQuestion={preselectQuestion}
                 onSetAccess={(level: AccessLevel) => preferences.setAccessLevel(level)}
                 onCompactContext={() => void compactContext()}
                 workspace={workspace}

@@ -48,7 +48,7 @@ export interface AccessDecision {
 export interface AccessControl {
   level(): AccessLevel;
   /** Asks the workbench; resolves false if nobody answers. */
-  requestApproval(toolCallId: string, toolName: string, input: Record<string, unknown>): Promise<AccessDecision>;
+  requestApproval(toolCallId: string, toolName: string, input: Record<string, unknown>, sessionId: string): Promise<AccessDecision>;
   onBlocked(toolName: string, reason: string): void;
 }
 
@@ -59,7 +59,7 @@ export interface AccessControl {
  */
 export function createAccessExtension(control: AccessControl): ExtensionFactory {
   return (pi) => {
-    pi.on("tool_call", async (event: ToolCallEvent): Promise<ToolCallEventResult | undefined> => {
+    pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | undefined> => {
       const level = control.level();
       if (level === "full") return undefined;
       if (!isMutatingToolCall(event.toolName, event.input as Record<string, unknown>)) return undefined;
@@ -74,6 +74,7 @@ export function createAccessExtension(control: AccessControl): ExtensionFactory 
         event.toolCallId,
         event.toolName,
         event.input as Record<string, unknown>,
+        ctx.sessionManager.getSessionId(),
       );
       if (decision.allowed) return undefined;
 

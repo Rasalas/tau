@@ -4,6 +4,8 @@ export type UiRole = "user" | "assistant" | "notice";
 
 export interface UiMessage {
   id: string;
+  /** Persisted Pi session entry used for exact branch/fork operations. */
+  sourceEntryId?: string;
   role: UiRole;
   text: string;
   thinking?: string;
@@ -11,12 +13,37 @@ export interface UiMessage {
 }
 
 /** Bounded image payload selected in the desktop composer. Data is raw base64. */
+export interface UiImagePreview {
+  name: string;
+  dataUrl: string;
+}
+
 export interface UiPromptAttachment {
   kind: "image";
   name: string;
   mimeType: string;
   data: string;
   size: number;
+}
+
+export interface UiTask {
+  id: number;
+  subject: string;
+  activeForm?: string;
+  status: "pending" | "in_progress" | "completed";
+  blockedBy?: number[];
+}
+
+export interface UiTaskProgress {
+  tasks: UiTask[];
+  completed: number;
+  total: number;
+}
+
+export interface UiTaskProgressEntry {
+  id: string;
+  anchorMessageId?: string;
+  progress: UiTaskProgress;
 }
 
 export interface UiToolRun {
@@ -78,8 +105,56 @@ export type AccessLevel = "read-only" | "ask" | "full";
  */
 export type ServiceTier = "standard" | "fast";
 
+export type ExtensionUiPromptKind = "select" | "confirm" | "input" | "editor";
+
+export interface UiQuestionnaireQuestion {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: Array<{ label: string; description: string }>;
+}
+
+/** The whole questionnaire a prompt belongs to, so the workbench can page through it. */
+export interface UiQuestionnaire {
+  /** Position of this prompt's question. */
+  index: number;
+  questions: UiQuestionnaireQuestion[];
+}
+
+/**
+ * A blocking question an extension asked through Pi's UI context. It belongs to
+ * one thread: that thread is stalled until it is answered, others are not.
+ */
+export interface ExtensionUiPrompt {
+  id: string;
+  sessionId: string;
+  kind: ExtensionUiPromptKind;
+  title: string;
+  /** confirm only. */
+  message?: string;
+  /** select only. */
+  options?: string[];
+  /** input only. */
+  placeholder?: string;
+  /** editor only. */
+  prefill?: string;
+  /** Wall-clock deadline when the extension passed a timeout. */
+  expiresAt?: number;
+  /** The question is answered outside Tau — Pi owns the runtime and asks in its terminal. */
+  answerElsewhere?: boolean;
+  questionnaire?: UiQuestionnaire;
+}
+
+export type ExtensionUiAnswer =
+  | { cancelled: true }
+  /** `typed` marks free text entered for a select, as opposed to a clicked choice. */
+  | { value: string; typed?: boolean }
+  | { confirmed: boolean };
+
 export interface ToolApprovalRequest {
   id: string;
+  /** The thread whose run is blocked on this decision. */
+  sessionId: string;
   toolName: string;
   /** Short human-readable description of what the tool is about to do. */
   summary: string;
@@ -215,6 +290,8 @@ export interface HostSnapshot {
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
+  taskProgress?: UiTaskProgress;
+  taskHistory?: UiTaskProgressEntry[];
   allTools: Array<{ name: string; description: string }>;
   extensionCount: number;
   contextUsage?: UiContextUsage;
@@ -237,6 +314,8 @@ export interface HostBootstrap {
     isStreaming: boolean;
     activeTools: string[];
     turnActivity?: UiTurnActivity;
+    taskProgress?: UiTaskProgress;
+    taskHistory?: UiTaskProgressEntry[];
     contextUsage?: UiContextUsage;
     olderCursor?: string;
   };
@@ -257,42 +336,64 @@ export type HostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
   | { type: "agent-status"; sessionId: string; running: boolean }
-  | { type: "assistant-start"; id: string; timestamp: number }
-  | { type: "assistant-delta"; id: string; delta: string }
-  | { type: "assistant-thinking"; id: string; delta: string }
-  | { type: "assistant-end"; message: UiMessage }
-  | { type: "tool-start"; tool: UiToolRun }
-  | { type: "tool-update"; id: string; output: string }
-  | { type: "tool-end"; tool: UiToolRun }
-  | { type: "queue"; steering: string[]; followUp: string[] }
+  // Every thread has its own runtime, so live events name the thread they belong
+  // to; the renderer applies them only to the thread it is showing.
+  | { type: "assistant-start"; sessionId: string; id: string; timestamp: number }
+  | { type: "assistant-delta"; sessionId: string; id: string; delta: string }
+  | { type: "assistant-thinking"; sessionId: string; id: string; delta: string }
+  | { type: "assistant-end"; sessionId: string; message: UiMessage }
+  | { type: "tool-start"; sessionId: string; tool: UiToolRun }
+  | { type: "tool-update"; sessionId: string; id: string; output: string }
+  | { type: "tool-end"; sessionId: string; tool: UiToolRun }
+  | { type: "queue"; sessionId: string; steering: string[]; followUp: string[] }
   | { type: "tool-approval"; request: ToolApprovalRequest }
+  | { type: "extension-ui-prompt"; prompt: ExtensionUiPrompt }
+  | { type: "extension-ui-resolved"; id: string }
+  | { type: "notice"; message: string; level: "info" | "warning" | "error" }
   | { type: "error"; message: string }
   | { type: "event-log"; label: string; detail?: string; timestamp: number };
+
+export interface UiDirectoryListing {
+  path: string;
+  parent?: string;
+  directories: Array<{ name: string; path: string }>;
+}
 
 export interface TauDesktopApi {
   /** Host platform, so the title bar can leave room for native window controls. */
   readonly platform: string;
   bootstrap(): Promise<HostBootstrap>;
   loadTranscript(sessionId: string, cursor?: string): Promise<import("./host-protocol.js").TranscriptPage>;
-  sendPrompt(text: string, attachments?: UiPromptAttachment[]): Promise<void>;
+  /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
+  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
-  steer(text: string, attachments?: UiPromptAttachment[]): Promise<void>;
-  abort(): Promise<void>;
-  newSession(): Promise<import("./host-protocol.js").HostActionResult>;
+  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  abort(sessionId?: string): Promise<void>;
+  /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
   setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;
   compactContext(): Promise<import("./host-protocol.js").HostActionResult>;
+  recoverThread(): Promise<import("./host-protocol.js").HostActionResult>;
   /** Reload Pi resources first; the renderer then reloads its desktop extensions. */
   reloadRuntime(): Promise<void>;
   setServiceTier(tier: ServiceTier): Promise<import("./host-protocol.js").HostActionResult>;
-  setAccessLevel(level: AccessLevel): Promise<void>;
+  setAccessLevel(level: AccessLevel): Promise<{ applied: boolean; reason?: string }>;
   resolveToolApproval(id: string, allowed: boolean): Promise<void>;
+  answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
+  /** Re-announces questions raised before this renderer was listening. */
+  syncExtensionUi(): Promise<void>;
   chooseWorkspace(): Promise<HostActionResult | undefined>;
+  listDirectories(path?: string): Promise<UiDirectoryListing>;
   openProject(path: string): Promise<HostActionResult>;
+  removeProject(path: string): Promise<HostActionResult>;
   cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
   renameThread(title: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   copyText(text: string): Promise<void>;
+  copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
+  readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   getFileTree(path?: string): Promise<FileNode[]>;
   getChanges(): Promise<UiWorkspaceChanges>;

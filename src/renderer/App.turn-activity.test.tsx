@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, TauDesktopApi, UiToolRun } from "../shared/contracts";
 import App from "./App";
+import { writeCachedTurnActivity } from "./turn-activity";
 
 afterEach(cleanup);
 
@@ -36,31 +37,71 @@ describe("last-turn activity", () => {
     } as unknown as TauDesktopApi;
   });
 
+  it("prefers authoritative completed tools over stale running cache entries", async () => {
+    writeCachedTurnActivity(localStorage, {
+      sessionId: "session",
+      baseline: { files: [], added: 0, removed: 0 },
+      tools: [{ id: "tool", name: "read", args: {}, status: "running", startedAt: 1 }],
+    });
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          turnActivity: {
+            tools: [{ id: "tool", name: "read", args: {}, status: "done" as const, startedAt: 1, endedAt: 2 }],
+          },
+        },
+      };
+    };
+
+    render(<App />);
+    expect(await screen.findByText("Used 1 tool")).toBeTruthy();
+    expect(screen.queryByText(/1 running/)).toBeNull();
+  });
+
+  it("does not mount virtual rows for tool-only assistant messages", async () => {
+    const view = render(<App />);
+    await screen.findByText("Thread");
+
+    act(() => publish({ type: "assistant-start", sessionId: "session", id: "tool-only", timestamp: 1 }));
+    expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(0);
+
+    act(() => publish({
+      type: "assistant-end",
+      sessionId: "session",
+      message: { id: "tool-only", role: "assistant", text: "", timestamp: 1 },
+    }));
+    expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(0);
+  });
+
   it("aggregates steering into the current run and resets on the next run", async () => {
     render(<App />);
     await screen.findByText("Thread");
 
     act(() => {
       publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({ type: "tool-start", tool: { ...tool("one"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", tool: tool("one") });
-      publish({ type: "tool-start", tool: { ...tool("two"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", tool: tool("two") });
+      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("one"), status: "running", endedAt: undefined } });
+      publish({ type: "tool-end", sessionId: "session", tool: tool("one") });
+      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("two"), status: "running", endedAt: undefined } });
+      publish({ type: "tool-end", sessionId: "session", tool: tool("two") });
     });
     expect(await screen.findByText("Used 2 tools")).toBeTruthy();
 
     act(() => {
-      publish({ type: "queue", steering: ["keep going"], followUp: [] });
-      publish({ type: "tool-start", tool: { ...tool("three"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", tool: tool("three") });
+      publish({ type: "queue", sessionId: "session", steering: ["keep going"], followUp: [] });
+      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("three"), status: "running", endedAt: undefined } });
+      publish({ type: "tool-end", sessionId: "session", tool: tool("three") });
     });
     expect(await screen.findByText("Used 3 tools")).toBeTruthy();
 
     act(() => {
       publish({ type: "agent-status", sessionId: "session", running: false });
       publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({ type: "tool-start", tool: { ...tool("four"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", tool: tool("four") });
+      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("four"), status: "running", endedAt: undefined } });
+      publish({ type: "tool-end", sessionId: "session", tool: tool("four") });
     });
     await waitFor(() => expect(screen.queryByText("Used 3 tools")).toBeNull());
     expect(screen.getByText("Used 1 tool")).toBeTruthy();

@@ -40,6 +40,18 @@ export function writeCachedTurnActivity(storage: Storage, activity: CachedTurnAc
   }
 }
 
+/** Drops a thread's cached turn, so a run that died leaves no ghost activity behind. */
+export function clearCachedTurnActivity(storage: Storage, sessionId: string): void {
+  try {
+    const entries = JSON.parse(storage.getItem(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
+    if (!(sessionId in entries)) return;
+    delete entries[sessionId];
+    storage.setItem(TURN_ACTIVITY_CACHE_KEY, JSON.stringify(entries));
+  } catch {
+    // A full or blocked storage area must not break recovery.
+  }
+}
+
 function fileEqual(left: UiChangedFile | undefined, right: UiChangedFile): boolean {
   return Boolean(left
     && left.status === right.status
