@@ -153,9 +153,16 @@ const COMPONENTS: Components = {
  * Renders agent and user text. Raw HTML is deliberately not enabled, so anything
  * HTML-shaped in a model response stays inert text.
  */
-const MarkdownTree = memo(function MarkdownTree({ children }: { children: string }) {
+const INLINE_COMPONENTS: Components = {
+  ...COMPONENTS,
+  p({ children }) {
+    return <span className="md-inline-paragraph">{children}</span>;
+  },
+};
+
+const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS }: { children: string; components?: Components }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={COMPONENTS}>
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
       {children}
     </ReactMarkdown>
   );
@@ -175,8 +182,17 @@ function StreamingTail({ children }: { children: string }) {
   return <pre className="streaming-tail">{chunks.map((chunk, index) => <StreamingChunk key={index}>{chunk}</StreamingChunk>)}</pre>;
 }
 
+/** Block Markdown must keep its block DOM; only a simple inline instruction can sit beside a chip. */
+export function isInlineMarkdown(text: string): boolean {
+  return !/(^|\n)(?:[ \t]{4}|```|~~~| {0,3}(?:#{1,6}\s|[-+*]\s|\d+\.\s|>|\*\*\*+\s*$|---+\s*$))/mu.test(text)
+    && !/\n\s*\n/u.test(text);
+}
+
 /** Keep the mutable tail cheap and parse each completed block only once. */
-export const Markdown = memo(function Markdown({ children, streaming = false }: { children: string; streaming?: boolean }) {
+export const Markdown = memo(function Markdown({ children, streaming = false, inlineStart = false }: { children: string; streaming?: boolean; inlineStart?: boolean }) {
+  if (inlineStart && !streaming && isInlineMarkdown(children)) {
+    return <span className="markdown markdown-inline"><MarkdownTree components={INLINE_COMPONENTS}>{children}</MarkdownTree></span>;
+  }
   if (!streaming || children.length < 512) {
     return <div className="markdown"><MarkdownTree>{children}</MarkdownTree></div>;
   }

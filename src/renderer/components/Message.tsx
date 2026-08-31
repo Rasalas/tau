@@ -152,7 +152,7 @@ export const Message = memo(function Message({
         <article className="message user">
           <div className="message-text">
             {skill ? <SkillChip name={skill.name} /> : null}
-            {hasVisibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
+            {hasVisibleText ? <Markdown inlineStart={Boolean(skill)}>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
             <PersistedMessageImages images={persistedImages} />
             {hasLocalImages ? <MessageImages text={messageText} /> : null}
           </div>

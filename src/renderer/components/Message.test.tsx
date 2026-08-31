@@ -105,6 +105,8 @@ describe("Message skill invocations", () => {
 
     expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
     expect(screen.getByText("Skill")).toBeTruthy();
+    expect(view.container.querySelector(".skill-chip + .markdown.markdown-inline")).toBeTruthy();
+    expect(view.container.querySelector(".skill-chip + .markdown")?.tagName).toBe("SPAN");
     expect(view.container.textContent).toContain("Please fix the parser and keep the examples.");
     expect(view.container.querySelector(".markdown strong")?.textContent).toBe("the parser");
     expect(view.container.textContent).not.toContain("Injected skill content");
@@ -141,6 +143,7 @@ describe("Message skill invocations", () => {
     expect(view.container.textContent).toContain("keep this indentation");
     expect(view.container.textContent).toContain("keep this fence");
     expect(view.container.querySelector("pre")).toBeTruthy();
+    expect(view.container.querySelector(".markdown-inline")).toBeNull();
   });
 
   it.each(["dark", "light"])("keeps the icon and text label available in the %s theme", (theme) => {

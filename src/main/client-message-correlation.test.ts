@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   branchMessagesWithClientMessageIds,
+  clientMessageFingerprint,
   clientMessageIdForMessage,
   CLIENT_MESSAGE_CANCEL_MARKER,
   CLIENT_MESSAGE_MARKER,
   unclaimedClientMessageIds,
-} from "./client-message-correlation.js";
+} from "../shared/client-message-correlation.js";
 
-function marker(customType: string, clientMessageId: string) {
-  return { type: "custom", customType, data: { clientMessageId } };
+function marker(customType: string, clientMessageId: string, text?: string) {
+  return {
+    type: "custom",
+    customType,
+    data: { clientMessageId, ...(text !== undefined ? { fingerprint: clientMessageFingerprint(text) } : {}) },
+  };
 }
 
 describe("client message correlation", () => {
@@ -16,9 +21,9 @@ describe("client message correlation", () => {
     const first = { role: "user", content: "same", timestamp: 1 };
     const second = { role: "user", content: "same", timestamp: 1 };
     const entries = [
-      marker(CLIENT_MESSAGE_MARKER, "request-a"),
+      marker(CLIENT_MESSAGE_MARKER, "request-a", "same"),
       { type: "message", id: "entry-a", message: first },
-      marker(CLIENT_MESSAGE_MARKER, "request-b"),
+      marker(CLIENT_MESSAGE_MARKER, "request-b", "same"),
       { type: "message", id: "entry-b", message: second },
     ];
 
@@ -37,7 +42,7 @@ describe("client message correlation", () => {
     const entries = [
       marker(CLIENT_MESSAGE_MARKER, "failed"),
       marker(CLIENT_MESSAGE_CANCEL_MARKER, "failed"),
-      marker(CLIENT_MESSAGE_MARKER, "accepted"),
+      marker(CLIENT_MESSAGE_MARKER, "accepted", "next"),
       { type: "message", id: "entry", message },
     ];
     expect(branchMessagesWithClientMessageIds(entries)).toEqual([{ ...message, clientMessageId: "accepted" }]);
@@ -79,5 +84,42 @@ describe("client message correlation", () => {
     expect(branchMessagesWithClientMessageIds(entries)).toEqual([first, second]);
     expect(clientMessageIdForMessage(entries, { ...first })).toBe("request-a");
     expect(clientMessageIdForMessage(entries, { ...second })).toBe("request-b");
+  });
+
+  it("matches id-less messages by visible content instead of marker order", () => {
+    const first = { role: "user", content: [{ type: "text", text: "first" }], timestamp: 4 };
+    const second = { role: "user", content: [{ type: "text", text: "second" }], timestamp: 5 };
+    const entries = [
+      marker(CLIENT_MESSAGE_MARKER, "request-first", "first"),
+      marker(CLIENT_MESSAGE_MARKER, "request-second", "second"),
+      { type: "message", id: "entry-second", message: second },
+      { type: "message", id: "entry-first", message: first },
+    ];
+
+    expect(branchMessagesWithClientMessageIds(entries)).toEqual([
+      { ...second, clientMessageId: "request-second" },
+      { ...first, clientMessageId: "request-first" },
+    ]);
+  });
+
+  it("leaves an id-less message uncorrelated when its fingerprint is unknown", () => {
+    const entries = [
+      marker(CLIENT_MESSAGE_MARKER, "request-first", "first"),
+      { type: "message", id: "entry", message: { role: "user", content: "different", timestamp: 6 } },
+    ];
+    expect(branchMessagesWithClientMessageIds(entries)).toEqual([
+      { role: "user", content: "different", timestamp: 6 },
+    ]);
+    expect(unclaimedClientMessageIds(entries)).toEqual(["request-first"]);
+  });
+
+  it("correlates complete Pi skill wrappers by their visible suffix", () => {
+    const wrapper = {
+      role: "user",
+      content: [{ type: "text", text: `<skill name="tdd" location="/private/SKILL.md">\nInjected body\n</skill>\n\nKeep this visible` }],
+      timestamp: 7,
+    };
+    const entries = [marker(CLIENT_MESSAGE_MARKER, "request-skill", "Keep this visible"), { type: "message", id: "entry", message: wrapper }];
+    expect(branchMessagesWithClientMessageIds(entries)).toEqual([{ ...wrapper, clientMessageId: "request-skill" }]);
   });
 });

@@ -51,6 +51,7 @@ export interface TranscriptPage {
 export interface HostCatalog {
   models: UiModel[];
   model?: UiModel;
+  runtimeCapabilities?: import("./contracts.js").RuntimeCapabilities;
   thinkingLevel: string;
   thinkingLevels: string[];
   serviceTier: ServiceTier;
@@ -143,6 +144,7 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
   return {
     models: [...snapshot.models],
     model: snapshot.model,
+    runtimeCapabilities: snapshot.runtimeCapabilities,
     thinkingLevel: snapshot.thinkingLevel,
     thinkingLevels: [...snapshot.thinkingLevels],
     serviceTier: snapshot.serviceTier,

@@ -580,10 +580,12 @@ button > svg { pointer-events: none; }
 }
 .skill-chip {
   display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
-  margin: 0 0 8px; padding: 4px 8px; border: 1px solid var(--acid-line);
+  margin: 0 8px 0 0; padding: 4px 8px; border: 1px solid var(--acid-line);
   border-radius: 7px; background: var(--acid-bg); color: var(--ink-2);
   vertical-align: middle; line-height: 1.2; white-space: nowrap;
 }
+.markdown-inline { display: inline; }
+.markdown-inline > .md-inline-paragraph { display: inline; margin: 0; }
 .skill-chip > svg { color: var(--acid); }
 .skill-chip > strong { overflow: hidden; text-overflow: ellipsis; font: 600 12px var(--mono); }
 .skill-chip > span { color: var(--muted); font: 600 9px var(--sans); letter-spacing: .08em; text-transform: uppercase; }

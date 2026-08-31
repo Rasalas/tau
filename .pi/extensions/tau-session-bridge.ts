@@ -6,12 +6,14 @@ import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   branchMessagesWithClientMessageIds,
+  clientMessageFingerprint,
   clientMessageIdForMessage,
   CLIENT_MESSAGE_MARKER,
   CLIENT_MESSAGE_CANCEL_MARKER,
+  matchClientMessageId,
   unclaimedClientMessageIds,
-} from "../../src/main/client-message-correlation.js";
-import { normalizePiBridgePrompt, PI_RUNTIME_ADAPTER, skillMessagePresentation } from "../../src/main/skill-invocation.js";
+} from "../../src/shared/client-message-correlation.js";
+import { normalizePiBridgePrompt, PI_RUNTIME_ADAPTER, skillInvocationCommand, skillMessagePresentation, visibleSkillEnvelopeText } from "../../src/main/skill-invocation.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import {
   encodePiBridgeFrame,
@@ -50,15 +52,18 @@ function textFromContent(content: unknown): string {
 export default function tauSessionBridge(pi: ExtensionAPI) {
   const normalizePrompt = (text: string): string => normalizePiBridgePrompt(text, pi.getCommands());
   const pendingClientMessageIds: string[] = [];
+  const pendingClientMessageFingerprints = new Map<string, string>();
   /** Markers already assigned to a message_start but not finalized at message_end. */
   const inFlightClientMessageIds = new Set<string>();
   /** One-shot restart failures for a host that reconnects after an orphaned request. */
   const failedClientMessageIds = new Set<string>();
 
-  const appendClientMessageMarker = (ctx: ExtensionContext, clientMessageId: string | undefined): boolean => {
+  const appendClientMessageMarker = (ctx: ExtensionContext, clientMessageId: string | undefined, correlationText?: string): boolean => {
     if (!clientMessageId) return false;
     pendingClientMessageIds.push(clientMessageId);
-    ctx.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, { clientMessageId });
+    const fingerprint = correlationText === undefined ? undefined : clientMessageFingerprint(correlationText);
+    if (fingerprint) pendingClientMessageFingerprints.set(clientMessageId, fingerprint);
+    ctx.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, { clientMessageId, ...(fingerprint ? { fingerprint } : {}) });
     return true;
   };
 
@@ -79,6 +84,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       pendingClientMessageIds.splice(pending, 1);
     }
     inFlightClientMessageIds.delete(clientMessageId);
+    pendingClientMessageFingerprints.delete(clientMessageId);
   };
 
   const trackedClientMessageIds = (): string[] => [...new Set([
@@ -88,9 +94,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   /** Only an id on a persisted user entry proves that the request was recorded. */
   const persistedClientMessageIds = (ctx: ExtensionContext): Set<string> => new Set(
-    ctx.sessionManager.getBranch().flatMap((entry) => {
-      if (!entry || typeof entry !== "object" || (entry as { type?: unknown }).type !== "message") return [];
-      const message = (entry as { message?: unknown }).message;
+    branchMessagesWithClientMessageIds(ctx.sessionManager.getBranch()).flatMap((message) => {
       if (!message || typeof message !== "object") return [];
       const value = message as { role?: unknown; clientMessageId?: unknown };
       return value.role === "user" && typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
@@ -122,6 +126,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     }
     pendingClientMessageIds.length = 0;
     inFlightClientMessageIds.clear();
+    pendingClientMessageFingerprints.clear();
   };
 
   const correlateUserMessageStart = (message: unknown): void => {
@@ -136,8 +141,14 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       }
       return;
     }
-    const clientMessageId = pendingClientMessageIds.shift();
+    const clientMessageId = matchClientMessageId(
+      pendingClientMessageIds,
+      pendingClientMessageFingerprints,
+      message,
+    );
     if (clientMessageId) {
+      const pending = pendingClientMessageIds.indexOf(clientMessageId);
+      if (pending >= 0) pendingClientMessageIds.splice(pending, 1);
       inFlightClientMessageIds.add(clientMessageId);
       (message as Record<string, unknown>).clientMessageId = clientMessageId;
     }
@@ -159,14 +170,18 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (value.role === "assistant") return { role: "assistant", content: value.content };
     const text = textFromContent(value.content);
     const presentation = skillMessagePresentation(text, PI_RUNTIME_ADAPTER, pi.getCommands());
-    if (!presentation) return { role: "user", content: value.content };
+    // Full-chat export never carries a runtime wrapper. A skill that is no
+    // longer present in Pi's live registry is still safe to export by its
+    // visible suffix; malformed/fenced lookalikes remain untouched.
+    const visibleText = presentation?.text ?? visibleSkillEnvelopeText(text);
+    if (visibleText === undefined) return { role: "user", content: value.content };
     const images = Array.isArray(value.content)
       ? value.content.filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "image")
       : [];
     return {
       role: "user",
       content: [
-        ...(presentation.text ? [{ type: "text", text: presentation.text }] : []),
+        ...(visibleText ? [{ type: "text", text: visibleText }] : []),
         ...images,
       ],
     };
@@ -185,9 +200,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const clientMessageId = typeof payload.clientMessageId === "string" ? payload.clientMessageId : undefined;
       await ctx.newSession({
         ...(initialPrompt ? { withSession: async (fresh) => {
-          const marker = appendClientMessageMarker(fresh, clientMessageId);
+          const normalizedText = normalizePrompt(initialPrompt);
+          const correlationText = skillMessagePresentation(initialPrompt, PI_RUNTIME_ADAPTER, pi.getCommands())?.text ?? normalizedText;
+          const marker = appendClientMessageMarker(fresh, clientMessageId, correlationText);
           try {
-            await fresh.sendUserMessage(normalizePrompt(initialPrompt), { expandPromptTemplates: true });
+            await fresh.sendUserMessage(normalizedText, { expandPromptTemplates: true });
             if (marker) failClientMessageIfUnpersisted(fresh, clientMessageId);
           } catch (error) {
             if (marker) failClientMessageIfUnpersisted(fresh, clientMessageId);
@@ -251,6 +268,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           name: command.name,
           description: command.description,
           source: command.source,
+          ...(command.source === "skill"
+            ? { skillCommand: skillInvocationCommand(command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name, PI_RUNTIME_ADAPTER) }
+            : {}),
         })),
       contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : undefined,
       taskProgress: taskProgressFromMessages(branchMessages),
@@ -265,7 +285,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (!value.message || typeof value.message !== "object" || (value.message as { role?: unknown }).role !== "user") return event;
     const existing = value.message as { clientMessageId?: unknown };
     if (typeof existing.clientMessageId === "string") return event;
-    const clientMessageId = clientMessageIdForMessage(ctx.sessionManager.getBranch(), value.message);
+    const clientMessageId = clientMessageIdForMessage(ctx.sessionManager.getBranch(), value.message)
+      ?? matchClientMessageId(pendingClientMessageIds, pendingClientMessageFingerprints, value.message);
     return clientMessageId ? { ...value, message: { ...existing, clientMessageId } } : event;
   };
 
@@ -274,7 +295,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const value = message as { clientMessageId?: unknown };
     const clientMessageId = typeof value.clientMessageId === "string"
       ? value.clientMessageId
-      : clientMessageIdForMessage(ctx.sessionManager.getBranch(), message);
+      : clientMessageIdForMessage(ctx.sessionManager.getBranch(), message)
+        ?? matchClientMessageId(pendingClientMessageIds, pendingClientMessageFingerprints, message);
     if (clientMessageId) forgetClientMessageId(clientMessageId);
   };
 
@@ -358,10 +380,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
         case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
         case "prompt": {
-          const marker = appendClientMessageMarker(ctx, frame.clientMessageId);
+          const normalizedText = normalizePrompt(frame.text);
+          const correlationText = skillMessagePresentation(frame.text, PI_RUNTIME_ADAPTER, pi.getCommands())?.text ?? normalizedText;
+          const marker = appendClientMessageMarker(ctx, frame.clientMessageId, correlationText);
           try {
             const wasIdle = ctx.isIdle();
-            const normalizedText = normalizePrompt(frame.text);
             const commandName = normalizedText.startsWith("/")
               ? normalizedText.slice(1).split(/[ \t\r\n]/u, 1)[0]
               : "";
@@ -470,6 +493,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     }
     pendingClientMessageIds.length = 0;
     inFlightClientMessageIds.clear();
+    pendingClientMessageFingerprints.clear();
     if (ctx.mode !== "tui") return;
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (!sessionFile) return;
@@ -565,6 +589,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     pendingClientMessageIds.length = 0;
     inFlightClientMessageIds.clear();
+    pendingClientMessageFingerprints.clear();
     await stop();
   });
 }

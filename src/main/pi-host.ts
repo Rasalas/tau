@@ -68,27 +68,44 @@ import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import {
   branchMessagesWithClientMessageIds,
+  clientMessageFingerprint,
   clientMessageCancelMarker,
   clientMessageIdForMessage,
   clientMessageMarker,
+  matchClientMessageId,
   CLIENT_MESSAGE_CANCEL_MARKER,
   CLIENT_MESSAGE_MARKER,
   unclaimedClientMessageIds,
-} from "./client-message-correlation.js";
+} from "../shared/client-message-correlation.js";
 import {
   normalizeSkillInvocationForRuntime,
+  skillInvocationCommand,
   skillMessagePresentation,
   visibleSkillEnvelopeText,
 } from "./skill-invocation.js";
-import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { ClaudeRuntimeSessionStore, type ClaudeRuntimeSessionRecord, type ClaudeTitleSource } from "./claude-runtime-store.js";
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
+/** Virtual shell paths keep app-data-owned Claude sessions addressable without
+ * pretending their transcript is a Pi JSONL file. */
+const CLAUDE_SESSION_PATH_PREFIX = "tau-claude-session:";
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
 const SHUTDOWN_ABORT_MS = 3_000;
 /** How long a typed answer waits for the extension's follow-up input prompt. */
 const TYPED_ANSWER_TTL_MS = 10_000;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
+
+function claudeSessionPath(sessionId: string): string {
+  return `${CLAUDE_SESSION_PATH_PREFIX}${sessionId}`;
+}
+
+function claudeSessionIdFromPath(path: string): string | undefined {
+  return path.startsWith(CLAUDE_SESSION_PATH_PREFIX)
+    ? path.slice(CLAUDE_SESSION_PATH_PREFIX.length) || undefined
+    : undefined;
+}
 
 type Emit = (event: HostEvent) => void;
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
@@ -293,9 +310,10 @@ function firstSentence(value: string): string {
 function visibleTitleText(value: string): string {
   const envelope = visibleSkillEnvelopeText(value);
   if (envelope !== undefined) return envelope;
-  // A malformed wrapper has no trustworthy visible user text. Keep runtime
-  // internals out of sidebar/title fallback rather than echoing the raw tag.
-  return /^\uFEFF?(?:(?:[ \t]*\r?\n)+[ \t]*)?<skill(?:[ \t\r\n>])/u.test(value)
+  // A malformed wrapper or an attribute-like location has no trustworthy
+  // title text. Keep runtime internals out of sidebar/title fallback rather
+  // than echoing a raw tag or local path.
+  return /<skill\b|\blocation\s*=/iu.test(value)
     ? "Skill invocation"
     : value;
 }
@@ -312,14 +330,19 @@ function normalizeTranscriptMessage(message: unknown, mapping: MessageMappingOpt
   if (value.role !== "user" || typeof mapping.runtimeAdapter === "undefined" || !mapping.skillCommands) return message;
   const text = textFromContent(value.content);
   const presentation = skillMessagePresentation(text, mapping.runtimeAdapter, mapping.skillCommands);
-  if (!presentation) return message;
+  // The normal timeline only classifies known skills. Export has a stricter
+  // boundary: a complete runtime envelope is still an implementation detail
+  // even when its skill disappeared from the current command registry. Keep
+  // only its visible suffix; malformed/fenced lookalikes stay byte-for-byte.
+  const visibleText = presentation?.text ?? visibleSkillEnvelopeText(text);
+  if (visibleText === undefined) return message;
   const images = Array.isArray(value.content)
     ? value.content.filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "image")
     : [];
   return {
     ...value,
     content: [
-      ...(presentation.text ? [{ type: "text", text: presentation.text }] : []),
+      ...(visibleText ? [{ type: "text", text: visibleText }] : []),
       ...images,
     ],
   };
@@ -530,10 +553,16 @@ interface LiveTurnState {
 class ThreadRuntime implements LiveTurnState {
   readonly tools = new Map<string, UiToolRun>();
   readonly pendingClientMessageIds: string[] = [];
+  pendingClientMessageFingerprints = new Map<string, string>();
   /** Markers assigned at message_start but not finalized at message_end yet. */
   readonly inFlightClientMessageIds = new Set<string>();
   adapterMessages: UiMessage[] = [];
+  adapterTitle?: string;
+  adapterTitleSource?: ClaudeTitleSource;
   adapterStreaming = false;
+  adapterPending = 0;
+  adapterAbortGeneration = 0;
+  adapterAbortControllers = new Set<AbortController>();
   adapterQueue: Promise<void> = Promise.resolve();
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
@@ -554,7 +583,9 @@ class ThreadRuntime implements LiveTurnState {
   resetLiveState(): void {
     this.tools.clear();
     this.pendingClientMessageIds.length = 0;
+    this.pendingClientMessageFingerprints.clear();
     this.inFlightClientMessageIds.clear();
+    this.adapterAbortControllers.clear();
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
   }
@@ -592,7 +623,12 @@ export class PiHost {
     // state that only its runtime holds; releasing it would lose that state.
     canEvict: (record) => record.runtime.session.isIdle
       && !this.hasOpenUiPrompts(record.sessionId)
-      && record.runtime.session.messages.length > 0,
+      && record.runtime.adapterPending === 0
+      && !record.runtime.adapterStreaming
+      // An external runtime owns its transcript in the app-data store rather
+      // than in Pi's message array. It is therefore safe to release once its
+      // own visible projection has been persisted.
+      && (record.runtime.session.messages.length > 0 || (record.runtime.adapterMessages?.length ?? 0) > 0),
     dispose: (record) => this.disposeThread(record.runtime),
   });
   /** Runtimes being opened, keyed by session file, so a prewarm and a switch share one. */
@@ -728,7 +764,8 @@ export class PiHost {
     options: PiHostOptions = {},
   ) {
     this.cwd = cwd;
-    this.runtimeAdapter = assertRuntimeAdapter(options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER);
+    const selectedAdapter = this.safeMode ? PI_AGENT_RUNTIME_ADAPTER : options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER;
+    this.runtimeAdapter = assertRuntimeAdapter(selectedAdapter);
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
       emit(event);
@@ -789,11 +826,29 @@ export class PiHost {
 
   private liveThreadForPath(path: string | undefined): ThreadRuntime | undefined {
     if (!path) return undefined;
+    const storedSessionId = claudeSessionIdFromPath(path);
+    if (storedSessionId) return this.threads.get(storedSessionId)?.runtime;
     return this.threads.list().find((record) => samePath(record.runtime.sessionFile, path))?.runtime;
   }
 
   private liveSessionIds(): Set<string> {
     return new Set(this.threads.list().map((record) => record.sessionId));
+  }
+
+  private claudeSessionStore(): ClaudeRuntimeSessionStore | undefined {
+    return this.runtimeAdapter.id === "claude-code" ? this.runtimeAdapter.sessionStore : undefined;
+  }
+
+  private managerForClaudeRecord(record: ClaudeRuntimeSessionRecord): SessionManager {
+    // The Pi manager is only a host lifecycle carrier for this adapter. The
+    // durable transcript and Claude session id live in ClaudeRuntimeSessionStore.
+    return SessionManager.create(record.cwd, undefined, { id: record.tauSessionId });
+  }
+
+  private async initialSessionManager(cwd: string): Promise<SessionManager> {
+    const store = this.claudeSessionStore();
+    const latest = store ? (await store.list(cwd))[0] : undefined;
+    return latest ? this.managerForClaudeRecord(latest) : SessionManager.continueRecent(cwd);
   }
 
   async start(): Promise<HostBootstrap> {
@@ -806,7 +861,7 @@ export class PiHost {
           throw new Error("Pi already owns this session. Close Pi before opening the project in Tau safe mode.");
         }
         if (this.runtimeAdapter.id !== "pi" || !(await this.attachAvailableBridge(this.cwd))) {
-          const thread = await this.openThread(SessionManager.continueRecent(this.cwd), undefined);
+          const thread = await this.openThread(await this.initialSessionManager(this.cwd), undefined);
           await this.activateThread(thread, false);
         }
         this.branchFor(this.cwd);
@@ -908,7 +963,7 @@ export class PiHost {
     }
     this.detachBridge();
     const startedAt = performance.now();
-    const manager = SessionManager.continueRecent(cwd);
+    const manager = await this.initialSessionManager(cwd);
     const thread = this.liveThreadForPath(manager.getSessionFile())
       ?? await this.openThread(manager, { type: "session_start", reason: "resume", previousSessionFile: this.active?.sessionFile });
     await this.activateThread(thread, false);
@@ -981,7 +1036,7 @@ export class PiHost {
       const session = thread.session;
       // A run that is still in flight owns its tool calls; closing them from
       // outside would race the runtime. Stop it first, then repair.
-      if (!session.isIdle) await this.abortThread(thread);
+      if (!session.isIdle || thread.adapterPending > 0) await this.abortThread(thread);
       // Zero dangling calls is a success: the session is already consistent and
       // the caller only has stale activity to clear.
       const dangling = findDanglingToolCalls(session.messages);
@@ -1043,7 +1098,11 @@ export class PiHost {
       await this.activateThread(thread, true);
       // The first prompt names the thread right away; the run that follows
       // would otherwise leave it "Untitled" until it finishes.
-      if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(visibleTitleText(initialPrompt)));
+      if (initialPrompt?.trim()) {
+        const presentation = skillMessagePresentation(initialPrompt, thread.runtimeAdapter, this.composerCommands(thread));
+        const visiblePrompt = presentation?.text ?? visibleTitleText(initialPrompt);
+        this.retitleShell(thread.sessionId, firstSentence(visiblePrompt));
+      }
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (initialPrompt || attachments.length > 0) {
         void this.prompt(initialPrompt ?? "", attachments, thread.sessionId, clientMessageId).catch((error) => this.fail(error));
@@ -1124,7 +1183,7 @@ export class PiHost {
     }));
     const messages = [...persistedMessages, ...adapterMessages];
     return formatChatTranscript({
-      title: safeSessionTitle(session.sessionName) || firstSentence(visibleTitleText(textFromContent(messages.find((message) => message.role === "user")?.content))),
+      title: safeSessionTitle(session.sessionName) || safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(textFromContent(messages.find((message) => message.role === "user")?.content))),
       cwd: thread.cwd,
       sessionId: session.sessionId,
       messages,
@@ -1138,15 +1197,38 @@ export class PiHost {
     delivery: "prompt" | "steer" | "followUp",
     clientMessageId?: string,
   ): Promise<void> {
-    const operation = thread.adapterQueue.then(() => this.sendThroughRuntimeAdapterNow(
-      thread,
-      text,
-      attachments,
-      delivery,
-      clientMessageId,
-    ));
-    thread.adapterQueue = operation.catch(() => undefined);
-    return operation;
+    thread.adapterPending ??= 0;
+    thread.adapterAbortGeneration ??= 0;
+    const generation = thread.adapterAbortGeneration;
+    const wasPending = thread.adapterPending > 0;
+    thread.adapterPending += 1;
+    thread.adapterStreaming = true;
+    if (!wasPending) this.emit({ type: "agent-status", sessionId: thread.sessionId, running: true });
+    const operation = thread.adapterQueue.then(() => {
+      if (generation !== thread.adapterAbortGeneration) {
+        if (clientMessageId) {
+          this.emit({
+            type: "user-message-failed",
+            sessionId: thread.sessionId,
+            clientMessageId,
+            message: "The selected runtime request was aborted.",
+          });
+        }
+        const error = new Error("The selected runtime request was aborted.");
+        error.name = "AbortError";
+        throw error;
+      }
+      return this.sendThroughRuntimeAdapterNow(thread, text, attachments, delivery, clientMessageId);
+    });
+    const settled = operation.finally(() => {
+      thread.adapterPending = Math.max(0, thread.adapterPending - 1);
+      if (thread.adapterPending === 0) {
+        thread.adapterStreaming = false;
+        this.emit({ type: "agent-status", sessionId: thread.sessionId, running: false });
+      }
+    });
+    thread.adapterQueue = settled.then(() => undefined, () => undefined);
+    return settled;
   }
 
   private async sendThroughRuntimeAdapterNow(
@@ -1159,8 +1241,9 @@ export class PiHost {
     const commands = this.composerCommands(thread);
     const normalizedText = normalizeSkillInvocationForRuntime(text, this.runtimeAdapter, commands);
     const now = Date.now();
-    thread.adapterStreaming = true;
-    this.emit({ type: "agent-status", sessionId: thread.sessionId, running: true });
+    const abortController = new AbortController();
+    thread.adapterAbortControllers ??= new Set<AbortController>();
+    thread.adapterAbortControllers.add(abortController);
     try {
       if (attachments.length > 0) throw new Error("Image attachments are not supported by the selected runtime adapter.");
       const transport = this.runtimeAdapter.transport;
@@ -1171,6 +1254,8 @@ export class PiHost {
         text: normalizedText,
         delivery,
         ...(clientMessageId ? { clientMessageId } : {}),
+        permissionPolicy: runtimePermissionPolicy(this.accessLevel),
+        signal: abortController.signal,
       });
       const presentation = skillMessagePresentation(text, this.runtimeAdapter, commands);
       const user: UiMessage = {
@@ -1183,31 +1268,52 @@ export class PiHost {
       };
       (thread.adapterMessages ??= []).push(user);
       this.emit({ type: "user-message", sessionId: thread.sessionId, message: user });
-      if (result.assistantText?.trim()) {
-        const assistant: UiMessage = {
+      const assistant = result.assistantText && result.assistantText.length > 0
+        ? {
           id: `adapter-assistant-${clientMessageId ?? now}`,
-          role: "assistant",
+          role: "assistant" as const,
           text: result.assistantText,
           timestamp: Date.now(),
-        };
+        }
+        : undefined;
+      if (assistant) {
         (thread.adapterMessages ??= []).push(assistant);
         this.emit({ type: "assistant-end", sessionId: thread.sessionId, message: assistant });
       }
+      const store = thread.runtimeAdapter.id === "claude-code" ? thread.runtimeAdapter.sessionStore : undefined;
+      if (store) {
+        try {
+          await store.appendExchange(thread.sessionId, thread.cwd, assistant ? [user, assistant] : [user]);
+          if (!thread.adapterTitle && user.text.trim()) {
+            const title = firstSentence(visibleTitleText(user.text));
+            if (title !== "Untitled thread") {
+              thread.adapterTitle = title;
+              thread.adapterTitleSource = "derived";
+              thread.session.setSessionName(title);
+              await store.setTitle(thread.sessionId, thread.cwd, title, "derived");
+            }
+          }
+        } catch (error) {
+          // The runtime result is still authoritative if app-data persistence
+          // is temporarily unavailable; the next request can retry the write.
+          this.log("runtime.adapter.persist-failed", this.errorMessage(error));
+        }
+      }
       await this.refreshThreadShell(thread, true);
     } catch (error) {
+      const aborted = error instanceof Error && error.name === "AbortError";
       if (clientMessageId) {
         this.emit({
           type: "user-message-failed",
           sessionId: thread.sessionId,
           clientMessageId,
-          message: "The selected runtime rejected the message.",
+          message: aborted ? "The selected runtime request was aborted." : "The selected runtime rejected the message.",
         });
       }
-      this.fail(error);
+      if (!aborted) this.fail(error);
       throw error;
     } finally {
-      thread.adapterStreaming = false;
-      this.emit({ type: "agent-status", sessionId: thread.sessionId, running: false });
+      thread.adapterAbortControllers.delete(abortController);
     }
   }
 
@@ -1279,7 +1385,7 @@ export class PiHost {
     const session = thread.session;
     const prompt = this.normalizeThreadPrompt(thread, text);
     const isExtensionCommand = this.isExtensionCommand(thread, prompt);
-    let markerActive = this.appendClientMessageMarker(thread, clientMessageId);
+    let markerActive = this.appendClientMessageMarker(thread, clientMessageId, this.clientMessageCorrelationText(thread, text));
     const wasStreaming = session.isStreaming;
     const failUnpersistedMarker = () => {
       if (!markerActive) return;
@@ -1352,7 +1458,7 @@ export class PiHost {
         await this.sendThroughRuntimeAdapter(thread, text, attachments, "steer", clientMessageId);
         return;
       }
-      let markerActive = this.appendClientMessageMarker(thread, clientMessageId);
+      let markerActive = this.appendClientMessageMarker(thread, clientMessageId, this.clientMessageCorrelationText(thread, text));
       try {
         await thread.session.steer(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
       } catch (error) {
@@ -1385,7 +1491,7 @@ export class PiHost {
         await this.sendThroughRuntimeAdapter(thread, text, attachments, "followUp", clientMessageId);
         return;
       }
-      let markerActive = this.appendClientMessageMarker(thread, clientMessageId);
+      let markerActive = this.appendClientMessageMarker(thread, clientMessageId, this.clientMessageCorrelationText(thread, text));
       try {
         await thread.session.followUp(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
       } catch (error) {
@@ -1419,6 +1525,13 @@ export class PiHost {
   private async abortThread(thread: ThreadRuntime): Promise<void> {
     this.settleApprovalsFor(thread.sessionId, { allowed: false, reason: "Blocked by Tau: the run was stopped." });
     this.cancelUiPromptsFor(thread.sessionId);
+    if (thread.runtimeAdapter.id !== "pi") {
+      thread.adapterAbortGeneration ??= 0;
+      thread.adapterAbortGeneration += 1;
+      for (const controller of thread.adapterAbortControllers ?? []) controller.abort();
+      await thread.runtimeAdapter.transport.abort?.(thread.sessionId);
+      return;
+    }
     await thread.session.abort();
   }
 
@@ -1474,6 +1587,11 @@ export class PiHost {
       const thread = this.requireThread(expectedSessionId);
       sessionId = thread.sessionId;
       thread.session.setSessionName(title);
+    if (thread.runtimeAdapter?.id === "claude-code" && thread.runtimeAdapter.sessionStore) {
+      thread.adapterTitle = title;
+      thread.adapterTitleSource = "renamed";
+      await thread.runtimeAdapter.sessionStore.setTitle(thread.sessionId, thread.cwd, title, "renamed");
+      }
     }
     const now = Date.now();
     this.sessions = this.sessions.map((thread) =>
@@ -1548,6 +1666,11 @@ export class PiHost {
     const title = cleanThreadTitle(textFromContent(response.content));
     if (this.threads.get(thread.sessionId)?.runtime !== thread) return { version: HOST_PROTOCOL_VERSION, updates: [] };
     session.setSessionName(title);
+    if (thread.runtimeAdapter?.id === "claude-code" && thread.runtimeAdapter.sessionStore) {
+      thread.adapterTitle = title;
+      thread.adapterTitleSource = "generated";
+      await thread.runtimeAdapter.sessionStore.setTitle(thread.sessionId, thread.cwd, title, "generated");
+    }
     this.sessions = this.sessions.map((entry) =>
       entry.id === session.sessionId ? { ...entry, title, modifiedAt: Date.now() } : entry,
     );
@@ -1793,13 +1916,14 @@ export class PiHost {
         sessionStartEvent,
       });
       const thread = new ThreadRuntime(runtime, this.runtimeAdapter);
+      await this.restoreAdapterThread(thread);
       await this.bindThread(thread, thread.session);
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
       return thread;
     } catch (error) {
       if (runtime) {
-        const cleanupErrors = await this.teardownRuntime(runtime);
+        const cleanupErrors = await this.teardownRuntime(runtime, this.runtimeAdapter.id === "pi");
         if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed");
       }
       throw error;
@@ -1812,17 +1936,47 @@ export class PiHost {
     await this.threads.adopt({ sessionId: thread.sessionId, cwd: thread.cwd, runtime: thread, isolation: "in-process" });
   }
 
+  /** Rehydrates only the visible projection owned by an external adapter. */
+  private async restoreAdapterThread(thread: ThreadRuntime): Promise<void> {
+    const store = thread.runtimeAdapter.id === "claude-code" ? thread.runtimeAdapter.sessionStore : undefined;
+    if (!store) return;
+    const record = await store.get(thread.sessionId);
+    if (!record) return;
+    thread.adapterMessages = record.messages.map((message, index) => ({
+      id: `adapter-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
+      ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
+      role: message.role,
+      text: message.text,
+      ...(message.skill ? { skill: { ...message.skill } } : {}),
+      timestamp: message.timestamp,
+    }));
+    thread.adapterTitle = record.title;
+    thread.adapterTitleSource = record.titleSource;
+    if (record.title && !thread.session.sessionName) thread.session.setSessionName(record.title);
+  }
+
   /** One runtime per session file: concurrent opens for the same path share it. */
   private openThreadForPath(path: string, reason: "resume", background = false): Promise<ThreadRuntime> {
     const live = this.liveThreadForPath(path);
     if (live) return Promise.resolve(live);
     let pending = this.openingThreads.get(path);
     if (!pending) {
-      pending = this.openThread(
-        SessionManager.open(path),
-        { type: "session_start", reason, previousSessionFile: this.active?.sessionFile },
-        { background },
-      ).finally(() => {
+      pending = (async () => {
+        const storedSessionId = claudeSessionIdFromPath(path);
+        let manager: SessionManager;
+        if (storedSessionId) {
+          const record = await this.claudeSessionStore()?.get(storedSessionId);
+          if (!record) throw new Error("The selected Claude Code session is no longer available.");
+          manager = this.managerForClaudeRecord(record);
+        } else {
+          manager = SessionManager.open(path);
+        }
+        return this.openThread(
+          manager,
+          { type: "session_start", reason, previousSessionFile: this.active?.sessionFile },
+          { background },
+        );
+      })().then((thread) => thread).finally(() => {
         if (this.openingThreads.get(path) === pending) this.openingThreads.delete(path);
       });
       this.openingThreads.set(path, pending);
@@ -1900,23 +2054,35 @@ export class PiHost {
   private async disposeThread(thread: ThreadRuntime): Promise<void> {
     this.settleApprovalsFor(thread.sessionId, { allowed: false, reason: "Blocked by Tau: the thread was closed." });
     this.cancelUiPromptsFor(thread.sessionId);
+    thread.adapterAbortGeneration ??= 0;
+    thread.adapterAbortGeneration += 1;
+    if (thread.runtimeAdapter.id !== "pi") {
+      try {
+        for (const controller of thread.adapterAbortControllers ?? []) controller.abort();
+        await thread.runtimeAdapter.transport.abort?.(thread.sessionId);
+      } catch (error) {
+        this.log("runtime.adapter.abort-failed", this.errorMessage(error));
+      }
+    }
     thread.unsubscribe?.();
     thread.unsubscribe = undefined;
     for (const id of thread.tools.keys()) this.toolOwners.delete(id);
-    const errors = await this.teardownRuntime(thread.runtime);
+    const errors = await this.teardownRuntime(thread.runtime, thread.runtimeAdapter.id === "pi");
     if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");
   }
 
-  private async teardownRuntime(runtime: AgentSessionRuntime): Promise<unknown[]> {
+  private async teardownRuntime(runtime: AgentSessionRuntime, abortSession = true): Promise<unknown[]> {
     const errors: unknown[] = [];
-    try {
-      // A run that will not stop must not block shutdown forever.
-      await Promise.race([
-        runtime.session.abort(),
-        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_ABORT_MS).unref?.()),
-      ]);
-    } catch (error) {
-      errors.push(error);
+    if (abortSession) {
+      try {
+        // A run that will not stop must not block shutdown forever.
+        await Promise.race([
+          runtime.session.abort(),
+          new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_ABORT_MS).unref?.()),
+        ]);
+      } catch (error) {
+        errors.push(error);
+      }
     }
     let disposed = false;
     try {
@@ -2198,6 +2364,8 @@ export class PiHost {
     const snapshot = this.bridgeSnapshot;
     if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
     const mapping = this.messageMappingOptions();
+    const runtimeAdapter = this.bridgeRuntimeAdapter();
+    const composerCommands = this.composerCommandsForAdapter(snapshot.composerCommands ?? [], runtimeAdapter);
     const messages = snapshot.messages
       .map((message, index) => mapMessage(message, index, mapping))
       .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
@@ -2212,6 +2380,7 @@ export class PiHost {
       sessionName: safeSessionTitle(snapshot.sessionName),
       sessionTitle: cleanThreadTitle(safeSessionTitle(snapshot.sessionName) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
       model: snapshot.model ? mapModel(snapshot.model) : undefined,
+      runtimeCapabilities: snapshot.runtimeCapabilities ?? PI_AGENT_RUNTIME_ADAPTER.capabilities,
       models: snapshot.models.map(mapModel),
       thinkingLevel: snapshot.thinkingLevel,
       thinkingLevels: snapshot.thinkingLevels,
@@ -2222,7 +2391,7 @@ export class PiHost {
       taskProgress: snapshot.taskProgress ?? taskProgressFromMessages(snapshot.messages),
       taskHistory,
       allTools: snapshot.allTools,
-      composerCommands: snapshot.composerCommands ?? [],
+      composerCommands,
       extensionCount: 0,
       serviceTier: "standard",
       serviceTierAvailable: false,
@@ -2394,6 +2563,25 @@ export class PiHost {
     });
   }
 
+  private async externalSessionShells(): Promise<UiSession[]> {
+    const store = this.claudeSessionStore();
+    if (!store) return [];
+    const records = await store.list();
+    return records.map((record) => {
+      const firstUser = record.messages.find((message) => message.role === "user");
+      return {
+        id: record.tauSessionId,
+        path: claudeSessionPath(record.tauSessionId),
+        title: cleanThreadTitle(safeSessionTitle(record.title) || firstSentence(visibleTitleText(firstUser?.text ?? ""))),
+        modifiedAt: record.updatedAt,
+        projectPath: record.cwd,
+        projectName: this.projectNameFor(record.cwd),
+        branch: this.branchFor(record.cwd),
+        messageCount: record.messages.length,
+      };
+    });
+  }
+
   private async refreshThreadIndex(publish: boolean): Promise<ThreadIndexSnapshot> {
     if (!this.threadIndexRefresh) {
       const scanStartedAt = Date.now();
@@ -2405,7 +2593,10 @@ export class PiHost {
           async (cwd) => this.branchFor(cwd),
           (cwd) => this.projectNameFor(cwd),
         );
-        this.sessions = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt, this.liveSessionIds());
+        const external = await this.externalSessionShells();
+        const byId = new Map(scanned.map((session) => [session.id, session] as const));
+        for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
+        this.sessions = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveSessionIds());
         return this.threadIndexSnapshot();
       })().finally(() => {
         this.threadIndexRefresh = undefined;
@@ -2434,7 +2625,10 @@ export class PiHost {
       async (cwd) => this.branchFor(cwd),
       (cwd) => this.projectNameFor(cwd),
     );
-    const next = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt, this.liveSessionIds());
+    const external = await this.externalSessionShells();
+    const byId = new Map(scanned.map((session) => [session.id, session] as const));
+    for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
+    const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveSessionIds());
     this.sessions = next;
     for (const update of sessionIndexUpdates(previous, next)) this.emitUpdate(update);
   }
@@ -2446,14 +2640,20 @@ export class PiHost {
     await this.refreshThreadShell(thread, touch);
   }
 
+  private sessionShellPath(thread: ThreadRuntime): string {
+    return thread.runtimeAdapter?.id === "claude-code"
+      ? claudeSessionPath(thread.sessionId)
+      : thread.sessionFile ?? thread.sessionId;
+  }
+
   private async refreshThreadShell(thread: ThreadRuntime, touch: boolean): Promise<void> {
     const session = thread.session;
     const projectPath = thread.cwd;
     const existing = this.sessions.find((entry) => entry.id === session.sessionId);
     const shell = reconcileActiveThreadShell({
       id: session.sessionId,
-      path: thread.sessionFile ?? session.sessionId,
-      explicitTitle: safeSessionTitle(session.sessionName),
+      path: this.sessionShellPath(thread),
+      explicitTitle: safeSessionTitle(session.sessionName) || safeSessionTitle(thread.adapterTitle),
       derivedTitle: firstSentence(visibleTitleText(this.messageSnapshot(thread).find((message) => message.role === "user")?.text ?? "")),
       now: Date.now(),
       projectPath,
@@ -2518,10 +2718,13 @@ export class PiHost {
       : []);
   }
 
-  private appendClientMessageMarker(thread: ThreadRuntime, clientMessageId: string | undefined): boolean {
+  private appendClientMessageMarker(thread: ThreadRuntime, clientMessageId: string | undefined, correlationText?: string): boolean {
     if (!clientMessageId) return false;
+    thread.pendingClientMessageFingerprints ??= new Map<string, string>();
     thread.pendingClientMessageIds.push(clientMessageId);
-    thread.session.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId).data);
+    const fingerprint = correlationText === undefined ? undefined : clientMessageFingerprint(correlationText);
+    if (fingerprint) thread.pendingClientMessageFingerprints.set(clientMessageId, fingerprint);
+    thread.session.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId, fingerprint).data);
     return true;
   }
 
@@ -2534,9 +2737,7 @@ export class PiHost {
 
   /** Only a runtime-persisted id proves that a marker's request was recorded. */
   private persistedClientMessageIds(thread: ThreadRuntime): Set<string> {
-    return new Set(thread.session.sessionManager.getBranch().flatMap((entry) => {
-      if (!entry || typeof entry !== "object" || (entry as { type?: unknown }).type !== "message") return [];
-      const message = (entry as { message?: unknown }).message;
+    return new Set(branchMessagesWithClientMessageIds(thread.session.sessionManager.getBranch()).flatMap((message) => {
       if (!message || typeof message !== "object") return [];
       const value = message as { role?: unknown; clientMessageId?: unknown };
       return value.role === "user" && typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
@@ -2552,6 +2753,7 @@ export class PiHost {
       thread.pendingClientMessageIds.splice(pending, 1);
     }
     thread.inFlightClientMessageIds.delete(clientMessageId);
+    thread.pendingClientMessageFingerprints.delete(clientMessageId);
   }
 
   private cancelClientMessageMarker(thread: ThreadRuntime, clientMessageId: string | undefined): boolean {
@@ -2594,8 +2796,15 @@ export class PiHost {
       }
       return;
     }
-    const clientMessageId = thread.pendingClientMessageIds.shift();
+    thread.pendingClientMessageFingerprints ??= new Map<string, string>();
+    const clientMessageId = matchClientMessageId(
+      thread.pendingClientMessageIds,
+      thread.pendingClientMessageFingerprints,
+      message,
+    );
     if (clientMessageId) {
+      const pending = thread.pendingClientMessageIds.indexOf(clientMessageId);
+      if (pending >= 0) thread.pendingClientMessageIds.splice(pending, 1);
       thread.inFlightClientMessageIds.add(clientMessageId);
       (message as Record<string, unknown>).clientMessageId = clientMessageId;
     }
@@ -2609,10 +2818,19 @@ export class PiHost {
       ? value.clientMessageId
       : undefined;
     const manager = thread.session.sessionManager;
+    const fingerprintId = thread.pendingClientMessageFingerprints
+      ? matchClientMessageId(thread.pendingClientMessageIds, thread.pendingClientMessageFingerprints, message)
+      : undefined;
     const clientMessageId = directId
       ?? (manager?.getBranch ? clientMessageIdForMessage(manager.getBranch(), message) : undefined);
-    if (clientMessageId) this.forgetClientMessageId(thread, clientMessageId);
-    return directId || !clientMessageId ? message : { ...value, clientMessageId };
+    const resolvedClientMessageId = clientMessageId ?? fingerprintId;
+    if (resolvedClientMessageId) this.forgetClientMessageId(thread, resolvedClientMessageId);
+    return directId || !resolvedClientMessageId ? message : { ...value, clientMessageId: resolvedClientMessageId };
+  }
+
+  private clientMessageCorrelationText(thread: ThreadRuntime, text: string): string {
+    const presentation = skillMessagePresentation(text, thread.runtimeAdapter, this.composerCommands(thread));
+    return presentation?.text ?? text;
   }
 
   private messageSnapshot(thread: ThreadRuntime): UiMessage[] {
@@ -2669,6 +2887,7 @@ export class PiHost {
           name: `skill:${skill.name}`,
           description: skill.description,
           source: "skill",
+          skillCommand: skillInvocationCommand(skill.name, thread.runtimeAdapter),
         });
       }
     }
@@ -2695,6 +2914,17 @@ export class PiHost {
     return PI_AGENT_RUNTIME_ADAPTER;
   }
 
+  private composerCommandsForAdapter(
+    commands: readonly UiComposerCommand[],
+    adapter: AgentRuntimeAdapter,
+  ): UiComposerCommand[] {
+    return commands.map((command) => {
+      if (command.source !== "skill" || command.skillCommand) return { ...command };
+      const name = command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
+      return { ...command, skillCommand: skillInvocationCommand(name, adapter) };
+    });
+  }
+
   private messageMappingOptions(thread?: LiveTurnState): MessageMappingOptions {
     if (isThreadRuntime(thread)) {
       return {
@@ -2702,9 +2932,10 @@ export class PiHost {
         skillCommands: this.composerCommands(thread),
       };
     }
+    const runtimeAdapter = this.bridgeRuntimeAdapter();
     return {
-      runtimeAdapter: this.bridgeRuntimeAdapter(),
-      skillCommands: this.bridgeSnapshot?.composerCommands ?? [],
+      runtimeAdapter,
+      skillCommands: this.composerCommandsForAdapter(this.bridgeSnapshot?.composerCommands ?? [], runtimeAdapter),
     };
   }
 
@@ -2720,8 +2951,9 @@ export class PiHost {
       cwd: this.cwd,
       sessionId: session.sessionId,
       sessionName: safeSessionTitle(session.sessionName),
-      sessionTitle: cleanThreadTitle(safeSessionTitle(session.sessionName) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
+      sessionTitle: cleanThreadTitle(safeSessionTitle(session.sessionName) || safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
       model: session.model ? mapModel(session.model) : undefined,
+      runtimeCapabilities: thread.runtimeAdapter.capabilities,
       models,
       thinkingLevel: session.thinkingLevel,
       thinkingLevels: session.getAvailableThinkingLevels(),

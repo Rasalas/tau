@@ -6,7 +6,7 @@ import type { HostSnapshot } from "../../shared/contracts";
 import { Composer } from "./Composer";
 
 const composerCommands = [
-  { name: "skill:tdd", description: "Build features test-first", source: "skill" as const },
+  { name: "skill:tdd", description: "Build features test-first", source: "skill" as const, skillCommand: "/skill:tdd" },
   { name: "review", description: "Review staged changes", argumentHint: "[scope]", source: "prompt" as const },
   { name: "reload", description: "Reload resources", source: "extension" as const },
 ];
@@ -68,7 +68,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "$tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("$tdd fix the parser", []);
+    expect(onSubmit).toHaveBeenCalledWith("$tdd fix the parser", [], undefined, { name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
   });
 
   it("finds and executes skills directly from slash", () => {
@@ -82,7 +82,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "/tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", []);
+    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", [], undefined, { name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
   });
 
   it("queues Enter and steers with Command-Enter while streaming", () => {
@@ -119,5 +119,22 @@ describe("Composer command menu", () => {
     fireEvent.change(textarea, { target: { value: "    /tdd keep this code", selectionStart: 23 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSubmit).toHaveBeenCalledWith("    /tdd keep this code", []);
+  });
+
+  it("passes selected skill metadata while preserving instruction indentation", () => {
+    const onSubmit = renderComposer();
+    const textarea = screen.getByPlaceholderText(/\$ skills/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "$td", selectionStart: 3 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.change(textarea, { target: { value: "$tdd  keep this:\n    code", selectionStart: 25 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "$tdd  keep this:\n    code",
+      [],
+      undefined,
+      { name: "tdd", visibleText: " keep this:\n    code", command: "/skill:tdd" },
+    );
   });
 });

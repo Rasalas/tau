@@ -96,6 +96,16 @@ export interface UiComposerCommand {
   description?: string;
   argumentHint?: string;
   source: "extension" | "prompt" | "skill";
+  /** Host/runtime-resolved command spelling for a selectable skill. */
+  skillCommand?: string;
+}
+
+/** Structured renderer-to-host skill selection; no runtime wrapper crosses IPC. */
+export interface UiSkillDraft {
+  name: string;
+  visibleText: string;
+  /** Already resolved by the selected runtime adapter; the renderer never derives it. */
+  command: string;
 }
 
 export interface UiSession {
@@ -319,6 +329,8 @@ export interface HostSnapshot {
   sessionName?: string;
   sessionTitle: string;
   model?: UiModel;
+  /** Dialect supplied by the selected runtime adapter, never by model.provider. */
+  runtimeCapabilities?: RuntimeCapabilities;
   models: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
@@ -359,6 +371,7 @@ export interface HostBootstrap {
   catalog: {
     models: UiModel[];
     model?: UiModel;
+    runtimeCapabilities?: RuntimeCapabilities;
     thinkingLevel: string;
     thinkingLevels: string[];
     serviceTier: ServiceTier;

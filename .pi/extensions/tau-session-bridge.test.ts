@@ -77,14 +77,15 @@ describe("Tau session bridge handler", () => {
       client.close();
     });
     await client.open();
+    expect(client.snapshot?.composerCommands?.find((command) => command.source === "skill")?.skillCommand).toBe("/skill:tdd");
 
     await expect(client.command({ command: "prompt", text: "$tdd fix it", clientMessageId: "request-1" })).resolves.toMatchObject({ accepted: true });
     expect(bridge.pi.sendUserMessage).toHaveBeenCalledWith("/skill:tdd fix it", expect.objectContaining({ expandPromptTemplates: true }));
-    expect(bridge.context.sessionManager.getBranch()).toContainEqual({
+    expect(bridge.context.sessionManager.getBranch()).toContainEqual(expect.objectContaining({
       type: "custom",
       customType: "tau-client-message",
-      data: { clientMessageId: "request-1" },
-    });
+      data: expect.objectContaining({ clientMessageId: "request-1", fingerprint: expect.any(String) }),
+    }));
     const userMessage = { role: "user", content: [{ type: "text", text: "/skill:tdd fix it" }], timestamp: 1 };
     bridge.context.sessionManager.getBranch().push({ type: "message", id: "user", message: userMessage });
     await bridge.events.get("message_start")?.({ message: userMessage }, bridge.context);
@@ -122,6 +123,32 @@ describe("Tau session bridge handler", () => {
     expect(exported).toContain("Review the parser");
     expect(exported).not.toContain("Injected body");
     expect(exported).not.toContain("/Users/me/.pi/skills");
+  });
+
+  it("removes a complete wrapper from export even after its skill is unavailable", async () => {
+    const bridge = fakeBridge();
+    bridge.context.sessionManager.getBranch = () => [
+      { type: "message", id: "user", message: {
+        role: "user",
+        content: [{ type: "text", text: `<skill name="removed" location="/private/removed/SKILL.md">\nSECRET BODY\n</skill>\n\nKeep the request` }],
+        timestamp: 1,
+      } },
+    ];
+    await bridge.events.get("session_start")?.({}, bridge.context);
+    const descriptor = await findPiBridge(bridge.context.cwd);
+    const client = new PiBridgeClient(descriptor as PiBridgeDescriptor);
+    cleanups.push(async () => {
+      await bridge.events.get("session_shutdown")?.({}, bridge.context);
+      client.close();
+    });
+    await client.open();
+
+    const result = await client.command({ command: "export_markdown" }) as { messages: Array<{ content?: Array<{ text?: string }> }> };
+    const exported = result.messages.map((message) => message.content?.map((part) => part.text ?? "").join("\n") ?? "").join("\n");
+    expect(exported).toContain("Keep the request");
+    expect(exported).not.toContain("<skill");
+    expect(exported).not.toContain("SECRET BODY");
+    expect(exported).not.toContain("location=");
   });
 
   it("cancels a failed bridge request before the next message can claim its id", async () => {

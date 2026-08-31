@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -34,6 +34,13 @@ let nextAttachmentId = 0;
 type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
 
 type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
+interface SelectedSkill {
+  name: string;
+  invocation: string;
+  command: string;
+  start: number;
+  end: number;
+}
 
 function skillName(command: UiComposerCommand): string {
   return command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
@@ -46,6 +53,20 @@ export function composerTrigger(text: string, caret: number): ComposerTrigger | 
   if (!match) return undefined;
   const start = before.lastIndexOf(match[1]);
   return { kind: match[1] as "/" | "$", query: match[2], start, end: caret };
+}
+
+/** Turns an editor selection into typed metadata without parsing runtime text. */
+export function selectedSkillDraft(text: string, selection?: SelectedSkill): UiSkillDraft | undefined {
+  if (!selection || text.slice(selection.start, selection.end) !== selection.invocation) return undefined;
+  if (text.slice(0, selection.start).trim()) return undefined;
+  const suffix = text.slice(selection.end);
+  return {
+    name: selection.name,
+    // The autocomplete separator is not part of the user's instruction. Only
+    // that one separator is removed; all remaining whitespace is meaningful.
+    visibleText: suffix.startsWith(" ") ? suffix.slice(1) : suffix,
+    command: selection.command,
+  };
 }
 
 function readImage(file: File): Promise<PendingAttachment> {
@@ -122,7 +143,7 @@ export function Composer({
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onChange?(value: string): void;
-  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): void;
+  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: UiSkillDraft): void;
   onAbort(): void;
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
@@ -152,6 +173,7 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
+  const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preserveDraftForWorkspaceRef = useRef(false);
   if (workspaceBusy) preserveDraftForWorkspaceRef.current = true;
@@ -190,6 +212,7 @@ export function Composer({
       writeComposerDraft(window.localStorage, draftStorageKey, next);
     }
     onChange?.(next);
+    setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const fastTier = snapshot?.serviceTier === "fast";
@@ -232,7 +255,9 @@ export function Composer({
     // The renderer sends user intent unchanged. The host/runtime adapter owns
     // runtime-adapter syntax and skill expansion at the execution boundary.
     const submittedText = text;
-    if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
+    const skillDraft = selectedSkillDraft(submittedText, selectedSkill);
+    if (skillDraft) onSubmit(submittedText, submittedAttachments, delivery, skillDraft);
+    else if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
     else onSubmit(submittedText, submittedAttachments);
     updateDraft("");
     setAttachments([]);
@@ -313,6 +338,11 @@ export function Composer({
                 const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
                 const nextCaret = trigger.start + invocation.length + 1;
                 updateDraft(next);
+                if (command.source === "skill" && command.skillCommand) {
+                  setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
+                } else {
+                  setSelectedSkill(undefined);
+                }
                 setCaret(nextCaret);
                 setCommandMenuDismissed(true);
                 requestAnimationFrame(() => {
@@ -370,6 +400,11 @@ export function Composer({
                 const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
                 const nextCaret = trigger.start + invocation.length + 1;
                 updateDraft(next);
+                if (command.source === "skill" && command.skillCommand) {
+                  setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
+                } else {
+                  setSelectedSkill(undefined);
+                }
                 setCaret(nextCaret);
                 setCommandMenuDismissed(true);
                 requestAnimationFrame(() => textareaRef.current?.setSelectionRange(nextCaret, nextCaret));

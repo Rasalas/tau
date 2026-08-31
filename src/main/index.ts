@@ -18,7 +18,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
-const runtimeAdapter = selectRuntimeAdapter();
+const runtimeAdapter = selectRuntimeAdapter(undefined, { safeMode });
 const execFileAsync = promisify(execFile);
 
 async function rendererImagePreview(path: string) {

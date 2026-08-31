@@ -9,6 +9,7 @@ import type {
   UiMessage,
   UiProject,
   UiPromptAttachment,
+  UiSkillDraft,
   UiSession,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -162,6 +163,16 @@ export function latestActivityAnchor(
 interface OptimisticUserMessage {
   scope: string;
   message: UiMessage;
+}
+
+export function skillPresentationForDraft(
+  draft: UiSkillDraft,
+): UiMessage["skill"] {
+  return {
+    name: draft.name,
+    command: draft.command,
+    copyText: draft.visibleText ? `${draft.command} ${draft.visibleText}` : draft.command,
+  };
 }
 
 let fallbackClientMessageCounter = 0;
@@ -769,6 +780,7 @@ export default function App() {
           sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
           models: bootstrap.catalog.models,
           model: bootstrap.catalog.model,
+          runtimeCapabilities: bootstrap.catalog.runtimeCapabilities,
           thinkingLevel: bootstrap.catalog.thinkingLevel,
           thinkingLevels: bootstrap.catalog.thinkingLevels,
           serviceTier: bootstrap.catalog.serviceTier,
@@ -1350,35 +1362,39 @@ export default function App() {
     value: string,
     attachments: UiPromptAttachment[] = [],
     delivery?: "followUp" | "steer",
+    skillDraft?: UiSkillDraft,
   ) => {
-    const text = value.trim();
-    if (!text && attachments.length === 0) return;
-    if (text === "/reload" && attachments.length === 0) {
+    const text = skillDraft ? value : value.trim();
+    const commandText = text.trim();
+    if (!commandText && attachments.length === 0) return;
+    if (commandText === "/reload" && attachments.length === 0) {
       await reloadRuntime();
       return;
     }
-    if (text === "/rebuild" && attachments.length === 0) {
+    if (commandText === "/rebuild" && attachments.length === 0) {
       await rebuildWorkbench();
       return;
     }
-    if (text === "/restart" && attachments.length === 0) {
+    if (commandText === "/restart" && attachments.length === 0) {
       restartWorkbench();
       return;
     }
-    const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
+    const optimisticText = skillDraft?.visibleText ?? (text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`);
+    const visiblePrompt = skillDraft?.visibleText ?? text;
     const clientMessageId = createClientMessageId();
     const optimistic: UiMessage = {
       id: `local-${clientMessageId}`,
       clientMessageId,
       role: "user",
       text: optimisticText,
+      ...(skillDraft ? { skill: skillPresentationForDraft(skillDraft) } : {}),
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       timestamp: Date.now(),
     };
     const optimisticScope = activeDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
+      setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       if (delivery === "steer") {
-        setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
         try {
           if (!window.tau) throw new Error("Steering requires the Electron host.");
           await window.tau.steer(text, attachments, snapshot?.sessionId, clientMessageId);
@@ -1395,6 +1411,7 @@ export default function App() {
           if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
           await window.tau.followUp(text, attachments, snapshot?.sessionId, clientMessageId);
         } catch (error) {
+          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           setQueue((current) => {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
@@ -1426,7 +1443,7 @@ export default function App() {
           acceptWorkspace(result);
           threadStore.markRead(sessionId);
           await registry.notifyPromptSubmitted({
-            prompt: text,
+            prompt: visiblePrompt,
             snapshot: snapshot ? {
               ...snapshot,
               cwd: pending.projectPath,
@@ -1463,7 +1480,7 @@ export default function App() {
     if (window.tau) {
       try {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientMessageId);
-        await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
+        await registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions);
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         writeComposerDraft(window.localStorage, activeDraftKey, text);
@@ -1596,7 +1613,7 @@ export default function App() {
       contextUsage={snapshot?.contextUsage}
       contextBreakdown={contextBreakdown}
       textareaRef={composerRef}
-      onSubmit={(text, attachments, delivery) => void submit(text ?? "", attachments, delivery)}
+      onSubmit={(text, attachments, delivery, skillDraft) => void submit(text ?? "", attachments, delivery, skillDraft)}
       onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
       onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
       onSetModel={(provider, id) => void setModel(provider, id)}

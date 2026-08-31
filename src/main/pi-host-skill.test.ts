@@ -36,6 +36,7 @@ function localHost(adapter: AgentRuntimeAdapter) {
     prompt,
     steer,
     followUp,
+    abort: vi.fn(async () => undefined),
   };
   const thread = {
     session,
@@ -49,7 +50,7 @@ function localHost(adapter: AgentRuntimeAdapter) {
     adapterMessages: [],
     adapterStreaming: false,
   };
-  const host = new PiHost("/repo", (event) => emitted.push(event), {} as never, true, false, { runtimeAdapter: adapter });
+  const host = new PiHost("/repo", (event) => emitted.push(event), {} as never, false, false, { runtimeAdapter: adapter });
   const internals = host as unknown as {
     threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
     branchFor: () => undefined;
@@ -114,21 +115,21 @@ describe("PiHost skill delivery", () => {
     const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
     await adopt(fixture);
     await fixture.host.prompt("$tdd fix it", [], "session", "request-42");
-    expect(fixture.session.sessionManager.entries).toContainEqual({
+    expect(fixture.session.sessionManager.entries).toContainEqual(expect.objectContaining({
       type: "custom",
       customType: "tau-client-message",
-      data: { clientMessageId: "request-42" },
-    });
+      data: expect.objectContaining({ clientMessageId: "request-42", fingerprint: expect.any(String) }),
+    }));
   });
 
   it("keeps a started marker through inner settlement until the user message ends", async () => {
     const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
     await adopt(fixture);
     const hostInternals = fixture.host as unknown as {
-      appendClientMessageMarker(thread: unknown, clientMessageId: string): boolean;
+      appendClientMessageMarker(thread: unknown, clientMessageId: string, correlationText?: string): boolean;
       handleSessionEvent(event: unknown, thread: unknown, sessionId: string, cwd: string): void;
     };
-    expect(hostInternals.appendClientMessageMarker(fixture.thread, "request-in-flight")).toBe(true);
+    expect(hostInternals.appendClientMessageMarker(fixture.thread, "request-in-flight", "keep tracking this")).toBe(true);
 
     hostInternals.handleSessionEvent({ type: "agent_settled" }, fixture.thread, "session", "/repo");
     expect(fixture.session.sessionManager.entries).not.toContainEqual(expect.objectContaining({ customType: "tau-client-message-cancel" }));
@@ -155,7 +156,33 @@ describe("PiHost skill delivery", () => {
     await adopt(fixture);
     await fixture.host.prompt("$tdd fix it", [], "session");
     expect(fixture.session.prompt).not.toHaveBeenCalled();
-    expect(transport.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({ text: "/tdd fix it", sessionId: "session" }));
+    expect(transport.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      text: "/tdd fix it",
+      sessionId: "session",
+      permissionPolicy: { permissionMode: "auto", tools: ["default"] },
+    }));
+  });
+
+  it("routes abort through the selected adapter and never calls Pi abort", async () => {
+    let rejectPrompt!: (error: Error) => void;
+    const transport = {
+      sendPrompt: vi.fn(() => new Promise<{ assistantText?: string }>((_resolve, reject) => { rejectPrompt = reject; })),
+      abort: vi.fn(async () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        rejectPrompt(error);
+      }),
+    };
+    const adapter: AgentRuntimeAdapter = { id: "claude-code", capabilities: { skillInvocationDialect: "claude-code" }, transport };
+    const fixture = localHost(adapter);
+    await adopt(fixture);
+
+    const pending = fixture.host.prompt("keep running", [], "session", "request-abort");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await fixture.host.abort("session");
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(transport.abort).toHaveBeenCalledWith("session");
+    expect(fixture.session.abort).not.toHaveBeenCalled();
   });
 
   it("passes prompt, steer, follow-up, and new-session intent raw to the runtime owner", async () => {
@@ -240,6 +267,24 @@ describe("PiHost skill delivery", () => {
     expect(markdown).toContain("Review the parser");
     expect(markdown).not.toContain("<skill");
     expect(markdown).not.toContain("Injected body");
+    expect(markdown).not.toContain("location=");
+  });
+
+  it("sanitizes a complete unknown runtime wrapper from full-chat export", async () => {
+    const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
+    fixture.session.sessionManager.entries = [
+      { type: "message", id: "user", message: {
+        role: "user",
+        content: [{ type: "text", text: `<skill name="removed" location="/private/removed/SKILL.md">\nSECRET BODY\n</skill>\n\nKeep the request` }],
+        timestamp: 1,
+      } },
+    ];
+    await adopt(fixture);
+
+    const markdown = await fixture.host.exportThreadMarkdown("session");
+    expect(markdown).toContain("Keep the request");
+    expect(markdown).not.toContain("<skill");
+    expect(markdown).not.toContain("SECRET BODY");
     expect(markdown).not.toContain("location=");
   });
 });

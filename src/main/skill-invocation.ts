@@ -208,6 +208,11 @@ function formatSkillInvocation(name: string, userMessage: string, dialect: Skill
   return userMessage ? `${command} ${userMessage}` : command;
 }
 
+/** Runtime-owned spelling exposed to the composer as typed command metadata. */
+export function skillInvocationCommand(name: string, adapter: SkillRuntimeAdapter): string {
+  return formatSkillInvocation(name, "", adapter.capabilities.skillInvocationDialect);
+}
+
 /** Normalize user intent at the runtime-owner boundary, preserving uncertain input byte-for-byte. */
 export function normalizeSkillInvocationForRuntime(
   raw: string,
@@ -248,7 +253,7 @@ export function skillMessagePresentation(
     text: invocation.userMessage,
     skill: {
       name: invocation.name,
-      command: formatSkillInvocation(invocation.name, "", dialect),
+      command: skillInvocationCommand(invocation.name, adapter),
       copyText: formatSkillInvocation(invocation.name, invocation.userMessage, dialect),
     },
   };
