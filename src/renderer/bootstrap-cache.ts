@@ -1,6 +1,12 @@
-import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
+import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts.js";
+import { isHostTranscriptCursor } from "../shared/transcript-cursor.js";
+import type { TranscriptCursorBoundary } from "../shared/transcript-contract.js";
+import { normalizeTranscriptCursorBoundaries } from "../shared/host-protocol.js";
+import { parseTranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../shared/transcript-pager.js";
 
-const CACHE_KEY = "tau.bootstrap-cache.v1";
+const CACHE_KEY = "tau.bootstrap-cache.v6";
+const LEGACY_CACHE_KEYS = ["tau.bootstrap-cache.v4", "tau.bootstrap-cache.v3"] as const;
 const MAX_BYTES = 512 * 1024;
 
 export interface CachedBootstrap {
@@ -9,9 +15,49 @@ export interface CachedBootstrap {
 }
 
 function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
+  const bounds = transcriptPageBounds(snapshot.messages, INITIAL_TRANSCRIPT_TURN_LIMIT);
+  const messages = snapshot.messages.slice(bounds.start, bounds.end);
+  const wasTrimmed = messages.length < snapshot.messages.length;
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  const firstRetainedMessageId = firstUserMessage?.id ?? messages[0]?.id;
+  const boundaries = normalizeTranscriptCursorBoundaries(
+    (snapshot.cursorBoundaries ?? []).filter((boundary): boundary is TranscriptCursorBoundary =>
+      typeof boundary?.messageId === "string" && isHostTranscriptCursor(boundary.cursor)),
+    snapshot.cursorBeforeMessageId,
+    isHostTranscriptCursor(snapshot.olderCursor) ? snapshot.olderCursor : undefined,
+  );
+  const selectedBoundary = boundaries?.find((boundary) => boundary.messageId === firstRetainedMessageId)
+    ?? undefined;
+  // Older records can contain unknown string values and provider cursor
+  // objects. Normalize both before deciding whether the retained window is
+  // pageable; `has-more` without a usable boundary would falsely advertise a
+  // load action or allow the UI to call the retained window complete.
+  const rawHistoryCompleteness = (snapshot as { historyCompleteness?: unknown }).historyCompleteness;
+  const sourceCompleteness = parseTranscriptHistoryCompleteness(rawHistoryCompleteness)
+    ?? (rawHistoryCompleteness === undefined ? undefined : "unknown");
+  const historyCompleteness = sourceCompleteness === "unknown"
+    ? sourceCompleteness
+    : sourceCompleteness === "has-more" && !selectedBoundary
+      ? "unknown"
+      : selectedBoundary
+        ? "has-more"
+        : wasTrimmed
+          ? "unknown"
+          : sourceCompleteness ?? "complete";
   return {
     ...snapshot,
-    messages: snapshot.messages.slice(-40),
+    messages,
+    taskHistory: snapshot.taskHistory?.filter((entry) => !entry.anchorMessageId || messages.some((message) => message.id === entry.anchorMessageId)),
+    historyCompleteness,
+    ...(selectedBoundary ? {
+      olderCursor: selectedBoundary.cursor,
+      cursorBeforeMessageId: selectedBoundary.messageId,
+      cursorBoundaries: [selectedBoundary],
+    } : {
+      olderCursor: undefined,
+      cursorBeforeMessageId: undefined,
+      cursorBoundaries: undefined,
+    }),
     models: [],
     allTools: [],
     activeTools: [],
@@ -21,11 +67,14 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
 
 export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStorage): CachedBootstrap | undefined {
   try {
-    const raw = storage.getItem(CACHE_KEY);
+    const raw = [storage.getItem(CACHE_KEY), ...LEGACY_CACHE_KEYS.map((key) => storage.getItem(key))].find(Boolean);
     if (!raw || raw.length > MAX_BYTES) return undefined;
     const value = JSON.parse(raw) as CachedBootstrap;
-    if (!value?.snapshot?.sessionId || !Array.isArray(value.threadIndex?.sessions)) return undefined;
-    return value;
+    if (!value?.snapshot?.sessionId || !Array.isArray(value.snapshot.messages) || !Array.isArray(value.threadIndex?.sessions)) return undefined;
+    // Normalize records written by an older renderer before exposing them to
+    // the first paint. The versioned key separates the opaque-boundary shape;
+    // this guard also protects tests/imported caches with stale contents.
+    return { snapshot: boundedSnapshot(value.snapshot), threadIndex: value.threadIndex };
   } catch {
     return undefined;
   }

@@ -12,6 +12,8 @@ vi.mock("./components/Message", () => ({
 }));
 
 import App, { latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
+import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 
 afterEach(cleanup);
 
@@ -81,6 +83,42 @@ describe("App render isolation", () => {
     });
     expect(next.sessionTitle).toBe("Target title");
     expect(next.messages[0]?.text).toBe("Cached content");
+  });
+
+  it("deduplicates a repeated history page while retaining newer message updates", () => {
+    const current = [
+      { id: "user-2", role: "user" as const, text: "second", timestamp: 2 },
+      { id: "answer-2", role: "assistant" as const, text: "old answer", timestamp: 3 },
+    ];
+    const page = [
+      { id: "user-1", role: "user" as const, text: "first", timestamp: 1 },
+      { id: "user-2", role: "user" as const, text: "second", timestamp: 2 },
+      { id: "answer-2", role: "assistant" as const, text: "updated answer", timestamp: 3 },
+    ];
+    expect(mergeTranscriptMessages(current, page, "prepend")).toEqual([
+      page[0], page[1], page[2],
+    ]);
+    expect(mergeTranscriptMessages([], [page[0], { ...page[0], text: "latest" }], "prepend")).toEqual([
+      { ...page[0], text: "latest" },
+    ]);
+  });
+
+  it("restores the viewport offset from a stable row after long variable rows are prepended", () => {
+    let anchorTop = 280;
+    const row = {
+      dataset: { messageId: "stable" },
+      getBoundingClientRect: () => ({ top: anchorTop, bottom: anchorTop + 420 }),
+    };
+    const node = {
+      scrollTop: 340,
+      getBoundingClientRect: () => ({ top: 100, bottom: 700 }),
+      querySelectorAll: () => [row],
+    } as unknown as HTMLDivElement;
+    const anchor = { messageId: "stable", viewportOffset: 180 };
+    anchorTop += 2_680;
+    const result = restoreTranscriptScrollAnchor(node, anchor);
+    expect(result.delta).toBe(2_680);
+    expect(node.scrollTop).toBe(3_020);
   });
 
   it("preserves opened panel state and skips unrelated parent renders while hidden", () => {
@@ -155,6 +193,90 @@ describe("App render isolation", () => {
     expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
     expect(screen.getByText("Build the first screen")).toBeTruthy();
+  });
+
+  it("keeps an in-flight history load when a same-thread action returns detail", async () => {
+    let resolvePage!: (page: {
+      sessionId: string;
+      messages: Array<{ id: string; role: "user" | "assistant"; text: string; timestamp: number }>;
+      hasMore: boolean;
+    }) => void;
+    const loadTranscript = vi.fn(() => new Promise((resolve) => { resolvePage = resolve; }));
+    const setModel = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [{
+        version: 1 as const,
+        type: "thread-detail" as const,
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "new", role: "user" as const, text: "new request", timestamp: 1 },
+            { id: "reply", role: "assistant" as const, text: "current reply", timestamp: 2 },
+          ],
+          olderCursor: asHostTranscriptCursor("opaque:2"),
+          hasMore: true,
+          isStreaming: false,
+          activeTools: [],
+        },
+      }],
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "new", role: "user" as const, text: "new request", timestamp: 1 },
+            { id: "reply", role: "assistant" as const, text: "current reply", timestamp: 2 },
+          ],
+          olderCursor: asHostTranscriptCursor("opaque:2"),
+          hasMore: true,
+          isStreaming: false,
+          activeTools: [],
+        },
+        catalog: {
+          models: [
+            { provider: "provider", id: "current", name: "Current model" },
+            { provider: "provider", id: "next", name: "Next model" },
+          ],
+          model: { provider: "provider", id: "current", name: "Current model" },
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+          serviceTier: "standard" as const,
+          serviceTierAvailable: false,
+          allTools: [],
+          extensionCount: 0,
+        },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      loadTranscript,
+      setModel,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByText("current reply");
+    fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
+    await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", asHostTranscriptCursor("opaque:2")));
+
+    fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
+    const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
+    fireEvent.click(within(modelPicker).getByText("Next model").closest("button")!);
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("provider", "next"));
+
+    resolvePage({
+      sessionId: "session",
+      messages: [{ id: "old", role: "user", text: "older request", timestamp: 0 }],
+      hasMore: false,
+    });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("1 older turn loaded"));
+    expect(screen.getByText("older request")).toBeTruthy();
   });
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {

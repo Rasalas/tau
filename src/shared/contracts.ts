@@ -1,4 +1,6 @@
 import type { HostActionResult } from "./host-protocol.js";
+import type { TranscriptBundle } from "./transcript-contract.js";
+import type { HostTranscriptCursor } from "./transcript-cursor.js";
 
 export type UiRole = "user" | "assistant" | "notice";
 
@@ -291,7 +293,7 @@ export interface UiTurnActivity {
   anchorMessageId?: string;
 }
 
-export interface HostSnapshot {
+export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   cwd: string;
   branch?: string;
   sessionId: string;
@@ -301,12 +303,11 @@ export interface HostSnapshot {
   models: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
-  messages: UiMessage[];
+  /** Cursor for the next page when this snapshot already contains a bounded window. */
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
-  taskHistory?: UiTaskProgressEntry[];
   allTools: Array<{ name: string; description: string }>;
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
@@ -321,20 +322,21 @@ export interface ThreadIndexSnapshot {
   sessions: UiSession[];
 }
 
+export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
+  sessionId: string;
+  isStreaming: boolean;
+  activeTools: string[];
+  turnActivity?: UiTurnActivity;
+  taskProgress?: UiTaskProgress;
+  contextUsage?: UiContextUsage;
+  /** Older v1 clients may omit this derived flag. */
+  hasMore?: boolean;
+}
+
 export interface HostBootstrap {
   threadIndex: ThreadIndexSnapshot;
   version: 1;
-  detail: {
-    sessionId: string;
-    messages: UiMessage[];
-    isStreaming: boolean;
-    activeTools: string[];
-    turnActivity?: UiTurnActivity;
-    taskProgress?: UiTaskProgress;
-    taskHistory?: UiTaskProgressEntry[];
-    contextUsage?: UiContextUsage;
-    olderCursor?: string;
-  };
+  detail: HostBootstrapDetail;
   catalog: {
     models: UiModel[];
     model?: UiModel;
@@ -405,7 +407,7 @@ export interface TauDesktopApi {
   /** Host platform, so the title bar can leave room for native window controls. */
   readonly platform: string;
   bootstrap(): Promise<HostBootstrap>;
-  loadTranscript(sessionId: string, cursor?: string): Promise<import("./host-protocol.js").TranscriptPage>;
+  loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<import("./host-protocol.js").TranscriptPage>;
   /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
   sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;

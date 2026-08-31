@@ -1,6 +1,7 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
-import type { ReactNode, RefObject } from "react";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, type ReactNode, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
+import type { TranscriptScrollAnchor } from "../transcript-history";
 import { Message } from "./Message";
 
 export interface VirtualTranscriptProps {
@@ -10,6 +11,8 @@ export interface VirtualTranscriptProps {
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
+  /** Anchor used while a history page is measured after prepending. */
+  anchorRef?: { current: TranscriptScrollAnchor | undefined };
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
 }
@@ -22,6 +25,7 @@ export function VirtualTranscript({
   activity,
   activityAfterMessageId,
   activities = [],
+  anchorRef,
   onCopyMessage,
   onForkMessage,
 }: VirtualTranscriptProps) {
@@ -46,6 +50,15 @@ export function VirtualTranscript({
     ? pendingActivities.filter((entry) => entry.id === "turn-activity")
     : [];
 
+  const measureThrough = anchorRef?.current?.measureThrough;
+  const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
+    const indexes = new Set(defaultRangeExtractor(range));
+    if (measureThrough !== undefined) {
+      for (let index = 0; index < Math.min(measureThrough, messages.length); index += 1) indexes.add(index);
+    }
+    return [...indexes].sort((left, right) => left - right);
+  }, [anchorRef, measureThrough, messages.length]);
+
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollRef.current,
@@ -53,6 +66,7 @@ export function VirtualTranscript({
     getItemKey: (index) => messages[index]?.id ?? index,
     initialRect: { width: 780, height: 600 },
     overscan: 6,
+    rangeExtractor,
     useAnimationFrameWithResizeObserver: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
@@ -79,6 +93,7 @@ export function VirtualTranscript({
         key={message.id}
         ref={virtualizer.measureElement}
         data-index={row.index}
+        data-message-id={message.id}
         className="virtual-transcript-row"
         style={{
           position: "absolute",

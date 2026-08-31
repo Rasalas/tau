@@ -6,18 +6,142 @@ import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
+import type { TranscriptHistoryCompleteness } from "../../src/shared/transcript-completeness.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
   PI_BRIDGE_PROTOCOL_VERSION,
+  transcriptPagingNegotiated,
   type PiBridgeClientFrame,
   type PiBridgeDescriptor,
   type PiBridgeServerFrame,
   type PiBridgeAwaitingInput,
   type PiBridgeSnapshot,
+  type PiBridgeTranscriptPage,
 } from "../../src/shared/pi-bridge-protocol.js";
 
-interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
+interface ClientState {
+  socket: Socket;
+  authenticated: boolean;
+  buffer: string;
+  transcriptPaging: boolean;
+}
+
+type BridgeTranscriptRecord = Record<string, unknown> & { role?: string };
+
+const LEGACY_SNAPSHOT_RECORD_LIMIT = 160 as const;
+
+declare const rawBridgeTranscriptCursorBrand: unique symbol;
+type RawBridgeTranscriptCursor = string & { readonly [rawBridgeTranscriptCursorBrand]: true };
+
+function parseRawBridgeTranscriptCursor(value: unknown, maximum?: number): RawBridgeTranscriptCursor {
+  if (typeof value !== "string" || !/^\d+$/u.test(value)) throw new Error("Invalid transcript cursor");
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 0 || (maximum !== undefined && number > maximum)) {
+    throw new Error("Invalid transcript cursor");
+  }
+  return value as RawBridgeTranscriptCursor;
+}
+
+function rawBridgeTranscriptCursorAt(index: number): RawBridgeTranscriptCursor {
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid transcript cursor");
+  return String(index) as RawBridgeTranscriptCursor;
+}
+
+type TranscriptViewPolicy =
+  | { kind: "legacy-snapshot"; maxRecords: number }
+  | { kind: "initial-page"; turnLimit: number }
+  | { kind: "older-page"; turnLimit: number; cursor?: RawBridgeTranscriptCursor | string };
+
+interface TranscriptView {
+  branchMessages: BridgeTranscriptRecord[];
+  visibleMessages: BridgeTranscriptRecord[];
+  messagesOffset: number;
+  cursorBeforeMessageId?: string;
+  olderCursor?: RawBridgeTranscriptCursor;
+  hasMore: boolean;
+  historyCompleteness: TranscriptHistoryCompleteness;
+  taskHistoryMessages: readonly BridgeTranscriptRecord[];
+}
+
+/** Stable host-facing error for a stale or malformed bridge page cursor. */
+export class InvalidBridgeTranscriptCursorError extends Error {
+  readonly code = "INVALID_BRIDGE_TRANSCRIPT_CURSOR" as const;
+
+  constructor() {
+    super("Pi returned an invalid or stale transcript page cursor.");
+    this.name = "InvalidBridgeTranscriptCursorError";
+  }
+}
+
+function validateBridgeCursor(
+  value: RawBridgeTranscriptCursor | string | undefined,
+  branchLength: number,
+): RawBridgeTranscriptCursor | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return parseRawBridgeTranscriptCursor(
+      value,
+      branchLength,
+    );
+  } catch {
+    throw new InvalidBridgeTranscriptCursorError();
+  }
+}
+
+export function buildTranscriptView(
+  branchMessages: BridgeTranscriptRecord[],
+  policy: TranscriptViewPolicy,
+): TranscriptView {
+  if (policy.kind === "legacy-snapshot") {
+    const messagesOffset = Math.max(0, branchMessages.length - policy.maxRecords);
+    const firstUser = branchMessages.slice(messagesOffset).find((message) => message.role === "user");
+    return {
+      branchMessages,
+      visibleMessages: branchMessages.slice(messagesOffset),
+      messagesOffset,
+      ...(typeof firstUser?.tauEntryId === "string" ? { cursorBeforeMessageId: firstUser.tauEntryId } : {}),
+      hasMore: false,
+      historyCompleteness: "unknown",
+      taskHistoryMessages: branchMessages,
+    };
+  }
+
+  const cursor = policy.kind === "older-page"
+    ? validateBridgeCursor(policy.cursor, branchMessages.length)
+    : undefined;
+  const bounds = transcriptPageBounds(
+    branchMessages,
+    policy.turnLimit,
+    cursor,
+    {
+      cursorAtIndex: rawBridgeTranscriptCursorAt,
+      indexFromCursor: (value, maximum) => Number(parseRawBridgeTranscriptCursor(value, maximum)),
+    },
+  );
+  const olderCursor = bounds.olderCursor;
+  const visibleMessages = branchMessages.slice(bounds.start, bounds.end);
+  const firstUser = visibleMessages.find((message) => message.role === "user");
+  return {
+    branchMessages,
+    visibleMessages,
+    messagesOffset: bounds.start,
+    ...(typeof firstUser?.tauEntryId === "string" ? { cursorBeforeMessageId: firstUser.tauEntryId } : {}),
+    olderCursor,
+    hasMore: bounds.hasMore,
+    historyCompleteness: bounds.hasMore ? "has-more" : "complete",
+    taskHistoryMessages: visibleMessages,
+  };
+}
+
+function transcriptView(ctx: ExtensionContext, policy: TranscriptViewPolicy): TranscriptView {
+  const branchMessages = ctx.sessionManager.getBranch()
+    .flatMap((entry) => entry.type === "message"
+      ? [{ ...(entry.message as unknown as Record<string, unknown>), tauEntryId: entry.id }]
+      : []) as BridgeTranscriptRecord[];
+  return buildTranscriptView(branchMessages, policy);
+}
 
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
@@ -69,18 +193,26 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (!client.socket.destroyed) client.socket.write(encodePiBridgeFrame(frame));
   };
 
-  const snapshot = (ctx: ExtensionContext): PiBridgeSnapshot => {
+  const snapshot = (ctx: ExtensionContext, paged = false): PiBridgeSnapshot => {
     const file = ctx.sessionManager.getSessionFile();
     if (!file) throw new Error("Tau bridge requires a persisted Pi session.");
     const usage = ctx.getContextUsage();
-    const branchMessages = ctx.sessionManager.getBranch()
-      .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
+    const view = transcriptView(ctx, paged
+      ? { kind: "initial-page", turnLimit: INITIAL_TRANSCRIPT_TURN_LIMIT }
+      : { kind: "legacy-snapshot", maxRecords: LEGACY_SNAPSHOT_RECORD_LIMIT });
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       cwd: ctx.cwd,
       sessionName: pi.getSessionName(),
-      messages: boundedBridgeValue(branchMessages.slice(-160)),
+      messages: boundedBridgeValue(view.visibleMessages),
+      ...(view.cursorBeforeMessageId ? { cursorBeforeMessageId: view.cursorBeforeMessageId } : {}),
+      ...(paged ? {
+        messagesOffset: view.messagesOffset,
+        capabilities: { transcriptPaging: true },
+        ...(view.olderCursor ? { olderCursor: view.olderCursor } : {}),
+        historyCompleteness: view.historyCompleteness,
+      } : {}),
       isStreaming: !ctx.isIdle(),
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, name: ctx.model.name } : undefined,
       models: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, id: model.id, name: model.name })),
@@ -96,10 +228,25 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           source: command.source,
         })),
       contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : undefined,
-      taskProgress: taskProgressFromMessages(branchMessages),
-      taskHistory: taskProgressHistoryFromMessages(branchMessages),
+      taskProgress: taskProgressFromMessages(view.branchMessages),
+      taskHistory: taskProgressHistoryFromMessages(view.taskHistoryMessages),
       awaitingInput,
     };
+  };
+
+  const transcriptPage = (ctx: ExtensionContext, cursor?: string): PiBridgeTranscriptPage => {
+    const view = transcriptView(ctx, { kind: "older-page", turnLimit: OLDER_TRANSCRIPT_TURN_LIMIT, cursor });
+    const page = {
+      sessionId: ctx.sessionManager.getSessionId(),
+      messages: boundedBridgeValue(view.visibleMessages),
+      messagesOffset: view.messagesOffset,
+      ...(view.cursorBeforeMessageId ? { cursorBeforeMessageId: view.cursorBeforeMessageId } : {}),
+      ...(view.olderCursor ? { olderCursor: view.olderCursor } : {}),
+      hasMore: view.hasMore,
+      historyCompleteness: view.historyCompleteness,
+      taskHistory: taskProgressHistoryFromMessages(view.taskHistoryMessages),
+    } satisfies PiBridgeTranscriptPage;
+    return page;
   };
 
   const broadcast = (event: unknown, ctx: ExtensionContext) => {
@@ -118,14 +265,16 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   const broadcastSnapshot = (ctx: ExtensionContext) => {
     if (!descriptor) return;
-    const frame: PiBridgeServerFrame = {
-      protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
-      type: "snapshot",
-      epoch: descriptor.epoch,
-      seq: ++sequence,
-      snapshot: snapshot(ctx),
-    };
-    for (const client of clients) if (client.authenticated) send(client, frame);
+    for (const client of clients) if (client.authenticated) {
+      const frame: PiBridgeServerFrame = {
+        protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
+        type: "snapshot",
+        epoch: descriptor.epoch,
+        seq: ++sequence,
+        snapshot: snapshot(ctx, client.transcriptPaging),
+      };
+      send(client, frame);
+    }
   };
 
   const respond = (client: ClientState, id: string, ok: boolean, result?: unknown) => {
@@ -145,6 +294,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         client.socket.destroy();
         return;
       }
+      client.transcriptPaging = transcriptPagingNegotiated(frame.capabilities);
       client.authenticated = true;
       const ctx = latestContext;
       if (!ctx) return client.socket.destroy();
@@ -153,7 +303,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         type: "ready",
         id: frame.id,
         epoch: descriptor.epoch,
-        snapshot: snapshot(ctx),
+        snapshot: snapshot(ctx, client.transcriptPaging),
       });
       return;
     }
@@ -167,7 +317,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     try {
       switch (frame.command) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
-        case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
+        case "snapshot": respond(client, frame.id, true, snapshot(ctx, client.transcriptPaging)); break;
         case "prompt":
           pi.sendUserMessage(frame.text, {
             ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
@@ -216,6 +366,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           }, 0);
           break;
         }
+        case "transcript_page":
+          if (!client.transcriptPaging) {
+            respond(client, frame.id, false, "Transcript paging was not negotiated by this v1 client.");
+            break;
+          }
+          respond(client, frame.id, true, transcriptPage(ctx, frame.cursor));
+          break;
         case "fork": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before forking this thread.");
           if (!ctx.sessionManager.getBranch().some((entry) => entry.id === frame.entryId)) {
@@ -268,7 +425,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       : join(tmpdir(), `tau-pi-${process.getuid?.() ?? "user"}-${suffix}.sock`);
     if (process.platform !== "win32") await rm(socketPath, { force: true }).catch(() => undefined);
     server = createServer((socket) => {
-      const client: ClientState = { socket, authenticated: false, buffer: "" };
+      const client: ClientState = { socket, authenticated: false, buffer: "", transcriptPaging: false };
       clients.add(client);
       socket.setEncoding("utf8");
       socket.on("data", (chunk: string) => {

@@ -543,6 +543,21 @@ button > svg { pointer-events: none; }
 
 .transcript { flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; padding: 26px 32px 12px; }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
+.transcript-history-control {
+  min-height: 34px; margin: 0 0 16px; display: flex; align-items: center; gap: 10px;
+  color: var(--faint); font: 11px var(--mono);
+}
+.transcript-history-control > span { flex: 1; min-width: 0; }
+.transcript-history-control > button {
+  flex: none; border: 1px solid var(--line-control); border-radius: 7px;
+  background: transparent; color: var(--ink-3); padding: 6px 10px;
+  font: 500 11px var(--sans); cursor: pointer;
+}
+.transcript-history-control > button:hover { background: var(--raised); color: var(--ink); }
+.transcript-history-control > button:disabled { opacity: .6; cursor: wait; }
+.transcript-history-control.loading > span { color: var(--working); }
+.transcript-history-control.error > span { color: var(--removed); }
+.transcript-history-control.limited > span { color: var(--working); }
 .virtual-transcript { width: 100%; flex: none; }
 .virtual-transcript-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }

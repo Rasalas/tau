@@ -239,6 +239,16 @@ Protocol version 1 rejects malformed or unknown update types at the preload boun
 - model and extension catalog updates
 - project and Git metadata updates
 
+The Pi socket bridge also negotiates transcript paging explicitly inside wire
+version 1. A host advertises `transcriptPaging` in `hello`; only a bridge that
+echoes the capability may receive `transcript_page`. The legacy path keeps the
+pre-paging snapshot contract for older hosts, while the paged path bounds both
+the initial user-turn window and the activity history transported with each
+page. The host preserves an explicit history-completeness state: `complete`,
+`has-more`, or `unknown`. A capped legacy window is rendered as limited when
+its availability cannot be determined; it is never labelled as the beginning
+of history. Unsupported commands return an explicit error.
+
 Switching threads does not relist every session or model. Branch lookups, model availability, session indexes, and Git state have independent caches and invalidation rules.
 
 ### Extension interface

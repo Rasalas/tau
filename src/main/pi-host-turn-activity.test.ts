@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { HostSnapshot } from "../shared/contracts.js";
+import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import { decodeHostCursor } from "./transcript-cursor.js";
+import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, PiHost } from "./pi-host.js";
+import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
+import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
 
 describe("cleanThreadTitle", () => {
   it("removes Markdown and title-model framing", () => {
@@ -80,5 +86,88 @@ describe("lastTurnActivityFromMessages", () => {
         endedAt: 5,
       }],
     });
+  });
+});
+
+describe("Pi bridge transcript projection", () => {
+  it("keeps an adapter-paged snapshot intact through detail, cache trim, and merge", () => {
+    const sessionId = "bridge-thread";
+    const providerCursor = "cursor::provider/opaque?before=0";
+    const rawMessages = Array.from({ length: 10 }, (_, turn) => [
+      { role: "user", tauEntryId: `user-${turn}`, content: `request ${turn}`, timestamp: turn * 2 },
+      { role: "assistant", tauEntryId: `assistant-${turn}`, content: `answer ${turn}`, timestamp: turn * 2 + 1 },
+    ]).flat();
+    const bridgeSnapshot: PiBridgeSnapshot = {
+      sessionId,
+      sessionFile: "/tmp/bridge-thread.jsonl",
+      cwd: "/repo",
+      sessionName: "Bridge transcript",
+      messages: rawMessages,
+      messagesOffset: 10_000,
+      capabilities: { transcriptPaging: true },
+      olderCursor: providerCursor,
+      historyCompleteness: "has-more",
+      isStreaming: false,
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      activeTools: [],
+      allTools: [],
+    };
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as {
+      bridgeSnapshot?: PiBridgeSnapshot;
+      bridgeHostSnapshot(): HostSnapshot;
+      detailForSnapshot(snapshot: HostSnapshot): ThreadDetail;
+    };
+    internals.bridgeSnapshot = bridgeSnapshot;
+
+    const projected = internals.bridgeHostSnapshot();
+    expect(projected.transcriptWindow).toBe("bounded");
+    expect(projected.messages).toHaveLength(20);
+    expect(projected.messages.filter((message) => message.role === "user")).toHaveLength(10);
+    expect("transcriptMessageIndexes" in projected).toBe(false);
+    expect(projected.olderCursor).toBeDefined();
+    expect(projected.cursorBoundaries).toEqual([{
+      messageId: "user-0",
+      cursor: projected.olderCursor,
+    }]);
+    expect(decodeHostCursor(projected.olderCursor)).toEqual({ kind: "bridge", value: providerCursor });
+
+    // A bridge page is already bounded. detailForSnapshot must preserve the
+    // adapter cursor instead of applying the local decimal-index policy.
+    const detail = internals.detailForSnapshot(projected);
+    expect(detail.messages).toHaveLength(20);
+    expect(detail.olderCursor).toBe(projected.olderCursor);
+    expect(detail.transcriptWindow).toBe("bounded");
+
+    let persisted: string | null = null;
+    const storage = {
+      getItem: () => persisted,
+      setItem: (_key: string, value: string) => { persisted = value; },
+      removeItem: () => { persisted = null; },
+    };
+    writeBootstrapCache(projected, { projects: [], sessions: [] }, storage);
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.messages).toHaveLength(20);
+    expect(cached?.snapshot.messages.filter((message) => message.role === "user")).toHaveLength(10);
+    expect(cached?.snapshot.olderCursor).toBe(projected.olderCursor);
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe(projected.olderCursor);
+
+    const merged = applyTranscriptBundleMerge(
+      { messages: cached!.snapshot.messages, transcriptWindow: cached!.snapshot.transcriptWindow },
+      {
+        messages: [
+          { id: "older-user", role: "user", text: "older request", timestamp: -2 },
+          { id: "older-assistant", role: "assistant", text: "older answer", timestamp: -1 },
+          cached!.snapshot.messages[0]!,
+        ],
+        transcriptWindow: "bounded",
+      },
+      "prepend",
+    );
+    expect(merged.messages.slice(0, 2).map((message) => message.id)).toEqual(["older-user", "older-assistant"]);
+    expect(merged.messages.filter((message) => message.role === "user")).toHaveLength(11);
+    expect(merged).not.toHaveProperty("transcriptMessageIndexes");
   });
 });
