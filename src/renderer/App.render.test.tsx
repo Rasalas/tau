@@ -203,6 +203,53 @@ describe("App render isolation", () => {
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
   });
 
+  it("promotes a bridge new thread from a later detail when the acknowledgement has no updates", async () => {
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [], submission: { accepted: true as const } }));
+    let emitHostEvent: ((event: HostEvent) => void) | undefined;
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { emitHostEvent = listener; return () => {}; },
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(dialog).getByRole("option", { name: /project/u }));
+    const composer = await screen.findByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "bridge prompt" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith("bridge prompt", [], "/project"));
+
+    emitHostEvent?.({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "thread-detail",
+        detail: {
+          sessionId: "bridge-created",
+          messages: [{ id: "bridge-user", role: "user", text: "bridge prompt", timestamp: 2 }],
+          isStreaming: false,
+          activeTools: [],
+        },
+      },
+    });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+  });
+
   it("shows a whole-column drop target and clears it on leave and drop", async () => {
     window.tau = {
       bootstrap: async () => ({

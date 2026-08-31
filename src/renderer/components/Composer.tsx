@@ -172,6 +172,9 @@ export function Composer({
   const reportStorageError = useCallback((scope: ComposerScope, error: unknown) => {
     scopeStore.setPersistenceError(scope, error);
   }, [scopeStore]);
+  const reportAttachmentStorageError = useCallback((error: unknown) => {
+    reportStorageError(attachmentScope, error);
+  }, [attachmentScope, reportStorageError]);
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
@@ -194,11 +197,11 @@ export function Composer({
   useEffect(() => {
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
       appliedSeed.current = seed;
-      scopeStore.setDraft(attachmentScope, seed, (error) => reportStorageError(attachmentScope, error));
+      scopeStore.setDraft(attachmentScope, seed, reportAttachmentStorageError);
     }
-  }, [attachmentScope, reportStorageError, scopeStore, seed, value]);
+  }, [attachmentScope, reportAttachmentStorageError, scopeStore, seed, value]);
   const updateDraft = (next: string) => {
-    scopeStore.setDraft(attachmentScope, next, (error) => reportStorageError(attachmentScope, error));
+    scopeStore.setDraft(attachmentScope, next, reportAttachmentStorageError);
     onChange?.(next);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -217,8 +220,8 @@ export function Composer({
   }, [attachmentScope]);
 
   useEffect(() => {
-    scopeStore.hydrate(attachmentScope, (error) => reportStorageError(attachmentScope, error));
-  }, [attachmentScope, reportStorageError, scopeStore]);
+    scopeStore.hydrate(attachmentScope, reportAttachmentStorageError);
+  }, [attachmentScope, reportAttachmentStorageError, scopeStore]);
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
@@ -364,7 +367,7 @@ export function Composer({
                   className="attachment-remove"
                   aria-label={`Remove ${attachment.name}`}
                   onClick={() => {
-                    scopeStore.removeAttachment(attachmentScope, attachment.id, (error) => reportStorageError(attachmentScope, error));
+                    scopeStore.removeAttachment(attachmentScope, attachment.id, reportAttachmentStorageError);
                   }}
                 >
                   <X size={13} />

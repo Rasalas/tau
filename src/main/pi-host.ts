@@ -463,6 +463,12 @@ interface LiveTurnState {
   liveAssistant?: LiveAssistant;
 }
 
+type DeferredThreadRecord =
+  | { kind: "event"; event: any; sessionId: string; cwd: string }
+  | { kind: "error"; error: unknown }
+  | { kind: "host"; event: HostEvent }
+  | { kind: "title"; title: string };
+
 /**
  * One Pi runtime bound to one session for the runtime's whole life. Threads
  * never share a runtime, so switching the workbench between them never aborts
@@ -473,12 +479,7 @@ class ThreadRuntime implements LiveTurnState {
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
-  private deferredRecords?: Array<
-    | { kind: "event"; event: any; sessionId: string; cwd: string }
-    | { kind: "error"; error: unknown }
-    | { kind: "host"; event: HostEvent }
-    | { kind: "title"; title: string }
-  >;
+  private deferredRecords?: DeferredThreadRecord[];
 
   constructor(readonly runtime: AgentSessionRuntime) {}
 
@@ -499,28 +500,26 @@ class ThreadRuntime implements LiveTurnState {
     this.deferredRecords = [];
   }
 
-  deferEvent(event: any, sessionId: string, cwd: string): boolean {
+  private defer(record: DeferredThreadRecord): boolean {
     if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "event", event, sessionId, cwd });
+    this.deferredRecords.push(record);
     return true;
+  }
+
+  deferEvent(event: any, sessionId: string, cwd: string): boolean {
+    return this.defer({ kind: "event", event, sessionId, cwd });
   }
 
   deferError(error: unknown): boolean {
-    if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "error", error });
-    return true;
+    return this.defer({ kind: "error", error });
   }
 
   deferHostEvent(event: HostEvent): boolean {
-    if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "host", event });
-    return true;
+    return this.defer({ kind: "host", event });
   }
 
   deferTitle(title: string): boolean {
-    if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "title", title });
-    return true;
+    return this.defer({ kind: "title", title });
   }
 
   releaseEventBarrier(
@@ -1050,20 +1049,18 @@ export class PiHost {
         { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
         { adopt: false, prepared: true },
       );
-      let adopted = false;
-      let adoptionAttempted = false;
-      let promoted = false;
+      let lifecycle: "prepared" | "adopting" | "adopted" | "promoted" = "prepared";
       try {
         assertImageInputCapability(thread.session, attachments);
         // Decode and validate the untrusted attachment payload while the
         // runtime is still prepared. Promotion must never be followed by a
         // pure input-validation failure.
         const images = attachments.length > 0 ? promptImages(attachments) : [];
-        adoptionAttempted = true;
+        lifecycle = "adopting";
         await this.adoptThread(thread);
-        adopted = true;
+        lifecycle = "adopted";
         await this.activateThread(thread, true);
-        promoted = true;
+        lifecycle = "promoted";
         // Shell/index publication is intentionally coalesced on a timer. Wait
         // for it before releasing runtime events; prompt preflight must run
         // after release so extension questions are visible and answerable.
@@ -1081,10 +1078,10 @@ export class PiHost {
         // adoption or activation has started, discard the candidate on failure
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
-        if (!adopted && !adoptionAttempted) {
+        if (lifecycle === "prepared") {
           this.retainPreparedThread(thread);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) });
-        } else if (!promoted) {
+        } else if (lifecycle !== "promoted") {
           if (this.threads.has(thread.sessionId)) await this.threads.release(thread.sessionId);
           else await this.disposeThread(thread);
           this.scheduleSpareThread(targetCwd, true);

@@ -32,7 +32,7 @@ export interface ComposerScopeState {
   attachmentProcessing: Promise<void>;
   attachmentProcessingReady: boolean;
   attachmentGeneration: number;
-  pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; textRevision: number; attachmentRevision: number; draft: string }>;
+  pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; textRevision: number; attachmentRevision: number; attachmentGeneration: number; draft: string }>;
   hydrationGeneration: number;
   persistenceQueue: Promise<void>;
   updatedAt: number;
@@ -303,10 +303,11 @@ export class ComposerScopeStore {
     const id = this.nextSubmissionId++;
     const textRevision = state.textRevision;
     const attachmentRevision = state.attachmentRevision;
+    const attachmentGeneration = state.attachmentGeneration;
     const attachmentIds = new Set(state.attachments.map((attachment) => attachment.id));
     const text = state.draft;
     const attachments = state.attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
-    state.pendingSubmissions.set(id, { attachmentIds, textRevision, attachmentRevision, draft: text });
+    state.pendingSubmissions.set(id, { attachmentIds, textRevision, attachmentRevision, attachmentGeneration, draft: text });
     this.pendingSubmissionPromises.delete(scope);
     this.notify(scope);
     let settled = false;
@@ -351,7 +352,7 @@ export class ComposerScopeStore {
       if (state.error?.kind !== "attachment" && (state.error === undefined || state.error.submissionId === id)) {
         state.error = undefined;
       }
-    } else {
+    } else if (state.attachmentGeneration <= pending.attachmentGeneration) {
       state.error = { kind: "submission", submissionId: id, message: result.message };
     }
     state.revision += 1;

@@ -198,6 +198,16 @@ function elapsedLabel(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
+interface NewThreadSubmissionCompletion {
+  pending: NewThreadDraft;
+  sessionId: string;
+  optimisticId: string;
+  prompt: string;
+  scope: string | undefined;
+  requestId: number;
+  result?: HostActionResult;
+}
+
 function LiveStatus({ startedAt }: { startedAt?: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -365,7 +375,11 @@ export default function App() {
     begin: beginNewThread,
     invalidate: invalidateNewThread,
     isCurrent: isCurrentNewThreadRequest,
+    markAwaitingPromotion,
+    promoteFromHostReport,
   } = newThreadController;
+  const pendingNewThreadRef = useRef(pendingNewThread);
+  pendingNewThreadRef.current = pendingNewThread;
   const [settingsPage, setSettingsPage] = useState<string>();
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
@@ -495,11 +509,20 @@ export default function App() {
     if (update.type === "thread-shell") {
       const shell = update.update.shell;
       threadStore.applyThreadShell(update.update.sessionId, shell, update.update.removed);
+      if (shell) promoteFromHostReport(update.update.sessionId, shell.projectPath);
       if (shell) setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, branch: shell.branch } : current);
       return;
     }
     if (update.type === "thread-detail") {
       const detail = update.detail;
+      const shell = threadStore.getThread(detail.sessionId);
+      if (shell) promoteFromHostReport(detail.sessionId, shell.projectPath);
+      else if (pendingNewThreadRef.current && detail.sessionId !== cachedSnapshotRef.current?.sessionId) {
+        // Older bridge instances acknowledge the replacement without returning
+        // a snapshot. The first subsequent detail is the authoritative handoff;
+        // the request guard prevents an unrelated/late thread from promoting it.
+        promoteFromHostReport(detail.sessionId, pendingNewThreadRef.current.projectPath);
+      }
       detailStoreRef.current.set(detail);
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
@@ -565,7 +588,7 @@ export default function App() {
       threadStore.setStreaming(update.event === "started");
     }
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, threadStore]);
+  }, [applyThreadIndex, promoteFromHostReport, threadStore]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult) => {
     result.updates.forEach((update) => applyHostUpdate(update));
@@ -1363,15 +1386,8 @@ export default function App() {
     activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
-  const completeNewThreadSubmission = useCallback((
-    pending: NewThreadDraft,
-    sessionId: string,
-    optimisticId: string,
-    prompt: string,
-    scope: string | undefined,
-    requestId: number,
-    result?: HostActionResult,
-  ) => {
+  const completeNewThreadSubmission = useCallback((completion: NewThreadSubmissionCompletion) => {
+    const { pending, sessionId, optimisticId, prompt, scope, requestId, result } = completion;
     if (!isCurrentNewThreadRequest(pending, scope, requestId)) return;
     setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
       ? { ...entry, scope: `session:${sessionId}` }
@@ -1460,11 +1476,15 @@ export default function App() {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
           await window.tau.sendPrompt(text, attachments, pending.sessionId);
-          completeNewThreadSubmission(pending, pending.sessionId, optimistic.id, text, submittedDraftKey, newThreadRequestId);
+          completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId });
           return { accepted: true };
         }
         const result = await window.tau.newSession(text, attachments, pending.projectPath);
         if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) return result.submission;
+        const created = result.updates.find((update) => update.type === "thread-detail");
+        if (result.submission.accepted && created?.type !== "thread-detail") {
+          markAwaitingPromotion(pending, submittedDraftKey, newThreadRequestId);
+        }
         applyActionResult(result);
         if (!result.submission.accepted) {
           const rejectedDetail = result.updates.find((update) => update.type === "thread-detail");
@@ -1478,12 +1498,11 @@ export default function App() {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           return result.submission;
         }
-        const created = result.updates.find((update) => update.type === "thread-detail");
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
         if (sessionId) {
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
-          completeNewThreadSubmission(pending, sessionId, optimistic.id, text, submittedDraftKey, newThreadRequestId, result);
+          completeNewThreadSubmission({ pending, sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId, result });
           return { accepted: true };
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft

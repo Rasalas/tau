@@ -122,6 +122,18 @@ describe("ComposerScopeStore", () => {
     expect(store.ensure(key).draft).toBe("second");
   });
 
+  it("does not let an older rejected submission hide a newer attachment error", () => {
+    const store = new ComposerScopeStore(memoryPersistence());
+    const key = createDraftKey("thread:errors");
+    store.setDraft(key, "send this", () => {});
+    const submission = store.beginSubmission(key);
+    if (!("settle" in submission)) throw new Error("expected a submission handle");
+    const generation = store.setAttachmentProcessing(key, Promise.resolve());
+    store.setAttachmentError(key, "The dropped file is not supported.", generation);
+    submission.settle({ accepted: false, message: "The prompt was rejected." });
+    expect(store.getSnapshot(key).error).toBe("The dropped file is not supported.");
+  });
+
   it("migrates legacy attachment records without replacing newer local text", async () => {
     const key = createDraftKey("thread:legacy");
     writeComposerDraft(window.localStorage, key, "new local text");
