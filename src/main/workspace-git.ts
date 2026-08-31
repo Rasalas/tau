@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { mkdir, open, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type {
   ChangeStatus,
@@ -570,42 +570,38 @@ async function assertValidBranchName(cwd: string, name: string, runGit: GitRunne
   }
 }
 
-async function refExists(cwd: string, ref: string, runGit: GitRunner): Promise<boolean> {
-  try {
-    await runGit(cwd, ["show-ref", "--verify", "--quiet", ref]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Fetches the preferred remote without touching a checked-out branch. New
- * worktrees can therefore start from an up-to-date main even when the primary
- * checkout is dirty or main is checked out in another worktree.
- */
-async function freshWorktreeBase(cwd: string, runGit: GitRunner): Promise<string | undefined> {
+async function prepareWorktreeBase(cwd: string, baseRef: string, runGit: GitRunner): Promise<string> {
+  const base = baseRef.trim() || "HEAD";
   const remotes = (await runGit(cwd, ["remote"]).catch(() => ""))
     .split("\n")
     .map((remote) => remote.trim())
     .filter(Boolean);
-  const remote = remotes.includes("origin") ? "origin" : remotes[0];
-  if (remote) {
-    await runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
-    if (await refExists(cwd, `refs/remotes/${remote}/main`, runGit)) return `${remote}/main`;
-    const defaultRef = (await runGit(
-      cwd,
-      ["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`],
-    ).catch(() => "")).trim();
-    if (defaultRef && await refExists(cwd, `refs/remotes/${defaultRef}`, runGit)) return defaultRef;
+  const remote = remotes.find((candidate) => base.startsWith(`${candidate}/`));
+  if (remote) await runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
+  try {
+    await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`]);
+  } catch {
+    throw new Error(`The worktree base "${base}" does not exist.`);
   }
-  return await refExists(cwd, "refs/heads/main", runGit) ? "main" : undefined;
+  return base;
+}
+
+/** Returns one stable project name for a repository and all of its linked worktrees. */
+export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
+  try {
+    const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+    const absoluteCommonDir = resolve(cwd, commonDir);
+    return basename(dirname(absoluteCommonDir)) || basename(cwd) || cwd;
+  } catch {
+    return basename(cwd) || cwd;
+  }
 }
 
 /** Creates a branch and a worktree for it, and returns the new worktree path. */
 export async function createWorktree(
   cwd: string,
   branch: string,
+  baseRef?: string,
   readWorkspace: (cwd: string) => Promise<WorkspaceInfo> = async (path) => (await readProjectGitState(path)).workspace,
   runGit: GitRunner = git,
 ): Promise<string> {
@@ -623,8 +619,8 @@ export async function createWorktree(
   if (existing) {
     await runGit(cwd, ["worktree", "add", destination, name]);
   } else {
-    const base = await freshWorktreeBase(cwd, runGit);
-    await runGit(cwd, ["worktree", "add", "-b", name, destination, ...(base ? [base] : [])]);
+    const base = await prepareWorktreeBase(cwd, baseRef || info.branch || "HEAD", runGit);
+    await runGit(cwd, ["worktree", "add", "-b", name, destination, base]);
   }
   return destination;
 }

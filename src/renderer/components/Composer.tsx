@@ -149,9 +149,9 @@ export function Composer({
   onCompactContext(): void;
   workspace?: WorkspaceInfo;
   workspaceBusy: boolean;
-  onOpenWorktree(path: string): void;
-  onCreateWorktree(branch: string): void;
-  onSwitchRef(ref: string): void;
+  onOpenWorktree(path: string): Promise<boolean>;
+  onCreateWorktree(branch: string, baseRef: string): Promise<boolean>;
+  onSwitchRef(ref: string): Promise<boolean>;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const [draft, setDraft] = useState(() => readComposerDraft(window.localStorage, draftStorageKey));
@@ -162,6 +162,8 @@ export function Composer({
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const preserveDraftForWorkspaceRef = useRef(false);
+  if (workspaceBusy) preserveDraftForWorkspaceRef.current = true;
   const text = value ?? draft;
   const commands = snapshot?.composerCommands ?? [];
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
@@ -177,7 +179,13 @@ export function Composer({
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (value === undefined) setDraft(readComposerDraft(window.localStorage, draftStorageKey));
+    if (value !== undefined) return;
+    if (preserveDraftForWorkspaceRef.current && draft) {
+      writeComposerDraft(window.localStorage, draftStorageKey, draft);
+    } else {
+      setDraft(readComposerDraft(window.localStorage, draftStorageKey));
+    }
+    preserveDraftForWorkspaceRef.current = false;
   }, [draftStorageKey, value]);
   useEffect(() => {
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
@@ -221,6 +229,7 @@ export function Composer({
 
   const answerable = prompt && prompt.answerElsewhere !== true;
   const submitCurrent = () => {
+    if (workspaceBusy) return;
     if (answerable && prompt) {
       if (!text.trim()) return;
       onAnswerPrompt?.(text, true);
@@ -501,7 +510,7 @@ export function Composer({
               className="send-button"
               title="Send"
               aria-label="Send"
-              disabled={text.trim().length === 0 && attachments.length === 0}
+              disabled={workspaceBusy || (text.trim().length === 0 && attachments.length === 0)}
               onClick={submitCurrent}
             >
               <ArrowUp size={16} />

@@ -44,9 +44,9 @@ function renderComposer(onSubmit = vi.fn()) {
     onSetAccess={() => {}}
     onCompactContext={() => {}}
     workspaceBusy={false}
-    onOpenWorktree={() => {}}
-    onCreateWorktree={() => {}}
-    onSwitchRef={() => {}}
+    onOpenWorktree={async () => true}
+    onCreateWorktree={async () => true}
+    onSwitchRef={async () => true}
   />);
   return onSubmit;
 }

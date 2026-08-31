@@ -17,16 +17,22 @@ function WorktreeForm({
 }: {
   info: WorkspaceInfo;
   busy: boolean;
-  onCreate(branch: string): void;
+  onCreate(branch: string, baseRef: string): Promise<boolean>;
   onCancel(): void;
 }) {
   const [branch, setBranch] = useState("");
+  const [baseRef, setBaseRef] = useState(info.branch || "HEAD");
   const slug = branch.trim().replace(/[^a-z0-9._-]+/giu, "-").replace(/^-+|-+$/gu, "");
+  const baseRefs = [...new Set([
+    info.branch,
+    ...info.refs.map((ref) => ref.name),
+    info.hasRemote ? "origin/main" : undefined,
+  ].filter((ref): ref is string => Boolean(ref)))];
 
   return (
     <form
       className="worktree-form"
-      onSubmit={(event) => { event.preventDefault(); onCreate(branch.trim()); }}
+      onSubmit={(event) => { event.preventDefault(); void onCreate(branch.trim(), baseRef); }}
     >
       <label>
         <span>NEW WORKTREE</span>
@@ -37,6 +43,12 @@ function WorktreeForm({
           placeholder="feat/my-branch"
           disabled={busy}
         />
+      </label>
+      <label>
+        <span>START FROM</span>
+        <select value={baseRef} onChange={(event) => setBaseRef(event.target.value)} disabled={busy}>
+          {baseRefs.map((ref) => <option key={ref} value={ref}>{ref}{ref === info.branch ? " (current)" : ""}</option>)}
+        </select>
       </label>
       <small>../{pathName(info.worktreeParent)}/{slug || "…"}</small>
       <div className="worktree-form-actions">
@@ -58,9 +70,9 @@ export function WorkspaceBar({
 }: {
   info?: WorkspaceInfo;
   busy: boolean;
-  onOpenWorktree(path: string): void;
-  onCreateWorktree(branch: string): void;
-  onSwitchRef(ref: string): void;
+  onOpenWorktree(path: string): Promise<boolean>;
+  onCreateWorktree(branch: string, baseRef: string): Promise<boolean>;
+  onSwitchRef(ref: string): Promise<boolean>;
 }) {
   const [open, setOpen] = useState<OpenPanel>();
   const [creating, setCreating] = useState(false);
@@ -99,7 +111,10 @@ export function WorkspaceBar({
 
   useEffect(() => setRefCursor(0), [needle]);
   const close = () => { setOpen(undefined); setCreating(false); };
-  const chooseRef = (refName: string) => { if (!refs.find((ref) => ref.name === refName)?.isCurrent) onSwitchRef(refName); close(); };
+  const chooseRef = (refName: string) => {
+    if (refs.find((ref) => ref.name === refName)?.isCurrent) { close(); return; }
+    void onSwitchRef(refName).then((changed) => { if (changed) close(); });
+  };
 
   return (
     <div className="workspace-bar">
@@ -122,7 +137,11 @@ export function WorkspaceBar({
               <WorktreeForm
                 info={info}
                 busy={busy}
-                onCreate={(branch) => { onCreateWorktree(branch); close(); }}
+                onCreate={async (branch, baseRef) => {
+                  const created = await onCreateWorktree(branch, baseRef);
+                  if (created) close();
+                  return created;
+                }}
                 onCancel={() => setCreating(false)}
               />
             ) : (
@@ -132,7 +151,10 @@ export function WorkspaceBar({
                   <button
                     key={tree.path}
                     className={tree.isCurrent ? "selected" : ""}
-                    onClick={() => { if (!tree.isCurrent) onOpenWorktree(tree.path); close(); }}
+                    onClick={() => {
+                      if (tree.isCurrent) { close(); return; }
+                      void onOpenWorktree(tree.path).then((changed) => { if (changed) close(); });
+                    }}
                   >
                     <Folder size={13} />
                     <span>Current checkout</span>
@@ -143,7 +165,9 @@ export function WorkspaceBar({
                   <span>New worktree…</span>
                 </button>
                 {others.filter((tree) => !tree.isMain).map((tree) => (
-                  <button key={tree.path} onClick={() => { onOpenWorktree(tree.path); close(); }}>
+                  <button key={tree.path} onClick={() => {
+                    void onOpenWorktree(tree.path).then((changed) => { if (changed) close(); });
+                  }}>
                     <History size={13} />
                     <span>Worktree ({tree.branch ?? tree.name})</span>
                   </button>

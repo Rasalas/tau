@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createWorktree, getFileDiff, MAX_DIFF_BYTES, MAX_DIFF_HUNKS, parseUnifiedDiff, push, readProjectGitState } from "./workspace-git.js";
+import { createWorktree, getFileDiff, MAX_DIFF_BYTES, MAX_DIFF_HUNKS, parseUnifiedDiff, push, readProjectGitState, repositoryDisplayName } from "./workspace-git.js";
 
 describe("large diff bounds", () => {
   it("pages hunks and marks the bounded payload", () => {
@@ -56,7 +56,7 @@ describe("worktree creation", () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
     const calls: string[][] = [];
     try {
-      const destination = await createWorktree(cwd, "feat/fresh-main", async () => ({
+      const destination = await createWorktree(cwd, "feat/fresh-main", "origin/main", async () => ({
         root: cwd,
         isRepo: true,
         isDirty: true,
@@ -68,7 +68,7 @@ describe("worktree creation", () => {
       }), async (_path, args) => {
         calls.push(args);
         if (args[0] === "remote") return "origin\n";
-        if (args[0] === "show-ref" && args.at(-1) === "refs/remotes/origin/main") return "";
+        if (args[0] === "rev-parse") return "origin/main\n";
         return "";
       });
 
@@ -84,11 +84,38 @@ describe("worktree creation", () => {
     }
   });
 
+  it("uses the selected local base without fetching", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
+    const calls: string[][] = [];
+    try {
+      await createWorktree(cwd, "feat/local-main", "main", async () => ({
+        root: cwd,
+        isRepo: true,
+        isDirty: false,
+        branch: "feature/current",
+        hasRemote: true,
+        worktrees: [],
+        refs: [{ name: "main", isCurrent: false }],
+        worktreeParent: join(cwd, "worktrees"),
+      }), async (_path, args) => {
+        calls.push(args);
+        if (args[0] === "remote") return "origin\n";
+        if (args[0] === "rev-parse") return "main\n";
+        return "";
+      });
+
+      expect(calls.some((args) => args[0] === "fetch")).toBe(false);
+      expect(calls.at(-1)?.at(-1)).toBe("main");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("does not silently create from stale state when fetching fails", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
     const calls: string[][] = [];
     try {
-      await expect(createWorktree(cwd, "feat/offline", async () => ({
+      await expect(createWorktree(cwd, "feat/offline", "origin/main", async () => ({
         root: cwd,
         isRepo: true,
         isDirty: false,
@@ -105,6 +132,14 @@ describe("worktree creation", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  it("uses the main checkout name for a linked worktree", async () => {
+    const name = await repositoryDisplayName(
+      "/repos/tau-worktrees/feat-race",
+      async () => "/repos/tau/.git\n",
+    );
+    expect(name).toBe("tau");
   });
 });
 

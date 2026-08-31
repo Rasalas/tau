@@ -52,10 +52,10 @@ export class ProjectHistory {
     this.schedulePersist();
   }
 
-  async remember(path: string): Promise<void> {
+  async remember(path: string, name = basename(path) || path): Promise<void> {
     const project: UiProject = {
       path,
-      name: basename(path) || path,
+      name,
       lastOpenedAt: Date.now(),
     };
     this.projects = [project, ...this.projects.filter((item) => item.path !== path)].slice(

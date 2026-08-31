@@ -281,6 +281,73 @@ describe("App render isolation", () => {
     expect(await screen.findByText("Created thread title")).toBeTruthy();
   });
 
+  it("does not send a prompt to the previous thread while a worktree is opening", async () => {
+    let resolveCreation!: (result: {
+      version: 1;
+      updates: Array<
+        | { version: 1; type: "thread-shell"; update: { sessionId: string; shell: { id: string; path: string; title: string; modifiedAt: number; projectPath: string; projectName: string; branch: string; messageCount: number } } }
+        | { version: 1; type: "thread-detail"; detail: { sessionId: string; messages: never[]; isStreaming: false; activeTools: never[] } }
+        | { version: 1; type: "project"; project: { cwd: string; branch: string } }
+      >;
+    }) => void;
+    const creation = new Promise<Parameters<typeof resolveCreation>[0]>((resolve) => { resolveCreation = resolve; });
+    const sendPrompt = vi.fn(async () => undefined);
+    let cwd = "/project";
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "main-thread", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        project: { cwd, branch: "main" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({
+        root: cwd,
+        isRepo: true,
+        isDirty: false,
+        branch: cwd === "/project" ? "main" : "feat/race",
+        hasRemote: true,
+        worktrees: [{ path: cwd, name: cwd === "/project" ? "project" : "feat-race", branch: cwd === "/project" ? "main" : "feat/race", isMain: cwd === "/project", isCurrent: true }],
+        refs: [{ name: "main", isCurrent: cwd === "/project" }],
+        worktreeParent: "/project-worktrees",
+      }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      createWorktree: async () => creation,
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
+    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
+    fireEvent.change(screen.getByPlaceholderText("feat/my-branch"), { target: { value: "feat/race" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "Must run in the worktree" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(composer.value).toBe("Must run in the worktree");
+
+    cwd = "/project-worktrees/feat-race";
+    resolveCreation({
+      version: 1,
+      updates: [
+        { version: 1, type: "thread-shell", update: { sessionId: "worktree-thread", shell: { id: "worktree-thread", path: "/worktree.jsonl", title: "Untitled thread", modifiedAt: 2, projectPath: cwd, projectName: "project", branch: "feat/race", messageCount: 0 } } },
+        { version: 1, type: "thread-detail", detail: { sessionId: "worktree-thread", messages: [], isStreaming: false, activeTools: [] } },
+        { version: 1, type: "project", project: { cwd, branch: "feat/race" } },
+      ],
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "feat-race" })).toBeTruthy());
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Must run in the worktree", [], "worktree-thread"));
+  });
+
   it("refreshes the bottom-left worktree name after changing workspaces", async () => {
     let cwd = "/project";
     const getWorkspaceInfo = vi.fn(async () => ({

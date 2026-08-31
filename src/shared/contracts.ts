@@ -435,7 +435,7 @@ export interface TauDesktopApi {
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;
-  createWorktree(branch: string): Promise<HostActionResult>;
+  createWorktree(branch: string, baseRef?: string): Promise<HostActionResult>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, path?: string): Promise<void>;

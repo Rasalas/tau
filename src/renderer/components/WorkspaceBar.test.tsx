@@ -5,9 +5,9 @@ import type { WorkspaceInfo } from "../../shared/contracts";
 import { WorkspaceBar } from "./WorkspaceBar";
 
 const handlers = {
-  onOpenWorktree: vi.fn(),
-  onCreateWorktree: vi.fn(),
-  onSwitchRef: vi.fn(),
+  onOpenWorktree: vi.fn(async () => true),
+  onCreateWorktree: vi.fn(async () => true),
+  onSwitchRef: vi.fn(async () => true),
 };
 
 function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
@@ -62,6 +62,17 @@ describe("WorkspaceBar", () => {
     }));
 
     expect(screen.getByRole("button", { name: "feat-worktree-label" })).toBeTruthy();
+  });
+
+  it("lets a new worktree start from origin/main", () => {
+    setup(workspace({ hasRemote: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
+    fireEvent.change(screen.getByPlaceholderText("feat/my-branch"), { target: { value: "feat/remote-base" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "START FROM" }), { target: { value: "origin/main" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("feat/remote-base", "origin/main");
   });
 
   it("shows a sibling-relative path when creating a worktree", () => {

@@ -1029,11 +1029,13 @@ button > svg { pointer-events: none; }
 .worktree-form { display: flex; flex-direction: column; gap: 8px; padding: 4px; }
 .worktree-form label { display: flex; flex-direction: column; gap: 6px; }
 .worktree-form label > span { font: 500 10px var(--mono); color: var(--faint); letter-spacing: .1em; }
-.worktree-form input {
+.worktree-form input,
+.worktree-form select {
   border: 1px solid var(--line-control); border-radius: 7px; background: var(--sunken);
   color: var(--ink); padding: 7px 9px; font-size: 12.5px; outline: none;
 }
-.worktree-form input:focus { border-color: var(--line-field); }
+.worktree-form input:focus,
+.worktree-form select:focus { border-color: var(--line-field); }
 .worktree-form > small {
   font: 10px var(--mono); color: var(--faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;

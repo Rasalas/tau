@@ -276,6 +276,7 @@ async function mapSessions(
   sessions: SessionInfo[],
   fallbackCwd: string,
   resolveBranch: (cwd: string) => Promise<string | undefined>,
+  resolveProjectName: (cwd: string) => string = (cwd) => basename(cwd) || cwd,
 ): Promise<UiSession[]> {
   const recent = [...sessions]
     .sort((a, b) => b.modified.getTime() - a.modified.getTime())
@@ -292,7 +293,7 @@ async function mapSessions(
       title: cleanThreadTitle(session.name || firstSentence(session.firstMessage)),
       modifiedAt: session.modified.getTime(),
       projectPath,
-      projectName: basename(projectPath) || projectPath,
+      projectName: resolveProjectName(projectPath),
       branch: branches.get(projectPath),
       messageCount: session.messageCount,
     };
@@ -502,6 +503,8 @@ export class PiHost {
   /** Last known branch per project. Git is never awaited on an interactive path. */
   private readonly knownBranches = new Map<string, string | undefined>();
   private readonly branchRefreshes = new Map<string, Promise<void>>();
+  /** A linked worktree keeps the repository's project name instead of becoming a new project. */
+  private readonly knownProjectNames = new Map<string, string>();
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   private accessLevel: AccessLevel = "full";
   private serviceTier: ServiceTier = "standard";
@@ -685,7 +688,7 @@ export class PiHost {
     return this.runLifecycle(async () => {
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
-        await this.projectHistory.remember(this.cwd);
+        await this.rememberProject(this.cwd);
         const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
           throw new Error("Pi already owns this session. Close Pi before opening the project in Tau safe mode.");
@@ -784,9 +787,10 @@ export class PiHost {
   }
 
   private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
+    await this.rememberProject(cwd);
     if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates();
     if (await this.attachAvailableBridge(cwd)) {
-      await this.projectHistory.remember(this.cwd);
+      await this.rememberProject(this.cwd);
       await this.refreshActiveThreadIndex(false);
       return this.activeUpdates();
     }
@@ -1000,7 +1004,7 @@ export class PiHost {
       const startedAt = performance.now();
       if (await this.attachAvailableBridge(dirname(path), path)) {
         this.cwd = this.bridgeSnapshot!.cwd;
-        await this.projectHistory.remember(this.cwd);
+        await this.rememberProject(this.cwd);
         await this.refreshActiveThreadIndex(false);
         return this.activeUpdates();
       }
@@ -1376,11 +1380,17 @@ export class PiHost {
     }
   }
 
-  async createWorktree(branch: string): Promise<HostActionResult> {
+  async createWorktree(branch: string, baseRef?: string): Promise<HostActionResult> {
     return this.runLifecycle(async () => {
       const project = this.cwd;
       try {
-        const destination = await workspaceGit.createWorktree(project, branch, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
+        const destination = await workspaceGit.createWorktree(
+          project,
+          branch,
+          baseRef,
+          (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd),
+        );
+        this.knownProjectNames.set(destination, await this.loadProjectName(project));
         this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
         this.log("git.worktree.added", destination);
         return this.setWorkspaceNow(destination);
@@ -1544,7 +1554,7 @@ export class PiHost {
     this.threads.setActive(thread.sessionId);
     this.cwd = thread.cwd;
     this.extensionCount = thread.session.resourceLoader.getExtensions().extensions.length;
-    await this.projectHistory.remember(this.cwd);
+    await this.rememberProject(this.cwd);
     await this.refreshThreadShell(thread, touch);
     this.log("session.opened", thread.sessionId.slice(0, 8));
     this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
@@ -1629,6 +1639,22 @@ export class PiHost {
     if (!spare) return;
     const thread = await spare.pending;
     if (thread) await this.disposeThread(thread);
+  }
+
+  private projectNameFor(cwd: string): string {
+    return this.knownProjectNames.get(cwd) ?? (basename(cwd) || cwd);
+  }
+
+  private async loadProjectName(cwd: string): Promise<string> {
+    const known = this.knownProjectNames.get(cwd);
+    if (known) return known;
+    const name = await workspaceGit.repositoryDisplayName(cwd);
+    this.knownProjectNames.set(cwd, name);
+    return name;
+  }
+
+  private async rememberProject(cwd: string): Promise<void> {
+    await this.projectHistory.remember(cwd, await this.loadProjectName(cwd));
   }
 
   /**
@@ -2002,7 +2028,12 @@ export class PiHost {
       const scanStartedAt = Date.now();
       this.threadIndexRefresh = (async () => {
         const sessionInfos = await SessionManager.listAll();
-        const scanned = await mapSessions(sessionInfos, this.cwd, async (cwd) => this.branchFor(cwd));
+        const scanned = await mapSessions(
+          sessionInfos,
+          this.cwd,
+          async (cwd) => this.branchFor(cwd),
+          (cwd) => this.projectNameFor(cwd),
+        );
         this.sessions = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt, this.liveSessionIds());
         return this.threadIndexSnapshot();
       })().finally(() => {
@@ -2026,7 +2057,12 @@ export class PiHost {
     const previous = this.sessions;
     const scanStartedAt = Date.now();
     const sessionInfos = await SessionManager.listAll();
-    const scanned = await mapSessions(sessionInfos, this.cwd, async (cwd) => this.branchFor(cwd));
+    const scanned = await mapSessions(
+      sessionInfos,
+      this.cwd,
+      async (cwd) => this.branchFor(cwd),
+      (cwd) => this.projectNameFor(cwd),
+    );
     const next = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt, this.liveSessionIds());
     this.sessions = next;
     for (const update of sessionIndexUpdates(previous, next)) this.emitUpdate(update);
@@ -2050,7 +2086,7 @@ export class PiHost {
       derivedTitle: firstSentence(textFromContent(session.messages.find((message) => message.role === "user")?.content)),
       now: Date.now(),
       projectPath,
-      projectName: basename(projectPath) || projectPath,
+      projectName: this.projectNameFor(projectPath),
       branch: this.branchFor(projectPath),
       messageCount: session.messages.length,
     }, existing, touch);
