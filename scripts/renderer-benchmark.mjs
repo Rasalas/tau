@@ -170,6 +170,8 @@ function sampleScenario(scenario) {
     commits: Math.max(...samples.map((sample) => sample.commits)),
     domNodes: Math.max(...samples.map((sample) => sample.domNodes)),
     heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
+    ...(scenario.id === "diff-2mb" ? { payloadBytes: Math.min(...samples.map((sample) => sample.payloadBytes)) } : {}),
+    ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.every((sample) => sample.longMessageInteraction?.toggleFound && sample.longMessageInteraction.expanded) } : {}),
   };
 }
 
