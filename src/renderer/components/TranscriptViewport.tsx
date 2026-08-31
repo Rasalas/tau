@@ -1,45 +1,43 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ChevronDown } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
-import { Message } from "./Message";
+import type { TranscriptActivity } from "./transcript-activity";
 import { VirtualTranscript } from "./VirtualTranscript";
 
-export interface TranscriptActivity {
-  id: string;
-  afterMessageId?: string;
-  content: ReactNode;
+/** The logical send that owns an anchored, streaming turn. */
+export interface TranscriptTurnStart {
+  /** Stable ID for the logical send, independent of any persisted message ID. */
+  turnId: string;
+  sessionId?: string;
+  messageId?: string;
+  text?: string;
+  timestamp?: number;
+  awaitingMessage?: boolean;
+  preserveAcrossSessionChange?: boolean;
 }
 
 export interface TranscriptViewportProps {
   messages: UiMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
   sessionId?: string;
-  latestUserMessage?: UiMessage;
-  initialTurnIsNew?: boolean;
+  turnStart?: TranscriptTurnStart;
   isStreaming: boolean;
-  activity?: ReactNode;
-  activityAfterMessageId?: string;
-  activities?: TranscriptActivity[];
+  activities?: readonly TranscriptActivity[];
   liveStatus?: ReactNode;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
   onReachStart?: () => void;
 }
 
-interface TurnIdentity {
-  id: string;
-  text: string;
-  timestamp: number;
-}
-
 type ScrollIntent = "older" | "newer";
 
 interface TranscriptNavigationState {
   sessionId?: string;
-  requestedTurn?: TurnIdentity;
+  turnId?: string;
   anchorId?: string;
   anchorPending: boolean;
   anchorLocked: boolean;
+  anchorSuppressed: boolean;
   following: boolean;
   scrollIntent?: ScrollIntent;
   lastTouchY?: number;
@@ -50,26 +48,35 @@ interface TranscriptNavigationState {
 
 interface TranscriptNavigationOptions {
   sessionId?: string;
-  latestUserMessage?: UiMessage;
+  turnStart?: TranscriptTurnStart;
   messages: UiMessage[];
-  initialTurnIsNew: boolean;
   onAnchorChange(id?: string): void;
 }
 
-function turnIdentity(message?: UiMessage): TurnIdentity | undefined {
-  return message
-    ? { id: message.id, text: message.text, timestamp: message.timestamp }
-    : undefined;
-}
-
-function sameTurn(previous: TurnIdentity | undefined, next: TurnIdentity | undefined): boolean {
-  return Boolean(
-    previous
-    && next
-    && previous.id !== next.id
-    && previous.text === next.text
-    && Math.abs(previous.timestamp - next.timestamp) <= 30_000,
-  );
+function resolveTurnMessage(
+  messages: UiMessage[],
+  turnStart?: TranscriptTurnStart,
+): UiMessage | undefined {
+  if (!turnStart) return undefined;
+  if (turnStart.messageId) {
+    const byId = messages.find((message) => message.id === turnStart.messageId);
+    if (byId) return byId;
+  }
+  if (turnStart.text !== undefined) {
+    const matching = [...messages].reverse().find((message) => (
+      message.role === "user"
+      && message.text === turnStart.text
+      && (turnStart.timestamp === undefined
+        || Math.abs(message.timestamp - turnStart.timestamp) <= 30_000)
+    ));
+    if (matching) return matching;
+    if (turnStart.awaitingMessage) return undefined;
+    // Persisted entries can use a different clock or test fixture epoch. The
+    // logical turn ID is authoritative, so an exact text match is a safe
+    // fallback when no ID survived reconciliation.
+    return [...messages].reverse().find((message) => message.role === "user" && message.text === turnStart.text);
+  }
+  return undefined;
 }
 
 function resetNavigation(
@@ -77,16 +84,18 @@ function resetNavigation(
   options: TranscriptNavigationOptions,
 ): void {
   state.sessionId = options.sessionId;
-  state.requestedTurn = turnIdentity(options.latestUserMessage);
-  state.anchorPending = Boolean(options.initialTurnIsNew && options.latestUserMessage);
+  state.turnId = options.turnStart?.turnId;
+  const target = resolveTurnMessage(options.messages, options.turnStart);
+  state.anchorPending = Boolean(options.turnStart);
   state.anchorLocked = false;
+  state.anchorSuppressed = false;
   state.following = true;
   state.scrollIntent = undefined;
   state.lastTouchY = undefined;
   state.lastScrollTop = undefined;
   state.touchActive = false;
   state.pointerDown = false;
-  setAnchor(state, options.initialTurnIsNew ? options.latestUserMessage?.id : undefined, options.onAnchorChange);
+  setAnchor(state, target?.id, options.onAnchorChange);
 }
 
 function setAnchor(
@@ -98,16 +107,21 @@ function setAnchor(
   onAnchorChange(id);
 }
 
-function followLatest(
+function startTurn(
   state: TranscriptNavigationState,
-  latestUserMessage: UiMessage | undefined,
-  onAnchorChange: (id?: string) => void,
+  options: TranscriptNavigationOptions,
 ): void {
-  state.following = true;
-  state.anchorPending = Boolean(latestUserMessage);
+  state.turnId = options.turnStart?.turnId;
+  state.anchorPending = Boolean(options.turnStart);
   state.anchorLocked = false;
+  state.anchorSuppressed = false;
+  state.following = true;
   state.scrollIntent = undefined;
-  setAnchor(state, latestUserMessage?.id, onAnchorChange);
+  setAnchor(
+    state,
+    resolveTurnMessage(options.messages, options.turnStart)?.id,
+    options.onAnchorChange,
+  );
 }
 
 function followTail(
@@ -117,6 +131,7 @@ function followTail(
   state.following = true;
   state.anchorPending = false;
   state.anchorLocked = false;
+  state.anchorSuppressed = true;
   state.scrollIntent = undefined;
   setAnchor(state, undefined, onAnchorChange);
 }
@@ -128,12 +143,9 @@ function stopFollowing(
   state.following = false;
   state.anchorPending = false;
   state.anchorLocked = false;
+  state.anchorSuppressed = true;
   state.scrollIntent = undefined;
   setAnchor(state, undefined, onAnchorChange);
-}
-
-function latestUser(messages: UiMessage[]): UiMessage | undefined {
-  return [...messages].reverse().find((message) => message.role === "user");
 }
 
 /**
@@ -151,12 +163,14 @@ export function useTranscriptNavigation(
 } {
   const navigationRef = useRef<TranscriptNavigationState | undefined>(undefined);
   if (!navigationRef.current) {
+    const target = resolveTurnMessage(options.messages, options.turnStart);
     navigationRef.current = {
       sessionId: options.sessionId,
-      requestedTurn: turnIdentity(options.latestUserMessage),
-      anchorId: options.initialTurnIsNew ? options.latestUserMessage?.id : undefined,
-      anchorPending: Boolean(options.initialTurnIsNew && options.latestUserMessage),
+      turnId: options.turnStart?.turnId,
+      anchorId: target?.id,
+      anchorPending: Boolean(options.turnStart),
       anchorLocked: false,
+      anchorSuppressed: false,
       following: true,
       touchActive: false,
       pointerDown: false,
@@ -165,6 +179,8 @@ export function useTranscriptNavigation(
   const [canJumpToLatest, setCanJumpToLatest] = useState(false);
   const frameRef = useRef<number | undefined>(undefined);
   const scheduleRef = useRef<() => void>(() => {});
+  const messagesRef = useRef(options.messages);
+  messagesRef.current = options.messages;
   const onAnchorChangeRef = useRef(options.onAnchorChange);
   onAnchorChangeRef.current = options.onAnchorChange;
 
@@ -226,7 +242,23 @@ export function useTranscriptNavigation(
   const placeAnchor = (node: HTMLDivElement): boolean => {
     const anchor = findAnchor(node);
     if (!anchor) {
-      placeAtTail(node);
+      // The virtualizer may not have mounted an anchor that is far outside
+      // the current window yet. Seek to its estimated position first; the
+      // resulting scroll event mounts that window and the next frame can use
+      // the measured row. The estimate is derived from the real virtualizer
+      // height, so it never creates a synthetic spacer for a short transcript.
+      const anchorIndex = navigationRef.current!.anchorId
+        ? messagesRef.current.findIndex((message) => message.id === navigationRef.current!.anchorId)
+        : -1;
+      const estimatedRowHeight = messagesRef.current.length > 0
+        ? node.scrollHeight / messagesRef.current.length
+        : 0;
+      if (anchorIndex >= 0 && estimatedRowHeight > 0) {
+        const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+        node.scrollTop = Math.min(maxScrollTop, Math.max(0, anchorIndex * estimatedRowHeight - paddingTop(node)));
+      } else {
+        placeAtTail(node);
+      }
       return false;
     }
     const rawTarget = contentTop(node, anchor) - paddingTop(node);
@@ -303,7 +335,29 @@ export function useTranscriptNavigation(
     if (!node) return;
     const navigation = navigationRef.current!;
     if (navigation.sessionId !== options.sessionId) {
-      resetNavigation(navigation, options);
+      const continuingTurn = Boolean(
+        options.turnStart?.turnId
+        && navigation.turnId === options.turnStart.turnId
+        && options.turnStart.sessionId === options.sessionId
+        && options.turnStart.preserveAcrossSessionChange === true
+        && !navigation.anchorSuppressed,
+      );
+      if (continuingTurn) {
+        // A draft session becomes real after its first send. Keep the same
+        // logical turn and its navigation mode while only changing the scope.
+        navigation.sessionId = options.sessionId;
+        navigation.anchorPending = true;
+        navigation.anchorLocked = false;
+        setAnchor(
+          navigation,
+          resolveTurnMessage(options.messages, options.turnStart)?.id,
+          onAnchorChangeRef.current,
+        );
+      } else {
+        // A normal thread/workspace switch is a new transcript, regardless of
+        // whether the new thread happens to contain a similarly named prompt.
+        resetNavigation(navigation, { ...options, turnStart: undefined });
+      }
       setCanJumpToLatest(false);
     }
     navigation.lastScrollTop = node.scrollTop;
@@ -338,6 +392,10 @@ export function useTranscriptNavigation(
         followTail(navigation, onAnchorChangeRef.current);
         scheduleTail();
       }
+      // A seek performed by placeAnchor changes the virtualizer's window. Ask
+      // for one precise placement after that window has mounted, while any
+      // genuine upward intent above has already disabled following.
+      if (navigation.following && navigation.anchorPending && navigation.anchorId) scheduleTail();
       if (intentTimer !== undefined || navigation.scrollIntent !== undefined) clearScrollIntent();
       updateJumpAvailability(node);
     };
@@ -421,36 +479,52 @@ export function useTranscriptNavigation(
       if (frameRef.current !== undefined) cancelAnimationFrame(frameRef.current);
       frameRef.current = undefined;
     };
-  }, [options.sessionId, ref]);
+  }, [options.sessionId, options.turnStart?.turnId, options.turnStart?.sessionId, ref]);
 
   useEffect(() => {
     const navigation = navigationRef.current!;
-    const next = turnIdentity(options.latestUserMessage);
     if (navigation.sessionId !== options.sessionId) return;
-    const previous = navigation.requestedTurn;
-    if (previous?.id === next?.id) return;
-    navigation.requestedTurn = next;
-    if (!next) {
-      followTail(navigation, onAnchorChangeRef.current);
+    const turnStart = options.turnStart;
+    if (!turnStart) {
+      if (navigation.turnId !== undefined) {
+        // Clearing the send signal (for example after a failed send or a
+        // workspace switch) also clears its visual marker when the session ID
+        // itself did not change.
+        followTail(navigation, onAnchorChangeRef.current);
+        navigation.turnId = undefined;
+        scheduleRef.current();
+      }
+      return;
+    }
+
+    if (
+      turnStart.sessionId !== undefined
+      && turnStart.sessionId !== options.sessionId
+      && !(navigation.turnId === turnStart.turnId && turnStart.preserveAcrossSessionChange === true)
+    ) return;
+
+    if (navigation.turnId !== turnStart.turnId) {
+      startTurn(navigation, options);
       scheduleRef.current();
       return;
     }
-    // Pi replaces an optimistic local id with its persisted entry id. That is
-    // one turn, so preserve an intentional history position and only retarget
-    // the pinned row when it was still active.
-    const replacement = sameTurn(previous, next)
-      && !options.messages.some((message) => message.id === previous?.id);
-    if (replacement) {
-      if (navigation.anchorId === previous?.id) setAnchor(navigation, next.id, onAnchorChangeRef.current);
-      scheduleRef.current();
-      return;
+
+    // The optimistic ID may be replaced by Pi's authoritative ID. Resolve the
+    // same logical turn, but never revive following after the user navigated up.
+    if (!navigation.following || navigation.anchorSuppressed) return;
+    const target = resolveTurnMessage(options.messages, turnStart);
+    if (target && navigation.anchorId !== target.id) {
+      navigation.anchorPending = true;
+      navigation.anchorLocked = false;
+      setAnchor(navigation, target.id, onAnchorChangeRef.current);
     }
-    followLatest(navigation, options.latestUserMessage, onAnchorChangeRef.current);
     scheduleRef.current();
   }, [
-    options.latestUserMessage?.id,
-    options.latestUserMessage?.text,
-    options.latestUserMessage?.timestamp,
+    options.turnStart?.turnId,
+    options.turnStart?.sessionId,
+    options.turnStart?.messageId,
+    options.turnStart?.text,
+    options.turnStart?.timestamp,
     options.messages,
     options.sessionId,
   ]);
@@ -466,89 +540,12 @@ export function useTranscriptNavigation(
   return { canJumpToLatest, jumpToLatest };
 }
 
-function activitiesForMessages(
-  messages: UiMessage[],
-  activities: TranscriptActivity[],
-  activity?: ReactNode,
-  activityAfterMessageId?: string,
-): Map<string, TranscriptActivity[]> {
-  const messageIds = new Set(messages.map((message) => message.id));
-  const tailMessageId = messages.at(-1)?.id;
-  const allActivities = [
-    ...activities,
-    ...(activity ? [{
-      id: "turn-activity",
-      afterMessageId: activityAfterMessageId,
-      content: activity,
-    }] : []),
-  ];
-  const result = new Map<string, TranscriptActivity[]>();
-  for (const entry of allActivities) {
-    const anchor = entry.afterMessageId
-      ? (messageIds.has(entry.afterMessageId)
-        ? entry.afterMessageId
-        : entry.id === "turn-activity" ? tailMessageId : undefined)
-      : tailMessageId;
-    if (!anchor) continue;
-    const anchored = result.get(anchor) ?? [];
-    anchored.push(entry);
-    result.set(anchor, anchored);
-  }
-  return result;
-}
-
-function CurrentTurn({
-  messages,
-  isStreaming,
-  activities,
-  activity,
-  activityAfterMessageId,
-  liveStatus,
-  onCopyMessage,
-  onForkMessage,
-}: {
-  messages: UiMessage[];
-  isStreaming: boolean;
-  activities: TranscriptActivity[];
-  activity?: ReactNode;
-  activityAfterMessageId?: string;
-  liveStatus?: ReactNode;
-  onCopyMessage?: (message: UiMessage) => void;
-  onForkMessage?: (message: UiMessage) => void;
-}) {
-  const activitiesByMessage = activitiesForMessages(messages, activities, activity, activityAfterMessageId);
-  return <div className="transcript-current-turn">
-    {messages.map((message, index) => (
-      <div className="transcript-current-row virtual-transcript-row" key={message.id} data-message-id={message.id}>
-        <Message
-          message={message}
-          streaming={Boolean(isStreaming && message === messages.at(-1) && message.role === "assistant")}
-          onCopy={onCopyMessage}
-          onFork={onForkMessage}
-        />
-        {(activitiesByMessage.get(message.id) ?? []).map((entry) => (
-          <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>
-        ))}
-        {index === messages.length - 1 ? liveStatus : null}
-      </div>
-    ))}
-    {messages.length === 0 ? liveStatus : null}
-  </div>;
-}
-
-// The active turn remains in the real scroll flow after virtualized history.
-// That lets the anchor reach the usable top as content arrives without adding
-// a synthetic spacer, while a locked anchor keeps the prompt stable as its
-// answer grows.
 export function TranscriptViewport({
   messages,
   scrollRef,
   sessionId,
-  latestUserMessage,
-  initialTurnIsNew = false,
+  turnStart,
   isStreaming,
-  activity,
-  activityAfterMessageId,
   activities = [],
   liveStatus,
   onCopyMessage,
@@ -556,7 +553,7 @@ export function TranscriptViewport({
   onReachStart,
 }: TranscriptViewportProps) {
   const [currentTurnAnchor, setCurrentTurnAnchor] = useState<{ sessionId?: string; id?: string }>(
-    () => ({ sessionId, id: initialTurnIsNew ? latestUserMessage?.id : undefined }),
+    () => ({ sessionId, id: resolveTurnMessage(messages, turnStart)?.id }),
   );
   const reportCurrentTurnAnchor = useCallback((id?: string) => {
     setCurrentTurnAnchor((current) => current.sessionId === sessionId && current.id === id
@@ -565,30 +562,14 @@ export function TranscriptViewport({
   }, [sessionId]);
   const navigation = useTranscriptNavigation(
     scrollRef,
-    [messages, activities, activity, liveStatus],
+    [messages, activities, liveStatus, turnStart],
     {
       sessionId,
-      latestUserMessage,
+      turnStart,
       messages,
-      initialTurnIsNew,
       onAnchorChange: reportCurrentTurnAnchor,
     },
   );
-  const currentTurnAnchorId = currentTurnAnchor.sessionId === sessionId ? currentTurnAnchor.id : undefined;
-  const anchorIndex = currentTurnAnchorId
-    ? messages.findIndex((message) => message.id === currentTurnAnchorId)
-    : -1;
-  const currentMessages = anchorIndex >= 0 ? messages.slice(anchorIndex) : [];
-  const historyMessages = anchorIndex >= 0 ? messages.slice(0, anchorIndex) : messages;
-  const currentMessageIds = new Set(currentMessages.map((message) => message.id));
-  const currentActivities = activities.filter((entry) => currentMessageIds.has(entry.afterMessageId ?? ""));
-  const historyActivities = activities.filter((entry) => !currentMessageIds.has(entry.afterMessageId ?? ""));
-  const activityIsCurrent = anchorIndex >= 0
-    && (!activityAfterMessageId || currentMessageIds.has(activityAfterMessageId));
-  const currentActivity = activityIsCurrent ? activity : undefined;
-  const currentActivityAnchor = activityIsCurrent ? activityAfterMessageId : undefined;
-  const historyActivity = activityIsCurrent ? undefined : activity;
-  const historyActivityAnchor = activityIsCurrent ? undefined : activityAfterMessageId;
   const onReachStartRef = useRef(onReachStart);
   onReachStartRef.current = onReachStart;
 
@@ -612,27 +593,15 @@ export function TranscriptViewport({
     >
       <div className="transcript-inner">
         <VirtualTranscript
-          messages={historyMessages}
+          messages={messages}
           scrollRef={scrollRef}
-          isStreaming={Boolean(isStreaming && anchorIndex < 0)}
-          activity={historyActivity}
-          activityAfterMessageId={historyActivityAnchor}
-          activities={historyActivities}
+          isStreaming={isStreaming}
+          activities={activities}
+          activeTurnStartId={currentTurnAnchor.sessionId === sessionId ? currentTurnAnchor.id : undefined}
           onCopyMessage={onCopyMessage}
           onForkMessage={onForkMessage}
         />
-        {anchorIndex >= 0 ? (
-          <CurrentTurn
-            messages={currentMessages}
-            isStreaming={isStreaming}
-            activities={currentActivities}
-            activity={currentActivity}
-            activityAfterMessageId={currentActivityAnchor}
-            liveStatus={liveStatus}
-            onCopyMessage={onCopyMessage}
-            onForkMessage={onForkMessage}
-          />
-        ) : liveStatus}
+        {liveStatus}
       </div>
     </div>
     {navigation.canJumpToLatest ? (
@@ -650,8 +619,4 @@ export function TranscriptViewport({
       </div>
     ) : null}
   </div>;
-}
-
-export function latestTranscriptUser(messages: UiMessage[]): UiMessage | undefined {
-  return latestUser(messages);
 }

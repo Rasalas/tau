@@ -3,7 +3,8 @@ import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
 import { DiffView } from "./components/DiffView";
 import { Message } from "./components/Message";
 import { ToolGroup } from "./components/ToolGroup";
-import { VirtualTranscript } from "./components/VirtualTranscript";
+import { TranscriptViewport } from "./components/TranscriptViewport";
+import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
 
@@ -61,6 +62,12 @@ export default function RendererBenchmark() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
   const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
+  const transcriptTurn = transcript[8];
+  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => transcript.slice(0, 128).map((message, index) => ({
+    id: `benchmark-activity-${index}`,
+    afterMessageId: message.id,
+    content: <span>Activity {index}</span>,
+  })), [transcript]);
   const listItems = useMemo(
     () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
     [scenario],
@@ -166,9 +173,21 @@ export default function RendererBenchmark() {
   } else if (scenario === "tool-output-1mb") {
     content = <ToolGroup tools={[tool]} registry={registry} />;
   } else if (scenario === "transcript-1000-turns") {
-    content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
-      <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />
-    </div></div>;
+    content = <TranscriptViewport
+      messages={transcript}
+      scrollRef={scrollRef}
+      sessionId="renderer-benchmark"
+      turnStart={transcriptTurn ? {
+        turnId: "benchmark-turn",
+        sessionId: "renderer-benchmark",
+        messageId: transcriptTurn.id,
+        text: transcriptTurn.text,
+        timestamp: transcriptTurn.timestamp,
+      } : undefined}
+      isStreaming={false}
+      activities={transcriptActivities}
+      liveStatus={<div className="live-status">Current turn activity</div>}
+    />;
   } else if (scenario.endsWith("-10000")) {
     content = <VirtualList
       items={filteredListItems}

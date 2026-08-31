@@ -55,7 +55,9 @@ import { TitleBar } from "./components/TitleBar";
 import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
-import { TranscriptViewport, latestTranscriptUser } from "./components/TranscriptViewport";
+import { TranscriptViewport } from "./components/TranscriptViewport";
+import type { TranscriptTurnStart } from "./components/TranscriptViewport";
+import type { TranscriptActivity } from "./components/transcript-activity";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
@@ -270,6 +272,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
+  const [transcriptTurnStart, setTranscriptTurnStart] = useState<TranscriptTurnStart>();
   const [settingsPage, setSettingsPage] = useState<string>();
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
@@ -280,7 +283,11 @@ export default function App() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const wasStartScreenRef = useRef<boolean | undefined>(undefined);
+  const transcriptTurnSequenceRef = useRef(0);
+  const transcriptTurnStartRef = useRef<TranscriptTurnStart | undefined>(undefined);
+  transcriptTurnStartRef.current = transcriptTurnStart;
+  const pendingNewThreadRef = useRef(pendingNewThread);
+  pendingNewThreadRef.current = pendingNewThread;
   const detailStoreRef = useRef(new ThreadDetailStore(5));
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
   const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
@@ -300,6 +307,10 @@ export default function App() {
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
+  const clearTranscriptTurnStart = useCallback(() => {
+    transcriptTurnStartRef.current = undefined;
+    setTranscriptTurnStart(undefined);
+  }, []);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -407,6 +418,21 @@ export default function App() {
     }
     if (update.type === "thread-detail") {
       const detail = update.detail;
+      setTranscriptTurnStart((current) => {
+        const pendingDraft = pendingNewThreadRef.current;
+        const pendingDraftSessionId = pendingDraft
+          ? `draft:${pendingDraft.projectPath}`
+          : undefined;
+        if (!current?.sessionId?.startsWith("draft:") || current.sessionId !== pendingDraftSessionId) return current;
+        const matchedPrompt = detail.messages.find((message) => (
+          (current.messageId !== undefined && message.id === current.messageId)
+          || (current.text !== undefined && message.role === "user" && message.text === current.text)
+        ));
+        if (!matchedPrompt) return current;
+        const migrated = { ...current, sessionId: detail.sessionId, messageId: matchedPrompt.id };
+        transcriptTurnStartRef.current = migrated;
+        return migrated;
+      });
       detailStoreRef.current.set(detail);
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
@@ -830,25 +856,27 @@ export default function App() {
     try {
       const next = await window.tau!.chooseWorkspace();
       if (!next) return false;
+      clearTranscriptTurnStart();
       acceptWorkspace(next);
       return true;
     } catch (error) {
       setNotice(String(error));
       return false;
     }
-  }, [acceptWorkspace, requireHost]);
+  }, [acceptWorkspace, clearTranscriptTurnStart, requireHost]);
 
   const openWorkspace = useCallback(async (path: string): Promise<boolean> => {
     if (path === snapshot?.cwd) return true;
     if (!requireHost("Project switching")) return false;
     try {
+      clearTranscriptTurnStart();
       acceptWorkspace(await window.tau!.openProject(path));
       return true;
     } catch (error) {
       setNotice(String(error));
       return false;
     }
-  }, [acceptWorkspace, requireHost, snapshot?.cwd]);
+  }, [acceptWorkspace, clearTranscriptTurnStart, requireHost, snapshot?.cwd]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
@@ -861,11 +889,12 @@ export default function App() {
 
   const createThreadInProject = useCallback((project: UiProject) => {
     const draft = { projectPath: project.path, projectName: project.name };
+    clearTranscriptTurnStart();
     writeNewThreadDraft(window.localStorage, draft);
     setPendingNewThread(draft);
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, []);
+  }, [clearTranscriptTurnStart]);
 
   const browseForNewThread = useCallback(async () => {
     setNewThreadOpen(false);
@@ -877,16 +906,18 @@ export default function App() {
     try {
       const next = await window.tau!.cloneProject(repositoryUrl);
       if (!next) return false;
+      clearTranscriptTurnStart();
       acceptWorkspace(next);
       return true;
     } catch (error) {
       setNotice(String(error));
       return false;
     }
-  }, [acceptWorkspace, requireHost]);
+  }, [acceptWorkspace, clearTranscriptTurnStart, requireHost]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
+    clearTranscriptTurnStart();
     setPendingNewThread(undefined);
     writeNewThreadDraft(window.localStorage);
     const startedAt = performance.now();
@@ -908,7 +939,7 @@ export default function App() {
       setNotice(String(error));
       return false;
     }
-  }, [addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
+  }, [addEvent, applyActionResult, applySnapshot, clearTranscriptTurnStart, requireHost, snapshot, threadStore]);
 
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
@@ -1055,6 +1086,7 @@ export default function App() {
     try {
       const result = await action();
       const pendingDraft = composerRef.current?.value ?? "";
+      clearTranscriptTurnStart();
       acceptWorkspace(result);
       const detail = result.updates.find((update) => update.type === "thread-detail");
       if (pendingDraft && detail?.type === "thread-detail") {
@@ -1068,7 +1100,7 @@ export default function App() {
     } finally {
       setWorkspaceBusy(false);
     }
-  }, [acceptWorkspace, requireHost]);
+  }, [acceptWorkspace, clearTranscriptTurnStart, requireHost]);
 
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -1267,33 +1299,62 @@ export default function App() {
       return;
     }
     const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
+    const submittedAt = Date.now();
+    const turnSequence = transcriptTurnSequenceRef.current++;
+    const logicalTurnId = `turn-${submittedAt}-${turnSequence}`;
     const optimistic: UiMessage = {
-      id: `local-${Date.now()}`,
+      id: `local-${submittedAt}-${turnSequence}`,
       role: "user",
       text: optimisticText,
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
-      timestamp: Date.now(),
+      timestamp: submittedAt,
+    };
+    const startTranscriptTurn = (
+      targetSessionId?: string,
+      awaitingMessage = false,
+      preserveAcrossSessionChange = false,
+    ) => {
+      const nextTurnStart: TranscriptTurnStart = {
+        turnId: logicalTurnId,
+        sessionId: targetSessionId,
+        messageId: awaitingMessage ? undefined : optimistic.id,
+        text: optimistic.text,
+        timestamp: optimistic.timestamp,
+        awaitingMessage,
+        preserveAcrossSessionChange,
+      };
+      transcriptTurnStartRef.current = nextTurnStart;
+      setTranscriptTurnStart(nextTurnStart);
+    };
+    const cancelTranscriptTurn = () => {
+      if (transcriptTurnStartRef.current?.turnId !== logicalTurnId) return;
+      transcriptTurnStartRef.current = undefined;
+      setTranscriptTurnStart(undefined);
     };
     const optimisticScope = activeDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
       if (delivery === "steer") {
+        startTranscriptTurn(snapshot?.sessionId);
         setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
         try {
           if (!window.tau) throw new Error("Steering requires the Electron host.");
           await window.tau.steer(text, attachments, snapshot?.sessionId);
         } catch (error) {
+          cancelTranscriptTurn();
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           writeComposerDraft(window.localStorage, activeDraftKey, text);
           setComposerSeed(text);
           setNotice(String(error));
         }
       } else {
+        startTranscriptTurn(snapshot?.sessionId, true);
         const queuedText = optimisticText;
         setQueue((current) => [...current, queuedText]);
         try {
           if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
           await window.tau.followUp(text, attachments, snapshot?.sessionId);
         } catch (error) {
+          cancelTranscriptTurn();
           setQueue((current) => {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
@@ -1308,18 +1369,37 @@ export default function App() {
     if (pendingNewThread) {
       const pending = pendingNewThread;
       const pendingKey = draftKey(undefined, pending);
+      startTranscriptTurn(`draft:${pending.projectPath}`, false, true);
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
         const result = await window.tau.newSession(text, attachments, pending.projectPath);
         const created = result.updates.find((update) => update.type === "thread-detail");
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
+        if (transcriptTurnStartRef.current?.turnId !== logicalTurnId) {
+          // The draft was abandoned while the host was creating its session.
+          // Do not let a late result switch the newly selected thread back.
+          writeComposerDraft(window.localStorage, pendingKey, "");
+          return;
+        }
         if (sessionId) {
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
           setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
             ? { ...entry, scope: `session:${sessionId}` }
             : entry));
+          const persistedPrompt = created?.type === "thread-detail"
+            ? created.detail.messages.find((message) => message.role === "user" && message.text === optimistic.text)
+            : undefined;
+          if (transcriptTurnStartRef.current?.turnId === logicalTurnId) {
+            const nextTurnStart = {
+              ...transcriptTurnStartRef.current,
+              sessionId,
+              messageId: persistedPrompt?.id ?? transcriptTurnStartRef.current.messageId,
+            };
+            transcriptTurnStartRef.current = nextTurnStart;
+            setTranscriptTurnStart(nextTurnStart);
+          }
           writeNewThreadDraft(window.localStorage);
           setPendingNewThread(undefined);
           acceptWorkspace(result);
@@ -1347,6 +1427,7 @@ export default function App() {
         }
         writeComposerDraft(window.localStorage, pendingKey, "");
       } catch (error) {
+        cancelTranscriptTurn();
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         writeComposerDraft(window.localStorage, pendingKey, text);
         setComposerSeed(text);
@@ -1358,12 +1439,14 @@ export default function App() {
       threadStore.markRead(snapshot.sessionId);
       preferences.unsettle(snapshot.sessionId);
     }
+    startTranscriptTurn(snapshot?.sessionId);
     setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
     if (window.tau) {
       try {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
         await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
       } catch (error) {
+        cancelTranscriptTurn();
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         writeComposerDraft(window.localStorage, activeDraftKey, text);
         setComposerSeed(text);
@@ -1469,15 +1552,30 @@ export default function App() {
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
   const conversationPrompts = pendingNewThread ? [] : threadPrompts;
+  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
+    ...((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
+      id: entry.id,
+      afterMessageId: entry.anchorMessageId,
+      content: <TaskProgress progress={entry.progress} placement="transcript" />,
+    }))),
+    ...(conversationActivityTools.length > 0 ? [{
+      id: "turn-activity",
+      afterMessageId: visibleToolAnchorId,
+      fallbackToTail: true,
+      content: <ToolGroup
+        tools={conversationActivityTools}
+        registry={registry}
+        streaming={conversationSnapshot?.isStreaming}
+        waiting={conversationPrompts.length > 0}
+        onRecover={() => void recoverThread()}
+        onStop={() => void window.tau?.abort(snapshot?.sessionId)}
+      />,
+    }] : []),
+  ], [conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.taskHistory, recoverThread, registry, snapshot?.sessionId, visibleToolAnchorId]);
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
     && conversationPrompts.length === 0;
-  const initialTurnIsNew = !showStartScreen && wasStartScreenRef.current === true;
-  useEffect(() => {
-    wasStartScreenRef.current = showStartScreen;
-  }, [showStartScreen]);
-  const latestConversationUserMessage = latestTranscriptUser(conversationMessages);
   const startProjectPath = conversationSnapshot?.cwd ?? "";
   const startProjectName = pendingNewThread?.projectName
     ?? projects.find((project) => project.path === startProjectPath)?.name
@@ -1697,25 +1795,9 @@ export default function App() {
                 messages={conversationMessages}
                 scrollRef={transcriptRef}
                 sessionId={conversationSnapshot?.sessionId}
-                latestUserMessage={latestConversationUserMessage}
-                initialTurnIsNew={initialTurnIsNew}
+                turnStart={transcriptTurnStart}
                 isStreaming={Boolean(conversationSnapshot?.isStreaming)}
-                activity={conversationActivityTools.length > 0 ? (
-                  <ToolGroup
-                    tools={conversationActivityTools}
-                    registry={registry}
-                    streaming={conversationSnapshot?.isStreaming}
-                    waiting={conversationPrompts.length > 0}
-                    onRecover={() => void recoverThread()}
-                    onStop={() => void window.tau?.abort(snapshot?.sessionId)}
-                  />
-                ) : undefined}
-                activityAfterMessageId={visibleToolAnchorId}
-                activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
-                  id: entry.id,
-                  afterMessageId: entry.anchorMessageId,
-                  content: <TaskProgress progress={entry.progress} placement="transcript" />,
-                }))}
+                activities={transcriptActivities}
                 liveStatus={conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
                   ? <LiveStatus startedAt={runStartedAt} />
                   : undefined}

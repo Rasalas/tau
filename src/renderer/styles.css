@@ -557,7 +557,6 @@ button > svg { pointer-events: none; }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
 .virtual-transcript { width: 100%; flex: none; }
 .virtual-transcript-row { padding-bottom: 22px; box-sizing: border-box; }
-.transcript-current-turn { width: 100%; flex: none; }
 .transcript-current-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }
 .transcript-jump {
@@ -582,6 +581,7 @@ button > svg { pointer-events: none; }
   .transcript-jump { animation: none; }
 }
 .renderer-benchmark { width: 100%; height: 100%; overflow: auto; padding: 24px; display: flex; flex-direction: column; }
+.renderer-benchmark .transcript-viewport { flex: none; height: 800px; }
 .benchmark-transcript { height: 800px; }
 .benchmark-large-list { height: 720px; overflow: auto; }
 .benchmark-list-row { height: 48px; padding: 12px; border-bottom: 1px solid var(--line); }

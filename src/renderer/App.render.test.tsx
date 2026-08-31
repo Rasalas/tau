@@ -155,8 +155,8 @@ describe("App render isolation", () => {
     expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
     const prompt = screen.getByText("Build the first screen");
-    expect(prompt.closest(".transcript-current-turn")).toBeTruthy();
-    expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeNull();
+    expect(prompt.closest(".transcript-current-row")).toBeTruthy();
+    expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeTruthy();
   });
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
@@ -282,6 +282,7 @@ describe("App render isolation", () => {
         update: { sessionId: "created", shell: { ...shell, title: "Created thread title" } },
       }],
     }));
+    const getWorkspaceInfo = vi.fn(async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }));
     window.tau = {
       bootstrap: async () => ({
         version: 1,
@@ -302,7 +303,7 @@ describe("App render isolation", () => {
       onHostEvent: () => () => {},
       listEditors: async () => [],
       getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getWorkspaceInfo,
       getFileTree: async () => [],
       setAccessLevel: async () => {},
       newSession,
@@ -311,7 +312,8 @@ describe("App render isolation", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
@@ -320,6 +322,7 @@ describe("App render isolation", () => {
 
     await waitFor(() => expect(generateThreadTitle).toHaveBeenCalledWith("provider", "model", false, "created"));
     expect(await screen.findByText("Created thread title")).toBeTruthy();
+    expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
   });
 
   it("does not send a prompt to the previous thread while a worktree is opening", async () => {

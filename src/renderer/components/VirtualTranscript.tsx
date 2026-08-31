@@ -1,15 +1,19 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { ReactNode, RefObject } from "react";
+import { useMemo, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { Message } from "./Message";
+import {
+  groupTranscriptActivities,
+  unanchoredTranscriptActivities,
+  type TranscriptActivity,
+} from "./transcript-activity";
 
 export interface VirtualTranscriptProps {
   messages: UiMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
   isStreaming: boolean;
-  activity?: ReactNode;
-  activityAfterMessageId?: string;
-  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
+  activities?: readonly TranscriptActivity[];
+  activeTurnStartId?: string;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
 }
@@ -19,32 +23,25 @@ export function VirtualTranscript({
   messages,
   scrollRef,
   isStreaming,
-  activity,
-  activityAfterMessageId,
   activities = [],
+  activeTurnStartId,
   onCopyMessage,
   onForkMessage,
 }: VirtualTranscriptProps) {
-  const pendingActivities = [
-    ...activities,
-    ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, content: activity }] : []),
-  ];
-  const messageIds = new Set(messages.map((message) => message.id));
-  const tailMessageId = messages.at(-1)?.id;
-  const activitiesByMessage = new Map<string, typeof pendingActivities>();
-  for (const entry of pendingActivities) {
-    const anchor = entry.afterMessageId
-      ? (messageIds.has(entry.afterMessageId) ? entry.afterMessageId : entry.id === "turn-activity" ? tailMessageId : undefined)
-      : tailMessageId;
-    if (!anchor) continue;
-    const anchored = activitiesByMessage.get(anchor) ?? [];
-    anchored.push(entry);
-    activitiesByMessage.set(anchor, anchored);
-  }
-
-  const unanchoredLiveActivity = messages.length === 0
-    ? pendingActivities.filter((entry) => entry.id === "turn-activity")
-    : [];
+  const activitiesByMessage = useMemo(
+    () => groupTranscriptActivities(messages, activities),
+    [activities, messages],
+  );
+  const unanchoredActivities = useMemo(
+    () => unanchoredTranscriptActivities(messages, activities),
+    [activities, messages],
+  );
+  const activeTurnStartIndex = useMemo(
+    () => activeTurnStartId === undefined
+      ? -1
+      : messages.findIndex((message) => message.id === activeTurnStartId),
+    [activeTurnStartId, messages],
+  );
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -52,7 +49,9 @@ export function VirtualTranscript({
     estimateSize: () => 180,
     getItemKey: (index) => messages[index]?.id ?? index,
     initialRect: { width: 780, height: 600 },
-    overscan: 6,
+    // Keep the initial/current-turn window small enough that long active turns
+    // remain bounded without paying for a large hidden DOM on every update.
+    overscan: 3,
     useAnimationFrameWithResizeObserver: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
@@ -62,9 +61,9 @@ export function VirtualTranscript({
     ? measuredRows
     : messages.slice(0, 12).map((message, index) => ({ index, key: message.id, start: index * 180 }));
 
-  if (messages.length === 0 && unanchoredLiveActivity.length > 0) {
+  if (messages.length === 0 && unanchoredActivities.length > 0) {
     return <div className="virtual-transcript static-activity-transcript">
-      {unanchoredLiveActivity.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
+      {unanchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
     </div>;
   }
 
@@ -80,7 +79,10 @@ export function VirtualTranscript({
         ref={virtualizer.measureElement}
         data-index={row.index}
         data-message-id={message.id}
-        className="virtual-transcript-row"
+        className={[
+          "virtual-transcript-row",
+          activeTurnStartIndex >= 0 && row.index >= activeTurnStartIndex ? "transcript-current-row" : "",
+        ].filter(Boolean).join(" ")}
         style={{
           position: "absolute",
           width: "100%",
