@@ -311,19 +311,19 @@ The report schema includes each asset's uncompressed and gzip size and classifie
 
 ### Renderer and host budget evidence
 
-`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. Using the same fixture on 2026-08-31, the current report (`reports/renderer-report.json`, generated at `2026-08-31T17:14:18.659Z`) records the following `median / p95 / max` timings in milliseconds. The machine class is Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64; no user or host name is recorded. On Linux, the same report fields are populated from Node's CPU and memory APIs.
+`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. Using the same fixture on 2026-08-31, the current report (`reports/renderer-report.json`, generated at `2026-08-31T17:42:49.120Z`, commit `416cc8ccc99b128c92ad9613922500f1bf4f9e6a`) records the following `median / p95 / max` timings in milliseconds. The machine class is Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64; no user or host name is recorded. On Linux, the same report fields are populated from Node's CPU and memory APIs.
 
 | scenario | frame | commit | long task | DOM |
 | --- | ---: | ---: | ---: | ---: |
-| markdown code stream (150 KB) | 16.7 / 18.6 / 18.8 | 3.9 / 7.4 / 13.1 | 0 / 0 / 0 | 38 |
-| markdown plain stream (150 KB) | 16.7 / 18.6 / 18.7 | 5.3 / 10.9 / 16.9 | 0 / 0 / 0 | 1,718 |
-| tool output (1 MB) | 16.7 / 18.6 / 18.7 | 0.8 / 1.7 / 14.8 | 0 / 0 / 0 | 29 |
-| transcript (1,000 turns) | 16.5 / 18.5 / 18.8 | 32.9 / 39.9 / 39.9 | 52 / 52 / 52 | 136 |
-| diff (2 MB) | 16.7 / 18.5 / 18.7 | 4.6 / 7.2 / 7.2 | 0 / 0 / 0 | 168 |
-| thread shells (10,000) | 16.7 / 18.5 / 18.6 | 1.5 / 3.1 / 3.4 | 0 / 0 / 0 | 38 |
-| workspace files (10,000) | 16.7 / 18.2 / 18.6 | 1.6 / 3.1 / 3.1 | 0 / 0 / 0 | 38 |
-| picker catalog (10,000) | 16.6 / 18.6 / 18.7 | 1.7 / 3.2 / 3.5 | 0 / 0 / 0 | 38 |
-| long user message (12 KB) | 16.7 / 18.6 / 18.7 | 16.5 / 21.0 / 21.0 | 0 / 0 / 0 | 23 |
+| markdown code stream (150 KB) | 16.7 / 18.3 / 18.4 | 1.1 / 1.3 / 1.3 | 0 / 0 / 0 | 15 |
+| markdown plain stream (150 KB) | 16.7 / 18.4 / 18.7 | 1.0 / 1.9 / 1.9 | 0 / 0 / 0 | 15 |
+| tool output (1 MB) | 16.7 / 17.9 / 18.6 | 1.2 / 2.6 / 2.6 | 0 / 0 / 0 | 15 |
+| transcript (1,000 turns) | 16.7 / 18.1 / 18.5 | 1.1 / 2.3 / 2.3 | 0 / 0 / 0 | 15 |
+| diff (2 MB) | 16.7 / 18.4 / 18.6 | 1.0 / 2.2 / 2.2 | 0 / 0 / 0 | 15 |
+| thread shells (10,000) | 16.6 / 18.2 / 18.5 | 1.0 / 1.0 / 1.0 | 0 / 0 / 0 | 15 |
+| workspace files (10,000) | 16.6 / 18.4 / 18.4 | 0.9 / 1.0 / 1.0 | 0 / 0 / 0 | 15 |
+| picker catalog (10,000) | 16.6 / 18.5 / 18.5 | 1.0 / 1.3 / 1.3 | 0 / 0 / 0 | 15 |
+| long user message (12 KB) | 16.7 / 18.1 / 18.2 | 0.9 / 1.6 / 1.6 | 0 / 0 / 0 | 15 |
 
 For a reproducible before/after comparison, commit `6ddb454` was detached into a temporary worktree, built with the same production command, and measured with the same eight shared scenarios on this same machine class. The baseline evidence—including its exact commit SHA, fixture, build mode, machine metadata, and every shared scenario's median / p95 / max values—is committed in `reports/renderer-baseline-6ddb454.json`; the current run is in `reports/renderer-report.json`. The current report adds `long-user-message` as a new current-only path with its own budget; no parent comparison is claimed for that scenario. The fresh current run passed the renderer budgets; the historical baseline is retained as measured evidence and exceeded several old long-task budgets. The Long Task observer was available in the current run and observed no long task, and the largest DOM count is 1,718 nodes.
 
