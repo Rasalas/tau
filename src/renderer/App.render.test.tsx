@@ -204,6 +204,45 @@ describe("App render isolation", () => {
     expect(screen.getByText("persistent draft")).toBeTruthy();
   });
 
+  it("shows the start screen for a new thread even when the previous thread has activity", async () => {
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [{ id: "session", path: "/session.jsonl", title: "Existing thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1 }],
+        },
+        detail: {
+          sessionId: "session",
+          messages: [{ id: "message", role: "user" as const, text: "Existing work", timestamp: 1 }],
+          isStreaming: false,
+          activeTools: [],
+          turnActivity: {
+            tools: [{ id: "tool", name: "read", args: {}, status: "done" as const, startedAt: 1, endedAt: 2 }],
+          },
+        },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByText("Existing work");
+    fireEvent.click(screen.getByRole("button", { name: "Existing thread" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
+    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(dialog).getByRole("option", { name: /project/u }));
+
+    expect(await screen.findByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
+    expect(screen.queryByText("Used 1 tool")).toBeNull();
+  });
+
   it("generates a title after the first prompt creates a thread", async () => {
     const shell = {
       id: "created",

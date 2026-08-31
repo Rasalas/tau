@@ -1140,7 +1140,14 @@ export default function App() {
     if (!requireHost("Worktrees")) return false;
     setWorkspaceBusy(true);
     try {
-      acceptWorkspace(await action());
+      const result = await action();
+      const pendingDraft = composerRef.current?.value ?? "";
+      acceptWorkspace(result);
+      const detail = result.updates.find((update) => update.type === "thread-detail");
+      if (pendingDraft && detail?.type === "thread-detail") {
+        writeComposerDraft(window.localStorage, draftKey(detail.detail.sessionId), pendingDraft);
+        setComposerSeed(pendingDraft);
+      }
       return true;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
