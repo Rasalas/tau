@@ -38,16 +38,17 @@ import type {
   UiModel,
   UiPromptAttachment,
   UiSession,
+  UiTaskProgressEntry,
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, taskHistoryForMessages, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
 import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { mergeTaskProgressHistory, taskProgressFromMessages, taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
-import { TranscriptPager } from "../shared/transcript-pager.js";
+import { OLDER_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "../shared/transcript-pager.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
@@ -65,7 +66,7 @@ import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
-import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import type { PiBridgeServerFrame, PiBridgeSnapshot, PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -751,19 +752,69 @@ export class PiHost {
   async getThreadDetail(cursor?: string): Promise<TranscriptPage | ThreadDetail> {
     const snapshot = await this.snapshot();
     const result = cursor !== undefined
-      ? TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, 40, cursor)
+      ? this.transcriptPage(snapshot.sessionId, snapshot.messages, snapshot.taskHistory, cursor)
       : this.detailForSnapshot(snapshot);
     this.lifecycleMetrics.recordIpc(result);
     return result;
   }
 
   async loadTranscript(sessionId: string, cursor?: string): Promise<TranscriptPage> {
-    const messages = this.bridgeOwns(sessionId) && this.bridgeSnapshot
-      ? this.bridgeHostSnapshot().messages
-      : this.messageSnapshot(this.requireThread(sessionId));
-    const result = TranscriptPager.pageFor(sessionId, messages, 40, cursor);
+    let result: TranscriptPage;
+    if (this.bridgeOwns(sessionId) && this.bridgeSnapshot?.messagesOffset !== undefined) {
+      const raw = await this.bridgeCommand(cursor === undefined
+        ? { command: "transcript_page" }
+        : { command: "transcript_page", cursor }) as unknown;
+      result = this.mapBridgeTranscriptPage(sessionId, raw);
+    } else if (this.bridgeOwns(sessionId)) {
+      // Older Pi bridge extensions expose a bounded snapshot but no paging
+      // command. Keep that compatibility path local to the retained window.
+      const snapshot = this.bridgeHostSnapshot();
+      result = this.transcriptPage(sessionId, snapshot.messages, snapshot.taskHistory, cursor);
+    } else {
+      const thread = this.requireThread(sessionId);
+      const rawMessages = this.branchMessagesWithEntryIds(thread);
+      result = this.transcriptPage(
+        sessionId,
+        this.messageSnapshot(thread),
+        taskProgressHistoryFromMessages(rawMessages),
+        cursor,
+      );
+    }
     this.lifecycleMetrics.recordIpc(result);
     return result;
+  }
+
+  private transcriptPage(
+    sessionId: string,
+    messages: readonly UiMessage[],
+    taskHistory: readonly UiTaskProgressEntry[] | undefined,
+    cursor?: string,
+  ): TranscriptPage {
+    const page = TranscriptPager.pageFor(sessionId, messages, OLDER_TRANSCRIPT_TURN_LIMIT, cursor);
+    const visibleHistory = taskHistoryForMessages(taskHistory, page.messages);
+    return {
+      ...page,
+      ...(visibleHistory ? { taskHistory: visibleHistory } : {}),
+    };
+  }
+
+  private mapBridgeTranscriptPage(sessionId: string, value: unknown): TranscriptPage {
+    if (!value || typeof value !== "object") throw new Error("Pi returned an invalid transcript page.");
+    const page = value as Partial<PiBridgeTranscriptPage>;
+    if (page.sessionId !== sessionId || !Array.isArray(page.messages) || typeof page.hasMore !== "boolean") {
+      throw new Error("Pi returned an invalid transcript page.");
+    }
+    const messages = page.messages
+      .map((message, index) => mapMessage(message, index))
+      .filter((message): message is UiMessage => Boolean(message?.text));
+    const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
+    return {
+      sessionId,
+      messages,
+      ...(taskHistory ? { taskHistory } : {}),
+      ...(typeof page.olderCursor === "string" ? { olderCursor: page.olderCursor } : {}),
+      hasMore: page.hasMore,
+    };
   }
 
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
@@ -1881,9 +1932,17 @@ export class PiHost {
   private bridgeHostSnapshot(): HostSnapshot {
     const snapshot = this.bridgeSnapshot;
     if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
-    const messages = snapshot.messages
-      .map((message, index) => mapMessage(message, index))
-      .filter((message): message is UiMessage => Boolean(message?.text));
+    const messageIndexes: number[] = [];
+    const messages: UiMessage[] = [];
+    const messagesOffset = Number.isSafeInteger(snapshot.messagesOffset) && snapshot.messagesOffset! >= 0
+      ? snapshot.messagesOffset!
+      : 0;
+    snapshot.messages.forEach((message, index) => {
+      const mapped = mapMessage(message, index);
+      if (!mapped?.text) return;
+      messages.push(mapped);
+      messageIndexes.push(messagesOffset + index);
+    });
     const firstUserMessage = snapshot.messages.find((message) =>
       Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
     );
@@ -1903,6 +1962,7 @@ export class PiHost {
       thinkingLevel: snapshot.thinkingLevel,
       thinkingLevels: snapshot.thinkingLevels,
       messages,
+      transcriptMessageIndexes: messageIndexes,
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,
       turnActivity: lastTurnActivityFromMessages(snapshot.messages),

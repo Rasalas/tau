@@ -302,6 +302,10 @@ export interface HostSnapshot {
   thinkingLevel: string;
   thinkingLevels: string[];
   messages: UiMessage[];
+  /** Cursor for the next page when this snapshot already contains a bounded window. */
+  olderCursor?: string;
+  /** Raw message indexes corresponding to `messages` for a bounded bridge window. */
+  transcriptMessageIndexes?: number[];
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
@@ -334,6 +338,7 @@ export interface HostBootstrap {
     taskHistory?: UiTaskProgressEntry[];
     contextUsage?: UiContextUsage;
     olderCursor?: string;
+    hasMore?: boolean;
   };
   catalog: {
     models: UiModel[];

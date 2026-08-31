@@ -15,9 +15,13 @@ import {
   type PiBridgeServerFrame,
   type PiBridgeAwaitingInput,
   type PiBridgeSnapshot,
+  type PiBridgeTranscriptPage,
 } from "../../src/shared/pi-bridge-protocol.js";
 
 interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
+
+const BRIDGE_TRANSCRIPT_WINDOW = 160;
+const BRIDGE_TRANSCRIPT_PAGE_TURNS = 20;
 
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
@@ -75,12 +79,14 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const usage = ctx.getContextUsage();
     const branchMessages = ctx.sessionManager.getBranch()
       .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
+    const messagesOffset = Math.max(0, branchMessages.length - BRIDGE_TRANSCRIPT_WINDOW);
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       cwd: ctx.cwd,
       sessionName: pi.getSessionName(),
-      messages: boundedBridgeValue(branchMessages.slice(-160)),
+      messages: boundedBridgeValue(branchMessages.slice(messagesOffset)),
+      messagesOffset,
       isStreaming: !ctx.isIdle(),
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, name: ctx.model.name } : undefined,
       models: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, id: model.id, name: model.name })),
@@ -100,6 +106,30 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
       awaitingInput,
     };
+  };
+
+  const transcriptPage = (ctx: ExtensionContext, cursor?: string): PiBridgeTranscriptPage => {
+    const branchMessages = ctx.sessionManager.getBranch()
+      .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
+    const end = cursor === undefined ? branchMessages.length : Number(cursor);
+    if (!Number.isSafeInteger(end) || end < 0 || end > branchMessages.length || (cursor !== undefined && !/^\d+$/u.test(cursor))) {
+      throw new Error("Invalid transcript cursor");
+    }
+    let start = end;
+    let turns = 0;
+    while (start > 0 && turns < BRIDGE_TRANSCRIPT_PAGE_TURNS) {
+      start -= 1;
+      const message = branchMessages[start];
+      if (message && typeof message === "object" && (message as { role?: string }).role === "user") turns += 1;
+    }
+    const page = {
+      sessionId: ctx.sessionManager.getSessionId(),
+      messages: boundedBridgeValue(branchMessages.slice(start, end)),
+      ...(start > 0 ? { olderCursor: String(start) } : {}),
+      hasMore: start > 0,
+      taskHistory: taskProgressHistoryFromMessages(branchMessages),
+    } satisfies PiBridgeTranscriptPage;
+    return page;
   };
 
   const broadcast = (event: unknown, ctx: ExtensionContext) => {
@@ -216,6 +246,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           }, 0);
           break;
         }
+        case "transcript_page":
+          respond(client, frame.id, true, transcriptPage(ctx, frame.cursor));
+          break;
         case "fork": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before forking this thread.");
           if (!ctx.sessionManager.getBranch().some((entry) => entry.id === frame.entryId)) {

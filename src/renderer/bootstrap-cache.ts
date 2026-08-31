@@ -1,4 +1,6 @@
 import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
+import { detailFromSnapshot } from "../shared/host-protocol";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT } from "../shared/transcript-pager";
 
 const CACHE_KEY = "tau.bootstrap-cache.v1";
 const MAX_BYTES = 512 * 1024;
@@ -9,9 +11,13 @@ export interface CachedBootstrap {
 }
 
 function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
+  const detail = detailFromSnapshot(snapshot, INITIAL_TRANSCRIPT_TURN_LIMIT);
   return {
     ...snapshot,
-    messages: snapshot.messages.slice(-40),
+    messages: detail.messages,
+    ...(snapshot.olderCursor || detail.olderCursor
+      ? { olderCursor: snapshot.olderCursor ?? detail.olderCursor }
+      : {}),
     models: [],
     allTools: [],
     activeTools: [],

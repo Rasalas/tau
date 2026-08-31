@@ -12,6 +12,7 @@ import type {
   UiTurnActivity,
   UiWorkspaceChanges,
 } from "./contracts.js";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "./transcript-pager.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
 export const HOST_PROTOCOL_VERSION = 1 as const;
@@ -39,11 +40,14 @@ export interface ThreadDetail {
   contextUsage?: UiContextUsage;
   /** Cursor for the next page of older transcript records. */
   olderCursor?: string;
+  /** Whether another page exists; omitted by older protocol peers. */
+  hasMore?: boolean;
 }
 
 export interface TranscriptPage {
   sessionId: string;
   messages: UiMessage[];
+  taskHistory?: UiTaskProgressEntry[];
   olderCursor?: string;
   hasMore: boolean;
 }
@@ -108,8 +112,13 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
   switch (candidate.type) {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
-    case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
-    case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean");
+    case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
+      && (payload.olderCursor === undefined || typeof payload.olderCursor === "string")
+      && (payload.hasMore === undefined || typeof payload.hasMore === "boolean")
+      && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
+    case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
+      && (payload.olderCursor === undefined || typeof payload.olderCursor === "string")
+      && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
     case "project": return Boolean(payload && typeof payload.cwd === "string");
     case "run": return typeof candidate.sessionId === "string" && ["started", "settled", "aborted"].includes(String(candidate.event));
@@ -124,18 +133,40 @@ export function decodeHostUpdates(value: unknown): HostUpdate[] {
   return value.filter(isHostUpdate);
 }
 
-export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDetail {
-  const messages = snapshot.messages.length > limit ? snapshot.messages.slice(-limit) : snapshot.messages;
+export function taskHistoryForMessages(
+  history: readonly UiTaskProgressEntry[] | undefined,
+  messages: readonly UiMessage[],
+): UiTaskProgressEntry[] | undefined {
+  if (!history) return undefined;
+  const ids = new Set(messages.map((message) => message.id));
+  return history.filter((entry) => !entry.anchorMessageId || ids.has(entry.anchorMessageId));
+}
+
+function cursorForPage(
+  page: TranscriptPage,
+  snapshot: HostSnapshot,
+): string | undefined {
+  const offset = snapshot.transcriptMessageIndexes;
+  if (!offset) return page.olderCursor ?? snapshot.olderCursor;
+  const localStart = page.olderCursor === undefined ? 0 : Number(page.olderCursor);
+  const index = offset[localStart] ?? offset[0];
+  return index === undefined || index <= 0 ? snapshot.olderCursor : String(index);
+}
+
+export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANSCRIPT_TURN_LIMIT): ThreadDetail {
+  const page = TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, limit);
+  const olderCursor = cursorForPage(page, snapshot);
   return {
     sessionId: snapshot.sessionId,
-    messages,
+    messages: page.messages,
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
     turnActivity: snapshot.turnActivity,
     taskProgress: snapshot.taskProgress,
-    taskHistory: snapshot.taskHistory,
+    taskHistory: taskHistoryForMessages(snapshot.taskHistory, page.messages),
     contextUsage: snapshot.contextUsage,
-    ...(snapshot.messages.length > messages.length ? { olderCursor: String(snapshot.messages.length - messages.length) } : {}),
+    ...(olderCursor ? { olderCursor } : {}),
+    hasMore: Boolean(olderCursor),
   };
 }
 

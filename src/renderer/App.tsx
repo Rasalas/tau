@@ -10,6 +10,7 @@ import type {
   UiProject,
   UiPromptAttachment,
   UiSession,
+  UiTaskProgressEntry,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
   ServiceTier,
@@ -77,6 +78,8 @@ import {
   ObservatoryContext,
   type TimelineEvent,
 } from "./workbench-context";
+import { TranscriptHistoryControl, type TranscriptHistoryStatus } from "./components/TranscriptHistoryControl";
+import { countUserTurns } from "../shared/transcript-pager";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 
@@ -96,6 +99,7 @@ export function optimisticThreadSnapshot(
     sessionTitle: target.title,
     branch: target.branch,
     messages: detail.messages,
+    olderCursor: detail.olderCursor,
     isStreaming: false,
     activeTools: detail.activeTools,
     turnActivity: detail.turnActivity,
@@ -103,6 +107,59 @@ export function optimisticThreadSnapshot(
     taskHistory: detail.taskHistory,
     contextUsage: detail.contextUsage,
   };
+}
+
+/** Merge a page without allowing a repeated or late response to duplicate rows. */
+export function mergeTranscriptMessages(
+  current: readonly UiMessage[],
+  incoming: readonly UiMessage[],
+  position: "prepend" | "append" = "append",
+): UiMessage[] {
+  const incomingById = new Map(incoming.map((message) => [message.id, message] as const));
+  const retainedIds = new Set<string>();
+  const retained = current.flatMap((message) => {
+    if (retainedIds.has(message.id)) return [];
+    retainedIds.add(message.id);
+    return [incomingById.get(message.id) ?? message];
+  });
+  const additionIds = new Set<string>();
+  const additions = incoming.flatMap((message) => {
+    if (retainedIds.has(message.id) || additionIds.has(message.id)) return [];
+    additionIds.add(message.id);
+    return [incomingById.get(message.id) ?? message];
+  });
+  return position === "prepend" ? [...additions, ...retained] : [...retained, ...additions];
+}
+
+function mergeTaskHistory(
+  current: readonly UiTaskProgressEntry[] | undefined,
+  incoming: readonly UiTaskProgressEntry[] | undefined,
+): UiTaskProgressEntry[] | undefined {
+  if (!current && !incoming) return undefined;
+  const byId = new Map<string, UiTaskProgressEntry>();
+  for (const entry of current ?? []) byId.set(entry.id, entry);
+  for (const entry of incoming ?? []) byId.set(entry.id, entry);
+  return [...byId.values()];
+}
+
+function retainsLoadedHistory(
+  current: ThreadDetail | undefined,
+  incoming: ThreadDetail,
+): current is ThreadDetail {
+  if (!current || current.sessionId !== incoming.sessionId || current.messages.length <= incoming.messages.length || incoming.messages.length === 0) return false;
+  const currentIds = new Set(current.messages.map((message) => message.id));
+  return incoming.messages.some((message) => currentIds.has(message.id));
+}
+
+/** Keep the first visible transcript content at the same viewport offset after a prepend. */
+export function restoreTranscriptScrollPosition(
+  node: Pick<HTMLDivElement, "scrollHeight" | "scrollTop">,
+  previousHeight: number,
+  previousScrollTop: number,
+): number {
+  const delta = node.scrollHeight - previousHeight;
+  node.scrollTop = previousScrollTop + delta;
+  return delta;
 }
 
 const mockSnapshot: HostSnapshot = {
@@ -202,10 +259,15 @@ export function useTailScroll(
   ref: RefObject<HTMLDivElement | null>,
   updates: readonly unknown[],
   resetKey?: unknown,
+  preserveScrollRef?: RefObject<boolean | undefined>,
 ): void {
   const pinnedRef = useRef(true);
   const frameRef = useRef<number | undefined>(undefined);
   const scheduleTail = () => {
+    if (preserveScrollRef?.current) {
+      pinnedRef.current = false;
+      return;
+    }
     if (!pinnedRef.current || frameRef.current !== undefined) return;
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = undefined;
@@ -270,6 +332,10 @@ export function useTailScroll(
   }, [ref, resetKey]);
 
   useEffect(() => {
+    if (preserveScrollRef?.current) {
+      pinnedRef.current = false;
+      return;
+    }
     scheduleTail();
   // The array identity is intentionally controlled by the caller's visible records.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -354,12 +420,20 @@ export default function App() {
   const [composerSeed, setComposerSeed] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [dockOpen, setDockOpen] = useState(true);
-  const [olderCursor, setOlderCursor] = useState<string>();
+  const [olderCursor, setOlderCursor] = useState<string | undefined>(cachedBootstrap?.snapshot.olderCursor);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [historyStatus, setHistoryStatus] = useState<TranscriptHistoryStatus>();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const transcriptPrependRef = useRef<boolean | undefined>(undefined);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  const snapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  const activeSessionRef = useRef(cachedBootstrap?.snapshot.sessionId ?? "");
+  const pendingSessionRef = useRef<{ switching: boolean; sessionId?: string }>({ switching: false });
+  const bootstrappedRef = useRef(false);
+  const transcriptLoadRef = useRef(0);
+  const loadingOlderRef = useRef(false);
   const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
   const changesRequestRef = useRef(0);
   const changesRef = useRef(changes);
@@ -368,6 +442,7 @@ export default function App() {
   const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  snapshotRef.current = snapshot;
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
   const assistantStartsRef = useRef(new Map<string, number>());
@@ -430,6 +505,12 @@ export default function App() {
   }, [flushToolUpdates]);
 
   const applySnapshot = useCallback((next: HostSnapshot) => {
+    transcriptLoadRef.current += 1;
+    loadingOlderRef.current = false;
+    transcriptPrependRef.current = undefined;
+    pendingSessionRef.current = { switching: false };
+    activeSessionRef.current = next.sessionId;
+    bootstrappedRef.current = true;
     assistantStartsRef.current.clear();
     pendingDeltasRef.current.clear();
     pendingToolUpdatesRef.current.clear();
@@ -446,9 +527,13 @@ export default function App() {
       taskProgress: next.taskProgress,
       taskHistory: next.taskHistory,
       contextUsage: next.contextUsage,
+      olderCursor: next.olderCursor,
+      hasMore: next.olderCursor !== undefined,
     };
     detailStoreRef.current.set(detail);
     setOlderCursor(detail.olderCursor);
+    setLoadingOlder(false);
+    setHistoryStatus(undefined);
     threadStore.applyHostSnapshot(next);
     threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
@@ -484,11 +569,38 @@ export default function App() {
     }
     if (update.type === "thread-detail") {
       const detail = update.detail;
-      detailStoreRef.current.set(detail);
+      const pending = pendingSessionRef.current;
+      if (bootstrappedRef.current && pending.switching && pending.sessionId && pending.sessionId !== detail.sessionId) return;
+      if (bootstrappedRef.current && !pending.switching && activeSessionRef.current && activeSessionRef.current !== detail.sessionId) return;
+      const previous = detailStoreRef.current.get(detail.sessionId);
+      const sessionChanged = previous?.sessionId !== detail.sessionId;
+      const keepHistory = retainsLoadedHistory(previous, detail);
+      const messagesForRender = keepHistory
+        ? mergeTranscriptMessages(previous.messages, detail.messages)
+        : detail.messages;
+      const taskHistoryForRender = keepHistory
+        ? mergeTaskHistory(previous.taskHistory, detail.taskHistory)
+        : detail.taskHistory;
+      const detailForRender: ThreadDetail = {
+        ...detail,
+        messages: messagesForRender,
+        taskHistory: taskHistoryForRender,
+        olderCursor: keepHistory ? previous.olderCursor : detail.olderCursor,
+        hasMore: keepHistory ? previous.hasMore : detail.hasMore,
+      };
+      transcriptLoadRef.current += 1;
+      loadingOlderRef.current = false;
+      transcriptPrependRef.current = undefined;
+      activeSessionRef.current = detail.sessionId;
+      pendingSessionRef.current = { switching: false };
+      bootstrappedRef.current = true;
+      detailStoreRef.current.set(detailForRender);
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
-      setOlderCursor(detail.olderCursor);
-      setMessages(detail.messages);
+      setOlderCursor(detailForRender.olderCursor);
+      setLoadingOlder(false);
+      if (!keepHistory && sessionChanged) setHistoryStatus(undefined);
+      setMessages(messagesForRender);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detail.sessionId);
       const restoredActivity = detail.turnActivity ?? cachedActivity;
       setTools(restoredActivity?.tools ?? []);
@@ -502,12 +614,13 @@ export default function App() {
           ...current,
           sessionId: detail.sessionId,
           sessionTitle: shell?.title ?? current.sessionTitle,
-          messages: detail.messages,
+          messages: messagesForRender,
+          olderCursor: detailForRender.olderCursor,
           isStreaming: detail.isStreaming,
           activeTools: detail.activeTools,
           turnActivity: detail.turnActivity,
           taskProgress: detail.taskProgress,
-          taskHistory: detail.taskHistory,
+          taskHistory: taskHistoryForRender,
           contextUsage: detail.contextUsage,
         };
         cachedSnapshotRef.current = next;
@@ -518,11 +631,29 @@ export default function App() {
     }
     if (update.type === "transcript-page") {
       const page = update.page;
-      detailStoreRef.current.update(page.sessionId, (current) => current
-        ? { ...current, messages: [...page.messages, ...current.messages], olderCursor: page.olderCursor }
-        : current);
+      if (pendingSessionRef.current.switching || activeSessionRef.current !== page.sessionId) return;
+      const currentDetail = detailStoreRef.current.get(page.sessionId);
+      const currentMessages = mergeTranscriptMessages(currentDetail?.messages ?? [], messagesRef.current);
+      const messagesForRender = mergeTranscriptMessages(currentMessages, page.messages, "prepend");
+      const taskHistoryForRender = mergeTaskHistory(currentDetail?.taskHistory, page.taskHistory);
+      if (currentDetail) {
+        detailStoreRef.current.set({
+          ...currentDetail,
+          messages: messagesForRender,
+          taskHistory: taskHistoryForRender,
+          olderCursor: page.olderCursor,
+          hasMore: page.hasMore,
+        });
+      }
       setOlderCursor(page.olderCursor);
-      setMessages((current) => [...page.messages, ...current]);
+      setMessages(messagesForRender);
+      setSnapshot((current) => {
+        if (!current || current.sessionId !== page.sessionId) return current;
+        const next = { ...current, messages: messagesForRender, taskHistory: taskHistoryForRender, olderCursor: page.olderCursor };
+        cachedSnapshotRef.current = next;
+        writeBootstrapCache(next, cachedIndexRef.current);
+        return next;
+      });
       return;
     }
     if (update.type === "catalog") {
@@ -541,6 +672,10 @@ export default function App() {
   }, [applyThreadIndex, threadStore]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult) => {
+    const detail = result.updates.find((update) => update.type === "thread-detail");
+    if (detail?.type === "thread-detail") {
+      pendingSessionRef.current = { switching: true, sessionId: detail.detail.sessionId };
+    }
     result.updates.forEach((update) => applyHostUpdate(update));
   }, [applyHostUpdate]);
 
@@ -772,9 +907,9 @@ export default function App() {
           taskProgress: bootstrap.detail.taskProgress,
           taskHistory: bootstrap.detail.taskHistory,
           contextUsage: bootstrap.detail.contextUsage,
+          olderCursor: bootstrap.detail.olderCursor,
         };
         applySnapshot(current);
-        setOlderCursor(bootstrap.detail.olderCursor);
         void refreshChanges();
         void refreshWorkspace();
       }).catch((error) => setNotice(String(error)));
@@ -813,37 +948,85 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId);
+  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId, transcriptPrependRef);
 
   const loadOlder = useCallback(async () => {
-    if (!olderCursor || loadingOlder || !snapshot || !window.tau) return;
+    const sessionId = snapshot?.sessionId;
+    const cursor = olderCursor;
+    if (!cursor || !sessionId || !window.tau || loadingOlderRef.current) return;
     const transcript = transcriptRef.current;
     if (!transcript) return;
+    const request = ++transcriptLoadRef.current;
+    loadingOlderRef.current = true;
+    transcriptPrependRef.current = true;
+    const previousScrollTop = transcript.scrollTop;
     setLoadingOlder(true);
+    setHistoryStatus(undefined);
     const previousHeight = transcript.scrollHeight;
-    try {
-      const page = await window.tau.loadTranscript(snapshot.sessionId, olderCursor);
-      if (page.sessionId !== snapshot.sessionId) return;
-      setMessages((current) => [...page.messages, ...current]);
-      setOlderCursor(page.olderCursor);
-      window.requestAnimationFrame(() => {
-        const current = transcriptRef.current;
-        if (current) current.scrollTop += current.scrollHeight - previousHeight;
-      });
-    } catch (error) {
-      setNotice(String(error));
-    } finally {
+    let restoreScheduled = false;
+    const finishLoading = () => {
+      if (request !== transcriptLoadRef.current) return;
+      loadingOlderRef.current = false;
+      transcriptPrependRef.current = undefined;
       setLoadingOlder(false);
+    };
+    try {
+      const page = await window.tau.loadTranscript(sessionId, cursor);
+      if (
+        request !== transcriptLoadRef.current
+        || pendingSessionRef.current.switching
+        || activeSessionRef.current !== sessionId
+        || snapshotRef.current?.sessionId !== sessionId
+        || page.sessionId !== sessionId
+      ) return;
+      const currentDetail = detailStoreRef.current.get(sessionId);
+      const currentMessages = mergeTranscriptMessages(currentDetail?.messages ?? [], messagesRef.current);
+      const messagesForRender = mergeTranscriptMessages(currentMessages, page.messages, "prepend");
+      const taskHistoryForRender = mergeTaskHistory(currentDetail?.taskHistory, page.taskHistory);
+      if (currentDetail) {
+        detailStoreRef.current.set({
+          ...currentDetail,
+          messages: messagesForRender,
+          taskHistory: taskHistoryForRender,
+          olderCursor: page.olderCursor,
+          hasMore: page.hasMore,
+        });
+      }
+      setMessages(messagesForRender);
+      setOlderCursor(page.olderCursor);
+      setSnapshot((current) => {
+        if (!current || current.sessionId !== sessionId) return current;
+        const next = { ...current, messages: messagesForRender, taskHistory: taskHistoryForRender, olderCursor: page.olderCursor };
+        cachedSnapshotRef.current = next;
+        writeBootstrapCache(next, cachedIndexRef.current);
+        return next;
+      });
+      const loadedTurns = countUserTurns(page.messages);
+      setHistoryStatus({ state: "success", loadedTurns });
+      restoreScheduled = true;
+      const restore = (framesRemaining: number) => {
+        if (request !== transcriptLoadRef.current || activeSessionRef.current !== sessionId || pendingSessionRef.current.switching) {
+          finishLoading();
+          return;
+        }
+        const current = transcriptRef.current;
+        if (current) restoreTranscriptScrollPosition(current, previousHeight, previousScrollTop);
+        if (framesRemaining > 0) {
+          window.requestAnimationFrame(() => restore(framesRemaining - 1));
+        } else {
+          finishLoading();
+        }
+      };
+      window.requestAnimationFrame(() => restore(2));
+    } catch (error) {
+      if (request === transcriptLoadRef.current && activeSessionRef.current === sessionId) {
+        const message = error instanceof Error ? error.message : String(error);
+        setHistoryStatus({ state: "error", message: `Could not load older turns: ${message}` });
+      }
+    } finally {
+      if (!restoreScheduled) finishLoading();
     }
-  }, [loadingOlder, olderCursor, snapshot]);
-
-  useEffect(() => {
-    const transcript = transcriptRef.current;
-    if (!transcript) return;
-    const onScroll = () => { if (transcript.scrollTop < 120) void loadOlder(); };
-    transcript.addEventListener("scroll", onScroll, { passive: true });
-    return () => transcript.removeEventListener("scroll", onScroll);
-  }, [loadOlder]);
+  }, [olderCursor, snapshot]);
 
   useEffect(() => {
     if (!notice) return;
@@ -979,6 +1162,12 @@ export default function App() {
     const startedAt = performance.now();
     const previous = snapshot;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
+    transcriptLoadRef.current += 1;
+    loadingOlderRef.current = false;
+    transcriptPrependRef.current = undefined;
+    pendingSessionRef.current = { switching: true, sessionId: target?.id };
+    setLoadingOlder(false);
+    setHistoryStatus(undefined);
     const cached = target ? detailStoreRef.current.get(target.id) : undefined;
     if (cached && snapshot && target) {
       applySnapshot(optimisticThreadSnapshot(snapshot, target, cached));
@@ -1777,6 +1966,14 @@ export default function App() {
 
               <div className="transcript" ref={transcriptRef}>
                 <div className="transcript-inner">
+                  {!pendingNewThread && conversationMessages.length > 0 ? (
+                    <TranscriptHistoryControl
+                      olderCursor={olderCursor}
+                      loading={loadingOlder}
+                      status={historyStatus}
+                      onLoad={() => void loadOlder()}
+                    />
+                  ) : null}
                   <VirtualTranscript
                     messages={conversationMessages}
                     scrollRef={transcriptRef}

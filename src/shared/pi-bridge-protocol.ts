@@ -21,6 +21,8 @@ export interface PiBridgeSnapshot {
   cwd: string;
   sessionName?: string;
   messages: unknown[];
+  /** Raw branch index of the first entry in `messages`. */
+  messagesOffset?: number;
   isStreaming: boolean;
   model?: { provider: string; id: string; name?: string };
   models: Array<{ provider: string; id: string; name?: string }>;
@@ -37,6 +39,15 @@ export interface PiBridgeSnapshot {
   awaitingInput?: PiBridgeAwaitingInput;
 }
 
+/** A bounded raw branch page returned by a Pi-owned runtime. */
+export interface PiBridgeTranscriptPage {
+  sessionId: string;
+  messages: unknown[];
+  olderCursor?: string;
+  hasMore: boolean;
+  taskHistory?: UiTaskProgressEntry[];
+}
+
 export type PiBridgeCommand =
   | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp" }
   | { command: "abort" }
@@ -47,6 +58,7 @@ export type PiBridgeCommand =
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
   | { command: "new_session"; initialPrompt?: string }
+  | { command: "transcript_page"; cursor?: string }
   | { command: "export_markdown" }
   | { command: "snapshot" }
   | { command: "ping" };

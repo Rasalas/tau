@@ -26,8 +26,28 @@ describe("host protocol", () => {
 
   it("derives bounded detail without catalogs or project state", () => {
     const detail = detailFromSnapshot({ ...snapshot, messages: Array.from({ length: 41 }, (_, i) => ({ id: String(i), role: "user" as const, text: String(i), timestamp: i })) });
-    expect(detail.messages).toHaveLength(40);
-    expect(detail.olderCursor).toBe("1");
+    expect(detail.messages).toHaveLength(10);
+    expect(detail.messages[0]?.id).toBe("31");
+    expect(detail.olderCursor).toBe("31");
+    expect(detail.hasMore).toBe(true);
     expect(detail).not.toHaveProperty("models");
+  });
+
+  it("keeps only activities anchored in the bounded detail", () => {
+    const detail = detailFromSnapshot({
+      ...snapshot,
+      messages: Array.from({ length: 24 }, (_, i) => ({ id: String(i), role: i % 2 ? "assistant" as const : "user" as const, text: String(i), timestamp: i })),
+      taskHistory: [
+        { id: "old-task", anchorMessageId: "0", progress: { tasks: [], completed: 0, total: 0 } },
+        { id: "recent-task", anchorMessageId: "20", progress: { tasks: [], completed: 0, total: 0 } },
+      ],
+    });
+    expect(detail.taskHistory?.map((entry) => entry.id)).toEqual(["recent-task"]);
+  });
+
+  it("preserves a cursor when a cached snapshot is already bounded", () => {
+    const detail = detailFromSnapshot({ ...snapshot, messages: snapshot.messages, olderCursor: "12" });
+    expect(detail.olderCursor).toBe("12");
+    expect(detail.hasMore).toBe(true);
   });
 });

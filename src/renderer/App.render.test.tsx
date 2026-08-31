@@ -11,7 +11,7 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App, { latestActivityAnchor, mergeTranscriptMessages, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages, restoreTranscriptScrollPosition } from "./App";
 
 afterEach(cleanup);
 
@@ -81,6 +81,34 @@ describe("App render isolation", () => {
     });
     expect(next.sessionTitle).toBe("Target title");
     expect(next.messages[0]?.text).toBe("Cached content");
+  });
+
+  it("deduplicates a repeated history page while retaining newer message updates", () => {
+    const current = [
+      { id: "user-2", role: "user" as const, text: "second", timestamp: 2 },
+      { id: "answer-2", role: "assistant" as const, text: "old answer", timestamp: 3 },
+    ];
+    const page = [
+      { id: "user-1", role: "user" as const, text: "first", timestamp: 1 },
+      { id: "user-2", role: "user" as const, text: "second", timestamp: 2 },
+      { id: "answer-2", role: "assistant" as const, text: "updated answer", timestamp: 3 },
+    ];
+    expect(mergeTranscriptMessages(current, page, "prepend")).toEqual([
+      page[0], page[1], page[2],
+    ]);
+    expect(mergeTranscriptMessages([], [page[0], { ...page[0], text: "latest" }], "prepend")).toEqual([
+      { ...page[0], text: "latest" },
+    ]);
+  });
+
+  it("restores the viewport offset after long, differently sized rows are prepended", () => {
+    let height = 1_200;
+    const node = { get scrollHeight() { return height; }, scrollTop: 340 };
+    const previousHeight = height;
+    const previousTop = node.scrollTop;
+    height += 2_680;
+    expect(restoreTranscriptScrollPosition(node, previousHeight, previousTop)).toBe(2_680);
+    expect(node.scrollTop).toBe(3_020);
   });
 
   it("preserves opened panel state and skips unrelated parent renders while hidden", () => {

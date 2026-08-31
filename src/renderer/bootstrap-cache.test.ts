@@ -15,9 +15,21 @@ describe("bootstrap cache", () => {
     const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
     writeBootstrapCache(snapshot, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
-    expect(cached?.snapshot.messages).toHaveLength(40);
+    expect(cached?.snapshot.messages).toHaveLength(10);
     expect(cached?.snapshot.models).toEqual([]);
     expect(cached?.snapshot.allTools).toEqual([]);
     expect(cached?.snapshot.isStreaming).toBe(false);
+  });
+
+  it("keeps the host cursor after caching a previously paged transcript", () => {
+    let value: string | null = null;
+    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const paged = {
+      ...snapshot,
+      messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
+      olderCursor: "11",
+    };
+    writeBootstrapCache(paged, { projects: [], sessions: [] }, storage);
+    expect(readBootstrapCache(storage)?.snapshot.olderCursor).toBe("11");
   });
 });
