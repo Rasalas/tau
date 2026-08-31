@@ -131,8 +131,8 @@ describe("performance report checks", () => {
       readFile(new URL("../docs/PERFORMANCE.md", import.meta.url), "utf8"),
     ]);
     const budgets = JSON.parse(budgetText);
-    expect(documentation).toContain(`${budgets.rendererCommitP95Ms} ms commit-p95`);
-    expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms long-task`);
+    expect(documentation).toContain(`${budgets.rendererFrameP95Ms} ms frame p95`);
+    expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms`);
     expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
   });
 

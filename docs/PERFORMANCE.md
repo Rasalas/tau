@@ -311,19 +311,19 @@ The report schema includes each asset's uncompressed and gzip size and classifie
 
 ### Renderer and host budget evidence
 
-`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. Long-task collection starts before the benchmark component mounts, and mount timing is recorded separately from update-pulse timing, so the report preserves both the initial render and steady-state work. Using the same fixture on 2026-08-31, the current report (`reports/renderer-report.json`, generated at `2026-08-31T18:30:57.144Z`, commit `366f29bb69337e5fcbe9a26c410ff08d3572db39`) records the following `median / p95 / max` timings in milliseconds. The machine class is Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64; no user or host name is recorded. On Linux, the same report fields are populated from Node's CPU and memory APIs.
+`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. Long-task collection starts before the benchmark component mounts, and mount timing is recorded separately from update-pulse timing, so the report preserves both the initial render and steady-state work. Using the same fixture on 2026-08-31, the current report (`reports/renderer-report.json`, generated at `2026-08-31T18:35:58.401Z`, commit `541f11c2e55e7e2b94eebba4b3ce3e61b424848e`) records the following `median / p95 / max` timings in milliseconds. The machine class is Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64; no user or host name is recorded. On Linux, the same report fields are populated from Node's CPU and memory APIs.
 
 | scenario | frame | mount | update | long task | DOM |
 | --- | ---: | ---: | ---: | ---: |
-| markdown code stream (150 KB) | 16.7 / 18.3 / 18.6 | 3.8 / 4.5 / 4.5 | 2.5 / 4.7 / 8.5 | 0.0 / 0.0 / 0.0 | 38 |
-| markdown plain stream (150 KB) | 16.7 / 18.5 / 18.7 | 1.1 / 1.2 / 1.2 | 3.5 / 7.6 / 14.6 | 0.0 / 0.0 / 0.0 | 1,718 |
-| tool output (1 MB) | 16.7 / 18.4 / 18.6 | 2.1 / 2.1 / 2.1 | 0.9 / 2.0 / 8.8 | 0.0 / 0.0 / 0.0 | 29 |
-| transcript (1,000 turns) | 16.7 / 18.5 / 18.6 | 24.3 / 29.6 / 29.6 | 1.6 / 2.3 / 2.3 | 0.0 / 0.0 / 0.0 | 136 |
-| diff (2 MB) | 16.7 / 17.7 / 18.0 | 10.1 / 10.7 / 10.7 | 2.0 / 2.0 / 2.0 | 0.0 / 0.0 / 0.0 | 168 |
-| thread shells (10,000) | 16.7 / 18.6 / 18.7 | 5.2 / 5.6 / 5.6 | 0.9 / 1.6 / 1.6 | 0.0 / 0.0 / 0.0 | 38 |
-| workspace files (10,000) | 16.7 / 18.2 / 18.6 | 5.0 / 5.0 / 5.0 | 1.1 / 1.3 / 1.6 | 0.0 / 0.0 / 0.0 | 38 |
-| picker catalog (10,000) | 16.7 / 18.4 / 18.7 | 5.0 / 5.9 / 5.9 | 1.0 / 1.5 / 2.7 | 0.0 / 0.0 / 0.0 | 38 |
-| long user message (12 KB) | 16.7 / 18.3 / 18.7 | 15.2 / 16.6 / 16.6 | 0.7 / 9.5 / 9.5 | 0.0 / 0.0 / 0.0 | 22 |
+| markdown code stream (150 KB) | 16.7 / 18.1 / 18.6 | 3.9 / 10.4 / 10.4 | 2.4 / 3.7 / 8.7 | 0.0 / 0.0 / 0.0 | 38 |
+| markdown plain stream (150 KB) | 16.7 / 18.1 / 18.7 | 1.3 / 2.5 / 2.5 | 3.4 / 8.2 / 17.0 | 0.0 / 0.0 / 0.0 | 1,718 |
+| tool output (1 MB) | 16.7 / 18.4 / 18.7 | 2.5 / 10.0 / 10.0 | 0.5 / 1.1 / 11.5 | 0.0 / 0.0 / 0.0 | 29 |
+| transcript (1,000 turns) | 16.6 / 17.6 / 18.5 | 22.2 / 30.5 / 30.5 | 1.3 / 1.8 / 1.8 | 0.0 / 0.0 / 0.0 | 136 |
+| diff (2 MB) | 16.7 / 18.5 / 18.6 | 10.3 / 11.5 / 11.5 | 1.9 / 2.2 / 2.2 | 0.0 / 0.0 / 0.0 | 168 |
+| thread shells (10,000) | 16.7 / 17.8 / 18.3 | 5.1 / 5.4 / 5.4 | 1.0 / 1.6 / 1.7 | 0.0 / 0.0 / 0.0 | 38 |
+| workspace files (10,000) | 16.7 / 17.9 / 18.5 | 5.2 / 5.5 / 5.5 | 1.0 / 1.5 / 1.7 | 0.0 / 0.0 / 0.0 | 38 |
+| picker catalog (10,000) | 16.7 / 18.1 / 18.4 | 5.2 / 5.6 / 5.6 | 1.0 / 1.6 / 2.8 | 0.0 / 0.0 / 0.0 | 38 |
+| long user message (12 KB) | 16.7 / 18.0 / 18.1 | 7.7 / 15.4 / 15.4 | 8.3 / 8.3 / 8.3 | 0.0 / 0.0 / 0.0 | 22 |
 
 For a reproducible before/after comparison, commit `6ddb454` was detached into a temporary worktree, built with the same production command, and measured with the same nine-scenario workload and current harness on this same machine class. The baseline evidence—including subject commit, harness commit, SHA-256 harness fingerprint, the exact harness file list, fixture, build mode, machine metadata, and every scenario's mount/update median / p95 / max values—is committed in `reports/renderer-baseline-6ddb454.json`; the current run is in `reports/renderer-report.json`. The 1,000-turn transcript's one-time mount remains an explicitly documented 40 ms / 60 ms exception because it measures virtualizer setup rather than a steady-state update; long-user-message has no relaxed budget. Both artifacts record the relative Electron executable, default GPU mode, sequential (non-parallel) scenario load, and the caveat that a failed fixture sanity check never writes an accepted report. The valid production fixture rejects missing readiness markers, wrong scenario IDs, implausible DOM counts, insufficient commits, insufficient frames, and missing Profiler/fallback mount or update measurements before a report is written. The Long Task observer was available in the current run.
 
