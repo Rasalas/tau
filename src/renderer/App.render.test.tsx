@@ -182,10 +182,16 @@ describe("App render isolation", () => {
     const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(draft, { target: { value: "keep this draft" } });
     const image = new File([new Uint8Array([137, 80, 78, 71])], "dropped.png", { type: "image/png" });
+    const liveFilesBacking = [image];
+    const liveFiles = {
+      get length() { return liveFilesBacking.length; },
+      item(index: number) { return liveFilesBacking[index] ?? null; },
+      get 0() { return liveFilesBacking[0]; },
+    } as unknown as FileList;
     const dataTransfer = {
       types: ["Files"],
       items: [{ type: "image/png" }],
-      files: [image],
+      files: liveFiles,
       dropEffect: "none",
     } as unknown as DataTransfer;
 
@@ -196,6 +202,7 @@ describe("App render isolation", () => {
 
     fireEvent.dragEnter(column, { dataTransfer });
     fireEvent.drop(column, { dataTransfer });
+    liveFilesBacking.length = 0;
     expect(screen.queryByRole("status")).toBeNull();
     expect(await screen.findByRole("button", { name: "Preview dropped.png" })).toBeTruthy();
     expect(draft.value).toBe("keep this draft");

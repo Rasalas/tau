@@ -234,7 +234,10 @@ export function Composer({
     }
   }, []);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
-    const operation = attachmentQueueRef.current.then(() => processFiles(files));
+    // DataTransfer.files is a live FileList and may be emptied once the drop
+    // event returns. Snapshot it before entering the asynchronous queue.
+    const snapshot = Array.from(files);
+    const operation = attachmentQueueRef.current.then(() => processFiles(snapshot));
     attachmentQueueRef.current = operation.then(() => undefined, () => undefined);
     return operation;
   }, [processFiles]);
