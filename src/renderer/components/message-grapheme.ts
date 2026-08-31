@@ -50,6 +50,11 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
       if (lineCount > LONG_MESSAGE_LINE_LIMIT) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
     }
     if (character === "\u200d") {
+      if (joined) {
+        // A second ZWJ has no preceding EP Extend* opportunity to consume.
+        joined = false;
+        previousExtendedPictographic = false;
+      }
       if (hasBase && previousExtendedPictographic) joined = true;
       else if (!hasBase && !leadingExtenderCluster) {
         count += 1;
@@ -58,7 +63,10 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
       if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
       continue;
     }
-    const isExtender = MARK.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff);
+    const isExtender = MARK.test(character)
+      || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+      || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff)
+      || (codePoint >= 0xe0020 && codePoint <= 0xe007f);
     if (isExtender) {
       // An extender after ZWJ is still attached to the preceding cluster, but
       // it breaks GB11's EP Extend* ZWJ × EP opportunity.

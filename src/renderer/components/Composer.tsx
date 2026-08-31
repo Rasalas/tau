@@ -286,7 +286,7 @@ export function Composer({
         }}
       >
         {attachments.length > 0 ? (
-          <AttachmentImageDialog images={attachments.map((attachment) => ({
+          <AttachmentImageDialog portal={false} images={attachments.map((attachment) => ({
             key: String(attachment.id),
             src: attachment.previewUrl,
             alt: attachment.name,

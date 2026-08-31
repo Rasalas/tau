@@ -42,7 +42,9 @@ describe("Composer attachments", () => {
     const thumbnail = await screen.findByRole("button", { name: "Preview diagram.png" });
     expect(thumbnail.closest(".composer-attachments")).toBeTruthy();
     fireEvent.click(thumbnail);
-    expect(screen.getByRole("dialog", { name: "diagram.png" })).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "diagram.png" });
+    expect(dialog).toBeTruthy();
+    expect(dialog.parentElement).not.toBe(document.body);
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));

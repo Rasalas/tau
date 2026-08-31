@@ -24,6 +24,8 @@ describe("message grapheme boundaries", () => {
     expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
     expect(isLongMessage(("👨‍a".repeat(300)) + "👨")).toBe(true);
     expect(fallbackGraphemeCount("👨‍́👩", 600).count).toBe(2);
+    expect(fallbackGraphemeCount("👨‍👩", 600).count).toBe(1);
+    expect(fallbackGraphemeCount("👨‍‍👩", 600).count).toBe(2);
     expect(isLongMessage("a\u200db".repeat(301))).toBe(true);
     expect(isLongMessage("\u0301\u0302" + "a".repeat(599))).toBe(false);
     expect(isLongMessage("\u0301\u0302" + "a".repeat(600))).toBe(true);
@@ -32,6 +34,9 @@ describe("message grapheme boundaries", () => {
     expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(true);
     expect(isLongMessage("\u0301" + "a".repeat(600))).toBe(true);
     expect(isLongMessage("\u200d" + "a".repeat(600))).toBe(true);
+    const englandFlag = "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}";
+    expect(isLongMessage(englandFlag.repeat(600))).toBe(false);
+    expect(isLongMessage(englandFlag.repeat(600) + "a")).toBe(true);
     const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
     expect(bounded.exhausted).toBe(true);
     expect(bounded.examinedCodePoints).toBe(GRAPHEME_CODEPOINT_BUDGET);

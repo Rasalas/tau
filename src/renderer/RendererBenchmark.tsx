@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Profiler, useEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
 import { DiffView } from "./components/DiffView";
 import { Message } from "./components/Message";
@@ -13,7 +13,9 @@ interface BenchmarkResult {
   frameIntervalsMs: number[];
   longTasksMs: number[];
   longTaskObserverSupported: boolean;
-  commitDurationsMs: number[];
+  profilerMountCaptured: boolean;
+  mountDurationsMs: number[];
+  updateDurationsMs: number[];
   commits: number;
   domNodes: number;
   heapBytes?: number;
@@ -22,6 +24,22 @@ interface BenchmarkResult {
 declare global {
   interface Window { __TAU_RENDERER_BENCHMARK__?: BenchmarkResult; }
 }
+
+const longTaskCapture = (() => {
+  const durations: number[] = [];
+  if (typeof PerformanceObserver === "undefined") return { durations, supported: false, observer: undefined };
+  try {
+    const observer = new PerformanceObserver((entries) => {
+      entries.getEntries().forEach((entry) => durations.push(entry.duration));
+    });
+    // This module is loaded before the benchmark component mounts, so mount
+    // work is observed consistently instead of being lost in useEffect setup.
+    observer.observe({ type: "longtask", buffered: true });
+    return { durations, supported: true, observer };
+  } catch {
+    return { durations, supported: false, observer: undefined };
+  }
+})();
 
 function codeChunk(index: number): string {
   return Array.from({ length: 48 }, (_, line) => `const value${index}_${line} = ${line}; // streamed benchmark line\n`).join("");
@@ -61,10 +79,9 @@ export default function RendererBenchmark() {
   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
   const [toolOutput, setToolOutput] = useState("");
   const [listQuery, setListQuery] = useState("");
-  const commits = useRef<number[]>([]);
+  const mountDurations = useRef<number[]>([]);
+  const updateDurations = useRef<number[]>([]);
   const frames = useRef<number[]>([]);
-  const longTasks = useRef<number[]>([]);
-  const initialCommit = useRef(true);
   const [benchmarkPulse, setBenchmarkPulse] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
@@ -77,18 +94,10 @@ export default function RendererBenchmark() {
   const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
   const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage() : undefined, [scenario]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
-  // Fixture construction is setup, not renderer commit work. Start timing only
-  // after the scenario-specific input exists, matching production data flow.
-  const updateStartedAt = useRef(performance.now());
-
-  useLayoutEffect(() => {
-    if (scenario === "transcript-1000-turns" && initialCommit.current) {
-      initialCommit.current = false;
-      commits.current = [];
-      return;
-    }
-    commits.current.push(performance.now() - updateStartedAt.current);
-  }, [listQuery, text, toolOutput, scenario, benchmarkPulse]);
+  const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
+    if (phase === "mount") mountDurations.current.push(actualDuration);
+    else updateDurations.current.push(actualDuration);
+  };
 
   useEffect(() => {
     let frame = 0;
@@ -100,36 +109,24 @@ export default function RendererBenchmark() {
       if (!stopped) requestAnimationFrame(observeFrame);
     };
     requestAnimationFrame(observeFrame);
-    let longTaskObserverSupported = typeof PerformanceObserver !== "undefined";
-    let scenarioStarted = false;
-    let observer: PerformanceObserver | undefined;
-    try {
-      observer = new PerformanceObserver((entries) => {
-        if (scenarioStarted) entries.getEntries().forEach((entry) => longTasks.current.push(entry.duration));
-      });
-      observer.observe({ type: "longtask", buffered: true });
-    } catch {
-      longTaskObserverSupported = false;
-      observer?.disconnect();
-      observer = undefined;
-    }
-
     const finish = () => {
       let settleFrames = 0;
       const settle = () => {
         settleFrames += 1;
         if (settleFrames < 8) { requestAnimationFrame(settle); return; }
         stopped = true;
-        observer?.disconnect();
+        longTaskCapture.observer?.disconnect();
         const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
         window.__TAU_RENDERER_BENCHMARK__ = {
           ready: true,
           scenario,
           frameIntervalsMs: frames.current.slice(2),
-          longTasksMs: longTasks.current,
-          longTaskObserverSupported,
-          commitDurationsMs: commits.current,
-          commits: commits.current.length,
+          longTasksMs: longTaskCapture.durations,
+          longTaskObserverSupported: longTaskCapture.supported,
+          profilerMountCaptured: mountDurations.current.length > 0,
+          mountDurationsMs: mountDurations.current,
+          updateDurationsMs: updateDurations.current,
+          commits: updateDurations.current.length,
           domNodes: document.getElementsByTagName("*").length,
           heapBytes: memory.memory?.usedJSHeapSize,
         };
@@ -141,8 +138,6 @@ export default function RendererBenchmark() {
       const append = () => {
         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
         frame += 1;
-        scenarioStarted = true;
-        updateStartedAt.current = performance.now();
         setText((current) => {
           const remaining = targetBytes - current.length;
           return remaining > 0 ? current + chunk.slice(0, remaining) : current;
@@ -154,8 +149,6 @@ export default function RendererBenchmark() {
     } else if (scenario === "tool-output-1mb") {
       const chunk = "tool output benchmark line\n".repeat(640);
       const append = () => {
-        scenarioStarted = true;
-        updateStartedAt.current = performance.now();
         setToolOutput((current) => current + chunk.slice(0, targetBytes - current.length));
         frame += 1;
         if (frame * chunk.length < targetBytes) requestAnimationFrame(append);
@@ -167,21 +160,17 @@ export default function RendererBenchmark() {
       const update = () => {
         const query = queries.shift();
         if (query === undefined) { finish(); return; }
-        updateStartedAt.current = performance.now();
-        scenarioStarted = true;
         setListQuery(query);
         requestAnimationFrame(update);
       };
       requestAnimationFrame(update);
     } else {
       requestAnimationFrame(() => {
-        scenarioStarted = true;
-        updateStartedAt.current = performance.now();
         setBenchmarkPulse((pulse) => pulse + 1);
         finish();
       });
     }
-    return () => { stopped = true; observer?.disconnect(); };
+    return () => { stopped = true; longTaskCapture.observer?.disconnect(); };
   }, [scenario, targetBytes]);
 
   let content;
@@ -208,5 +197,5 @@ export default function RendererBenchmark() {
     content = <DiffView diff={diff!} mode="unified" />;
   }
 
-  return <main className="renderer-benchmark">{content}</main>;
+  return <main className="renderer-benchmark"><Profiler id={scenario} onRender={onRender}>{content}</Profiler></main>;
 }

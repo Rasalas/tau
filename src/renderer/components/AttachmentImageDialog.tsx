@@ -22,9 +22,12 @@ const FOCUSABLE = [
 export function AttachmentImageDialog({
   images,
   children,
+  portal = true,
 }: {
   images: readonly AttachmentImage[];
   children(open: (index: number) => void): ReactNode;
+  /** Composer keeps its established in-flow preview; message previews need a viewport portal. */
+  portal?: boolean;
 }) {
   const [previewIndex, setPreviewIndex] = useState<number>();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -69,9 +72,7 @@ export function AttachmentImageDialog({
     };
   }, [Boolean(preview)]);
 
-  return <>
-    {children((index) => setPreviewIndex(index))}
-    {preview ? createPortal(
+  const dialog = preview ? (
       <div
         ref={dialogRef}
         className="attachment-lightbox"
@@ -86,8 +87,11 @@ export function AttachmentImageDialog({
           <img src={preview.src} alt={preview.alt} />
           {preview.label ? <figcaption>{preview.label}</figcaption> : null}
         </figure>
-      </div>,
-      document.body,
-    ) : null}
+      </div>
+    ) : null;
+
+  return <>
+    {children((index) => setPreviewIndex(index))}
+    {portal && dialog ? createPortal(dialog, document.body) : dialog}
   </>;
 }

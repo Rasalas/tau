@@ -1,4 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +39,18 @@ function commitSha() {
   }
 }
 
+const harnessFiles = [
+  "benchmarks/renderer-fixtures.json",
+  "scripts/renderer-benchmark.mjs",
+  "scripts/renderer-benchmark-fixture.cjs",
+  "src/renderer/RendererBenchmark.tsx",
+];
+const harnessPatchSha256 = createHash("sha256")
+  .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
+  .digest("hex");
+const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? commitSha();
+const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? commitSha();
+
 if (!skipBuild) run("npm", ["run", "build"]);
 
 function sampleScenario(scenario) {
@@ -49,6 +63,12 @@ function sampleScenario(scenario) {
     const sanity = scenario.sanity ?? {};
     if (result.ready !== true || result.scenario !== scenario.id) {
       throw new Error(`renderer fixture returned an invalid readiness marker for ${scenario.id}`);
+    }
+    if (result.profilerMountCaptured !== true || !Array.isArray(result.mountDurationsMs) || result.mountDurationsMs.length === 0 || result.mountDurationsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
+      throw new Error(`renderer fixture did not capture a valid Profiler mount for ${scenario.id}`);
+    }
+    if (!Array.isArray(result.updateDurationsMs) || result.updateDurationsMs.length === 0 || result.updateDurationsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
+      throw new Error(`renderer fixture did not capture a valid Profiler update for ${scenario.id}`);
     }
     if (!Number.isFinite(result.domNodes) || result.domNodes < (sanity.minDomNodes ?? 1) || result.domNodes > (sanity.maxDomNodes ?? Number.POSITIVE_INFINITY)) {
       throw new Error(`renderer fixture returned implausible DOM node count for ${scenario.id}: ${result.domNodes}`);
@@ -63,7 +83,8 @@ function sampleScenario(scenario) {
   }
   const frames = samples.flatMap((sample) => sample.frameIntervalsMs);
   const longTasks = samples.flatMap((sample) => sample.longTasksMs);
-  const commitDurations = samples.flatMap((sample) => sample.commitDurationsMs);
+  const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
+  const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
   const heaps = samples.map((sample) => sample.heapBytes ?? 0);
   return {
     id: scenario.id,
@@ -72,7 +93,8 @@ function sampleScenario(scenario) {
     longTaskObserverSupported: samples.every((sample) => sample.longTaskObserverSupported === true),
     frameIntervalsMs: { median: percentile(frames, 0.5), p95: percentile(frames, 0.95), maximum: Math.max(0, ...frames) },
     longTasksMs: { count: longTasks.length, median: percentile(longTasks, 0.5), p95: percentile(longTasks, 0.95), maximum: Math.max(0, ...longTasks) },
-    commitDurationsMs: { median: percentile(commitDurations, 0.5), p95: percentile(commitDurations, 0.95), maximum: Math.max(0, ...commitDurations) },
+    mountDurationsMs: { median: percentile(mountDurations, 0.5), p95: percentile(mountDurations, 0.95), maximum: Math.max(0, ...mountDurations) },
+    updateDurationsMs: { median: percentile(updateDurations, 0.5), p95: percentile(updateDurations, 0.95), maximum: Math.max(0, ...updateDurations) },
     commits: Math.max(...samples.map((sample) => sample.commits)),
     domNodes: Math.max(...samples.map((sample) => sample.domNodes)),
     heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
@@ -83,6 +105,9 @@ const report = {
   schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   commitSha: commitSha(),
+  subjectCommit,
+  harnessCommit,
+  harnessPatchSha256,
   execution: {
     electronExecutable: "node_modules/.bin/electron",
     gpu: "default",
@@ -93,6 +118,12 @@ const report = {
   startConditions: fixture.startConditions,
   scenarios: fixture.scenarios.map(sampleScenario),
 };
+for (const scenario of report.scenarios) {
+  for (const metric of ["frameIntervalsMs", "longTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
+    const distribution = scenario[metric];
+    if (distribution && distribution.p95 > distribution.maximum) throw new Error(`${scenario.id} ${metric} p95 exceeds maximum`);
+  }
+}
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
 
