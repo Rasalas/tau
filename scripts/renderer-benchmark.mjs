@@ -40,6 +40,8 @@ function requireSha(value, label, length) {
   return value;
 }
 
+const reportCommit = requireSha(commitSha(), "report commit", 40);
+
 function buildArtifactSha256() {
   const files = [];
   const visit = (directory) => {
@@ -64,8 +66,9 @@ const harnessFiles = [
   "scripts/performance-budgets.json",
   "src/renderer/RendererBenchmark.tsx",
 ];
+const harnessFileSha256 = Object.fromEntries(harnessFiles.map((file) => [file, createHash("sha256").update(readFileSync(join(ROOT, file))).digest("hex")]));
 const harnessSourceSha256 = createHash("sha256")
-  .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
+  .update(harnessFiles.map((file) => `${file}\0${harnessFileSha256[file]}`).join("\0"))
   .digest("hex");
 const harnessPatchFile = process.env.TAU_BENCHMARK_HARNESS_PATCH_FILE ?? "reports/renderer-baseline-6ddb454-harness.patch";
 const harnessPatchPath = join(ROOT, harnessPatchFile);
@@ -73,8 +76,8 @@ const harnessPatchSha256 = process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256
   ?? (existsSync(harnessPatchPath)
     ? createHash("sha256").update(readFileSync(harnessPatchPath)).digest("hex")
     : harnessSourceSha256);
-const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? commitSha();
-const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? commitSha();
+const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? reportCommit;
+const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? reportCommit;
 requireSha(subjectCommit, "subject commit", 40);
 requireSha(harnessCommit, "harness commit", 40);
 requireSha(harnessPatchSha256, "harness patch SHA-256", 64);
@@ -178,10 +181,11 @@ function sampleScenario(scenario) {
 const report = {
   schemaVersion: 2,
   generatedAt: new Date().toISOString(),
-  commitSha: commitSha(),
+  commitSha: reportCommit,
   subjectCommit,
   harnessCommit,
   harnessSourceSha256,
+  harnessFileSha256,
   harnessPatchSha256,
   harnessBundleSha256,
   reproducibilityScript: "scripts/reproduce-renderer-baseline.mjs",
