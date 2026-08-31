@@ -9,7 +9,7 @@ import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../..
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
 import { LEGACY_BRIDGE_SNAPSHOT_RECORD_LIMIT } from "../../src/shared/transcript-completeness.js";
 import type { TranscriptHistoryCompleteness } from "../../src/shared/transcript-completeness.js";
-import { parseRawBridgeTranscriptCursor, type RawBridgeTranscriptCursor } from "../../src/shared/transcript-cursor.js";
+import { parseRawBridgeTranscriptCursor, rawBridgeTranscriptCursorAt, type RawBridgeTranscriptCursor } from "../../src/shared/transcript-cursor.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -64,8 +64,8 @@ function buildTranscriptView(
   }
 
   const cursor = policy.kind === "older-page" ? policy.cursor : undefined;
-  const bounds = transcriptPageBounds(branchMessages, policy.turnLimit, cursor);
-  const olderCursor = bounds.olderCursor === undefined ? undefined : parseRawBridgeTranscriptCursor(bounds.olderCursor);
+  const bounds = transcriptPageBounds(branchMessages, policy.turnLimit, cursor, rawBridgeTranscriptCursorAt);
+  const olderCursor = bounds.olderCursor;
   const visibleMessages = branchMessages.slice(bounds.start, bounds.end);
   return {
     branchMessages,
@@ -152,7 +152,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       ...(paged ? {
         messagesOffset: view.messagesOffset,
         capabilities: { transcriptPaging: true },
-        ...(view.olderCursor ? { olderCursor: view.olderCursor } : {}),
+        ...(view.olderCursor ? { olderCursor: view.olderCursor.value } : {}),
         historyCompleteness: view.historyCompleteness,
       } : {}),
       isStreaming: !ctx.isIdle(),
@@ -183,7 +183,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       sessionId: ctx.sessionManager.getSessionId(),
       messages: boundedBridgeValue(view.visibleMessages),
       messagesOffset: view.messagesOffset,
-      ...(view.olderCursor ? { olderCursor: view.olderCursor } : {}),
+      ...(view.olderCursor ? { olderCursor: view.olderCursor.value } : {}),
       hasMore: view.hasMore,
       historyCompleteness: view.historyCompleteness,
       taskHistory: taskProgressHistoryFromMessages(view.taskHistoryMessages),

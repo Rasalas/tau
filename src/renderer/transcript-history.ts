@@ -1,6 +1,6 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
-import { parseLocalTranscriptCursor, type LocalTranscriptCursor } from "../shared/transcript-cursor";
+import { parseTranscriptCursor, type TranscriptCursor } from "../shared/transcript-cursor";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
 import {
   captureTranscriptScrollAnchor,
@@ -43,9 +43,9 @@ export {
   restoreTranscriptScrollAnchor,
 } from "./transcript-history-page-state";
 
-function localCursor(value: string | undefined): LocalTranscriptCursor | undefined {
+function normalizeCursor(value: TranscriptCursor | string | undefined): TranscriptCursor | undefined {
   if (value === undefined) return undefined;
-  try { return parseLocalTranscriptCursor(value); }
+  try { return parseTranscriptCursor(value); }
   catch { return undefined; }
 }
 
@@ -76,14 +76,14 @@ export class TranscriptHistoryController {
         taskProgress: initialSnapshot.taskProgress,
         taskHistory: initialSnapshot.taskHistory,
         contextUsage: initialSnapshot.contextUsage,
-        olderCursor: initialSnapshot.olderCursor,
+        olderCursor: normalizeCursor(initialSnapshot.olderCursor),
         hasMore: initialSnapshot.olderCursor !== undefined,
         historyCompleteness: initialSnapshot.historyCompleteness,
       });
     }
     this.state = {
       sessionId: initialSnapshot?.sessionId,
-      olderCursor: localCursor(initialSnapshot?.olderCursor),
+      olderCursor: normalizeCursor(initialSnapshot?.olderCursor),
       historyCompleteness: initialSnapshot?.historyCompleteness,
       loading: false,
     };
@@ -126,12 +126,17 @@ export class TranscriptHistoryController {
     request?: TranscriptBootstrapRequest,
   ): boolean {
     if (request && !this.isCurrentBootstrap(request)) return false;
+    if (!request && this.state.loading && this.coordinator.isActiveThread(snapshot.sessionId)) {
+      const applied = this.applyDetail(detail, snapshot);
+      return applied !== undefined;
+    }
+    const normalizedCursor = normalizeCursor(snapshot.olderCursor);
     this.applyThreadState(snapshot.sessionId, snapshot.olderCursor, snapshot.historyCompleteness);
-    this.cache.setDetail(detail);
-    this.cache.setSnapshot(snapshot);
+    this.cache.setDetail({ ...detail, olderCursor: normalizeCursor(detail.olderCursor) });
+    this.cache.setSnapshot({ ...snapshot, olderCursor: normalizedCursor });
     this.publish({
       sessionId: snapshot.sessionId,
-      olderCursor: localCursor(snapshot.olderCursor),
+      olderCursor: normalizedCursor,
       historyCompleteness: detail.historyCompleteness ?? snapshot.historyCompleteness,
       loading: false,
     });
@@ -142,12 +147,16 @@ export class TranscriptHistoryController {
   applyDetail(detail: ThreadDetail, snapshot?: HostSnapshot): TranscriptDetailApplication | undefined {
     if (!this.acceptsDetail(detail.sessionId)) return undefined;
     const previous = this.cache.getDetail(detail.sessionId);
-    const keepHistory = retainsLoadedHistory(previous, detail);
+    const incomingCursor = normalizeCursor(detail.olderCursor);
+    const sameThreadPaging = this.state.loading
+      && this.coordinator.isActiveThread(detail.sessionId)
+      && previous?.sessionId === detail.sessionId;
+    const keepHistory = sameThreadPaging || retainsLoadedHistory(previous, detail);
     const messages = keepHistory
-      ? mergeTranscriptMessages(previous.messages, detail.messages)
+      ? mergeTranscriptMessages(previous?.messages ?? [], detail.messages)
       : detail.messages;
     const taskHistory = keepHistory
-      ? mergeTaskHistory(previous.taskHistory, detail.taskHistory)
+      ? mergeTaskHistory(previous?.taskHistory, detail.taskHistory)
       : detail.taskHistory;
     const transcriptMessageIndexes = mergeTranscriptMessageIndexes(
       previous?.messages,
@@ -161,7 +170,7 @@ export class TranscriptHistoryController {
       messages,
       ...(transcriptMessageIndexes ? { transcriptMessageIndexes } : { transcriptMessageIndexes: undefined }),
       taskHistory,
-      olderCursor: keepHistory ? previous.olderCursor : detail.olderCursor,
+      olderCursor: keepHistory ? previous?.olderCursor : incomingCursor,
       hasMore: keepHistory ? previous.hasMore : detail.hasMore,
       historyCompleteness: keepHistory ? previous.historyCompleteness : detail.historyCompleteness,
     };
@@ -179,7 +188,7 @@ export class TranscriptHistoryController {
       taskHistory,
       contextUsage: renderedDetail.contextUsage,
     } : undefined;
-    const preservePagingRequest = this.state.loading && keepHistory;
+    const preservePagingRequest = sameThreadPaging;
     const preserveAnchor = !preservePagingRequest
       && keepHistory
       && this.coordinator.isActiveThread(renderedDetail.sessionId)
@@ -193,8 +202,8 @@ export class TranscriptHistoryController {
     this.cache.setDetail(renderedDetail);
     if (renderedSnapshot) this.cache.setSnapshot(renderedSnapshot);
     this.publish(preservePagingRequest
-      ? { ...this.state, sessionId: renderedDetail.sessionId, olderCursor: localCursor(renderedDetail.olderCursor), historyCompleteness: renderedDetail.historyCompleteness }
-      : { sessionId: renderedDetail.sessionId, olderCursor: localCursor(renderedDetail.olderCursor), historyCompleteness: renderedDetail.historyCompleteness, loading: false });
+      ? { ...this.state, sessionId: renderedDetail.sessionId, olderCursor: normalizeCursor(renderedDetail.olderCursor), historyCompleteness: renderedDetail.historyCompleteness }
+      : { sessionId: renderedDetail.sessionId, olderCursor: normalizeCursor(renderedDetail.olderCursor), historyCompleteness: renderedDetail.historyCompleteness, loading: false });
     this.persistCache();
     return { detail: renderedDetail, snapshot: renderedSnapshot };
   }
@@ -253,6 +262,7 @@ export class TranscriptHistoryController {
     if (!accepted) return undefined;
 
     const currentDetail = this.cache.getDetail(page.sessionId);
+    const pageCursor = normalizeCursor(page.olderCursor);
     const currentMessages = mergeTranscriptMessages(currentDetail?.messages ?? [], visibleMessages);
     const messages = mergeTranscriptMessages(currentMessages, page.messages, "prepend");
     const taskHistory = mergeTaskHistory(currentDetail?.taskHistory, page.taskHistory);
@@ -268,7 +278,7 @@ export class TranscriptHistoryController {
       messages,
       ...(transcriptMessageIndexes ? { transcriptMessageIndexes } : { transcriptMessageIndexes: undefined }),
       taskHistory,
-      olderCursor: page.olderCursor,
+      olderCursor: pageCursor,
       hasMore: page.hasMore,
       historyCompleteness: page.historyCompleteness,
     } : undefined;
@@ -290,7 +300,7 @@ export class TranscriptHistoryController {
         messages,
         ...(snapshotIndexes ? { transcriptMessageIndexes: snapshotIndexes } : { transcriptMessageIndexes: undefined }),
         taskHistory,
-        olderCursor: page.olderCursor,
+        olderCursor: pageCursor,
         historyCompleteness: page.historyCompleteness,
       };
       this.cache.setSnapshot(snapshot);
@@ -299,7 +309,7 @@ export class TranscriptHistoryController {
     this.publish({
       ...this.state,
       sessionId: page.sessionId,
-      olderCursor: localCursor(page.olderCursor),
+      olderCursor: pageCursor,
       historyCompleteness: page.historyCompleteness,
     });
     return { messages, detail, snapshot };
@@ -339,7 +349,7 @@ export class TranscriptHistoryController {
 
   private applyThreadState(
     sessionId: string,
-    olderCursor?: string,
+    olderCursor?: TranscriptCursor | string,
     historyCompleteness?: TranscriptHistoryCompleteness,
     preserveAnchor = false,
   ): void {
@@ -348,7 +358,7 @@ export class TranscriptHistoryController {
     this.pageState.restoreLease(lease);
     this.state = {
       sessionId,
-      olderCursor: localCursor(olderCursor),
+      olderCursor: normalizeCursor(olderCursor),
       historyCompleteness,
       loading: false,
     };

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./pi-host.js";
-import { parseRawBridgeTranscriptCursor } from "../shared/transcript-cursor.js";
 
 describe("Pi message mapping", () => {
   it("keeps user image content for the renderer", () => {
@@ -47,7 +46,7 @@ describe("Pi message mapping", () => {
       sessionId: "thread",
       messages: [{ id: "user" }],
       transcriptMessageIndexes: [11],
-      olderCursor: "4",
+      olderCursor: { kind: "bridge", value: "4" },
       hasMore: true,
     });
     expect(() => mapBridgeTranscriptPageValue("thread", {
@@ -55,6 +54,19 @@ describe("Pi message mapping", () => {
     })).toThrow("invalid transcript page cursor");
     expect(() => mapBridgeTranscriptPageValue("thread", {
       sessionId: "thread", messages: [], hasMore: true,
+    })).toThrow("invalid transcript page");
+  });
+
+  it.each([
+    ["complete with cursor", { olderCursor: "4", hasMore: false, historyCompleteness: "complete" }],
+    ["has-more without cursor", { hasMore: true, historyCompleteness: "has-more" }],
+    ["legacy-truncated with cursor", { olderCursor: "4", hasMore: false, historyCompleteness: "legacy-truncated" }],
+    ["unknown with cursor", { olderCursor: "4", hasMore: false, historyCompleteness: "unknown" }],
+  ])("rejects contradictory bridge page metadata: %s", (_label, metadata) => {
+    expect(() => mapBridgeTranscriptPageValue("thread", {
+      sessionId: "thread",
+      messages: [],
+      ...metadata,
     })).toThrow("invalid transcript page");
   });
 
@@ -75,7 +87,7 @@ describe("Pi message mapping", () => {
     expect(historyCompletenessForBridgeSnapshot({
       messages: Array.from({ length: 160 }, () => ({ role: "user" })),
       capabilities: { transcriptPaging: true },
-      olderCursor: parseRawBridgeTranscriptCursor("80"),
+      olderCursor: "80",
     })).toBe("has-more");
     expect(historyCompletenessForBridgeSnapshot({
       messages: [],

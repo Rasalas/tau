@@ -1,6 +1,5 @@
 import type { ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress } from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
-import type { RawBridgeTranscriptCursor } from "./transcript-cursor.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -30,7 +29,8 @@ export interface PiBridgeDescriptor {
   startedAt: number;
 }
 
-export interface PiBridgeSnapshot extends TranscriptBundle<unknown, never, RawBridgeTranscriptCursor> {
+/** Wire payload: the bridge cursor remains an opaque JSON string at this seam. */
+export interface PiBridgeSnapshot extends TranscriptBundle<unknown, never, string> {
   sessionId: string;
   sessionFile: string;
   cwd: string;
@@ -55,7 +55,8 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, never, RawBr
 }
 
 /** A bounded raw branch page returned by a Pi-owned runtime. */
-export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, never, RawBridgeTranscriptCursor> {
+/** Wire payload: callers normalize the raw cursor before routing it further. */
+export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, never, string> {
   /** Raw branch index of the first entry in `messages`. */
   messagesOffset?: number;
 }

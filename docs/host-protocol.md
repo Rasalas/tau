@@ -12,6 +12,14 @@ state; it must not reinterpret it as a `HostSnapshot`.
 - `project` contains workspace identity, branch, and optional project metadata.
 - `run` contains lifecycle state for the active session.
 
+Within the typed host/page contracts, `olderCursor` is a discriminated cursor:
+`{ kind: "local", value }` for normalized host coordinates or
+`{ kind: "bridge", value }` for Pi branch coordinates. Legacy string cursors
+are accepted at the v1 boundary as local coordinates. The Pi socket continues
+to encode its bridge cursor as an opaque string; the host attaches the bridge
+origin before it enters page state and only converts coordinates when a raw
+index projection is available.
+
 The legacy `HostSnapshot` remains a recovery shape for pre-v1 clients only. New
 bootstrap responses provide `version`, detail, catalog, project metadata, and the
 thread index separately; normal metadata actions return focused updates.

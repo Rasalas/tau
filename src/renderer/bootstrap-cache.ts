@@ -1,6 +1,6 @@
 import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
 import { detailFromSnapshot } from "../shared/host-protocol";
-import { localTranscriptCursorAt, parseLocalTranscriptCursor } from "../shared/transcript-cursor";
+import { localTranscriptCursorAt, rawBridgeTranscriptCursorAt, transcriptCursorValue, type TranscriptCursor } from "../shared/transcript-cursor";
 import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT } from "../shared/transcript-pager";
 
@@ -22,11 +22,14 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   const mappedCursor = retainedIndexes?.[0];
   const existingCursor = snapshot.olderCursor === undefined
     ? undefined
-    : Number(parseLocalTranscriptCursor(snapshot.olderCursor));
+    : Number(transcriptCursorValue(snapshot.olderCursor));
+  const cursorAtOrigin = (index: number): TranscriptCursor => snapshot.olderCursor?.kind === "bridge"
+    ? rawBridgeTranscriptCursorAt(index)
+    : localTranscriptCursorAt(index);
   const boundedCursor = mappedCursor !== undefined
-    ? detail.olderCursor !== undefined && mappedCursor > 0 ? localTranscriptCursorAt(mappedCursor) : undefined
+    ? detail.olderCursor !== undefined && mappedCursor > 0 ? cursorAtOrigin(mappedCursor) : undefined
     : firstRetainedIndex >= 0 && existingCursor !== undefined && Number.isSafeInteger(existingCursor) && existingCursor >= 0
-      && detail.olderCursor !== undefined ? localTranscriptCursorAt(existingCursor + firstRetainedIndex)
+      && detail.olderCursor !== undefined ? cursorAtOrigin(existingCursor + firstRetainedIndex)
       : detail.olderCursor;
   return {
     ...snapshot,

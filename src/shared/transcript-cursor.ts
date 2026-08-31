@@ -1,11 +1,25 @@
 declare const localTranscriptCursorBrand: unique symbol;
 declare const rawBridgeTranscriptCursorBrand: unique symbol;
 
-/** Cursor over the host's normalized/local transcript records. */
-export type LocalTranscriptCursor = string & { readonly [localTranscriptCursorBrand]: true };
+/** The branded value carried by a cursor over local/normalized records. */
+export type LocalTranscriptCursorValue = string & { readonly [localTranscriptCursorBrand]: true };
 
-/** Opaque raw branch cursor returned by the Pi bridge. */
-export type RawBridgeTranscriptCursor = string & { readonly [rawBridgeTranscriptCursorBrand]: true };
+/** Opaque branded value carried by a cursor returned by the Pi bridge. */
+export type RawBridgeTranscriptCursorValue = string & { readonly [rawBridgeTranscriptCursorBrand]: true };
+
+/** Cursor over the host's normalized/local transcript records. */
+export interface LocalTranscriptCursor {
+  readonly kind: "local";
+  readonly value: LocalTranscriptCursorValue;
+}
+
+/** Cursor whose coordinate belongs to the Pi bridge's raw branch. */
+export interface RawBridgeTranscriptCursor {
+  readonly kind: "bridge";
+  readonly value: RawBridgeTranscriptCursorValue;
+}
+
+export type TranscriptCursor = LocalTranscriptCursor | RawBridgeTranscriptCursor;
 
 function parseDecimalCursor(value: unknown, maximum?: number): string {
   if (typeof value !== "string" || !/^\d+$/u.test(value)) throw new Error("Invalid transcript cursor");
@@ -17,18 +31,40 @@ function parseDecimalCursor(value: unknown, maximum?: number): string {
 }
 
 export function parseLocalTranscriptCursor(value: unknown, maximum?: number): LocalTranscriptCursor {
-  return parseDecimalCursor(value, maximum) as LocalTranscriptCursor;
+  return { kind: "local", value: parseDecimalCursor(value, maximum) as LocalTranscriptCursorValue };
 }
 
 export function parseRawBridgeTranscriptCursor(value: unknown): RawBridgeTranscriptCursor {
-  return parseDecimalCursor(value) as RawBridgeTranscriptCursor;
+  return { kind: "bridge", value: parseDecimalCursor(value) as RawBridgeTranscriptCursorValue };
 }
 
 export function localTranscriptCursorAt(index: number): LocalTranscriptCursor {
   if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid transcript cursor");
-  return String(index) as LocalTranscriptCursor;
+  return { kind: "local", value: String(index) as LocalTranscriptCursorValue };
 }
 
-export function transcriptCursorValue(cursor: LocalTranscriptCursor | RawBridgeTranscriptCursor): string {
-  return cursor;
+export function rawBridgeTranscriptCursorAt(index: number): RawBridgeTranscriptCursor {
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid transcript cursor");
+  return { kind: "bridge", value: String(index) as RawBridgeTranscriptCursorValue };
+}
+
+/** Parse either a typed cursor or a legacy v1 string at a contract boundary. */
+export function parseTranscriptCursor(value: unknown, maximum?: number): TranscriptCursor {
+  if (typeof value === "string") return parseLocalTranscriptCursor(value, maximum);
+  if (value !== null && typeof value === "object") {
+    const cursor = value as { kind?: unknown; value?: unknown };
+    if (cursor.kind === "local") return parseLocalTranscriptCursor(cursor.value, maximum);
+    if (cursor.kind === "bridge") return parseRawBridgeTranscriptCursor(cursor.value);
+  }
+  throw new Error("Invalid transcript cursor");
+}
+
+/** Read a cursor value only at a boundary that explicitly handles its origin. */
+export function transcriptCursorValue(cursor: TranscriptCursor | string): string {
+  return typeof cursor === "string" ? cursor : cursor.value;
+}
+
+/** Read the numeric coordinate without changing the cursor's origin. */
+export function transcriptCursorIndex(cursor: TranscriptCursor | string, maximum?: number): number {
+  return Number(parseDecimalCursor(transcriptCursorValue(cursor), maximum));
 }

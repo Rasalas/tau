@@ -18,6 +18,7 @@ import type {
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts";
+import type { TranscriptCursor } from "../shared/transcript-cursor";
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
@@ -840,7 +841,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-  const loadTranscriptPage = useCallback(async (sessionId: string, cursor: string) => {
+  const loadTranscriptPage = useCallback(async (sessionId: string, cursor: TranscriptCursor) => {
     if (!window.tau) throw new Error("Transcript history requires the Electron host.");
     return window.tau.loadTranscript(sessionId, cursor);
   }, []);

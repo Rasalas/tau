@@ -1,11 +1,11 @@
 import type { TranscriptHistoryStatus } from "../transcript-history";
 import type { TranscriptHistoryCompleteness } from "../../shared/transcript-completeness";
-import type { LocalTranscriptCursor } from "../../shared/transcript-cursor";
+import type { TranscriptCursor } from "../../shared/transcript-cursor";
 
 export type { TranscriptHistoryStatus } from "../transcript-history";
 
 export interface TranscriptHistoryControlProps {
-  olderCursor?: LocalTranscriptCursor;
+  olderCursor?: TranscriptCursor;
   historyCompleteness?: TranscriptHistoryCompleteness;
   loading: boolean;
   status?: TranscriptHistoryStatus;
@@ -34,7 +34,7 @@ export function TranscriptHistoryControl({
       : limited
         ? historyCompleteness === "legacy-truncated"
           ? "Older history cannot be loaded with this Pi bridge. Upgrade the bridge to load it."
-          : "Older history availability is unknown. Upgrade the bridge to load it."
+          : "Older history availability cannot be determined with this bridge. An updated bridge may enable loading older turns."
       : status?.state === "success"
         ? `${loadedLabel(status.loadedTurns)}${hasOlder ? "" : " Beginning of history."}`
         : hasOlder

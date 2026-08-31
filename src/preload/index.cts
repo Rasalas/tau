@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DiffLoadOptions, HostEvent, TauDesktopApi } from "../shared/contracts.js";
+import { isHostUpdate } from "../shared/host-protocol.js";
 
 const api: TauDesktopApi = {
   platform: process.platform,
@@ -47,7 +48,12 @@ const api: TauDesktopApi = {
   rebuildWorkbench: () => ipcRenderer.invoke("tau:rebuild-workbench"),
   relaunchWorkbench: () => ipcRenderer.invoke("tau:relaunch-workbench"),
   onHostEvent: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: HostEvent) => listener(payload);
+    const handler = (_event: Electron.IpcRendererEvent, payload: HostEvent) => {
+      // IPC payloads are untrusted. In particular, never let a contradictory
+      // cursor/hasMore/completeness tuple enter the renderer state machine.
+      if (payload?.type === "host-update" && !isHostUpdate(payload.update)) return;
+      listener(payload);
+    };
     ipcRenderer.on("tau:host-event", handler);
     return () => ipcRenderer.removeListener("tau:host-event", handler);
   },

@@ -17,6 +17,33 @@ export function parseTranscriptHistoryCompleteness(value: unknown): TranscriptHi
     : undefined;
 }
 
+/**
+ * Check the cursor/flag/completeness tuple as one protocol value. A page is
+ * actionable only when its three pieces agree; accepting them independently
+ * lets a malformed preload update silently turn a bounded window into a false
+ * end (or make a load impossible by claiming more without a cursor).
+ */
+export function isTranscriptHistoryMetadataConsistent(input: {
+  hasMore: unknown;
+  hasCursor: boolean;
+  historyCompleteness: unknown;
+  requireHasMore: boolean;
+}): boolean {
+  const { hasMore, hasCursor, historyCompleteness, requireHasMore } = input;
+  if (requireHasMore && typeof hasMore !== "boolean") return false;
+  if (hasMore !== undefined && typeof hasMore !== "boolean") return false;
+  if (typeof hasMore === "boolean" && hasMore !== hasCursor) return false;
+
+  const parsed = historyCompleteness === undefined
+    ? undefined
+    : parseTranscriptHistoryCompleteness(historyCompleteness);
+  if (historyCompleteness !== undefined && parsed === undefined) return false;
+  if (parsed === "complete") return !hasMore && !hasCursor;
+  if (parsed === "has-more") return hasMore === true && hasCursor;
+  if (parsed === "legacy-truncated" || parsed === "unknown") return !hasMore && !hasCursor;
+  return true;
+}
+
 /** Resolve a page/window state without allowing an absent cursor to overclaim. */
 export function resolveTranscriptHistoryCompleteness(
   value: unknown,

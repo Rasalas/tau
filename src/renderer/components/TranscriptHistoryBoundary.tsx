@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import type { TranscriptPage } from "../../shared/host-protocol";
-import type { LocalTranscriptCursor } from "../../shared/transcript-cursor";
+import type { TranscriptCursor } from "../../shared/transcript-cursor";
 import { countUserTurns } from "../../shared/transcript-pager";
 import {
   captureTranscriptScrollAnchor,
@@ -14,7 +14,7 @@ export interface TranscriptHistoryBoundaryProps {
   controller: TranscriptHistoryController;
   scrollRef: RefObject<HTMLDivElement | null>;
   showControl: boolean;
-  loadPage: (sessionId: string, cursor: LocalTranscriptCursor) => Promise<TranscriptPage>;
+  loadPage: (sessionId: string, cursor: TranscriptCursor) => Promise<TranscriptPage>;
   applyPage: (page: TranscriptPage, request: TranscriptHistoryRequest) => boolean;
   children: (anchorRef: TranscriptHistoryController["anchorRef"]) => ReactNode;
 }

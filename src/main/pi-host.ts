@@ -67,8 +67,8 @@ import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import { transcriptPagingNegotiated, type PiBridgeServerFrame, type PiBridgeSnapshot, type PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
-import { inferLegacyBridgeCompleteness, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
-import { parseLocalTranscriptCursor, parseRawBridgeTranscriptCursor, transcriptCursorValue, type RawBridgeTranscriptCursor } from "../shared/transcript-cursor.js";
+import { inferLegacyBridgeCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
+import { parseLocalTranscriptCursor, parseRawBridgeTranscriptCursor, type RawBridgeTranscriptCursor, type TranscriptCursor } from "../shared/transcript-cursor.js";
 import { mergeProjectedRawIndexes, messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
@@ -200,6 +200,19 @@ function bridgeTranscriptCursor(value: unknown): RawBridgeTranscriptCursor | und
   }
 }
 
+function bridgeCursorValue(cursor: TranscriptCursor | string): string {
+  if (typeof cursor === "string") return parseRawBridgeTranscriptCursor(cursor).value;
+  if (cursor.kind !== "bridge") throw new Error("A local transcript cursor cannot be sent to the Pi bridge.");
+  return cursor.value;
+}
+
+function localCursorValue(cursor: TranscriptCursor | string | undefined): string | undefined {
+  if (cursor === undefined) return undefined;
+  if (typeof cursor === "string") return parseLocalTranscriptCursor(cursor).value;
+  if (cursor.kind !== "local") throw new Error("A bridge transcript cursor cannot be used for a local transcript.");
+  return cursor.value;
+}
+
 export function historyCompletenessForBridgeSnapshot(
   snapshot: Pick<PiBridgeSnapshot, "messages" | "capabilities" | "historyCompleteness" | "olderCursor">,
 ): TranscriptHistoryCompleteness {
@@ -228,15 +241,27 @@ export function mapBridgeMessages(value: unknown, offsetValue?: unknown): Bridge
   return offset === undefined ? { messages } : { messages, transcriptMessageIndexes };
 }
 
-function bridgeTranscriptPage(value: unknown, expectedSessionId: string): PiBridgeTranscriptPage {
+type ValidatedBridgeTranscriptPage = Omit<PiBridgeTranscriptPage, "olderCursor"> & {
+  olderCursor?: RawBridgeTranscriptCursor;
+};
+
+function bridgeTranscriptPage(value: unknown, expectedSessionId: string): ValidatedBridgeTranscriptPage {
   if (!value || typeof value !== "object") throw new Error("Pi returned an invalid transcript page.");
   const page = value as Partial<PiBridgeTranscriptPage>;
-  if (page.sessionId !== expectedSessionId || !Array.isArray(page.messages) || typeof page.hasMore !== "boolean") {
+  const sessionId = page.sessionId;
+  const messages = page.messages;
+  const hasMore = page.hasMore;
+  if (sessionId !== expectedSessionId || !Array.isArray(messages) || typeof hasMore !== "boolean") {
     throw new Error("Pi returned an invalid transcript page.");
   }
   const messagesOffset = bridgeMessagesOffset(page.messagesOffset);
   const olderCursor = bridgeTranscriptCursor(page.olderCursor);
-  if (page.hasMore !== (olderCursor !== undefined)) throw new Error("Pi returned an invalid transcript page.");
+  if (!isTranscriptHistoryMetadataConsistent({
+    hasMore,
+    hasCursor: olderCursor !== undefined,
+    historyCompleteness: page.historyCompleteness,
+    requireHasMore: true,
+  })) throw new Error("Pi returned an invalid transcript page.");
   const historyCompleteness = page.historyCompleteness === undefined
     ? undefined
     : parseTranscriptHistoryCompleteness(page.historyCompleteness);
@@ -247,11 +272,14 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): PiBrid
     throw new Error("Pi returned an invalid transcript activity history.");
   }
   return {
-    ...page,
+    sessionId,
+    messages,
+    hasMore,
+    ...(page.taskHistory !== undefined ? { taskHistory: page.taskHistory } : {}),
     ...(messagesOffset !== undefined ? { messagesOffset } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     ...(historyCompleteness !== undefined ? { historyCompleteness } : {}),
-  } as PiBridgeTranscriptPage;
+  };
 }
 
 /** Validate and map one bridge-owned transcript page at the host seam. */
@@ -265,7 +293,7 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
     messages: mapped.messages,
     ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
     ...(taskHistory ? { taskHistory } : {}),
-    ...(olderCursor !== undefined ? { olderCursor: parseLocalTranscriptCursor(transcriptCursorValue(olderCursor)) } : {}),
+    ...(olderCursor !== undefined ? { olderCursor } : {}),
     historyCompleteness: resolveTranscriptHistoryCompleteness(page.historyCompleteness, page.hasMore),
     hasMore: page.hasMore,
   };
@@ -845,27 +873,27 @@ export class PiHost {
   }
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */
-  async getThreadDetail(cursor?: string): Promise<TranscriptPage | ThreadDetail> {
+  async getThreadDetail(cursor?: TranscriptCursor | string): Promise<TranscriptPage | ThreadDetail> {
     const snapshot = await this.snapshot();
     const result = cursor !== undefined
-      ? this.transcriptPage(snapshot.sessionId, snapshot.messages, snapshot.taskHistory, cursor)
+      ? this.transcriptPage(snapshot.sessionId, snapshot.messages, snapshot.taskHistory, localCursorValue(cursor))
       : this.detailForSnapshot(snapshot);
     this.lifecycleMetrics.recordIpc(result);
     return result;
   }
 
-  async loadTranscript(sessionId: string, cursor?: string): Promise<TranscriptPage> {
+  async loadTranscript(sessionId: string, cursor?: TranscriptCursor | string): Promise<TranscriptPage> {
     let result: TranscriptPage;
     if (this.bridgeOwns(sessionId) && transcriptPagingNegotiated(this.bridgeSnapshot?.capabilities)) {
       const raw = cursor === undefined
         ? await this.bridgeCommand({ command: "transcript_page" }) as unknown
-        : await this.bridgeCommand({ command: "transcript_page", cursor: transcriptCursorValue(parseRawBridgeTranscriptCursor(cursor)) }) as unknown;
+        : await this.bridgeCommand({ command: "transcript_page", cursor: bridgeCursorValue(cursor) }) as unknown;
       result = mapBridgeTranscriptPageValue(sessionId, raw);
     } else if (this.bridgeOwns(sessionId)) {
       // Older Pi bridge extensions expose a bounded snapshot but no paging
       // command. Keep that compatibility path local to the retained window.
       const snapshot = this.bridgeHostSnapshot();
-      result = this.transcriptPage(sessionId, snapshot.messages, snapshot.taskHistory, cursor);
+      result = this.transcriptPage(sessionId, snapshot.messages, snapshot.taskHistory, localCursorValue(cursor));
     } else {
       const thread = this.requireThread(sessionId);
       const rawMessages = this.branchMessagesWithEntryIds(thread);
@@ -873,7 +901,7 @@ export class PiHost {
         sessionId,
         this.messageSnapshot(thread),
         taskProgressHistoryFromMessages(rawMessages),
-        cursor,
+        localCursorValue(cursor),
       );
     }
     this.lifecycleMetrics.recordIpc(result);
@@ -2018,7 +2046,7 @@ export class PiHost {
       taskProgressHistoryFromMessages(snapshot.messages),
     );
     const historyCompleteness = historyCompletenessForBridgeSnapshot(snapshot);
-    const olderCursor = snapshot.olderCursor === undefined
+    const olderCursor = !transcriptPagingNegotiated(snapshot.capabilities) || snapshot.olderCursor === undefined
       ? undefined
       : parseRawBridgeTranscriptCursor(snapshot.olderCursor);
     return {
@@ -2034,7 +2062,7 @@ export class PiHost {
       thinkingLevels: snapshot.thinkingLevels,
       messages: mapped.messages,
       ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
-      ...(olderCursor ? { olderCursor: parseLocalTranscriptCursor(transcriptCursorValue(olderCursor)) } : {}),
+      ...(olderCursor ? { olderCursor } : {}),
       historyCompleteness,
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,

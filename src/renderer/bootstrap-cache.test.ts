@@ -33,8 +33,8 @@ describe("bootstrap cache", () => {
     };
     writeBootstrapCache(paged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
-    expect(cached?.snapshot.olderCursor).toBe("31");
-    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe("31");
+    expect(cached?.snapshot.olderCursor).toEqual({ kind: "local", value: "31" });
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toEqual({ kind: "local", value: "31" });
   });
 
   it("keeps a bridge raw cursor when the retained window carries source indexes", () => {
@@ -49,8 +49,8 @@ describe("bootstrap cache", () => {
     writeBootstrapCache(bridged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
     expect(cached?.snapshot.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
-    expect(cached?.snapshot.olderCursor).toBe("120");
-    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe("120");
+    expect(cached?.snapshot.olderCursor).toEqual({ kind: "local", value: "120" });
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toEqual({ kind: "local", value: "120" });
   });
 
   it("keeps a legacy-truncated cache limited without retaining a discarded cursor", () => {
@@ -79,7 +79,7 @@ describe("bootstrap cache", () => {
     const cached = readBootstrapCache(storage);
     expect(cached?.snapshot.messages).toHaveLength(10);
     expect(cached?.snapshot.messages[0]?.id).toBe("40");
-    expect(cached?.snapshot.olderCursor).toBe("40");
+    expect(cached?.snapshot.olderCursor).toEqual({ kind: "local", value: "40" });
 
     const oldOnly = {
       getItem: (key: string) => key === "tau.bootstrap-cache.v2" || key === "tau.bootstrap-cache.v1" ? stale : null,

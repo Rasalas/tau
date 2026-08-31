@@ -1,6 +1,6 @@
 import type { HostSnapshot, UiMessage } from "../shared/contracts";
 import type { TranscriptHistoryCompleteness } from "../shared/transcript-completeness";
-import type { LocalTranscriptCursor } from "../shared/transcript-cursor";
+import type { TranscriptCursor } from "../shared/transcript-cursor";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
 
 export interface TranscriptHistoryStatus {
@@ -11,7 +11,7 @@ export interface TranscriptHistoryStatus {
 
 export interface TranscriptHistoryState {
   sessionId?: string;
-  olderCursor?: LocalTranscriptCursor;
+  olderCursor?: TranscriptCursor;
   historyCompleteness?: TranscriptHistoryCompleteness;
   loading: boolean;
   status?: TranscriptHistoryStatus;
@@ -20,7 +20,7 @@ export interface TranscriptHistoryState {
 export interface TranscriptHistoryRequest {
   generation: number;
   sessionId: string;
-  cursor: LocalTranscriptCursor;
+  cursor: TranscriptCursor;
 }
 
 export interface TranscriptBootstrapRequest {

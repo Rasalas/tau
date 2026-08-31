@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiMessage } from "../../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../../shared/host-protocol";
-import { parseLocalTranscriptCursor } from "../../shared/transcript-cursor";
+import { parseLocalTranscriptCursor, type TranscriptCursor } from "../../shared/transcript-cursor";
 import { TranscriptHistoryBoundary } from "./TranscriptHistoryBoundary";
 import { VirtualTranscript } from "./VirtualTranscript";
 import { TranscriptHistoryController } from "../transcript-history";
@@ -84,7 +84,7 @@ function Fixture({
 }: {
   controller: TranscriptHistoryController;
   initialMessages: UiMessage[];
-  loadPage: (sessionId: string, cursor: string) => Promise<TranscriptPage>;
+  loadPage: (sessionId: string, cursor: TranscriptCursor) => Promise<TranscriptPage>;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState(initialMessages);
@@ -175,7 +175,7 @@ describe("TranscriptHistoryBoundary integration", () => {
     const beforeOffset = anchorBefore!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
 
     fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
-    expect(loadPage).toHaveBeenCalledWith("thread", "0");
+    expect(loadPage).toHaveBeenCalledWith("thread", { kind: "local", value: "0" });
     expect(screen.getByRole("status").textContent).toContain("Loading older turns");
 
     ids.unshift("older-a", "older-b");

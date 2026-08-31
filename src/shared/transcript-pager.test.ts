@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { countUserTurns, INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds, TranscriptPager } from "./transcript-pager.js";
 import type { UiMessage } from "./contracts.js";
+import { parseRawBridgeTranscriptCursor, rawBridgeTranscriptCursorAt } from "./transcript-cursor.js";
 
 const messages: UiMessage[] = Array.from({ length: 12 }, (_, i) => ({
   id: String(i), role: i % 2 === 0 ? "user" : "assistant", text: String(i), timestamp: i,
@@ -64,6 +65,11 @@ describe("TranscriptPager", () => {
     expect(rawRecords.slice(bounds.start, bounds.end).filter((record) => record.role === "user")).toHaveLength(4);
     expect(rawRecords[bounds.start]?.role).toBe("user");
     expect(bounds.hasMore).toBe(true);
+  });
+
+  it("preserves a bridge cursor origin when the shared policy pages raw records", () => {
+    const bounds = transcriptPageBounds(messages, 3, parseRawBridgeTranscriptCursor("8"), rawBridgeTranscriptCursorAt);
+    expect(bounds.olderCursor?.kind).toBe("bridge");
   });
 
   it("does not turn leading orphan activities into a partial older page", () => {

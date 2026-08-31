@@ -13,9 +13,15 @@ import type {
   UiWorkspaceChanges,
 } from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
-import { parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
+import { isTranscriptHistoryMetadataConsistent, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
 import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "./transcript-indexes.js";
-import { localTranscriptCursorAt, parseLocalTranscriptCursor, type LocalTranscriptCursor } from "./transcript-cursor.js";
+import {
+  localTranscriptCursorAt,
+  parseTranscriptCursor,
+  rawBridgeTranscriptCursorAt,
+  transcriptCursorIndex,
+  type TranscriptCursor,
+} from "./transcript-cursor.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "./transcript-pager.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
@@ -33,7 +39,7 @@ export interface ThreadIndexUpdate {
   sessions: ThreadIndexSnapshot["sessions"];
 }
 
-export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], LocalTranscriptCursor> {
+export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], TranscriptCursor> {
   sessionId: string;
   isStreaming: boolean;
   activeTools: string[];
@@ -44,7 +50,7 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], Loca
   hasMore?: boolean;
 }
 
-export type TranscriptPage = ThreadTranscriptPage<UiMessage, number[], LocalTranscriptCursor>;
+export type TranscriptPage = ThreadTranscriptPage<UiMessage, number[], TranscriptCursor>;
 
 export interface HostCatalog {
   models: UiModel[];
@@ -98,8 +104,17 @@ function validIndexes(value: unknown): boolean {
 
 function validCursor(value: unknown): boolean {
   if (value === undefined) return true;
-  try { parseLocalTranscriptCursor(value); return true; }
+  try { parseTranscriptCursor(value); return true; }
   catch { return false; }
+}
+
+function normalizeCursor(value: unknown): TranscriptCursor | undefined {
+  if (value === undefined) return undefined;
+  return parseTranscriptCursor(value);
+}
+
+function cursorIndex(cursor: TranscriptCursor, maximum: number): number {
+  return transcriptCursorIndex(cursor, maximum);
 }
 
 export function isHostUpdate(value: unknown): value is HostUpdate {
@@ -118,13 +133,22 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
     case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
       && validCursor(payload.olderCursor)
-      && (payload.hasMore === undefined || typeof payload.hasMore === "boolean")
-      && (payload.historyCompleteness === undefined || parseTranscriptHistoryCompleteness(payload.historyCompleteness) !== undefined)
+      && isTranscriptHistoryMetadataConsistent({
+        hasMore: payload.hasMore,
+        hasCursor: payload.olderCursor !== undefined,
+        historyCompleteness: payload.historyCompleteness,
+        requireHasMore: false,
+      })
       && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
       && validCursor(payload.olderCursor)
-      && (payload.historyCompleteness === undefined || parseTranscriptHistoryCompleteness(payload.historyCompleteness) !== undefined)
+      && isTranscriptHistoryMetadataConsistent({
+        hasMore: payload.hasMore,
+        hasCursor: payload.olderCursor !== undefined,
+        historyCompleteness: payload.historyCompleteness,
+        requireHasMore: true,
+      })
       && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
@@ -153,13 +177,28 @@ export function taskHistoryForMessages(
 function cursorForPage(
   page: TranscriptPage,
   snapshot: HostSnapshot,
-): LocalTranscriptCursor | undefined {
+): TranscriptCursor | undefined {
+  const pageCursor = normalizeCursor(page.olderCursor);
+  const snapshotCursor = normalizeCursor(snapshot.olderCursor);
   const offset = snapshot.transcriptMessageIndexes;
-  if (!offset) return page.olderCursor ?? snapshot.olderCursor;
-  if (page.olderCursor === undefined) return snapshot.olderCursor;
-  const localStart = Number(parseLocalTranscriptCursor(page.olderCursor, snapshot.messages.length));
+  if (!offset) {
+    // A bridge cursor cannot be safely represented in the local coordinate
+    // space without the raw-index projection. Keep the bridge origin intact
+    // until such a mapping is actually available.
+    return snapshotCursor?.kind === "bridge"
+      ? snapshotCursor
+      : pageCursor ?? snapshotCursor;
+  }
+  if (pageCursor === undefined) return snapshotCursor;
+  const localStart = cursorIndex(
+    pageCursor,
+    pageCursor.kind === "local" ? snapshot.messages.length : Number.MAX_SAFE_INTEGER,
+  );
   const index = offset[localStart];
-  return index === undefined || index <= 0 ? snapshot.olderCursor : localTranscriptCursorAt(index);
+  if (index === undefined || index <= 0) return snapshotCursor;
+  return snapshotCursor?.kind === "bridge"
+    ? rawBridgeTranscriptCursorAt(index)
+    : localTranscriptCursorAt(index);
 }
 
 export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANSCRIPT_TURN_LIMIT): ThreadDetail {

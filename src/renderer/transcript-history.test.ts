@@ -63,7 +63,7 @@ describe("TranscriptHistoryController", () => {
 
     expect(applied?.messages.map((item) => item.id)).toEqual(["old", "new", "reply"]);
     expect(controller.getDetail("thread-a")?.messages.map((item) => item.id)).toEqual(["old", "new", "reply"]);
-    expect(controller.getSnapshot()).toMatchObject({ olderCursor: "0", loading: true });
+    expect(controller.getSnapshot()).toMatchObject({ olderCursor: { kind: "local", value: "0" }, loading: true });
     expect(controller.completeSuccess(request!, 1)).toBe(true);
     expect(controller.getSnapshot()).toMatchObject({ loading: false, status: { state: "success", loadedTurns: 1 } });
   });
@@ -146,6 +146,28 @@ describe("TranscriptHistoryController", () => {
     expect(controller.applyDetail(detail("thread-a", ["new", "reply"], "2"), snapshot("thread-a", ["new", "reply"], "2"))).toBeDefined();
     expect(controller.anchorRef.current?.messageId).toBe("new");
     expect(controller.preserveScrollRef.current).toBe(true);
+  });
+
+  it("keeps the in-flight request through same-thread lifecycle updates", () => {
+    const controller = new TranscriptHistoryController();
+    controller.syncSnapshot(snapshot("thread-a", ["new", "reply"], "2"), detail("thread-a", ["new", "reply"], "2"));
+    const request = controller.beginLoad({ messageId: "new", viewportOffset: 80 });
+    expect(request).toBeDefined();
+
+    const lifecycleDetail: ThreadDetail = {
+      ...detail("thread-a", ["new", "reply"], "2"),
+      isStreaming: true,
+      activeTools: ["model"],
+      turnActivity: { tools: [], anchorMessageId: "new" },
+    };
+    expect(controller.applyDetail(lifecycleDetail, snapshot("thread-a", ["new", "reply"], "2"))).toBeDefined();
+    expect(controller.getSnapshot()).toMatchObject({ loading: true, olderCursor: { kind: "local", value: "2" } });
+    expect(controller.isCurrent(request!)).toBe(true);
+
+    const pageResult = controller.applyPage(page("thread-a", ["old"], "0"), [message("new"), message("reply")], request);
+    expect(pageResult).toBeDefined();
+    expect(controller.completeSuccess(request!, 1)).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({ loading: false, status: { state: "success", loadedTurns: 1 } });
   });
 
   it("retains the newest version when merging a repeated message id", () => {

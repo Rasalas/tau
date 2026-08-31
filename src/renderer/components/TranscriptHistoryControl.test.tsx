@@ -45,4 +45,18 @@ describe("TranscriptHistoryControl", () => {
     expect(status.textContent).not.toContain("Beginning of history");
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("uses neutral language when an older bridge cannot determine availability", () => {
+    render(<TranscriptHistoryControl
+      loading={false}
+      historyCompleteness="unknown"
+      onLoad={vi.fn()}
+    />);
+
+    const text = screen.getByRole("status").textContent ?? "";
+    expect(text).toContain("availability cannot be determined");
+    expect(text).toContain("may enable");
+    expect(text).not.toContain("Beginning of history");
+    expect(text).not.toContain("Upgrade the bridge to load it");
+  });
 });

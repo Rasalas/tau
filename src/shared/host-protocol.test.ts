@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate } from "./host-protocol.js";
 import type { HostSnapshot } from "./contracts.js";
-import { parseLocalTranscriptCursor } from "./transcript-cursor.js";
+import { parseLocalTranscriptCursor, parseRawBridgeTranscriptCursor } from "./transcript-cursor.js";
 
 const snapshot: HostSnapshot = {
   cwd: "/tmp/project", sessionId: "session", sessionTitle: "title", models: [],
@@ -29,7 +29,7 @@ describe("host protocol", () => {
     const detail = detailFromSnapshot({ ...snapshot, messages: Array.from({ length: 41 }, (_, i) => ({ id: String(i), role: "user" as const, text: String(i), timestamp: i })) });
     expect(detail.messages).toHaveLength(10);
     expect(detail.messages[0]?.id).toBe("31");
-    expect(detail.olderCursor).toBe("31");
+    expect(detail.olderCursor).toEqual({ kind: "local", value: "31" });
     expect(detail.hasMore).toBe(true);
     expect(detail).not.toHaveProperty("models");
   });
@@ -48,7 +48,7 @@ describe("host protocol", () => {
 
   it("preserves a cursor when a cached snapshot is already bounded", () => {
     const detail = detailFromSnapshot({ ...snapshot, messages: snapshot.messages, olderCursor: parseLocalTranscriptCursor("12") });
-    expect(detail.olderCursor).toBe("12");
+    expect(detail.olderCursor).toEqual({ kind: "local", value: "12" });
     expect(detail.hasMore).toBe(true);
   });
 
@@ -61,7 +61,16 @@ describe("host protocol", () => {
     });
     expect(detail.messages.map((message) => message.id)).toEqual(Array.from({ length: 10 }, (_, index) => String(index + 20)));
     expect(detail.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
-    expect(detail.olderCursor).toBe("120");
+    expect(detail.olderCursor).toEqual({ kind: "local", value: "120" });
+  });
+
+  it("keeps a bridge cursor when a bounded host snapshot has no local projection", () => {
+    const detail = detailFromSnapshot({
+      ...snapshot,
+      messages: Array.from({ length: 10 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
+      olderCursor: parseRawBridgeTranscriptCursor("80"),
+    });
+    expect(detail.olderCursor).toEqual({ kind: "bridge", value: "80" });
   });
 
   it("does not infer older turns from an offset when only orphan activities precede the window", () => {
@@ -100,4 +109,48 @@ describe("host protocol", () => {
     const detail = detailFromSnapshot({ ...snapshot, historyCompleteness: "has-more" });
     expect(detail.historyCompleteness).toBe("unknown");
   });
+
+  it.each([
+    ["complete with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "complete" }],
+    ["complete with has-more", { hasMore: true, olderCursor: "4", historyCompleteness: "complete" }],
+    ["has-more without cursor", { hasMore: true, historyCompleteness: "has-more" }],
+    ["has-more without flag", { hasMore: false, olderCursor: "4", historyCompleteness: "has-more" }],
+    ["legacy-truncated with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "legacy-truncated" }],
+    ["unknown with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "unknown" }],
+  ])("rejects contradictory transcript-page metadata: %s", (_label, page) => {
+    expect(isHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "transcript-page",
+      page: { sessionId: "session", messages: [], ...page },
+    })).toBe(false);
+  });
+
+  it.each([
+    ["complete with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "complete" }],
+    ["complete with has-more", { hasMore: true, olderCursor: "4", historyCompleteness: "complete" }],
+    ["has-more without cursor", { hasMore: true, historyCompleteness: "has-more" }],
+    ["has-more without flag", { hasMore: false, olderCursor: "4", historyCompleteness: "has-more" }],
+    ["legacy-truncated with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "legacy-truncated" }],
+    ["unknown with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "unknown" }],
+  ])("rejects contradictory thread-detail metadata: %s", (_label, detail) => {
+    expect(isHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-detail",
+      detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [], ...detail },
+    })).toBe(false);
+  });
+
+  it.each([
+    ["complete", { hasMore: false, historyCompleteness: "complete" }],
+    ["has-more", { hasMore: true, olderCursor: "4", historyCompleteness: "has-more" }],
+    ["legacy-truncated", { hasMore: false, historyCompleteness: "legacy-truncated" }],
+    ["unknown", { hasMore: false, historyCompleteness: "unknown" }],
+  ])("accepts an internally consistent transcript-page tuple: %s", (_label, page) => {
+    expect(isHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "transcript-page",
+      page: { sessionId: "session", messages: [], ...page },
+    })).toBe(true);
+  });
+
 });
