@@ -197,6 +197,8 @@ describe("App render isolation", () => {
     fireEvent.change(composer, { target: { value: "newer draft" } });
     rejectNewSession(new Error("prompt rejected"));
     await waitFor(() => expect(screen.getByText(/prompt rejected/u)).toBeTruthy());
+    expect(screen.getAllByText(/prompt rejected/u)).toHaveLength(1);
+    expect(screen.queryByText("NOTICE")).toBeNull();
     expect(composer.value).toBe("newer draft");
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
   });

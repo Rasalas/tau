@@ -17,6 +17,7 @@ import {
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
 import {
   ComposerScopeStore,
+  allocateAttachmentId,
   createDraftKey,
   type ComposerScope,
   type PendingAttachment,
@@ -38,10 +39,12 @@ const THINKING_LABELS: Record<string, string> = {
   max: "Max",
 };
 
-let nextAttachmentId = 0;
 let nextSubmissionId = 0;
 
-type ComposerSubmissionResult = void | boolean | Promise<void | boolean>;
+export type SubmitResult =
+  | { accepted: true }
+  | { accepted: false; message: string };
+type ComposerSubmissionResult = SubmitResult | void | boolean | Promise<SubmitResult | void | boolean>;
 
 export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
@@ -83,7 +86,7 @@ function readImage(file: File): Promise<PendingAttachment> {
         return;
       }
       resolve({
-        id: nextAttachmentId++,
+        id: allocateAttachmentId(),
         kind: "image",
         name: file.name,
         mimeType: file.type,
@@ -170,6 +173,12 @@ export function Composer({
   const activeAttachmentScopeRef = useRef<ComposerScope>(attachmentScope);
   const attachments = activeScopeState.attachments;
   const attachmentError = activeScopeState.error;
+  const reportStorageError = useCallback((scope: ComposerScope, error: unknown) => {
+    const state = scopeStore.ensure(scope);
+    state.error = error instanceof Error ? error.message : String(error);
+    state.errorSubmissionId = undefined;
+    if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
+  }, [scopeStore]);
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
@@ -195,13 +204,15 @@ export function Composer({
       activeScopeState.draft = seed;
       activeScopeState.revision += 1;
       writeComposerDraft(window.localStorage, draftStorageKey, seed);
+      scopeStore.persist(attachmentScope, (error) => reportStorageError(attachmentScope, error));
       refreshScope((current) => current + 1);
     }
-  }, [activeScopeState, draftStorageKey, refreshScope, seed, value]);
+  }, [activeScopeState, attachmentScope, draftStorageKey, refreshScope, reportStorageError, scopeStore, seed, value]);
   const updateDraft = (next: string) => {
     activeScopeState.draft = next;
     activeScopeState.revision += 1;
     if (value === undefined) writeComposerDraft(window.localStorage, draftStorageKey, next);
+    scopeStore.persist(attachmentScope, (error) => reportStorageError(attachmentScope, error));
     refreshScope((current) => current + 1);
     onChange?.(next);
   };
@@ -221,6 +232,12 @@ export function Composer({
     setPreviewId(undefined);
     refreshScope((current) => current + 1);
   }, [attachmentScope, refreshScope, scopeStore]);
+
+  useEffect(() => {
+    scopeStore.hydrate(attachmentScope, () => {
+      if (activeAttachmentScopeRef.current === attachmentScope) refreshScope((current) => current + 1);
+    }, (error) => reportStorageError(attachmentScope, error));
+  }, [attachmentScope, refreshScope, reportStorageError, scopeStore]);
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
@@ -250,9 +267,11 @@ export function Composer({
     state.errorSubmissionId = undefined;
     if (accepted.length > 0) {
       state.attachments = [...state.attachments, ...accepted].slice(0, MAX_ATTACHMENTS);
+      state.revision += 1;
     }
+    scopeStore.persist(scope, (error) => reportStorageError(scope, error));
     if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
-  }, [scopeStore]);
+  }, [reportStorageError, scopeStore]);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
@@ -292,7 +311,9 @@ export function Composer({
     const submittedRevision = submittedState.revision;
     const submissionId = nextSubmissionId++;
     submittedState.pendingSubmissions.set(submissionId, { attachmentIds: submittedAttachmentIds, revision: submittedRevision });
-    const settleSubmission = (accepted: boolean, error?: unknown) => {
+    const settleSubmission = (result: SubmitResult) => {
+      const accepted = result.accepted;
+      const error = accepted ? undefined : result.message;
       const state = scopeStore.ensure(submittedScope);
       if (!state.pendingSubmissions.delete(submissionId)) return;
       if (accepted) {
@@ -306,10 +327,12 @@ export function Composer({
           state.error = undefined;
           state.errorSubmissionId = undefined;
         }
+        state.revision += 1;
       } else {
-        state.error = error instanceof Error ? error.message : String(error ?? "The prompt was rejected.");
+        state.error = error;
         state.errorSubmissionId = submissionId;
       }
+      scopeStore.persist(submittedScope, (error) => reportStorageError(submittedScope, error));
       if (activeAttachmentScopeRef.current === submittedScope) {
         if (accepted) setPreviewId(undefined);
         refreshScope((current) => current + 1);
@@ -319,15 +342,21 @@ export function Composer({
     try {
       result = delivery ? onSubmit(submittedText, submittedAttachments, delivery) : onSubmit(submittedText, submittedAttachments);
     } catch (error) {
-      settleSubmission(false, error);
+      settleSubmission({ accepted: false, message: error instanceof Error ? error.message : String(error) });
       return;
     }
     if (result && typeof (result as Promise<unknown>).then === "function") {
-      void Promise.resolve(result).then((accepted) => {
-        settleSubmission(accepted !== false);
-      }).catch((error) => settleSubmission(false, error));
+      void Promise.resolve(result).then((value) => {
+        if (value && typeof value === "object" && "accepted" in value) {
+          settleSubmission(value as SubmitResult);
+        } else {
+          settleSubmission(value === false ? { accepted: false, message: "The prompt was rejected." } : { accepted: true });
+        }
+      }).catch((error) => settleSubmission({ accepted: false, message: error instanceof Error ? error.message : String(error) }));
     } else {
-      settleSubmission(result !== false);
+      settleSubmission(result && typeof result === "object" ? result as SubmitResult : result === false
+        ? { accepted: false, message: "The prompt was rejected." }
+        : { accepted: true });
     }
   };
 

@@ -22,7 +22,7 @@ import type {
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
-import { Composer, type ComposerAttachmentHandle } from "./components/Composer";
+import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
 import { ComposerScopeStore } from "./composer-scope-store";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
@@ -1399,18 +1399,18 @@ export default function App() {
     value: string,
     attachments: UiPromptAttachment[] = [],
     delivery?: "followUp" | "steer",
-  ) => {
+  ): Promise<SubmitResult> => {
     const text = value.trim();
-    if (!text && attachments.length === 0) return false;
+    if (!text && attachments.length === 0) return { accepted: false, message: "Enter a message or attach an image." };
     if (text === "/reload" && attachments.length === 0) {
-      return reloadRuntime();
+      return (await reloadRuntime()) ? { accepted: true } : { accepted: false, message: "Runtime reload failed." };
     }
     if (text === "/rebuild" && attachments.length === 0) {
-      return rebuildWorkbench();
+      return (await rebuildWorkbench()) ? { accepted: true } : { accepted: false, message: "Workbench rebuild failed." };
     }
     if (text === "/restart" && attachments.length === 0) {
       restartWorkbench();
-      return true;
+      return { accepted: true };
     }
     const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
     const optimistic: UiMessage = {
@@ -1429,10 +1429,9 @@ export default function App() {
           await window.tau.steer(text, attachments, snapshot?.sessionId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          setNotice(String(error));
-          return false;
+          return { accepted: false, message: error instanceof Error ? error.message : String(error) };
         }
-        return true;
+        return { accepted: true };
       } else {
         const queuedText = optimisticText;
         setQueue((current) => [...current, queuedText]);
@@ -1444,15 +1443,13 @@ export default function App() {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
           });
-          setNotice(String(error));
-          return false;
+          return { accepted: false, message: error instanceof Error ? error.message : String(error) };
         }
-        return true;
+        return { accepted: true };
       }
     }
     if (pendingNewThread) {
       const pending = pendingNewThread;
-      const pendingKey = draftKey(undefined, pending);
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
@@ -1485,17 +1482,16 @@ export default function App() {
               taskHistory: [],
             } : undefined,
           }, actions).catch((error) => setNotice(String(error)));
-          return true;
+          return { accepted: true };
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
           // view stays until that report arrives.
           applyActionResult(result);
-          return true;
+          return { accepted: true };
         }
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        setNotice(String(error));
-        return false;
+        return { accepted: false, message: error instanceof Error ? error.message : String(error) };
       }
     }
     if (snapshot) {
@@ -1508,11 +1504,10 @@ export default function App() {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
         void registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions)
           .catch((error) => setNotice(String(error)));
-        return true;
+        return { accepted: true };
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        setNotice(String(error));
-        return false;
+        return { accepted: false, message: error instanceof Error ? error.message : String(error) };
       }
     } else {
       setSnapshot((current) => current ? { ...current, isStreaming: true } : current);
@@ -1527,7 +1522,7 @@ export default function App() {
         setSnapshot((current) => current ? { ...current, isStreaming: false } : current);
         setRunStartedAt(undefined);
       }, 650);
-      return true;
+      return { accepted: true };
     }
   }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
 

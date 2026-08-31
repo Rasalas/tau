@@ -472,6 +472,8 @@ class ThreadRuntime implements LiveTurnState {
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
+  private deferredEvents?: Array<{ event: any; sessionId: string; cwd: string }>;
+  private deferredErrors?: unknown[];
 
   constructor(readonly runtime: AgentSessionRuntime) {}
 
@@ -486,6 +488,37 @@ class ThreadRuntime implements LiveTurnState {
     this.tools.clear();
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
+  }
+
+  beginEventBarrier(): void {
+    this.deferredEvents = [];
+    this.deferredErrors = [];
+  }
+
+  deferEvent(event: any, sessionId: string, cwd: string): boolean {
+    if (!this.deferredEvents) return false;
+    this.deferredEvents.push({ event, sessionId, cwd });
+    return true;
+  }
+
+  deferError(error: unknown): boolean {
+    if (!this.deferredErrors) return false;
+    this.deferredErrors.push(error);
+    return true;
+  }
+
+  releaseEventBarrier(dispatch: (event: any, thread: ThreadRuntime, sessionId: string, cwd: string, error?: unknown) => void): void {
+    const events = this.deferredEvents;
+    const errors = this.deferredErrors;
+    this.deferredEvents = undefined;
+    this.deferredErrors = undefined;
+    for (const entry of events ?? []) dispatch(entry.event, this, entry.sessionId, entry.cwd);
+    for (const error of errors ?? []) dispatch(undefined, this, this.sessionId, this.cwd, error);
+  }
+
+  cancelEventBarrier(): void {
+    this.deferredEvents = undefined;
+    this.deferredErrors = undefined;
   }
 }
 
@@ -957,21 +990,35 @@ export class PiHost {
         { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
         { adopt: false },
       );
+      thread.beginEventBarrier();
+      let adopted = false;
       try {
         assertImageInputCapability(thread.session, attachments);
-        if (initialPrompt || attachments.length > 0) await this.startPrompt(thread, initialPrompt ?? "", attachments);
+        if (initialPrompt || attachments.length > 0) await this.promptThread(thread, initialPrompt ?? "", attachments);
+        await this.adoptThread(thread);
+        adopted = true;
+        // The first prompt names the thread right away; the run that follows
+        // would otherwise leave it "Untitled" until it finishes.
+        if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
+        await this.activateThread(thread, true);
+        // Shell/index publication is intentionally coalesced on a timer. Wait
+        // for that publication before releasing runtime events from the
+        // promotion barrier, so the first agent event cannot outrun the UI's
+        // active-thread state.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        thread.releaseEventBarrier((event, runtime, sessionId, cwd, error) => {
+          if (error) this.fail(error, sessionId);
+          else this.handleSessionEvent(event, runtime, sessionId, cwd);
+        });
       } catch (error) {
+        thread.cancelEventBarrier();
         // Keep the prepared blank runtime and the renderer's draft aligned. It
         // has not been adopted or published, so a rejected first prompt cannot
         // leave an invisible active thread behind.
-        this.retainPreparedThread(thread);
+        if (adopted) await this.threads.release(thread.sessionId);
+        else this.retainPreparedThread(thread);
         throw error;
       }
-      await this.adoptThread(thread);
-      // The first prompt names the thread right away; the run that follows
-      // would otherwise leave it "Untitled" until it finishes.
-      if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
-      await this.activateThread(thread, true);
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       this.scheduleSpareThread(targetCwd);
       return this.activeUpdates();
@@ -994,11 +1041,6 @@ export class PiHost {
         supportsImageInput: modelSupportsImageInput(prepared?.session.model),
       };
     });
-  }
-
-  /** Start a first prompt and wait only until Pi accepts it, not for the turn. */
-  private async startPrompt(thread: ThreadRuntime, text: string, attachments: UiPromptAttachment[]): Promise<void> {
-    await this.promptThread(thread, text, attachments);
   }
 
   async forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult> {
@@ -1153,12 +1195,14 @@ export class PiHost {
         if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
       }).catch((error) => {
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
-        else if (preflightState === "accepted") this.fail(error, thread.sessionId);
+        else if (preflightState === "accepted") {
+          if (!(thread instanceof ThreadRuntime && thread.deferError(error))) this.fail(error, thread.sessionId);
+        }
       });
     } catch (error) {
       const stateAtFailure = preflightState as PromptPreflightState;
       if (stateAtFailure === "accepted") {
-        this.fail(error, thread.sessionId);
+        if (!(thread instanceof ThreadRuntime && thread.deferError(error))) this.fail(error, thread.sessionId);
         return;
       }
       if (stateAtFailure === "pending") reportPreflight({ accepted: false, error });
@@ -2032,6 +2076,7 @@ export class PiHost {
   }
 
   private handleSessionEvent(event: any, thread: LiveTurnState, sessionId: string, cwd: string): void {
+      if (thread instanceof ThreadRuntime && thread.deferEvent(event, sessionId, cwd)) return;
       switch (event.type) {
         case "agent_start":
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
