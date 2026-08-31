@@ -1,4 +1,4 @@
-import type { DesktopExtension, WorkbenchActions } from "../extension-system";
+import type { DesktopExtension, PromptSubmittedEvent, WorkbenchActions } from "../extension-system";
 import { preferences } from "../preferences";
 
 const EXTENSION_ID = "tau.thread-titles";
@@ -13,6 +13,13 @@ function automatic(): boolean {
  */
 async function generate(actions: WorkbenchActions, provider: string, modelId: string, force: boolean): Promise<void> {
   await actions.generateThreadTitle(provider, modelId, force);
+}
+
+export function automaticTitleModel(event: PromptSubmittedEvent): { provider: string; id: string } | undefined {
+  const snapshot = event.snapshot;
+  if (!automatic() || !snapshot?.model) return undefined;
+  if (snapshot.messages.some((message) => message.role === "user")) return undefined;
+  return snapshot.model;
 }
 
 export const titleGeneratorExtension: DesktopExtension = {
@@ -31,8 +38,8 @@ export const titleGeneratorExtension: DesktopExtension = {
     context.registerPromptHook({
       id: "thread-titles.auto-generate",
       async afterPrompt(event, actions) {
-        const model = event.snapshot?.model;
-        if (!automatic() || !model) return;
+        const model = automaticTitleModel(event);
+        if (!model) return;
         await generate(actions, model.provider, model.id, false);
       },
     });

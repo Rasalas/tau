@@ -5,10 +5,11 @@ import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import { VirtualTranscript } from "./VirtualTranscript";
 
-function Fixture({ messages, activity, activityAfterMessageId }: {
+function Fixture({ messages, activity, activityAfterMessageId, activities }: {
   messages: UiMessage[];
   activity?: ReactNode;
   activityAfterMessageId?: string;
+  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   return <div ref={ref} style={{ height: 600, overflow: "auto" }}>
@@ -18,6 +19,7 @@ function Fixture({ messages, activity, activityAfterMessageId }: {
       isStreaming={false}
       activity={activity}
       activityAfterMessageId={activityAfterMessageId}
+      activities={activities}
     />
   </div>;
 }
@@ -33,12 +35,29 @@ describe("virtual transcript", () => {
       activity={<div>3 tool steps</div>}
       activityAfterMessageId="user"
     />);
-    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(3));
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(2));
 
     expect(Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent)).toEqual([
-      expect.stringContaining("Do the work"),
-      "3 tool steps",
+      expect.stringMatching(/Do the work.*3 tool steps/u),
       expect.stringContaining("Done"),
+    ]);
+  });
+
+  it("keeps historical activities anchored to their own turns", async () => {
+    const messages: UiMessage[] = [
+      { id: "first", role: "user", text: "First", timestamp: 1 },
+      { id: "first-reply", role: "assistant", text: "Finished first", timestamp: 2 },
+      { id: "second", role: "user", text: "Second", timestamp: 3 },
+    ];
+    const view = render(<Fixture messages={messages} activities={[
+      { id: "first-tasks", afterMessageId: "first", content: <div>2/2 tasks</div> },
+      { id: "second-tasks", afterMessageId: "second", content: <div>0/1 tasks</div> },
+    ]} />);
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(3));
+    expect(Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent)).toEqual([
+      expect.stringMatching(/First.*2\/2 tasks/u),
+      expect.stringContaining("Finished first"),
+      expect.stringMatching(/Second.*0\/1 tasks/u),
     ]);
   });
 

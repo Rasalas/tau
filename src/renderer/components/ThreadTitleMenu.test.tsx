@@ -34,6 +34,7 @@ describe("ThreadTitleMenu", () => {
     expect(screen.getByText("Rename thread")).toBeTruthy();
     expect(screen.getByText("Regenerate title")).toBeTruthy();
     expect(screen.getByText("Mark unread")).toBeTruthy();
+    expect(screen.getByText("Copy entire chat as Markdown")).toBeTruthy();
     expect(screen.getByText("Copy path")).toBeTruthy();
   });
 
@@ -60,6 +61,10 @@ describe("ThreadTitleMenu", () => {
     expect(handlers.onTogglePin).toHaveBeenCalledOnce();
 
     view.rerender(<ThreadTitleMenu {...handlers} pinned />);
+    fireEvent.click(screen.getByRole("button", { name: "Improve title menu" }));
+    fireEvent.click(screen.getByText("Copy entire chat as Markdown"));
+    expect(handlers.onCopy).toHaveBeenCalledWith("chat");
+
     fireEvent.click(screen.getByRole("button", { name: "Improve title menu" }));
     fireEvent.click(screen.getByText("Copy branch"));
     expect(handlers.onCopy).toHaveBeenCalledWith("branch");

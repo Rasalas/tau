@@ -6,6 +6,7 @@ const MAX_PROJECTS = 24;
 
 export class ProjectHistory {
   private projects: UiProject[] = [];
+  private hiddenPaths = new Set<string>();
   private dirty = false;
   private persistTimer?: ReturnType<typeof setTimeout>;
   private persistQueue: Promise<void> = Promise.resolve();
@@ -15,8 +16,12 @@ export class ProjectHistory {
   async load(): Promise<void> {
     try {
       const value = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
-      if (!Array.isArray(value)) return;
-      this.projects = value
+      const stored = Array.isArray(value) ? { projects: value, hiddenPaths: [] } : value as { projects?: unknown; hiddenPaths?: unknown };
+      if (!Array.isArray(stored?.projects)) return;
+      this.hiddenPaths = new Set(Array.isArray(stored.hiddenPaths)
+        ? stored.hiddenPaths.filter((path): path is string => typeof path === "string")
+        : []);
+      this.projects = stored.projects
         .filter((item): item is UiProject => {
           if (!item || typeof item !== "object") return false;
           const project = item as Partial<UiProject>;
@@ -37,6 +42,16 @@ export class ProjectHistory {
     return this.projects.map((project) => ({ ...project }));
   }
 
+  isHidden(path: string): boolean {
+    return this.hiddenPaths.has(path);
+  }
+
+  async remove(path: string): Promise<void> {
+    this.projects = this.projects.filter((project) => project.path !== path);
+    this.hiddenPaths.add(path);
+    this.schedulePersist();
+  }
+
   async remember(path: string): Promise<void> {
     const project: UiProject = {
       path,
@@ -47,6 +62,11 @@ export class ProjectHistory {
       0,
       MAX_PROJECTS,
     );
+    this.hiddenPaths.delete(path);
+    this.schedulePersist();
+  }
+
+  private schedulePersist(): void {
     this.dirty = true;
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
@@ -69,7 +89,7 @@ export class ProjectHistory {
   private persist(): Promise<void> {
     if (!this.dirty) return this.persistQueue;
     this.dirty = false;
-    const contents = JSON.stringify(this.projects, null, 2);
+    const contents = JSON.stringify({ projects: this.projects, hiddenPaths: [...this.hiddenPaths] }, null, 2);
     this.persistQueue = this.persistQueue.catch(() => undefined).then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true });
       await writeFile(this.filePath, contents, "utf8");

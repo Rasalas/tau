@@ -120,6 +120,11 @@ export class PreferencesStore {
     });
   }
 
+  unsettle(threadId: string): void {
+    if (!this.state.settledThreadIds.includes(threadId)) return;
+    this.update({ settledThreadIds: this.state.settledThreadIds.filter((id) => id !== threadId) });
+  }
+
   isPinned(threadId: string): boolean {
     return this.state.pinnedThreadIds.includes(threadId);
   }

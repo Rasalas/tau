@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
-import type { UiSession } from "../../shared/contracts";
+import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
+import type { UiDirectoryListing, UiProject, UiSession } from "../../shared/contracts";
 import type {
   ContributionOwner,
   ProjectSourceContribution,
@@ -10,7 +10,7 @@ import type {
 } from "../extension-system";
 import { preferences } from "../preferences";
 import { useThreadStore, useWorkbenchShell } from "../workbench-context";
-import { ProjectPicker } from "../components/ProjectPicker";
+import { VirtualList } from "../components/VirtualList";
 import { ThreadRow, type ThreadActivity } from "../components/ThreadRow";
 
 export const WORKSPACE_EXTENSION_ID = "tau.workspace";
@@ -29,6 +29,10 @@ function projectName(cwd?: string): string {
   return cwd?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "workspace";
 }
 
+function projectInitial(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || "·";
+}
+
 function AddProjectModal({
   actions,
   onClose,
@@ -40,7 +44,10 @@ function AddProjectModal({
 }) {
   const [activeSourceId, setActiveSourceId] = useState<string>();
   const [busySourceId, setBusySourceId] = useState<string>();
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(0);
   const activeSource = sources.find((source) => source.id === activeSourceId);
+  const visibleSources = sources.filter((source) => fuzzyMatch(`${source.label} ${source.description}`, query.trim()));
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -71,37 +78,121 @@ function AddProjectModal({
     <>
       <button className="project-modal-scrim" aria-label="Close add project" onClick={onClose} />
       <section className="project-modal" role="dialog" aria-modal="true" aria-label="Add project">
-        <header className="project-modal-title">
-          <button className="modal-back" disabled={!SourceComponent} onClick={() => setActiveSourceId(undefined)}>←</button>
-          <span>
-            <small>{SourceComponent ? "Project source" : "Workspace extension"}</small>
-            <strong>{activeSource?.label ?? "Add project"}</strong>
-          </span>
+        {activeSource?.id === "workspace.local-folder" ? null : <header className={`project-modal-title${SourceComponent ? " source-open" : ""}`}>
+          <button className="modal-back" onClick={() => SourceComponent ? setActiveSourceId(undefined) : onClose()}>←</button>
+          {SourceComponent ? <span><small>Project source</small><strong>{activeSource?.label}</strong></span> : <input
+            autoFocus
+            value={query}
+            onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, visibleSources.length - 1))); }
+              if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
+              if (event.key === "Enter" && visibleSources[selected]) { event.preventDefault(); void selectSource(visibleSources[selected]); }
+            }}
+            placeholder="Search project sources…"
+            aria-label="Search project sources"
+          />}
           <button className="modal-close" onClick={onClose}>esc</button>
-        </header>
+        </header>}
         {SourceComponent ? (
           <SourceComponent actions={actions} onBack={() => setActiveSourceId(undefined)} onDone={onClose} />
         ) : (
           <>
-            <div className="project-source-intro">
-              <span>CHOOSE A SOURCE</span>
-              <p>Each source comes from a desktop extension. Tau only owns the modal slot.</p>
-            </div>
+            <div className="project-source-intro"><span>Sources</span></div>
             <div className="project-source-list">
-              {sources.map((source) => (
-                <button key={source.id} disabled={Boolean(busySourceId)} onClick={() => void selectSource(source)}>
+              {visibleSources.map((source, index) => (
+                <button className={selected === index ? "selected" : ""} key={source.id} disabled={Boolean(busySourceId)} onMouseMove={() => setSelected(index)} onClick={() => void selectSource(source)}>
                   <i>{source.glyph}</i>
                   <span><strong>{source.label}</strong><small>{source.description}</small></span>
                   <b>{busySourceId === source.id ? "working…" : "→"}</b>
                 </button>
               ))}
-              {sources.length === 0 ? <p>No project sources are registered.</p> : null}
+              {visibleSources.length === 0 ? <p>No matching project sources.</p> : null}
             </div>
+            <footer className="project-modal-help"><kbd>↑↓</kbd> Navigate <kbd>Enter</kbd> Select <kbd>Esc</kbd> Close</footer>
           </>
         )}
       </section>
     </>
   );
+}
+
+function fuzzyMatch(value: string, query: string): boolean {
+  let at = 0;
+  const haystack = value.toLocaleLowerCase();
+  for (const character of query.toLocaleLowerCase()) {
+    at = haystack.indexOf(character, at);
+    if (at < 0) return false;
+    at += 1;
+  }
+  return true;
+}
+
+export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProps) {
+  const [listing, setListing] = useState<UiDirectoryListing>();
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(0);
+  const [error, setError] = useState<string>();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const directories = useMemo(() => listing?.directories.filter((entry) => fuzzyMatch(entry.name, query.trim())) ?? [], [listing, query]);
+
+  const load = useCallback(async (path?: string) => {
+    try {
+      setError(undefined);
+      setListing(await window.tau!.listDirectories(path));
+      setQuery("");
+      setSelected(0);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (nextError) {
+      setError(String(nextError));
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const addCurrent = async () => {
+    if (!listing) return;
+    if (await actions.openWorkspace(listing.path)) onDone();
+  };
+  const openSelected = () => {
+    const directory = directories[selected];
+    if (directory) void load(directory.path);
+  };
+
+  return <div className="folder-browser">
+    <div className="folder-browser-path">
+      <button type="button" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={16} /></button>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, directories.length - 1))); }
+          if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
+          if (event.key === "Enter") { event.preventDefault(); openSelected(); }
+          if (event.key === "Backspace" && !query && listing?.parent) { event.preventDefault(); void load(listing.parent); }
+        }}
+        placeholder={listing?.path ?? "Loading folders…"}
+        aria-label="Filter folders"
+      />
+      <button type="button" className="folder-add" onClick={() => void addCurrent()}>Add <kbd>Enter</kbd></button>
+    </div>
+    <div className="folder-browser-heading">Directories <small>{listing?.path}</small></div>
+    <div className="folder-browser-results" role="listbox">
+      {listing?.parent ? <button type="button" onClick={() => void load(listing.parent)}><ArrowLeft size={15} /><span>..</span></button> : null}
+      {directories.map((directory, index) => <button
+        type="button"
+        role="option"
+        aria-selected={selected === index}
+        className={selected === index ? "selected" : ""}
+        key={directory.path}
+        onMouseMove={() => setSelected(index)}
+        onClick={() => void load(directory.path)}
+      ><Folder size={16} /><span>{directory.name}</span></button>)}
+      {directories.length === 0 && listing ? <p>No matching directories</p> : null}
+      {error ? <p className="folder-browser-error">{error}</p> : null}
+    </div>
+    <footer><span><kbd>↑↓</kbd> Navigate</span><span><kbd>Backspace</kbd> Back</span><span><kbd>Esc</kbd> Close</span></footer>
+  </div>;
 }
 
 export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
@@ -130,6 +221,75 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
       </div>
     </form>
   );
+}
+
+export function ProjectSwitcherPopover({
+  activePath,
+  open,
+  projects,
+  onClose,
+  onSelect,
+}: {
+  activePath?: string;
+  open: boolean;
+  projects: readonly UiProject[];
+  onClose(): void;
+  onSelect(project: UiProject): void;
+}) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const matches = useMemo(() => projects.filter((project) => fuzzyMatch(`${project.name} ${project.path}`, query.trim())), [projects, query]);
+  useEffect(() => {
+    if (!open) return;
+    setQuery("");
+    setSelected(Math.max(0, projects.findIndex((project) => project.path === activePath)));
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [activePath, open, projects]);
+  if (!open) return null;
+  const activate = () => { const project = matches[selected]; if (project) onSelect(project); };
+
+  return <>
+    <button type="button" className="project-switcher-scrim" aria-label="Close project switcher" onClick={onClose} />
+    <section className="project-switcher-popover" role="dialog" aria-label="Switch project">
+      <label><Search size={15} /><input
+        ref={inputRef}
+        value={query}
+        placeholder="Search projects…"
+        aria-label="Search projects"
+        onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+          if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, matches.length - 1))); }
+          if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
+          if (event.key === "Enter") { event.preventDefault(); activate(); }
+        }}
+      /></label>
+      <VirtualList
+        items={matches}
+        itemHeight={42}
+        overscan={5}
+        className="project-switcher-results"
+        role="listbox"
+        scrollToIndex={selected}
+        empty={<p>No matching projects</p>}
+        renderItem={(project, index) => <button
+          type="button"
+          role="option"
+          aria-selected={selected === index}
+          className={selected === index ? "selected" : ""}
+          key={project.path}
+          onMouseMove={() => setSelected(index)}
+          onClick={() => onSelect(project)}
+        >
+          <i>{projectInitial(project.name)}</i>
+          <span>{project.name}</span>
+          {project.path === activePath ? <small>current</small> : null}
+          <Settings size={14} aria-hidden="true" />
+        </button>}
+      />
+    </section>
+  </>;
 }
 
 function ProjectScope({ actions }: SidebarContributionProps) {
@@ -168,11 +328,10 @@ function ProjectScope({ actions }: SidebarContributionProps) {
           <FolderPlus size={16} />
         </button>
       </div>
-      <ProjectPicker
+      <ProjectSwitcherPopover
         activePath={snapshot?.cwd}
         open={searchOpen}
         projects={projects}
-        onBrowse={() => { setSearchOpen(false); setAddOpen(true); }}
         onClose={() => setSearchOpen(false)}
         onSelect={(project) => { setSearchOpen(false); void actions.openWorkspace(project.path); }}
       />
@@ -301,9 +460,18 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   });
 
   const activityFor = (sessionId: string): { activity: ThreadActivity; label?: string } => {
-    if (sessionId === activityState.activeThreadId) {
-      if (activityState.runningToolName) return { activity: "tool", label: activityState.runningToolName.toUpperCase() };
-      if (activityState.isStreaming) return { activity: "working", label: "WORKING" };
+    // A stalled question outranks every other state: nothing moves until it is answered.
+    if (activityState.waitingThreadIds.includes(sessionId)) return { activity: "waiting", label: "NEEDS YOU" };
+    // Run state follows the thread, not the tab you happen to be reading.
+    if (activityState.runningThreadIds.includes(sessionId)) {
+      const tool = sessionId === activityState.activeThreadId ? activityState.runningToolName : undefined;
+      return tool
+        ? { activity: "tool", label: tool.toUpperCase() }
+        : { activity: "working", label: "WORKING" };
+    }
+    // A tool still marked running while nothing is in flight is a dead turn, not work.
+    if (sessionId === activityState.activeThreadId && activityState.runningToolName) {
+      return { activity: "stalled", label: "INTERRUPTED" };
     }
     // Ready means "finished while you were elsewhere"; opening the thread clears it.
     if (activityState.unreadThreadIds.includes(sessionId)) return { activity: "ready", label: "READY" };

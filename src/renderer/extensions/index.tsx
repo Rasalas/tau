@@ -8,6 +8,7 @@ const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ Changes
 const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
 const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
+const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
 import { computerUsePresentationExtension } from "./computer-use";
 import { titleGeneratorExtension } from "./title-generator";
@@ -23,7 +24,7 @@ export const workspaceExtension: DesktopExtension = {
       description: "Open an existing checkout or any folder on this Mac.",
       glyph: "▱",
       order: 10,
-      run: (app) => app.chooseWorkspace(),
+      Component: LazyLocalFolderSource,
     });
     plugin.registerProjectSource({
       id: "workspace.git-clone",

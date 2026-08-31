@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
 import { VirtualList } from "./VirtualList";
 
 interface ProjectPickerProps {
-  activePath?: string;
   open: boolean;
   projects: readonly UiProject[];
   onBrowse: () => void;
   onClose: () => void;
+  onRemove: (project: UiProject) => void | Promise<void>;
   onSelect: (project: UiProject) => void;
 }
 
@@ -22,15 +22,16 @@ function compactPath(path: string): string {
 }
 
 export function ProjectPicker({
-  activePath,
   open,
   projects,
   onBrowse,
   onClose,
+  onRemove,
   onSelect,
 }: ProjectPickerProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
+  const [contextMenu, setContextMenu] = useState<{ project: UiProject; x: number; y: number }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -44,13 +45,28 @@ export function ProjectPicker({
     if (!open) return;
     setQuery("");
     setSelected(0);
+    setContextMenu(undefined);
     window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        if (contextMenu) setContextMenu(undefined);
+        else onClose();
+      }
+      if (event.key === "Delete" && event.shiftKey) {
+        const project = matches[selected];
+        if (!project) return;
+        event.preventDefault();
+        setContextMenu(undefined);
+        void onRemove(project);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, open]);
+  }, [contextMenu, matches, onClose, onRemove, open, selected]);
 
   useEffect(() => {
     setSelected((index) => Math.min(index, Math.max(0, matches.length - 1)));
@@ -115,13 +131,21 @@ export function ProjectPicker({
               className={selected === index ? "selected" : ""}
               onMouseMove={() => setSelected(index)}
               onClick={() => onSelect(project)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setSelected(index);
+                setContextMenu({
+                  project,
+                  x: Math.min(event.clientX, window.innerWidth - 216),
+                  y: Math.min(event.clientY, window.innerHeight - 78),
+                });
+              }}
             >
               <i>{projectInitial(project.name)}</i>
               <span>
                 <strong>{project.name}</strong>
                 <small>{compactPath(project.path)}</small>
               </span>
-              {project.path === activePath ? <em>active</em> : null}
             </button>
           )}
         />
@@ -130,6 +154,20 @@ export function ProjectPicker({
           <small><kbd>↑↓</kbd> select <kbd>↵</kbd> open</small>
         </footer>
       </section>
+      {contextMenu ? <div
+        className="project-picker-context-menu"
+        role="menu"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+      >
+        <button type="button" role="menuitem" onClick={() => {
+          const project = contextMenu.project;
+          setContextMenu(undefined);
+          void onRemove(project);
+        }}>
+          <Trash2 size={14} />
+          <span><strong>Remove from Tau</strong><small>Files stay on disk</small></span>
+        </button>
+      </div> : null}
     </>
   );
 }

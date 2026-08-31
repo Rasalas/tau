@@ -1,6 +1,6 @@
-import { Bot, ChevronRight } from "lucide-react";
-import { memo, useState } from "react";
-import type { UiMessage } from "../../shared/contracts";
+import { Bot, ChevronRight, Copy, GitFork } from "lucide-react";
+import { memo, useEffect, useState } from "react";
+import type { UiImagePreview, UiMessage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
 
 function clockTime(timestamp: number): string {
@@ -40,12 +40,68 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
   );
 }
 
+const LOCAL_IMAGE_PATH = /(\/(?:(?:\\ )|[^\s'"<>])+?\.(?:png|jpe?g|gif|webp))(?=\s|$|[),;])/giu;
+
+export function localImagePaths(text: string): string[] {
+  const matches = text.matchAll(LOCAL_IMAGE_PATH);
+  return [...new Set([...matches].map((match) => match[1].replaceAll("\\ ", " ")))].slice(0, 4);
+}
+
+export function withoutLocalImagePaths(text: string): string {
+  return text.replace(LOCAL_IMAGE_PATH, "").replace(/^[ \t]+|[ \t]+$/gmu, "").trim();
+}
+
+const imagePreviewCache = new Map<string, Promise<UiImagePreview | undefined>>();
+
+function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
+  const cached = imagePreviewCache.get(path);
+  if (cached) return cached;
+  if (imagePreviewCache.size >= 8) imagePreviewCache.delete(imagePreviewCache.keys().next().value as string);
+  const request = window.tau!.readImagePreview(path).catch((error) => {
+    imagePreviewCache.delete(path);
+    throw error;
+  });
+  imagePreviewCache.set(path, request);
+  return request;
+}
+
+function MessageImages({ text }: { text: string }) {
+  const [previews, setPreviews] = useState<UiImagePreview[]>([]);
+  useEffect(() => {
+    const paths = localImagePaths(text);
+    if (paths.length === 0 || !window.tau) {
+      setPreviews([]);
+      return;
+    }
+    let active = true;
+    void Promise.all(paths.map(cachedImagePreview))
+      .then((images) => { if (active) setPreviews(images.filter((image): image is UiImagePreview => Boolean(image))); })
+      .catch(() => { if (active) setPreviews([]); });
+    return () => { active = false; };
+  }, [text]);
+  if (previews.length === 0) return null;
+  return <div className="message-images">
+    {previews.map((image) => <img key={image.name} src={image.dataUrl} alt={image.name} />)}
+  </div>;
+}
+
+function MessageActions({ onCopy, onFork }: { onCopy(): void; onFork?: () => void }) {
+  return <div className="message-actions">
+    <button type="button" onClick={onCopy} title="Copy message"><Copy size={13} /><span>Copy</span></button>
+    {onFork ? <button type="button" onClick={onFork} title="Fork through this message"><GitFork size={13} /><span>Fork</span></button> : null}
+  </div>;
+}
+
 export const Message = memo(function Message({
   message,
   streaming = false,
+  onCopy,
+  onFork,
 }: {
   message: UiMessage;
   streaming?: boolean;
+  onCopy?: (message: UiMessage) => void;
+  onFork?: (message: UiMessage) => void;
 }) {
   const activity = parseAsyncActivity(message.text);
 
@@ -53,21 +109,40 @@ export const Message = memo(function Message({
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
+    const visibleText = withoutLocalImagePaths(message.text);
+    const hasLocalImages = localImagePaths(message.text).length > 0;
     return (
-      <article className="message user">
-        <div className="message-text"><Markdown>{message.text}</Markdown></div>
-        <time>{clockTime(message.timestamp)}</time>
-      </article>
+      <div className="message-shell user">
+        <article className="message user">
+          <div className="message-text">
+            {visibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages ? <span className="image-placeholder">Image attached</span> : null}
+            {hasLocalImages ? <MessageImages text={message.text} /> : null}
+          </div>
+          <div className="message-user-meta">
+            <time>{clockTime(message.timestamp)}</time>
+            {onCopy ? <MessageActions
+              onCopy={() => onCopy(message)}
+              onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
+            /> : null}
+          </div>
+        </article>
+      </div>
     );
   }
 
   if (!message.text) return null;
 
   return (
-    <article className="message assistant">
-      <div className="message-text">
-        <Markdown streaming={streaming}>{message.text}</Markdown>
-      </div>
-    </article>
+    <div className="message-shell assistant">
+      <article className="message assistant">
+        <div className="message-text">
+          <Markdown streaming={streaming}>{message.text}</Markdown>
+        </div>
+      </article>
+      {onCopy ? <MessageActions
+        onCopy={() => onCopy(message)}
+        onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
+      /> : null}
+    </div>
   );
 });

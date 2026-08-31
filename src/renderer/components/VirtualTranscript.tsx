@@ -9,53 +9,74 @@ export interface VirtualTranscriptProps {
   isStreaming: boolean;
   activity?: ReactNode;
   activityAfterMessageId?: string;
+  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
+  onCopyMessage?: (message: UiMessage) => void;
+  onForkMessage?: (message: UiMessage) => void;
 }
 
-/** Variable-height transcript window. Only visible messages and a small overscan mount. */
+/** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
 export function VirtualTranscript({
   messages,
   scrollRef,
   isStreaming,
   activity,
   activityAfterMessageId,
+  activities = [],
+  onCopyMessage,
+  onForkMessage,
 }: VirtualTranscriptProps) {
-  const items: Array<{ type: "message"; message: UiMessage } | { type: "activity" }> = messages.map((message) => ({ type: "message", message }));
-  if (activity) {
-    const anchorIndex = activityAfterMessageId
-      ? items.findIndex((item) => item.type === "message" && item.message.id === activityAfterMessageId)
-      : -1;
-    items.splice(anchorIndex >= 0 ? anchorIndex + 1 : items.length, 0, { type: "activity" });
+  const pendingActivities = [
+    ...activities,
+    ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, content: activity }] : []),
+  ];
+  const messageIds = new Set(messages.map((message) => message.id));
+  const tailMessageId = messages.at(-1)?.id;
+  const activitiesByMessage = new Map<string, typeof pendingActivities>();
+  for (const entry of pendingActivities) {
+    const anchor = entry.afterMessageId
+      ? (messageIds.has(entry.afterMessageId) ? entry.afterMessageId : entry.id === "turn-activity" ? tailMessageId : undefined)
+      : tailMessageId;
+    if (!anchor) continue;
+    const anchored = activitiesByMessage.get(anchor) ?? [];
+    anchored.push(entry);
+    activitiesByMessage.set(anchor, anchored);
   }
+
+  const unanchoredLiveActivity = messages.length === 0
+    ? pendingActivities.filter((entry) => entry.id === "turn-activity")
+    : [];
+
   const virtualizer = useVirtualizer({
-    count: items.length,
+    count: messages.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 180,
-    getItemKey: (index) => {
-      const item = items[index];
-      return item?.type === "message" ? item.message.id : "turn-activity";
-    },
+    getItemKey: (index) => messages[index]?.id ?? index,
     initialRect: { width: 780, height: 600 },
     overscan: 6,
+    useAnimationFrameWithResizeObserver: true,
   });
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0
     ? measuredRows
-    : items.slice(0, 12).map((item, index) => ({
-      index,
-      key: item.type === "message" ? item.message.id : "turn-activity",
-      start: index * 180,
-    }));
+    : messages.slice(0, 12).map((message, index) => ({ index, key: message.id, start: index * 180 }));
+
+  if (messages.length === 0 && unanchoredLiveActivity.length > 0) {
+    return <div className="virtual-transcript static-activity-transcript">
+      {unanchoredLiveActivity.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
+    </div>;
+  }
 
   return <div
     className="virtual-transcript"
     style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}
   >
     {rows.map((row) => {
-      const item = items[row.index];
-      const key = item.type === "message" ? item.message.id : "turn-activity";
+      const message = messages[row.index];
+      const anchoredActivities = activitiesByMessage.get(message.id) ?? [];
       return <div
-        key={key}
+        key={message.id}
         ref={virtualizer.measureElement}
         data-index={row.index}
         className="virtual-transcript-row"
@@ -67,12 +88,13 @@ export function VirtualTranscript({
           transform: `translateY(${row.start}px)`,
         }}
       >
-        {item.type === "activity" ? activity : (
-          <Message
-            message={item.message}
-            streaming={Boolean(isStreaming && item.message === messages.at(-1) && item.message.role === "assistant")}
-          />
-        )}
+        <Message
+          message={message}
+          streaming={Boolean(isStreaming && message === messages.at(-1) && message.role === "assistant")}
+          onCopy={onCopyMessage}
+          onFork={onForkMessage}
+        />
+        {anchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
       </div>;
     })}
   </div>;

@@ -1,9 +1,40 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { Message } from "./Message";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { localImagePaths, Message, withoutLocalImagePaths } from "./Message";
 
 afterEach(cleanup);
+
+describe("Message images", () => {
+  it("finds shell-escaped local image paths", () => {
+    const text = "/Users/me/Application\\ Support/CleanShot/image.png please inspect";
+    expect(localImagePaths(text)).toEqual(["/Users/me/Application Support/CleanShot/image.png"]);
+    expect(withoutLocalImagePaths(text)).toBe("please inspect");
+  });
+});
+
+describe("Message actions", () => {
+  it("copies and forks a persisted message", () => {
+    const onCopy = vi.fn();
+    const onFork = vi.fn();
+    const message = { id: "message", sourceEntryId: "entry", role: "assistant" as const, text: "Answer", timestamp: 0 };
+    render(<Message message={message} onCopy={onCopy} onFork={onFork} />);
+
+    fireEvent.click(screen.getByTitle("Copy message"));
+    fireEvent.click(screen.getByTitle("Fork through this message"));
+    expect(onCopy).toHaveBeenCalledWith(message);
+    expect(onFork).toHaveBeenCalledWith(message);
+  });
+
+  it("does not offer a fork for an optimistic message", () => {
+    render(<Message
+      message={{ id: "local", role: "user", text: "Pending", timestamp: 0 }}
+      onCopy={() => {}}
+      onFork={() => {}}
+    />);
+    expect(screen.queryByTitle("Fork through this message")).toBeNull();
+  });
+});
 
 describe("Message reasoning presentation", () => {
   it("keeps provider reasoning summaries out of the transcript", () => {

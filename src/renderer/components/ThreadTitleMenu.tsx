@@ -25,7 +25,7 @@ export function ThreadTitleMenu({
   onRename(title: string): Promise<boolean>;
   onRegenerate(): void;
   onMarkUnread(): void;
-  onCopy(value: "path" | "branch" | "thread-id"): void;
+  onCopy(value: "chat" | "path" | "branch" | "thread-id"): void;
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -60,6 +60,7 @@ export function ThreadTitleMenu({
     },
     {
       items: [
+        { id: "copy-chat", label: "Copy entire chat as Markdown" },
         { id: "copy-path", label: "Copy path" },
         ...(branch ? [{ id: "copy-branch", label: "Copy branch" }] : []),
         { id: "copy-thread-id", label: "Copy thread ID" },
@@ -74,6 +75,7 @@ export function ThreadTitleMenu({
     if (id === "rename") setRenaming(true);
     if (id === "regenerate") onRegenerate();
     if (id === "unread") onMarkUnread();
+    if (id === "copy-chat") onCopy("chat");
     if (id === "copy-path") onCopy("path");
     if (id === "copy-branch") onCopy("branch");
     if (id === "copy-thread-id") onCopy("thread-id");
