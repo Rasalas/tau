@@ -97,6 +97,10 @@ export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, st
   messagesOffset?: number;
   /** Bounded raw activity records accompanying the mapped transcript page. */
   activityMessages?: unknown[];
+  /** Typed activity metadata is computed before raw activity record limits. */
+  turnActivityHistory?: import("./contracts.js").UiTurnActivityEntry[];
+  /** False when the bridge had to omit activity metadata at its explicit cap. */
+  turnActivityHistoryComplete?: boolean;
   /** Checkpoints whose anchors are present in this page. */
   turnCheckpoints?: UiTurnCheckpoint[];
 }
@@ -137,6 +141,7 @@ export type PiBridgeCommand =
   | { command: "new_session_ack"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "new_session_abort"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "transcript_page"; cursor?: string }
+  | { command: "read_tool_output"; toolCallId: string; offset?: number }
   | { command: "turn_files_page"; checkpointId: string; cursor?: string; limit?: number }
   | { command: "export_markdown" }
   | ({ command: "turn_file_diff"; checkpointId: string; path: string } & DiffLoadOptions)
@@ -146,6 +151,15 @@ export type PiBridgeCommand =
 export interface PiBridgeTurnFilesPage extends UiWorkspaceChangesPage {
   sessionId: string;
   checkpointId: string;
+}
+
+/** One bounded page of the persisted output requested by the host. */
+export interface PiBridgeToolOutputPage {
+  toolCallId: string;
+  offset: number;
+  output: string;
+  totalBytes: number;
+  nextOffset?: number;
 }
 
 /**

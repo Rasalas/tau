@@ -175,7 +175,8 @@ function validTranscriptBundlePayload(payload: Record<string, unknown>, requireH
       requireHasMore,
     })
     && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory))
-    && (payload.turnActivityHistory === undefined || Array.isArray(payload.turnActivityHistory));
+    && (payload.turnActivityHistory === undefined || Array.isArray(payload.turnActivityHistory))
+    && (payload.turnActivityHistoryComplete === undefined || typeof payload.turnActivityHistoryComplete === "boolean");
 }
 
 export function isHostUpdate(value: unknown): value is HostUpdate {
@@ -275,6 +276,9 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     taskProgress: snapshot.taskProgress,
     taskHistory: snapshot.taskHistory,
     turnActivityHistory: turnActivityHistoryForMessages(snapshot.turnActivityHistory, snapshot.messages),
+    ...(snapshot.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
+      : {}),
     contextUsage: snapshot.contextUsage,
     olderCursor: snapshot.olderCursor,
     cursorBeforeMessageId: snapshot.cursorBeforeMessageId,
@@ -299,6 +303,9 @@ export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: Thr
     messages: detail.messages,
     taskHistory: detail.taskHistory,
     turnActivityHistory: detail.turnActivityHistory,
+    ...(detail.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: detail.turnActivityHistoryComplete }
+      : {}),
     olderCursor: detail.olderCursor,
     cursorBeforeMessageId: detail.cursorBeforeMessageId,
     cursorBoundaries,
@@ -326,6 +333,9 @@ export function detailFromSnapshot(
     turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, snapshot.messages),
     taskHistory: taskHistoryForMessages(snapshot.taskHistory, snapshot.messages),
     turnActivityHistory: turnActivityHistoryForMessages(snapshot.turnActivityHistory, snapshot.messages),
+    ...(snapshot.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
+      : {}),
     hasMore: snapshot.olderCursor !== undefined,
     historyCompleteness: resolveTranscriptHistoryCompleteness(
       snapshot.historyCompleteness,
@@ -353,6 +363,9 @@ export function detailFromSnapshot(
     taskProgress: snapshot.taskProgress,
     taskHistory: taskHistoryForMessages(snapshot.taskHistory, page.messages),
     turnActivityHistory: turnActivityHistoryForMessages(snapshot.turnActivityHistory, page.messages),
+    ...(snapshot.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
+      : {}),
     contextUsage: snapshot.contextUsage,
     ...(olderCursor ? { olderCursor } : {}),
     ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),

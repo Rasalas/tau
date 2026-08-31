@@ -393,6 +393,14 @@ export interface ShellActionResult {
   truncated: boolean;
 }
 
+/** Result of a deliberate, bounded read of a persisted tool result. */
+export interface UiToolOutputReadResult {
+  toolCallId: string;
+  output: string;
+  totalBytes: number;
+  truncated: boolean;
+}
+
 export interface UiTurnActivity {
   tools: UiToolRun[];
   /** Last visible message rendered before the first tool call in this turn. */
@@ -622,6 +630,8 @@ export interface TauDesktopApi {
   cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
   renameThread(title: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   copyText(text: string): Promise<void>;
+  /** Reads the persisted tool result, rather than the bounded transcript preview. */
+  readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;

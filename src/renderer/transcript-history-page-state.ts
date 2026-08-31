@@ -11,6 +11,7 @@ export interface TranscriptBundleMergeInput {
   messages: readonly UiMessage[];
   taskHistory?: readonly UiTaskProgressEntry[];
   turnActivityHistory?: readonly UiTurnActivityEntry[];
+  turnActivityHistoryComplete?: boolean;
   cursorBoundaries?: readonly TranscriptCursorBoundary<HostTranscriptCursor>[];
   transcriptWindow?: "bounded";
 }
@@ -19,6 +20,7 @@ export interface TranscriptBundleMergeResult {
   messages: UiMessage[];
   taskHistory?: UiTaskProgressEntry[];
   turnActivityHistory?: UiTurnActivityEntry[];
+  turnActivityHistoryComplete?: boolean;
   cursorBoundaries?: TranscriptCursorBoundary<HostTranscriptCursor>[];
   transcriptWindow?: "bounded";
 }
@@ -87,6 +89,14 @@ export function mergeTurnActivityHistory(
   });
 }
 
+function mergeTurnActivityHistoryCompleteness(
+  current: boolean | undefined,
+  incoming: boolean | undefined,
+): boolean | undefined {
+  if (current === false || incoming === false) return false;
+  return incoming ?? current;
+}
+
 /** Apply one transcript bundle merge policy across detail, page, and snapshot paths. */
 export function applyTranscriptBundleMerge(
   current: TranscriptBundleMergeInput | undefined,
@@ -98,6 +108,9 @@ export function applyTranscriptBundleMerge(
       messages: [...incoming.messages],
       ...(incoming.taskHistory ? { taskHistory: [...incoming.taskHistory] } : {}),
       ...(incoming.turnActivityHistory ? { turnActivityHistory: [...incoming.turnActivityHistory] } : {}),
+      ...(incoming.turnActivityHistoryComplete !== undefined
+        ? { turnActivityHistoryComplete: incoming.turnActivityHistoryComplete }
+        : {}),
       ...(incoming.cursorBoundaries ? { cursorBoundaries: [...incoming.cursorBoundaries] } : {}),
       ...(incoming.transcriptWindow ? { transcriptWindow: incoming.transcriptWindow } : {}),
     };
@@ -105,12 +118,17 @@ export function applyTranscriptBundleMerge(
   const messages = mergeTranscriptMessages(current.messages, incoming.messages, position);
   const taskHistory = mergeTaskHistory(current.taskHistory, incoming.taskHistory);
   const turnActivityHistory = mergeTurnActivityHistory(current.turnActivityHistory, incoming.turnActivityHistory);
+  const turnActivityHistoryComplete = mergeTurnActivityHistoryCompleteness(
+    current.turnActivityHistoryComplete,
+    incoming.turnActivityHistoryComplete,
+  );
   const cursorBoundaries = mergeCursorBoundaries(current.cursorBoundaries, incoming.cursorBoundaries);
   const transcriptWindow = incoming.transcriptWindow ?? current.transcriptWindow;
   return {
     messages,
     ...(taskHistory ? { taskHistory } : {}),
     ...(turnActivityHistory ? { turnActivityHistory } : {}),
+    ...(turnActivityHistoryComplete !== undefined ? { turnActivityHistoryComplete } : {}),
     ...(cursorBoundaries ? { cursorBoundaries } : {}),
     ...(transcriptWindow ? { transcriptWindow } : {}),
   };

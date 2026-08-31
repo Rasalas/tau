@@ -74,6 +74,7 @@ describe("last-turn activity", () => {
 
     expect(await screen.findByText("1 tool call interrupted")).toBeTruthy();
     expect(screen.getByText("interrupted")).toBeTruthy();
+    expect(localStorage.getItem("tau.bootstrap-cache.v6") ?? "").not.toContain('"status":"interrupted"');
   });
 
   it("prefers authoritative completed tools over stale running cache entries", async () => {

@@ -181,13 +181,18 @@ export function latestActivityAnchor(
   return currentAnchorId;
 }
 
+/**
+ * Preserve a group that has already received every terminal tool frame. A
+ * group containing a running call is deliberately left to the host snapshot;
+ * an agent-status(false) event alone cannot prove that call was interrupted.
+ */
 function upsertSettledTurnActivity(
   history: readonly UiTurnActivityEntry[],
   tools: readonly UiToolRun[],
   anchorMessageId?: string,
   turnId?: string,
 ): UiTurnActivityEntry[] {
-  if (tools.length === 0) return [...history];
+  if (tools.length === 0 || tools.some((tool) => tool.status === "running")) return [...history];
   const toolIds = new Set(tools.map((tool) => tool.id));
   const existingIndex = [...history].reverse().findIndex((entry) => (
     (anchorMessageId !== undefined && entry.anchorMessageId === anchorMessageId)
@@ -196,9 +201,7 @@ function upsertSettledTurnActivity(
   const resolvedIndex = existingIndex < 0 ? -1 : history.length - 1 - existingIndex;
   const status: UiTurnActivityEntry["status"] = tools.some((tool) => tool.status === "error")
     ? "error"
-    : tools.some((tool) => tool.status === "running")
-      ? "interrupted"
-      : "completed";
+    : "completed";
   const nextEntry = resolvedIndex >= 0
     ? { ...history[resolvedIndex], tools: [...tools], status }
     : {
@@ -853,24 +856,30 @@ export default function App() {
         if (!event.running) {
           // A reconnect can miss a final tool-end frame. Keep that call open
           // in the UI so ToolGroup can truthfully present it as interrupted;
-          // the next authoritative snapshot replaces it when a result exists.
+          // the host's authoritative detail replaces it when a result exists.
           flushToolUpdates();
-          const nextActivityHistory = upsertSettledTurnActivity(
-            turnActivityHistoryRef.current,
-            toolsRef.current,
-            toolAnchorRef.current,
-            turnOwnerMessageId(messagesRef.current, toolAnchorRef.current),
-          );
-          turnActivityHistoryRef.current = nextActivityHistory;
-          setTurnActivityHistory(nextActivityHistory);
-          transcriptHistory.updateTurnActivityHistory(event.sessionId, nextActivityHistory);
-          setSnapshot((current) => {
-            if (!current) return current;
-            const updated = { ...current, turnActivityHistory: nextActivityHistory };
-            cachedSnapshotRef.current = updated;
-            writeBootstrapCache(updated, cachedIndexRef.current);
-            return updated;
-          });
+          const settledTools = toolsRef.current;
+          // Completed/error calls are safe to retain for the turn summary. A
+          // running call is intentionally excluded: missing its end frame is
+          // not evidence of an interrupted lifecycle.
+          if (settledTools.length > 0 && settledTools.every((tool) => tool.status !== "running")) {
+            const nextActivityHistory = upsertSettledTurnActivity(
+              turnActivityHistoryRef.current,
+              settledTools,
+              toolAnchorRef.current,
+              turnOwnerMessageId(messagesRef.current, toolAnchorRef.current),
+            );
+            turnActivityHistoryRef.current = nextActivityHistory;
+            setTurnActivityHistory(nextActivityHistory);
+            transcriptHistory.updateTurnActivityHistory(event.sessionId, nextActivityHistory);
+            setSnapshot((current) => {
+              if (!current) return current;
+              const updated = { ...current, turnActivityHistory: nextActivityHistory };
+              cachedSnapshotRef.current = updated;
+              writeBootstrapCache(updated, cachedIndexRef.current);
+              return updated;
+            });
+          }
           // "Ready" is an unread badge: only raise it if the user was not watching this finish.
           const finished = runningThreadRef.current;
           const viewed = threadStore.getSnapshot().activeThreadId;
@@ -1592,6 +1601,23 @@ export default function App() {
     }
   }, []);
 
+  const copyToolOutput = useCallback(async (tool: UiToolRun) => {
+    if (!snapshot?.sessionId || !window.tau) {
+      setNotice("Tool output is unavailable.");
+      return;
+    }
+    try {
+      const result = await window.tau.readToolOutput(snapshot.sessionId, tool.id);
+      if (!result) throw new Error("The complete tool output is no longer available.");
+      await window.tau.copyText(result.output);
+      setNotice(result.truncated
+        ? "Tool output exceeded the read limit; the bounded result was copied."
+        : "Full tool output copied.");
+    } catch (error) {
+      setNotice(errorMessage(error));
+    }
+  }, [snapshot?.sessionId]);
+
   const forkMessage = useCallback(async (message: UiMessage) => {
     if (!message.sourceEntryId || !snapshot?.sessionId || !requireHost("Fork thread")) return;
     try {
@@ -2039,6 +2065,7 @@ export default function App() {
           streaming={entry.status === "running"}
           activityStatus={entry.status}
           onRecover={entry.status === "interrupted" ? () => void recoverThread() : undefined}
+          onCopyOutput={copyToolOutput}
         />
       ),
     }));
@@ -2056,6 +2083,7 @@ export default function App() {
           waiting={conversationPrompts.length > 0}
           onRecover={() => void recoverThread()}
           onStop={() => void window.tau?.abort(snapshot?.sessionId)}
+          onCopyOutput={copyToolOutput}
         />
       ) : null}
       {liveTaskProgress}

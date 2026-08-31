@@ -54,7 +54,7 @@ function piPromptThread(session: {
     },
     isStreaming: () => session.isStreaming,
     isIdle: () => !session.isStreaming,
-    branchEntries: () => [],
+    branchEntries: (): unknown[] => [],
     appendCustomEntry: () => undefined,
   };
   return {
@@ -145,6 +145,34 @@ describe("PiHost prompt preflight", () => {
     } finally {
       process.off("unhandledRejection", unhandled);
     }
+  });
+});
+
+describe("PiHost deliberate tool-output reads", () => {
+  it("reads the persisted result instead of the bounded 128 KiB preview", async () => {
+    const output = `${"x".repeat(128 * 1024)}\nfinal line`;
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: vi.fn(),
+    };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const thread = piPromptThread(session);
+    thread.backend.branchEntries = () => [
+      { type: "message", id: "user", message: { role: "user", content: "inspect" } },
+      { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
+      { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
+    ];
+    const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+
+    await expect(host.readToolOutput("session", "call")).resolves.toEqual({
+      toolCallId: "call",
+      output,
+      totalBytes: Buffer.byteLength(output, "utf8"),
+      truncated: false,
+    });
   });
 });
 

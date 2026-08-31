@@ -1,4 +1,5 @@
 import { pageRecords, type BoundedTranscriptPage } from "./transcript-pager.js";
+import type { UiToolRun, UiTurnActivityEntry } from "./contracts.js";
 
 export const BRIDGE_MAX_TRANSCRIPT_TURNS = 40;
 export const BRIDGE_MAX_TRANSCRIPT_RECORDS = 160;
@@ -21,6 +22,10 @@ const MAX_DEPTH = 12;
 export interface BridgeTranscriptPage {
   page: BoundedTranscriptPage<unknown>;
   activityMessages: unknown[];
+  /** Derived before the raw activity record ceiling is applied. */
+  turnActivityHistory: UiTurnActivityEntry[];
+  /** False when one or more activity tools exceeded the metadata ceiling. */
+  turnActivityHistoryComplete: boolean;
 }
 
 function byteLength(value: string): number {
@@ -101,6 +106,7 @@ export function boundedBridgePayload<T>(value: T, maxBytes = BRIDGE_MAX_SNAPSHOT
   const required = new Set([
     "sessionId", "sessionFile", "cwd", "messages", "isStreaming", "model",
     "models", "thinkingLevel", "thinkingLevels", "activeTools", "allTools",
+    "turnActivityHistory", "turnActivityHistoryComplete",
   ]);
   const optionalKeys = Object.keys(result)
     .filter((key) => !required.has(key))
@@ -113,7 +119,7 @@ export function boundedBridgePayload<T>(value: T, maxBytes = BRIDGE_MAX_SNAPSHOT
   // Keep all protocol arrays present, but progressively shorten their entries
   // so an extension cannot make an unbounded frame or make a caller lose the
   // distinction between an omitted field and an empty catalog.
-  for (const key of ["models", "allTools", "activeTools", "thinkingLevels", "messages"]) {
+  for (const key of ["models", "allTools", "activeTools", "thinkingLevels", "messages", "turnActivityHistory"]) {
     const values = result[key];
     if (!Array.isArray(values)) continue;
     while (values.length > 1 && encodedBytes(result) > maxBytes) values.splice(0, Math.ceil(values.length / 2));
@@ -138,6 +144,131 @@ function contentPreview(value: unknown): string {
     return "";
   }).filter(Boolean).join("\n");
   return text ? truncateString(text, 64 * 1024) : "[Bridge content truncated]";
+}
+
+const BRIDGE_ACTIVITY_TOOL_LIMIT = BRIDGE_MAX_TRANSCRIPT_RECORDS;
+const BRIDGE_ACTIVITY_OUTPUT_PREVIEW_BYTES = 8 * 1024;
+
+function activityContentText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value.map((part) => {
+    if (!part || typeof part !== "object") return "";
+    const item = part as { type?: unknown; text?: unknown };
+    return item.type === "text" && typeof item.text === "string" ? item.text : "";
+  }).filter(Boolean).join("\n");
+}
+
+function activityTimestamp(value: Record<string, unknown>, index: number): number {
+  return typeof value.timestamp === "number" && Number.isFinite(value.timestamp) ? value.timestamp : index;
+}
+
+function activityOutputPreview(output: string): string {
+  return truncateString(output, BRIDGE_ACTIVITY_OUTPUT_PREVIEW_BYTES);
+}
+
+interface BridgeActivityHistoryResult {
+  history: UiTurnActivityEntry[];
+  complete: boolean;
+}
+
+/**
+ * Project the selected raw branch range into typed activity before
+ * `activityMessages` is bounded. This keeps a large tool stream from changing
+ * the visible count or final status merely because its raw records crossed the
+ * transport ceiling.
+ */
+function activityHistoryForRecords(records: readonly unknown[]): BridgeActivityHistoryResult {
+  const history: UiTurnActivityEntry[] = [];
+  let active: {
+    id: string;
+    anchorMessageId?: string;
+    tools: UiToolRun[];
+    interrupted: boolean;
+    error: boolean;
+    omittedTools: boolean;
+  } | undefined;
+  let toolIndexes = new Map<string, number>();
+  let complete = true;
+
+  const finish = () => {
+    if (!active || active.tools.length === 0) {
+      active = undefined;
+      toolIndexes = new Map();
+      return;
+    }
+    const hasError = active.error || active.tools.some((tool) => tool.status === "error");
+    const hasRunning = active.tools.some((tool) => tool.status === "running");
+    history.push({
+      id: active.id,
+      ...(active.anchorMessageId ? { anchorMessageId: active.anchorMessageId } : {}),
+      tools: active.tools,
+      status: hasError ? "error" : active.interrupted ? "interrupted" : hasRunning ? "running" : "completed",
+    });
+    if (active.omittedTools) complete = false;
+    active = undefined;
+    toolIndexes = new Map();
+  };
+
+  records.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object") return;
+    const message = raw as Record<string, unknown>;
+    const timestamp = activityTimestamp(message, index);
+    if (message.role === "user") {
+      finish();
+      const anchor = typeof message.tauEntryId === "string" ? message.tauEntryId : `user-${index}`;
+      active = {
+        id: `turn-activity-${anchor}`,
+        anchorMessageId: anchor,
+        tools: [],
+        interrupted: false,
+        error: false,
+        omittedTools: false,
+      };
+      return;
+    }
+    if (!active) return;
+    if (message.stopReason === "aborted" || message.stopReason === "cancelled") active.interrupted = true;
+    if (message.stopReason === "error") active.error = true;
+
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const rawPart of message.content) {
+        if (!rawPart || typeof rawPart !== "object") continue;
+        const part = rawPart as Record<string, unknown>;
+        if (part.type !== "toolCall" || typeof part.id !== "string" || typeof part.name !== "string") continue;
+        active.anchorMessageId ??= typeof message.tauEntryId === "string" ? message.tauEntryId : undefined;
+        if (active.tools.length >= BRIDGE_ACTIVITY_TOOL_LIMIT) {
+          active.omittedTools = true;
+          complete = false;
+          continue;
+        }
+        const tool: UiToolRun = {
+          id: part.id,
+          name: part.name,
+          args: part.arguments && typeof part.arguments === "object" ? part.arguments as Record<string, unknown> : {},
+          status: "running",
+          startedAt: timestamp,
+        };
+        toolIndexes.set(part.id, active.tools.length);
+        active.tools.push(tool);
+      }
+    }
+
+    if (message.role !== "toolResult" || typeof message.toolCallId !== "string") return;
+    const toolIndex = toolIndexes.get(message.toolCallId);
+    if (toolIndex === undefined) return;
+    const tool = active.tools[toolIndex];
+    const output = activityContentText(message.content);
+    active.tools[toolIndex] = {
+      ...tool,
+      name: typeof message.toolName === "string" ? message.toolName : tool.name,
+      status: message.isError === true ? "error" : "done",
+      output: activityOutputPreview(output),
+      endedAt: timestamp,
+    };
+  });
+  finish();
+  return { history, complete };
 }
 
 export function bridgeRecordForTransport(value: unknown): unknown {
@@ -249,8 +380,11 @@ export function bridgeTranscriptPage(records: readonly unknown[], cursor?: strin
   const rawEnd = rawIndices[visibleEnd] ?? records.length;
   const selectedBytes = selected.reduce<number>((total, entry) => total + recordBytes(entry), 0);
   const activityBudget = Math.max(1, BRIDGE_MAX_TRANSCRIPT_BYTES - selectedBytes - 128);
+  const activity = activityHistoryForRecords(records.slice(rawStart, rawEnd));
   return {
     page: { ...page, messages: selected },
     activityMessages: boundedRecords(records.slice(rawStart, rawEnd), activityBudget),
+    turnActivityHistory: activity.history,
+    turnActivityHistoryComplete: activity.complete,
   };
 }

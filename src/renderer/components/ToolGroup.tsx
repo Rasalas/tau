@@ -14,6 +14,7 @@ const ToolRun = memo(function ToolRun({
   waiting,
   stalled,
   onStop,
+  onCopyOutput,
 }: {
   tool: UiToolRun;
   registry: ExtensionRegistry;
@@ -23,6 +24,8 @@ const ToolRun = memo(function ToolRun({
   stalled?: boolean;
   /** Stops a live tool's run, or closes a stalled call so the thread works again. */
   onStop?(): void;
+  /** Reads the unbounded result through the host when a preview is clipped. */
+  onCopyOutput?(tool: UiToolRun): Promise<void> | void;
 }) {
   const running = tool.status === "running" && !stalled;
   // A running tool shows its live tail without needing a click. Settled output
@@ -43,8 +46,17 @@ const ToolRun = memo(function ToolRun({
   const liveOutputClipped = running && liveLines.length > 5;
   const visibleOutput = liveOutputClipped ? liveLines.slice(-5).join("\n") : bounded.text;
   const showOutput = view.output !== "hidden" && Boolean(visibleOutput) && outputOpen;
-  const copyFullOutput = () => {
-    if (tool.output) void navigator.clipboard?.writeText(tool.output);
+  const [copying, setCopying] = useState(false);
+  const copyFullOutput = async () => {
+    if (copying) return;
+    setCopying(true);
+    try {
+      // A preview is never a safe fallback: only the host seam can retrieve
+      // the persisted result behind this deliberate action.
+      if (onCopyOutput) await onCopyOutput(tool);
+    } finally {
+      setCopying(false);
+    }
   };
   // A call that is still open — live, waiting on you, or left behind by a dead
   // turn — offers one way out, on hover, right where it sits.
@@ -88,8 +100,8 @@ const ToolRun = memo(function ToolRun({
       {showOutput ? (
         <pre className="tool-output">
           {bounded.truncated || liveOutputClipped ? (
-            <button type="button" className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); copyFullOutput(); }}>
-              … earlier output hidden · copy full output
+            <button type="button" className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); void copyFullOutput(); }}>
+              {copying ? "… loading full output" : "… earlier output hidden · copy full output"}
             </button>
           ) : null}
           {visibleOutput}
@@ -125,7 +137,7 @@ function useToolPreview(tools: UiToolRun[], keepLatest: boolean): UiToolRun | un
 
     const currentRunning = tools.some((tool) => tool.id === currentId && tool.status === "running");
     const successor = nextCandidate?.id !== currentId ? nextCandidate : undefined;
-    if (!successor && currentRunning) return;
+    if (!successor && (currentRunning || keepLatest)) return;
 
     const remaining = TOOL_PREVIEW_MIN_MS - (Date.now() - shownAtRef.current);
     if (remaining <= 0) {
@@ -163,6 +175,7 @@ export function ToolGroup({
   activityStatus,
   onRecover,
   onStop,
+  onCopyOutput,
 }: {
   tools: UiToolRun[];
   registry: ExtensionRegistry;
@@ -176,6 +189,8 @@ export function ToolGroup({
   onRecover?(): void;
   /** Stops the run this thread has in flight. */
   onStop?(): void;
+  /** Reads a complete tool result through the host instead of copying its preview. */
+  onCopyOutput?(tool: UiToolRun): Promise<void> | void;
 }) {
   // Only claim interruption when the caller actually knows no run is in flight;
   // an unknown streaming state must not turn live tools into "interrupted".
@@ -243,6 +258,7 @@ export function ToolGroup({
               waiting={tool.status === "running" && Boolean(waiting)}
               stalled={tool.status === "running" && stalled}
               onStop={stalled ? onRecover : onStop}
+              onCopyOutput={onCopyOutput}
             />
           ))}
         </div>

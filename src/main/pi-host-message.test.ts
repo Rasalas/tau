@@ -3,6 +3,7 @@ import type { UiComposerCommand } from "../shared/contracts.js";
 import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./pi-host.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
 import { createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { bridgeTranscriptPage } from "../shared/bridge-transcript-pager.js";
 
 const skillCommands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill" }];
 
@@ -85,6 +86,41 @@ describe("Pi message mapping", () => {
       status: "completed",
       tools: [{ id: "read", name: "read", status: "done", output: "ok" }],
     }]);
+  });
+
+  it("maps complete typed bridge activity instead of reconstructing from capped raw records", () => {
+    const records: unknown[] = [
+      { role: "user", content: "inspect", tauEntryId: "user", timestamp: 1 },
+      ...Array.from({ length: 100 }, (_, index) => [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: `call-${index}`, name: "read", arguments: { path: `file-${index}.ts` } }],
+          timestamp: index * 2 + 2,
+        },
+        {
+          role: "toolResult",
+          toolCallId: `call-${index}`,
+          toolName: "read",
+          content: `result-${index}`,
+          isError: false,
+          timestamp: index * 2 + 3,
+        },
+      ]).flat(),
+      { role: "assistant", content: [{ type: "text", text: "done" }], tauEntryId: "assistant", timestamp: 203 },
+    ];
+    const bridged = bridgeTranscriptPage(records);
+    const page = mapBridgeTranscriptPageValue("thread", {
+      sessionId: "thread",
+      ...bridged.page,
+      activityMessages: bridged.activityMessages,
+      turnActivityHistory: bridged.turnActivityHistory,
+      turnActivityHistoryComplete: bridged.turnActivityHistoryComplete,
+    });
+
+    expect(page.turnActivityHistoryComplete).toBe(true);
+    expect(page.turnActivityHistory?.[0]?.tools).toHaveLength(100);
+    expect(page.turnActivityHistory?.[0]?.status).toBe("completed");
+    expect(page.turnActivityHistory?.[0]?.tools.at(-1)).toMatchObject({ id: "call-99", status: "done", output: "result-99" });
   });
 
   it.each([

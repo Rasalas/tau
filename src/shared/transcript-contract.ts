@@ -18,6 +18,8 @@ export interface TranscriptBundle<TMessage = UiMessage, TCursor extends string =
   taskHistory?: UiTaskProgressEntry[];
   /** Historical tool activity anchored to the turns in this bounded window. */
   turnActivityHistory?: UiTurnActivityEntry[];
+  /** Whether every activity for the exposed turns is represented. */
+  turnActivityHistoryComplete?: boolean;
   /** Opaque host-owned cursor for the next older page. */
   olderCursor?: TCursor;
   /** Message at the beginning of the current bounded window. */
