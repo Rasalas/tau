@@ -435,12 +435,8 @@ export default function App() {
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
-    if (pendingNewThread && reconciled.every((entry) => entry.scope !== activeDraftKey)) {
-      writeNewThreadDraft(window.localStorage);
-      setPendingNewThread(undefined);
-    }
     setOptimisticMessages(reconciled);
-  }, [activeDraftKey, messages, optimisticMessages, pendingNewThread]);
+  }, [messages, optimisticMessages]);
 
   const flushAssistantDeltas = useCallback(() => {
     if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
@@ -585,13 +581,13 @@ export default function App() {
       setSnapshot((current) => {
         if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
         const { sessionId: _sessionId, supportsImageInput, ...legacyCatalog } = update.catalog;
-        return {
-          ...current,
-          ...legacyCatalog,
-          ...(update.catalog.sessionId === undefined
-            ? {}
-            : { supportsImageInput: supportsImageInput ?? false }),
-        };
+          return {
+            ...current,
+            ...legacyCatalog,
+            ...(update.catalog.sessionId === undefined
+              ? { supportsImageInput: false }
+              : { supportsImageInput: supportsImageInput ?? false }),
+          };
       });
       return;
     }
@@ -1402,6 +1398,38 @@ export default function App() {
     activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
+  const completeNewThreadSubmission = useCallback((
+    pending: NewThreadDraft,
+    sessionId: string,
+    optimisticId: string,
+    prompt: string,
+    result?: HostActionResult,
+  ) => {
+    setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
+      ? { ...entry, scope: `session:${sessionId}` }
+      : entry));
+    writeNewThreadDraft(window.localStorage);
+    setPendingNewThread(undefined);
+    if (result) acceptWorkspace(result);
+    threadStore.markRead(sessionId);
+    void registry.notifyPromptSubmitted({
+      prompt,
+      snapshot: snapshot ? {
+        ...snapshot,
+        cwd: pending.projectPath,
+        sessionId,
+        sessionName: undefined,
+        sessionTitle: "Untitled thread",
+        messages: [],
+        isStreaming: false,
+        activeTools: [],
+        turnActivity: undefined,
+        taskProgress: undefined,
+        taskHistory: [],
+      } : undefined,
+    }, actions).catch((error) => setNotice(String(error)));
+  }, [acceptWorkspace, actions, registry, snapshot, threadStore]);
+
   const submit = useCallback(async (
     value: string,
     attachments: UiPromptAttachment[] = [],
@@ -1462,27 +1490,7 @@ export default function App() {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
           await window.tau.sendPrompt(text, attachments, pending.sessionId);
-          setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
-            ? { ...entry, scope: `session:${pending.sessionId}` }
-            : entry));
-          writeNewThreadDraft(window.localStorage);
-          setPendingNewThread(undefined);
-          void registry.notifyPromptSubmitted({
-            prompt: text,
-            snapshot: snapshot ? {
-              ...snapshot,
-              cwd: pending.projectPath,
-              sessionId: pending.sessionId,
-              sessionName: undefined,
-              sessionTitle: "Untitled thread",
-              messages: [],
-              isStreaming: false,
-              activeTools: [],
-              turnActivity: undefined,
-              taskProgress: undefined,
-              taskHistory: [],
-            } : undefined,
-          }, actions).catch((error) => setNotice(String(error)));
+          completeNewThreadSubmission(pending, pending.sessionId, optimistic.id, text);
           return { accepted: true };
         }
         const result = await window.tau.newSession(text, attachments, pending.projectPath);
@@ -1502,29 +1510,7 @@ export default function App() {
         if (sessionId) {
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
-          setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
-            ? { ...entry, scope: `session:${sessionId}` }
-            : entry));
-          writeNewThreadDraft(window.localStorage);
-          setPendingNewThread(undefined);
-          acceptWorkspace(result);
-          threadStore.markRead(sessionId);
-          void registry.notifyPromptSubmitted({
-            prompt: text,
-            snapshot: snapshot ? {
-              ...snapshot,
-              cwd: pending.projectPath,
-              sessionId,
-              sessionName: undefined,
-              sessionTitle: "Untitled thread",
-              messages: [],
-              isStreaming: false,
-              activeTools: [],
-              turnActivity: undefined,
-              taskProgress: undefined,
-              taskHistory: [],
-            } : undefined,
-          }, actions).catch((error) => setNotice(String(error)));
+          completeNewThreadSubmission(pending, sessionId, optimistic.id, text, result);
           return { accepted: true };
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
@@ -1566,7 +1552,7 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
+  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, completeNewThreadSubmission, pendingNewThread, rebuildWorkbench, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {

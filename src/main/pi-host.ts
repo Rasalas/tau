@@ -38,13 +38,14 @@ import type {
   UiMessageImage,
   UiModel,
   UiPromptAttachment,
+  SubmissionResult,
   UiSession,
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, type HostActionResult, type HostUpdate, type NewThreadResult, type PromptSubmissionResult, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, type HostActionResult, type HostUpdate, type NewThreadResult, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
 import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { mergeTaskProgressHistory, taskProgressFromMessages, taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
@@ -476,6 +477,8 @@ class ThreadRuntime implements LiveTurnState {
   private deferredRecords?: Array<
     | { kind: "event"; sequence: number; event: any; sessionId: string; cwd: string }
     | { kind: "error"; sequence: number; error: unknown }
+    | { kind: "host"; sequence: number; event: HostEvent }
+    | { kind: "title"; sequence: number; title: string }
   >;
 
   constructor(readonly runtime: AgentSessionRuntime) {}
@@ -510,12 +513,30 @@ class ThreadRuntime implements LiveTurnState {
     return true;
   }
 
-  releaseEventBarrier(dispatch: (event: any, thread: ThreadRuntime, sessionId: string, cwd: string, error?: unknown) => void): void {
+  deferHostEvent(event: HostEvent): boolean {
+    if (!this.deferredRecords) return false;
+    this.deferredRecords.push({ kind: "host", sequence: this.deferredSequence++, event });
+    return true;
+  }
+
+  deferTitle(title: string): boolean {
+    if (!this.deferredRecords) return false;
+    this.deferredRecords.push({ kind: "title", sequence: this.deferredSequence++, title });
+    return true;
+  }
+
+  releaseEventBarrier(
+    dispatch: (event: any, thread: ThreadRuntime, sessionId: string, cwd: string, error?: unknown) => void,
+    dispatchHost: (event: HostEvent) => void,
+    dispatchTitle: (title: string) => void,
+  ): void {
     const records = this.deferredRecords;
     this.deferredRecords = undefined;
     for (const record of [...(records ?? [])].sort((left, right) => left.sequence - right.sequence)) {
       if (record.kind === "event") dispatch(record.event, this, record.sessionId, record.cwd);
-      else dispatch(undefined, this, this.sessionId, this.cwd, record.error);
+      else if (record.kind === "error") dispatch(undefined, this, this.sessionId, this.cwd, record.error);
+      else if (record.kind === "host") dispatchHost(record.event);
+      else dispatchTitle(record.title);
     }
   }
 
@@ -836,7 +857,7 @@ export class PiHost {
     return result;
   }
 
-  private newThreadResult(updates: HostUpdate[], submission: PromptSubmissionResult): NewThreadResult {
+  private newThreadResult(updates: HostUpdate[], submission: SubmissionResult): NewThreadResult {
     return { ...this.actionResult(updates), submission };
   }
 
@@ -996,9 +1017,8 @@ export class PiHost {
       const thread = spare ?? await this.openThread(
         SessionManager.create(targetCwd),
         { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
-        { adopt: false },
+        { adopt: false, prepared: true },
       );
-      thread.beginEventBarrier();
       let adopted = false;
       let adoptionAttempted = false;
       let promoted = false;
@@ -1025,22 +1045,23 @@ export class PiHost {
         thread.releaseEventBarrier((event, runtime, sessionId, cwd, error) => {
           if (error) this.fail(error, sessionId);
           else this.handleSessionEvent(event, runtime, sessionId, cwd);
-        });
+        }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
       } catch (error) {
         // A pure validation failure leaves an untouched spare available. Once
         // adoption or activation has started, discard the candidate on failure
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
-        thread.cancelEventBarrier();
         if (!adopted && !adoptionAttempted) {
           this.retainPreparedThread(thread);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) });
         } else if (!promoted) {
+          thread.cancelEventBarrier();
           if (this.threads.has(thread.sessionId)) await this.threads.release(thread.sessionId);
           else await this.disposeThread(thread);
           this.scheduleSpareThread(targetCwd, true);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) });
         }
+        thread.cancelEventBarrier();
         const active = await this.activeUpdates();
         return { ...active, submission: { accepted: false, message: this.errorMessage(error) } };
       }
@@ -1664,11 +1685,12 @@ export class PiHost {
   private async openThread(
     manager: SessionManager,
     sessionStartEvent: RuntimeStartEvent | undefined,
-    options: { background?: boolean; adopt?: boolean } = {},
+    options: { background?: boolean; adopt?: boolean; prepared?: boolean } = {},
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
+    let thread: ThreadRuntime | undefined;
     try {
       runtime = await createAgentSessionRuntime(this.createRuntime, {
         cwd,
@@ -1676,12 +1698,19 @@ export class PiHost {
         sessionManager: manager,
         sessionStartEvent,
       });
-      const thread = new ThreadRuntime(runtime);
+      thread = new ThreadRuntime(runtime);
+      if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
       await this.bindThread(thread, thread.session);
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
       return thread;
     } catch (error) {
+      // A prepared runtime may have created extension questions while binding;
+      // cancel its barrier before teardown so no effect escapes after discard.
+      if (thread) {
+        this.cancelUiPromptsFor(thread.sessionId);
+        thread.cancelEventBarrier();
+      }
       if (runtime) {
         const cleanupErrors = await this.teardownRuntime(runtime);
         if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed");
@@ -1720,15 +1749,17 @@ export class PiHost {
     await session.bindExtensions({
       uiContext: createExtensionUiContext({
         sessionId: () => thread.sessionId,
-        ask: (prompt) => this.askExtensionUi(prompt),
-        notify: (message, level) => this.emit({ type: "notice", message, level }),
-        setWindowTitle: (title) => this.onWindowTitle?.(title),
-        unsupported: (method) => this.log("extension-ui.unsupported", method),
+        ask: (prompt) => this.askExtensionUi(prompt, thread),
+        notify: (message, level) => this.emitForThread(thread, { type: "notice", message, level }),
+        setWindowTitle: (title) => {
+          if (!thread.deferTitle(title)) this.onWindowTitle?.(title);
+        },
+        unsupported: (method) => this.logForThread(thread, "extension-ui.unsupported", method),
       }),
       mode: "rpc",
-      onError: (error) => this.fail(error),
+      onError: (error) => this.fail(error, thread.sessionId, thread),
     });
-    this.logRuntimePhase("bind", bindStartedAt, "active", thread.cwd);
+    this.logRuntimePhase("bind", bindStartedAt, "active", thread.cwd, undefined, thread);
     thread.unsubscribe?.();
     thread.unsubscribe = session.subscribe((event) => this.handleSessionEvent(event, thread, thread.sessionId, thread.cwd));
   }
@@ -1768,6 +1799,10 @@ export class PiHost {
   private async disposeThread(thread: ThreadRuntime): Promise<void> {
     this.settleApprovalsFor(thread.sessionId, { allowed: false, reason: "Blocked by Tau: the thread was closed." });
     this.cancelUiPromptsFor(thread.sessionId);
+    // Prepared runtimes must never leak buffered questions, notices, titles, or
+    // session effects after they are discarded. Cancel after settling prompts
+    // so their resolved notifications are discarded with the prompt itself.
+    thread.cancelEventBarrier();
     thread.unsubscribe?.();
     thread.unsubscribe = undefined;
     for (const id of thread.tools.keys()) this.toolOwners.delete(id);
@@ -1810,7 +1845,7 @@ export class PiHost {
     const pending = this.openThread(
       SessionManager.create(cwd),
       { type: "session_start", reason: "new", previousSessionFile: undefined },
-      { background: true, adopt: false },
+      { background: true, adopt: false, prepared: true },
     ).then((thread) => {
       this.log("runtime.spare.ready", basename(cwd));
       return thread;
@@ -2457,14 +2492,14 @@ export class PiHost {
       // No deadline: an unanswered approval is a paused thread, not a refusal.
       // Only that thread waits, and stopping the run settles it.
       this.pendingApprovals.set(id, { sessionId, settle });
-      this.emit({
+      this.emitForThread(this.threadFor(sessionId), {
         type: "tool-approval",
         request: { id, sessionId, toolName, summary: approvalSummary(toolName, input) },
       });
     });
   }
 
-  private askExtensionUi(prompt: ExtensionUiPrompt): Promise<ExtensionUiAnswer> {
+  private askExtensionUi(prompt: ExtensionUiPrompt, thread?: ThreadRuntime): Promise<ExtensionUiAnswer> {
     // The user already typed the answer for the select before this; the
     // extension is only asking for it now in its own words.
     const typed = prompt.kind === "input" ? this.typedAnswers.get(prompt.sessionId) : undefined;
@@ -2484,7 +2519,7 @@ export class PiHost {
         this.pendingUiPrompts.delete(prompt.id);
         this.openUiPrompts.delete(prompt.id);
         if (timer) clearTimeout(timer);
-        this.emit({ type: "extension-ui-resolved", id: prompt.id });
+        this.emitForThread(thread, { type: "extension-ui-resolved", id: prompt.id });
         resolve(answer);
       };
       // Only the extension's own deadline ends a question. Without one the
@@ -2492,15 +2527,17 @@ export class PiHost {
       // an answer invented by a timer would send the run off in the wrong direction.
       const timer = prompt.expiresAt
         ? setTimeout(() => {
-          this.log("extension-ui.timeout", prompt.title);
+          if (thread) this.logForThread(thread, "extension-ui.timeout", prompt.title);
+          else this.log("extension-ui.timeout", prompt.title);
           settle({ cancelled: true });
         }, Math.max(0, prompt.expiresAt - Date.now()))
         : undefined;
       timer?.unref?.();
       this.pendingUiPrompts.set(prompt.id, { sessionId: prompt.sessionId, settle });
       this.openUiPrompts.set(prompt.id, prompt);
-      this.log("extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
-      this.emit({ type: "extension-ui-prompt", prompt });
+      if (thread) this.logForThread(thread, "extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
+      else this.log("extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
+      this.emitForThread(thread, { type: "extension-ui-prompt", prompt });
     });
   }
 
@@ -2595,11 +2632,13 @@ export class PiHost {
     return nodes;
   }
 
-  private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string): void {
+  private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string, thread?: ThreadRuntime): void {
     this.lifecycleMetrics.phase(phase, startedAt);
     const elapsed = Math.round((performance.now() - startedAt) * 10) / 10;
     const detail = `${elapsed}ms · ${reason} · ${basename(cwd) || cwd}`;
-    this.log(`runtime.${phase}.ready`, note ? `${detail} · ${note}` : detail);
+    const eventDetail = note ? `${detail} · ${note}` : detail;
+    if (thread) this.logForThread(thread, `runtime.${phase}.ready`, eventDetail);
+    else this.log(`runtime.${phase}.ready`, eventDetail);
   }
 
   private logReplacement(reason: string, startedAt: number): void {
@@ -2611,16 +2650,26 @@ export class PiHost {
     this.emit({ type: "host-update", update });
   }
 
+  private emitForThread(thread: ThreadRuntime | undefined, event: HostEvent): void {
+    if (thread?.deferHostEvent(event)) return;
+    this.emit(event);
+  }
+
   private log(label: string, detail?: string): void {
     const event = { type: "event-log" as const, label, detail, timestamp: Date.now() };
     this.emit(event);
+  }
+
+  private logForThread(thread: ThreadRuntime, label: string, detail?: string): void {
+    this.emitForThread(thread, { type: "event-log", label, detail, timestamp: Date.now() });
   }
 
   private errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
   }
 
-  private fail(error: unknown, sessionId?: string): void {
+  private fail(error: unknown, sessionId?: string, thread?: ThreadRuntime): void {
+    if (thread?.deferError(error)) return;
     const message = this.errorMessage(error);
     this.emit({ type: "error", message, ...(sessionId ? { sessionId } : {}) });
     this.log("host.error", message);

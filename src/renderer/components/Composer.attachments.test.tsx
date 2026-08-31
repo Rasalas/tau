@@ -89,6 +89,23 @@ describe("Composer attachments", () => {
     expect(await screen.findByRole("button", { name: "Preview dropped.png" })).toBeTruthy();
   });
 
+  it("waits for an in-flight drop before capturing the submission", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    const onSubmit = vi.fn(async (_text: string, submitted: Array<{ name: string }>): Promise<SubmitResult> => {
+      expect(submitted.map((attachment) => attachment.name)).toEqual(["immediate.png"]);
+      return { accepted: true };
+    });
+    renderComposer(onSubmit, attachmentRef);
+    const drop = attachmentRef.current!.addFiles([
+      new File([new Uint8Array([137, 80, 78, 71])], "immediate.png", { type: "image/png" }),
+    ]);
+
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "send with image" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    await drop;
+  });
+
   it("keeps valid files after unsupported files in the same drop", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     renderComposer(vi.fn(), attachmentRef);

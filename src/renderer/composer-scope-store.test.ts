@@ -5,11 +5,17 @@ import {
   createDraftKey,
   type ComposerScopePersistence,
 } from "./composer-scope-store";
-import { writeComposerDraft } from "./draft-store";
+import { readComposerDraft, writeComposerDraft } from "./draft-store";
+
+const legacyDraftPersistence = {
+  readLegacyDraft: (key: string) => readComposerDraft(window.localStorage, key),
+  writeLegacyDraft: (key: string, text: string) => writeComposerDraft(window.localStorage, key, text),
+};
 
 function memoryPersistence(): ComposerScopePersistence {
   const records = new Map<string, Parameters<ComposerScopePersistence["save"]>[0]>();
   return {
+    ...legacyDraftPersistence,
     load: async (key) => records.get(key),
     save: async (record) => { records.set(record.key, structuredClone(record)); },
     delete: async (key) => { records.delete(key); },
@@ -46,6 +52,7 @@ describe("ComposerScopeStore", () => {
   it("does not let hydration overwrite a newer local edit", async () => {
     let resolveLoad!: (record: undefined) => void;
     const persistence: ComposerScopePersistence = {
+      ...legacyDraftPersistence,
       load: () => new Promise<undefined>((resolve) => { resolveLoad = resolve; }),
       save: async () => {},
       delete: async () => {},
@@ -72,6 +79,7 @@ describe("ComposerScopeStore", () => {
       attachments: [{ id: 1, kind: "image" as const, name: "old.png", mimeType: "image/png", data: "aA==", size: 1 }],
     };
     const persistence: ComposerScopePersistence = {
+      ...legacyDraftPersistence,
       load: () => new Promise((resolve) => { resolveLoad = resolve; }),
       save: async () => {},
       delete: async () => {},
@@ -93,6 +101,7 @@ describe("ComposerScopeStore", () => {
   it("clears a persistence error after a later write succeeds", async () => {
     let attempts = 0;
     const persistence: ComposerScopePersistence = {
+      ...legacyDraftPersistence,
       load: async () => undefined,
       save: async () => {
         attempts += 1;
@@ -117,6 +126,7 @@ describe("ComposerScopeStore", () => {
     const key = createDraftKey("thread:legacy");
     writeComposerDraft(window.localStorage, key, "new local text");
     const persistence: ComposerScopePersistence = {
+      ...legacyDraftPersistence,
       load: async () => ({
         key,
         draft: "old persisted text",

@@ -11,6 +11,7 @@ import type {
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
+  SubmissionResult,
 } from "./contracts.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
@@ -85,12 +86,8 @@ export interface HostActionResult {
   updates: HostUpdate[];
 }
 
-export type PromptSubmissionResult =
-  | { accepted: true }
-  | { accepted: false; message: string };
-
 export interface NewThreadResult extends HostActionResult {
-  submission: PromptSubmissionResult;
+  submission: SubmissionResult;
 }
 
 /** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */

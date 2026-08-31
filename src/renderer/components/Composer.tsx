@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -38,11 +38,7 @@ const THINKING_LABELS: Record<string, string> = {
   max: "Max",
 };
 
-let nextSubmissionId = 0;
-
-export type SubmitResult =
-  | { accepted: true }
-  | { accepted: false; message: string };
+export type SubmitResult = SubmissionResult;
 
 export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
@@ -258,7 +254,7 @@ export function Composer({
     const state = scopeStore.getSnapshot(scope);
     const previous = state.attachmentProcessing;
     const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput));
-    scopeStore.setAttachmentProcessing(scope, operation.then(() => undefined, () => undefined));
+    scopeStore.setAttachmentProcessing(scope, operation);
     return operation;
   }, [attachmentScope, processFiles, scopeStore, supportsImageInput]);
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
@@ -280,32 +276,33 @@ export function Composer({
       updateDraft("");
       return;
     }
-    if (!text.trim() && attachments.length === 0) return;
-    const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
-    const submittedText = normalizeSkillInvocation(text, commands);
     const submittedScope = attachmentScope;
-    const submittedState = scopeStore.getSnapshot(submittedScope);
-    const submittedAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
-    const submittedRevision = submittedState.revision;
-    const submissionId = nextSubmissionId++;
-    scopeStore.beginSubmission(submittedScope, submissionId, submittedAttachmentIds, submittedRevision);
-    const settleSubmission = (result: SubmitResult) => {
-      const current = scopeStore.getSnapshot(submittedScope);
-      const clearedDraft = result.accepted && current.revision === submittedRevision;
-      if (!scopeStore.settleSubmission(submittedScope, submissionId, result, (error) => reportStorageError(submittedScope, error))) return;
-      if (clearedDraft && activeAttachmentScopeRef.current === submittedScope) onChange?.("");
-      if (activeAttachmentScopeRef.current === submittedScope) {
-        if (result.accepted) setPreviewId(undefined);
+    const submission = scopeStore.beginSubmission(submittedScope, (error) => reportStorageError(submittedScope, error));
+    const sendSubmission = async (handle: Awaited<typeof submission>) => {
+      if (!handle.text.trim() && handle.attachments.length === 0) {
+        handle.cancel();
+        return;
       }
+      const submittedText = normalizeSkillInvocation(handle.text, commands);
+      let result: SubmitResult;
+      try {
+        result = delivery
+          ? await onSubmit(submittedText, [...handle.attachments], delivery)
+          : await onSubmit(submittedText, [...handle.attachments]);
+      } catch (error) {
+        result = { accepted: false, message: error instanceof Error ? error.message : String(error) };
+      }
+      handle.settle(result);
+      if (result.accepted && activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
     };
-    let result: Promise<SubmitResult>;
-    try {
-      result = delivery ? onSubmit(submittedText, submittedAttachments, delivery) : onSubmit(submittedText, submittedAttachments);
-    } catch (error) {
-      settleSubmission({ accepted: false, message: error instanceof Error ? error.message : String(error) });
-      return;
+    const handleSubmissionError = (error: unknown) => {
+      scopeStore.setError(submittedScope, error instanceof Error ? error.message : String(error), undefined);
+    };
+    if ("then" in submission) {
+      void submission.then(sendSubmission).catch(handleSubmissionError);
+    } else {
+      void sendSubmission(submission).catch(handleSubmissionError);
     }
-    void Promise.resolve(result).then(settleSubmission).catch((error: unknown) => settleSubmission({ accepted: false, message: error instanceof Error ? error.message : String(error) }));
   };
 
   return (

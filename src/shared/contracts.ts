@@ -385,6 +385,11 @@ export type HostEvent =
   | { type: "error"; message: string; sessionId?: string }
   | { type: "event-log"; label: string; detail?: string; timestamp: number };
 
+/** The single result shape used by host, scoped composer store, and renderer. */
+export type SubmissionResult =
+  | { accepted: true }
+  | { accepted: false; message: string };
+
 /** A desktop extension compiled by the host, ready for the renderer to import. */
 export interface DesktopExtensionBundle {
   path: string;
