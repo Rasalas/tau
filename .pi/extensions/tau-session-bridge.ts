@@ -53,7 +53,7 @@ function boundedBridgeValue<T>(value: T): T {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
-  let pendingNewSessionRequestId: NewThreadRequestId | undefined;
+  const pendingNewSessionRequestIds = new Map<NewThreadRequestId, true>();
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
@@ -69,13 +69,14 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           : {};
       const initialPrompt = typeof payload.initialPrompt === "string" ? payload.initialPrompt : undefined;
       const requestId = typeof payload.requestId === "string" ? payload.requestId as NewThreadRequestId : undefined;
-      pendingNewSessionRequestId = requestId;
       try {
+        if (requestId && pendingNewSessionRequestIds.size > 0) throw new Error("Pi is already creating a new thread.");
+        if (requestId) pendingNewSessionRequestIds.set(requestId, true);
         await createPiSession(ctx, initialPrompt);
       } catch (error) {
         if (requestId) {
           broadcast({ type: "new_session_failed", requestId, message: error instanceof Error ? error.message : String(error) }, ctx);
-          pendingNewSessionRequestId = undefined;
+          pendingNewSessionRequestIds.delete(requestId);
         }
         throw error;
       }
@@ -139,7 +140,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
       awaitingInput,
-      ...(pendingNewSessionRequestId ? { newSessionRequestId: pendingNewSessionRequestId } : {}),
+      ...([...pendingNewSessionRequestIds.keys()][0] ? { newSessionRequestId: [...pendingNewSessionRequestIds.keys()][0] } : {}),
     };
   };
 
@@ -190,7 +191,6 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const ctx = latestContext;
       if (!ctx) return client.socket.destroy();
       const readySnapshot = snapshot(ctx);
-      pendingNewSessionRequestId = undefined;
       send(client, {
         protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
         type: "ready",
@@ -198,6 +198,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         epoch: descriptor.epoch,
         snapshot: readySnapshot,
       });
+      if (readySnapshot.newSessionRequestId) pendingNewSessionRequestIds.delete(readySnapshot.newSessionRequestId);
       return;
     }
     if (frame.type !== "command" || frame.expectedSessionId !== descriptor.sessionId) {
@@ -210,7 +211,12 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     try {
       switch (frame.command) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
-        case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
+        case "snapshot": {
+          const current = snapshot(ctx);
+          respond(client, frame.id, true, current);
+          if (current.newSessionRequestId) pendingNewSessionRequestIds.delete(current.newSessionRequestId);
+          break;
+        }
         case "prompt":
           pi.sendUserMessage(frame.text, {
             ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
@@ -253,7 +259,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           // Only a registered command receives ExtensionCommandContext. The
           // socket callback deliberately dispatches that command instead of
           // pretending its event context has command-only session methods.
-          pi.sendUserMessage(bridgeNewSessionCommand(frame.initialPrompt), { expandPromptTemplates: true });
+          pi.sendUserMessage(bridgeNewSessionCommand(frame.initialPrompt, frame.requestId), { expandPromptTemplates: true });
           respond(client, frame.id, true, { accepted: true, requestId: frame.requestId ?? frame.id });
           break;
         }

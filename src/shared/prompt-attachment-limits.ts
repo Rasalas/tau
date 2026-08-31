@@ -14,10 +14,10 @@ export const IMAGE_MIME_TYPES: ReadonlySet<string> = new Set([
 export interface AttachmentMetadata {
   name?: string;
   mimeType: string;
-  size: number;
+  size?: number;
 }
 
-export type AttachmentPolicyReason = "unsupported-type" | "invalid-size" | "total-size" | "too-many";
+export type AttachmentPolicyReason = "unsupported-type" | "invalid-size" | "unknown-size" | "total-size" | "too-many";
 
 export interface AttachmentPolicyRejection<T extends AttachmentMetadata> {
   item: T;
@@ -36,17 +36,18 @@ export function selectAttachmentCandidates<T extends AttachmentMetadata>(
 ): AttachmentPolicyResult<T> {
   const accepted: T[] = [];
   const rejected: AttachmentPolicyRejection<T>[] = [];
-  let totalBytes = existing.reduce((total, item) => total + item.size, 0);
+  let totalBytes = existing.reduce((total, item) => total + (item.size ?? 0), 0);
   for (const item of items) {
     let reason: AttachmentPolicyReason | undefined;
-    if (!IMAGE_MIME_TYPES.has(item.mimeType)) reason = "unsupported-type";
+    if (!IMAGE_MIME_TYPES.has(item.mimeType.toLowerCase())) reason = "unsupported-type";
+    else if (item.size === undefined) reason = "unknown-size";
     else if (!Number.isSafeInteger(item.size) || item.size < 1 || item.size > MAX_IMAGE_BYTES) reason = "invalid-size";
     else if (existing.length + accepted.length >= MAX_ATTACHMENTS) reason = "too-many";
     else if (totalBytes + item.size > MAX_TOTAL_IMAGE_BYTES) reason = "total-size";
     if (reason) rejected.push({ item, reason });
     else {
       accepted.push(item);
-      totalBytes += item.size;
+      totalBytes += item.size ?? 0;
     }
   }
   return { accepted, rejected };
@@ -62,6 +63,7 @@ export function attachmentPolicyMessage<T extends AttachmentMetadata>(rejection:
       return rejection.item.name
         ? `${rejection.item.name} must be ${MAX_IMAGE_BYTES / 1024 / 1024} MB or smaller.`
         : `Each image attachment must be ${MAX_IMAGE_BYTES / 1024 / 1024} MB or smaller.`;
+    case "unknown-size": return "The file size is unavailable until the drop is released.";
     case "total-size": return `Image attachments must total ${MAX_TOTAL_IMAGE_BYTES / 1024 / 1024} MB or less.`;
     case "too-many": return `Attach at most ${MAX_ATTACHMENTS} images.`;
   }

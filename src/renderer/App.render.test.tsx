@@ -284,7 +284,7 @@ describe("App render isolation", () => {
     } as unknown as FileList;
     const dataTransfer = {
       types: ["Files"],
-      items: [{ type: "image/png" }],
+      items: [{ kind: "file", type: "image/png" }],
       files: liveFiles,
       dropEffect: "none",
     } as unknown as DataTransfer;
@@ -348,6 +348,18 @@ describe("App render isolation", () => {
     render(<App />);
     const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
     const attach = screen.getByRole("button", { name: "Attach files" });
+    expect(attach.hasAttribute("disabled")).toBe(false);
+    emit?.({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "catalog",
+        catalog: {
+          models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard",
+          serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: false,
+        },
+      },
+    });
     expect(attach.hasAttribute("disabled")).toBe(false);
     emit?.({
       type: "host-update",

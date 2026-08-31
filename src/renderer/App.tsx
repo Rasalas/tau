@@ -33,6 +33,7 @@ const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then
 const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
 
+const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
 
 export const MountedPanel = memo(function MountedPanel({
   Component,
@@ -75,6 +76,7 @@ import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { useNewThreadController } from "./use-new-thread-controller";
+
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -577,7 +579,7 @@ export default function App() {
             ...current,
             ...legacyCatalog,
             ...(update.catalog.sessionId === undefined
-              ? { supportsImageInput: false }
+              ? {}
               : { supportsImageInput: supportsImageInput ?? false }),
           };
       });
@@ -1655,13 +1657,19 @@ export default function App() {
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
     void composerAttachmentRef.current?.addFiles(files);
   }, []);
-  const currentAttachments = activeDraftKey
-    ? composerScopeStore.getSnapshot(createDraftKey(activeDraftKey)).attachments
-    : [];
+  const composerScopeSubscribe = useCallback((onChange: () => void) => activeDraftKey
+    ? composerScopeStore.subscribe(createDraftKey(activeDraftKey), onChange)
+    : () => {}, [activeDraftKey, composerScopeStore]);
+  const composerAttachmentSnapshot = useSyncExternalStore(
+    composerScopeSubscribe,
+    useCallback(() => activeDraftKey
+      ? composerScopeStore.getAttachmentSnapshot(createDraftKey(activeDraftKey))
+      : EMPTY_COMPOSER_ATTACHMENTS, [activeDraftKey, composerScopeStore]),
+  );
   const threadDropController = useThreadDropController(
     conversationSnapshot?.supportsImageInput ?? false,
     addDroppedFiles,
-    currentAttachments,
+    composerAttachmentSnapshot.attachments,
   );
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
   const conversationPrompts = pendingNewThread ? [] : threadPrompts;

@@ -6,20 +6,20 @@ describe("thread drop policy", () => {
   it("ignores string items while classifying file items", () => {
     expect(classifyThreadDrop(true, [
       { kind: "string", mimeType: "text/plain" },
-      { kind: "file", mimeType: "image/png" },
+      { kind: "file", mimeType: "image/png", size: 1 },
     ], true)).toBe("valid");
   });
 
   it("marks empty MIME file items as unsupported and mixed files as mixed", () => {
-    expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "" }], true)).toBe("unsupported");
+    expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "", size: 1 }], true)).toBe("unsupported");
     expect(classifyThreadDrop(true, [
-      { kind: "file", mimeType: "image/png" },
-      { kind: "file", mimeType: "" },
+      { kind: "file", mimeType: "image/png", size: 1 },
+      { kind: "file", mimeType: "", size: 1 },
     ], true)).toBe("mixed");
   });
 
   it("uses the runtime capability and shared feedback mapping", () => {
-    expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "image/png" }], false)).toBe("unavailable");
+    expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "image/png", size: 1 }], false)).toBe("unavailable");
     expect(THREAD_DROP_FEEDBACK.unavailable.dropEffect).toBe("none");
     expect(THREAD_DROP_FEEDBACK.valid.dropEffect).toBe("copy");
   });
@@ -31,5 +31,15 @@ describe("thread drop policy", () => {
       { kind: "file", mimeType: "image/png", size: 1 },
       { kind: "file", mimeType: "image/png", size: MAX_IMAGE_BYTES + 1 },
     ], true)).toBe("mixed");
+  });
+
+  it("never presents unknown file metadata as a valid copy", () => {
+    expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "image/png" }], true)).toBe("unknown");
+    expect(classifyThreadDrop(true, [
+      { kind: "file", mimeType: "image/png", size: 1 },
+      { kind: "file", mimeType: "image/png" },
+    ], true)).toBe("unknown");
+    expect(THREAD_DROP_FEEDBACK.unknown.dropEffect).toBe("none");
+    expect(classifyThreadDrop(true, [{ kind: "other", mimeType: "" }], true)).toBe("unknown");
   });
 });

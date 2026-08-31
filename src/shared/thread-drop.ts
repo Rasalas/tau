@@ -1,12 +1,11 @@
 import {
-  IMAGE_MIME_TYPES,
   MAX_ATTACHMENTS,
   MAX_IMAGE_BYTES,
-  MAX_TOTAL_IMAGE_BYTES,
+  selectAttachmentCandidates,
   SUPPORTED_IMAGE_TYPES_LABEL,
 } from "./prompt-attachment-limits.js";
 
-export type ThreadDropState = "idle" | "valid" | "mixed" | "unsupported" | "unavailable";
+export type ThreadDropState = "idle" | "valid" | "mixed" | "unsupported" | "unavailable" | "unknown";
 
 export interface ThreadDropFeedback {
   title: string;
@@ -36,6 +35,11 @@ export const THREAD_DROP_FEEDBACK: Readonly<Record<ThreadDropState, ThreadDropFe
     description: "The active runtime does not accept image input.",
     dropEffect: "none",
   },
+  unknown: {
+    title: "Drop will be checked before attaching",
+    description: "The file metadata is unavailable until the drop is released.",
+    dropEffect: "none",
+  },
 };
 
 export interface ThreadDropItem {
@@ -56,21 +60,16 @@ export function classifyThreadDrop(
   if (!hasFilesSignal) return "idle";
   if (!supportsImageInput) return "unavailable";
   const fileItems = items.filter((item) => item.kind === "file");
-  if (fileItems.length === 0) return "valid";
-  let acceptedCount = existingCount;
-  let totalBytes = existingBytes;
-  const accepted = fileItems.filter((item) => {
-    const mimeType = item.mimeType.toLowerCase();
-    if (!IMAGE_MIME_TYPES.has(mimeType)) return false;
-    if (item.size !== undefined && (!Number.isSafeInteger(item.size) || item.size < 1 || item.size > MAX_IMAGE_BYTES)) return false;
-    if (acceptedCount >= MAX_ATTACHMENTS) return false;
-    if (item.size !== undefined && totalBytes + item.size > MAX_TOTAL_IMAGE_BYTES) return false;
-    acceptedCount += 1;
-    if (item.size !== undefined) totalBytes += item.size;
-    return true;
-  });
-  const supported = accepted.length > 0;
-  const unsupported = accepted.length < fileItems.length;
+  if (fileItems.length === 0) return items.length === 0 ? "valid" : "unknown";
+  const existing = Array.from({ length: existingCount }, (_, index) => ({
+    mimeType: "image/png",
+    size: index === 0 ? existingBytes : 0,
+  }));
+  const policy = selectAttachmentCandidates(fileItems, existing);
+  const supported = policy.accepted.length > 0;
+  const unknown = policy.rejected.some(({ reason }) => reason === "unknown-size");
+  const unsupported = policy.rejected.some(({ reason }) => reason !== "unknown-size");
+  if (unknown) return "unknown";
   if (supported && unsupported) return "mixed";
   return supported ? "valid" : "unsupported";
 }

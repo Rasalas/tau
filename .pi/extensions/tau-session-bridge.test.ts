@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { bridgeNewSessionCommand, PI_BRIDGE_SUPPORTS_IMAGE_INPUT } from "./tau-session-bridge.js";
+import { describe, expect, it, vi } from "vitest";
+import tauSessionBridge, { bridgeNewSessionCommand, PI_BRIDGE_SUPPORTS_IMAGE_INPUT } from "./tau-session-bridge.js";
 import { createNewThreadRequestId } from "../../src/shared/contracts.js";
 
 describe("Tau Pi bridge capability", () => {
@@ -15,5 +15,32 @@ describe("Tau Pi bridge capability", () => {
     expect(bridgeNewSessionCommand("hello", createNewThreadRequestId("request-1"))).toBe(
       `/tau-bridge-new ${Buffer.from(JSON.stringify({ initialPrompt: "hello", requestId: "request-1" }), "utf8").toString("base64url")}`,
     );
+  });
+
+  it("passes the request token through the registered Pi command handler", async () => {
+    const commands = new Map<string, { handler: (args: string, context: unknown) => Promise<void> }>();
+    const pi = {
+      registerCommand(name: string, command: { handler: (args: string, context: unknown) => Promise<void> }) {
+        commands.set(name, command);
+      },
+      on() {},
+    };
+    tauSessionBridge(pi as never);
+    const requestId = createNewThreadRequestId("request-handler");
+    const sendUserMessage = vi.fn();
+    const newSession = vi.fn(async (options: { withSession?: (session: { sendUserMessage: typeof sendUserMessage }) => Promise<void> }) => {
+      await options.withSession?.({ sendUserMessage });
+      return { cancelled: false };
+    });
+    const handler = commands.get("tau-bridge-new")?.handler;
+    expect(handler).toBeDefined();
+
+    await handler!(
+      Buffer.from(JSON.stringify({ initialPrompt: "hello", requestId }), "utf8").toString("base64url"),
+      { newSession } as never,
+    );
+
+    expect(newSession).toHaveBeenCalledOnce();
+    expect(sendUserMessage).toHaveBeenCalledWith("hello");
   });
 });

@@ -19,6 +19,7 @@ import {
   allocateAttachmentId,
   createDraftKey,
   type ComposerScope,
+  type ComposerScopeReference,
   type PendingAttachment,
 } from "../composer-scope-store";
 import { errorMessage } from "../error-message";
@@ -225,15 +226,15 @@ export function Composer({
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
-    scope: ComposerScope,
+    scopeRef: ComposerScopeReference,
     capability: boolean,
     generation: number,
   ) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
-    const state = scopeStore.getSnapshot(scope);
+    const state = scopeStore.getSnapshot(scopeRef.scope);
     if (!capability) {
-      scopeStore.setAttachmentError(scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE, generation);
+      scopeStore.setAttachmentError(scopeRef.scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE, generation);
       return;
     }
     const policy = selectAttachmentCandidates(
@@ -246,21 +247,23 @@ export function Composer({
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     const error = firstError ?? (rejection ? errorMessage(rejection.reason) : undefined);
-    scopeStore.setAttachmentError(scope, error, generation);
+    scopeStore.setAttachmentError(scopeRef.scope, error, generation);
     if (accepted.length > 0) {
-      scopeStore.addAttachments(scope, accepted, MAX_ATTACHMENTS, (storageError) => reportStorageError(scope, storageError));
+      scopeStore.addAttachments(scopeRef.scope, accepted, MAX_ATTACHMENTS, (storageError) => reportStorageError(scopeRef.scope, storageError));
     }
   }, [reportStorageError, scopeStore]);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
     const snapshot = Array.from(files);
-    const scope = attachmentScope;
-    const state = scopeStore.getSnapshot(scope);
+    const scopeRef = scopeStore.createScopeReference(attachmentScope);
+    const state = scopeStore.getSnapshot(attachmentScope);
     const previous = state.attachmentProcessing;
     let generation = 0;
-    const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput, generation));
-    generation = scopeStore.setAttachmentProcessing(scope, operation);
+    const operation = previous
+      .then(() => processFiles(snapshot, scopeRef, supportsImageInput, generation))
+      .finally(() => scopeStore.releaseScopeReference(scopeRef));
+    generation = scopeStore.setAttachmentProcessing(attachmentScope, operation);
     return operation;
   }, [attachmentScope, processFiles, scopeStore, supportsImageInput]);
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);

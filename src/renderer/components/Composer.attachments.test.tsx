@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, type SubmitResult } from "./Composer";
 import type { ComposerAttachmentHandle } from "./Composer";
-import { ComposerScopeStore } from "../composer-scope-store";
+import { ComposerScopeStore, createDraftKey } from "../composer-scope-store";
 
 function renderComposer(
   onSubmit = vi.fn(),
@@ -44,7 +44,11 @@ function renderComposer(
     />
   );
   const view = render(element(draftStorageKey));
-  return Object.assign(onSubmit, { view, rerenderScope: (scope: string) => view.rerender(element(scope)) });
+  return Object.assign(onSubmit, {
+    view,
+    scopeStore,
+    rerenderScope: (scope: string) => view.rerender(element(scope)),
+  });
 }
 
 function sizedImageFile(name: string, size: number): File {
@@ -225,6 +229,38 @@ describe("Composer attachments", () => {
     expect(screen.queryByRole("button", { name: "Preview thread-a.png" })).toBeNull();
     submission.rerenderScope("thread:a");
     expect(await screen.findByRole("button", { name: "Preview thread-a.png" })).toBeTruthy();
+  });
+
+  it("moves a delayed file reader with its scope during thread promotion", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    let finishRead!: () => void;
+    class DelayedFileReader {
+      result: string | ArrayBuffer | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL(file: File) {
+        finishRead = () => {
+          this.result = `data:${file.type};base64,cmVhZA==`;
+          this.onload?.();
+        };
+      }
+    }
+    vi.stubGlobal("FileReader", DelayedFileReader);
+    const submission = renderComposer(vi.fn(), attachmentRef, undefined, "thread:prepared");
+    const pending = attachmentRef.current!.addFiles([
+      new File([new Uint8Array([1])], "promoted.png", { type: "image/png" }),
+    ]);
+
+    await waitFor(() => expect(finishRead).toBeTypeOf("function"));
+    submission.scopeStore.moveScope(createDraftKey("thread:prepared"), createDraftKey("thread:active"));
+    submission.rerenderScope("thread:active");
+    finishRead();
+    await pending;
+
+    expect(await screen.findByRole("button", { name: "Preview promoted.png" })).toBeTruthy();
+    submission.rerenderScope("thread:prepared");
+    expect(screen.queryByRole("button", { name: "Preview promoted.png" })).toBeNull();
+    vi.unstubAllGlobals();
   });
 
   it("preserves edits and new attachments when a pending submission succeeds", async () => {

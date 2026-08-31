@@ -18,6 +18,7 @@ export function createDraftKey(storageKey?: string): DraftKey {
 }
 
 export type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+export interface ComposerScopeReference { scope: ComposerScope }
 
 let nextAttachmentId = 0;
 export function allocateAttachmentId(): number { return nextAttachmentId++; }
@@ -73,13 +74,19 @@ export interface ComposerScopeSnapshot {
   readonly submissionPending: boolean;
 }
 
+export interface ComposerAttachmentSnapshot {
+  readonly attachments: readonly PendingAttachment[];
+}
+
 export class ComposerScopeStore {
   private readonly states = new Map<ComposerScope, ComposerScopeState>();
   private readonly snapshots = new Map<ComposerScope, ComposerScopeSnapshot>();
+  private readonly attachmentSnapshots = new Map<ComposerScope, { source: PendingAttachment[]; snapshot: ComposerAttachmentSnapshot }>();
   private readonly listeners = new Map<ComposerScope, Set<() => void>>();
   private readonly pendingSubmissionPromises = new Map<ComposerScope, Promise<SubmissionHandle>>();
   private readonly activeSubmissionHandles = new Map<ComposerScope, SubmissionHandle>();
   private readonly submissionScopeRefs = new Map<SubmissionHandle | Promise<SubmissionHandle>, { scope: ComposerScope }>();
+  private readonly operationScopeRefs = new Set<ComposerScopeReference>();
 
   private nextSubmissionId = 0;
 
@@ -120,6 +127,15 @@ export class ComposerScopeStore {
     return snapshot;
   }
 
+  getAttachmentSnapshot(scope: ComposerScope): ComposerAttachmentSnapshot {
+    const state = this.ensure(scope);
+    const current = this.attachmentSnapshots.get(scope);
+    if (current?.source === state.attachments) return current.snapshot;
+    const snapshot = { attachments: state.attachments as readonly PendingAttachment[] };
+    this.attachmentSnapshots.set(scope, { source: state.attachments, snapshot });
+    return snapshot;
+  }
+
   subscribe(scope: ComposerScope, listener: () => void): () => void {
     const listeners = this.listeners.get(scope) ?? new Set<() => void>();
     listeners.add(listener);
@@ -141,6 +157,8 @@ export class ComposerScopeStore {
       this.states.delete(from);
       this.snapshots.delete(from);
       this.snapshots.delete(to);
+      this.attachmentSnapshots.delete(from);
+      this.attachmentSnapshots.delete(to);
       const pending = this.pendingSubmissionPromises.get(from);
       if (pending) {
         this.pendingSubmissionPromises.delete(from);
@@ -155,8 +173,19 @@ export class ComposerScopeStore {
         const scopeRef = this.submissionScopeRefs.get(active);
         if (scopeRef) scopeRef.scope = to;
       }
+      for (const scopeRef of this.operationScopeRefs) if (scopeRef.scope === from) scopeRef.scope = to;
       this.notify(to);
     }
+  }
+
+  createScopeReference(scope: ComposerScope): ComposerScopeReference {
+    const reference = { scope };
+    this.operationScopeRefs.add(reference);
+    return reference;
+  }
+
+  releaseScopeReference(reference: ComposerScopeReference): void {
+    this.operationScopeRefs.delete(reference);
   }
 
   private snapshotFor(state: ComposerScopeState): ComposerScopeSnapshot {
@@ -173,6 +202,8 @@ export class ComposerScopeStore {
   private notify(scope: ComposerScope): void {
     const state = this.ensure(scope);
     this.snapshots.set(scope, this.snapshotFor(state));
+    const attachmentSnapshot = this.attachmentSnapshots.get(scope);
+    if (attachmentSnapshot?.source !== state.attachments) this.attachmentSnapshots.delete(scope);
     for (const listener of this.listeners.get(scope) ?? []) listener();
   }
 
