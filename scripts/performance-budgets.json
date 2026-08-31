@@ -14,7 +14,9 @@
   "rendererCommitP95Ms": 24,
   "rendererScenarioBudgets": {
     "transcript-1000-turns": { "commitP95Ms": 40 },
-    "transcript-viewport-anchored-1000-turns": { "commitP95Ms": 40 }
+    "transcript-legacy-comparison-1000-turns": { "commitP95Ms": 40 },
+    "transcript-viewport-anchored-1000-turns": { "commitP95Ms": 40 },
+    "transcript-viewport-streaming-1000-turns": { "commitP95Ms": 40 }
   },
   "rendererDomNodes": 5000,
   "gitSubprocesses": 6,
@@ -28,6 +30,8 @@
     "markdown-plain-stream-150kb",
     "tool-output-1mb",
     "transcript-1000-turns",
+    "transcript-legacy-comparison-1000-turns",
+    "transcript-viewport-streaming-1000-turns",
     "diff-2mb",
     "thread-shells-10000",
     "workspace-files-10000",

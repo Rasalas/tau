@@ -144,9 +144,10 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
   };
   const clientTurnId = value.clientTurnId ?? value.tauClientTurnId;
   const clientMessageId = value.clientMessageId ?? value.tauClientMessageId;
-  const clientIdentity = clientTurnId && clientMessageId
-    ? { clientTurnId, clientMessageId }
-    : {};
+  const clientIdentity = {
+    ...(clientTurnId ? { clientTurnId } : {}),
+    ...(clientMessageId ? { clientMessageId } : {}),
+  };
 
   if (value.role === "user") {
     const text = textFromContent(value.content);
@@ -925,6 +926,41 @@ export class PiHost {
     });
   }
 
+  /**
+   * The bridge has one send path for ordinary prompts, steering, and follow-up
+   * delivery. Keeping queue/command/cancel together prevents one delivery mode
+   * from leaking a stale optimistic identity after a transport failure.
+   */
+  private async sendBridgePrompt(
+    text: string,
+    deliverAs: "steer" | "followUp" | undefined,
+    identity?: ClientTurnIdentity,
+  ): Promise<void> {
+    const bridgeSessionId = this.bridgeSnapshot?.sessionId;
+    if (identity) this.clientTurns.enqueue(bridgeSessionId, identity);
+    try {
+      await this.bridge!.command({
+        command: "prompt",
+        text,
+        ...(deliverAs ? { deliverAs } : {}),
+        ...identity,
+      });
+    } catch (error) {
+      if (identity) this.clientTurns.cancel(bridgeSessionId, identity);
+      throw error;
+    }
+  }
+
+  private async sendBridgeNewSession(initialPrompt: string | undefined, identity?: ClientTurnIdentity): Promise<void> {
+    if (identity) this.clientTurns.enqueueAny(identity);
+    try {
+      await this.bridge!.command({ command: "new_session", initialPrompt, ...identity });
+    } catch (error) {
+      if (identity) this.clientTurns.cancel(undefined, identity);
+      throw error;
+    }
+  }
+
   async newSession(
     initialPrompt?: string,
     attachments: UiPromptAttachment[] = [],
@@ -933,12 +969,10 @@ export class PiHost {
   ): Promise<HostActionResult> {
     if (this.bridge && (!cwd || cwd === this.cwd)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      if (identity) this.clientTurns.enqueueAny(identity);
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt, ...identity });
+        await this.sendBridgeNewSession(initialPrompt, identity);
         return this.actionResult([]);
       } catch (error) {
-        if (identity) this.clientTurns.cancel(undefined, identity);
         // A new thread is a different session, so Pi has no standing to veto it.
         // Whether it refused because it is busy or stopped answering entirely,
         // Tau creates the thread itself rather than leaving the user stuck.
@@ -1082,14 +1116,7 @@ export class PiHost {
   ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      const bridgeSessionId = this.bridgeSnapshot?.sessionId;
-      if (identity) this.clientTurns.enqueue(bridgeSessionId, identity);
-      try {
-        await this.bridge!.command({ command: "prompt", text, ...identity });
-      } catch (error) {
-        if (identity) this.clientTurns.cancel(bridgeSessionId, identity);
-        throw error;
-      }
+      await this.sendBridgePrompt(text, undefined, identity);
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
@@ -1148,14 +1175,7 @@ export class PiHost {
   ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      const bridgeSessionId = this.bridgeSnapshot?.sessionId;
-      if (identity) this.clientTurns.enqueue(bridgeSessionId, identity);
-      try {
-        await this.bridge!.command({ command: "prompt", text, deliverAs: "steer", ...identity });
-      } catch (error) {
-        if (identity) this.clientTurns.cancel(bridgeSessionId, identity);
-        throw error;
-      }
+      await this.sendBridgePrompt(text, "steer", identity);
       return;
     }
     const thread = this.requireThread(sessionId);
@@ -1177,14 +1197,7 @@ export class PiHost {
   ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      const bridgeSessionId = this.bridgeSnapshot?.sessionId;
-      if (identity) this.clientTurns.enqueue(bridgeSessionId, identity);
-      try {
-        await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp", ...identity });
-      } catch (error) {
-        if (identity) this.clientTurns.cancel(bridgeSessionId, identity);
-        throw error;
-      }
+      await this.sendBridgePrompt(text, "followUp", identity);
       return;
     }
     const thread = this.requireThread(sessionId);
@@ -1528,6 +1541,7 @@ export class PiHost {
 
   async dispose(): Promise<void> {
     return this.runLifecycle(async () => {
+      this.clientTurns.clear();
       this.toolOutputBatcher.dispose();
       if (this.activeIndexPublish) clearTimeout(this.activeIndexPublish);
       this.activeIndexPublish = undefined;
@@ -1668,6 +1682,7 @@ export class PiHost {
   }
 
   private async disposeThread(thread: ThreadRuntime): Promise<void> {
+    this.clientTurns.clear(thread.sessionId);
     this.settleApprovalsFor(thread.sessionId, { allowed: false, reason: "Blocked by Tau: the thread was closed." });
     this.cancelUiPromptsFor(thread.sessionId);
     thread.unsubscribe?.();
@@ -1864,13 +1879,20 @@ export class PiHost {
 
   private detachBridge(cancelReconnect = true): void {
     if (cancelReconnect) this.bridgeReconnectLoop.cancel();
-    if (!this.bridge) return;
+    if (!this.bridge) {
+      if (cancelReconnect) this.clientTurns.clearAny();
+      return;
+    }
     // Pi's run state was ours only while attached; leaving it set would keep the
     // thread looking busy forever once Tau is no longer following that session.
     const detachedSessionId = this.bridgeSnapshot?.sessionId;
     if (detachedSessionId) {
+      this.clientTurns.clear(detachedSessionId);
       this.emit({ type: "agent-status", sessionId: detachedSessionId, running: false });
     }
+    // A pending `new_session` identity is only allowed to cross the bridge's
+    // own session_start transition. Any ordinary detach closes that lifecycle.
+    if (cancelReconnect) this.clientTurns.clearAny();
     this.syncBridgeAwaitingInput({ ...(this.bridgeSnapshot ?? {}), awaitingInput: undefined } as PiBridgeSnapshot);
     this.bridgeUnsubscribe?.();
     this.bridgeUnsubscribe = undefined;
@@ -1953,7 +1975,28 @@ export class PiHost {
     const snapshot = this.bridgeSnapshot;
     if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
     const messages = snapshot.messages
-      .map((message, index) => mapMessage(message, index))
+      .map((rawMessage, index) => {
+        const mapped = mapMessage(rawMessage, index);
+        if (!mapped) return undefined;
+        // Older bridge peers cannot echo the renderer identity. The ledger is
+        // only a legacy fallback; an explicit (even mismatched) pair remains
+        // authoritative and is never replaced by text/timestamp matching.
+        const explicitIdentity = mapped.clientTurnId !== undefined || mapped.clientMessageId !== undefined;
+        const identity = rawMessage && typeof rawMessage === "object"
+          ? this.clientTurns.identityForRaw(rawMessage)
+          : undefined;
+        const resolvedIdentity = mapped.role === "user"
+          ? explicitIdentity
+            ? mapped.clientTurnId !== undefined && mapped.clientMessageId !== undefined
+              ? { clientTurnId: mapped.clientTurnId, clientMessageId: mapped.clientMessageId }
+              : undefined
+            : identity ?? this.clientTurns.identityForMessage(snapshot.sessionId, mapped)
+          : undefined;
+        if (resolvedIdentity && rawMessage && typeof rawMessage === "object") {
+          this.clientTurns.remember(snapshot.sessionId, mapped, resolvedIdentity, rawMessage);
+        }
+        return withClientTurnIdentity(mapped, resolvedIdentity);
+      })
       .filter((message): message is UiMessage => Boolean(message?.text));
     const firstUserMessage = snapshot.messages.find((message) =>
       Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
@@ -2014,6 +2057,7 @@ export class PiHost {
           this.log("agent.ended", `${event.messages.length} messages`);
           break;
         case "agent_settled":
+          this.clientTurns.settle(sessionId);
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
           this.emit({ type: "agent-status", sessionId, running: false });
           this.log("agent.settled", sessionId.slice(0, 8));
@@ -2256,8 +2300,16 @@ export class PiHost {
         if (entry.type !== "message") return [];
         const rawMessage = entry.message as object;
         const mapped = mapMessage({ ...entry.message, tauEntryId: entry.id }, index);
-        const identity = this.clientTurns.identityForRaw(rawMessage)
-          ?? (mapped ? this.clientTurns.identityForMessage(thread.sessionId, mapped) : undefined);
+        const explicitIdentity = mapped?.clientTurnId !== undefined || mapped?.clientMessageId !== undefined;
+        const identity = mapped?.role === "user"
+          ? explicitIdentity
+            ? mapped.clientTurnId !== undefined && mapped.clientMessageId !== undefined
+              ? { clientTurnId: mapped.clientTurnId, clientMessageId: mapped.clientMessageId }
+              : undefined
+            : this.clientTurns.identityForRaw(rawMessage)
+              ?? this.clientTurns.identityForMessage(thread.sessionId, mapped)
+          : undefined;
+        if (mapped && identity) this.clientTurns.remember(thread.sessionId, mapped, identity, rawMessage);
         return [{ ...entry.message, tauEntryId: entry.id, ...identity }];
       });
   }

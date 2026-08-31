@@ -9,10 +9,35 @@ interface RememberedClientTurn {
   sourceEntryId?: string;
   text: string;
   timestamp: number;
-  rawMessage?: object;
 }
 
-type ClientMessageObservation = Partial<ClientTurnIdentity> & Pick<UiMessage, "text" | "timestamp" | "sourceEntryId">;
+type ClientMessageObservation = Partial<ClientTurnIdentity>
+  & Pick<UiMessage, "text" | "timestamp" | "sourceEntryId">
+  & { role?: UiMessage["role"] };
+
+/** Keep correlation state bounded even when a host is left attached for days. */
+export const CLIENT_TURN_PENDING_LIMIT = 64;
+export const CLIENT_TURN_TOTAL_PENDING_LIMIT = 1_024;
+export const CLIENT_TURN_REMEMBERED_LIMIT = 256;
+export const CLIENT_TURN_TOTAL_REMEMBERED_LIMIT = 1_024;
+
+function hasExplicitClientIdentity(message: Partial<ClientTurnIdentity>): boolean {
+  return message.clientTurnId !== undefined || message.clientMessageId !== undefined;
+}
+
+function identityMatches(
+  observation: Partial<ClientTurnIdentity>,
+  identity: ClientTurnIdentity,
+): boolean {
+  // A complete pair is one identity. Never let one mismatched field consume a
+  // different optimistic turn merely because its other field happens to match.
+  if (observation.clientTurnId !== undefined && observation.clientMessageId !== undefined) {
+    return observation.clientTurnId === identity.clientTurnId
+      && observation.clientMessageId === identity.clientMessageId;
+  }
+  return observation.clientTurnId === identity.clientTurnId
+    || observation.clientMessageId === identity.clientMessageId;
+}
 
 /**
  * Keeps renderer submission identities alongside Pi's message lifecycle.
@@ -35,13 +60,17 @@ export class ClientTurnLedger {
     const queue = this.pending.get(sessionId) ?? [];
     if (queue.some((entry) => entry.identity.clientTurnId === identity.clientTurnId)) return;
     queue.push({ identity });
+    while (queue.length > CLIENT_TURN_PENDING_LIMIT) queue.shift();
     this.pending.set(sessionId, queue);
+    this.trimPending();
   }
 
   /** Used by a bridge `new_session` command whose resulting session ID is not known yet. */
   enqueueAny(identity: ClientTurnIdentity): void {
     if (this.pendingAny.some((entry) => entry.identity.clientTurnId === identity.clientTurnId)) return;
     this.pendingAny.push({ identity });
+    while (this.pendingAny.length > CLIENT_TURN_PENDING_LIMIT) this.pendingAny.shift();
+    this.trimPending();
   }
 
   cancel(sessionId: string | undefined, identity: ClientTurnIdentity): void {
@@ -67,19 +96,23 @@ export class ClientTurnLedger {
     observation: ClientMessageObservation,
     rawMessage?: object,
   ): ClientTurnIdentity | undefined {
-    if (!sessionId) return undefined;
+    if (!sessionId || (observation.role !== undefined && observation.role !== "user")) return undefined;
     const sessionQueue = this.pending.get(sessionId);
     const queues = [
       ...(sessionQueue && sessionQueue.length > 0 ? [{ entries: sessionQueue, any: false }] : []),
       ...(this.pendingAny.length > 0 ? [{ entries: this.pendingAny, any: true }] : []),
     ];
-    const hasExplicitIdentity = Boolean(observation.clientTurnId || observation.clientMessageId);
+    const hasExplicitIdentity = hasExplicitClientIdentity(observation);
+    // Explicit fields are authoritative even when the same runtime object was
+    // previously seen through the WeakMap. A reused object must not resurrect
+    // an older optimistic identity after Pi changes its metadata.
+    const remembered = !hasExplicitIdentity && rawMessage ? this.rawMessages.get(rawMessage) : undefined;
+    if (remembered) return remembered;
     let selected: { entries: PendingClientTurn[]; any: boolean; index: number } | undefined;
     if (hasExplicitIdentity) {
       for (const queue of queues) {
         const index = queue.entries.findIndex((entry) => (
-          (observation.clientTurnId !== undefined && entry.identity.clientTurnId === observation.clientTurnId)
-          || (observation.clientMessageId !== undefined && entry.identity.clientMessageId === observation.clientMessageId)
+          identityMatches(observation, entry.identity)
         ));
         if (index >= 0) {
           selected = { ...queue, index };
@@ -131,11 +164,20 @@ export class ClientTurnLedger {
     const existing = entries.find((entry) => entry.identity.clientTurnId === identity.clientTurnId);
     if (existing) {
       existing.sourceEntryId ??= message.sourceEntryId;
-      existing.rawMessage ??= rawMessage;
+      existing.text = message.text;
+      existing.timestamp = message.timestamp;
     } else {
-      entries.push({ identity, sourceEntryId: message.sourceEntryId, text: message.text, timestamp: message.timestamp, rawMessage });
+      entries.push({ identity, sourceEntryId: message.sourceEntryId, text: message.text, timestamp: message.timestamp });
     }
+    while (entries.length > CLIENT_TURN_REMEMBERED_LIMIT) entries.shift();
     this.remembered.set(sessionId, entries);
+    while (this.rememberedSize > CLIENT_TURN_TOTAL_REMEMBERED_LIMIT) {
+      const oldest = this.remembered.entries().next().value as [string, RememberedClientTurn[]] | undefined;
+      if (!oldest) break;
+      const [oldestSession, oldestEntries] = oldest;
+      oldestEntries.shift();
+      if (oldestEntries.length === 0) this.remembered.delete(oldestSession);
+    }
     if (rawMessage) this.rawMessages.set(rawMessage, identity);
   }
 
@@ -144,7 +186,9 @@ export class ClientTurnLedger {
   }
 
   identityForMessage(sessionId: string, message: ClientMessageObservation): ClientTurnIdentity | undefined {
-    if (message.clientTurnId && message.clientMessageId) {
+    if (message.role !== undefined && message.role !== "user") return undefined;
+    if (hasExplicitClientIdentity(message)) {
+      if (!message.clientTurnId || !message.clientMessageId) return undefined;
       return { clientTurnId: message.clientTurnId, clientMessageId: message.clientMessageId };
     }
     const entries = this.remembered.get(sessionId);
@@ -164,7 +208,48 @@ export class ClientTurnLedger {
       return;
     }
     this.pending.clear();
+    this.pendingAny.length = 0;
     this.remembered.clear();
+  }
+
+  /** A settled runtime no longer needs pending or legacy snapshot correlation. */
+  settle(sessionId: string): void {
+    this.clear(sessionId);
+  }
+
+  /** Discard bridge-only commands when a bridge changes ownership. */
+  clearAny(): void {
+    this.pendingAny.length = 0;
+  }
+
+  get pendingSize(): number {
+    let size = this.pendingAny.length;
+    for (const queue of this.pending.values()) size += queue.length;
+    return size;
+  }
+
+  get rememberedSize(): number {
+    let size = 0;
+    for (const entries of this.remembered.values()) size += entries.length;
+    return size;
+  }
+
+  get size(): number {
+    return this.pendingSize + this.rememberedSize;
+  }
+
+  private trimPending(): void {
+    while (this.pendingSize > CLIENT_TURN_TOTAL_PENDING_LIMIT) {
+      if (this.pendingAny.length > 0) {
+        this.pendingAny.shift();
+        continue;
+      }
+      const oldest = this.pending.entries().next().value as [string, PendingClientTurn[]] | undefined;
+      if (!oldest) break;
+      const [sessionId, queue] = oldest;
+      queue.shift();
+      if (queue.length === 0) this.pending.delete(sessionId);
+    }
   }
 }
 

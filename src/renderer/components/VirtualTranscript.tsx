@@ -1,10 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useMemo, type RefObject } from "react";
+import { memo, useMemo, useRef, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { Message } from "./Message";
 import {
-  groupTranscriptActivities,
-  unanchoredTranscriptActivities,
+  groupTranscriptActivitiesForMessageIds,
+  unanchoredTranscriptActivitiesForMessageCount,
   type TranscriptActivity,
 } from "./transcript-activity";
 
@@ -14,33 +14,70 @@ export interface VirtualTranscriptProps {
   isStreaming: boolean;
   activities?: readonly TranscriptActivity[];
   activeTurnStartId?: string;
+  /** Changes only when the ordered message ID set changes (not on deltas). */
+  messageScopeKey?: string;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
 }
 
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
-export function VirtualTranscript({
+export const VirtualTranscript = memo(function VirtualTranscript({
   messages,
   scrollRef,
   isStreaming,
   activities = [],
   activeTurnStartId,
+  messageScopeKey,
   onCopyMessage,
   onForkMessage,
 }: VirtualTranscriptProps) {
+  const indexRef = useRef<{
+    scopeKey?: string;
+    length: number;
+    firstId?: string;
+    lastId?: string;
+    ids: Set<string>;
+    positions: Map<string, number>;
+    version: number;
+  } | undefined>(undefined);
+  const firstId = messages[0]?.id;
+  const lastId = messages.at(-1)?.id;
+  const currentIndex = indexRef.current;
+  if (!currentIndex
+    || currentIndex.scopeKey !== messageScopeKey
+    || currentIndex.length !== messages.length
+    || currentIndex.firstId !== firstId
+    || currentIndex.lastId !== lastId) {
+    const ids = new Set<string>();
+    const positions = new Map<string, number>();
+    messages.forEach((message, index) => {
+      ids.add(message.id);
+      positions.set(message.id, index);
+    });
+    indexRef.current = {
+      scopeKey: messageScopeKey,
+      length: messages.length,
+      firstId,
+      lastId,
+      ids,
+      positions,
+      version: (currentIndex?.version ?? 0) + 1,
+    };
+  }
+  const messageIndex = indexRef.current!;
   const activitiesByMessage = useMemo(
-    () => groupTranscriptActivities(messages, activities),
-    [activities, messages],
+    () => groupTranscriptActivitiesForMessageIds(messageIndex.ids, messageIndex.lastId, activities),
+    [activities, messageIndex.version],
   );
   const unanchoredActivities = useMemo(
-    () => unanchoredTranscriptActivities(messages, activities),
-    [activities, messages],
+    () => unanchoredTranscriptActivitiesForMessageCount(messageIndex.length, activities),
+    [activities, messageIndex.version],
   );
   const activeTurnStartIndex = useMemo(
     () => activeTurnStartId === undefined
       ? -1
-      : messages.findIndex((message) => message.id === activeTurnStartId),
-    [activeTurnStartId, messages],
+      : messageIndex.positions.get(activeTurnStartId) ?? -1,
+    [activeTurnStartId, messageIndex.version],
   );
 
   const virtualizer = useVirtualizer({
@@ -101,4 +138,4 @@ export function VirtualTranscript({
       </div>;
     })}
   </div>;
-}
+});

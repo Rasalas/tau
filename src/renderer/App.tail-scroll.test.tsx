@@ -46,12 +46,14 @@ function Fixture({
   messages,
   turnStart,
   sessionId = "one",
+  scopeKey,
   scrollHeight = 1_000,
   clientHeight = 200,
 }: {
   messages: UiMessage[];
   turnStart?: TranscriptTurnStart;
   sessionId?: string;
+  scopeKey?: string;
   scrollHeight?: number;
   clientHeight?: number;
 }) {
@@ -78,6 +80,7 @@ function Fixture({
     messages={messages}
     scrollRef={scrollRef}
     sessionId={sessionId}
+    scopeKey={scopeKey}
     turnStart={turnStart}
     isStreaming={false}
   />;
@@ -122,13 +125,13 @@ describe("TranscriptViewport navigation", () => {
     const prompt: UiMessage = { id: "local-draft", role: "user", text: "Create the project", timestamp: 7_000 };
     const turnStart: TranscriptTurnStart = {
       turnId: "logical-draft-turn",
-      sessionId: "draft:/project",
+      scope: { kind: "draft", projectPath: "/project", draftId: "draft-one" },
       messageId: prompt.id,
       text: prompt.text,
       timestamp: prompt.timestamp,
       preserveAcrossSessionChange: true,
     };
-    const view = render(<Fixture messages={[prompt]} sessionId="draft:/project" turnStart={turnStart} />);
+    const view = render(<Fixture messages={[prompt]} sessionId="draft-session" turnStart={{ ...turnStart, sessionId: "draft-session" }} />);
     await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="local-draft"]')).toBeTruthy());
 
     const persisted: UiMessage = { ...prompt, id: "saved-draft" };
@@ -140,6 +143,29 @@ describe("TranscriptViewport navigation", () => {
 
     await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="saved-draft"]')).toBeTruthy());
     expect(view.container.querySelector('[data-message-id="local-draft"]')).toBeNull();
+  });
+
+  it("does not carry a stale draft anchor into an unrelated session", async () => {
+    const prompt: UiMessage = { id: "local-stale-draft", role: "user", text: "Draft work", timestamp: 7_500 };
+    const turnStart: TranscriptTurnStart = {
+      turnId: "logical-stale-draft",
+      scope: { kind: "draft", projectPath: "/project", draftId: "draft-stale" },
+      messageId: prompt.id,
+      text: prompt.text,
+      timestamp: prompt.timestamp,
+      preserveAcrossSessionChange: true,
+    };
+    const view = render(<Fixture messages={[prompt]} sessionId="draft-session" turnStart={turnStart} />);
+    await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="local-stale-draft"]')).toBeTruthy());
+
+    view.rerender(<Fixture
+      messages={[{ id: "other-session", role: "user", text: "Other work", timestamp: 8_000 }]}
+      sessionId="other-session"
+      turnStart={turnStart}
+    />);
+
+    await waitFor(() => expect(view.getByRole("log").scrollTop).toBe(1_000));
+    expect(view.container.querySelector(".transcript-current-row")).toBeNull();
   });
 
   it("anchors a follow-up when its explicit submitted message arrives later", async () => {
@@ -230,6 +256,31 @@ describe("TranscriptViewport navigation", () => {
 
     await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="saved-first"]')).toBeTruthy());
     expect(view.container.querySelector('.transcript-current-row[data-message-id="saved-second"]')).toBeNull();
+  });
+
+  it("does not fall back to text when an authoritative identity is explicit but mismatched", async () => {
+    const turnStart: TranscriptTurnStart = {
+      turnId: "logical-explicit-mismatch",
+      sessionId: "one",
+      messageId: "local-mismatch",
+      clientMessageId: "local-mismatch",
+      text: "same prompt",
+      timestamp: 13_000,
+    };
+    const view = render(<Fixture messages={[]} turnStart={turnStart} />);
+    const authoritative: UiMessage = {
+      id: "saved-mismatch",
+      role: "user",
+      text: "same prompt",
+      timestamp: 13_000,
+      clientTurnId: "another-turn",
+      clientMessageId: "another-message",
+    };
+
+    view.rerender(<Fixture messages={[authoritative]} turnStart={turnStart} />);
+
+    await waitFor(() => expect(view.getByRole("log").scrollTop).toBe(1_000));
+    expect(view.container.querySelector(".transcript-current-row")).toBeNull();
   });
 
   it("resets an explicit anchor on a normal thread switch", async () => {
@@ -341,6 +392,21 @@ describe("TranscriptViewport navigation", () => {
     expect(await view.findByRole("button", { name: "Jump to latest" })).toBeTruthy();
   });
 
+  it("stops following from a focused composer without cancelling its default key behavior", async () => {
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
+    const composer = document.createElement("textarea");
+    view.container.append(composer);
+    composer.focus();
+
+    const event = new KeyboardEvent("keydown", { key: "PageUp", bubbles: true, cancelable: true });
+    composer.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(await view.findByRole("button", { name: "Jump to latest" })).toBeTruthy();
+  });
+
   it("stops following when touch navigation moves toward older content", async () => {
     const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
     const transcript = view.getByRole("log");
@@ -383,6 +449,25 @@ describe("TranscriptViewport navigation", () => {
     view.rerender(<Fixture
       messages={[{ id: "new", role: "assistant", text: "New thread", timestamp: 7_000 }]}
       sessionId="two"
+    />);
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
+    expect(view.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+  });
+
+  it("resets navigation when the project scope changes under the same session ID", async () => {
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} scopeKey="project:/one\u0000thread:one" />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    act(() => {
+      transcript.scrollTop = 300;
+      fireEvent.scroll(transcript);
+    });
+    await view.findByRole("button", { name: "Jump to latest" });
+
+    view.rerender(<Fixture
+      messages={[{ id: "new-project", role: "assistant", text: "New project", timestamp: 7_000 }]}
+      scopeKey="project:/two\u0000thread:one"
     />);
     await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
     expect(view.queryByRole("button", { name: "Jump to latest" })).toBeNull();

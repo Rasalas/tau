@@ -28,6 +28,25 @@ describe("App render isolation", () => {
     expect(reconcileOptimisticMessages(pending, [{ id: "saved", role: "user", text: "hello", timestamp: 100_001 }])).toEqual([]);
   });
 
+  it("does not reconcile through text when Pi supplies a mismatched explicit identity", () => {
+    const pending = [{ scope: "session", message: {
+      id: "local",
+      clientTurnId: "turn-local",
+      clientMessageId: "message-local",
+      role: "user" as const,
+      text: "hello",
+      timestamp: 100_000,
+    } }];
+    expect(reconcileOptimisticMessages(pending, [{
+      id: "saved",
+      clientTurnId: "turn-other",
+      clientMessageId: "message-other",
+      role: "user",
+      text: "hello",
+      timestamp: 100_001,
+    }])).toEqual(pending);
+  });
+
   it("anchors aggregate tool activity after the latest visible message in the turn", () => {
     const previous = { id: "previous", role: "assistant" as const, text: "Previous answer", timestamp: 1 };
     const user = { id: "user", role: "user" as const, text: "New request", timestamp: 2 };

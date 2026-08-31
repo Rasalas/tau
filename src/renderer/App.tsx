@@ -57,7 +57,7 @@ import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
 import { TranscriptViewport } from "./components/TranscriptViewport";
-import type { TranscriptTurnStart } from "./components/TranscriptViewport";
+import type { TranscriptNavigationScope, TranscriptTurnStart } from "./components/TranscriptViewport";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -65,11 +65,12 @@ import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
-import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { createNewThreadDraft, draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
+import { estimateTranscriptTokens, TranscriptMessageIndex, type TranscriptMessageUpdate } from "../shared/transcript-index";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
@@ -97,8 +98,17 @@ export function transcriptNavigationScopeKey(
   pending?: NewThreadDraft,
 ): string {
   const project = pending?.projectPath ?? snapshot?.cwd ?? "";
-  const thread = pending ? `draft:${pending.projectPath}` : snapshot?.sessionId ?? "";
+  const thread = pending ? `draft:${pending.draftId}` : snapshot?.sessionId ?? "";
   return `project:${project}\u0000thread:${thread}`;
+}
+
+function transcriptNavigationScope(
+  snapshot: Pick<HostSnapshot, "cwd" | "sessionId"> | undefined,
+  pending?: NewThreadDraft,
+): TranscriptNavigationScope {
+  return pending
+    ? { kind: "draft", projectPath: pending.projectPath, draftId: pending.draftId }
+    : { kind: "session", projectPath: snapshot?.cwd, sessionId: snapshot?.sessionId ?? "" };
 }
 
 export function optimisticThreadSnapshot(
@@ -181,6 +191,22 @@ interface OptimisticUserMessage {
   message: UiMessage;
 }
 
+function matchesTranscriptTurn(message: UiMessage, turnStart: TranscriptTurnStart): boolean {
+  if (message.role !== "user") return false;
+  const hasExplicitIdentity = message.clientTurnId !== undefined || message.clientMessageId !== undefined;
+  if (hasExplicitIdentity) {
+    return message.clientTurnId !== undefined
+      && message.clientMessageId !== undefined
+      && turnStart.clientMessageId !== undefined
+      && message.clientTurnId === turnStart.turnId
+      && message.clientMessageId === turnStart.clientMessageId;
+  }
+  if (turnStart.messageId !== undefined && message.id === turnStart.messageId) return true;
+  return turnStart.text !== undefined
+    && message.text === turnStart.text
+    && (turnStart.timestamp === undefined || message.timestamp >= turnStart.timestamp - 30_000);
+}
+
 export function reconcileOptimisticMessages(
   pending: readonly OptimisticUserMessage[],
   authoritative: readonly UiMessage[],
@@ -188,19 +214,46 @@ export function reconcileOptimisticMessages(
   const confirmed = authoritative.filter((message) => message.role === "user");
   const used = new Set<number>();
   return pending.filter((entry) => {
-    const index = confirmed.findIndex((message, at) =>
-      !used.has(at)
-      && ((message.clientTurnId !== undefined
-        && message.clientMessageId !== undefined
-        && message.clientTurnId === entry.message.clientTurnId
-        && message.clientMessageId === entry.message.clientMessageId)
-        || (message.text === entry.message.text
-          && message.timestamp >= entry.message.timestamp - 30_000)),
-    );
+    const index = confirmed.findIndex((message, at) => {
+      if (used.has(at)) return false;
+      const hasExplicitIdentity = message.clientTurnId !== undefined || message.clientMessageId !== undefined;
+      if (hasExplicitIdentity) {
+        return message.clientTurnId !== undefined
+          && message.clientMessageId !== undefined
+          && message.clientTurnId === entry.message.clientTurnId
+          && message.clientMessageId === entry.message.clientMessageId;
+      }
+      return message.text === entry.message.text
+        && message.timestamp >= entry.message.timestamp - 30_000;
+    });
     if (index < 0) return true;
     used.add(index);
     return false;
   });
+}
+
+/**
+ * Authoritative messages are chronological. Optimistic entries are few and
+ * arrive at the tail of a send, so insert them with binary search instead of
+ * sorting the complete transcript on every assistant delta.
+ */
+export function mergeTranscriptMessages(
+  authoritative: readonly UiMessage[],
+  optimistic: readonly UiMessage[],
+): UiMessage[] {
+  if (optimistic.length === 0) return authoritative as UiMessage[];
+  const merged = [...authoritative];
+  for (const message of optimistic) {
+    let low = 0;
+    let high = merged.length;
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2);
+      if (merged[middle].timestamp <= message.timestamp) low = middle + 1;
+      else high = middle;
+    }
+    merged.splice(low, 0, message);
+  }
+  return merged;
 }
 
 function elapsedLabel(ms: number): string {
@@ -263,7 +316,25 @@ export default function App() {
   // events. Deriving it here keeps the composer, the live row and the rail from
   // ever disagreeing about whether the visible thread is working.
   const visibleStreaming = Boolean(snapshot && threadActivity.runningThreadIds.includes(snapshot.sessionId));
-  const [messages, setMessages] = useState<UiMessage[]>(cachedBootstrap?.snapshot.messages ?? []);
+  const transcriptMessageIndexRef = useRef<TranscriptMessageIndex | undefined>(undefined);
+  if (!transcriptMessageIndexRef.current) {
+    transcriptMessageIndexRef.current = new TranscriptMessageIndex(cachedBootstrap?.snapshot.messages ?? []);
+  }
+  const [messages, setMessages] = useState<UiMessage[]>(() => transcriptMessageIndexRef.current!.messages);
+  const transcriptUserRevision = transcriptMessageIndexRef.current.userRevision;
+  const transcriptTokenEstimate = transcriptMessageIndexRef.current.tokenEstimate;
+  const replaceTranscriptMessages = useCallback((next: readonly UiMessage[]) => {
+    setMessages(transcriptMessageIndexRef.current!.replace(next));
+  }, []);
+  const updateTranscriptMessages = useCallback((updates: ReadonlyMap<string, TranscriptMessageUpdate>) => {
+    setMessages(transcriptMessageIndexRef.current!.updateMany(updates));
+  }, []);
+  const appendTranscriptMessage = useCallback((message: UiMessage) => {
+    setMessages(transcriptMessageIndexRef.current!.append(message));
+  }, []);
+  const prependTranscriptMessages = useCallback((next: readonly UiMessage[]) => {
+    setMessages(transcriptMessageIndexRef.current!.prepend(next));
+  }, []);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [tools, setTools] = useState<UiToolRun[]>([]);
   const [toolAnchorId, setToolAnchorId] = useState<string>();
@@ -326,6 +397,10 @@ export default function App() {
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
   const transcriptScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
+  const transcriptScope = useMemo(
+    () => transcriptNavigationScope(snapshot, pendingNewThread),
+    [pendingNewThread, snapshot?.cwd, snapshot?.sessionId],
+  );
   const transcriptScopeKeyRef = useRef(transcriptScopeKey);
   const committedTranscriptScopeKeyRef = useRef(transcriptScopeKey);
   transcriptScopeKeyRef.current = transcriptScopeKey;
@@ -359,7 +434,7 @@ export default function App() {
       setPendingNewThread(undefined);
     }
     setOptimisticMessages(reconciled);
-  }, [activeDraftKey, messages, optimisticMessages, pendingNewThread]);
+  }, [activeDraftKey, optimisticMessages, pendingNewThread, transcriptUserRevision]);
 
   const flushAssistantDeltas = useCallback(() => {
     if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
@@ -367,16 +442,16 @@ export default function App() {
     const pending = pendingDeltasRef.current;
     if (pending.size === 0) return;
     pendingDeltasRef.current = new Map();
-    setMessages((current) => current.map((message) => {
-      const delta = pending.get(message.id);
-      if (!delta) return message;
-      return {
+    const updates = new Map<string, TranscriptMessageUpdate>();
+    for (const [id, delta] of pending) {
+      updates.set(id, (message) => ({
         ...message,
         text: message.text + delta.text,
         thinking: delta.thinking ? (message.thinking ?? "") + delta.thinking : message.thinking,
-      };
-    }));
-  }, []);
+      }));
+    }
+    updateTranscriptMessages(updates);
+  }, [updateTranscriptMessages]);
 
   const queueAssistantDelta = useCallback((id: string, kind: "text" | "thinking", delta: string) => {
     const current = pendingDeltasRef.current.get(id) ?? { text: "", thinking: "" };
@@ -427,7 +502,7 @@ export default function App() {
     threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     setSnapshot(next);
-    setMessages(next.messages);
+    replaceTranscriptMessages(next.messages);
     const restoredActivity = next.turnActivity ?? cachedActivity;
     setTools(restoredActivity?.tools ?? []);
     setToolAnchorId(restoredActivity?.anchorMessageId);
@@ -436,7 +511,7 @@ export default function App() {
     cachedSnapshotRef.current = next;
     activeWorkspaceRef.current = next.cwd;
     writeBootstrapCache(next, cachedIndexRef.current);
-  }, [threadStore]);
+  }, [replaceTranscriptMessages, threadStore]);
 
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
@@ -460,19 +535,15 @@ export default function App() {
       const detail = update.detail;
       const currentTurnStart = transcriptTurnStartRef.current;
       const pendingDraft = pendingNewThreadRef.current;
-      const pendingDraftSessionId = pendingDraft
-        ? `draft:${pendingDraft.projectPath}`
-        : undefined;
-      if (currentTurnStart?.sessionId?.startsWith("draft:") && currentTurnStart.sessionId === pendingDraftSessionId) {
-        const matchedPrompt = detail.messages.find((message) => (
-          (message.role === "user" && currentTurnStart.messageId !== undefined && message.id === currentTurnStart.messageId)
-          || (message.role === "user" && currentTurnStart.clientMessageId !== undefined && message.clientMessageId === currentTurnStart.clientMessageId)
-          || (currentTurnStart.text !== undefined && message.role === "user" && message.text === currentTurnStart.text)
-        ));
+      if (currentTurnStart?.scope?.kind === "draft"
+        && pendingDraft
+        && currentTurnStart.scope.draftId === pendingDraft.draftId) {
+        const matchedPrompt = detail.messages.find((message) => matchesTranscriptTurn(message, currentTurnStart));
         if (matchedPrompt) {
           setTranscriptTurnStart({
             ...currentTurnStart,
             sessionId: detail.sessionId,
+            scope: { kind: "session", projectPath: pendingDraft.projectPath, sessionId: detail.sessionId },
             messageId: matchedPrompt.id,
             scopeKey: transcriptNavigationScopeKey({ cwd: pendingDraft!.projectPath, sessionId: detail.sessionId }),
           }, currentTurnStart.turnId);
@@ -482,7 +553,7 @@ export default function App() {
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
       setOlderCursor(detail.olderCursor);
-      setMessages(detail.messages);
+      replaceTranscriptMessages(detail.messages);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detail.sessionId);
       const restoredActivity = detail.turnActivity ?? cachedActivity;
       setTools(restoredActivity?.tools ?? []);
@@ -516,7 +587,7 @@ export default function App() {
         ? { ...current, messages: [...page.messages, ...current.messages], olderCursor: page.olderCursor }
         : current);
       setOlderCursor(page.olderCursor);
-      setMessages((current) => [...page.messages, ...current]);
+      prependTranscriptMessages(page.messages);
       return;
     }
     if (update.type === "catalog") {
@@ -532,7 +603,7 @@ export default function App() {
       threadStore.setStreaming(update.event === "started");
     }
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, setTranscriptTurnStart, threadStore]);
+  }, [applyThreadIndex, prependTranscriptMessages, replaceTranscriptMessages, setTranscriptTurnStart, threadStore]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult) => {
     result.updates.forEach((update) => applyHostUpdate(update));
@@ -638,14 +709,14 @@ export default function App() {
         assistantStartsRef.current.set(event.id, event.timestamp);
         break;
       case "assistant-delta":
-        setMessages((current) => current.some((message) => message.id === event.id)
-          ? current
-          : [...current, {
+        if (!transcriptMessageIndexRef.current!.has(event.id)) {
+          appendTranscriptMessage({
             id: event.id,
             role: "assistant",
             text: "",
             timestamp: assistantStartsRef.current.get(event.id) ?? Date.now(),
-          }]);
+          });
+        }
         queueAssistantDelta(event.id, "text", event.delta);
         break;
       case "assistant-thinking":
@@ -654,20 +725,21 @@ export default function App() {
       case "assistant-end":
         flushAssistantDeltas();
         assistantStartsRef.current.delete(event.message.id);
-        setMessages((current) => {
-          const exists = current.some((message) => message.id === event.message.id);
-          if (!event.message.text) return exists
-            ? current.filter((message) => message.id !== event.message.id)
-            : current;
-          return exists
-            ? current.map((message) => message.id === event.message.id ? event.message : message)
-            : [...current, event.message];
-        });
+        if (!event.message.text) {
+          transcriptMessageIndexRef.current!.remove(event.message.id);
+          replaceTranscriptMessages(transcriptMessageIndexRef.current!.messages);
+        } else if (transcriptMessageIndexRef.current!.has(event.message.id)) {
+          updateTranscriptMessages(new Map([[event.message.id, () => event.message]]));
+        } else {
+          appendTranscriptMessage(event.message);
+        }
         break;
       case "user-message":
-        setMessages((current) => current.some((message) => message.id === event.message.id)
-          ? current.map((message) => message.id === event.message.id ? event.message : message)
-          : [...current, event.message]);
+        if (transcriptMessageIndexRef.current!.has(event.message.id)) {
+          updateTranscriptMessages(new Map([[event.message.id, () => event.message]]));
+        } else {
+          appendTranscriptMessage(event.message);
+        }
         setOptimisticMessages((current) => reconcileOptimisticMessages(current, [event.message]));
         break;
       case "tool-start": {
@@ -734,7 +806,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, threadStore]);
+  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, replaceTranscriptMessages, threadStore, updateTranscriptMessages]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -816,7 +888,7 @@ export default function App() {
     try {
       const page = await window.tau.loadTranscript(snapshot.sessionId, olderCursor);
       if (page.sessionId !== snapshot.sessionId) return;
-      setMessages((current) => [...page.messages, ...current]);
+      prependTranscriptMessages(page.messages);
       setOlderCursor(page.olderCursor);
       window.requestAnimationFrame(() => {
         const current = transcriptRef.current;
@@ -827,7 +899,7 @@ export default function App() {
     } finally {
       setLoadingOlder(false);
     }
-  }, [loadingOlder, olderCursor, snapshot]);
+  }, [loadingOlder, olderCursor, prependTranscriptMessages, snapshot]);
 
   useEffect(() => {
     if (!notice) return;
@@ -931,7 +1003,7 @@ export default function App() {
   }, [applyActionResult, requireHost]);
 
   const createThreadInProject = useCallback((project: UiProject) => {
-    const draft = { projectPath: project.path, projectName: project.name };
+    const draft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
     writeNewThreadDraft(window.localStorage, draft);
     setPendingNewThread(draft);
     setNewThreadOpen(false);
@@ -1355,6 +1427,7 @@ export default function App() {
       clientMessageId: optimistic.id,
     };
     const submissionScopeKey = transcriptScopeKey;
+    const submissionScope = transcriptNavigationScope(snapshot, pendingNewThread);
     const startTranscriptTurn = (
       targetSessionId?: string,
       awaitingMessage = false,
@@ -1362,6 +1435,7 @@ export default function App() {
     ) => {
       const nextTurnStart: TranscriptTurnStart = {
         turnId: logicalTurnId,
+        scope: submissionScope,
         sessionId: targetSessionId,
         messageId: awaitingMessage ? undefined : optimistic.id,
         clientMessageId: clientTurn.clientMessageId,
@@ -1414,7 +1488,7 @@ export default function App() {
     if (pendingNewThread) {
       const pending = pendingNewThread;
       const pendingKey = draftKey(undefined, pending);
-      startTranscriptTurn(`draft:${pending.projectPath}`, false, true);
+      startTranscriptTurn(undefined, false, true);
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
@@ -1422,7 +1496,8 @@ export default function App() {
         const created = result.updates.find((update) => update.type === "thread-detail");
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
         if (transcriptTurnStartRef.current?.turnId !== logicalTurnId
-          || transcriptScopeKeyRef.current !== submissionScopeKey) {
+          || transcriptScopeKeyRef.current !== submissionScopeKey
+          || pendingNewThreadRef.current?.draftId !== pending.draftId) {
           // The draft was abandoned while the host was creating its session.
           // Do not let a late result switch the newly selected thread back.
           writeComposerDraft(window.localStorage, pendingKey, "");
@@ -1435,16 +1510,19 @@ export default function App() {
             ? { ...entry, scope: `session:${sessionId}` }
             : entry));
           const persistedPrompt = created?.type === "thread-detail"
-            ? created.detail.messages.find((message) => message.role === "user" && (
-              (message.clientTurnId === clientTurn.clientTurnId && message.clientMessageId === clientTurn.clientMessageId)
-              || message.clientMessageId === clientTurn.clientMessageId
-              || message.text === optimistic.text
-            ))
+            ? created.detail.messages.find((message) => matchesTranscriptTurn(message, {
+              turnId: clientTurn.clientTurnId,
+              clientMessageId: clientTurn.clientMessageId,
+              messageId: optimistic.id,
+              text: optimistic.text,
+              timestamp: optimistic.timestamp,
+            }))
             : undefined;
           if (transcriptTurnStartRef.current?.turnId === logicalTurnId) {
             const nextTurnStart = {
               ...transcriptTurnStartRef.current,
               sessionId,
+              scope: { kind: "session" as const, projectPath: pending.projectPath, sessionId },
               messageId: persistedPrompt?.id ?? transcriptTurnStartRef.current.messageId,
               scopeKey: transcriptNavigationScopeKey({ cwd: pending.projectPath, sessionId }),
             };
@@ -1506,17 +1584,17 @@ export default function App() {
       setSnapshot((current) => current ? { ...current, isStreaming: true } : current);
       setRunStartedAt(Date.now());
       window.setTimeout(() => {
-        setMessages((current) => [...current, {
+        appendTranscriptMessage({
           id: `mock-${Date.now()}`,
           role: "assistant",
           text: "Preview mode received the prompt. Launch `npm start` to send it through the real Pi SDK.",
           timestamp: Date.now(),
-        }]);
+        });
         setSnapshot((current) => current ? { ...current, isStreaming: false } : current);
         setRunStartedAt(undefined);
       }, 650);
     }
-  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [acceptWorkspace, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -1556,10 +1634,7 @@ export default function App() {
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
     if (!usage) return { messages: 0, toolOutput: 0, system: 0 };
-    const messageTokens = messages.reduce(
-      (total, message) => total + estimateTokens(message.text) + estimateTokens(message.thinking ?? ""),
-      0,
-    );
+    const messageTokens = transcriptTokenEstimate;
     const toolTokens = tools.reduce((total, tool) => total + estimateTokens(tool.output ?? ""), 0);
     const accounted = Math.min(usage.tokens, messageTokens + toolTokens);
     const scale = messageTokens + toolTokens > 0 ? accounted / (messageTokens + toolTokens) : 0;
@@ -1568,7 +1643,7 @@ export default function App() {
       toolOutput: Math.round(toolTokens * scale),
       system: Math.max(0, usage.tokens - accounted),
     };
-  }, [messages, snapshot?.contextUsage, tools]);
+  }, [snapshot?.contextUsage, tools, transcriptTokenEstimate]);
 
   const contextValue = useMemo(
     () => ({ snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, applySnapshot, handleHostEvent }),
@@ -1582,24 +1657,33 @@ export default function App() {
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
-  const scopedOptimisticMessages = optimisticMessages.filter((entry) => entry.scope === activeDraftKey);
-  const unconfirmedOptimisticMessages = reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message);
-  const conversationMessages = pendingNewThread
+  const scopedOptimisticMessages = useMemo(
+    () => optimisticMessages.filter((entry) => entry.scope === activeDraftKey),
+    [activeDraftKey, optimisticMessages],
+  );
+  const unconfirmedOptimisticMessages = useMemo(
+    () => reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message),
+    [scopedOptimisticMessages, transcriptUserRevision],
+  );
+  const conversationMessages = useMemo(() => pendingNewThread
     ? unconfirmedOptimisticMessages
-    : [...messages, ...unconfirmedOptimisticMessages].sort((left, right) => left.timestamp - right.timestamp);
+    : mergeTranscriptMessages(messages, unconfirmedOptimisticMessages),
+  [messages, pendingNewThread, unconfirmedOptimisticMessages]);
   const visibleToolAnchorId = visibleStreaming
     ? latestActivityAnchor(conversationMessages)
     : latestActivityAnchor(conversationMessages, toolAnchorId);
-  const conversationSnapshot = pendingNewThread && snapshot ? {
+  const conversationSnapshot = useMemo(() => pendingNewThread && snapshot ? {
     ...snapshot,
     cwd: pendingNewThread.projectPath,
-    sessionId: `draft:${pendingNewThread.projectPath}`,
+    // A draft is a semantic scope, not a Pi session. The session ID remains
+    // the last real runtime while the draft ID travels in TranscriptTurnStart.
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
     taskProgress: undefined,
     taskHistory: [],
-  } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
+  } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot,
+  [pendingNewThread, snapshot, visibleStreaming]);
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
   const conversationPrompts = pendingNewThread ? [] : threadPrompts;
   const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
@@ -1845,6 +1929,8 @@ export default function App() {
                 messages={conversationMessages}
                 scrollRef={transcriptRef}
                 sessionId={conversationSnapshot?.sessionId}
+                scopeKey={transcriptScopeKey}
+                scope={transcriptTurnStart?.scope ?? transcriptScope}
                 turnStart={visibleTranscriptTurnStart}
                 isStreaming={Boolean(conversationSnapshot?.isStreaming)}
                 activities={transcriptActivities}

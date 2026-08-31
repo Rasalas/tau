@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ChevronDown } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptActivity } from "./transcript-activity";
 import { VirtualTranscript } from "./VirtualTranscript";
 
 /** The logical send that owns an anchored, streaming turn. */
+export type TranscriptNavigationScope =
+  | { kind: "session"; projectPath?: string; sessionId: string }
+  | { kind: "draft"; projectPath: string; draftId: string };
+
 export interface TranscriptTurnStart {
   /** Stable ID for the logical send, independent of any persisted message ID. */
   turnId: string;
+  /** Discriminated semantic scope; draft IDs are never represented as sessions. */
+  scope?: TranscriptNavigationScope;
   sessionId?: string;
   messageId?: string;
   /** Stable client ID used when Pi expands the submitted text. */
@@ -24,6 +30,9 @@ export interface TranscriptViewportProps {
   messages: UiMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
   sessionId?: string;
+  /** Semantic project/thread/draft scope used to invalidate navigation state. */
+  scopeKey?: string;
+  scope?: TranscriptNavigationScope;
   turnStart?: TranscriptTurnStart;
   isStreaming: boolean;
   activities?: readonly TranscriptActivity[];
@@ -37,6 +46,8 @@ type ScrollIntent = "older" | "newer";
 
 interface TranscriptNavigationState {
   sessionId?: string;
+  scopeKey?: string;
+  scope?: TranscriptNavigationScope;
   turnId?: string;
   anchorId?: string;
   anchorPending: boolean;
@@ -52,29 +63,63 @@ interface TranscriptNavigationState {
 
 interface TranscriptNavigationOptions {
   sessionId?: string;
+  scopeKey?: string;
+  scope?: TranscriptNavigationScope;
   turnStart?: TranscriptTurnStart;
   messages: UiMessage[];
+  lookup?: TranscriptMessageLookup;
   onAnchorChange(id?: string): void;
 }
 
+interface TranscriptMessageLookup {
+  byId: ReadonlyMap<string, UiMessage>;
+  byClientIdentity: ReadonlyMap<string, UiMessage>;
+  byText: ReadonlyMap<string, readonly UiMessage[]>;
+  positions: ReadonlyMap<string, number>;
+}
+
+function clientIdentityKey(turnId: string, messageId: string): string {
+  return `${turnId}\u0000${messageId}`;
+}
+
+function hasExplicitIdentity(message: UiMessage): boolean {
+  return message.clientTurnId !== undefined || message.clientMessageId !== undefined;
+}
+
+function matchesClientIdentity(message: UiMessage, turnStart: TranscriptTurnStart): boolean {
+  return message.role === "user"
+    && message.clientTurnId === turnStart.turnId
+    && message.clientMessageId !== undefined
+    && turnStart.clientMessageId !== undefined
+    && message.clientMessageId === turnStart.clientMessageId;
+}
+
 function resolveTurnMessage(
-  messages: UiMessage[],
+  messages: readonly UiMessage[],
   turnStart?: TranscriptTurnStart,
+  lookup?: TranscriptMessageLookup,
 ): UiMessage | undefined {
   if (!turnStart) return undefined;
   if (turnStart.clientMessageId) {
-    const byClientIdentity = messages.find((message) => message.role === "user"
-      && message.clientTurnId === turnStart.turnId
-      && message.clientMessageId === turnStart.clientMessageId);
+    const byClientIdentity = lookup?.byClientIdentity.get(clientIdentityKey(turnStart.turnId, turnStart.clientMessageId))
+      ?? messages.find((message) => message.role === "user"
+        && message.clientTurnId === turnStart.turnId
+        && message.clientMessageId === turnStart.clientMessageId);
     if (byClientIdentity) return byClientIdentity;
   }
   if (turnStart.messageId) {
-    const byId = messages.find((message) => message.id === turnStart.messageId);
-    if (byId) return byId;
+    const byId = lookup?.byId.get(turnStart.messageId)
+      ?? messages.find((message) => message.id === turnStart.messageId);
+    // An authoritative explicit identity is never demoted to a legacy ID or
+    // text match. This prevents an out-of-order message from stealing the
+    // optimistic anchor.
+    if (byId && (!hasExplicitIdentity(byId) || matchesClientIdentity(byId, turnStart))) return byId;
   }
   if (turnStart.text !== undefined) {
-    const matching = [...messages].reverse().find((message) => (
+    const candidates = lookup?.byText.get(turnStart.text);
+    const matching = (candidates ? [...candidates].reverse() : [...messages].reverse()).find((message) => (
       message.role === "user"
+      && !hasExplicitIdentity(message)
       && message.text === turnStart.text
       && (turnStart.timestamp === undefined
         || Math.abs(message.timestamp - turnStart.timestamp) <= 30_000)
@@ -84,7 +129,8 @@ function resolveTurnMessage(
     // Persisted entries can use a different clock or test fixture epoch. The
     // logical turn ID is authoritative, so an exact text match is a safe
     // fallback when no ID survived reconciliation.
-    return [...messages].reverse().find((message) => message.role === "user" && message.text === turnStart.text);
+    return (candidates ? [...candidates].reverse() : [...messages].reverse())
+      .find((message) => message.role === "user" && !hasExplicitIdentity(message) && message.text === turnStart.text);
   }
   return undefined;
 }
@@ -94,8 +140,10 @@ function resetNavigation(
   options: TranscriptNavigationOptions,
 ): void {
   state.sessionId = options.sessionId;
+  state.scopeKey = options.scopeKey;
+  state.scope = options.scope;
   state.turnId = options.turnStart?.turnId;
-  const target = resolveTurnMessage(options.messages, options.turnStart);
+  const target = resolveTurnMessage(options.messages, options.turnStart, options.lookup);
   state.anchorPending = Boolean(options.turnStart);
   state.anchorLocked = false;
   state.anchorSuppressed = false;
@@ -122,6 +170,8 @@ function startTurn(
   options: TranscriptNavigationOptions,
 ): void {
   state.turnId = options.turnStart?.turnId;
+  state.scopeKey = options.scopeKey;
+  state.scope = options.turnStart?.scope;
   state.anchorPending = Boolean(options.turnStart);
   state.anchorLocked = false;
   state.anchorSuppressed = false;
@@ -129,7 +179,7 @@ function startTurn(
   state.scrollIntent = undefined;
   setAnchor(
     state,
-    resolveTurnMessage(options.messages, options.turnStart)?.id,
+    resolveTurnMessage(options.messages, options.turnStart, options.lookup)?.id,
     options.onAnchorChange,
   );
 }
@@ -173,9 +223,11 @@ export function useTranscriptNavigation(
 } {
   const navigationRef = useRef<TranscriptNavigationState | undefined>(undefined);
   if (!navigationRef.current) {
-    const target = resolveTurnMessage(options.messages, options.turnStart);
+    const target = resolveTurnMessage(options.messages, options.turnStart, options.lookup);
     navigationRef.current = {
       sessionId: options.sessionId,
+      scopeKey: options.scopeKey,
+      scope: options.turnStart?.scope,
       turnId: options.turnStart?.turnId,
       anchorId: target?.id,
       anchorPending: Boolean(options.turnStart),
@@ -191,6 +243,8 @@ export function useTranscriptNavigation(
   const scheduleRef = useRef<() => void>(() => {});
   const messagesRef = useRef(options.messages);
   messagesRef.current = options.messages;
+  const lookupRef = useRef(options.lookup);
+  lookupRef.current = options.lookup;
   const onAnchorChangeRef = useRef(options.onAnchorChange);
   onAnchorChangeRef.current = options.onAnchorChange;
 
@@ -258,7 +312,7 @@ export function useTranscriptNavigation(
       // the measured row. The estimate is derived from the real virtualizer
       // height, so it never creates a synthetic spacer for a short transcript.
       const anchorIndex = navigationRef.current!.anchorId
-        ? messagesRef.current.findIndex((message) => message.id === navigationRef.current!.anchorId)
+        ? lookupRef.current?.positions.get(navigationRef.current!.anchorId) ?? messagesRef.current.findIndex((message) => message.id === navigationRef.current!.anchorId)
         : -1;
       const estimatedRowHeight = messagesRef.current.length > 0
         ? node.scrollHeight / messagesRef.current.length
@@ -344,23 +398,28 @@ export function useTranscriptNavigation(
     const node = ref.current;
     if (!node) return;
     const navigation = navigationRef.current!;
-    if (navigation.sessionId !== options.sessionId) {
+    if (navigation.sessionId !== options.sessionId || navigation.scopeKey !== options.scopeKey) {
       const continuingTurn = Boolean(
         options.turnStart?.turnId
         && navigation.turnId === options.turnStart.turnId
-        && options.turnStart.sessionId === options.sessionId
         && options.turnStart.preserveAcrossSessionChange === true
+        // A draft may cross into exactly the session reported by the send
+        // path. A stale draft signal must not survive a quick switch to some
+        // unrelated session merely because it still has a draft scope.
+        && options.turnStart.sessionId === options.sessionId
         && !navigation.anchorSuppressed,
       );
       if (continuingTurn) {
         // A draft session becomes real after its first send. Keep the same
         // logical turn and its navigation mode while only changing the scope.
         navigation.sessionId = options.sessionId;
+        navigation.scopeKey = options.scopeKey;
+        navigation.scope = options.turnStart?.scope;
         navigation.anchorPending = true;
         navigation.anchorLocked = false;
         setAnchor(
           navigation,
-          resolveTurnMessage(options.messages, options.turnStart)?.id,
+          resolveTurnMessage(options.messages, options.turnStart, options.lookup)?.id,
           onAnchorChangeRef.current,
         );
       } else {
@@ -372,18 +431,21 @@ export function useTranscriptNavigation(
     }
     navigation.lastScrollTop = node.scrollTop;
     let intentTimer: number | undefined;
+    let intentGeneration = 0;
     const nearTail = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
     const clearScrollIntent = () => {
       if (intentTimer !== undefined) window.clearTimeout(intentTimer);
       navigation.scrollIntent = undefined;
       intentTimer = undefined;
+      intentGeneration += 1;
     };
     const armScrollIntent = (intent: ScrollIntent) => {
       clearScrollIntent();
+      const generation = intentGeneration;
       navigation.scrollIntent = intent;
       intentTimer = window.setTimeout(() => {
         intentTimer = undefined;
-        if (navigation.scrollIntent === intent) navigation.scrollIntent = undefined;
+        if (intentGeneration === generation && navigation.scrollIntent === intent) navigation.scrollIntent = undefined;
       }, 120);
     };
     const onScroll = () => {
@@ -394,8 +456,13 @@ export function useTranscriptNavigation(
         ? undefined
         : next < previous ? "older" : "newer";
       const userIntent = navigation.pointerDown || navigation.touchActive || navigation.scrollIntent !== undefined;
-      const olderIntent = navigation.scrollIntent === "older" || direction === "older";
-      const newerIntent = navigation.scrollIntent === "newer" || direction === "newer";
+      // A direction observed in the actual scroll event outranks a stale wheel
+      // hint. This prevents a delayed downward timer from reviving following
+      // after the user has already moved upward.
+      const olderIntent = direction === "older"
+        || (direction === undefined && navigation.scrollIntent === "older");
+      const newerIntent = direction === "newer"
+        || (direction === undefined && navigation.scrollIntent === "newer");
       if (userIntent && olderIntent) {
         stopFollowing(navigation, onAnchorChangeRef.current);
       } else if (userIntent && nearTail() && newerIntent && !olderIntent) {
@@ -456,6 +523,21 @@ export function useTranscriptNavigation(
       }
       updateJumpAvailability(node);
     };
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      // Composer and window focus still count as an intentional navigation
+      // choice. Do not cancel the browser's default textarea behavior here.
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
+        stopFollowing(navigation, onAnchorChangeRef.current);
+        updateJumpAvailability(node);
+      } else if (["ArrowDown", "PageDown"].includes(event.key)) {
+        armScrollIntent("newer");
+        updateJumpAvailability(node);
+      } else if (event.key === "End") {
+        followTail(navigation, onAnchorChangeRef.current);
+        scheduleTail();
+        updateJumpAvailability(node);
+      }
+    };
     node.addEventListener("scroll", onScroll, { passive: true });
     node.addEventListener("wheel", onWheel, { passive: true });
     node.addEventListener("pointerdown", onPointerDown, { passive: true });
@@ -466,6 +548,7 @@ export function useTranscriptNavigation(
     node.addEventListener("touchend", onTouchEnd, { passive: true });
     node.addEventListener("touchcancel", onTouchEnd, { passive: true });
     node.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onWindowKeyDown);
     const observer = typeof ResizeObserver === "undefined"
       ? undefined
       : new ResizeObserver(() => scheduleTail());
@@ -484,16 +567,17 @@ export function useTranscriptNavigation(
       node.removeEventListener("touchend", onTouchEnd);
       node.removeEventListener("touchcancel", onTouchEnd);
       node.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onWindowKeyDown);
       observer?.disconnect();
       clearScrollIntent();
       if (frameRef.current !== undefined) cancelAnimationFrame(frameRef.current);
       frameRef.current = undefined;
     };
-  }, [options.sessionId, options.turnStart?.turnId, options.turnStart?.sessionId, ref]);
+  }, [options.scopeKey, options.sessionId, options.scope, options.turnStart?.turnId, options.turnStart?.sessionId, ref]);
 
   useEffect(() => {
     const navigation = navigationRef.current!;
-    if (navigation.sessionId !== options.sessionId) return;
+    if (navigation.sessionId !== options.sessionId || navigation.scopeKey !== options.scopeKey) return;
     const turnStart = options.turnStart;
     if (!turnStart) {
       if (navigation.turnId !== undefined) {
@@ -512,6 +596,11 @@ export function useTranscriptNavigation(
       && turnStart.sessionId !== options.sessionId
       && !(navigation.turnId === turnStart.turnId && turnStart.preserveAcrossSessionChange === true)
     ) return;
+    if (
+      turnStart.scopeKey !== undefined
+      && turnStart.scopeKey !== options.scopeKey
+      && !(turnStart.preserveAcrossSessionChange === true && turnStart.sessionId === options.sessionId)
+    ) return;
 
     if (navigation.turnId !== turnStart.turnId) {
       startTurn(navigation, options);
@@ -522,7 +611,7 @@ export function useTranscriptNavigation(
     // The optimistic ID may be replaced by Pi's authoritative ID. Resolve the
     // same logical turn, but never revive following after the user navigated up.
     if (!navigation.following || navigation.anchorSuppressed) return;
-    const target = resolveTurnMessage(options.messages, turnStart);
+    const target = resolveTurnMessage(options.messages, turnStart, options.lookup);
     if (target && navigation.anchorId !== target.id) {
       navigation.anchorPending = true;
       navigation.anchorLocked = false;
@@ -537,6 +626,7 @@ export function useTranscriptNavigation(
     options.turnStart?.text,
     options.turnStart?.timestamp,
     options.messages,
+    options.scopeKey,
     options.sessionId,
   ]);
 
@@ -551,20 +641,61 @@ export function useTranscriptNavigation(
   return { canJumpToLatest, jumpToLatest };
 }
 
-export function TranscriptViewport({
+export const TranscriptViewport = memo(function TranscriptViewport({
   messages,
   scrollRef,
   sessionId,
   turnStart,
   isStreaming,
   activities = [],
+  scope,
+  scopeKey,
   liveStatus,
   onCopyMessage,
   onForkMessage,
   onReachStart,
 }: TranscriptViewportProps) {
+  const messageScopeKey = scopeKey ?? turnStart?.scopeKey ?? sessionId;
+  const lookupRef = useRef<{
+    scopeKey?: string;
+    length: number;
+    firstId?: string;
+    lastId?: string;
+    lookup: TranscriptMessageLookup;
+  } | undefined>(undefined);
+  const firstId = messages[0]?.id;
+  const lastId = messages.at(-1)?.id;
+  const previousLookup = lookupRef.current;
+  if (!previousLookup
+    || previousLookup.scopeKey !== messageScopeKey
+    || previousLookup.length !== messages.length
+    || previousLookup.firstId !== firstId
+    || previousLookup.lastId !== lastId) {
+    const byId = new Map<string, UiMessage>();
+    const byClientIdentity = new Map<string, UiMessage>();
+    const byText = new Map<string, UiMessage[]>();
+    const positions = new Map<string, number>();
+    messages.forEach((message, index) => {
+      byId.set(message.id, message);
+      positions.set(message.id, index);
+      const textMessages = byText.get(message.text) ?? [];
+      textMessages.push(message);
+      byText.set(message.text, textMessages);
+      if (message.role === "user" && message.clientTurnId && message.clientMessageId) {
+        byClientIdentity.set(clientIdentityKey(message.clientTurnId, message.clientMessageId), message);
+      }
+    });
+    lookupRef.current = {
+      scopeKey: messageScopeKey,
+      length: messages.length,
+      firstId,
+      lastId,
+      lookup: { byId, byClientIdentity, byText, positions },
+    };
+  }
+  const lookup = lookupRef.current!.lookup;
   const [currentTurnAnchor, setCurrentTurnAnchor] = useState<{ sessionId?: string; id?: string }>(
-    () => ({ sessionId, id: resolveTurnMessage(messages, turnStart)?.id }),
+    () => ({ sessionId, id: resolveTurnMessage(messages, turnStart, lookup)?.id }),
   );
   const reportCurrentTurnAnchor = useCallback((id?: string) => {
     setCurrentTurnAnchor((current) => current.sessionId === sessionId && current.id === id
@@ -576,8 +707,11 @@ export function TranscriptViewport({
     [messages, activities, liveStatus, turnStart],
     {
       sessionId,
+      scopeKey: messageScopeKey,
+      scope: scope ?? turnStart?.scope,
       turnStart,
       messages,
+      lookup,
       onAnchorChange: reportCurrentTurnAnchor,
     },
   );
@@ -608,6 +742,7 @@ export function TranscriptViewport({
           scrollRef={scrollRef}
           isStreaming={isStreaming}
           activities={activities}
+          messageScopeKey={messageScopeKey}
           activeTurnStartId={currentTurnAnchor.sessionId === sessionId ? currentTurnAnchor.id : undefined}
           onCopyMessage={onCopyMessage}
           onForkMessage={onForkMessage}
@@ -630,4 +765,4 @@ export function TranscriptViewport({
       </div>
     ) : null}
   </div>;
-}
+});

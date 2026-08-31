@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
 import { DiffView } from "./components/DiffView";
 import { Message } from "./components/Message";
@@ -8,6 +8,7 @@ import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
+import { TranscriptMessageIndex } from "../shared/transcript-index";
 
 interface BenchmarkResult {
   frameIntervalsMs: number[];
@@ -40,6 +41,52 @@ function makeTranscript(turns: number): UiMessage[] {
   }));
 }
 
+function StreamingTranscriptScenario({
+  activities,
+  onTick,
+}: {
+  activities: readonly TranscriptActivity[];
+  onTick(tick: number): void;
+}) {
+  const indexRef = useRef<TranscriptMessageIndex | undefined>(undefined);
+  if (!indexRef.current) indexRef.current = new TranscriptMessageIndex(makeTranscript(1_000));
+  const activeMessageId = "turn-999";
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let tick = 0;
+    let stopped = false;
+    const update = () => {
+      if (stopped) return;
+      const delta = `\nstreaming delta ${tick}`;
+      indexRef.current!.update(activeMessageId, (message) => ({ ...message, text: message.text + delta }));
+      onTick(tick);
+      tick += 1;
+      if (tick < 36) requestAnimationFrame(update);
+    };
+    requestAnimationFrame(update);
+    return () => { stopped = true; };
+  }, [onTick]);
+
+  const messages = indexRef.current.messages;
+  const anchor = messages[8];
+  return <TranscriptViewport
+    messages={messages}
+    scrollRef={scrollRef}
+    sessionId="renderer-benchmark"
+    turnStart={anchor ? {
+      turnId: "benchmark-streaming-turn",
+      sessionId: "renderer-benchmark",
+      messageId: anchor.id,
+      text: anchor.text,
+      timestamp: anchor.timestamp,
+    } : undefined}
+    isStreaming
+    activities={activities}
+    liveStatus={<div className="live-status">Streaming current turn</div>}
+  />;
+}
+
 function makeDiff(): UiFileDiff {
   const lines = Array.from({ length: 10_000 }, (_, index) => ({
     kind: index % 3 === 0 ? "added" as const : index % 3 === 1 ? "removed" as const : "context" as const,
@@ -56,6 +103,7 @@ export default function RendererBenchmark() {
   const targetBytes = scenario === "tool-output-1mb" ? 1_048_576 : 153_600;
   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
   const [toolOutput, setToolOutput] = useState("");
+  const [streamingTick, setStreamingTick] = useState(0);
   const [listQuery, setListQuery] = useState("");
   const commits = useRef<number[]>([]);
   const frames = useRef<number[]>([]);
@@ -63,12 +111,17 @@ export default function RendererBenchmark() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
   const transcript = useMemo(() => (
-    scenario === "transcript-1000-turns" || scenario === "transcript-viewport-anchored-1000-turns"
+    scenario === "transcript-1000-turns"
+      || scenario === "transcript-legacy-comparison-1000-turns"
+      || scenario === "transcript-viewport-anchored-1000-turns"
+      || scenario === "transcript-viewport-streaming-1000-turns"
       ? makeTranscript(1_000)
       : []
   ), [scenario]);
   const transcriptTurn = transcript[8];
-  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => scenario === "transcript-viewport-anchored-1000-turns"
+  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => scenario === "transcript-legacy-comparison-1000-turns"
+    || scenario === "transcript-viewport-anchored-1000-turns"
+    || scenario === "transcript-viewport-streaming-1000-turns"
     ? transcript.slice(0, 128).map((message, index) => ({
       id: `benchmark-activity-${index}`,
       afterMessageId: message.id,
@@ -85,10 +138,14 @@ export default function RendererBenchmark() {
   // Fixture construction is setup, not renderer commit work. Start timing only
   // after the scenario-specific input exists, matching production data flow.
   const updateStartedAt = useRef(performance.now());
+  const onStreamingTick = useCallback((tick: number) => {
+    updateStartedAt.current = performance.now();
+    setStreamingTick(tick);
+  }, []);
 
   useLayoutEffect(() => {
     commits.current.push(performance.now() - updateStartedAt.current);
-  }, [listQuery, text, toolOutput]);
+  }, [listQuery, streamingTick, text, toolOutput]);
 
   useEffect(() => {
     let frame = 0;
@@ -167,6 +224,14 @@ export default function RendererBenchmark() {
         requestAnimationFrame(update);
       };
       requestAnimationFrame(update);
+    } else if (scenario === "transcript-viewport-streaming-1000-turns") {
+      let settleFrames = 0;
+      const waitForStreaming = () => {
+        settleFrames += 1;
+        if (settleFrames < 48) requestAnimationFrame(waitForStreaming);
+        else finish();
+      };
+      requestAnimationFrame(waitForStreaming);
     } else {
       requestAnimationFrame(finish);
     }
@@ -182,6 +247,16 @@ export default function RendererBenchmark() {
   } else if (scenario === "transcript-1000-turns") {
     content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
       <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />
+    </div></div>;
+  } else if (scenario === "transcript-legacy-comparison-1000-turns") {
+    content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
+      <VirtualTranscript
+        messages={transcript}
+        scrollRef={scrollRef}
+        isStreaming={false}
+        activities={transcriptActivities}
+        activeTurnStartId={transcriptTurn?.id}
+      />
     </div></div>;
   } else if (scenario === "transcript-viewport-anchored-1000-turns") {
     content = <TranscriptViewport
@@ -199,6 +274,8 @@ export default function RendererBenchmark() {
       activities={transcriptActivities}
       liveStatus={<div className="live-status">Current turn activity</div>}
     />;
+  } else if (scenario === "transcript-viewport-streaming-1000-turns") {
+    content = <StreamingTranscriptScenario activities={transcriptActivities} onTick={onStreamingTick} />;
   } else if (scenario.endsWith("-10000")) {
     content = <VirtualList
       items={filteredListItems}

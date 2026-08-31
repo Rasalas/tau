@@ -10,19 +10,12 @@ export interface TranscriptActivity {
   content: ReactNode;
 }
 
-/**
- * Resolve activity anchors once for the transcript window. Keeping this beside
- * the activity type prevents the history and active-turn render paths from
- * drifting apart as activities are added.
- */
-export function groupTranscriptActivities(
-  messages: UiMessage[],
+export function groupTranscriptActivitiesForMessageIds(
+  messageIds: ReadonlySet<string>,
+  tailMessageId: string | undefined,
   activities: readonly TranscriptActivity[],
 ): Map<string, TranscriptActivity[]> {
-  const messageIds = new Set(messages.map((message) => message.id));
-  const tailMessageId = messages.at(-1)?.id;
   const grouped = new Map<string, TranscriptActivity[]>();
-
   for (const activity of activities) {
     const anchor = activity.afterMessageId
       ? messageIds.has(activity.afterMessageId)
@@ -37,11 +30,34 @@ export function groupTranscriptActivities(
   return grouped;
 }
 
+/**
+ * Resolve activity anchors once for the transcript window. Keeping this beside
+ * the activity type prevents the history and active-turn render paths from
+ * drifting apart as activities are added.
+ */
+export function groupTranscriptActivities(
+  messages: UiMessage[],
+  activities: readonly TranscriptActivity[],
+): Map<string, TranscriptActivity[]> {
+  return groupTranscriptActivitiesForMessageIds(
+    new Set(messages.map((message) => message.id)),
+    messages.at(-1)?.id,
+    activities,
+  );
+}
+
+export function unanchoredTranscriptActivitiesForMessageCount(
+  messageCount: number,
+  activities: readonly TranscriptActivity[],
+): TranscriptActivity[] {
+  if (messageCount > 0) return [];
+  return activities.filter((activity) => !activity.afterMessageId || activity.fallbackToTail);
+}
+
 /** Activities can be displayed without a message while a new run is starting. */
 export function unanchoredTranscriptActivities(
   messages: UiMessage[],
   activities: readonly TranscriptActivity[],
 ): TranscriptActivity[] {
-  if (messages.length > 0) return [];
-  return activities.filter((activity) => !activity.afterMessageId || activity.fallbackToTail);
+  return unanchoredTranscriptActivitiesForMessageCount(messages.length, activities);
 }

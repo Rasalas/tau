@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
+import type { ClientTurnIdentity } from "../../src/shared/contracts.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -19,6 +20,323 @@ import {
 
 interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
 
+export interface BridgeMessageObservation {
+  role?: string;
+  content?: unknown;
+  timestamp?: number;
+  clientTurnId?: string;
+  clientMessageId?: string;
+  tauClientTurnId?: string;
+  tauClientMessageId?: string;
+}
+
+interface PendingBridgeTurn {
+  identity: ClientTurnIdentity;
+  commandSequence: number;
+  fingerprint: string;
+  sessionId?: string;
+}
+
+interface RememberedBridgeTurn {
+  identity: ClientTurnIdentity;
+  sourceEntryId?: string;
+  fingerprint: string;
+  timestamp?: number;
+}
+
+export const BRIDGE_TURN_PENDING_LIMIT = 64;
+export const BRIDGE_TURN_TOTAL_PENDING_LIMIT = 1_024;
+export const BRIDGE_TURN_REMEMBERED_LIMIT = 256;
+export const BRIDGE_TURN_TOTAL_REMEMBERED_LIMIT = 1_024;
+
+export function bridgeVisibleText(message: BridgeMessageObservation): string {
+  if (typeof message.content === "string") return message.content;
+  if (!Array.isArray(message.content)) return "";
+  return message.content.map((part) => {
+    if (typeof part === "string") return part;
+    if (!part || typeof part !== "object") return "";
+    const value = part as { type?: string; text?: string };
+    return value.type === "text" ? value.text ?? "" : "";
+  }).join("");
+}
+
+export function normalizeBridgeFingerprint(text: string): string {
+  return text.trim().replace(/\s+/gu, " ");
+}
+
+function bridgeIdentity(message: BridgeMessageObservation): ClientTurnIdentity | undefined {
+  const clientTurnId = message.clientTurnId ?? message.tauClientTurnId;
+  const clientMessageId = message.clientMessageId ?? message.tauClientMessageId;
+  return clientTurnId && clientMessageId ? { clientTurnId, clientMessageId } : undefined;
+}
+
+function hasExplicitBridgeIdentity(message: BridgeMessageObservation): boolean {
+  return Boolean(message.clientTurnId || message.clientMessageId || message.tauClientTurnId || message.tauClientMessageId);
+}
+
+/**
+ * Pi 0.84 does not expose metadata on sendUserMessage. This bounded ledger
+ * carries the renderer identity across command dispatch, expansion, session
+ * creation, and the later persisted branch entry. Explicit IDs always win;
+ * fingerprint and command order are compatibility fallbacks only.
+ */
+export class BridgeClientTurnLedger {
+  private readonly pending = new Map<string, PendingBridgeTurn[]>();
+  private readonly pendingAny: PendingBridgeTurn[] = [];
+  private readonly remembered = new Map<string, RememberedBridgeTurn[]>();
+  private readonly rawMessages = new WeakMap<object, ClientTurnIdentity>();
+  private commandSequence = 0;
+
+  enqueue(sessionId: string | undefined, identity: ClientTurnIdentity, submittedText: string): number {
+    const entry = { identity, submittedText, sessionId } as { identity: ClientTurnIdentity; submittedText: string; sessionId?: string };
+    return this.addPending(entry, false);
+  }
+
+  enqueueAny(identity: ClientTurnIdentity, submittedText: string): number {
+    return this.addPending({ identity, submittedText }, true);
+  }
+
+  private addPending(
+    value: { identity: ClientTurnIdentity; submittedText: string; sessionId?: string },
+    any: boolean,
+  ): number {
+    const entry: PendingBridgeTurn = {
+      identity: value.identity,
+      commandSequence: ++this.commandSequence,
+      fingerprint: normalizeBridgeFingerprint(value.submittedText),
+      sessionId: value.sessionId,
+    };
+    const queue = any
+      ? this.pendingAny
+      : this.pending.get(value.sessionId ?? "") ?? [];
+    if (queue.some((item) => item.identity.clientTurnId === entry.identity.clientTurnId)) return entry.commandSequence;
+    queue.push(entry);
+    while (queue.length > BRIDGE_TURN_PENDING_LIMIT) queue.shift();
+    if (!any && value.sessionId) this.pending.set(value.sessionId, queue);
+    this.trimPending();
+    return entry.commandSequence;
+  }
+
+  cancel(sessionId: string | undefined, identity: ClientTurnIdentity): void {
+    if (sessionId) {
+      const queue = this.pending.get(sessionId);
+      if (queue) {
+        const remaining = queue.filter((entry) => entry.identity.clientTurnId !== identity.clientTurnId);
+        if (remaining.length > 0) this.pending.set(sessionId, remaining);
+        else this.pending.delete(sessionId);
+      }
+    }
+    this.cancelAny(identity);
+  }
+
+  cancelAny(identity: ClientTurnIdentity): void {
+    const index = this.pendingAny.findIndex((entry) => entry.identity.clientTurnId === identity.clientTurnId);
+    if (index >= 0) this.pendingAny.splice(index, 1);
+  }
+
+  claim(
+    sessionId: string,
+    message: BridgeMessageObservation,
+    rawMessage?: object,
+    allowCommandOrderFallback = true,
+  ): ClientTurnIdentity | undefined {
+    if (message.role !== undefined && message.role !== "user") return undefined;
+    const explicit = bridgeIdentity(message);
+    if (hasExplicitBridgeIdentity(message)) {
+      if (!explicit) return undefined;
+      const selected = this.findPending((entry) => entry.identity.clientTurnId === explicit.clientTurnId
+        && entry.identity.clientMessageId === explicit.clientMessageId, sessionId);
+      if (selected) this.removePending(selected);
+      this.remember(sessionId, message, explicit, rawMessage);
+      return explicit;
+    }
+    const remembered = rawMessage ? this.rawMessages.get(rawMessage) : undefined;
+    if (remembered) return remembered;
+
+    const fingerprint = normalizeBridgeFingerprint(bridgeVisibleText(message));
+    const selected = this.findPending((entry) => entry.fingerprint === fingerprint, sessionId)
+      ?? (allowCommandOrderFallback ? this.findPending(() => true, sessionId) : undefined);
+    if (!selected) {
+      // Pi may hand message_start and message_end different object instances.
+      // Recover the already observed identity by the bounded legacy key before
+      // giving up; a later explicit identity still remains authoritative.
+      const observed = this.identityForMessage(sessionId, message);
+      if (observed) {
+        this.remember(sessionId, message, observed, rawMessage);
+        return observed;
+      }
+      return undefined;
+    }
+    this.removePending(selected);
+    this.remember(sessionId, message, selected.entry.identity, rawMessage);
+    return selected.entry.identity;
+  }
+
+  private findPending(
+    predicate: (entry: PendingBridgeTurn) => boolean,
+    sessionId: string,
+  ): { entries: PendingBridgeTurn[]; entry: PendingBridgeTurn; any: boolean } | undefined {
+    const candidates: Array<{ entries: PendingBridgeTurn[]; entry: PendingBridgeTurn; any: boolean }> = [];
+    const sessionEntries = this.pending.get(sessionId) ?? [];
+    for (const entry of sessionEntries) if (predicate(entry)) candidates.push({ entries: sessionEntries, entry, any: false });
+    for (const entry of this.pendingAny) if (predicate(entry)) candidates.push({ entries: this.pendingAny, entry, any: true });
+    candidates.sort((left, right) => left.entry.commandSequence - right.entry.commandSequence);
+    return candidates[0];
+  }
+
+  private removePending(selected: { entries: PendingBridgeTurn[]; entry: PendingBridgeTurn; any: boolean }): void {
+    const index = selected.entries.indexOf(selected.entry);
+    if (index < 0) return;
+    selected.entries.splice(index, 1);
+    if (!selected.any && selected.entry.sessionId && selected.entries.length === 0) this.pending.delete(selected.entry.sessionId);
+  }
+
+  remember(
+    sessionId: string,
+    message: BridgeMessageObservation,
+    identity: ClientTurnIdentity,
+    rawMessage?: object,
+    sourceEntryId?: string,
+  ): void {
+    const fingerprint = normalizeBridgeFingerprint(bridgeVisibleText(message));
+    const entries = this.remembered.get(sessionId) ?? [];
+    const existing = entries.find((entry) => entry.identity.clientTurnId === identity.clientTurnId);
+    if (existing) {
+      existing.sourceEntryId ??= sourceEntryId;
+      existing.fingerprint = fingerprint || existing.fingerprint;
+      existing.timestamp ??= message.timestamp;
+    } else {
+      entries.push({ identity, sourceEntryId, fingerprint, timestamp: message.timestamp });
+    }
+    while (entries.length > BRIDGE_TURN_REMEMBERED_LIMIT) entries.shift();
+    this.remembered.set(sessionId, entries);
+    while (this.rememberedSize > BRIDGE_TURN_TOTAL_REMEMBERED_LIMIT) {
+      const oldest = this.remembered.entries().next().value as [string, RememberedBridgeTurn[]] | undefined;
+      if (!oldest) break;
+      const [oldestSessionId, oldestEntries] = oldest;
+      oldestEntries.shift();
+      if (oldestEntries.length === 0) this.remembered.delete(oldestSessionId);
+    }
+    if (rawMessage) this.rawMessages.set(rawMessage, identity);
+  }
+
+  rememberEntry(sessionId: string, sourceEntryId: string, message: BridgeMessageObservation): void {
+    if (message.role !== undefined && message.role !== "user") return;
+    const withEntryId = { ...message, tauEntryId: sourceEntryId };
+    const identity = bridgeIdentity(message) ?? (message && typeof message === "object" ? this.rawMessages.get(message) : undefined)
+      ?? this.identityForMessage(sessionId, withEntryId)
+      // A snapshot can contain old branch entries while a newer command is
+      // still pending. Only an exact visible fingerprint may claim here; the
+      // event path retains command-order fallback for expanded prompts.
+      ?? this.claim(sessionId, withEntryId, undefined, false);
+    if (identity) this.remember(sessionId, message, identity, message as object, sourceEntryId);
+  }
+
+  identityForMessage(sessionId: string, message: BridgeMessageObservation): ClientTurnIdentity | undefined {
+    if (message.role !== undefined && message.role !== "user") return undefined;
+    if (hasExplicitBridgeIdentity(message)) return bridgeIdentity(message);
+    const entries = this.remembered.get(sessionId) ?? [];
+    const sourceEntryId = (message as { tauEntryId?: string }).tauEntryId;
+    const source = sourceEntryId ? entries.find((entry) => entry.sourceEntryId === sourceEntryId) : undefined;
+    if (source) return source.identity;
+    const fingerprint = normalizeBridgeFingerprint(bridgeVisibleText(message));
+    const fingerprintMatches = entries.filter((entry) => entry.fingerprint === fingerprint);
+    if (message.timestamp !== undefined) {
+      const exactTimestamp = fingerprintMatches.find((entry) => entry.timestamp === message.timestamp);
+      if (exactTimestamp) return exactTimestamp.identity;
+    }
+    // A persisted branch may assign a fresh timestamp while retaining the
+    // visible prompt. Recover a unique expanded command without allowing an
+    // ambiguous duplicate prompt to steal another turn.
+    return fingerprintMatches.length === 1 ? fingerprintMatches[0].identity : undefined;
+  }
+
+  clearSession(sessionId: string): void {
+    this.pending.delete(sessionId);
+    this.remembered.delete(sessionId);
+  }
+
+  settle(sessionId: string): void { this.clearSession(sessionId); }
+
+  clear(preserveAny = false): void {
+    this.pending.clear();
+    this.remembered.clear();
+    if (!preserveAny) this.pendingAny.length = 0;
+  }
+
+  get size(): number {
+    let size = this.pendingAny.length;
+    for (const entries of this.pending.values()) size += entries.length;
+    for (const entries of this.remembered.values()) size += entries.length;
+    return size;
+  }
+
+  private get rememberedSize(): number {
+    let size = 0;
+    for (const entries of this.remembered.values()) size += entries.length;
+    return size;
+  }
+
+  private get pendingSize(): number {
+    let size = this.pendingAny.length;
+    for (const entries of this.pending.values()) size += entries.length;
+    return size;
+  }
+
+  private trimPending(): void {
+    while (this.pendingSize > BRIDGE_TURN_TOTAL_PENDING_LIMIT) {
+      if (this.pendingAny.length > 0) {
+        this.pendingAny.shift();
+        continue;
+      }
+      const oldest = this.pending.entries().next().value as [string, PendingBridgeTurn[]] | undefined;
+      if (!oldest) break;
+      const [sessionId, entries] = oldest;
+      entries.shift();
+      if (entries.length === 0) this.pending.delete(sessionId);
+    }
+  }
+}
+
+export function decorateBridgeUserMessage(
+  ledger: BridgeClientTurnLedger,
+  message: BridgeMessageObservation,
+  sessionId: string,
+): void {
+  if (message.role !== "user") return;
+  const text = bridgeVisibleText(message).trim();
+  if (text.startsWith("/tau-bridge-new")
+    || text.startsWith("/tau-bridge-reload")
+    || text.startsWith("/tau-bridge-fork")) return;
+  // Assistant lifecycle events can expose an empty placeholder object. It is
+  // never a submitted prompt, so it must not consume the next ledger entry.
+  if (!text && !hasExplicitBridgeIdentity(message)) return;
+  const identity = ledger.claim(sessionId, message, message as object);
+  if (!identity) return;
+  const raw = message as Record<string, unknown>;
+  // Namespaced fields avoid colliding with provider message schemas while
+  // remaining in Pi's persisted JSON and bridge snapshots.
+  raw.tauClientTurnId = identity.clientTurnId;
+  raw.tauClientMessageId = identity.clientMessageId;
+}
+
+export function bridgeSnapshotMessages(
+  ledger: BridgeClientTurnLedger,
+  sessionId: string,
+  entries: readonly { type: string; id: string; message?: unknown }[],
+): unknown[] {
+  return entries.flatMap((entry) => {
+    if (entry.type !== "message" || !entry.message || typeof entry.message !== "object") return [];
+    const message = entry.message as BridgeMessageObservation & Record<string, unknown>;
+    ledger.rememberEntry(sessionId, entry.id, message);
+    const identity = ledger.identityForMessage(sessionId, message);
+    return [{ ...message, tauEntryId: entry.id, ...(identity ? {
+      tauClientTurnId: identity.clientTurnId,
+      tauClientMessageId: identity.clientMessageId,
+    } : {}) }];
+  });
+}
+
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
     if (typeof item !== "string") return item;
@@ -29,6 +347,18 @@ function boundedBridgeValue<T>(value: T): T {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
+  const bridgeTurns = new BridgeClientTurnLedger();
+
+  const frameIdentity = (frame: { clientTurnId?: string; clientMessageId?: string }): ClientTurnIdentity | undefined => (
+    frame.clientTurnId && frame.clientMessageId
+      ? { clientTurnId: frame.clientTurnId, clientMessageId: frame.clientMessageId }
+      : undefined
+  );
+
+  const decorateUserMessage = (message: BridgeMessageObservation, sessionId: string): void => {
+    decorateBridgeUserMessage(bridgeTurns, message, sessionId);
+  };
+
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
@@ -73,8 +403,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const file = ctx.sessionManager.getSessionFile();
     if (!file) throw new Error("Tau bridge requires a persisted Pi session.");
     const usage = ctx.getContextUsage();
-    const branchMessages = ctx.sessionManager.getBranch()
-      .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
+    const branchMessages = bridgeSnapshotMessages(
+      bridgeTurns,
+      ctx.sessionManager.getSessionId(),
+      ctx.sessionManager.getBranch() as readonly { type: string; id: string; message?: unknown }[],
+    );
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
@@ -168,13 +501,21 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       switch (frame.command) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
         case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
-        case "prompt":
-          pi.sendUserMessage(frame.text, {
-            ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
-            expandPromptTemplates: true,
-          });
+        case "prompt": {
+          const identity = frameIdentity(frame);
+          if (identity) bridgeTurns.enqueue(ctx.sessionManager.getSessionId(), identity, frame.text);
+          try {
+            pi.sendUserMessage(frame.text, {
+              ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
+              expandPromptTemplates: true,
+            });
+          } catch (error) {
+            if (identity) bridgeTurns.cancel(ctx.sessionManager.getSessionId(), identity);
+            throw error;
+          }
           respond(client, frame.id, true, { accepted: true });
           break;
+        }
         case "abort": ctx.abort(); respond(client, frame.id, true); break;
         case "set_thinking": pi.setThinkingLevel(frame.level as Parameters<typeof pi.setThinkingLevel>[0]); respond(client, frame.id, true); break;
         case "set_model": {
@@ -207,12 +548,19 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         }
         case "new_session": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before creating a new thread.");
+          const identity = frameIdentity(frame);
+          if (identity) bridgeTurns.enqueueAny(identity, frame.initialPrompt ?? "");
           respond(client, frame.id, true, { accepted: true });
           setTimeout(() => {
             const encodedPrompt = frame.initialPrompt
               ? ` ${Buffer.from(JSON.stringify(frame.initialPrompt), "utf8").toString("base64url")}`
               : "";
-            pi.sendUserMessage(`/tau-bridge-new${encodedPrompt}`, { expandPromptTemplates: true });
+            try {
+              pi.sendUserMessage(`/tau-bridge-new${encodedPrompt}`, { expandPromptTemplates: true });
+            } catch (error) {
+              if (identity) bridgeTurns.cancelAny(identity);
+              void error;
+            }
           }, 0);
           break;
         }
@@ -235,10 +583,12 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     }
   };
 
-  const stop = async () => {
+  const stop = async (preservePendingAny = true) => {
     const closing = descriptor;
     descriptor = undefined;
     latestContext = undefined;
+    if (closing) bridgeTurns.clearSession(closing.sessionId);
+    if (!preservePendingAny) bridgeTurns.clear();
     for (const client of clients) client.socket.destroy();
     clients.clear();
     if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
@@ -254,7 +604,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async (_event, ctx) => {
-    await stop();
+    await stop(true);
     if (ctx.mode !== "tui") return;
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (!sessionFile) return;
@@ -321,10 +671,18 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     "tool_execution_start", "tool_execution_update", "tool_execution_end", "queue_update", "model_select",
     "thinking_level_select", "ui_prompt_start", "ui_prompt_end",
   ] as const) onAny(eventName, (event, ctx) => {
+    if ((eventName === "message_start" || eventName === "message_end")
+      && event.message && typeof event.message === "object") {
+      decorateUserMessage(event.message as BridgeMessageObservation, ctx.sessionManager.getSessionId());
+    }
     broadcast({ ...event, type: eventName }, ctx);
     if (eventName === "message_end" || eventName === "agent_settled" || eventName === "model_select" || eventName === "thinking_level_select") {
       broadcastSnapshot(ctx);
     }
+    // Send the final snapshot while the bounded remembered correlation is still
+    // available. Pi normally persists the namespaced fields on the same object,
+    // but this ordering also covers runtimes that clone entries before writing.
+    if (eventName === "agent_settled") bridgeTurns.settle(ctx.sessionManager.getSessionId());
   });
 
   pi.on("session_info_changed", (event, ctx) => { broadcast({ ...event, type: "session_info_changed" }, ctx); broadcastSnapshot(ctx); });
@@ -338,5 +696,5 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     awaitingInput = undefined;
     broadcastSnapshot(ctx);
   });
-  pi.on("session_shutdown", async () => { await stop(); });
+  pi.on("session_shutdown", async () => { await stop(false); bridgeTurns.clear(); });
 }
