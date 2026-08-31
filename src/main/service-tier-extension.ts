@@ -14,7 +14,8 @@ export const SERVICE_TIER_APIS = new Set([
 export interface ServiceTierControl {
   fastRequested(): boolean;
   available(): boolean;
-  onApplied(): void;
+  /** Called per request; `scope` names the thread and model so the host can report once. */
+  onApplied(scope: string): void;
 }
 
 /**
@@ -23,11 +24,11 @@ export interface ServiceTierControl {
  */
 export function createServiceTierExtension(control: ServiceTierControl): ExtensionFactory {
   return (pi) => {
-    pi.on("before_provider_request", (event) => {
+    pi.on("before_provider_request", (event, ctx) => {
       if (!control.fastRequested() || !control.available()) return undefined;
       const payload = event.payload;
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
-      control.onApplied();
+      control.onApplied(`${ctx.sessionManager.getSessionId()} · ${ctx.model?.provider ?? "?"}/${ctx.model?.id ?? "?"}`);
       return { ...(payload as Record<string, unknown>), service_tier: "priority" };
     });
   };

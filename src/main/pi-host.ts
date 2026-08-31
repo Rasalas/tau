@@ -592,10 +592,17 @@ export class PiHost {
     onCleared: (sessionId) => this.questionnaires.delete(sessionId),
   });
 
+  /** Threads and models the priority tier was already reported for; every request applies it. */
+  private readonly serviceTierReported = new Set<string>();
+
   private readonly serviceTierExtension = createServiceTierExtension({
     fastRequested: () => this.serviceTier === "fast",
     available: () => this.serviceTierAvailable(),
-    onApplied: () => this.log("service-tier.applied", "priority"),
+    onApplied: (scope) => {
+      if (this.serviceTierReported.has(scope)) return;
+      this.serviceTierReported.add(scope);
+      this.log("service-tier.applied", `priority · ${scope.slice(0, 8)}${scope.slice(36)}`);
+    },
   });
 
   constructor(
@@ -1257,6 +1264,7 @@ export class PiHost {
 
   async setServiceTier(tier: ServiceTier): Promise<HostActionResult> {
     this.serviceTier = tier;
+    this.serviceTierReported.clear();
     this.log("service-tier.changed", tier);
     return this.catalogResult();
   }
