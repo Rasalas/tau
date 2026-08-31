@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { compactTimestamp, fullTimestamp, isLongMessage, localImagePaths, Message, withoutLocalImagePaths } from "./Message";
+import { fallbackGraphemeCount } from "./message-grapheme";
 
 afterEach(cleanup);
 
@@ -68,6 +69,10 @@ describe("Long user messages", () => {
     expect(isLongMessage(Array.from({ length: 9 }, () => "line").join("\n"))).toBe(true);
     expect(isLongMessage("x".repeat(600))).toBe(false);
     expect(isLongMessage("x".repeat(601))).toBe(true);
+    // These are visible graphemes, not UTF-16 code units.
+    expect(isLongMessage("e\u0301".repeat(301))).toBe(false);
+    expect(isLongMessage("a".repeat(600) + "\u0301")).toBe(false);
+    expect(isLongMessage("a".repeat(601))).toBe(true);
     expect(isLongMessage("😀".repeat(300))).toBe(false);
     expect(isLongMessage("😀".repeat(301))).toBe(false);
     expect(isLongMessage("😀".repeat(600))).toBe(false);
@@ -87,9 +92,14 @@ describe("Long user messages", () => {
       expect(isLongMessage("각".repeat(600))).toBe(false);
       expect(isLongMessage("각".repeat(600) + "가")).toBe(true);
       expect(isLongMessage("가ᅡ".repeat(600))).toBe(false);
-      expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(false);
+      // An unbounded extender tail is conservative once the fallback budget
+      // is exhausted, even though the visible prefix is one cluster.
+      expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(true);
       expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
       expect(isLongMessage("\u0301".repeat(10_000) + "a".repeat(601))).toBe(true);
+      const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
+      expect(bounded.exhausted).toBe(true);
+      expect(bounded.examinedCodePoints).toBeLessThanOrEqual(2_404);
     } finally {
       if (segmenter) Object.defineProperty(Intl, "Segmenter", segmenter);
     }

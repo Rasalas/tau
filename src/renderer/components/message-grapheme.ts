@@ -3,9 +3,10 @@ export const LONG_MESSAGE_LINE_LIMIT = 8;
 const FALLBACK_CODEPOINT_BUDGET_MULTIPLIER = 4;
 
 type HangulJamo = "L" | "V" | "T" | "LV" | "LVT" | undefined;
-interface GraphemeCount {
+export interface GraphemeCount {
   count: number;
   exhausted: boolean;
+  examinedCodePoints: number;
 }
 
 function hangulJamoType(codePoint: number): HangulJamo {
@@ -16,7 +17,7 @@ function hangulJamoType(codePoint: number): HangulJamo {
   return undefined;
 }
 
-function fallbackGraphemeCount(text: string, limit: number): GraphemeCount {
+export function fallbackGraphemeCount(text: string, limit: number): GraphemeCount {
   let count = 0;
   let joined = false;
   let regionalIndicators = 0;
@@ -24,6 +25,9 @@ function fallbackGraphemeCount(text: string, limit: number): GraphemeCount {
   let scannedCodePoints = 0;
   const codePointBudget = (limit + 1) * FALLBACK_CODEPOINT_BUDGET_MULTIPLIER;
   for (const character of text) {
+    // Check before reading the next code point so every path, including
+    // combining marks and ZWJ extenders, is covered by the same hard bound.
+    if (scannedCodePoints >= codePointBudget) return { count: limit + 1, exhausted: true, examinedCodePoints: scannedCodePoints };
     scannedCodePoints += 1;
     const codePoint = character.codePointAt(0)!;
     if (character === "\u200d") {
@@ -50,13 +54,9 @@ function fallbackGraphemeCount(text: string, limit: number): GraphemeCount {
       if (!continuesHangul) count += 1;
     }
     previousHangul = hangul;
-    if (count > limit) return { count, exhausted: false };
-    // Keep pathological sequences bounded even when every code point extends
-    // the same visible cluster; the caller only needs to know whether the
-    // threshold was exceeded.
-    if (scannedCodePoints >= codePointBudget && count <= limit) return { count: limit + 1, exhausted: true };
+    if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints };
   }
-  return { count, exhausted: false };
+  return { count, exhausted: false, examinedCodePoints: scannedCodePoints };
 }
 
 function visibleGraphemeCount(text: string, limit: number): number {

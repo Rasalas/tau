@@ -84,7 +84,18 @@ function installDelayedMeasurementHarness(options: {
   });
 
   return {
-    rafCallbacks,
+    observerCount: () => DelayedResizeObserver.instances.length,
+    observersFor: (target: Element, from = 0) => DelayedResizeObserver.instances.slice(from).filter((instance) => instance.targets.has(target)),
+    trigger: (target: Element, height: number, from = 0) => {
+      const observers = DelayedResizeObserver.instances.slice(from).filter((instance) => instance.targets.has(target));
+      observers.forEach((observer) => observer.trigger(target, height));
+      return observers;
+    },
+    flushFrames: async (count = 2) => {
+      for (let frame = 0; frame < count; frame += 1) {
+        await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      }
+    },
     restore() {
       for (const property of properties) {
         const descriptor = previous.get(property);
@@ -187,8 +198,6 @@ describe("virtual transcript", () => {
         return node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 300 : 500;
       },
     });
-    const { rafCallbacks } = harness;
-
     const scrollTop = 240;
     const messages: UiMessage[] = [
       { id: "long", role: "user", text: "x".repeat(601), timestamp: 1 },
@@ -209,72 +218,67 @@ describe("virtual transcript", () => {
       };
       rows[1].getBoundingClientRect = () => ({ top: naturalHeightSame ? 300 : content.classList.contains("collapsed") ? 300 : 500, bottom: 340, height: 40, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
 
-      const observersBeforeExpand = DelayedResizeObserver.instances.length;
+      const observersBeforeExpand = harness.observerCount();
       fireEvent.click(screen.getByRole("button", { name: "Show more" }));
-      const expandObservers = DelayedResizeObserver.instances.slice(observersBeforeExpand).filter((instance) => instance.targets.has(rows[0]));
+      const expandObservers = harness.observersFor(rows[0], observersBeforeExpand);
       expect(expandObservers).toHaveLength(1);
-      const unrelatedObservers = DelayedResizeObserver.instances.filter((instance) => instance.targets.has(rows[1]));
-      unrelatedObservers.forEach((observer) => observer.trigger(rows[1], 40));
+      harness.trigger(rows[1], 40);
       expect(container.scrollTop).toBe(scrollTop);
-      expandObservers.forEach((observer) => observer.trigger(rows[0], 500));
+      harness.trigger(rows[0], 500, observersBeforeExpand);
 
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await harness.flushFrames(1);
       expect(container.scrollTop).toBe(scrollTop);
 
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await harness.flushFrames(1);
       expect(container.scrollTop).toBe(440);
       // Scroll events after the target has settled cannot affect its result.
       container.dispatchEvent(new Event("scroll"));
       expect(container.scrollTop).toBe(440);
 
-      const observersBeforeCollapse = DelayedResizeObserver.instances.length;
+      const observersBeforeCollapse = harness.observerCount();
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
-      const collapseObservers = DelayedResizeObserver.instances.slice(observersBeforeCollapse).filter((instance) => instance.targets.has(rows[0]));
+      const collapseObservers = harness.observersFor(rows[0], observersBeforeCollapse);
       expect(collapseObservers).toHaveLength(1);
       fireEvent.wheel(container);
-      collapseObservers.forEach((observer) => observer.trigger(rows[0], 300));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(rows[0], 300, observersBeforeCollapse);
+      await harness.flushFrames();
       expect(container.scrollTop).toBe(440);
 
       // A rapid reversal must cancel the first toggle's pending restore.
-      const observersBeforeRapidExpand = DelayedResizeObserver.instances.length;
+      const observersBeforeRapidExpand = harness.observerCount();
       fireEvent.click(screen.getByRole("button", { name: "Show more" }));
-      const rapidExpandObservers = DelayedResizeObserver.instances.slice(observersBeforeRapidExpand).filter((instance) => instance.targets.has(rows[0]));
+      const rapidExpandObservers = harness.observersFor(rows[0], observersBeforeRapidExpand);
       expect(rapidExpandObservers).toHaveLength(1);
-      rapidExpandObservers.forEach((observer) => observer.trigger(rows[0], 500));
-      const observersBeforeRapidCollapse = DelayedResizeObserver.instances.length;
+      harness.trigger(rows[0], 500, observersBeforeRapidExpand);
+      const observersBeforeRapidCollapse = harness.observerCount();
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
-      const rapidCollapseObservers = DelayedResizeObserver.instances.slice(observersBeforeRapidCollapse).filter((instance) => instance.targets.has(rows[0]));
+      const rapidCollapseObservers = harness.observersFor(rows[0], observersBeforeRapidCollapse);
       expect(rapidCollapseObservers).toHaveLength(1);
-      rapidCollapseObservers.forEach((observer) => observer.trigger(rows[0], 300));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(rows[0], 300, observersBeforeRapidCollapse);
+      await harness.flushFrames();
       expect(container.scrollTop).toBe(440);
 
       // ResizeObserver also delivers an initial observation when the natural
       // row size is unchanged. It must settle the target without a stale jump.
       naturalHeightSame = true;
-      const observersBeforeUnchanged = DelayedResizeObserver.instances.length;
+      const observersBeforeUnchanged = harness.observerCount();
       fireEvent.click(screen.getByRole("button", { name: "Show more" }));
-      const unchangedObservers = DelayedResizeObserver.instances.slice(observersBeforeUnchanged).filter((instance) => instance.targets.has(rows[0]));
+      const unchangedObservers = harness.observersFor(rows[0], observersBeforeUnchanged);
       expect(unchangedObservers).toHaveLength(1);
-      unchangedObservers.forEach((observer) => observer.trigger(rows[0], 300));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(rows[0], 300, observersBeforeUnchanged);
+      await harness.flushFrames();
       container.dispatchEvent(new Event("scroll"));
       expect(container.scrollTop).toBe(440);
 
       // A scroll-only user signal cancels a pending restore even without a
       // wheel, pointer, touch, or keyboard precursor.
-      const beforeScrollCancel = DelayedResizeObserver.instances.length;
+      const beforeScrollCancel = harness.observerCount();
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
-      const scrollCancelObservers = DelayedResizeObserver.instances.slice(beforeScrollCancel).filter((instance) => instance.targets.has(rows[0]));
+      const scrollCancelObservers = harness.observersFor(rows[0], beforeScrollCancel);
       expect(scrollCancelObservers).toHaveLength(1);
       container.dispatchEvent(new Event("scroll"));
-      scrollCancelObservers.forEach((observer) => observer.trigger(rows[0], 500));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(rows[0], 500, beforeScrollCancel);
+      await harness.flushFrames();
       expect(container.scrollTop).toBe(440);
     } finally {
       harness.restore();
@@ -287,8 +291,6 @@ describe("virtual transcript", () => {
         ? (node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 700 : 900)
         : 0,
     });
-    const { rafCallbacks } = harness;
-
     const view = render(<RealVirtualizerFixture messages={[{ id: "tail", role: "user", text: "x".repeat(601), timestamp: 1 }]} />);
     const container = view.container.querySelector<HTMLDivElement>(".virtualizer-test-container")!;
     try {
@@ -302,47 +304,43 @@ describe("virtual transcript", () => {
       };
 
       container.scrollTop = 100;
-      const beforeExpand = DelayedResizeObserver.instances.length;
+      const beforeExpand = harness.observerCount();
       fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
-      const expandObservers = DelayedResizeObserver.instances.slice(beforeExpand).filter((instance) => instance.targets.has(row));
+      const expandObservers = harness.observersFor(row, beforeExpand);
       expect(expandObservers).toHaveLength(1);
-      expandObservers.forEach((observer) => observer.trigger(row, 500));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(row, 500, beforeExpand);
+      await harness.flushFrames();
       expect(container.scrollTop).toBe(300);
 
-      const beforeCollapse = DelayedResizeObserver.instances.length;
+      const beforeCollapse = harness.observerCount();
       fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
-      const collapseObservers = DelayedResizeObserver.instances.slice(beforeCollapse).filter((instance) => instance.targets.has(row));
+      const collapseObservers = harness.observersFor(row, beforeCollapse);
       expect(collapseObservers).toHaveLength(1);
       // A scroll-only signal that is not the browser's exact natural clamp is
       // user intent and must cancel the delayed restore.
       container.scrollTop = 50;
       container.dispatchEvent(new Event("scroll"));
-      collapseObservers.forEach((observer) => observer.trigger(row, 300));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(row, 300, beforeCollapse);
+      await harness.flushFrames();
       expect(container.scrollTop).toBe(50);
 
       // Re-expand so the following collapse exercises the browser clamp path.
-      const beforeReexpand = DelayedResizeObserver.instances.length;
+      const beforeReexpand = harness.observerCount();
       fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
-      const reexpandObservers = DelayedResizeObserver.instances.slice(beforeReexpand).filter((instance) => instance.targets.has(row));
+      const reexpandObservers = harness.observersFor(row, beforeReexpand);
       expect(reexpandObservers).toHaveLength(1);
-      reexpandObservers.forEach((observer) => observer.trigger(row, 500));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(row, 500, beforeReexpand);
+      await harness.flushFrames();
 
       // Model the browser's pre-delivery clamp to the new max scrollTop.
-      const beforeClampedCollapse = DelayedResizeObserver.instances.length;
+      const beforeClampedCollapse = harness.observerCount();
       fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
-      const clampedCollapseObservers = DelayedResizeObserver.instances.slice(beforeClampedCollapse).filter((instance) => instance.targets.has(row));
+      const clampedCollapseObservers = harness.observersFor(row, beforeClampedCollapse);
       expect(clampedCollapseObservers).toHaveLength(1);
       container.scrollTop = 100;
       container.dispatchEvent(new Event("scroll"));
-      clampedCollapseObservers.forEach((observer) => observer.trigger(row, 300));
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      harness.trigger(row, 300, beforeClampedCollapse);
+      await harness.flushFrames();
       // The target is based on the pre-toggle offset (250 - 200), then
       // clamped once against the new max. It must not subtract the shrink
       // from the browser-clamped 100 a second time.
