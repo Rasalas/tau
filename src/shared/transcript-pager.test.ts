@@ -7,8 +7,8 @@ const messages: UiMessage[] = Array.from({ length: 12 }, (_, i) => ({
 }));
 
 const numericCursorPolicy: TranscriptCursorPolicy<string> = {
-  at: (index) => String(index),
-  index: (cursor, maximum) => {
+  cursorAtIndex: (index) => String(index),
+  indexFromCursor: (cursor, maximum) => {
     if (!/^\d+$/u.test(cursor) || Number(cursor) > maximum) throw new Error("Invalid transcript cursor");
     return Number(cursor);
   },
@@ -76,8 +76,8 @@ describe("TranscriptPager", () => {
 
   it("preserves an adapter cursor through the shared policy", () => {
     const adapterPolicy: TranscriptCursorPolicy<string> = {
-      at: (index) => `adapter:${index}`,
-      index: (cursor, maximum) => {
+      cursorAtIndex: (index) => `adapter:${index}`,
+      indexFromCursor: (cursor, maximum) => {
         const value = cursor.startsWith("adapter:") ? cursor.slice("adapter:".length) : "invalid";
         if (!/^\d+$/u.test(value) || Number(value) > maximum) throw new Error("Invalid transcript cursor");
         return Number(value);

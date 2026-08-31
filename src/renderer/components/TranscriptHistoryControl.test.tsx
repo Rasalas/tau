@@ -32,21 +32,21 @@ describe("TranscriptHistoryControl", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("does not claim the beginning when a legacy bridge truncated the snapshot", () => {
+  it("does not claim the beginning when history availability is unknown", () => {
     render(<TranscriptHistoryControl
       loading={false}
-      historyCompleteness="legacy-truncated"
+      historyCompleteness="unknown"
       onLoad={vi.fn()}
     />);
 
     const status = screen.getByRole("status");
-    expect(status.textContent).toContain("Older history cannot be loaded with this Pi bridge");
-    expect(status.textContent).toContain("Upgrade");
+    expect(status.textContent).toContain("availability cannot be determined");
+    expect(status.textContent).toContain("for this connection");
     expect(status.textContent).not.toContain("Beginning of history");
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("uses neutral language when an older bridge cannot determine availability", () => {
+  it("uses neutral language when the connection cannot determine availability", () => {
     render(<TranscriptHistoryControl
       loading={false}
       historyCompleteness="unknown"
@@ -55,8 +55,8 @@ describe("TranscriptHistoryControl", () => {
 
     const text = screen.getByRole("status").textContent ?? "";
     expect(text).toContain("availability cannot be determined");
-    expect(text).toContain("may enable");
+    expect(text).toContain("for this connection");
     expect(text).not.toContain("Beginning of history");
-    expect(text).not.toContain("Upgrade the bridge to load it");
+    expect(text).not.toContain("Upgrade");
   });
 });

@@ -9,8 +9,8 @@ export const INITIAL_TRANSCRIPT_TURN_LIMIT = 10 as const;
 export const OLDER_TRANSCRIPT_TURN_LIMIT = 20 as const;
 
 export interface TranscriptCursorPolicy<TCursor extends string = HostTranscriptCursor> {
-  at: (index: number) => TCursor;
-  index: (cursor: TCursor, maximum: number) => number;
+  cursorAtIndex: (index: number) => TCursor;
+  indexFromCursor: (cursor: TCursor, maximum: number) => number;
 }
 
 export interface TranscriptPageBounds<TCursor extends string = HostTranscriptCursor> {
@@ -31,7 +31,7 @@ export function transcriptPageBounds<TCursor extends string = HostTranscriptCurs
   if (cursor !== undefined && !policy) throw new Error("A transcript cursor policy is required to read a cursor");
   const end = cursor === undefined
     ? messages.length
-    : policy!.index(cursor, messages.length);
+    : policy!.indexFromCursor(cursor, messages.length);
   if (end <= 0) return { start: 0, end, hasMore: false };
   const firstUser = messages.findIndex((message, index) => index < end && message.role === "user");
   // Records before the first user turn are orphan activities. They cannot be
@@ -49,7 +49,7 @@ export function transcriptPageBounds<TCursor extends string = HostTranscriptCurs
   return {
     start,
     end,
-    ...(hasOlderTurn && policy ? { olderCursor: policy.at(start) } : {}),
+    ...(hasOlderTurn && policy ? { olderCursor: policy.cursorAtIndex(start) } : {}),
     hasMore: hasOlderTurn,
   };
 }

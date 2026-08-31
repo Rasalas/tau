@@ -51,8 +51,7 @@ If `hello.capabilities` is absent or does not enable `transcriptPaging`, the
 bridge serves the legacy v1 snapshot shape and window, omits paging metadata,
 and rejects `transcript_page`. This is the compatibility path for an older host;
 the host only sends paging commands after the capability has been echoed. A new
-host marks a legacy window at the bridge's record cap as `legacy-truncated` (and
-shorter metadata-free windows as `unknown`), so the workbench never presents
-that bounded view as the beginning of history; it explains that a bridge upgrade
-is required. Unknown commands are rejected explicitly so a client cannot mistake
-an unsupported extension for an empty page.
+host marks metadata-free legacy windows as `unknown`, so the workbench never
+presents that bounded view as the beginning of history and reports that older
+history availability cannot be determined. Unknown commands are rejected
+explicitly so a client cannot mistake an unsupported extension for an empty page.

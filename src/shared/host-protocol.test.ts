@@ -14,8 +14,8 @@ const snapshot: HostSnapshot = {
 };
 
 const localCursorPolicy: TranscriptCursorPolicy<HostTranscriptCursor> = {
-  at: (index) => asHostTranscriptCursor(`local:${index}`),
-  index: (cursor, maximum) => {
+  cursorAtIndex: (index) => asHostTranscriptCursor(`local:${index}`),
+  indexFromCursor: (cursor, maximum) => {
     const value = cursor.slice("local:".length);
     if (!cursor.startsWith("local:") || !/^\d+$/u.test(value) || Number(value) > maximum) throw new Error("Invalid transcript cursor");
     return Number(value);
@@ -120,7 +120,7 @@ describe("host protocol", () => {
     expect(detail.hasMore).toBe(false);
   });
 
-  it("keeps a legacy-truncated window limited instead of inventing a local end cursor", () => {
+  it("keeps an unavailable window limited instead of inventing a local end cursor", () => {
     const detail = detailFromSnapshot({
       ...snapshot,
       messages: Array.from({ length: 160 }, (_, index) => ({
@@ -129,12 +129,12 @@ describe("host protocol", () => {
         text: String(index),
         timestamp: index,
       })),
-      historyCompleteness: "legacy-truncated",
+      historyCompleteness: "unknown",
     }, undefined, localCursorPolicy);
     expect(detail.messages).toHaveLength(10);
     expect(detail.olderCursor).toBeUndefined();
     expect(detail.hasMore).toBe(false);
-    expect(detail.historyCompleteness).toBe("legacy-truncated");
+    expect(detail.historyCompleteness).toBe("unknown");
   });
 
   it("does not turn a cursor-less has-more claim into a false end", () => {
@@ -147,7 +147,6 @@ describe("host protocol", () => {
     ["complete with has-more", { hasMore: true, olderCursor: "4", historyCompleteness: "complete" }],
     ["has-more without cursor", { hasMore: true, historyCompleteness: "has-more" }],
     ["has-more without flag", { hasMore: false, olderCursor: "4", historyCompleteness: "has-more" }],
-    ["legacy-truncated with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "legacy-truncated" }],
     ["unknown with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "unknown" }],
   ])("rejects contradictory transcript-page metadata: %s", (_label, page) => {
     expect(isHostUpdate({
@@ -162,7 +161,6 @@ describe("host protocol", () => {
     ["complete with has-more", { hasMore: true, olderCursor: "4", historyCompleteness: "complete" }],
     ["has-more without cursor", { hasMore: true, historyCompleteness: "has-more" }],
     ["has-more without flag", { hasMore: false, olderCursor: "4", historyCompleteness: "has-more" }],
-    ["legacy-truncated with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "legacy-truncated" }],
     ["unknown with cursor", { hasMore: false, olderCursor: "4", historyCompleteness: "unknown" }],
   ])("rejects contradictory thread-detail metadata: %s", (_label, detail) => {
     expect(isHostUpdate({
@@ -175,7 +173,6 @@ describe("host protocol", () => {
   it.each([
     ["complete", { hasMore: false, historyCompleteness: "complete" }],
     ["has-more", { hasMore: true, olderCursor: "4", historyCompleteness: "has-more" }],
-    ["legacy-truncated", { hasMore: false, historyCompleteness: "legacy-truncated" }],
     ["unknown", { hasMore: false, historyCompleteness: "unknown" }],
   ])("accepts an internally consistent transcript-page tuple: %s", (_label, page) => {
     expect(isHostUpdate({

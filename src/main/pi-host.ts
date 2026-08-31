@@ -67,7 +67,7 @@ import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import { transcriptPagingNegotiated, type PiBridgeServerFrame, type PiBridgeSnapshot, type PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
-import { inferLegacyBridgeCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
+import { inferUnavailableTranscriptCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import {
   bridgeCursorValue,
@@ -78,8 +78,8 @@ import {
 } from "./transcript-cursor.js";
 
 const localTranscriptCursorPolicy: TranscriptCursorPolicy<HostTranscriptCursor> = {
-  at: hostCursorAtLocalIndex,
-  index: (cursor, maximum) => {
+  cursorAtIndex: hostCursorAtLocalIndex,
+  indexFromCursor: (cursor, maximum) => {
     const coordinate = decodeHostCursor(cursor);
     if (coordinate.kind !== "local" || coordinate.index > maximum) throw new Error("Invalid transcript cursor");
     return coordinate.index;
@@ -210,13 +210,17 @@ function bridgeTranscriptCursor(value: unknown): string | undefined {
   }
 }
 
+/** Normalize the pre-v6 Pi-only state before it reaches the shared contract. */
+function normalizeBridgeHistoryCompleteness(value: unknown): unknown {
+  return value === "legacy-truncated" ? "unknown" : value;
+}
+
 export function historyCompletenessForBridgeSnapshot(
-  snapshot: Pick<PiBridgeSnapshot, "messages" | "capabilities" | "historyCompleteness" | "olderCursor">,
+  snapshot: Pick<PiBridgeSnapshot, "capabilities" | "historyCompleteness" | "olderCursor">,
 ): TranscriptHistoryCompleteness {
-  return inferLegacyBridgeCompleteness(
-    snapshot.messages.length,
+  return inferUnavailableTranscriptCompleteness(
     transcriptPagingNegotiated(snapshot.capabilities),
-    snapshot.historyCompleteness,
+    normalizeBridgeHistoryCompleteness(snapshot.historyCompleteness),
     snapshot.olderCursor !== undefined,
   );
 }
@@ -249,16 +253,17 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
   }
   const messagesOffset = bridgeMessagesOffset(page.messagesOffset);
   const olderCursor = bridgeTranscriptCursor(page.olderCursor);
+  const historyCompletenessValue = normalizeBridgeHistoryCompleteness(page.historyCompleteness);
   if (!isTranscriptHistoryMetadataConsistent({
     hasMore,
     hasCursor: olderCursor !== undefined,
-    historyCompleteness: page.historyCompleteness,
+    historyCompleteness: historyCompletenessValue,
     requireHasMore: true,
   })) throw new Error("Pi returned an invalid transcript page.");
-  const historyCompleteness = page.historyCompleteness === undefined
+  const historyCompleteness = historyCompletenessValue === undefined
     ? undefined
-    : parseTranscriptHistoryCompleteness(page.historyCompleteness);
-  if (page.historyCompleteness !== undefined && historyCompleteness === undefined) {
+    : parseTranscriptHistoryCompleteness(historyCompletenessValue);
+  if (historyCompletenessValue !== undefined && historyCompleteness === undefined) {
     throw new Error("Pi returned an invalid transcript history completeness.");
   }
   if (page.taskHistory !== undefined && !Array.isArray(page.taskHistory)) {

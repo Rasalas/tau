@@ -7,7 +7,6 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
-import { LEGACY_BRIDGE_SNAPSHOT_RECORD_LIMIT } from "../../src/shared/transcript-completeness.js";
 import type { TranscriptHistoryCompleteness } from "../../src/shared/transcript-completeness.js";
 import {
   encodePiBridgeFrame,
@@ -30,6 +29,8 @@ interface ClientState {
 }
 
 type BridgeTranscriptRecord = Record<string, unknown> & { role?: string };
+
+const LEGACY_SNAPSHOT_RECORD_LIMIT = 160 as const;
 
 declare const rawBridgeTranscriptCursorBrand: unique symbol;
 type RawBridgeTranscriptCursor = string & { readonly [rawBridgeTranscriptCursorBrand]: true };
@@ -102,7 +103,7 @@ export function buildTranscriptView(
       messagesOffset,
       ...(typeof firstUser?.tauEntryId === "string" ? { cursorBeforeMessageId: firstUser.tauEntryId } : {}),
       hasMore: false,
-      historyCompleteness: branchMessages.length >= policy.maxRecords ? "legacy-truncated" : "unknown",
+      historyCompleteness: "unknown",
       taskHistoryMessages: branchMessages,
     };
   }
@@ -115,8 +116,8 @@ export function buildTranscriptView(
     policy.turnLimit,
     cursor,
     {
-      at: rawBridgeTranscriptCursorAt,
-      index: (value, maximum) => Number(parseRawBridgeTranscriptCursor(value, maximum)),
+      cursorAtIndex: rawBridgeTranscriptCursorAt,
+      indexFromCursor: (value, maximum) => Number(parseRawBridgeTranscriptCursor(value, maximum)),
     },
   );
   const olderCursor = bounds.olderCursor;
@@ -198,7 +199,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const usage = ctx.getContextUsage();
     const view = transcriptView(ctx, paged
       ? { kind: "initial-page", turnLimit: INITIAL_TRANSCRIPT_TURN_LIMIT }
-      : { kind: "legacy-snapshot", maxRecords: LEGACY_BRIDGE_SNAPSHOT_RECORD_LIMIT });
+      : { kind: "legacy-snapshot", maxRecords: LEGACY_SNAPSHOT_RECORD_LIMIT });
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,

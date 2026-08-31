@@ -26,15 +26,13 @@ export function TranscriptHistoryControl({
   onLoad,
 }: TranscriptHistoryControlProps) {
   const hasOlder = Boolean(olderCursor);
-  const limited = historyCompleteness === "legacy-truncated" || historyCompleteness === "unknown";
+  const limited = historyCompleteness === "unknown";
   const message = loading
     ? "Loading older turns…"
     : status?.state === "error"
       ? status.message ?? "Could not load older turns."
       : limited
-        ? historyCompleteness === "legacy-truncated"
-          ? "Older history cannot be loaded with this Pi bridge. Upgrade the bridge to load it."
-          : "Older history availability cannot be determined with this bridge. An updated bridge may enable loading older turns."
+        ? "Older history availability cannot be determined for this connection."
       : status?.state === "success"
         ? `${loadedLabel(status.loadedTurns)}${hasOlder ? "" : " Beginning of history."}`
         : hasOlder

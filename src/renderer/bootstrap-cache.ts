@@ -2,6 +2,7 @@ import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts.js";
 import { isHostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { TranscriptCursorBoundary } from "../shared/transcript-contract.js";
 import { normalizeTranscriptCursorBoundaries } from "../shared/host-protocol.js";
+import { parseTranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../shared/transcript-pager.js";
 
 const CACHE_KEY = "tau.bootstrap-cache.v6";
@@ -27,17 +28,22 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   );
   const selectedBoundary = boundaries?.find((boundary) => boundary.messageId === firstRetainedMessageId)
     ?? undefined;
-  // Legacy v3/v4 records did not persist a completeness state. Once a
-  // window is trimmed, missing provenance must stay visibly ambiguous; an
-  // absent cursor is not evidence that the retained ten turns are history's
-  // beginning. A retained boundary is enough to advertise another page.
-  const historyCompleteness = snapshot.historyCompleteness === "legacy-truncated" || snapshot.historyCompleteness === "unknown"
-    ? snapshot.historyCompleteness
-    : selectedBoundary
-      ? "has-more"
-      : wasTrimmed
-        ? "unknown"
-        : snapshot.historyCompleteness ?? "complete";
+  // Older records can contain unknown string values and provider cursor
+  // objects. Normalize both before deciding whether the retained window is
+  // pageable; `has-more` without a usable boundary would falsely advertise a
+  // load action or allow the UI to call the retained window complete.
+  const rawHistoryCompleteness = (snapshot as { historyCompleteness?: unknown }).historyCompleteness;
+  const sourceCompleteness = parseTranscriptHistoryCompleteness(rawHistoryCompleteness)
+    ?? (rawHistoryCompleteness === undefined ? undefined : "unknown");
+  const historyCompleteness = sourceCompleteness === "unknown"
+    ? sourceCompleteness
+    : sourceCompleteness === "has-more" && !selectedBoundary
+      ? "unknown"
+      : selectedBoundary
+        ? "has-more"
+        : wasTrimmed
+          ? "unknown"
+          : sourceCompleteness ?? "complete";
   return {
     ...snapshot,
     messages,

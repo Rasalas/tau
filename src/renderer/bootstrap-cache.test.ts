@@ -90,20 +90,41 @@ describe("bootstrap cache", () => {
     expect(cached?.snapshot.historyCompleteness).toBe("unknown");
   });
 
-  it("keeps a legacy-truncated cache limited without retaining a discarded cursor", () => {
+  it("keeps an unavailable cache limited without retaining a discarded cursor", () => {
     let value: string | null = null;
     const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
     writeBootstrapCache({
       ...snapshot,
       messages: Array.from({ length: 160 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
       olderCursor: asHostTranscriptCursor("opaque:discarded"),
-      historyCompleteness: "legacy-truncated",
+      historyCompleteness: "unknown",
     }, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
     expect(cached?.snapshot.messages).toHaveLength(10);
     expect(cached?.snapshot.olderCursor).toBeUndefined();
-    expect(cached?.snapshot.historyCompleteness).toBe("legacy-truncated");
+    expect(cached?.snapshot.historyCompleteness).toBe("unknown");
     expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBeUndefined();
+  });
+
+  it.each(["tau.bootstrap-cache.v3", "tau.bootstrap-cache.v4"])("normalizes %s has-more without a host cursor", (cacheKey) => {
+    const legacy = JSON.stringify({
+      snapshot: {
+        ...snapshot,
+        messages: Array.from({ length: 10 }, (_, index) => ({ id: String(index), role: "user", text: String(index), timestamp: index })),
+        olderCursor: { kind: "bridge", value: "5" },
+        historyCompleteness: "has-more",
+      },
+      threadIndex: { projects: [], sessions: [] },
+    });
+    const storage = {
+      getItem: (key: string) => key === cacheKey ? legacy : null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.olderCursor).toBeUndefined();
+    expect(cached?.snapshot.historyCompleteness).toBe("unknown");
+    expect(detailFromSnapshot(cached!.snapshot).historyCompleteness).toBe("unknown");
   });
 
   it("normalizes a stale v3 payload before first paint and ignores older cache keys", () => {

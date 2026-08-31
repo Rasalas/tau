@@ -63,7 +63,6 @@ describe("Pi message mapping", () => {
   it.each([
     ["complete with cursor", { olderCursor: "4", hasMore: false, historyCompleteness: "complete" }],
     ["has-more without cursor", { hasMore: true, historyCompleteness: "has-more" }],
-    ["legacy-truncated with cursor", { olderCursor: "4", hasMore: false, historyCompleteness: "legacy-truncated" }],
     ["unknown with cursor", { olderCursor: "4", hasMore: false, historyCompleteness: "unknown" }],
   ])("rejects contradictory bridge page metadata: %s", (_label, metadata) => {
     expect(() => mapBridgeTranscriptPageValue("thread", {
@@ -73,34 +72,28 @@ describe("Pi message mapping", () => {
     })).toThrow("invalid transcript page");
   });
 
-  it("marks a capped legacy bridge snapshot as truncated rather than complete", () => {
-    const sourceBranch = Array.from({ length: 161 }, (_, index) => ({ role: "user", index }));
-    const messages = sourceBranch.slice(-160);
+  it("marks an unpaged bridge snapshot as unavailable rather than complete", () => {
     expect(historyCompletenessForBridgeSnapshot({
-      messages,
       capabilities: undefined,
-    })).toBe("legacy-truncated");
+      historyCompleteness: "complete",
+    })).toBe("unknown");
     expect(historyCompletenessForBridgeSnapshot({
-      messages: messages.slice(0, 159),
       capabilities: undefined,
     })).toBe("unknown");
   });
 
   it("uses negotiated paging metadata instead of the legacy cap", () => {
     expect(historyCompletenessForBridgeSnapshot({
-      messages: Array.from({ length: 160 }, () => ({ role: "user" })),
       capabilities: { transcriptPaging: true },
       olderCursor: "80",
     })).toBe("has-more");
     expect(historyCompletenessForBridgeSnapshot({
-      messages: [],
       capabilities: { transcriptPaging: true },
     })).toBe("complete");
   });
 
   it("keeps contradictory has-more metadata limited when no cursor is available", () => {
     expect(historyCompletenessForBridgeSnapshot({
-      messages: [],
       capabilities: { transcriptPaging: true },
       historyCompleteness: "has-more",
     })).toBe("unknown");
@@ -108,9 +101,18 @@ describe("Pi message mapping", () => {
 
   it("does not trust a legacy complete claim over the bounded record cap", () => {
     expect(historyCompletenessForBridgeSnapshot({
-      messages: Array.from({ length: 160 }, () => ({ role: "user" })),
       capabilities: undefined,
       historyCompleteness: "complete",
-    })).toBe("legacy-truncated");
+    })).toBe("unknown");
+  });
+
+  it("normalizes the removed legacy bridge state at the adapter boundary", () => {
+    const page = mapBridgeTranscriptPageValue("thread", {
+      sessionId: "thread",
+      messages: [],
+      hasMore: false,
+      historyCompleteness: "legacy-truncated",
+    });
+    expect(page.historyCompleteness).toBe("unknown");
   });
 });

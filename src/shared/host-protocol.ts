@@ -270,8 +270,7 @@ export function detailFromSnapshot(
     undefined,
     policy,
   );
-  const boundedWithoutPaging = snapshot.historyCompleteness === "legacy-truncated"
-    || snapshot.historyCompleteness === "unknown";
+  const boundedWithoutPaging = snapshot.historyCompleteness === "unknown";
   const olderCursor = boundedWithoutPaging ? undefined : page.olderCursor;
   const firstUserMessage = page.messages.find((message) => message.role === "user");
   return {
