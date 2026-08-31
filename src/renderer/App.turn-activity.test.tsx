@@ -64,7 +64,7 @@ describe("last-turn activity", () => {
 
   it("does not mount virtual rows for tool-only assistant messages", async () => {
     const view = render(<App />);
-    await screen.findByText("Thread");
+    await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => publish({ type: "assistant-start", sessionId: "session", id: "tool-only", timestamp: 1 }));
     expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(0);
@@ -114,7 +114,7 @@ describe("last-turn activity", () => {
 
   it("aggregates steering into the current run and resets on the next run", async () => {
     render(<App />);
-    await screen.findByText("Thread");
+    await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
       publish({ type: "agent-status", sessionId: "session", running: true });

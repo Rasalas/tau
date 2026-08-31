@@ -106,8 +106,42 @@ describe("App render isolation", () => {
       setAccessLevel: async () => {},
     } as unknown as typeof window.tau;
     render(<App />);
-    await waitFor(() => expect(screen.getByText("Untitled thread")).toBeTruthy());
+    await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(getFileTree).not.toHaveBeenCalled();
+  });
+
+  it("uses a focused start screen until the first message is sent", async () => {
+    const sendPrompt = vi.fn(async () => undefined);
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
+    expect(heading.closest(".conversation-start-screen")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Untitled thread" })).toBeNull();
+
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "Build the first screen" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Build the first screen", [], "session"));
+    expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
+    expect(screen.getByText("Build the first screen")).toBeTruthy();
   });
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
@@ -129,11 +163,10 @@ describe("App render isolation", () => {
       newSession,
     } as unknown as typeof window.tau;
     const view = render(<App />);
-    await screen.findByText("Untitled thread");
+    await screen.findByRole("heading", { name: "What do you want to build?" });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     await waitFor(() => expect(document.activeElement).toBe(composer));
-    fireEvent.click(screen.getByRole("button", { name: "Untitled thread" }));
-    fireEvent.click(screen.getByText(/New thread/u));
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     const projectOption = within(dialog).getByRole("option");
     projectOption.focus();
@@ -219,7 +252,7 @@ describe("App render isolation", () => {
     } as unknown as typeof window.tau;
 
     render(<App />);
-    await screen.findByText("Untitled thread");
+    await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option"));

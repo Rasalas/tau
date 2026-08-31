@@ -1486,12 +1486,55 @@ export default function App() {
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
+  const showStartScreen = conversationMessages.length === 0
+    && !conversationSnapshot?.isStreaming
+    && activityTools.length === 0
+    && threadPrompts.length === 0;
   const shellClassName = [
     "app-shell",
     sidebarContributions.length === 0 ? "no-sidebar" : "",
     panels.length === 0 ? "no-dock" : "",
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
+
+  const conversationComposer = (
+    <Composer
+      snapshot={conversationSnapshot}
+      seed={composerSeed}
+      draftStorageKey={activeDraftKey}
+      queue={queue}
+      accessLevel={settings.accessLevel}
+      contextUsage={snapshot?.contextUsage}
+      contextBreakdown={contextBreakdown}
+      textareaRef={composerRef}
+      onSubmit={(text, attachments) => void submit(text ?? "", attachments)}
+      onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
+      onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
+      onSetModel={(provider, id) => void setModel(provider, id)}
+      onSetThinking={(level) => void setThinking(level)}
+      onSetServiceTier={(tier) => void setServiceTier(tier)}
+      prompt={threadPrompts[0]}
+      promptsPending={Math.max(0, threadPrompts.length - 1)}
+      onAnswerPrompt={(value, typed) => {
+        const active = threadPrompts[0];
+        if (!active) return;
+        answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
+      }}
+      onCancelPrompt={() => {
+        const active = threadPrompts[0];
+        if (active) answerUiPrompt(active.id, { cancelled: true });
+      }}
+      promptChoices={promptChoices}
+      onPreselectQuestion={preselectQuestion}
+      onSetAccess={(level: AccessLevel) => preferences.setAccessLevel(level)}
+      onCompactContext={() => void compactContext()}
+      workspace={workspace}
+      workspaceBusy={workspaceBusy}
+      onOpenWorktree={(path) => void openWorkspace(path)}
+      onCreateWorktree={(branch) => void runWorkspaceAction(() => window.tau!.createWorktree(branch))}
+      onSwitchRef={(ref) => void runWorkspaceAction(() => window.tau!.switchRef(ref))}
+    />
+  );
 
   const overlays = (
     <>
@@ -1613,7 +1656,17 @@ export default function App() {
               </LazyFeatureBoundary>
             ))}
 
-            <main className="conversation-column">
+            <main className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}>
+              {showStartScreen ? (
+                <section className="conversation-start-screen" aria-labelledby="start-screen-title">
+                  <div className="conversation-start-content">
+                    <p>NEW THREAD</p>
+                    <h1 id="start-screen-title">What do you want to build?</h1>
+                    {conversationComposer}
+                  </div>
+                </section>
+              ) : (
+                <>
               <header className="conversation-header">
                 <ThreadTitleMenu
                   title={conversationSnapshot?.sessionTitle || "Untitled thread"}
@@ -1665,42 +1718,9 @@ export default function App() {
                 </div>
               </div>
 
-              <Composer
-                snapshot={conversationSnapshot}
-                seed={composerSeed}
-                draftStorageKey={activeDraftKey}
-                queue={queue}
-                accessLevel={settings.accessLevel}
-                contextUsage={snapshot?.contextUsage}
-                contextBreakdown={contextBreakdown}
-                textareaRef={composerRef}
-                onSubmit={(text, attachments) => void submit(text ?? "", attachments)}
-                onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
-                onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
-                onSetModel={(provider, id) => void setModel(provider, id)}
-                onSetThinking={(level) => void setThinking(level)}
-                onSetServiceTier={(tier) => void setServiceTier(tier)}
-                prompt={threadPrompts[0]}
-                promptsPending={Math.max(0, threadPrompts.length - 1)}
-                onAnswerPrompt={(value, typed) => {
-                  const active = threadPrompts[0];
-                  if (!active) return;
-                  answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
-                }}
-                onCancelPrompt={() => {
-                  const active = threadPrompts[0];
-                  if (active) answerUiPrompt(active.id, { cancelled: true });
-                }}
-                promptChoices={promptChoices}
-                onPreselectQuestion={preselectQuestion}
-                onSetAccess={(level: AccessLevel) => preferences.setAccessLevel(level)}
-                onCompactContext={() => void compactContext()}
-                workspace={workspace}
-                workspaceBusy={workspaceBusy}
-                onOpenWorktree={(path) => void openWorkspace(path)}
-                onCreateWorktree={(branch) => void runWorkspaceAction(() => window.tau!.createWorktree(branch))}
-                onSwitchRef={(ref) => void runWorkspaceAction(() => window.tau!.switchRef(ref))}
-              />
+              {conversationComposer}
+                </>
+              )}
             </main>
 
             {panels.length > 0 ? (

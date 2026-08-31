@@ -457,6 +457,39 @@ button > svg { pointer-events: none; }
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   background: var(--stage);
 }
+.conversation-start { overflow: hidden; }
+.conversation-start-screen {
+  flex: 1; min-height: 0; overflow: auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 48px 32px min(15vh, 132px);
+}
+.conversation-start-content {
+  width: 100%; max-width: 780px;
+  animation: start-screen-enter 220ms ease-out both;
+}
+.conversation-start-content > p {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 10px; color: var(--acid);
+  font: 600 10px var(--mono); letter-spacing: .14em;
+}
+.conversation-start-content > p::before {
+  content: ""; width: 18px; height: 1px; background: currentColor;
+}
+.conversation-start-content > h1 {
+  margin: 0; color: var(--ink); font-size: clamp(25px, 3vw, 34px);
+  font-weight: 650; line-height: 1.15; letter-spacing: -.035em;
+}
+.conversation-start-content > .composer-zone { padding: 24px 0 0; }
+.conversation-start-content .composer-frame { max-width: none; }
+.conversation-start-content .workspace-bar,
+.conversation-start-content .composer-queue { max-width: none; }
+@keyframes start-screen-enter {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-height: 620px) {
+  .conversation-start-screen { align-items: flex-start; padding-top: 54px; }
+}
 .conversation-header {
   flex: none; display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 24px; border-bottom: 1px solid var(--line);
