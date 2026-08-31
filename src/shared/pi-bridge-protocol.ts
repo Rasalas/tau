@@ -1,4 +1,4 @@
-import type { ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
+import type { ExtensionUiPromptKind, RuntimeCapabilities, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -23,6 +23,8 @@ export interface PiBridgeSnapshot {
   messages: unknown[];
   isStreaming: boolean;
   model?: { provider: string; id: string; name?: string };
+  /** Runtime-owned skill syntax; absent only for older Pi bridges. */
+  runtimeCapabilities?: RuntimeCapabilities;
   models: Array<{ provider: string; id: string; name?: string }>;
   thinkingLevel: string;
   thinkingLevels: string[];

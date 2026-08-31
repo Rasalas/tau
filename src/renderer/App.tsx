@@ -67,7 +67,6 @@ import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
-import { compactSkillInvocation } from "../shared/skill-invocation";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
@@ -174,8 +173,10 @@ export function reconcileOptimisticMessages(
   return pending.filter((entry) => {
     const index = confirmed.findIndex((message, at) =>
       !used.has(at)
-      && message.text === entry.message.text
-      && message.timestamp >= entry.message.timestamp - 30_000,
+      && Math.abs(message.timestamp - entry.message.timestamp) <= 30_000
+      // Skill messages are host-resolved, so their visible text no longer
+      // equals the renderer's shorthand. Their typed metadata is the match.
+      && (message.text === entry.message.text || Boolean(message.skill)),
     );
     if (index < 0) return true;
     used.add(index);
@@ -1250,16 +1251,13 @@ export default function App() {
 
   const copyMessage = useCallback(async (message: UiMessage) => {
     try {
-      await window.tau?.copyText(compactSkillInvocation(
-        message.text,
-        snapshot?.model?.provider,
-        snapshot?.composerCommands ?? [],
-      ));
+      const copyText = message.role === "user" && message.skill ? message.skill.copyText : message.text;
+      await window.tau?.copyText(copyText);
       setNotice("Message copied.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [snapshot?.composerCommands, snapshot?.model?.provider]);
+  }, []);
 
   const forkMessage = useCallback(async (message: UiMessage) => {
     if (!message.sourceEntryId || !snapshot?.sessionId || !requireHost("Fork thread")) return;
@@ -1797,7 +1795,6 @@ export default function App() {
                       />
                     ) : undefined}
                     activityAfterMessageId={visibleToolAnchorId}
-                    skillCommands={conversationSnapshot?.composerCommands}
                     activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
                       id: entry.id,
                       afterMessageId: entry.anchorMessageId,

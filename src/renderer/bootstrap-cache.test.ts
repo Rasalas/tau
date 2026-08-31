@@ -20,4 +20,13 @@ describe("bootstrap cache", () => {
     expect(cached?.snapshot.allTools).toEqual([]);
     expect(cached?.snapshot.isStreaming).toBe(false);
   });
+
+  it("does not hydrate legacy snapshots that may contain raw skill envelopes", () => {
+    const storage = {
+      getItem: (key: string) => key === "tau.bootstrap-cache.v1"
+        ? JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } })
+        : null,
+    };
+    expect(readBootstrapCache(storage)).toBeUndefined();
+  });
 });

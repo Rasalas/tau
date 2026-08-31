@@ -9,7 +9,6 @@ import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
-import { normalizeSkillInvocationForProvider } from "../../shared/skill-invocation";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -40,20 +39,13 @@ function skillName(command: UiComposerCommand): string {
   return command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
 }
 
+/** Editor-only autocomplete trigger; submitted text is never classified or rewritten here. */
 export function composerTrigger(text: string, caret: number): ComposerTrigger | undefined {
   const before = text.slice(0, caret);
   const match = /^\s*([/$])([^\s]*)$/u.exec(before);
   if (!match) return undefined;
   const start = before.lastIndexOf(match[1]);
   return { kind: match[1] as "/" | "$", query: match[2], start, end: caret };
-}
-
-export function normalizeSkillInvocation(
-  text: string,
-  commands: readonly UiComposerCommand[],
-  provider?: string,
-): string {
-  return normalizeSkillInvocationForProvider(text, provider, commands);
 }
 
 function readImage(file: File): Promise<PendingAttachment> {
@@ -237,7 +229,9 @@ export function Composer({
     }
     if (!text.trim() && attachments.length === 0) return;
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
-    const submittedText = normalizeSkillInvocation(text, commands, snapshot?.model?.provider);
+    // The renderer sends user intent unchanged. The host/runtime adapter owns
+    // provider syntax and skill expansion at the execution boundary.
+    const submittedText = text;
     if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
     else onSubmit(submittedText, submittedAttachments);
     updateDraft("");

@@ -1,7 +1,6 @@
 import { Bot, ChevronRight, Copy, GitFork, Sparkles } from "lucide-react";
 import { memo, useEffect, useState } from "react";
-import type { UiComposerCommand, UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
-import { parseSkillInvocation } from "../../shared/skill-invocation";
+import type { UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
 
 function clockTime(timestamp: number): string {
@@ -42,6 +41,7 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
 }
 
 const LOCAL_IMAGE_PATH = /(\/(?:(?:\\ )|[^\s'"<>])+?\.(?:png|jpe?g|gif|webp))(?=\s|$|[),;])/giu;
+const LOCAL_IMAGE_PATH_WITH_SEPARATOR = new RegExp(`${LOCAL_IMAGE_PATH.source}[ \\t]?`, "giu");
 
 export function localImagePaths(text: string): string[] {
   const matches = text.matchAll(LOCAL_IMAGE_PATH);
@@ -49,7 +49,9 @@ export function localImagePaths(text: string): string[] {
 }
 
 export function withoutLocalImagePaths(text: string): string {
-  return text.replace(LOCAL_IMAGE_PATH, "").replace(/^[ \t]+|[ \t]+$/gmu, "").trim();
+  // Consume at most the separator after a hidden path; all other whitespace,
+  // including indentation and fenced Markdown, belongs to the user's text.
+  return text.replace(LOCAL_IMAGE_PATH_WITH_SEPARATOR, "");
 }
 
 const imagePreviewCache = new Map<string, Promise<UiImagePreview | undefined>>();
@@ -125,24 +127,24 @@ export const Message = memo(function Message({
   streaming = false,
   onCopy,
   onFork,
-  skillCommands = [],
 }: {
   message: UiMessage;
   streaming?: boolean;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
-  skillCommands?: readonly UiComposerCommand[];
 }) {
-  const activity = parseAsyncActivity(message.text);
+  // Host-resolved skill metadata is authoritative; do not let the generic
+  // activity heuristic replace a typed skill message.
+  const activity = message.skill ? undefined : parseAsyncActivity(message.text);
 
   if (activity) return <ActivityDisclosure activity={activity} />;
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
-    const skill = parseSkillInvocation(message.text, skillCommands);
-    const skillInstruction = skill?.userMessage ?? "";
-    const messageText = skill ? skillInstruction : message.text;
+    const skill = message.skill;
+    const messageText = message.text;
     const visibleText = withoutLocalImagePaths(messageText);
+    const hasVisibleText = visibleText.trim().length > 0;
     const hasLocalImages = localImagePaths(messageText).length > 0;
     const persistedImages = message.images ?? [];
     return (
@@ -150,7 +152,7 @@ export const Message = memo(function Message({
         <article className="message user">
           <div className="message-text">
             {skill ? <SkillChip name={skill.name} /> : null}
-            {visibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
+            {hasVisibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
             <PersistedMessageImages images={persistedImages} />
             {hasLocalImages ? <MessageImages text={messageText} /> : null}
           </div>

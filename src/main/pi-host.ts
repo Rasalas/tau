@@ -28,6 +28,7 @@ import type {
   HostEvent,
   HostSnapshot,
   PushResult,
+  RuntimeCapabilities,
   ShellActionResult,
   ThreadIndexSnapshot,
   UiComposerCommand,
@@ -66,7 +67,13 @@ import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
-import { normalizeSkillInvocationForProvider } from "../shared/skill-invocation.js";
+import {
+  PI_RUNTIME_ADAPTER,
+  normalizeSkillInvocationForRuntime,
+  skillMessagePresentation,
+  type SkillRuntimeAdapter,
+} from "./skill-invocation.js";
+
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -128,7 +135,17 @@ function thinkingFromContent(content: unknown): string | undefined {
   return value || undefined;
 }
 
-export function mapMessage(message: unknown, index: number): UiMessage | undefined {
+export interface MessageMappingOptions {
+  skillRuntimeAdapter?: SkillRuntimeAdapter;
+  skillCommands?: readonly UiComposerCommand[];
+}
+
+export interface PiHostOptions {
+  /** Runtime-owned skill syntax; Pi is used when no adapter is supplied. */
+  skillRuntimeAdapter?: SkillRuntimeAdapter;
+}
+
+export function mapMessage(message: unknown, index: number, options: MessageMappingOptions = {}): UiMessage | undefined {
   if (!message || typeof message !== "object") return undefined;
   const value = message as {
     role?: string;
@@ -141,11 +158,16 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
   if (value.role === "user") {
     const text = textFromContent(value.content);
     const images = imagesFromContent(value.content);
+    const presentation = options.skillRuntimeAdapter && options.skillCommands
+      ? skillMessagePresentation(text, options.skillRuntimeAdapter, options.skillCommands)
+      : undefined;
+    const visibleText = presentation?.text ?? text;
     return {
       id: value.tauEntryId ?? `user-${value.timestamp ?? index}-${index}`,
       sourceEntryId: value.tauEntryId,
       role: "user",
-      text: text || (images.length ? `[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""),
+      text: visibleText || (images.length ? `[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""),
+      ...(presentation ? { skill: presentation.skill } : {}),
       images,
       timestamp: value.timestamp ?? Date.now(),
     };
@@ -457,7 +479,10 @@ class ThreadRuntime implements LiveTurnState {
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
 
-  constructor(readonly runtime: AgentSessionRuntime) {}
+  constructor(
+    readonly runtime: AgentSessionRuntime,
+    readonly skillRuntimeAdapter: SkillRuntimeAdapter,
+  ) {}
 
   get session(): AgentSession { return this.runtime.session; }
   get sessionId(): string { return this.runtime.session.sessionId; }
@@ -479,6 +504,7 @@ function samePath(left: string | undefined, right: string | undefined): boolean 
 
 export class PiHost {
   private cwd: string;
+  private readonly skillRuntimeAdapter: SkillRuntimeAdapter;
   private emit: Emit;
   private bridge?: PiBridgeClient;
   private bridgeSnapshot?: PiBridgeSnapshot;
@@ -631,8 +657,10 @@ export class PiHost {
     private readonly projectHistory: ProjectHistory,
     private readonly safeMode = false,
     private readonly automaticPrewarm = true,
+    options: PiHostOptions = {},
   ) {
     this.cwd = cwd;
+    this.skillRuntimeAdapter = options.skillRuntimeAdapter ?? PI_RUNTIME_ADAPTER;
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
       emit(event);
@@ -914,7 +942,7 @@ export class PiHost {
     if (this.bridge && (!cwd || cwd === this.cwd)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt: this.normalizeBridgePrompt(initialPrompt) });
+        await this.bridgeCommand({ command: "new_session", initialPrompt });
         return this.actionResult([]);
       } catch (error) {
         // A new thread is a different session, so Pi has no standing to veto it.
@@ -1055,9 +1083,10 @@ export class PiHost {
   async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      const prompt = this.normalizeBridgePrompt(text);
-      await this.bridge!.command({ command: "prompt", text: prompt });
-      this.log("prompt.accepted", prompt.slice(0, 80));
+      // Pi's bridge extension is the runtime owner and performs this
+      // normalization against its current command registry exactly once.
+      await this.bridge!.command({ command: "prompt", text });
+      this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
@@ -1105,7 +1134,7 @@ export class PiHost {
   async steer(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text: this.normalizeBridgePrompt(text), deliverAs: "steer" });
+      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer" });
       return;
     }
     try {
@@ -1120,7 +1149,7 @@ export class PiHost {
   async followUp(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text: this.normalizeBridgePrompt(text), deliverAs: "followUp" });
+      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp" });
       return;
     }
     try {
@@ -1512,7 +1541,7 @@ export class PiHost {
         sessionManager: manager,
         sessionStartEvent,
       });
-      const thread = new ThreadRuntime(runtime);
+      const thread = new ThreadRuntime(runtime, this.skillRuntimeAdapter);
       await this.bindThread(thread, thread.session);
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
@@ -1886,9 +1915,10 @@ export class PiHost {
   private bridgeHostSnapshot(): HostSnapshot {
     const snapshot = this.bridgeSnapshot;
     if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
+    const mapping = this.messageMappingOptions();
     const messages = snapshot.messages
-      .map((message, index) => mapMessage(message, index))
-      .filter((message): message is UiMessage => Boolean(message?.text));
+      .map((message, index) => mapMessage(message, index, mapping))
+      .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
     const firstUserMessage = snapshot.messages.find((message) =>
       Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
     );
@@ -1978,7 +2008,7 @@ export class PiHost {
         }
         case "message_end":
           if (event.message.role === "assistant") {
-            const message = mapMessage(event.message, 0);
+            const message = mapMessage(event.message, 0, this.messageMappingOptions(thread));
             if (message) {
               message.id = thread.currentAssistantId ?? message.id;
               this.emit({ type: "assistant-end", sessionId, message });
@@ -1986,7 +2016,7 @@ export class PiHost {
             thread.currentAssistantId = undefined;
             thread.liveAssistant = undefined;
           } else if (event.message.role === "user") {
-            const message = mapMessage(event.message, 0);
+            const message = mapMessage(event.message, 0, this.messageMappingOptions(thread));
             if (message) this.emit({ type: "user-message", sessionId, message });
           }
           break;
@@ -2179,9 +2209,10 @@ export class PiHost {
   }
 
   private messageSnapshot(thread: ThreadRuntime): UiMessage[] {
+    const mapping = this.messageMappingOptions(thread);
     const messages = this.branchMessagesWithEntryIds(thread)
-      .map((message, index) => mapMessage(message, index))
-      .filter((message): message is UiMessage => Boolean(message?.text));
+      .map((message, index) => mapMessage(message, index, mapping))
+      .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
     // Text still streaming is not in the session yet; without it a thread opened
     // mid-answer would look silent until the answer finished.
     const live = thread.liveAssistant;
@@ -2237,24 +2268,32 @@ export class PiHost {
   }
 
   private normalizeThreadPrompt(thread: ThreadRuntime, text: string): string {
-    return normalizeSkillInvocationForProvider(
+    return normalizeSkillInvocationForRuntime(
       text,
-      thread.session.model?.provider,
+      thread.skillRuntimeAdapter,
       this.composerCommands(thread),
     );
   }
 
-  private normalizeBridgePrompt(text: string): string;
-  private normalizeBridgePrompt(text: undefined): undefined;
-  private normalizeBridgePrompt(text: string | undefined): string | undefined;
-  private normalizeBridgePrompt(text: string | undefined): string | undefined {
-    if (text === undefined) return undefined;
-    const snapshot = this.bridgeSnapshot;
-    return normalizeSkillInvocationForProvider(
-      text,
-      snapshot?.model?.provider,
-      snapshot?.composerCommands ?? [],
-    );
+  private bridgeRuntimeCapabilities(): RuntimeCapabilities {
+    return this.bridgeSnapshot?.runtimeCapabilities ?? PI_RUNTIME_ADAPTER.capabilities;
+  }
+
+  private bridgeSkillRuntimeAdapter(): SkillRuntimeAdapter {
+    return { capabilities: this.bridgeRuntimeCapabilities() };
+  }
+
+  private messageMappingOptions(thread?: LiveTurnState): MessageMappingOptions {
+    if (thread instanceof ThreadRuntime) {
+      return {
+        skillRuntimeAdapter: thread.skillRuntimeAdapter,
+        skillCommands: this.composerCommands(thread),
+      };
+    }
+    return {
+      skillRuntimeAdapter: this.bridgeSkillRuntimeAdapter(),
+      skillCommands: this.bridgeSnapshot?.composerCommands ?? [],
+    };
   }
 
   private snapshotSync(models: UiModel[]): HostSnapshot {

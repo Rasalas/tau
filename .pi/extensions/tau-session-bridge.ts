@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
-import { normalizeSkillInvocationForProvider } from "../../src/shared/skill-invocation.js";
+import { normalizePiBridgePrompt, PI_RUNTIME_ADAPTER } from "../../src/main/skill-invocation.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import {
   encodePiBridgeFrame,
@@ -30,11 +30,7 @@ function boundedBridgeValue<T>(value: T): T {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
-  const normalizePrompt = (text: string, ctx: ExtensionContext): string => normalizeSkillInvocationForProvider(
-    text,
-    ctx.model?.provider,
-    pi.getCommands(),
-  );
+  const normalizePrompt = (text: string): string => normalizePiBridgePrompt(text, pi.getCommands());
 
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
@@ -46,7 +42,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const initialPrompt = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as string : undefined;
       await ctx.newSession({
         ...(initialPrompt ? { withSession: async (fresh) => {
-          await fresh.sendUserMessage(normalizePrompt(initialPrompt, ctx), { expandPromptTemplates: true });
+          await fresh.sendUserMessage(normalizePrompt(initialPrompt), { expandPromptTemplates: true });
         } } : {}),
       });
     },
@@ -92,6 +88,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       messages: boundedBridgeValue(branchMessages.slice(-160)),
       isStreaming: !ctx.isIdle(),
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, name: ctx.model.name } : undefined,
+      runtimeCapabilities: PI_RUNTIME_ADAPTER.capabilities,
       models: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, id: model.id, name: model.name })),
       thinkingLevel: pi.getThinkingLevel(),
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
@@ -178,7 +175,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
         case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
         case "prompt":
-          pi.sendUserMessage(normalizePrompt(frame.text, ctx), {
+          pi.sendUserMessage(normalizePrompt(frame.text), {
             ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
             expandPromptTemplates: true,
           });

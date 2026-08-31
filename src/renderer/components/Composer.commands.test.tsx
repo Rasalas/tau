@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
-import { Composer, normalizeSkillInvocation } from "./Composer";
+import { Composer } from "./Composer";
 
 const composerCommands = [
   { name: "skill:tdd", description: "Build features test-first", source: "skill" as const },
@@ -28,9 +28,9 @@ const snapshot: HostSnapshot = {
   serviceTierAvailable: false,
 };
 
-function renderComposer(onSubmit = vi.fn(), streaming = false, provider?: string) {
+function renderComposer(onSubmit = vi.fn(), streaming = false) {
   render(<Composer
-    snapshot={{ ...snapshot, isStreaming: streaming, model: provider ? { provider, id: "model", name: "Model" } : undefined }}
+    snapshot={{ ...snapshot, isStreaming: streaming }}
     queue={[]}
     accessLevel="full"
     contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
@@ -54,7 +54,7 @@ function renderComposer(onSubmit = vi.fn(), streaming = false, provider?: string
 afterEach(cleanup);
 
 describe("Composer command menu", () => {
-  it("shows Pi skills with the $ syntax and sends Pi's canonical /skill: command", () => {
+  it("shows skills with the $ syntax and sends the user's shorthand unchanged", () => {
     const onSubmit = renderComposer();
     const textarea = screen.getByPlaceholderText(/\$ skills/u) as HTMLTextAreaElement;
 
@@ -68,7 +68,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "$tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("/skill:tdd fix the parser", []);
+    expect(onSubmit).toHaveBeenCalledWith("$tdd fix the parser", []);
   });
 
   it("finds and executes skills directly from slash", () => {
@@ -82,7 +82,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "/tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("/skill:tdd fix the parser", []);
+    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", []);
   });
 
   it("queues Enter and steers with Command-Enter while streaming", () => {
@@ -112,21 +112,12 @@ describe("Composer command menu", () => {
     expect(textarea.value).toBe("/review ");
   });
 
-  it("leaves unknown and colliding shorthand untouched", () => {
-    expect(normalizeSkillInvocation("$missing do this", composerCommands)).toBe("$missing do this");
-    expect(normalizeSkillInvocation("/review this", [
-      ...composerCommands,
-      { name: "skill:review", source: "skill", description: "Review skill" },
-    ])).toBe("/review this");
-  });
-
-  it("sends Claude Code skills as slash commands without the dollar form", () => {
-    const onSubmit = renderComposer(vi.fn(), false, "claude-code");
+  it("passes indented command-looking Markdown to the host unchanged", () => {
+    const onSubmit = renderComposer();
     const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
 
-    fireEvent.change(textarea, { target: { value: "$tdd fix the parser", selectionStart: 19 } });
+    fireEvent.change(textarea, { target: { value: "    /tdd keep this code", selectionStart: 23 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", []);
-    expect(onSubmit.mock.calls[0]?.[0]).not.toContain("$tdd");
+    expect(onSubmit).toHaveBeenCalledWith("    /tdd keep this code", []);
   });
 });

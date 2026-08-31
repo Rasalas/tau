@@ -60,7 +60,7 @@ Tau's own source can be changed from inside Tau too. `/rebuild` runs the product
 - full-window diff review (`Cmd/Ctrl+Shift+D`) with unified and split views, driven by a real `git diff`
 - commit and push from the review, with the message editable before it runs
 - composer-level model, thinking and access controls, plus a context dial wired to Pi's own usage and manual compaction
-- composer autocomplete for Pi skills, prompt templates, and extension commands; skills are searchable as `$skill` or `/skill`, and Tau resolves the shorthand to the active provider's supported invocation form when sent
+- composer autocomplete for Pi skills, prompt templates, and extension commands; skills are searchable as `$skill` or `/skill`, and the host runtime adapter resolves the shorthand to its supported invocation form when sent
 - model picker with provider tabs, cross-provider search and favourites
 - clickable workspace bar under the composer: switch between the checkout and its worktrees, create a worktree for a new branch, and pick a ref from a searchable list
 - enforced access levels: Tau's inline Pi extension gates workspace mutations and computer-control actions; read-only threads retain inspection tools, while ask-before-edits requires approval before clicks, typing, launches, shell commands, and file changes

@@ -8,12 +8,31 @@ export interface UiMessageImage {
   data: string;
 }
 
+/** Skill dialect selected by the runtime adapter, never inferred from a model id. */
+export type SkillInvocationDialect = "pi" | "claude-code";
+
+/** Capabilities supplied by the runtime owner at the host/adapter boundary. */
+export interface RuntimeCapabilities {
+  skillInvocationDialect: SkillInvocationDialect;
+}
+
+/** Host-resolved metadata for a user skill invocation. */
+export interface UiSkillInvocation {
+  name: string;
+  /** Provider/runtime-supported command spelling, without the user instruction. */
+  command: string;
+  /** Compact text safe to copy back into this runtime. */
+  copyText: string;
+}
+
 export interface UiMessage {
   id: string;
   /** Persisted Pi session entry used for exact branch/fork operations. */
   sourceEntryId?: string;
   role: UiRole;
   text: string;
+  /** Present only when the host recognized a known skill invocation. */
+  skill?: UiSkillInvocation;
   thinking?: string;
   images?: readonly UiMessageImage[];
   timestamp: number;

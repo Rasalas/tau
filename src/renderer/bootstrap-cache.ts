@@ -1,6 +1,8 @@
 import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
 
-const CACHE_KEY = "tau.bootstrap-cache.v1";
+// v2 invalidates legacy snapshots that contained raw Pi skill envelopes before
+// the host began sending renderer-safe message metadata.
+const CACHE_KEY = "tau.bootstrap-cache.v2";
 const MAX_BYTES = 512 * 1024;
 
 export interface CachedBootstrap {

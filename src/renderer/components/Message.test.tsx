@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiComposerCommand } from "../../shared/contracts";
 import { localImagePaths, Message, withoutLocalImagePaths } from "./Message";
 
 afterEach(cleanup);
@@ -93,21 +92,15 @@ describe("Message async activity", () => {
 });
 
 describe("Message skill invocations", () => {
-  const skillCommands: UiComposerCommand[] = [
-    { name: "skill:tdd", source: "skill", description: "Build features test-first" },
-  ];
-  const envelope = `<skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">
-References are relative to /Users/me/.pi/skills/tdd.
-
-Injected skill content that is not the user's request.
-</skill>
-
-Please fix **the parser** and keep the examples.`;
-
-  it("renders a labelled skill chip and only the user's Markdown instruction", () => {
+  it("renders host-provided skill metadata and only the user's Markdown instruction", () => {
     const view = render(<Message
-      message={{ id: "skill", role: "user", text: envelope, timestamp: 0 }}
-      skillCommands={skillCommands}
+      message={{
+        id: "skill",
+        role: "user",
+        text: "Please fix **the parser** and keep the examples.",
+        skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Please fix **the parser** and keep the examples." },
+        timestamp: 0,
+      }}
     />);
 
     expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
@@ -119,41 +112,59 @@ Please fix **the parser** and keep the examples.`;
     expect(view.container.textContent).not.toContain("/Users/me/.pi/skills");
   });
 
-  it("recognizes a known direct invocation without hiding its instruction", () => {
+  it("keeps typed skill metadata authoritative over activity text heuristics", () => {
+    render(<Message message={{
+      id: "skill-activity-shaped",
+      role: "user",
+      text: "Background task completed: inspect the parser",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Background task completed: inspect the parser" },
+      timestamp: 0,
+    }} />);
+
+    expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
+    expect(screen.getByText("Background task completed: inspect the parser")).toBeTruthy();
+  });
+
+  it("preserves indentation and fenced Markdown in the host-provided text", () => {
+    const instruction = "Review this:\n    keep this indentation\n\n```md\n  keep this fence\n```";
+    expect(withoutLocalImagePaths(instruction)).toBe(instruction);
     const view = render(<Message
-      message={{ id: "skill-reference", role: "user", text: "/tdd **this change**", timestamp: 0 }}
-      skillCommands={skillCommands}
+      message={{
+        id: "skill-markdown",
+        role: "user",
+        text: instruction,
+        skill: { name: "tdd", command: "/skill:tdd", copyText: `/skill:tdd ${instruction}` },
+        timestamp: 0,
+      }}
     />);
     expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
-    expect(view.container.textContent).toContain("this change");
-    expect(view.container.querySelector(".markdown strong")?.textContent).toBe("this change");
+    expect(view.container.textContent).toContain("keep this indentation");
+    expect(view.container.textContent).toContain("keep this fence");
+    expect(view.container.querySelector("pre")).toBeTruthy();
   });
 
   it("leaves malformed and fenced lookalikes visible as ordinary Markdown", () => {
-    const unknown = envelope.replace('name="tdd"', 'name="missing"');
+    const unknown = `<skill name="missing" location="/Users/me/.pi/skills/missing/SKILL.md">\nInjected skill content\n</skill>\n\nPlease keep this raw.`;
     const unknownView = render(<Message
       message={{ id: "unknown", role: "user", text: unknown, timestamp: 0 }}
-      skillCommands={skillCommands}
     />);
     expect(unknownView.container.querySelector(".skill-chip")).toBeNull();
     expect(unknownView.container.textContent).toContain("<skill");
     expect(unknownView.container.textContent).toContain("Injected skill content");
     cleanup();
 
-    const malformed = envelope.replace("</skill>", "</skill");
+    const malformed = unknown.replace("</skill>", "</skill");
     const malformedView = render(<Message
       message={{ id: "malformed", role: "user", text: malformed, timestamp: 0 }}
-      skillCommands={skillCommands}
     />);
     expect(malformedView.container.querySelector(".skill-chip")).toBeNull();
     expect(malformedView.container.textContent).toContain("<skill");
     expect(malformedView.container.textContent).toContain("Injected skill content");
     cleanup();
 
-    const fenced = `\`\`\`xml\n${envelope}\n\`\`\``;
+    const fenced = `\`\`\`xml\n${unknown}\n\`\`\``;
     const fencedView = render(<Message
       message={{ id: "fenced", role: "user", text: fenced, timestamp: 0 }}
-      skillCommands={skillCommands}
     />);
     expect(fencedView.container.querySelector(".skill-chip")).toBeNull();
     expect(fencedView.container.textContent).toContain("Injected skill content");

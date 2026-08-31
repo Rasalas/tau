@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const messageRenders = vi.hoisted(() => ({ count: 0 }));
 vi.mock("./components/Message", () => ({
-  Message: ({ message }: { message: { text: string } }) => {
+  Message: ({ message, onCopy }: { message: { text: string }; onCopy?: (message: { text: string }) => void }) => {
     messageRenders.count += 1;
-    return <div>{message.text}</div>;
+    return <div>{message.text}{onCopy ? <button type="button" onClick={() => onCopy(message)}>copy message</button> : null}</div>;
   },
 }));
 
@@ -26,6 +26,15 @@ describe("App render isolation", () => {
     const pending = [{ scope: "session", message: { id: "local", role: "user" as const, text: "hello", timestamp: 100_000 } }];
     expect(reconcileOptimisticMessages(pending, [{ id: "old", role: "user", text: "hello", timestamp: 1 }])).toEqual(pending);
     expect(reconcileOptimisticMessages(pending, [{ id: "saved", role: "user", text: "hello", timestamp: 100_001 }])).toEqual([]);
+
+    const pendingSkill = [{ scope: "session", message: { id: "local-skill", role: "user" as const, text: "$tdd hello", timestamp: 100_000 } }];
+    expect(reconcileOptimisticMessages(pendingSkill, [{
+      id: "saved-skill",
+      role: "user",
+      text: "hello",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd hello" },
+      timestamp: 100_001,
+    }])).toEqual([]);
   });
 
   it("anchors aggregate tool activity after the latest visible message in the turn", () => {
@@ -155,6 +164,50 @@ describe("App render isolation", () => {
     expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
     expect(screen.getByText("Build the first screen")).toBeTruthy();
+  });
+
+  it("copies the host-resolved skill instruction instead of injected content", async () => {
+    const copyText = vi.fn(async () => undefined);
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: {
+          sessionId: "session",
+          messages: [{
+            id: "skill",
+            role: "user" as const,
+            text: "Review **the parser**",
+            skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Review **the parser**" },
+            timestamp: 1,
+          }, {
+            id: "assistant",
+            role: "assistant" as const,
+            text: "Assistant **answer**",
+            timestamp: 2,
+          }],
+          isStreaming: false,
+          activeTools: [],
+        },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      copyText,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByText("Review **the parser**");
+    const copyButtons = screen.getAllByRole("button", { name: "copy message" });
+    fireEvent.click(copyButtons[0]);
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("/skill:tdd Review **the parser**"));
+    fireEvent.click(copyButtons[1]);
+    await waitFor(() => expect(copyText).toHaveBeenLastCalledWith("Assistant **answer**"));
   });
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {

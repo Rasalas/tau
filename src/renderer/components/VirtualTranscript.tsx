@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { ReactNode, RefObject } from "react";
-import type { UiComposerCommand, UiMessage } from "../../shared/contracts";
+import type { UiMessage } from "../../shared/contracts";
 import { Message } from "./Message";
 
 export interface VirtualTranscriptProps {
@@ -12,7 +12,6 @@ export interface VirtualTranscriptProps {
   activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
-  skillCommands?: readonly UiComposerCommand[];
 }
 
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
@@ -25,7 +24,6 @@ export function VirtualTranscript({
   activities = [],
   onCopyMessage,
   onForkMessage,
-  skillCommands = [],
 }: VirtualTranscriptProps) {
   const pendingActivities = [
     ...activities,
@@ -95,7 +93,6 @@ export function VirtualTranscript({
           streaming={Boolean(isStreaming && message === messages.at(-1) && message.role === "assistant")}
           onCopy={onCopyMessage}
           onFork={onForkMessage}
-          skillCommands={skillCommands}
         />
         {anchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
       </div>;
