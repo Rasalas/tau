@@ -2,6 +2,13 @@ import type { HostActionResult } from "./host-protocol.js";
 import type { TranscriptBundle } from "./transcript-contract.js";
 import type { HostTranscriptCursor } from "./transcript-cursor.js";
 
+declare const newThreadRequestIdBrand: unique symbol;
+/** Opaque identity for one new-thread request across renderer, host, and bridge. */
+export type NewThreadRequestId = string & { readonly [newThreadRequestIdBrand]: true };
+export function createNewThreadRequestId(value: string): NewThreadRequestId {
+  return value as NewThreadRequestId;
+}
+
 export type UiRole = "user" | "assistant" | "notice";
 
 export interface UiMessageImage {
@@ -315,6 +322,17 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   serviceTier: ServiceTier;
   /** False when the active model's API has no priority tier to ask for. */
   serviceTierAvailable: boolean;
+  /** Whether the active host/runtime adapter accepts image prompt input. */
+  /** Optional for protocol-v1 compatibility; missing means unsupported. */
+  supportsImageInput?: boolean;
+}
+
+/** Capability of the runtime prepared for a not-yet-created thread. */
+export interface PreparedThreadCapability {
+  cwd: string;
+  generation: number;
+  /** Optional for protocol-v1 compatibility; missing means unsupported. */
+  supportsImageInput?: boolean;
 }
 
 export interface ThreadIndexSnapshot {
@@ -338,6 +356,7 @@ export interface HostBootstrap {
   version: 1;
   detail: HostBootstrapDetail;
   catalog: {
+    sessionId?: string;
     models: UiModel[];
     model?: UiModel;
     thinkingLevel: string;
@@ -347,13 +366,20 @@ export interface HostBootstrap {
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;
+    /** Optional for protocol-v1 compatibility; missing means unsupported. */
+    supportsImageInput?: boolean;
   };
   project: { cwd: string; branch?: string };
 }
 
-export type HostEvent =
+export type GlobalHostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
+  | { type: "error"; message: string; sessionId?: undefined }
+  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
+
+/** Events emitted by a runtime always carry the owning session explicitly. */
+export type ThreadHostEvent =
   | { type: "agent-status"; sessionId: string; running: boolean }
   // Every thread has its own runtime, so live events name the thread they belong
   // to; the renderer applies them only to the thread it is showing.
@@ -366,12 +392,19 @@ export type HostEvent =
   | { type: "tool-update"; sessionId: string; id: string; output: string }
   | { type: "tool-end"; sessionId: string; tool: UiToolRun }
   | { type: "queue"; sessionId: string; steering: string[]; followUp: string[] }
-  | { type: "tool-approval"; request: ToolApprovalRequest }
-  | { type: "extension-ui-prompt"; prompt: ExtensionUiPrompt }
-  | { type: "extension-ui-resolved"; id: string }
-  | { type: "notice"; message: string; level: "info" | "warning" | "error" }
-  | { type: "error"; message: string }
-  | { type: "event-log"; label: string; detail?: string; timestamp: number };
+  | { type: "tool-approval"; sessionId: string; request: ToolApprovalRequest }
+  | { type: "extension-ui-prompt"; sessionId: string; prompt: ExtensionUiPrompt }
+  | { type: "extension-ui-resolved"; id: string; sessionId: string }
+  | { type: "notice"; message: string; level: "info" | "warning" | "error"; sessionId: string }
+  | { type: "error"; message: string; sessionId: string }
+  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId: string };
+
+export type HostEvent = GlobalHostEvent | ThreadHostEvent;
+
+/** The single result shape used by host, scoped composer store, and renderer. */
+export type SubmissionResult =
+  | { accepted: true }
+  | { accepted: false; message: string };
 
 /** A desktop extension compiled by the host, ready for the renderer to import. */
 export interface DesktopExtensionBundle {
@@ -415,7 +448,8 @@ export interface TauDesktopApi {
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: NewThreadRequestId): Promise<import("./host-protocol.js").NewThreadResult>;
+  getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;

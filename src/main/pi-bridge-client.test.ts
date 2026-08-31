@@ -47,6 +47,7 @@ function fixture(): { descriptor: PiBridgeDescriptor; snapshot: PiBridgeSnapshot
       thinkingLevels: ["off"],
       activeTools: [],
       allTools: [],
+      supportsImageInput: false,
     },
   };
 }
@@ -143,6 +144,7 @@ describe("PiBridgeClient", () => {
     cleanup.push(() => client.close());
 
     await expect(client.open()).resolves.toEqual(snapshot);
+    expect(snapshot.supportsImageInput).toBe(false);
     await expect(client.command({ command: "ping" })).resolves.toEqual({ command: "ping" });
   });
 

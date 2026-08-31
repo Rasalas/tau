@@ -4,6 +4,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, normalizeSkillInvocation } from "./Composer";
+import { ComposerScopeStore } from "../composer-scope-store";
 
 const composerCommands = [
   { name: "skill:tdd", description: "Build features test-first", source: "skill" as const },
@@ -26,10 +27,13 @@ const snapshot: HostSnapshot = {
   extensionCount: 0,
   serviceTier: "standard",
   serviceTierAvailable: false,
+  supportsImageInput: true,
 };
 
-function renderComposer(onSubmit = vi.fn(), streaming = false) {
+function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const })), streaming = false) {
+  const scopeStore = new ComposerScopeStore();
   render(<Composer
+    scopeStore={scopeStore}
     snapshot={{ ...snapshot, isStreaming: streaming }}
     queue={[]}
     accessLevel="full"
@@ -85,13 +89,14 @@ describe("Composer command menu", () => {
     expect(onSubmit).toHaveBeenCalledWith("/skill:tdd fix the parser", []);
   });
 
-  it("queues Enter and steers with Command-Enter while streaming", () => {
-    const onSubmit = renderComposer(vi.fn(), true);
+  it("queues Enter and steers with Command-Enter while streaming", async () => {
+    const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), true);
     const textarea = screen.getByPlaceholderText(/queues/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "after this turn", selectionStart: 15 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSubmit).toHaveBeenLastCalledWith("after this turn", [], "followUp");
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     fireEvent.change(textarea, { target: { value: "adjust now", selectionStart: 10 } });
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });

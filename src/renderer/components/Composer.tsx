@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -8,7 +8,21 @@ import { ModelPicker, modelKey } from "./ModelPicker";
 import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
-import { readComposerDraft, writeComposerDraft } from "../draft-store";
+import {
+  attachmentPolicyMessage,
+  MAX_ATTACHMENTS,
+  selectAttachmentCandidates,
+} from "../../shared/prompt-attachment-limits";
+import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
+import {
+  ComposerScopeStore,
+  allocateAttachmentId,
+  createDraftKey,
+  type ComposerScope,
+  type ComposerScopeReference,
+  type PendingAttachment,
+} from "../composer-scope-store";
+import { errorMessage } from "../error-message";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -26,12 +40,11 @@ const THINKING_LABELS: Record<string, string> = {
   max: "Max",
 };
 
-const MAX_ATTACHMENTS = 4;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-let nextAttachmentId = 0;
+export type SubmitResult = SubmissionResult;
 
-type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+export interface ComposerAttachmentHandle {
+  addFiles(files: FileList | readonly File[]): Promise<void>;
+}
 
 type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
 
@@ -59,14 +72,6 @@ export function normalizeSkillInvocation(text: string, commands: readonly UiComp
 
 function readImage(file: File): Promise<PendingAttachment> {
   return new Promise((resolve, reject) => {
-    if (!IMAGE_MIME_TYPES.has(file.type)) {
-      reject(new Error(`${file.name} is not a supported PNG, JPEG, GIF, or WebP image.`));
-      return;
-    }
-    if (file.size < 1 || file.size > MAX_IMAGE_BYTES) {
-      reject(new Error(`${file.name} must be 10 MB or smaller.`));
-      return;
-    }
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`${file.name} could not be read.`));
     reader.onload = () => {
@@ -77,7 +82,7 @@ function readImage(file: File): Promise<PendingAttachment> {
         return;
       }
       resolve({
-        id: nextAttachmentId++,
+        id: allocateAttachmentId(),
         kind: "image",
         name: file.name,
         mimeType: file.type,
@@ -92,6 +97,7 @@ function readImage(file: File): Promise<PendingAttachment> {
 
 export function Composer({
   snapshot,
+  scopeStore,
   value,
   seed,
   draftStorageKey,
@@ -100,6 +106,7 @@ export function Composer({
   contextUsage,
   contextBreakdown,
   textareaRef,
+  attachmentRef,
   onChange,
   onSubmit,
   onAbort,
@@ -122,6 +129,7 @@ export function Composer({
   onSwitchRef,
 }: {
   snapshot?: HostSnapshot;
+  scopeStore: ComposerScopeStore;
   value?: string;
   seed?: string;
   draftStorageKey?: string;
@@ -130,8 +138,9 @@ export function Composer({
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
   onChange?(value: string): void;
-  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): void;
+  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): Promise<SubmitResult>;
   onAbort(): void;
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
@@ -154,17 +163,19 @@ export function Composer({
   onSwitchRef(ref: string): Promise<boolean>;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
-  const [draft, setDraft] = useState(() => readComposerDraft(window.localStorage, draftStorageKey));
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string>();
+  const attachmentScope = createDraftKey(draftStorageKey);
+  const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
+  const readScope = useCallback(() => scopeStore.getSnapshot(attachmentScope), [attachmentScope, scopeStore]);
+  const activeScopeSnapshot = useSyncExternalStore(subscribeToScope, readScope, readScope);
+  const activeAttachmentScopeRef = useRef<ComposerScope>(attachmentScope);
+  const attachments = activeScopeSnapshot.attachments;
+  const attachmentError = activeScopeSnapshot.error;
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const preserveDraftForWorkspaceRef = useRef(false);
-  if (workspaceBusy) preserveDraftForWorkspaceRef.current = true;
-  const text = value ?? draft;
+  const text = value ?? activeScopeSnapshot.draft;
   const commands = snapshot?.composerCommands ?? [];
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
   const commandMatches = useMemo(() => {
@@ -179,45 +190,73 @@ export function Composer({
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (value !== undefined) return;
-    if (preserveDraftForWorkspaceRef.current && draft) {
-      writeComposerDraft(window.localStorage, draftStorageKey, draft);
-    } else {
-      setDraft(readComposerDraft(window.localStorage, draftStorageKey));
-    }
-    preserveDraftForWorkspaceRef.current = false;
-  }, [draftStorageKey, value]);
-  useEffect(() => {
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
       appliedSeed.current = seed;
-      setDraft(seed);
+      scopeStore.setDraft(attachmentScope, seed);
     }
-  }, [seed, value]);
+  }, [attachmentScope, scopeStore, seed, value]);
   const updateDraft = (next: string) => {
-    if (value === undefined) {
-      setDraft(next);
-      writeComposerDraft(window.localStorage, draftStorageKey, next);
-    }
+    scopeStore.setDraft(attachmentScope, next);
     onChange?.(next);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const fastTier = snapshot?.serviceTier === "fast";
+  const supportsImageInput = snapshot?.supportsImageInput ?? false;
   const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
-  const addFiles = async (files: FileList | readonly File[]) => {
-    const available = Math.max(0, MAX_ATTACHMENTS - attachments.length);
-    const candidates = Array.from(files).slice(0, available);
-    if (candidates.length < files.length) setAttachmentError(`Attach at most ${MAX_ATTACHMENTS} images.`);
-    const results = await Promise.allSettled(candidates.map(readImage));
+  useEffect(() => {
+    const previousScope = activeAttachmentScopeRef.current;
+    if (previousScope === attachmentScope) return;
+    activeAttachmentScopeRef.current = attachmentScope;
+    setPreviewId(undefined);
+  }, [attachmentScope]);
+
+  const processFiles = useCallback(async (
+    files: FileList | readonly File[],
+    scopeRef: ComposerScopeReference,
+    capability: boolean,
+    generation: number,
+  ) => {
+    const incoming = Array.from(files);
+    if (incoming.length === 0) return;
+    const state = scopeStore.getSnapshot(scopeRef.scope);
+    if (!capability) {
+      scopeStore.setAttachmentError(scopeRef.scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE, generation);
+      return;
+    }
+    const policy = selectAttachmentCandidates(
+      incoming.map((file) => ({ item: file, name: file.name, mimeType: file.type, size: file.size })),
+      state.attachments,
+    );
+    const validCandidates = policy.accepted.map((candidate) => candidate.item);
+    const firstError = policy.rejected[0] ? attachmentPolicyMessage(policy.rejected[0]) : undefined;
+    const results = await Promise.allSettled(validCandidates.map(readImage));
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (rejection) setAttachmentError(rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason));
-    else if (candidates.length === files.length) setAttachmentError(undefined);
-    if (accepted.length > 0) setAttachments((current) => [...current, ...accepted].slice(0, MAX_ATTACHMENTS));
-  };
+    const error = firstError ?? (rejection ? errorMessage(rejection.reason) : undefined);
+    scopeStore.setAttachmentError(scopeRef.scope, error, generation);
+    if (accepted.length > 0) {
+      scopeStore.addAttachments(scopeRef.scope, accepted, MAX_ATTACHMENTS);
+    }
+  }, [scopeStore]);
+  const addFiles = useCallback((files: FileList | readonly File[]) => {
+    // DataTransfer.files is a live FileList and may be emptied once the drop
+    // event returns. Snapshot it before entering the asynchronous queue.
+    const snapshot = Array.from(files);
+    const scopeRef = scopeStore.createScopeReference(attachmentScope);
+    const state = scopeStore.getSnapshot(attachmentScope);
+    const previous = state.attachmentProcessing;
+    let generation = 0;
+    const operation = previous
+      .then(() => processFiles(snapshot, scopeRef, supportsImageInput, generation))
+      .finally(() => scopeStore.releaseScopeReference(scopeRef));
+    generation = scopeStore.setAttachmentProcessing(attachmentScope, operation);
+    return operation;
+  }, [attachmentScope, processFiles, scopeStore, supportsImageInput]);
+  useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
 
   // An editor prompt arrives with text to edit; seed the field once.
   const seededPromptRef = useRef<string | undefined>(undefined);
@@ -230,21 +269,45 @@ export function Composer({
   const answerable = prompt && prompt.answerElsewhere !== true;
   const submitCurrent = (delivery?: "followUp" | "steer") => {
     if (workspaceBusy) return;
+    if (activeScopeSnapshot.submissionPending) return;
     if (answerable && prompt) {
       if (!text.trim()) return;
       onAnswerPrompt?.(text, true);
       updateDraft("");
       return;
     }
-    if (!text.trim() && attachments.length === 0) return;
-    const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
-    const submittedText = normalizeSkillInvocation(text, commands);
-    if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
-    else onSubmit(submittedText, submittedAttachments);
-    updateDraft("");
-    setAttachments([]);
-    setAttachmentError(undefined);
-    setPreviewId(undefined);
+    const submittedScope = attachmentScope;
+    const submission = scopeStore.beginSubmission(submittedScope);
+    if ("busy" in submission) return;
+    const sendSubmission = async (handle: Awaited<typeof submission>) => {
+      if (!handle.text.trim() && handle.attachments.length === 0) {
+        handle.cancel();
+        return;
+      }
+      const submittedText = normalizeSkillInvocation(handle.text, commands);
+      let result: SubmitResult;
+      try {
+        result = delivery
+          ? await onSubmit(submittedText, [...handle.attachments], delivery)
+          : await onSubmit(submittedText, [...handle.attachments]);
+      } catch (error) {
+        result = { accepted: false, message: errorMessage(error) };
+      }
+      handle.settle(result);
+      if (result.accepted && activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
+    };
+    const handleSubmissionError = (error: unknown) => {
+      scopeStore.setAttachmentError(
+        submittedScope,
+        errorMessage(error),
+        scopeStore.getAttachmentGeneration(submittedScope),
+      );
+    };
+    if ("then" in submission) {
+      void submission.then(sendSubmission).catch(handleSubmissionError);
+    } else {
+      void sendSubmission(submission).catch(handleSubmissionError);
+    }
   };
 
   return (
@@ -276,12 +339,6 @@ export function Composer({
 
       <div
         className={`composer-frame ${queue.length > 0 || prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
-        onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
-        onDrop={(event) => {
-          if (event.dataTransfer.files.length === 0) return;
-          event.preventDefault();
-          void addFiles(event.dataTransfer.files);
-        }}
         onPaste={(event) => {
           if (event.clipboardData.files.length === 0) return;
           event.preventDefault();
@@ -302,7 +359,9 @@ export function Composer({
                 <button
                   className="attachment-remove"
                   aria-label={`Remove ${attachment.name}`}
-                  onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                  onClick={() => {
+                    scopeStore.removeAttachment(attachmentScope, attachment.id);
+                  }}
                 >
                   <X size={13} />
                 </button>
@@ -485,7 +544,7 @@ export function Composer({
 
           <span className="spacer" />
 
-          <button className="attach-button" type="button" title="Attach files" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>
+          <button className="attach-button" type="button" title={supportsImageInput ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE} aria-label="Attach files" disabled={!supportsImageInput} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={17} />
           </button>
           <input
@@ -493,6 +552,7 @@ export function Composer({
             className="attachment-input"
             aria-label="Choose attachment files"
             type="file"
+            disabled={!supportsImageInput}
             accept="image/png,image/jpeg,image/gif,image/webp"
             multiple
             onChange={(event) => {
@@ -512,7 +572,8 @@ export function Composer({
               className="send-button"
               title="Send"
               aria-label="Send"
-              disabled={workspaceBusy || (text.trim().length === 0 && attachments.length === 0)}
+              aria-busy={activeScopeSnapshot.submissionPending}
+              disabled={workspaceBusy || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0)}
               onClick={() => submitCurrent()}
             >
               <ArrowUp size={16} />

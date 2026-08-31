@@ -11,6 +11,8 @@ import type {
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
+  SubmissionResult,
+  NewThreadRequestId,
 } from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle, TranscriptCursorBoundary } from "./transcript-contract.js";
 import { isTranscriptHistoryMetadataConsistent, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
@@ -34,6 +36,8 @@ export interface ThreadIndexUpdate {
 
 export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   sessionId: string;
+  /** Present only when this detail completes a correlated bridge handoff. */
+  requestId?: NewThreadRequestId;
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
@@ -46,6 +50,8 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscript
 export type TranscriptPage = ThreadTranscriptPage<UiMessage, HostTranscriptCursor>;
 
 export interface HostCatalog {
+  /** Absent in legacy v1 catalogs; clients must not apply capability without it. */
+  sessionId?: string;
   models: UiModel[];
   model?: UiModel;
   thinkingLevel: string;
@@ -55,6 +61,8 @@ export interface HostCatalog {
   allTools: Array<{ name: string; description: string }>;
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
+  /** Optional in protocol v1; absent means the runtime does not accept images. */
+  supportsImageInput?: boolean;
 }
 
 export interface ProjectMetadata {
@@ -76,6 +84,12 @@ export type HostUpdate =
 export interface HostActionResult {
   version: HostProtocolVersion;
   updates: HostUpdate[];
+}
+
+export interface NewThreadResult extends HostActionResult {
+  submission: SubmissionResult;
+  /** Correlates a bridge replacement with the originating composer request. */
+  requestId?: NewThreadRequestId;
 }
 
 /** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */
@@ -142,10 +156,11 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
     case "thread-detail": return Boolean(payload && validTranscriptBundlePayload(payload, false)
+      && (payload.requestId === undefined || typeof payload.requestId === "string")
       && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
     case "transcript-page": return Boolean(payload && validTranscriptBundlePayload(payload, true)
       && typeof payload.hasMore === "boolean");
-    case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
+    case "catalog": return Boolean(payload && (payload.sessionId === undefined || typeof payload.sessionId === "string") && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number" && (payload.supportsImageInput === undefined || typeof payload.supportsImageInput === "boolean"));
     case "project": return Boolean(payload && typeof payload.cwd === "string");
     case "run": return typeof candidate.sessionId === "string" && ["started", "settled", "aborted"].includes(String(candidate.event));
     case "error": return typeof candidate.message === "string";
@@ -298,6 +313,7 @@ export function detailFromSnapshot(
 
 export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
   return {
+    sessionId: snapshot.sessionId,
     models: [...snapshot.models],
     model: snapshot.model,
     thinkingLevel: snapshot.thinkingLevel,
@@ -307,5 +323,6 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     allTools: [...snapshot.allTools],
     composerCommands: snapshot.composerCommands?.map((command) => ({ ...command })),
     extensionCount: snapshot.extensionCount,
+    supportsImageInput: snapshot.supportsImageInput ?? false,
   };
 }

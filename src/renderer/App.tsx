@@ -17,12 +17,15 @@ import type {
   UiToolRun,
   UiWorkspaceChanges,
   WorkspaceInfo,
+  NewThreadRequestId,
 } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
-import { Composer } from "./components/Composer";
+import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
+import { ComposerScopeStore, createDraftKey, type DraftKey } from "./composer-scope-store";
+import { errorMessage } from "./error-message";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
@@ -31,6 +34,7 @@ const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then
 const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
 
+const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
 
 export const MountedPanel = memo(function MountedPanel({
   Component,
@@ -63,12 +67,16 @@ import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
-import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { draftKey, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import { visibleUserMessageText } from "./components/MessageText";
+import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
+import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
+import { useThreadDropController } from "./use-thread-drop-controller";
+import { useNewThreadController } from "./use-new-thread-controller";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -98,7 +106,15 @@ export function optimisticThreadSnapshot(
   detail: ThreadDetail,
 ): HostSnapshot {
   return hostSnapshotFromThreadDetail(
-    { ...snapshot, sessionName: undefined, sessionTitle: target.title, branch: target.branch },
+    {
+      ...snapshot,
+      sessionName: undefined,
+      sessionTitle: target.title,
+      branch: target.branch,
+      // Capability is thread-scoped; the target's catalog update will restore
+      // it after the switch rather than leaking the previous thread's value.
+      supportsImageInput: false,
+    },
     { ...detail, isStreaming: false },
   );
 }
@@ -123,6 +139,7 @@ const mockSnapshot: HostSnapshot = {
   activeTools: ["read", "bash", "edit", "write"],
   allTools: ["read", "bash", "edit", "write", "grep", "find", "ls"].map((name) => ({ name, description: `${name} tool` })),
   extensionCount: 2,
+  supportsImageInput: true,
   contextUsage: { tokens: 68000, contextWindow: 200000, percent: 34 },
 };
 
@@ -184,6 +201,16 @@ function elapsedLabel(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+interface NewThreadSubmissionCompletion {
+  pending: NewThreadDraft;
+  sessionId: string;
+  optimisticId: string;
+  prompt: string;
+  scope: DraftKey | undefined;
+  requestId: NewThreadRequestId;
+  result?: HostActionResult;
 }
 
 function LiveStatus({ startedAt }: { startedAt?: number }) {
@@ -358,14 +385,28 @@ export default function App() {
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
-  const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
+  const newThreadController = useNewThreadController(window.localStorage);
+  const {
+    pendingNewThread,
+    setPendingNewThread,
+    requestId: newThreadRequestRef,
+    begin: beginNewThread,
+    invalidate: invalidateNewThread,
+    isCurrent: isCurrentNewThreadRequest,
+    markAwaitingPromotion,
+    promoteFromHostReport,
+  } = newThreadController;
+  const pendingNewThreadRef = useRef(pendingNewThread);
+  pendingNewThreadRef.current = pendingNewThread;
   const [settingsPage, setSettingsPage] = useState<string>();
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
+  const [composerScopeStore] = useState(() => new ComposerScopeStore());
   const [notice, setNotice] = useState<string>();
   const [dockOpen, setDockOpen] = useState(true);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
   const changesRequestRef = useRef(0);
@@ -386,12 +427,8 @@ export default function App() {
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
-    if (pendingNewThread && reconciled.every((entry) => entry.scope !== activeDraftKey)) {
-      writeNewThreadDraft(window.localStorage);
-      setPendingNewThread(undefined);
-    }
     setOptimisticMessages(reconciled);
-  }, [activeDraftKey, messages, optimisticMessages, pendingNewThread]);
+  }, [messages, optimisticMessages]);
 
   const flushAssistantDeltas = useCallback(() => {
     if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
@@ -489,23 +526,45 @@ export default function App() {
       const detail = update.detail;
       const currentSnapshot = transcriptHistory.getCurrentSnapshot();
       const shell = threadStore.getThread(detail.sessionId);
+      const prompt = detail.messages.find((message) => message.role === "user")?.text;
+      const pending = pendingNewThreadRef.current;
+      const isCorrelatedCandidate = Boolean(shell) || detail.sessionId !== currentSnapshot?.sessionId;
+      // A bridge-created session can arrive after the new-session call has
+      // returned with no updates. Prepare the history coordinator for that
+      // one explicitly correlated transition before applying its detail; an
+      // unrelated late detail must remain subject to the normal race guard.
+      if (pending && prompt !== undefined && isCorrelatedCandidate
+        && detail.requestId !== undefined && detail.requestId === newThreadRequestRef.current) {
+        transcriptHistory.prepareActionDetail(detail.sessionId);
+      }
       const snapshotForDetail = currentSnapshot ? {
         ...currentSnapshot,
         sessionId: detail.sessionId,
         sessionTitle: shell?.title ?? currentSnapshot.sessionTitle,
+        ...(currentSnapshot.sessionId === detail.sessionId ? {} : { supportsImageInput: false }),
       } : undefined;
       const application = transcriptHistory.applyDetail(detail, snapshotForDetail);
       if (!application) return;
       const detailForRender = application.detail;
+      const reportedPrompt = detailForRender.messages.find((message) => message.role === "user")?.text;
+      if (isCorrelatedCandidate && reportedPrompt !== undefined && pendingNewThreadRef.current) {
+        const pending = pendingNewThreadRef.current;
+        if (promoteFromHostReport(detail.sessionId, shell?.projectPath ?? pending.projectPath, reportedPrompt, detail.requestId)) {
+          composerScopeStore.moveScope(
+            createDraftKey(draftKey(undefined, pending)),
+            createDraftKey(draftKey(detail.sessionId)),
+          );
+        }
+      }
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
       setMessages(detailForRender.messages);
-      const cachedActivity = readCachedTurnActivity(window.localStorage, detail.sessionId);
-      const restoredActivity = detail.turnActivity ?? cachedActivity;
+      const cachedActivity = readCachedTurnActivity(window.localStorage, detailForRender.sessionId);
+      const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
       setTools(restoredActivity?.tools ?? []);
       setToolAnchorId(restoredActivity?.anchorMessageId);
       setTurnBaseline(cachedActivity?.baseline);
-      setTurnActivitySessionId(restoredActivity ? detail.sessionId : undefined);
+      setTurnActivitySessionId(restoredActivity ? detailForRender.sessionId : undefined);
       setSnapshot((current) => application.snapshot ?? current);
       return;
     }
@@ -515,7 +574,17 @@ export default function App() {
       return;
     }
     if (update.type === "catalog") {
-      setSnapshot((current) => current ? { ...current, ...update.catalog } : current);
+      setSnapshot((current) => {
+        if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
+        const { sessionId: _sessionId, supportsImageInput, ...legacyCatalog } = update.catalog;
+          return {
+            ...current,
+            ...legacyCatalog,
+            ...(update.catalog.sessionId === undefined
+              ? {}
+              : { supportsImageInput: supportsImageInput ?? false }),
+          };
+      });
       return;
     }
     if (update.type === "project") {
@@ -527,7 +596,7 @@ export default function App() {
       threadStore.setStreaming(update.event === "started");
     }
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, applyTranscriptPage, threadStore, transcriptHistory]);
+  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, promoteFromHostReport, threadStore, transcriptHistory]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: TransitionToken): boolean => {
     if (expectedTransition !== undefined && !transcriptHistory.isCurrentThreadTransition(expectedTransition)) return false;
@@ -551,7 +620,7 @@ export default function App() {
   const workspaceCwd = safeMode ? undefined : snapshot?.cwd;
   useEffect(() => {
     if (!workspaceCwd || !window.tau) return;
-    void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(String(error)));
+    void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, workspaceCwd]);
 
   const refreshChanges = useCallback(async () => {
@@ -562,7 +631,7 @@ export default function App() {
       const next = await window.tau.getChanges();
       if (request === changesRequestRef.current && cwd === activeWorkspaceRef.current) setChanges(next);
     } catch (error) {
-      if (request === changesRequestRef.current) setNotice(String(error));
+      if (request === changesRequestRef.current) setNotice(errorMessage(error));
     }
   }, []);
 
@@ -574,7 +643,7 @@ export default function App() {
       const next = await window.tau.getWorkspaceInfo();
       if (request === workspaceRequestRef.current && cwd === activeWorkspaceRef.current) setWorkspace(next);
     } catch (error) {
-      if (request === workspaceRequestRef.current) setNotice(String(error));
+      if (request === workspaceRequestRef.current) setNotice(errorMessage(error));
     }
   }, []);
 
@@ -693,8 +762,14 @@ export default function App() {
         setTools((current) => current.map((tool) => tool.id === event.tool.id ? event.tool : tool));
         if (event.tool.name === "edit" || event.tool.name === "write") void refreshChanges();
         break;
-      case "event-log": addEvent(event.label, event.detail, event.timestamp); break;
-      case "error": setNotice(event.message); break;
+      case "event-log":
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) {
+          addEvent(event.label, event.detail, event.timestamp);
+        }
+        break;
+      case "error":
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
+        break;
       case "tool-approval":
         setApprovals((current) => [...current, event.request]);
         break;
@@ -728,10 +803,12 @@ export default function App() {
         break;
       }
       case "extension-ui-resolved":
-        setUiPrompts((current) => current.filter((entry) => entry.id !== event.id));
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) {
+          setUiPrompts((current) => current.filter((entry) => entry.id !== event.id));
+        }
         break;
       case "notice":
-        setNotice(event.message);
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
         break;
       case "queue":
         setQueue([...event.steering, ...event.followUp]);
@@ -765,6 +842,7 @@ export default function App() {
           allTools: bootstrap.catalog.allTools,
           composerCommands: bootstrap.catalog.composerCommands ?? [],
           extensionCount: bootstrap.catalog.extensionCount,
+          supportsImageInput: bootstrap.catalog.supportsImageInput ?? false,
           messages: [],
           isStreaming: false,
           activeTools: [],
@@ -773,7 +851,7 @@ export default function App() {
         void refreshChanges();
         void refreshWorkspace();
       }).catch((error) => {
-        if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(String(error));
+        if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
       });
       window.tau.listEditors().then(setEditors).catch(() => setEditors([]));
     } else {
@@ -892,7 +970,7 @@ export default function App() {
       acceptWorkspace(next);
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [acceptWorkspace, requireHost]);
@@ -904,7 +982,7 @@ export default function App() {
       acceptWorkspace(await window.tau!.openProject(path));
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [acceptWorkspace, requireHost, snapshot?.cwd]);
@@ -914,17 +992,16 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.removeProject(project.path));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
   const createThreadInProject = useCallback((project: UiProject) => {
     const draft = { projectPath: project.path, projectName: project.name };
-    writeNewThreadDraft(window.localStorage, draft);
-    setPendingNewThread(draft);
+    beginNewThread(draft);
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, []);
+  }, [beginNewThread]);
 
   const browseForNewThread = useCallback(async () => {
     setNewThreadOpen(false);
@@ -939,13 +1016,14 @@ export default function App() {
       acceptWorkspace(next);
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [acceptWorkspace, requireHost]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
+    invalidateNewThread();
     setPendingNewThread(undefined);
     writeNewThreadDraft(window.localStorage);
     const startedAt = performance.now();
@@ -966,10 +1044,10 @@ export default function App() {
     } catch (error) {
       if (!transcriptHistory.isCurrentThreadTransition(transition)) return false;
       if (previous) applySnapshot(previous);
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
-  }, [addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
+  }, [addEvent, applyActionResult, applySnapshot, invalidateNewThread, requireHost, snapshot, threadStore]);
 
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
@@ -980,7 +1058,7 @@ export default function App() {
       ));
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [applyActionResult, requireHost, threadStore]);
@@ -996,7 +1074,7 @@ export default function App() {
       ));
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [applyActionResult, requireHost, threadStore]);
@@ -1006,7 +1084,7 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.setModel(provider, id));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1015,7 +1093,7 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.setThinkingLevel(level));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1024,7 +1102,7 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.setServiceTier(tier));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1040,7 +1118,7 @@ export default function App() {
       setToolAnchorId(undefined);
       setNotice("Closed the interrupted call. The thread can continue.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
@@ -1050,7 +1128,7 @@ export default function App() {
       applyActionResult(await window.tau!.compactContext());
       setNotice("Context compacted.");
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1061,7 +1139,7 @@ export default function App() {
     try {
       await window.tau!.openInEditor(editorId, path);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [editors, requireHost, settings.editorId]);
 
@@ -1076,7 +1154,7 @@ export default function App() {
       void refreshWorkspace();
       if (result.changes.files.length === 0) setReview(undefined);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     } finally {
       setCommitting(false);
     }
@@ -1091,7 +1169,7 @@ export default function App() {
       addEvent("git.push", result.detail);
       await Promise.all([refreshChanges(), refreshWorkspace()]);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     } finally {
       setCommitting(false);
     }
@@ -1106,7 +1184,7 @@ export default function App() {
       setNotice(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`);
       await Promise.all([refreshChanges(), refreshWorkspace()]);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
 
@@ -1119,17 +1197,16 @@ export default function App() {
       acceptWorkspace(result);
       const detail = result.updates.find((update) => update.type === "thread-detail");
       if (pendingDraft && detail?.type === "thread-detail") {
-        writeComposerDraft(window.localStorage, draftKey(detail.detail.sessionId), pendingDraft);
-        setComposerSeed(pendingDraft);
+        composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
       }
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
       return false;
     } finally {
       setWorkspaceBusy(false);
     }
-  }, [acceptWorkspace, requireHost]);
+  }, [acceptWorkspace, composerScopeStore, requireHost]);
 
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -1200,7 +1277,7 @@ export default function App() {
         await window.tau.copyThreadMarkdown(snapshot.sessionId);
         setNotice("Chat copied as Markdown.");
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : String(error));
+        setNotice(errorMessage(error));
       }
       return;
     }
@@ -1217,7 +1294,7 @@ export default function App() {
       await window.tau?.copyText(value);
       setNotice(`${kind === "path" ? "Path" : kind === "branch" ? "Branch" : "Thread ID"} copied.`);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [snapshot?.branch, snapshot?.cwd, snapshot?.sessionId]);
 
@@ -1226,7 +1303,7 @@ export default function App() {
       await window.tau?.copyText(message.role === "user" ? visibleUserMessageText(message.text) : message.text);
       setNotice("Message copied.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
     }
   }, []);
 
@@ -1236,7 +1313,7 @@ export default function App() {
       setNotice("Forking thread…");
       applyActionResult(await window.tau!.forkThread(message.sourceEntryId, snapshot.sessionId));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
@@ -1257,7 +1334,7 @@ export default function App() {
       window.location.reload();
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [addEvent, requireHost]);
@@ -1275,7 +1352,7 @@ export default function App() {
       window.location.reload();
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [requireHost]);
@@ -1292,7 +1369,7 @@ export default function App() {
     reloadRuntime,
     rebuildWorkbench,
     restartWorkbench,
-    focusComposer: (seed) => { if (seed !== undefined) { setComposerSeed(seed); writeComposerDraft(window.localStorage, activeDraftKey, seed); } composerRef.current?.focus(); },
+    focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     chooseWorkspace,
     openWorkspace,
@@ -1308,24 +1385,53 @@ export default function App() {
     activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
+  const completeNewThreadSubmission = useCallback((completion: NewThreadSubmissionCompletion) => {
+    const { pending, sessionId, optimisticId, prompt, scope, requestId, result } = completion;
+    if (!isCurrentNewThreadRequest(pending, scope, requestId)) return;
+    setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
+      ? { ...entry, scope: `session:${sessionId}` }
+      : entry));
+    if (scope) {
+      composerScopeStore.moveScope(createDraftKey(scope), createDraftKey(draftKey(sessionId)));
+    }
+    writeNewThreadDraft(window.localStorage);
+    setPendingNewThread(undefined);
+    if (result) acceptWorkspace(result);
+    threadStore.markRead(sessionId);
+    void registry.notifyPromptSubmitted({
+      prompt,
+      snapshot: snapshot ? {
+        ...snapshot,
+        cwd: pending.projectPath,
+        sessionId,
+        sessionName: undefined,
+        sessionTitle: "Untitled thread",
+        messages: [],
+        isStreaming: false,
+        activeTools: [],
+        turnActivity: undefined,
+        taskProgress: undefined,
+        taskHistory: [],
+      } : undefined,
+    }, actions).catch((error) => setNotice(errorMessage(error)));
+  }, [acceptWorkspace, actions, composerScopeStore, isCurrentNewThreadRequest, registry, snapshot, threadStore]);
+
   const submit = useCallback(async (
     value: string,
     attachments: UiPromptAttachment[] = [],
     delivery?: "followUp" | "steer",
-  ) => {
+  ): Promise<SubmitResult> => {
     const text = value.trim();
-    if (!text && attachments.length === 0) return;
+    if (!text && attachments.length === 0) return { accepted: false, message: "Enter a message or attach an image." };
     if (text === "/reload" && attachments.length === 0) {
-      await reloadRuntime();
-      return;
+      return (await reloadRuntime()) ? { accepted: true } : { accepted: false, message: "Runtime reload failed." };
     }
     if (text === "/rebuild" && attachments.length === 0) {
-      await rebuildWorkbench();
-      return;
+      return (await rebuildWorkbench()) ? { accepted: true } : { accepted: false, message: "Workbench rebuild failed." };
     }
     if (text === "/restart" && attachments.length === 0) {
       restartWorkbench();
-      return;
+      return { accepted: true };
     }
     const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
     const optimistic: UiMessage = {
@@ -1335,7 +1441,9 @@ export default function App() {
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       timestamp: Date.now(),
     };
-    const optimisticScope = activeDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
+    const submittedDraftKey = activeDraftKey;
+    const newThreadRequestId = newThreadRequestRef.current;
+    const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
       if (delivery === "steer") {
         setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
@@ -1344,10 +1452,9 @@ export default function App() {
           await window.tau.steer(text, attachments, snapshot?.sessionId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          writeComposerDraft(window.localStorage, activeDraftKey, text);
-          setComposerSeed(text);
-          setNotice(String(error));
+          return { accepted: false, message: errorMessage(error) };
         }
+        return { accepted: true };
       } else {
         const queuedText = optimisticText;
         setQueue((current) => [...current, queuedText]);
@@ -1359,61 +1466,57 @@ export default function App() {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
           });
-          writeComposerDraft(window.localStorage, activeDraftKey, text);
-          setComposerSeed(text);
-          setNotice(String(error));
+          return { accepted: false, message: errorMessage(error) };
         }
+        return { accepted: true };
       }
-      return;
     }
     if (pendingNewThread) {
       const pending = pendingNewThread;
-      const pendingKey = draftKey(undefined, pending);
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
-        const result = await window.tau.newSession(text, attachments, pending.projectPath);
+        if (pending.sessionId) {
+          await window.tau.sendPrompt(text, attachments, pending.sessionId);
+          completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId });
+          return { accepted: true };
+        }
+        const result = await window.tau.newSession(text, attachments, pending.projectPath, newThreadRequestId);
+        if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) return result.submission;
         const created = result.updates.find((update) => update.type === "thread-detail");
+        if (result.submission.accepted
+          && created?.type !== "thread-detail"
+          && result.requestId === newThreadRequestId) {
+          markAwaitingPromotion({ pending, scope: submittedDraftKey, requestId: newThreadRequestId, prompt: text });
+        }
+        applyActionResult(result);
+        if (!result.submission.accepted) {
+          const rejectedDetail = result.updates.find((update) => update.type === "thread-detail");
+          const sessionId = rejectedDetail?.type === "thread-detail" ? rejectedDetail.detail.sessionId : undefined;
+          if (sessionId) {
+            if (isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) {
+              setPendingNewThread((current) => current ? { ...current, sessionId } : current);
+              writeNewThreadDraft(window.localStorage, { ...pending, sessionId });
+            }
+          }
+          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+          return result.submission;
+        }
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
         if (sessionId) {
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
-          setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
-            ? { ...entry, scope: `session:${sessionId}` }
-            : entry));
-          writeNewThreadDraft(window.localStorage);
-          setPendingNewThread(undefined);
-          acceptWorkspace(result);
-          threadStore.markRead(sessionId);
-          await registry.notifyPromptSubmitted({
-            prompt: text,
-            snapshot: snapshot ? {
-              ...snapshot,
-              cwd: pending.projectPath,
-              sessionId,
-              sessionName: undefined,
-              sessionTitle: "Untitled thread",
-              messages: [],
-              isStreaming: false,
-              activeTools: [],
-              turnActivity: undefined,
-              taskProgress: undefined,
-              taskHistory: [],
-            } : undefined,
-          }, actions);
+          completeNewThreadSubmission({ pending, sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId, result });
+          return { accepted: true };
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
           // view stays until that report arrives.
-          applyActionResult(result);
+          return { accepted: true };
         }
-        writeComposerDraft(window.localStorage, pendingKey, "");
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        writeComposerDraft(window.localStorage, pendingKey, text);
-        setComposerSeed(text);
-        setNotice(String(error));
+        return { accepted: false, message: errorMessage(error) };
       }
-      return;
     }
     if (snapshot) {
       threadStore.markRead(snapshot.sessionId);
@@ -1423,12 +1526,12 @@ export default function App() {
     if (window.tau) {
       try {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
-        await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
+        void registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions)
+          .catch((error) => setNotice(errorMessage(error)));
+        return { accepted: true };
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        writeComposerDraft(window.localStorage, activeDraftKey, text);
-        setComposerSeed(text);
-        setNotice(String(error));
+        return { accepted: false, message: errorMessage(error) };
       }
     } else {
       setSnapshot((current) => current ? { ...current, isStreaming: true } : current);
@@ -1443,8 +1546,9 @@ export default function App() {
         setSnapshot((current) => current ? { ...current, isStreaming: false } : current);
         setRunStartedAt(undefined);
       }, 650);
+      return { accepted: true };
     }
-  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
+  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, rebuildWorkbench, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -1512,6 +1616,10 @@ export default function App() {
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
   const scopedOptimisticMessages = optimisticMessages.filter((entry) => entry.scope === activeDraftKey);
   const unconfirmedOptimisticMessages = reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message);
+  const preparedThreadCapability = usePreparedThreadCapability(
+    pendingNewThread?.sessionId ? undefined : pendingNewThread?.projectPath,
+    window.tau?.getPreparedThreadCapability,
+  );
   const conversationMessages = pendingNewThread
     ? unconfirmedOptimisticMessages
     : [...messages, ...unconfirmedOptimisticMessages].sort((left, right) => left.timestamp - right.timestamp);
@@ -1525,9 +1633,31 @@ export default function App() {
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
+    supportsImageInput: pendingNewThread.sessionId
+      ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
+      : preparedThreadCapability?.cwd === pendingNewThread.projectPath
+        ? preparedThreadCapability.supportsImageInput ?? false
+        : false,
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
+  const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
+    void composerAttachmentRef.current?.addFiles(files);
+  }, []);
+  const composerScopeSubscribe = useCallback((onChange: () => void) => activeDraftKey
+    ? composerScopeStore.subscribe(createDraftKey(activeDraftKey), onChange)
+    : () => {}, [activeDraftKey, composerScopeStore]);
+  const composerAttachmentSnapshot = useSyncExternalStore(
+    composerScopeSubscribe,
+    useCallback(() => activeDraftKey
+      ? composerScopeStore.getAttachmentSnapshot(createDraftKey(activeDraftKey))
+      : EMPTY_COMPOSER_ATTACHMENTS, [activeDraftKey, composerScopeStore]),
+  );
+  const threadDropController = useThreadDropController(
+    conversationSnapshot?.supportsImageInput ?? false,
+    addDroppedFiles,
+    composerAttachmentSnapshot.attachments,
+  );
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
   const conversationPrompts = pendingNewThread ? [] : threadPrompts;
   const showStartScreen = conversationMessages.length === 0
@@ -1549,6 +1679,7 @@ export default function App() {
   const conversationComposer = (
     <Composer
       snapshot={conversationSnapshot}
+      scopeStore={composerScopeStore}
       seed={composerSeed}
       draftStorageKey={activeDraftKey}
       queue={queue}
@@ -1556,7 +1687,8 @@ export default function App() {
       contextUsage={snapshot?.contextUsage}
       contextBreakdown={contextBreakdown}
       textareaRef={composerRef}
-      onSubmit={(text, attachments, delivery) => void submit(text ?? "", attachments, delivery)}
+      attachmentRef={composerAttachmentRef}
+      onSubmit={(text, attachments, delivery) => submit(text ?? "", attachments, delivery)}
       onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
       onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
       onSetModel={(provider, id) => void setModel(provider, id)}
@@ -1707,7 +1839,21 @@ export default function App() {
               </LazyFeatureBoundary>
             ))}
 
-            <main className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}>
+            <main
+              className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
+              onDragEnter={threadDropController.onDragEnter}
+              onDragOver={threadDropController.onDragOver}
+              onDragLeave={threadDropController.onDragLeave}
+              onDrop={threadDropController.onDrop}
+            >
+              {threadDropController.state !== "idle" ? (
+                <div className={`conversation-drop-overlay ${threadDropController.state}`} role="status" aria-live="polite">
+                  <div className="conversation-drop-card">
+                    <strong>{THREAD_DROP_FEEDBACK[threadDropController.state].title}</strong>
+                    <span>{THREAD_DROP_FEEDBACK[threadDropController.state].description}</span>
+                  </div>
+                </div>
+              ) : null}
               {showStartScreen ? (
                 <section className="conversation-start-screen" aria-labelledby="start-screen-title">
                   <div className="conversation-start-content">

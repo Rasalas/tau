@@ -1,4 +1,4 @@
-import type { ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress } from "./contracts.js";
+import type { ExtensionUiPromptKind, NewThreadRequestId, UiComposerCommand, UiTaskProgress } from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
@@ -46,12 +46,16 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
   thinkingLevels: string[];
   activeTools: string[];
   allTools: Array<{ name: string; description: string }>;
+  /** Bridge-controlled Pi TUI currently cannot receive image prompt input. */
+  supportsImageInput: false;
   /** Optional for compatibility with Pi instances running an older bridge. */
   composerCommands?: UiComposerCommand[];
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
   taskProgress?: UiTaskProgress;
   /** Set while Pi blocks on an extension question in its own terminal. */
   awaitingInput?: PiBridgeAwaitingInput;
+  /** Token echoed once a registered new-session command has actually switched sessions. */
+  newSessionRequestId?: NewThreadRequestId;
 }
 
 /** A bounded raw branch page returned by a Pi-owned runtime. */
@@ -70,7 +74,9 @@ export type PiBridgeCommand =
   | { command: "reload" }
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
-  | { command: "new_session"; initialPrompt?: string }
+  | { command: "new_session"; initialPrompt?: string; requestId?: NewThreadRequestId }
+  | { command: "new_session_ack"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
+  | { command: "new_session_abort"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "transcript_page"; cursor?: string }
   | { command: "export_markdown" }
   | { command: "snapshot" }

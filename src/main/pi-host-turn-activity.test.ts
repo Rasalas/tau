@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
-import { cleanThreadTitle, lastTurnActivityFromMessages, PiHost } from "./pi-host.js";
+import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost } from "./pi-host.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
 
@@ -12,6 +12,95 @@ describe("cleanThreadTitle", () => {
     expect(cleanThreadTitle("## **Thread title: `Persist Turn Activity`**\nExtra explanation")).toBe("Persist Turn Activity");
     expect(cleanThreadTitle("Titel: [Sidebar-Namen](https://example.test)."))
       .toBe("Sidebar-Namen");
+  });
+});
+
+describe("modelSupportsImageInput", () => {
+  it("follows the active model input declaration", () => {
+    expect(modelSupportsImageInput({ input: ["text", "image"] })).toBe(true);
+    expect(modelSupportsImageInput({ input: ["text"] })).toBe(false);
+    expect(modelSupportsImageInput(undefined)).toBe(false);
+  });
+});
+
+describe("PiHost prompt preflight", () => {
+  it("resolves after SDK preflight acceptance and reports later run errors", async () => {
+    let rejectRun!: (error: Error) => void;
+    const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => {
+        options?.preflightResult?.(true);
+        await run;
+      },
+    };
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as {
+      threads: { adopt(record: unknown): Promise<void> };
+    };
+    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    const accepted = vi.fn();
+    const prompt = host.prompt("hello", [], "session", accepted);
+
+    await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith({ accepted: true }));
+    await expect(prompt).resolves.toBeUndefined();
+    rejectRun(new Error("late runtime failure"));
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "late runtime failure", sessionId: "session" })));
+    expect(accepted).toHaveBeenCalledOnce();
+  });
+
+  it("rejects before acceptance when the SDK preflight is rejected", async () => {
+    let rejectRun!: (error: Error) => void;
+    const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => {
+        options?.preflightResult?.(false);
+        await run;
+      },
+    };
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as {
+      threads: { adopt(record: unknown): Promise<void> };
+    };
+    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    const preflight = vi.fn();
+
+    await expect(host.prompt("hello", [], "session", preflight)).rejects.toThrow("prompt was rejected before it started");
+    expect(preflight).toHaveBeenCalledWith({ accepted: false });
+    rejectRun(new Error("late refusal"));
+    await Promise.resolve();
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "late refusal" }));
+  });
+
+  it("owns synchronous validation rejection without an unhandled promise", async () => {
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: vi.fn(),
+    };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const internals = host as unknown as {
+      threads: { adopt(record: unknown): Promise<void> };
+    };
+    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      await expect(host.prompt("hello", [{ kind: "image", name: "blocked.png", mimeType: "image/png", data: "x", size: 1 }], "session")).rejects.toThrow(/image input/i);
+      await Promise.resolve();
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(session.prompt).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 });
 
@@ -113,6 +202,7 @@ describe("Pi bridge transcript projection", () => {
       thinkingLevels: ["off"],
       activeTools: [],
       allTools: [],
+      supportsImageInput: false,
     };
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as {

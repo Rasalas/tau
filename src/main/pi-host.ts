@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { readdir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -26,7 +27,9 @@ import type {
   FileNode,
   HostBootstrap,
   HostEvent,
+  ThreadHostEvent,
   HostSnapshot,
+  PreparedThreadCapability,
   PushResult,
   ShellActionResult,
   ThreadIndexSnapshot,
@@ -37,14 +40,17 @@ import type {
   UiMessageImage,
   UiModel,
   UiPromptAttachment,
+  SubmissionResult,
   UiSession,
   UiTaskProgressEntry,
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
   WorkspaceInfo,
+  NewThreadRequestId,
 } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, normalizeTranscriptCursorBoundaries, taskHistoryForMessages, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
+import { createNewThreadRequestId } from "../shared/contracts.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, normalizeTranscriptCursorBoundaries, taskHistoryForMessages, type HostActionResult, type HostUpdate, type NewThreadResult, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
 import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { mergeTaskProgressHistory, taskProgressFromMessages, taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
@@ -64,7 +70,7 @@ import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
-import { promptImages } from "./prompt-attachments.js";
+import { promptImages, type PromptImage } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import { transcriptPagingNegotiated, type PiBridgeServerFrame, type PiBridgeSnapshot, type PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
 import { inferUnavailableTranscriptCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
@@ -95,6 +101,12 @@ const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-elect
 
 type Emit = (event: HostEvent) => void;
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
+interface PromptPreflightResult {
+  accepted: boolean;
+  error?: unknown;
+}
+type PromptPreflight = (result: PromptPreflightResult) => void;
+type PromptPreflightState = "pending" | "accepted" | "rejected";
 
 function processIsAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
@@ -376,6 +388,16 @@ function mapModel(model: { provider: string; id: string; name?: string }): UiMod
   return { provider: model.provider, id: model.id, name: model.name ?? model.id };
 }
 
+export function modelSupportsImageInput(model: { input?: readonly string[] } | undefined): boolean {
+  return model?.input?.includes("image") === true;
+}
+
+function assertImageInputCapability(session: AgentSession, attachments: readonly UiPromptAttachment[]): void {
+  if (attachments.length > 0 && !modelSupportsImageInput(session.model)) {
+    throw new Error("The active model does not support image input.");
+  }
+}
+
 function firstSentence(value: string): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   if (!normalized) return "Untitled thread";
@@ -578,6 +600,12 @@ interface LiveTurnState {
   liveAssistant?: LiveAssistant;
 }
 
+type DeferredThreadRecord =
+  | { kind: "event"; event: any; sessionId: string; cwd: string }
+  | { kind: "error"; error: unknown }
+  | { kind: "host"; event: ThreadHostEvent }
+  | { kind: "title"; title: string };
+
 /**
  * One Pi runtime bound to one session for the runtime's whole life. Threads
  * never share a runtime, so switching the workbench between them never aborts
@@ -588,6 +616,7 @@ class ThreadRuntime implements LiveTurnState {
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
+  private deferredRecords?: DeferredThreadRecord[];
 
   constructor(readonly runtime: AgentSessionRuntime) {}
 
@@ -603,6 +632,54 @@ class ThreadRuntime implements LiveTurnState {
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
   }
+
+  beginEventBarrier(): void {
+    this.deferredRecords = [];
+  }
+
+  private defer(record: DeferredThreadRecord): boolean {
+    if (!this.deferredRecords) return false;
+    this.deferredRecords.push(record);
+    return true;
+  }
+
+  deferEvent(event: any, sessionId: string, cwd: string): boolean {
+    return this.defer({ kind: "event", event, sessionId, cwd });
+  }
+
+  deferError(error: unknown): boolean {
+    return this.defer({ kind: "error", error });
+  }
+
+  deferHostEvent(event: ThreadHostEvent): boolean {
+    // Questions must remain answerable while a prepared runtime is binding;
+    // buffering their prompt would deadlock bind until the answer arrives.
+    if (event.type === "extension-ui-prompt" || event.type === "extension-ui-resolved") return false;
+    return this.defer({ kind: "host", event });
+  }
+
+  deferTitle(title: string): boolean {
+    return this.defer({ kind: "title", title });
+  }
+
+  releaseEventBarrier(
+    dispatch: (event: any, thread: ThreadRuntime, sessionId: string, cwd: string, error?: unknown) => void,
+    dispatchHost: (event: ThreadHostEvent) => void,
+    dispatchTitle: (title: string) => void,
+  ): void {
+    const records = this.deferredRecords;
+    this.deferredRecords = undefined;
+    for (const record of records ?? []) {
+      if (record.kind === "event") dispatch(record.event, this, record.sessionId, record.cwd);
+      else if (record.kind === "error") dispatch(undefined, this, this.sessionId, this.cwd, record.error);
+      else if (record.kind === "host") dispatchHost(record.event);
+      else dispatchTitle(record.title);
+    }
+  }
+
+  cancelEventBarrier(): void {
+    this.deferredRecords = undefined;
+  }
 }
 
 function samePath(left: string | undefined, right: string | undefined): boolean {
@@ -614,6 +691,17 @@ export class PiHost {
   private emit: Emit;
   private bridge?: PiBridgeClient;
   private bridgeSnapshot?: PiBridgeSnapshot;
+  private readonly pendingBridgeNewSessions = new Map<NewThreadRequestId, {
+    previousSessionId?: string;
+    projectPath: string;
+    bridgeEpoch: string;
+    resolve: (snapshot: PiBridgeSnapshot) => void;
+    reject: (error: unknown) => void;
+    observed?: { sessionId: string; sessionFile: string; bridgeEpoch: string };
+    acknowledging?: boolean;
+  }>();
+  /** Requests detached during a transport handoff still need Pi-side cleanup. */
+  private readonly pendingBridgeNewSessionAborts = new Map<NewThreadRequestId, { projectPath: string; attempting?: boolean }>();
   /** Set while Tau deliberately takes a thread over from Pi, so it does not re-attach. */
   private suppressBridgeAttach = false;
   private readonly bridgeReconnectLoop = new PiBridgeReconnectLoop();
@@ -636,7 +724,8 @@ export class PiHost {
   /** Runtimes being opened, keyed by session file, so a prewarm and a switch share one. */
   private readonly openingThreads = new Map<string, Promise<ThreadRuntime>>();
   /** A blank runtime for the current project, so a new thread is ready before it is asked for. */
-  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined> };
+  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined>; cancel: () => void };
+  private preparedThreadCapabilityGeneration = 0;
   /** Session managers whose runtime is being built in the background, outside any measurement. */
   private readonly backgroundManagers = new WeakSet<SessionManager>();
   private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
@@ -947,18 +1036,51 @@ export class PiHost {
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
   getBackgroundLifecycleMeasurements() { return this.backgroundLifecycle.map((item) => ({ ...item })); }
 
-  private detailForSnapshot(snapshot: HostSnapshot): ThreadDetail {
+  private detailForSnapshot(snapshot: HostSnapshot, requestId?: NewThreadRequestId): ThreadDetail {
     // A fresh runtime snapshot is authoritative; only the renderer uses the
     // cached record for optimistic selection between host confirmations.
     const detail = detailFromSnapshot(snapshot, undefined, localTranscriptCursorPolicy);
     this.detailStore.set(detail);
-    return detail;
+    return requestId ? { ...detail, requestId } : detail;
   }
 
   private actionResult(updates: HostUpdate[]): HostActionResult {
     const result = { version: HOST_PROTOCOL_VERSION, updates } satisfies HostActionResult;
     this.lifecycleMetrics.recordIpc(result);
     return result;
+  }
+
+  private newThreadResult(updates: HostUpdate[], submission: SubmissionResult, requestId?: NewThreadRequestId): NewThreadResult {
+    return { ...this.actionResult(updates), submission, ...(requestId ? { requestId } : {}) };
+  }
+
+  /** Complete a correlated Pi handoff through one identity/publication path. */
+  private completeBridgeNewSession(snapshot: PiBridgeSnapshot, requestId: NewThreadRequestId): NewThreadResult {
+    this.bridgeSnapshot = snapshot;
+    if (this.bridge) {
+      this.bridge.descriptor.sessionId = snapshot.sessionId;
+      this.bridge.descriptor.sessionFile = snapshot.sessionFile;
+    }
+    this.cwd = snapshot.cwd;
+    const next = this.bridgeHostSnapshot();
+    const firstUserMessage = snapshot.messages.find((message) => (
+      message && typeof message === "object" && (message as { role?: string }).role === "user"
+    )) as { content?: unknown } | undefined;
+    const shell: UiSession = {
+      id: snapshot.sessionId,
+      path: snapshot.sessionFile,
+      title: cleanThreadTitle(snapshot.sessionName || firstSentence(textFromContent(firstUserMessage?.content))),
+      modifiedAt: Date.now(),
+      projectPath: snapshot.cwd,
+      projectName: this.projectNameFor(snapshot.cwd),
+      branch: this.branchFor(snapshot.cwd),
+      messageCount: next.messages.length,
+    };
+    this.sessions = [shell, ...this.sessions.filter((entry) => entry.id !== shell.id)];
+    return this.newThreadResult([
+      { version: HOST_PROTOCOL_VERSION, type: "thread-shell", update: { sessionId: shell.id, shell } },
+      ...this.lifecycleUpdates(next),
+    ], { accepted: true }, requestId);
   }
 
   private lifecycleUpdates(snapshot: HostSnapshot): HostUpdate[] {
@@ -1009,18 +1131,21 @@ export class PiHost {
   }
 
   /**
-   * A bridge peer that stops answering must not strand the workbench. Any command
-   * that times out detaches, so the caller can fall back to Tau's own runtime.
+   * A bridge peer that stops answering must not strand ordinary commands. New
+   * thread creation keeps its request owner until Pi either reports the matching
+   * session or explicitly rejects it, so a delayed report cannot create a duplicate
+   * local thread.
    */
-  private async bridgeCommand(command: Parameters<PiBridgeClient["command"]>[0]): Promise<unknown> {
+  private async bridgeCommand(command: Parameters<PiBridgeClient["command"]>[0], retainOnDisconnect = false): Promise<unknown> {
     const bridge = this.bridge;
     if (!bridge) throw new Error("Pi bridge is not connected.");
     try {
       return await bridge.command(command);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/timed out|not connected|closed/iu.test(message)) throw error;
+      if (!/timed out|not connected|closed|disconnected/iu.test(message)) throw error;
       this.log("bridge.unresponsive", command.command);
+      if (retainOnDisconnect) return undefined;
       this.detachBridge();
       throw new Error("Pi stopped responding, so Tau detached from it and now runs this thread itself.");
     }
@@ -1087,45 +1212,145 @@ export class PiHost {
     });
   }
 
-  async newSession(initialPrompt?: string, attachments: UiPromptAttachment[] = [], cwd?: string): Promise<HostActionResult> {
+  async newSession(initialPrompt?: string, attachments: UiPromptAttachment[] = [], cwd?: string, requestId?: NewThreadRequestId): Promise<NewThreadResult> {
     if (this.bridge && (!cwd || cwd === this.cwd)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      const bridgeRequestId = requestId ?? createNewThreadRequestId(randomUUID());
+      if (attachments.length > 0) {
+        return this.newThreadResult([], { accepted: false, message: "Image attachments are not supported while Tau is attached to Pi." }, bridgeRequestId);
+      }
+      let resolveBridgeSession: ((snapshot: PiBridgeSnapshot) => void) | undefined;
+      let rejectBridgeSession: ((error: unknown) => void) | undefined;
+      const bridgeSession = bridgeRequestId
+        ? new Promise<PiBridgeSnapshot>((resolve, reject) => {
+          resolveBridgeSession = resolve;
+          rejectBridgeSession = reject;
+        })
+        : undefined;
+      if (bridgeSession) void bridgeSession.catch(() => undefined);
+      if (resolveBridgeSession && rejectBridgeSession) this.pendingBridgeNewSessions.set(bridgeRequestId, {
+        previousSessionId: this.bridgeSnapshot?.sessionId,
+        projectPath: this.cwd,
+        bridgeEpoch: this.bridge?.descriptor.epoch ?? "",
+        resolve: resolveBridgeSession,
+        reject: rejectBridgeSession,
+      });
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt });
-        return this.actionResult([]);
+        const response = await this.bridgeCommand({ command: "new_session", initialPrompt, requestId: bridgeRequestId }, true);
+        if (bridgeRequestId) {
+          const responseRequestId = response && typeof response === "object" && "requestId" in response
+            ? response.requestId
+            : undefined;
+          if (responseRequestId !== bridgeRequestId) throw new Error("The Pi bridge did not acknowledge this new-thread request.");
+        }
+        const bridgeSnapshot = response && typeof response === "object" && "snapshot" in response
+          ? response.snapshot as PiBridgeSnapshot
+          : undefined;
+        if (bridgeSnapshot?.sessionId && bridgeSnapshot.cwd) {
+          const pending = this.pendingBridgeNewSessions.get(bridgeRequestId);
+          if (bridgeSnapshot.newSessionRequestId !== bridgeRequestId
+            || bridgeSnapshot.cwd !== this.cwd
+            || !pending
+            || pending.projectPath !== bridgeSnapshot.cwd
+            || pending.bridgeEpoch !== this.bridge?.descriptor.epoch) {
+            throw new Error("Pi returned an uncorrelated new-thread snapshot.");
+          }
+          pending.observed = {
+            sessionId: bridgeSnapshot.sessionId,
+            sessionFile: bridgeSnapshot.sessionFile,
+            bridgeEpoch: this.bridge?.descriptor.epoch ?? "",
+          };
+          void this.acknowledgeBridgeNewSession(bridgeRequestId, this.bridge?.descriptor.epoch);
+          return this.completeBridgeNewSession(bridgeSnapshot, bridgeRequestId);
+        }
+        // A disconnected command response is indeterminate: Pi may already be
+        // switching sessions. Keep the owner alive until the correlated
+        // snapshot, terminal bridge error, abort, or teardown settles it.
+        const switched = bridgeSession ? await bridgeSession : undefined;
+        if (switched) {
+          return this.completeBridgeNewSession(switched, bridgeRequestId);
+        }
+        return this.newThreadResult([], { accepted: true }, bridgeRequestId);
       } catch (error) {
-        // A new thread is a different session, so Pi has no standing to veto it.
-        // Whether it refused because it is busy or stopped answering entirely,
-        // Tau creates the thread itself rather than leaving the user stuck.
+        this.pendingBridgeNewSessions.delete(bridgeRequestId);
         const reason = error instanceof Error ? error.message : String(error);
-        this.log("bridge.fallback", `new_session: ${reason}`);
-        this.detachBridge();
-        this.emit({
-          type: "notice",
-          level: "info",
-          message: "Pi could not take a new thread, so Tau created one itself and detached from Pi's session.",
-        });
+        this.log("bridge.new_session.rejected", reason);
+        return this.newThreadResult([], { accepted: false, message: reason }, bridgeRequestId);
       }
     }
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       this.detachBridge();
-      const spare = await this.takeSpareThread(targetCwd);
+      const spare = await this.takePreparedThread(targetCwd);
       const thread = spare ?? await this.openThread(
         SessionManager.create(targetCwd),
         { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
+        { adopt: false, prepared: true },
       );
-      await this.activateThread(thread, true);
-      // The first prompt names the thread right away; the run that follows
-      // would otherwise leave it "Untitled" until it finishes.
-      if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
-      this.logReplacement(spare ? "new-spare" : "new", startedAt);
-      if (initialPrompt || attachments.length > 0) {
-        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId).catch((error) => this.fail(error));
+      let lifecycle: "prepared" | "adopting" | "adopted" | "promoted" = "prepared";
+      try {
+        assertImageInputCapability(thread.session, attachments);
+        // Decode and validate the untrusted attachment payload while the
+        // runtime is still prepared. Promotion must never be followed by a
+        // pure input-validation failure.
+        const images = attachments.length > 0 ? promptImages(attachments) : [];
+        lifecycle = "adopting";
+        await this.adoptThread(thread);
+        lifecycle = "adopted";
+        await this.activateThread(thread, true);
+        lifecycle = "promoted";
+        // Shell/index publication is intentionally coalesced on a timer. Wait
+        // for it before releasing runtime events; prompt preflight must run
+        // after release so extension questions are visible and answerable.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        thread.releaseEventBarrier((event, runtime, sessionId, cwd, error) => {
+          if (error) this.fail(error, sessionId);
+          else this.handleSessionEvent(event, runtime, sessionId, cwd);
+        }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
+        if (initialPrompt || attachments.length > 0) await this.promptThread(thread, initialPrompt ?? "", attachments, undefined, images);
+        // The first accepted prompt names the thread right away; a rejected
+        // preflight must leave the visible blank thread untitled.
+        if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
+      } catch (error) {
+        // A pure validation failure leaves an untouched spare available. Once
+        // adoption or activation has started, discard the candidate on failure
+        // (except a prompt rejection after promotion: the visible blank thread
+        // remains active and the scoped renderer draft remains untouched).
+        if (lifecycle === "prepared") {
+          this.retainPreparedThread(thread);
+          return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
+        } else if (lifecycle !== "promoted") {
+          if (this.threads.has(thread.sessionId)) await this.threads.release(thread.sessionId);
+          else await this.disposeThread(thread);
+          this.scheduleSpareThread(targetCwd, true);
+          return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
+        }
+        thread.cancelEventBarrier();
+        const active = await this.activeUpdates();
+        return { ...active, submission: { accepted: false, message: this.errorMessage(error) }, ...(requestId ? { requestId } : {}) };
       }
+      this.logReplacement(spare ? "new-spare" : "new", startedAt);
       this.scheduleSpareThread(targetCwd);
-      return this.activeUpdates();
+      const active = await this.activeUpdates();
+      return { ...active, submission: { accepted: true }, ...(requestId ? { requestId } : {}) };
+    });
+  }
+
+  async getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability> {
+    return this.runLifecycle(async () => {
+      const targetCwd = cwd ?? this.cwd;
+      const generation = ++this.preparedThreadCapabilityGeneration;
+      if (this.bridge && (!cwd || cwd === this.cwd)) {
+        return { cwd: targetCwd, generation, supportsImageInput: false };
+      }
+      if (!this.spare || this.spare.cwd !== targetCwd) this.scheduleSpareThread(targetCwd, true);
+      const spare = this.spare?.cwd === targetCwd ? this.spare : undefined;
+      const prepared = spare ? await spare.pending : undefined;
+      return {
+        cwd: targetCwd,
+        generation,
+        supportsImageInput: modelSupportsImageInput(prepared?.session.model),
+      };
     });
   }
 
@@ -1229,29 +1454,72 @@ export class PiHost {
     }
   }
 
-  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string, onPreflightResult?: PromptPreflight): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text });
+      if (attachments.length > 0) {
+        const error = new Error("Image attachments are not supported while Tau is attached to Pi.");
+        onPreflightResult?.({ accepted: false, error });
+        throw error;
+      }
+      try {
+        await this.bridge!.command({ command: "prompt", text });
+      } catch (error) {
+        onPreflightResult?.({ accepted: false, error });
+        throw error;
+      }
+      onPreflightResult?.({ accepted: true });
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
+    await this.promptThread(thread, text, attachments, onPreflightResult);
+  }
+
+  private async promptThread(thread: ThreadRuntime, text: string, attachments: UiPromptAttachment[], onPreflightResult?: PromptPreflight, preparedImages?: PromptImage[]): Promise<void> {
     const session = thread.session;
-    const images = promptImages(attachments);
-    this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
+    let preflightState: PromptPreflightState = "pending";
+    let resolvePreflight!: () => void;
+    let rejectPreflight!: (error: unknown) => void;
+    const preflight = new Promise<void>((resolve, reject) => {
+      resolvePreflight = resolve;
+      rejectPreflight = reject;
+    });
+    const reportPreflight = (result: PromptPreflightResult) => {
+      if (preflightState !== "pending") return;
+      preflightState = result.accepted ? "accepted" : "rejected";
+      onPreflightResult?.(result);
+      if (result.accepted) resolvePreflight();
+      else rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
+    };
     try {
-      await session.prompt(text, {
+      assertImageInputCapability(session, attachments);
+      const images = preparedImages ?? promptImages(attachments);
+      const run = session.prompt(text, {
         images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
+        preflightResult: (success) => {
+          reportPreflight({ accepted: success });
+        },
       });
-      if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
+      void run.then(async () => {
+        if (preflightState === "pending") reportPreflight({ accepted: true });
+        if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
+      }).catch((error) => {
+        if (preflightState === "pending") reportPreflight({ accepted: false, error });
+        else if (preflightState === "accepted") {
+          if (!(thread instanceof ThreadRuntime && thread.deferError(error))) this.fail(error, thread.sessionId);
+        }
+      });
     } catch (error) {
-      // A thread released mid-run reports nothing: its runtime is gone on purpose.
-      if (this.threads.get(thread.sessionId)?.runtime !== thread) return;
-      this.fail(error);
-      throw error;
+      const stateAtFailure = preflightState as PromptPreflightState;
+      if (stateAtFailure === "accepted") {
+        if (!(thread instanceof ThreadRuntime && thread.deferError(error))) this.fail(error, thread.sessionId);
+        return;
+      }
+      if (stateAtFailure === "pending") reportPreflight({ accepted: false, error });
     }
+    await preflight;
+    this.log("prompt.accepted", `${text.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
   }
 
   async runShellAction(command: string, includeInContext = false, expectedCwd?: string): Promise<ShellActionResult> {
@@ -1278,41 +1546,62 @@ export class PiHost {
   }
 
   async steer(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
-    if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer" });
-      return;
-    }
-    try {
-      await this.requireThread(sessionId).session.steer(text, promptImages(attachments));
-    } catch (error) {
-      this.fail(error);
-      throw error;
-    }
+    await this.sendExistingThread(text, attachments, sessionId, "steer");
   }
 
   async followUp(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+    await this.sendExistingThread(text, attachments, sessionId, "followUp");
+  }
+
+  private async sendExistingThread(
+    text: string,
+    attachments: UiPromptAttachment[],
+    sessionId: string | undefined,
+    delivery: "steer" | "followUp",
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp" });
+      try {
+        if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+        await this.bridge!.command({ command: "prompt", text, deliverAs: delivery });
+      } catch (error) {
+        this.fail(error, sessionId);
+        throw error;
+      }
       return;
     }
     try {
-      await this.requireThread(sessionId).session.followUp(text, promptImages(attachments));
+      const thread = this.requireThread(sessionId);
+      assertImageInputCapability(thread.session, attachments);
+      const images = promptImages(attachments);
+      if (delivery === "steer") await thread.session.steer(text, images);
+      else await thread.session.followUp(text, images);
     } catch (error) {
-      this.fail(error);
+      this.fail(error, sessionId);
       throw error;
     }
   }
 
   async abort(sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
+      this.cancelPendingBridgeNewSession(sessionId);
       await this.bridge!.command({ command: "abort" });
       return;
     }
     const thread = this.threadFor(sessionId);
     if (!thread) return;
     await this.abortThread(thread);
+  }
+
+  private cancelPendingBridgeNewSession(sessionId?: string): void {
+    const currentSessionId = this.bridgeSnapshot?.sessionId;
+    for (const [requestId, pending] of this.pendingBridgeNewSessions) {
+      if (sessionId && currentSessionId !== sessionId) continue;
+      this.pendingBridgeNewSessions.delete(requestId);
+      pending.reject(new Error("The new-thread request was aborted."));
+      const bridge = this.bridge;
+      if (bridge) this.abortBridgeNewSession(bridge, requestId, pending);
+      break;
+    }
   }
 
   /**
@@ -1673,11 +1962,12 @@ export class PiHost {
   private async openThread(
     manager: SessionManager,
     sessionStartEvent: RuntimeStartEvent | undefined,
-    options: { background?: boolean; adopt?: boolean } = {},
+    options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal } = {},
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
+    let thread: ThreadRuntime | undefined;
     try {
       runtime = await createAgentSessionRuntime(this.createRuntime, {
         cwd,
@@ -1685,16 +1975,31 @@ export class PiHost {
         sessionManager: manager,
         sessionStartEvent,
       });
-      const thread = new ThreadRuntime(runtime);
+      thread = new ThreadRuntime(runtime);
+      if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
+      const cancelPrepared = () => {
+        this.cancelUiPromptsFor(thread!.sessionId);
+        void thread!.session.abort().catch((error) => this.log("runtime.prepared.abort", this.errorMessage(error)));
+      };
+      if (options.abortSignal) {
+        options.abortSignal.addEventListener("abort", cancelPrepared, { once: true });
+        if (options.abortSignal.aborted) cancelPrepared();
+      }
       await this.bindThread(thread, thread.session);
+      if (options.abortSignal?.aborted) throw new Error("Prepared runtime creation was cancelled.");
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
       return thread;
     } catch (error) {
+      // A prepared runtime may have created extension questions while binding.
+      // Keep its barrier active until every callback and teardown side effect
+      // has completed, then discard all buffered output.
+      if (thread) this.cancelUiPromptsFor(thread.sessionId);
       if (runtime) {
         const cleanupErrors = await this.teardownRuntime(runtime);
+        thread?.cancelEventBarrier();
         if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed");
-      }
+      } else thread?.cancelEventBarrier();
       throw error;
     } finally {
       this.backgroundManagers.delete(manager);
@@ -1729,15 +2034,17 @@ export class PiHost {
     await session.bindExtensions({
       uiContext: createExtensionUiContext({
         sessionId: () => thread.sessionId,
-        ask: (prompt) => this.askExtensionUi(prompt),
-        notify: (message, level) => this.emit({ type: "notice", message, level }),
-        setWindowTitle: (title) => this.onWindowTitle?.(title),
-        unsupported: (method) => this.log("extension-ui.unsupported", method),
+        ask: (prompt) => this.askExtensionUi(prompt, thread),
+        notify: (message, level) => this.emitForThread(thread, { type: "notice", message, level, sessionId: thread.sessionId }),
+        setWindowTitle: (title) => {
+          if (!thread.deferTitle(title)) this.onWindowTitle?.(title);
+        },
+        unsupported: (method) => this.logForThread(thread, "extension-ui.unsupported", method),
       }),
       mode: "rpc",
-      onError: (error) => this.fail(error),
+      onError: (error) => this.fail(error, thread.sessionId, thread),
     });
-    this.logRuntimePhase("bind", bindStartedAt, "active", thread.cwd);
+    this.logRuntimePhase("bind", bindStartedAt, "active", thread.cwd, undefined, thread);
     thread.unsubscribe?.();
     thread.unsubscribe = session.subscribe((event) => this.handleSessionEvent(event, thread, thread.sessionId, thread.cwd));
   }
@@ -1781,6 +2088,9 @@ export class PiHost {
     thread.unsubscribe = undefined;
     for (const id of thread.tools.keys()) this.toolOwners.delete(id);
     const errors = await this.teardownRuntime(thread.runtime);
+    // Keep the prepared barrier alive through prompt settlement and runtime
+    // teardown. Any resolution events produced by disposal are discarded too.
+    thread.cancelEventBarrier();
     if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");
   }
 
@@ -1812,14 +2122,15 @@ export class PiHost {
     return errors;
   }
 
-  private scheduleSpareThread(cwd: string): void {
-    if (!this.automaticPrewarm || this.safeMode || this.spare?.cwd === cwd) return;
+  private scheduleSpareThread(cwd: string, force = false): void {
+    if ((!this.automaticPrewarm && !force) || this.safeMode || this.spare?.cwd === cwd) return;
     void this.discardSpare().catch((error) => this.fail(error));
     const startedAt = performance.now();
+    const cancellation = new AbortController();
     const pending = this.openThread(
       SessionManager.create(cwd),
       { type: "session_start", reason: "new", previousSessionFile: undefined },
-      { background: true, adopt: false },
+      { background: true, adopt: false, prepared: true, abortSignal: cancellation.signal },
     ).then((thread) => {
       this.log("runtime.spare.ready", basename(cwd));
       return thread;
@@ -1827,23 +2138,30 @@ export class PiHost {
       this.log("runtime.spare.failed", this.errorMessage(error));
       return undefined;
     }).finally(() => this.recordBackgroundLifecycle("spare", startedAt));
-    this.spare = { cwd, pending };
+    this.spare = { cwd, pending, cancel: () => cancellation.abort() };
   }
 
-  private async takeSpareThread(cwd: string): Promise<ThreadRuntime | undefined> {
+  private async takePreparedThread(cwd: string): Promise<ThreadRuntime | undefined> {
     const spare = this.spare;
     if (!spare || spare.cwd !== cwd) return undefined;
     this.spare = undefined;
     const thread = await spare.pending;
     if (!thread) return undefined;
-    await this.adoptThread(thread);
     return thread;
+  }
+
+  private retainPreparedThread(thread: ThreadRuntime): void {
+    this.spare = { cwd: thread.cwd, pending: Promise.resolve(thread), cancel: () => {
+      this.cancelUiPromptsFor(thread.sessionId);
+      void thread.session.abort().catch((error) => this.log("runtime.prepared.abort", this.errorMessage(error)));
+    } };
   }
 
   private async discardSpare(): Promise<void> {
     const spare = this.spare;
     this.spare = undefined;
     if (!spare) return;
+    spare.cancel();
     const thread = await spare.pending;
     if (thread) await this.disposeThread(thread);
   }
@@ -1959,6 +2277,8 @@ export class PiHost {
     this.detachBridge(false);
     this.bridge = client;
     this.bridgeSnapshot = bridgeSnapshot;
+    await this.flushBridgeNewSessionAborts(client, bridgeSnapshot);
+    this.acceptPendingBridgeSnapshot(bridgeSnapshot, client.descriptor.epoch);
     this.cwd = bridgeSnapshot.cwd;
     const unsubscribeEvents = client.subscribe((frame) => this.handleBridgeFrame(frame));
     const unsubscribeDisconnect = client.subscribeDisconnect(() => {
@@ -1972,6 +2292,16 @@ export class PiHost {
   private detachBridge(cancelReconnect = true): void {
     if (cancelReconnect) this.bridgeReconnectLoop.cancel();
     if (!this.bridge) return;
+    const bridge = this.bridge;
+    const detachedEpoch = bridge.descriptor.epoch;
+    if (cancelReconnect) {
+      for (const [requestId, pending] of this.pendingBridgeNewSessions) {
+        if (pending.bridgeEpoch !== detachedEpoch) continue;
+        this.abortBridgeNewSession(bridge, requestId, pending);
+        this.pendingBridgeNewSessions.delete(requestId);
+        pending.reject(new Error("The Pi bridge was detached before the new thread was reported."));
+      }
+    }
     // Pi's run state was ours only while attached; leaving it set would keep the
     // thread looking busy forever once Tau is no longer following that session.
     const detachedSessionId = this.bridgeSnapshot?.sessionId;
@@ -2005,17 +2335,126 @@ export class PiHost {
     );
   }
 
+  private abortBridgeNewSession(
+    bridge: PiBridgeClient,
+    requestId: NewThreadRequestId,
+    pending: { projectPath: string; observed?: { sessionId: string; sessionFile: string; bridgeEpoch: string } },
+  ): void {
+    const tombstone = this.pendingBridgeNewSessionAborts.get(requestId) ?? { projectPath: pending.projectPath };
+    this.pendingBridgeNewSessionAborts.set(requestId, tombstone);
+    void this.tryAbortBridgeNewSession(bridge, requestId, pending.observed?.sessionId);
+  }
+
+  private async flushBridgeNewSessionAborts(bridge: PiBridgeClient, snapshot: PiBridgeSnapshot): Promise<void> {
+    const attempts = [...this.pendingBridgeNewSessionAborts.keys()]
+      .filter((requestId) => this.pendingBridgeNewSessionAborts.get(requestId)?.projectPath === snapshot.cwd)
+      .map((requestId) => this.tryAbortBridgeNewSession(bridge, requestId, snapshot.sessionId, snapshot.newSessionRequestId));
+    await Promise.allSettled(attempts);
+  }
+
+  private async tryAbortBridgeNewSession(
+    bridge: PiBridgeClient,
+    requestId: NewThreadRequestId,
+    sessionId?: string,
+    snapshotRequestId?: NewThreadRequestId,
+  ): Promise<void> {
+    const tombstone = this.pendingBridgeNewSessionAborts.get(requestId);
+    if (!tombstone || tombstone.attempting || (snapshotRequestId && snapshotRequestId !== requestId)) return;
+    tombstone.attempting = true;
+    const targetSessionId = sessionId ?? bridge.descriptor.sessionId;
+    try {
+      const response = await bridge.command({
+        command: "new_session_abort",
+        requestId,
+        sessionId: targetSessionId,
+        bridgeEpoch: bridge.descriptor.epoch,
+      }, 3_000);
+      if (response && typeof response === "object"
+        && (response as { accepted?: unknown }).accepted === true
+        && (response as { requestId?: unknown }).requestId === requestId
+        && (response as { sessionId?: unknown }).sessionId === targetSessionId
+        && (response as { bridgeEpoch?: unknown }).bridgeEpoch === bridge.descriptor.epoch) {
+        this.pendingBridgeNewSessionAborts.delete(requestId);
+      }
+    } catch (error) {
+      this.log("bridge.new_session.abort_failed", this.errorMessage(error));
+    } finally {
+      if (this.pendingBridgeNewSessionAborts.get(requestId) === tombstone) tombstone.attempting = false;
+    }
+  }
+
+  private acceptPendingBridgeSnapshot(snapshot: PiBridgeSnapshot, transportEpoch?: string): NewThreadRequestId | undefined {
+    const requestId = snapshot.newSessionRequestId;
+    if (!requestId) return undefined;
+    const pending = this.pendingBridgeNewSessions.get(requestId);
+    if (!pending
+      || snapshot.sessionId === pending.previousSessionId
+      || snapshot.cwd !== pending.projectPath
+      || transportEpoch === undefined
+      || transportEpoch !== this.bridge?.descriptor.epoch) return undefined;
+    pending.observed = {
+      sessionId: snapshot.sessionId,
+      sessionFile: snapshot.sessionFile,
+      bridgeEpoch: transportEpoch,
+    };
+    pending.resolve(snapshot);
+    void this.acknowledgeBridgeNewSession(requestId, transportEpoch);
+    return requestId;
+  }
+
+  private async acknowledgeBridgeNewSession(requestId: NewThreadRequestId, transportEpoch?: string): Promise<void> {
+    const pending = this.pendingBridgeNewSessions.get(requestId);
+    const bridge = this.bridge;
+    const observed = pending?.observed;
+    if (!pending || !observed || !bridge || transportEpoch !== bridge.descriptor.epoch || observed.bridgeEpoch !== transportEpoch) return;
+    if (pending.acknowledging) return;
+    pending.acknowledging = true;
+    try {
+      const response = await bridge.command({
+        command: "new_session_ack",
+        requestId,
+        sessionId: observed.sessionId,
+        bridgeEpoch: observed.bridgeEpoch,
+      }, 3_000);
+      if (!response || typeof response !== "object"
+        || !("accepted" in response) || response.accepted !== true
+        || !("requestId" in response) || response.requestId !== requestId
+        || !("sessionId" in response) || response.sessionId !== observed.sessionId
+        || !("bridgeEpoch" in response) || response.bridgeEpoch !== observed.bridgeEpoch) {
+        pending.acknowledging = false;
+        return;
+      }
+      if (this.pendingBridgeNewSessions.get(requestId) === pending) this.pendingBridgeNewSessions.delete(requestId);
+    } catch (error) {
+      pending.acknowledging = false;
+      this.log("bridge.new_session.ack_failed", this.errorMessage(error));
+    }
+  }
+
   private handleBridgeFrame(frame: PiBridgeServerFrame): void {
     if (frame.type === "event") {
+      const event = frame.event;
+      if (event && typeof event === "object" && (event as { type?: unknown }).type === "new_session_failed") {
+        const failed = event as { requestId?: unknown; message?: unknown };
+        const requestId = failed.requestId as NewThreadRequestId | undefined;
+        const pending = requestId ? this.pendingBridgeNewSessions.get(requestId) : undefined;
+        if (requestId && pending && failed.requestId === requestId) {
+          this.pendingBridgeNewSessions.delete(requestId);
+          pending.reject(new Error(typeof failed.message === "string" ? failed.message : "Pi could not create the new thread."));
+          return;
+        }
+      }
       this.handleBridgeSessionEvent(frame.event, frame.sessionId);
       return;
     }
     if (frame.type !== "snapshot") return;
     this.bridgeSnapshot = frame.snapshot;
+    if (this.bridge) void this.flushBridgeNewSessionAborts(this.bridge, frame.snapshot);
+    const requestId = this.acceptPendingBridgeSnapshot(frame.snapshot, frame.epoch);
     this.syncBridgeAwaitingInput(frame.snapshot);
     this.cwd = frame.snapshot.cwd;
     void this.snapshot().then((snapshot) => {
-      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) });
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) });
       this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
     }).catch((error) => this.fail(error));
   }
@@ -2034,6 +2473,7 @@ export class PiHost {
       this.bridgeAwaitingPromptId = id;
       this.emit({
         type: "extension-ui-prompt",
+        sessionId: snapshot.sessionId,
         prompt: {
           id,
           sessionId: snapshot.sessionId,
@@ -2046,7 +2486,7 @@ export class PiHost {
       return;
     }
     if (!awaiting && this.bridgeAwaitingPromptId) {
-      this.emit({ type: "extension-ui-resolved", id: this.bridgeAwaitingPromptId });
+      this.emit({ type: "extension-ui-resolved", id: this.bridgeAwaitingPromptId, sessionId: snapshot.sessionId });
       this.bridgeAwaitingPromptId = undefined;
     }
   }
@@ -2104,6 +2544,7 @@ export class PiHost {
       extensionCount: 0,
       serviceTier: "standard",
       serviceTierAvailable: false,
+      supportsImageInput: false,
       contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
         ? { tokens: snapshot.contextUsage.tokens, contextWindow: snapshot.contextUsage.contextWindow, percent: snapshot.contextUsage.percent }
         : undefined,
@@ -2124,6 +2565,7 @@ export class PiHost {
   }
 
   private handleSessionEvent(event: any, thread: LiveTurnState, sessionId: string, cwd: string): void {
+      if (thread instanceof ThreadRuntime && thread.deferEvent(event, sessionId, cwd)) return;
       switch (event.type) {
         case "agent_start":
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
@@ -2450,6 +2892,7 @@ export class PiHost {
       serviceTier: this.serviceTier,
       serviceTierAvailable: this.serviceTierAvailable(),
       historyCompleteness: "complete",
+      supportsImageInput: modelSupportsImageInput(session.model),
       contextUsage: usage && usage.tokens !== null && usage.percent !== null
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined,
@@ -2474,14 +2917,15 @@ export class PiHost {
       // No deadline: an unanswered approval is a paused thread, not a refusal.
       // Only that thread waits, and stopping the run settles it.
       this.pendingApprovals.set(id, { sessionId, settle });
-      this.emit({
+      this.emitForThread(this.threadFor(sessionId), {
         type: "tool-approval",
+        sessionId,
         request: { id, sessionId, toolName, summary: approvalSummary(toolName, input) },
       });
     });
   }
 
-  private askExtensionUi(prompt: ExtensionUiPrompt): Promise<ExtensionUiAnswer> {
+  private askExtensionUi(prompt: ExtensionUiPrompt, thread?: ThreadRuntime): Promise<ExtensionUiAnswer> {
     // The user already typed the answer for the select before this; the
     // extension is only asking for it now in its own words.
     const typed = prompt.kind === "input" ? this.typedAnswers.get(prompt.sessionId) : undefined;
@@ -2501,7 +2945,7 @@ export class PiHost {
         this.pendingUiPrompts.delete(prompt.id);
         this.openUiPrompts.delete(prompt.id);
         if (timer) clearTimeout(timer);
-        this.emit({ type: "extension-ui-resolved", id: prompt.id });
+        this.emitForThread(thread, { type: "extension-ui-resolved", id: prompt.id, sessionId: prompt.sessionId });
         resolve(answer);
       };
       // Only the extension's own deadline ends a question. Without one the
@@ -2509,15 +2953,17 @@ export class PiHost {
       // an answer invented by a timer would send the run off in the wrong direction.
       const timer = prompt.expiresAt
         ? setTimeout(() => {
-          this.log("extension-ui.timeout", prompt.title);
+          if (thread) this.logForThread(thread, "extension-ui.timeout", prompt.title);
+          else this.log("extension-ui.timeout", prompt.title);
           settle({ cancelled: true });
         }, Math.max(0, prompt.expiresAt - Date.now()))
         : undefined;
       timer?.unref?.();
       this.pendingUiPrompts.set(prompt.id, { sessionId: prompt.sessionId, settle });
       this.openUiPrompts.set(prompt.id, prompt);
-      this.log("extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
-      this.emit({ type: "extension-ui-prompt", prompt });
+      if (thread) this.logForThread(thread, "extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
+      else this.log("extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
+      this.emitForThread(thread, { type: "extension-ui-prompt", prompt, sessionId: prompt.sessionId });
     });
   }
 
@@ -2552,7 +2998,7 @@ export class PiHost {
   /** Re-announces questions raised before the renderer was listening. */
   replayOpenUiPrompts(): void {
     for (const prompt of this.openUiPrompts.values()) {
-      this.emit({ type: "extension-ui-prompt", prompt });
+      this.emit({ type: "extension-ui-prompt", prompt, sessionId: prompt.sessionId });
     }
   }
 
@@ -2612,11 +3058,13 @@ export class PiHost {
     return nodes;
   }
 
-  private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string): void {
+  private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string, thread?: ThreadRuntime): void {
     this.lifecycleMetrics.phase(phase, startedAt);
     const elapsed = Math.round((performance.now() - startedAt) * 10) / 10;
     const detail = `${elapsed}ms · ${reason} · ${basename(cwd) || cwd}`;
-    this.log(`runtime.${phase}.ready`, note ? `${detail} · ${note}` : detail);
+    const eventDetail = note ? `${detail} · ${note}` : detail;
+    if (thread) this.logForThread(thread, `runtime.${phase}.ready`, eventDetail);
+    else this.log(`runtime.${phase}.ready`, eventDetail);
   }
 
   private logReplacement(reason: string, startedAt: number): void {
@@ -2628,19 +3076,35 @@ export class PiHost {
     this.emit({ type: "host-update", update });
   }
 
+  private emitForThread(thread: ThreadRuntime | undefined, event: ThreadHostEvent): void {
+    if (thread?.deferHostEvent(event)) return;
+    this.emit(event);
+  }
+
   private log(label: string, detail?: string): void {
     const event = { type: "event-log" as const, label, detail, timestamp: Date.now() };
     this.emit(event);
+  }
+
+  private logForThread(thread: ThreadRuntime, label: string, detail?: string): void {
+    this.emitForThread(thread, { type: "event-log", label, detail, timestamp: Date.now(), sessionId: thread.sessionId });
   }
 
   private errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
   }
 
-  private fail(error: unknown): void {
+  private fail(error: unknown, sessionId?: string, thread?: ThreadRuntime): void {
+    if (thread?.deferError(error)) return;
     const message = this.errorMessage(error);
-    this.emit({ type: "error", message });
-    this.log("host.error", message);
+    if (sessionId) this.emit({ type: "error", message, sessionId });
+    else this.emit({ type: "error", message });
+    const owner = thread instanceof ThreadRuntime
+      ? thread
+      : sessionId ? this.threadFor(sessionId) : undefined;
+    if (owner instanceof ThreadRuntime) this.logForThread(owner, "host.error", message);
+    else if (sessionId) this.emit({ type: "event-log", label: "host.error", detail: message, timestamp: Date.now(), sessionId });
+    else this.emit({ type: "event-log", label: "host.error", detail: message, timestamp: Date.now() });
   }
 }
 

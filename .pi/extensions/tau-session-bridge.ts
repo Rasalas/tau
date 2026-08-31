@@ -3,8 +3,9 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
+import type { NewThreadRequestId } from "../../src/shared/contracts.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
 import type { TranscriptHistoryCompleteness } from "../../src/shared/transcript-completeness.js";
@@ -143,6 +144,84 @@ function transcriptView(ctx: ExtensionContext, policy: TranscriptViewPolicy): Tr
   return buildTranscriptView(branchMessages, policy);
 }
 
+/** The Pi TUI bridge deliberately rejects image prompt payloads. */
+export const PI_BRIDGE_SUPPORTS_IMAGE_INPUT = false as const;
+
+/** Encode the registered command used by the socket side of the bridge.
+ *
+ * Socket callbacks receive an ExtensionContext, not the command-only context
+ * that owns session replacement. Going through this registered command keeps
+ * that distinction real at runtime as well as in the types.
+ */
+export function bridgeNewSessionCommand(initialPrompt?: string, requestId?: NewThreadRequestId): string {
+  if (initialPrompt === undefined && requestId === undefined) return "/tau-bridge-new";
+  const value = requestId ? { initialPrompt, requestId } : initialPrompt;
+  return `/tau-bridge-new ${Buffer.from(JSON.stringify(value), "utf8").toString("base64url")}`;
+}
+
+async function createPiSession(ctx: ExtensionCommandContext, initialPrompt?: string): Promise<{ cancelled: boolean }> {
+  const result = await ctx.newSession({
+    ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
+  });
+  if (result.cancelled) throw new Error("Pi cancelled creation of the new thread.");
+  return result;
+}
+
+export interface NewSessionRequestTracker {
+  begin(requestId: NewThreadRequestId): void;
+  remove(requestId: NewThreadRequestId): void;
+  markReady(requestId: NewThreadRequestId, sessionId: string, bridgeEpoch: string): void;
+  requestIdForSnapshot(): NewThreadRequestId | undefined;
+  acknowledge(requestId: NewThreadRequestId, sessionId: string, bridgeEpoch: string): boolean;
+  abort(requestId: NewThreadRequestId, sessionId: string, bridgeEpoch: string): boolean;
+  clear(): void;
+}
+
+/** Keeps a request token alive until Pi receives the host's correlated ACK. */
+export function createNewSessionRequestTracker(): NewSessionRequestTracker {
+  type Entry = { state: "pending" | "ready" | "acked"; sessionId?: string; bridgeEpoch?: string };
+  const entries = new Map<NewThreadRequestId, Entry>();
+  const remove = (requestId: NewThreadRequestId) => {
+    entries.delete(requestId);
+  };
+  return {
+    begin(requestId) {
+      for (const [id, entry] of entries) if (entry.state === "acked") remove(id);
+      if (entries.size > 0) throw new Error("Pi is already creating a new thread.");
+      entries.set(requestId, { state: "pending" });
+    },
+    remove,
+    markReady(requestId, sessionId, bridgeEpoch) {
+      const entry = entries.get(requestId);
+      if (!entry) return;
+      if (entry.sessionId && entry.sessionId !== sessionId) return;
+      entry.sessionId = sessionId;
+      entry.bridgeEpoch = bridgeEpoch;
+      if (entry.state !== "acked") entry.state = "ready";
+    },
+    // Keep the acked tombstone in snapshots so a host that lost the ACK
+    // response can reconnect and retry the same idempotent acknowledgement.
+    requestIdForSnapshot: () => entries.keys().next().value,
+    acknowledge(requestId, sessionId, bridgeEpoch) {
+      const entry = entries.get(requestId);
+      if (!entry || !entry.sessionId || !entry.bridgeEpoch
+        || entry.sessionId !== sessionId || entry.bridgeEpoch !== bridgeEpoch) return false;
+      if (entry.state === "acked") return true;
+      if (entry.state !== "ready") return false;
+      entry.state = "acked";
+      return true;
+    },
+    abort(requestId, sessionId, bridgeEpoch) {
+      const entry = entries.get(requestId);
+      if (!entry) return true;
+      if (entry.sessionId && (entry.sessionId !== sessionId || entry.bridgeEpoch !== bridgeEpoch)) return false;
+      remove(requestId);
+      return true;
+    },
+    clear: () => entries.clear(),
+  };
+}
+
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
     if (typeof item !== "string") return item;
@@ -153,6 +232,7 @@ function boundedBridgeValue<T>(value: T): T {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
+  const newSessionRequests = createNewSessionRequestTracker();
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
@@ -160,10 +240,26 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   pi.registerCommand("tau-bridge-new", {
     description: "Create a new Pi session for an attached Tau client",
     handler: async (args, ctx) => {
-      const initialPrompt = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as string : undefined;
-      await ctx.newSession({
-        ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
-      });
+      const decoded = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as unknown : undefined;
+      const payload = typeof decoded === "string"
+        ? { initialPrompt: decoded }
+        : decoded && typeof decoded === "object"
+          ? decoded as { initialPrompt?: unknown; requestId?: unknown }
+          : {};
+      const initialPrompt = typeof payload.initialPrompt === "string" ? payload.initialPrompt : undefined;
+      const requestId = typeof payload.requestId === "string" ? payload.requestId as NewThreadRequestId : undefined;
+      try {
+        if (requestId) {
+          newSessionRequests.begin(requestId);
+        }
+        await createPiSession(ctx, initialPrompt);
+      } catch (error) {
+        if (requestId) {
+          broadcast({ type: "new_session_failed", requestId, message: error instanceof Error ? error.message : String(error) }, ctx);
+          newSessionRequests.remove(requestId);
+        }
+        throw error;
+      }
     },
   });
   pi.registerCommand("tau-bridge-fork", {
@@ -188,7 +284,6 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   let awaitingInput: PiBridgeAwaitingInput | undefined;
   let sequence = 0;
   const clients = new Set<ClientState>();
-
   const send = (client: ClientState, frame: PiBridgeServerFrame) => {
     if (!client.socket.destroyed) client.socket.write(encodePiBridgeFrame(frame));
   };
@@ -200,6 +295,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const view = transcriptView(ctx, paged
       ? { kind: "initial-page", turnLimit: INITIAL_TRANSCRIPT_TURN_LIMIT }
       : { kind: "legacy-snapshot", maxRecords: LEGACY_SNAPSHOT_RECORD_LIMIT });
+    const newSessionRequestId = newSessionRequests.requestIdForSnapshot();
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
@@ -220,6 +316,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
       activeTools: pi.getActiveTools(),
       allTools: pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+      supportsImageInput: PI_BRIDGE_SUPPORTS_IMAGE_INPUT,
       composerCommands: pi.getCommands()
         .filter((command) => !command.name.startsWith("tau-bridge-"))
         .map((command) => ({
@@ -231,6 +328,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       taskProgress: taskProgressFromMessages(view.branchMessages),
       taskHistory: taskProgressHistoryFromMessages(view.taskHistoryMessages),
       awaitingInput,
+      ...(newSessionRequestId ? { newSessionRequestId } : {}),
     };
   };
 
@@ -298,13 +396,15 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       client.authenticated = true;
       const ctx = latestContext;
       if (!ctx) return client.socket.destroy();
+      const readySnapshot = snapshot(ctx, client.transcriptPaging);
       send(client, {
         protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
         type: "ready",
         id: frame.id,
         epoch: descriptor.epoch,
-        snapshot: snapshot(ctx, client.transcriptPaging),
+        snapshot: readySnapshot,
       });
+      if (readySnapshot.newSessionRequestId) newSessionRequests.markReady(readySnapshot.newSessionRequestId, readySnapshot.sessionId, descriptor.epoch);
       return;
     }
     if (frame.type !== "command" || frame.expectedSessionId !== descriptor.sessionId) {
@@ -317,7 +417,12 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     try {
       switch (frame.command) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
-        case "snapshot": respond(client, frame.id, true, snapshot(ctx, client.transcriptPaging)); break;
+        case "snapshot": {
+          const current = snapshot(ctx, client.transcriptPaging);
+          respond(client, frame.id, true, current);
+          if (current.newSessionRequestId) newSessionRequests.markReady(current.newSessionRequestId, current.sessionId, descriptor.epoch);
+          break;
+        }
         case "prompt":
           pi.sendUserMessage(frame.text, {
             ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
@@ -357,13 +462,32 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         }
         case "new_session": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before creating a new thread.");
-          respond(client, frame.id, true, { accepted: true });
-          setTimeout(() => {
-            const encodedPrompt = frame.initialPrompt
-              ? ` ${Buffer.from(JSON.stringify(frame.initialPrompt), "utf8").toString("base64url")}`
-              : "";
-            pi.sendUserMessage(`/tau-bridge-new${encodedPrompt}`, { expandPromptTemplates: true });
-          }, 0);
+          // Only a registered command receives ExtensionCommandContext. The
+          // socket callback deliberately dispatches that command instead of
+          // pretending its event context has command-only session methods.
+          pi.sendUserMessage(bridgeNewSessionCommand(frame.initialPrompt, frame.requestId), { expandPromptTemplates: true });
+          respond(client, frame.id, true, { accepted: true, requestId: frame.requestId ?? frame.id });
+          break;
+        }
+        case "new_session_ack": {
+          if (frame.sessionId !== ctx.sessionManager.getSessionId() || frame.bridgeEpoch !== descriptor.epoch) {
+            throw new Error("The new-thread acknowledgement does not match this Pi session.");
+          }
+          if (!newSessionRequests.acknowledge(frame.requestId, frame.sessionId, frame.bridgeEpoch)) throw new Error("The new-thread acknowledgement is stale or uncorrelated.");
+          respond(client, frame.id, true, {
+            accepted: true,
+            requestId: frame.requestId,
+            sessionId: frame.sessionId,
+            bridgeEpoch: frame.bridgeEpoch,
+          });
+          break;
+        }
+        case "new_session_abort": {
+          if (frame.sessionId !== ctx.sessionManager.getSessionId() || frame.bridgeEpoch !== descriptor.epoch) {
+            throw new Error("The new-thread abort does not match this Pi session.");
+          }
+          if (!newSessionRequests.abort(frame.requestId, frame.sessionId, frame.bridgeEpoch)) throw new Error("The new-thread abort is stale or uncorrelated.");
+          respond(client, frame.id, true, { accepted: true, requestId: frame.requestId, sessionId: frame.sessionId, bridgeEpoch: frame.bridgeEpoch });
           break;
         }
         case "transcript_page":
@@ -495,5 +619,5 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     awaitingInput = undefined;
     broadcastSnapshot(ctx);
   });
-  pi.on("session_shutdown", async () => { await stop(); });
+  pi.on("session_shutdown", async () => { newSessionRequests.clear(); await stop(); });
 }

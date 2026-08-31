@@ -9,6 +9,10 @@ state; it must not reinterpret it as a `HostSnapshot`.
 - `transcript-page` contains a bounded page plus a cursor for older records and
   an optional `historyCompleteness` value.
 - `catalog` contains models, thinking levels, tools, and extension count.
+  Legacy v1 catalogs may omit `sessionId` and the image-input capability. The
+  decoder accepts both omissions; omitted capability is treated as `false`,
+  while a catalog without a session id cannot change the active thread's
+  capability.
 - `project` contains workspace identity, branch, and optional project metadata.
 - `run` contains lifecycle state for the active session.
 
