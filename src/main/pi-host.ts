@@ -68,6 +68,7 @@ import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { ClientTurnLedger, withClientTurnIdentity } from "./client-turn-ledger.js";
+import { resolveClientTurnIdentity } from "../shared/transcript-turn.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -542,6 +543,8 @@ export class PiHost {
   private serviceTier: ServiceTier = "standard";
   private pendingApprovals = new Map<string, { sessionId: string; settle: (decision: AccessDecision) => void }>();
   private pendingUiPrompts = new Map<string, { sessionId: string; settle: (answer: ExtensionUiAnswer) => void }>();
+  /** Monotonic ownership epoch; a runtime may only publish after its request is current. */
+  private activationEpoch = 0;
   /** Prompts still awaiting an answer, kept so a late subscriber still sees them. */
   private openUiPrompts = new Map<string, ExtensionUiPrompt>();
   /** Free text typed for a select, waiting to answer the extension's follow-up input. */
@@ -702,6 +705,19 @@ export class PiHost {
     return thread;
   }
 
+  private beginActivation(): number {
+    this.activationEpoch += 1;
+    return this.activationEpoch;
+  }
+
+  private isCurrentActivation(epoch: number): boolean {
+    return this.activationEpoch === epoch;
+  }
+
+  private async staleActivationResult(): Promise<HostActionResult> {
+    return this.actionResult([]);
+  }
+
   /** Whether a command for `sessionId` belongs to the thread Pi's TUI owns. */
   private bridgeOwns(sessionId: string | undefined): boolean {
     return Boolean(this.bridge) && (!sessionId || sessionId === this.bridgeSnapshot?.sessionId);
@@ -718,17 +734,21 @@ export class PiHost {
 
   async start(): Promise<HostBootstrap> {
     return this.runLifecycle(async () => {
+      const activationEpoch = this.beginActivation();
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
         await this.rememberProject(this.cwd);
+        if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
           throw new Error("Pi already owns this session. Close Pi before opening the project in Tau safe mode.");
         }
-        if (!(await this.attachAvailableBridge(this.cwd))) {
+        if (!(await this.attachAvailableBridge(this.cwd, undefined, {}, activationEpoch))) {
+          if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
           const thread = await this.openThread(SessionManager.continueRecent(this.cwd), undefined);
-          await this.activateThread(thread, false);
+          if (!await this.activateThread(thread, false, activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         }
+        if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         this.branchFor(this.cwd);
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
@@ -810,8 +830,10 @@ export class PiHost {
     ];
   }
 
-  private async activeUpdates(): Promise<HostActionResult> {
-    return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+  private async activeUpdates(activationEpoch?: number): Promise<HostActionResult> {
+    const snapshot = await this.snapshot();
+    if (activationEpoch !== undefined && !this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+    return this.actionResult(this.lifecycleUpdates(snapshot));
   }
 
   async setWorkspace(cwd: string): Promise<HostActionResult> {
@@ -819,21 +841,27 @@ export class PiHost {
   }
 
   private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
+    const activationEpoch = this.beginActivation();
     await this.rememberProject(cwd);
-    if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates();
-    if (await this.attachAvailableBridge(cwd)) {
+    if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+    if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates(activationEpoch);
+    if (await this.attachAvailableBridge(cwd, undefined, {}, activationEpoch)) {
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       await this.rememberProject(this.cwd);
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       await this.refreshActiveThreadIndex(false);
-      return this.activeUpdates();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      return this.activeUpdates(activationEpoch);
     }
+    if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     this.detachBridge();
     const startedAt = performance.now();
     const manager = SessionManager.continueRecent(cwd);
     const thread = this.liveThreadForPath(manager.getSessionFile())
       ?? await this.openThread(manager, { type: "session_start", reason: "resume", previousSessionFile: this.active?.sessionFile });
-    await this.activateThread(thread, false);
+    if (!await this.activateThread(thread, false, activationEpoch)) return this.staleActivationResult();
     this.logReplacement("workspace", startedAt);
-    return this.activeUpdates();
+    return this.activeUpdates(activationEpoch);
   }
 
   async removeProject(path: string): Promise<HostActionResult> {
@@ -969,10 +997,14 @@ export class PiHost {
   ): Promise<HostActionResult> {
     if (this.bridge && (!cwd || cwd === this.cwd)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      const bridge = this.bridge;
+      const bridgeEpoch = this.activationEpoch;
       try {
         await this.sendBridgeNewSession(initialPrompt, identity);
+        if (this.bridge !== bridge || !this.isCurrentActivation(bridgeEpoch)) return this.staleActivationResult();
         return this.actionResult([]);
       } catch (error) {
+        if (this.bridge !== bridge || !this.isCurrentActivation(bridgeEpoch)) return this.staleActivationResult();
         // A new thread is a different session, so Pi has no standing to veto it.
         // Whether it refused because it is busy or stopped answering entirely,
         // Tau creates the thread itself rather than leaving the user stuck.
@@ -987,6 +1019,7 @@ export class PiHost {
       }
     }
     return this.runLifecycle(async () => {
+      const activationEpoch = this.beginActivation();
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       this.detachBridge();
@@ -995,7 +1028,12 @@ export class PiHost {
         SessionManager.create(targetCwd),
         { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
       );
-      await this.activateThread(thread, true);
+      if (!await this.activateThread(thread, true, activationEpoch)) {
+        if (this.threads.get(thread.sessionId)?.runtime === thread && this.active !== thread) {
+          await this.threads.release(thread.sessionId);
+        }
+        return this.staleActivationResult();
+      }
       // The first prompt names the thread right away; the run that follows
       // would otherwise leave it "Untitled" until it finishes.
       if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
@@ -1004,7 +1042,7 @@ export class PiHost {
         void this.prompt(initialPrompt ?? "", attachments, thread.sessionId, identity).catch((error) => this.fail(error));
       }
       this.scheduleSpareThread(targetCwd);
-      return this.activeUpdates();
+      return this.activeUpdates(activationEpoch);
     });
   }
 
@@ -1017,6 +1055,7 @@ export class PiHost {
       return this.actionResult([]);
     }
     return this.runLifecycle(async () => {
+      const activationEpoch = this.beginActivation();
       const thread = this.requireActive();
       if (expectedSessionId && thread.sessionId !== expectedSessionId) {
         throw new Error("The selected thread changed before it could be forked.");
@@ -1035,9 +1074,9 @@ export class PiHost {
         SessionManager.open(forkedPath),
         { type: "session_start", reason: "fork", previousSessionFile: sourceFile },
       );
-      await this.activateThread(forked, true);
+      if (!await this.activateThread(forked, true, activationEpoch)) return this.staleActivationResult();
       this.logReplacement("fork", startedAt);
-      return this.activeUpdates();
+      return this.activeUpdates(activationEpoch);
     });
   }
 
@@ -1067,27 +1106,33 @@ export class PiHost {
     // the lifecycle queue: nothing is created, aborted or replaced.
     const live = this.bridge ? undefined : this.liveThreadForPath(path);
     if (live) {
+      const activationEpoch = this.beginActivation();
       const startedAt = performance.now();
-      await this.activateThread(live, false);
+      if (!await this.activateThread(live, false, activationEpoch)) return this.staleActivationResult();
       this.logReplacement("live-switch", startedAt);
-      return this.activeUpdates();
+      return this.activeUpdates(activationEpoch);
     }
     return this.runLifecycle(async () => {
+      const activationEpoch = this.beginActivation();
       const startedAt = performance.now();
-      if (await this.attachAvailableBridge(dirname(path), path)) {
+      if (await this.attachAvailableBridge(dirname(path), path, {}, activationEpoch)) {
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
         this.cwd = this.bridgeSnapshot!.cwd;
         await this.rememberProject(this.cwd);
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
         await this.refreshActiveThreadIndex(false);
-        return this.activeUpdates();
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+        return this.activeUpdates(activationEpoch);
       }
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.detachBridge();
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
         const thread = alreadyLive ?? await this.openThreadForPath(path, "resume");
-        await this.activateThread(thread, false);
+        if (!await this.activateThread(thread, false, activationEpoch)) return this.staleActivationResult();
         this.logReplacement("resume", startedAt);
-        return this.activeUpdates();
+        return this.activeUpdates(activationEpoch);
       } finally {
         this.lifecycleMetrics.end();
       }
@@ -1663,17 +1708,22 @@ export class PiHost {
   }
 
   /** Puts a live thread on screen. Cheap: it changes pointers and publishes state. */
-  private async activateThread(thread: ThreadRuntime, touch: boolean): Promise<void> {
+  private async activateThread(thread: ThreadRuntime, touch: boolean, activationEpoch: number): Promise<boolean> {
+    if (!this.isCurrentActivation(activationEpoch)) return false;
     if (!this.threads.has(thread.sessionId)) await this.adoptThread(thread);
+    if (!this.isCurrentActivation(activationEpoch)) return false;
     this.threads.setActive(thread.sessionId);
     this.cwd = thread.cwd;
     this.extensionCount = thread.session.resourceLoader.getExtensions().extensions.length;
     await this.rememberProject(this.cwd);
+    if (!this.isCurrentActivation(activationEpoch)) return false;
     await this.refreshThreadShell(thread, touch);
+    if (!this.isCurrentActivation(activationEpoch)) return false;
     this.log("session.opened", thread.sessionId.slice(0, 8));
     this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
     this.scheduleRuntimePrewarm();
     this.scheduleSpareThread(thread.cwd);
+    return true;
   }
 
   private async publishActiveCatalog(): Promise<void> {
@@ -1844,10 +1894,12 @@ export class PiHost {
     cwd: string,
     sessionFile?: string,
     options: { ownerPid?: number } = {},
+    activationEpoch = this.beginActivation(),
   ): Promise<boolean> {
     if (this.safeMode || this.suppressBridgeAttach) return false;
     const descriptor = await findPiBridge(cwd, sessionFile, options.ownerPid);
     if (!descriptor) return false;
+    if (!this.isCurrentActivation(activationEpoch)) return false;
     if (this.bridge?.descriptor.epoch === descriptor.epoch && this.bridge.isConnected) return true;
     const client = new PiBridgeClient(descriptor);
     let bridgeSnapshot: PiBridgeSnapshot;
@@ -1859,16 +1911,24 @@ export class PiHost {
       if (!processIsAlive(descriptor.pid)) return false;
       throw new Error(`Pi owns this session, but Tau could not connect to it: ${this.errorMessage(error)}`);
     }
+    if (!this.isCurrentActivation(activationEpoch)) {
+      client.close();
+      return false;
+    }
     // Pi is the sole writer of that session while attached; a local runtime for
     // the same file would race it.
     const local = this.liveThreadForPath(descriptor.sessionFile);
     if (local) await this.threads.release(local.sessionId);
+    if (!this.isCurrentActivation(activationEpoch)) {
+      client.close();
+      return false;
+    }
     this.threads.setActive(undefined);
     this.detachBridge(false);
     this.bridge = client;
     this.bridgeSnapshot = bridgeSnapshot;
     this.cwd = bridgeSnapshot.cwd;
-    const unsubscribeEvents = client.subscribe((frame) => this.handleBridgeFrame(frame));
+    const unsubscribeEvents = client.subscribe((frame) => this.handleBridgeFrame(frame, client));
     const unsubscribeDisconnect = client.subscribeDisconnect(() => {
       if (this.bridge === client) this.reconnectBridge(client);
     });
@@ -1902,14 +1962,25 @@ export class PiHost {
   }
 
   private reconnectBridge(disconnected: PiBridgeClient): void {
+    if (this.bridge !== disconnected) return;
     const { cwd, sessionFile, pid } = disconnected.descriptor;
+    // Capture the reconnect's intent when the disconnect is observed. A later
+    // user activation (including a warm live-thread switch) advances this
+    // epoch and makes every pending reconnect attempt inert before it can
+    // publish or install a bridge.
+    const reconnectActivationEpoch = this.beginActivation();
     this.emit({ type: "event-log", label: "bridge.reconnecting", detail: "Pi session bridge", timestamp: Date.now() });
     this.bridgeReconnectLoop.start(
       async () => {
-        if (await this.attachAvailableBridge(cwd, sessionFile)) return true;
-        return this.attachAvailableBridge(cwd, undefined, { ownerPid: pid });
+        if (!this.isCurrentActivation(reconnectActivationEpoch) || this.bridge !== disconnected) return true;
+        if (await this.attachAvailableBridge(cwd, sessionFile, {}, reconnectActivationEpoch)) return true;
+        if (!this.isCurrentActivation(reconnectActivationEpoch) || this.bridge !== disconnected) return true;
+        return this.attachAvailableBridge(cwd, undefined, { ownerPid: pid }, reconnectActivationEpoch);
       },
       () => {
+        // A user switch may have won while the bridge was reconnecting. The
+        // attach itself is epoch-guarded; do not publish its stale completion.
+        if (!this.isCurrentActivation(reconnectActivationEpoch)) return;
         void this.refreshActiveThreadIndex(false).then(async () => {
           const snapshot = await this.snapshot();
           for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
@@ -1920,7 +1991,11 @@ export class PiHost {
     );
   }
 
-  private handleBridgeFrame(frame: PiBridgeServerFrame): void {
+  private handleBridgeFrame(frame: PiBridgeServerFrame, source?: PiBridgeClient): void {
+    // A socket may have already queued a frame when a newer activation detaches
+    // it. Never let that old owner publish a snapshot into the newly selected
+    // runtime.
+    if (source && this.bridge !== source) return;
     if (frame.type === "event") {
       this.handleBridgeSessionEvent(frame.event, frame.sessionId);
       return;
@@ -1930,6 +2005,7 @@ export class PiHost {
     this.syncBridgeAwaitingInput(frame.snapshot);
     this.cwd = frame.snapshot.cwd;
     void this.snapshot().then((snapshot) => {
+      if (source && this.bridge !== source) return;
       this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) });
       this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
     }).catch((error) => this.fail(error));
@@ -1981,16 +2057,11 @@ export class PiHost {
         // Older bridge peers cannot echo the renderer identity. The ledger is
         // only a legacy fallback; an explicit (even mismatched) pair remains
         // authoritative and is never replaced by text/timestamp matching.
-        const explicitIdentity = mapped.clientTurnId !== undefined || mapped.clientMessageId !== undefined;
         const identity = rawMessage && typeof rawMessage === "object"
           ? this.clientTurns.identityForRaw(rawMessage)
           : undefined;
         const resolvedIdentity = mapped.role === "user"
-          ? explicitIdentity
-            ? mapped.clientTurnId !== undefined && mapped.clientMessageId !== undefined
-              ? { clientTurnId: mapped.clientTurnId, clientMessageId: mapped.clientMessageId }
-              : undefined
-            : identity ?? this.clientTurns.identityForMessage(snapshot.sessionId, mapped)
+          ? resolveClientTurnIdentity(mapped, identity ?? this.clientTurns.identityForMessage(snapshot.sessionId, mapped))
           : undefined;
         if (resolvedIdentity && rawMessage && typeof rawMessage === "object") {
           this.clientTurns.remember(snapshot.sessionId, mapped, resolvedIdentity, rawMessage);
@@ -2300,14 +2371,10 @@ export class PiHost {
         if (entry.type !== "message") return [];
         const rawMessage = entry.message as object;
         const mapped = mapMessage({ ...entry.message, tauEntryId: entry.id }, index);
-        const explicitIdentity = mapped?.clientTurnId !== undefined || mapped?.clientMessageId !== undefined;
         const identity = mapped?.role === "user"
-          ? explicitIdentity
-            ? mapped.clientTurnId !== undefined && mapped.clientMessageId !== undefined
-              ? { clientTurnId: mapped.clientTurnId, clientMessageId: mapped.clientMessageId }
-              : undefined
-            : this.clientTurns.identityForRaw(rawMessage)
-              ?? this.clientTurns.identityForMessage(thread.sessionId, mapped)
+          ? resolveClientTurnIdentity(mapped,
+            this.clientTurns.identityForRaw(rawMessage)
+              ?? this.clientTurns.identityForMessage(thread.sessionId, mapped))
           : undefined;
         if (mapped && identity) this.clientTurns.remember(thread.sessionId, mapped, identity, rawMessage);
         return [{ ...entry.message, tauEntryId: entry.id, ...identity }];

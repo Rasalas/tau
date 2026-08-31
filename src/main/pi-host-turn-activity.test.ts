@@ -55,6 +55,102 @@ describe("PiHost.generateThreadTitle", () => {
     });
     expect(callOrder).toEqual(["wait", "complete"]);
   });
+
+  it("does not let a stale new-thread activation replace a newer live switch", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as {
+      beginActivation(): number;
+      activateThread(thread: unknown, touch: boolean, epoch: number): Promise<boolean>;
+      threads: { adopt(record: unknown): Promise<void>; active?: { runtime: unknown; sessionId: string }; setActive(sessionId: string): void };
+      rememberProject(cwd: string): Promise<void>;
+      refreshThreadShell(thread: unknown, touch: boolean): Promise<void>;
+      scheduleRuntimePrewarm(): void;
+      scheduleSpareThread(cwd: string): void;
+    };
+    const makeThread = (sessionId: string) => ({
+      sessionId,
+      cwd: "/repo",
+      session: {
+        sessionId,
+        sessionFile: `/${sessionId}.jsonl`,
+        resourceLoader: { getExtensions: () => ({ extensions: [] }) },
+      },
+    });
+    const staleThread = makeThread("new-thread");
+    const liveThread = makeThread("live-thread");
+    await internals.threads.adopt({ sessionId: staleThread.sessionId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
+    await internals.threads.adopt({ sessionId: liveThread.sessionId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+
+    let releaseStale!: () => void;
+    let staleEntered!: () => void;
+    const staleStarted = new Promise<void>((resolve) => { staleEntered = resolve; });
+    const staleGate = new Promise<void>((resolve) => { releaseStale = resolve; });
+    internals.rememberProject = async () => {
+      if (internals.threads.active?.runtime === staleThread) {
+        staleEntered();
+        await staleGate;
+      }
+    };
+    internals.refreshThreadShell = async () => {};
+    internals.scheduleRuntimePrewarm = () => {};
+    internals.scheduleSpareThread = () => {};
+
+    const staleEpoch = internals.beginActivation();
+    const staleActivation = internals.activateThread(staleThread, true, staleEpoch);
+    await staleStarted;
+    const liveEpoch = internals.beginActivation();
+    await expect(internals.activateThread(liveThread, false, liveEpoch)).resolves.toBe(true);
+    releaseStale();
+
+    await expect(staleActivation).resolves.toBe(false);
+    expect(internals.threads.active?.sessionId).toBe("live-thread");
+  });
+
+  it("guards the real newSession result when a newer live switch wins", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const makeThread = (sessionId: string, sessionFile: string) => ({
+      sessionId,
+      sessionFile,
+      cwd: "/repo",
+      session: {
+        sessionId,
+        sessionFile,
+        resourceLoader: { getExtensions: () => ({ extensions: [] }) },
+      },
+    });
+    const staleThread = makeThread("new-thread", "/new.jsonl");
+    const liveThread = makeThread("live-thread", "/live.jsonl");
+    await internals.threads.adopt({ sessionId: staleThread.sessionId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
+    await internals.threads.adopt({ sessionId: liveThread.sessionId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+
+    let releaseStale!: () => void;
+    let staleEntered!: () => void;
+    const staleStarted = new Promise<void>((resolve) => { staleEntered = resolve; });
+    const staleGate = new Promise<void>((resolve) => { releaseStale = resolve; });
+    internals.rememberProject = async () => {
+      if (internals.threads.active?.runtime === staleThread) {
+        staleEntered();
+        await staleGate;
+      }
+    };
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takeSpareThread = async () => undefined;
+    internals.openThread = async () => staleThread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.threads.release = async () => {};
+
+    const staleNewSession = host.newSession("stale prompt", [], "/repo");
+    await staleStarted;
+    await expect(host.switchSession("/live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
+    releaseStale();
+
+    await expect(staleNewSession).resolves.toEqual({ version: 1, updates: [] });
+    expect(internals.threads.active?.sessionId).toBe("live-thread");
+  });
 });
 
 describe("lastTurnActivityFromMessages", () => {

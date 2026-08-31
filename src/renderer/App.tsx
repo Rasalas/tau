@@ -57,7 +57,7 @@ import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
 import { TranscriptViewport } from "./components/TranscriptViewport";
-import type { TranscriptNavigationScope, TranscriptTurnStart } from "./components/TranscriptViewport";
+import { transcriptNavigationScopesEqual, type TranscriptNavigationScope, type TranscriptTurnStart } from "./components/transcript-navigation";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -71,6 +71,7 @@ import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import { estimateTranscriptTokens, TranscriptMessageIndex, type TranscriptMessageUpdate } from "../shared/transcript-index";
+import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
@@ -109,6 +110,30 @@ function transcriptNavigationScope(
   return pending
     ? { kind: "draft", projectPath: pending.projectPath, draftId: pending.draftId }
     : { kind: "session", projectPath: snapshot?.cwd, sessionId: snapshot?.sessionId ?? "" };
+}
+
+export interface TranscriptSubmissionIdentity {
+  turnId: string;
+  scopeKey: string;
+  scope: TranscriptNavigationScope;
+  draftId?: string;
+}
+
+/**
+ * Late send failures may still clean up their own optimistic entry, but they
+ * may only restore composer UI while the exact logical request and semantic
+ * transcript scope remain current.
+ */
+export function isCurrentTranscriptSubmission(
+  current: TranscriptTurnStart | undefined,
+  currentScopeKey: string,
+  currentDraftId: string | undefined,
+  captured: TranscriptSubmissionIdentity,
+): boolean {
+  return current?.turnId === captured.turnId
+    && currentScopeKey === captured.scopeKey
+    && transcriptNavigationScopesEqual(current.scope, captured.scope)
+    && currentDraftId === captured.draftId;
 }
 
 export function optimisticThreadSnapshot(
@@ -191,22 +216,6 @@ interface OptimisticUserMessage {
   message: UiMessage;
 }
 
-function matchesTranscriptTurn(message: UiMessage, turnStart: TranscriptTurnStart): boolean {
-  if (message.role !== "user") return false;
-  const hasExplicitIdentity = message.clientTurnId !== undefined || message.clientMessageId !== undefined;
-  if (hasExplicitIdentity) {
-    return message.clientTurnId !== undefined
-      && message.clientMessageId !== undefined
-      && turnStart.clientMessageId !== undefined
-      && message.clientTurnId === turnStart.turnId
-      && message.clientMessageId === turnStart.clientMessageId;
-  }
-  if (turnStart.messageId !== undefined && message.id === turnStart.messageId) return true;
-  return turnStart.text !== undefined
-    && message.text === turnStart.text
-    && (turnStart.timestamp === undefined || message.timestamp >= turnStart.timestamp - 30_000);
-}
-
 export function reconcileOptimisticMessages(
   pending: readonly OptimisticUserMessage[],
   authoritative: readonly UiMessage[],
@@ -214,18 +223,13 @@ export function reconcileOptimisticMessages(
   const confirmed = authoritative.filter((message) => message.role === "user");
   const used = new Set<number>();
   return pending.filter((entry) => {
-    const index = confirmed.findIndex((message, at) => {
-      if (used.has(at)) return false;
-      const hasExplicitIdentity = message.clientTurnId !== undefined || message.clientMessageId !== undefined;
-      if (hasExplicitIdentity) {
-        return message.clientTurnId !== undefined
-          && message.clientMessageId !== undefined
-          && message.clientTurnId === entry.message.clientTurnId
-          && message.clientMessageId === entry.message.clientMessageId;
-      }
-      return message.text === entry.message.text
-        && message.timestamp >= entry.message.timestamp - 30_000;
-    });
+    const index = confirmed.findIndex((message, at) => !used.has(at) && matchesTranscriptTurnMessage(message, {
+      turnId: entry.message.clientTurnId ?? "",
+      clientMessageId: entry.message.clientMessageId,
+      messageId: entry.message.id,
+      text: entry.message.text,
+      timestamp: entry.message.timestamp,
+    }));
     if (index < 0) return true;
     used.add(index);
     return false;
@@ -321,19 +325,25 @@ export default function App() {
     transcriptMessageIndexRef.current = new TranscriptMessageIndex(cachedBootstrap?.snapshot.messages ?? []);
   }
   const [messages, setMessages] = useState<UiMessage[]>(() => transcriptMessageIndexRef.current!.messages);
+  const [transcriptRevision, setTranscriptRevision] = useState(() => transcriptMessageIndexRef.current!.revision);
   const transcriptUserRevision = transcriptMessageIndexRef.current.userRevision;
   const transcriptTokenEstimate = transcriptMessageIndexRef.current.tokenEstimate;
+  const transcriptLookupRevision = transcriptMessageIndexRef.current.lookupRevision;
   const replaceTranscriptMessages = useCallback((next: readonly UiMessage[]) => {
     setMessages(transcriptMessageIndexRef.current!.replace(next));
+    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
   }, []);
   const updateTranscriptMessages = useCallback((updates: ReadonlyMap<string, TranscriptMessageUpdate>) => {
     setMessages(transcriptMessageIndexRef.current!.updateMany(updates));
+    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
   }, []);
   const appendTranscriptMessage = useCallback((message: UiMessage) => {
     setMessages(transcriptMessageIndexRef.current!.append(message));
+    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
   }, []);
   const prependTranscriptMessages = useCallback((next: readonly UiMessage[]) => {
     setMessages(transcriptMessageIndexRef.current!.prepend(next));
+    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
   }, []);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [tools, setTools] = useState<UiToolRun[]>([]);
@@ -538,7 +548,7 @@ export default function App() {
       if (currentTurnStart?.scope?.kind === "draft"
         && pendingDraft
         && currentTurnStart.scope.draftId === pendingDraft.draftId) {
-        const matchedPrompt = detail.messages.find((message) => matchesTranscriptTurn(message, currentTurnStart));
+        const matchedPrompt = detail.messages.find((message) => matchesTranscriptTurnMessage(message, currentTurnStart));
         if (matchedPrompt) {
           setTranscriptTurnStart({
             ...currentTurnStart,
@@ -1428,6 +1438,20 @@ export default function App() {
     };
     const submissionScopeKey = transcriptScopeKey;
     const submissionScope = transcriptNavigationScope(snapshot, pendingNewThread);
+    const submissionDraftId = pendingNewThread?.draftId;
+    const submissionRequestId = logicalTurnId;
+    const submissionIdentity: TranscriptSubmissionIdentity = {
+      turnId: submissionRequestId,
+      scopeKey: submissionScopeKey,
+      scope: submissionScope,
+      draftId: submissionDraftId,
+    };
+    const isCurrentSubmission = () => isCurrentTranscriptSubmission(
+      transcriptTurnStartRef.current,
+      transcriptScopeKeyRef.current,
+      pendingNewThreadRef.current?.draftId,
+      submissionIdentity,
+    );
     const startTranscriptTurn = (
       targetSessionId?: string,
       awaitingMessage = false,
@@ -1459,11 +1483,14 @@ export default function App() {
           if (!window.tau) throw new Error("Steering requires the Electron host.");
           await window.tau.steer(text, attachments, snapshot?.sessionId, clientTurn);
         } catch (error) {
+          const currentSubmission = isCurrentSubmission();
           cancelTranscriptTurn();
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          writeComposerDraft(window.localStorage, activeDraftKey, text);
-          setComposerSeed(text);
-          setNotice(String(error));
+          if (currentSubmission) {
+            writeComposerDraft(window.localStorage, activeDraftKey, text);
+            setComposerSeed(text);
+            setNotice(String(error));
+          }
         }
       } else {
         startTranscriptTurn(snapshot?.sessionId, true);
@@ -1473,14 +1500,17 @@ export default function App() {
           if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
           await window.tau.followUp(text, attachments, snapshot?.sessionId, clientTurn);
         } catch (error) {
+          const currentSubmission = isCurrentSubmission();
           cancelTranscriptTurn();
           setQueue((current) => {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
           });
-          writeComposerDraft(window.localStorage, activeDraftKey, text);
-          setComposerSeed(text);
-          setNotice(String(error));
+          if (currentSubmission) {
+            writeComposerDraft(window.localStorage, activeDraftKey, text);
+            setComposerSeed(text);
+            setNotice(String(error));
+          }
         }
       }
       return;
@@ -1510,7 +1540,7 @@ export default function App() {
             ? { ...entry, scope: `session:${sessionId}` }
             : entry));
           const persistedPrompt = created?.type === "thread-detail"
-            ? created.detail.messages.find((message) => matchesTranscriptTurn(message, {
+            ? created.detail.messages.find((message) => matchesTranscriptTurnMessage(message, {
               turnId: clientTurn.clientTurnId,
               clientMessageId: clientTurn.clientMessageId,
               messageId: optimistic.id,
@@ -1555,11 +1585,14 @@ export default function App() {
         }
         writeComposerDraft(window.localStorage, pendingKey, "");
       } catch (error) {
+        const currentSubmission = isCurrentSubmission();
         cancelTranscriptTurn();
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        writeComposerDraft(window.localStorage, pendingKey, text);
-        setComposerSeed(text);
-        setNotice(String(error));
+        if (currentSubmission) {
+          writeComposerDraft(window.localStorage, pendingKey, text);
+          setComposerSeed(text);
+          setNotice(String(error));
+        }
       }
       return;
     }
@@ -1574,11 +1607,14 @@ export default function App() {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientTurn);
         await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
       } catch (error) {
+        const currentSubmission = isCurrentSubmission();
         cancelTranscriptTurn();
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        writeComposerDraft(window.localStorage, activeDraftKey, text);
-        setComposerSeed(text);
-        setNotice(String(error));
+        if (currentSubmission) {
+          writeComposerDraft(window.localStorage, activeDraftKey, text);
+          setComposerSeed(text);
+          setNotice(String(error));
+        }
       }
     } else {
       setSnapshot((current) => current ? { ...current, isStreaming: true } : current);
@@ -1930,6 +1966,8 @@ export default function App() {
                 scrollRef={transcriptRef}
                 sessionId={conversationSnapshot?.sessionId}
                 scopeKey={transcriptScopeKey}
+                revision={transcriptRevision}
+                lookupRevision={transcriptLookupRevision}
                 scope={transcriptTurnStart?.scope ?? transcriptScope}
                 turnStart={visibleTranscriptTurnStart}
                 isStreaming={Boolean(conversationSnapshot?.isStreaming)}

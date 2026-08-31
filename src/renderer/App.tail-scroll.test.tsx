@@ -283,6 +283,37 @@ describe("TranscriptViewport navigation", () => {
     expect(view.container.querySelector(".transcript-current-row")).toBeNull();
   });
 
+  it("invalidates an idless anchor when the same record ID gains mismatched identity metadata", async () => {
+    const turnStart: TranscriptTurnStart = {
+      turnId: "logical-same-id",
+      sessionId: "one",
+      messageId: "same-record",
+      clientMessageId: "local-record",
+      text: "same prompt",
+      timestamp: 13_500,
+    };
+    const view = render(<Fixture
+      messages={[{ id: "same-record", role: "user", text: "same prompt", timestamp: 13_500 }]}
+      turnStart={turnStart}
+    />);
+    await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="same-record"]')).toBeTruthy());
+
+    view.rerender(<Fixture
+      messages={[{
+        id: "same-record",
+        role: "user",
+        text: "same prompt",
+        timestamp: 13_500,
+        clientTurnId: "another-turn",
+        clientMessageId: "another-message",
+      }]}
+      turnStart={turnStart}
+    />);
+
+    await waitFor(() => expect(view.getByRole("log").scrollTop).toBe(1_000));
+    expect(view.container.querySelector(".transcript-current-row")).toBeNull();
+  });
+
   it("resets an explicit anchor on a normal thread switch", async () => {
     const prompt: UiMessage = { id: "local-thread", role: "user", text: "Stay here", timestamp: 8_000 };
     const turnStart: TranscriptTurnStart = { turnId: "logical-thread-turn", sessionId: "one", messageId: prompt.id, text: prompt.text, timestamp: prompt.timestamp };
@@ -328,6 +359,35 @@ describe("TranscriptViewport navigation", () => {
 
     await waitFor(() => expect(view.container.textContent).toContain("Here is the answer"));
     expect(view.container.querySelector(".transcript-current-row[data-message-id=\"local-2\"]")).toBe(promptRow);
+  });
+
+  it("keeps browsing detached while the anchored answer grows", async () => {
+    const prompt: UiMessage = { id: "growth-prompt", role: "user", text: "Explain growth", timestamp: 4_500 };
+    const answer: UiMessage = { id: "growth-answer", role: "assistant", text: "First sentence", timestamp: 5_000 };
+    const turnStart: TranscriptTurnStart = {
+      turnId: "growth-turn",
+      sessionId: "one",
+      messageId: prompt.id,
+      text: prompt.text,
+      timestamp: prompt.timestamp,
+    };
+    const view = render(<Fixture messages={[oldMessage, prompt, answer]} turnStart={turnStart} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(view.container.querySelector('.transcript-current-row[data-message-id="growth-prompt"]')).toBeTruthy());
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    act(() => {
+      transcript.scrollTop = 300;
+      fireEvent.scroll(transcript);
+    });
+    await view.findByRole("button", { name: "Jump to latest" });
+
+    view.rerender(<Fixture
+      messages={[oldMessage, prompt, { ...answer, text: "First sentence\nSecond sentence\nThird sentence" }]}
+      turnStart={turnStart}
+    />);
+
+    await waitFor(() => expect(view.getByRole("button", { name: "Jump to latest" })).toBeTruthy());
+    expect(view.container.querySelector(".transcript-current-row")).toBeNull();
   });
 
   it("does not reactivate following when an optimistic id becomes authoritative after history navigation", async () => {
@@ -392,7 +452,29 @@ describe("TranscriptViewport navigation", () => {
     expect(await view.findByRole("button", { name: "Jump to latest" })).toBeTruthy();
   });
 
-  it("stops following from a focused composer without cancelling its default key behavior", async () => {
+  it("follows End from a focused composer without cancelling the key behavior", async () => {
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    act(() => {
+      transcript.scrollTop = 300;
+      fireEvent.scroll(transcript);
+    });
+    await view.findByRole("button", { name: "Jump to latest" });
+    const composer = document.createElement("textarea");
+    view.container.append(composer);
+    composer.focus();
+
+    const event = new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true });
+    composer.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Jump to latest" })).toBeNull());
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
+  });
+
+  it.each(["PageUp", "Home"])("stops following from a focused composer on %s without cancelling its default key behavior", async (key) => {
     const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
     const transcript = view.getByRole("log");
     await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
@@ -400,7 +482,7 @@ describe("TranscriptViewport navigation", () => {
     view.container.append(composer);
     composer.focus();
 
-    const event = new KeyboardEvent("keydown", { key: "PageUp", bubbles: true, cancelable: true });
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
     composer.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);

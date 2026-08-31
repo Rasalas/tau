@@ -74,6 +74,8 @@ function StreamingTranscriptScenario({
     messages={messages}
     scrollRef={scrollRef}
     sessionId="renderer-benchmark"
+    revision={indexRef.current.revision}
+    lookupRevision={indexRef.current.lookupRevision}
     turnStart={anchor ? {
       turnId: "benchmark-streaming-turn",
       sessionId: "renderer-benchmark",

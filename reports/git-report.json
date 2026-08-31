@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T12:42:31.975Z",
+  "generatedAt": "2026-08-31T20:43:07.552Z",
   "startConditions": {
     "files": 1200,
     "maxConcurrency": 4,
@@ -9,15 +9,15 @@
   "workload": {
     "files": 1202,
     "baselineSubprocesses": 18,
-    "baselineElapsedMs": 2929.57075,
+    "baselineElapsedMs": 2880.1491669999996,
     "coordinatedSubprocesses": 6,
-    "elapsedMs": 1001.11625,
+    "elapsedMs": 905.9441669999997,
     "maxParallelSubprocesses": 4,
     "bytesRead": 0,
     "overlappingRefreshSubprocesses": 6,
-    "slowCommandMs": 20.872583000000304,
+    "slowCommandMs": 21.684540999999626,
     "slowCommandState": "error",
-    "manyProjectBranchP95Ms": 63.51491700000042,
+    "manyProjectBranchP95Ms": 66.82783399999971,
     "manyProjectMaxParallelSubprocesses": 4
   }
 }

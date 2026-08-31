@@ -14,12 +14,14 @@ describe("TranscriptMessageIndex", () => {
     const settled = message("settled");
     const active = message("active", "a");
     const index = new TranscriptMessageIndex([settled, active]);
+    const snapshot = index.messages;
 
     const next = index.updateMany(new Map([
       ["active", (record) => ({ ...record, text: `${record.text}b` })],
     ]));
 
     expect(next).toEqual([settled, { ...active, text: "ab" }]);
+    expect(next).toBe(snapshot);
     expect(next[0]).toBe(settled);
     expect(index.indexOf("active")).toBe(1);
   });
@@ -48,5 +50,21 @@ describe("TranscriptMessageIndex", () => {
 
     index.append({ id: "next-user", role: "user", text: "next", timestamp: 3 });
     expect(index.userRevision).toBe(initialRevision + 1);
+  });
+
+  it("increments lookup revision when an existing user record gains identity metadata", () => {
+    const prompt: UiMessage = { id: "same-id", role: "user", text: "same prompt", timestamp: 1 };
+    const index = new TranscriptMessageIndex([prompt, message("answer", "answer")]);
+    const initialLookupRevision = index.lookupRevision;
+
+    index.update("answer", (record) => ({ ...record, text: `${record.text} delta` }));
+    expect(index.lookupRevision).toBe(initialLookupRevision);
+
+    index.update("same-id", (record) => ({
+      ...record,
+      clientTurnId: "authoritative-turn",
+      clientMessageId: "authoritative-message",
+    }));
+    expect(index.lookupRevision).toBe(initialLookupRevision + 1);
   });
 });

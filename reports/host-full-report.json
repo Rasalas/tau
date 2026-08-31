@@ -1,69 +1,69 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T12:42:58.908Z",
+  "generatedAt": "2026-08-31T20:43:24.600Z",
   "mode": "full",
   "wallClock": [
     {
       "scenario": "bootstrap",
-      "durationMs": 1252.96625
+      "durationMs": 1783.3683330000001
     },
     {
       "scenario": "cold-switch",
-      "durationMs": 1136.7578750000002
+      "durationMs": 773.1772499999997
     },
     {
       "scenario": "prewarm",
-      "durationMs": 584.5034579999997
+      "durationMs": 814.8313329999996
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 1.1114589999997406
+      "durationMs": 0.2669999999998254
     },
     {
       "scenario": "prewarm",
-      "durationMs": 394.76224999999977
+      "durationMs": 0.008041999999477412
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.9689579999994749
+      "durationMs": 0.1873749999995198
     },
     {
       "scenario": "prewarm",
-      "durationMs": 300.35820799999965
+      "durationMs": 0.008249999999861757
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 2.6549580000000788
+      "durationMs": 0.20650000000023283
     },
     {
       "scenario": "prewarm",
-      "durationMs": 393.0392920000004
+      "durationMs": 0.008916999999200925
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.997958999999355
+      "durationMs": 0.13358400000015536
     }
   ],
   "summaries": {
     "bootstrap": {
-      "median": 1252.96625,
-      "p95": 1252.96625,
-      "maximum": 1252.96625
+      "median": 1783.3683330000001,
+      "p95": 1783.3683330000001,
+      "maximum": 1783.3683330000001
     },
     "cold-switch": {
-      "median": 1136.7578750000002,
-      "p95": 1136.7578750000002,
-      "maximum": 1136.7578750000002
+      "median": 773.1772499999997,
+      "p95": 773.1772499999997,
+      "maximum": 773.1772499999997
     },
     "prewarm": {
-      "median": 393.0392920000004,
-      "p95": 584.5034579999997,
-      "maximum": 584.5034579999997
+      "median": 0.008249999999861757,
+      "p95": 814.8313329999996,
+      "maximum": 814.8313329999996
     },
     "warm-switch": {
-      "median": 0.997958999999355,
-      "p95": 2.6549580000000788,
-      "maximum": 2.6549580000000788
+      "median": 0.1873749999995198,
+      "p95": 0.2669999999998254,
+      "maximum": 0.2669999999998254
     }
   },
   "phases": [
@@ -73,36 +73,32 @@
       "phases": [
         {
           "name": "settings",
-          "durationMs": 1
+          "durationMs": 1.3
         },
         {
           "name": "models",
-          "durationMs": 17.6
+          "durationMs": 14
         },
         {
           "name": "resources",
-          "durationMs": 1029.3
+          "durationMs": 1357.1
         },
         {
           "name": "session",
-          "durationMs": 2.7
+          "durationMs": 1.8
         },
         {
           "name": "total",
-          "durationMs": 1050.7
+          "durationMs": 1374.3
         },
         {
           "name": "bind",
-          "durationMs": 154.9
-        },
-        {
-          "name": "catalog",
-          "durationMs": 1.1
+          "durationMs": 203.1
         }
       ],
-      "totalMs": 1252.9,
+      "totalMs": 1783.2,
       "subprocesses": 4,
-      "ipcBytes": 114783
+      "ipcBytes": 72780
     },
     {
       "mode": "full",
@@ -118,166 +114,54 @@
         },
         {
           "name": "resources-cache-hit",
-          "durationMs": 86.2
+          "durationMs": 111.5
         },
         {
           "name": "session",
-          "durationMs": 0.5
+          "durationMs": 0.3
         },
         {
           "name": "total",
-          "durationMs": 89.3
+          "durationMs": 114.6
         },
         {
-          "name": "bind-prepared",
-          "durationMs": 505.9
-        },
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 1.2
-        },
-        {
-          "name": "branch",
-          "durationMs": 0.2
+          "name": "bind",
+          "durationMs": 657.5
         }
       ],
-      "totalMs": 1136.7,
-      "subprocesses": 8,
-      "ipcBytes": 114488
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 0.6
-        },
-        {
-          "name": "branch",
-          "durationMs": 0.1
-        }
-      ],
-      "totalMs": 1.1,
-      "subprocesses": 0,
-      "ipcBytes": 111429
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 0.5
-        },
-        {
-          "name": "branch",
-          "durationMs": 0
-        }
-      ],
-      "totalMs": 1,
-      "subprocesses": 0,
-      "ipcBytes": 111429
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 2.1
-        },
-        {
-          "name": "branch",
-          "durationMs": 0
-        }
-      ],
-      "totalMs": 2.6,
-      "subprocesses": 0,
-      "ipcBytes": 111429
-    },
-    {
-      "mode": "full",
-      "scenario": "warm-switch",
-      "phases": [
-        {
-          "name": "bind-cache-hit",
-          "durationMs": 0
-        },
-        {
-          "name": "catalog",
-          "durationMs": 0.5
-        },
-        {
-          "name": "branch",
-          "durationMs": 0.1
-        }
-      ],
-      "totalMs": 1,
-      "subprocesses": 0,
-      "ipcBytes": 111429
+      "totalMs": 772.8,
+      "subprocesses": 4,
+      "ipcBytes": 10314
     }
   ],
   "background": [
     {
-      "name": "branch",
-      "durationMs": 1143.8
-    },
-    {
       "name": "session-index",
-      "durationMs": 1137.7
+      "durationMs": 213.8
     },
     {
-      "name": "retire",
-      "durationMs": 529.8
-    },
-    {
-      "name": "prewarm",
-      "durationMs": 584.5
-    },
-    {
-      "name": "retire",
-      "durationMs": 246
+      "name": "branch",
+      "durationMs": 1396.7
     },
     {
       "name": "prewarm",
-      "durationMs": 394.8
+      "durationMs": 814.8
     },
     {
-      "name": "retire",
-      "durationMs": 240.6
+      "name": "branch",
+      "durationMs": 0.2
     },
     {
-      "name": "prewarm",
-      "durationMs": 300.4
+      "name": "branch",
+      "durationMs": 0.2
     },
     {
-      "name": "retire",
-      "durationMs": 129.9
+      "name": "branch",
+      "durationMs": 0.2
     },
     {
-      "name": "prewarm",
-      "durationMs": 393
-    },
-    {
-      "name": "retire",
-      "durationMs": 131.3
+      "name": "branch",
+      "durationMs": 0.2
     }
   ]
 }

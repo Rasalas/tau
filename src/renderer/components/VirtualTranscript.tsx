@@ -16,6 +16,10 @@ export interface VirtualTranscriptProps {
   activeTurnStartId?: string;
   /** Changes only when the ordered message ID set changes (not on deltas). */
   messageScopeKey?: string;
+  /** Visible record revision; lets a stable array carry an O(1) delta to rows. */
+  revision?: number;
+  /** Invalidates the user-message lookup when an existing record's metadata changes. */
+  lookupRevision?: number;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
 }
@@ -28,6 +32,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   activities = [],
   activeTurnStartId,
   messageScopeKey,
+  revision,
+  lookupRevision,
   onCopyMessage,
   onForkMessage,
 }: VirtualTranscriptProps) {
@@ -36,6 +42,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     length: number;
     firstId?: string;
     lastId?: string;
+    lookupRevision?: number;
+    revision?: number;
     ids: Set<string>;
     positions: Map<string, number>;
     version: number;
@@ -47,7 +55,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     || currentIndex.scopeKey !== messageScopeKey
     || currentIndex.length !== messages.length
     || currentIndex.firstId !== firstId
-    || currentIndex.lastId !== lastId) {
+    || currentIndex.lastId !== lastId
+    || currentIndex.lookupRevision !== lookupRevision) {
     const ids = new Set<string>();
     const positions = new Map<string, number>();
     messages.forEach((message, index) => {
@@ -59,6 +68,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       length: messages.length,
       firstId,
       lastId,
+      lookupRevision,
+      revision,
       ids,
       positions,
       version: (currentIndex?.version ?? 0) + 1,

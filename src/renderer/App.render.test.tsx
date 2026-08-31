@@ -11,7 +11,7 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App, { isCurrentTranscriptSubmission, latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
 
 afterEach(cleanup);
 
@@ -20,6 +20,34 @@ describe("App render isolation", () => {
     messageRenders.count = 0;
     localStorage.clear();
     delete window.tau;
+  });
+
+  it("rejects a late old-draft failure before it can restore current composer UI", () => {
+    const oldSubmission = {
+      turnId: "old-turn",
+      scopeKey: "project:/project\u0000thread:draft-old",
+      scope: { kind: "draft" as const, projectPath: "/project", draftId: "draft-old" },
+      draftId: "draft-old",
+    };
+    const currentSubmission = {
+      turnId: "current-turn",
+      scopeKey: "project:/project\u0000thread:draft-current",
+      scope: { kind: "draft" as const, projectPath: "/project", draftId: "draft-current" },
+      draftId: "draft-current",
+    };
+
+    expect(isCurrentTranscriptSubmission(
+      { ...currentSubmission, text: "current" },
+      currentSubmission.scopeKey,
+      currentSubmission.draftId,
+      oldSubmission,
+    )).toBe(false);
+    expect(isCurrentTranscriptSubmission(
+      { ...oldSubmission, text: "old" },
+      oldSubmission.scopeKey,
+      oldSubmission.draftId,
+      oldSubmission,
+    )).toBe(true);
   });
 
   it("keeps optimistic user messages until a matching Pi message arrives", () => {
