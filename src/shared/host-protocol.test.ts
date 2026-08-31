@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate, threadDetailFromHostSnapshot } from "./host-protocol.js";
 import type { HostSnapshot } from "./contracts.js";
-import { parseLocalTranscriptCursor, parseRawBridgeTranscriptCursor } from "./transcript-cursor.js";
+import { asHostTranscriptCursor, type HostTranscriptCursor } from "./transcript-cursor.js";
+import type { TranscriptCursorPolicy } from "./transcript-pager.js";
 
 const snapshot: HostSnapshot = {
   cwd: "/tmp/project", sessionId: "session", sessionTitle: "title", models: [],
@@ -10,6 +11,15 @@ const snapshot: HostSnapshot = {
     { id: "2", role: "assistant", text: "world", timestamp: 2 },
   ], isStreaming: false, activeTools: [], allTools: [], extensionCount: 0,
   serviceTier: "standard", serviceTierAvailable: false,
+};
+
+const localCursorPolicy: TranscriptCursorPolicy<HostTranscriptCursor> = {
+  at: (index) => asHostTranscriptCursor(`local:${index}`),
+  index: (cursor, maximum) => {
+    const value = cursor.slice("local:".length);
+    if (!cursor.startsWith("local:") || !/^\d+$/u.test(value) || Number(value) > maximum) throw new Error("Invalid transcript cursor");
+    return Number(value);
+  },
 };
 
 describe("host protocol", () => {
@@ -26,10 +36,10 @@ describe("host protocol", () => {
   });
 
   it("derives bounded detail without catalogs or project state", () => {
-    const detail = detailFromSnapshot({ ...snapshot, messages: Array.from({ length: 41 }, (_, i) => ({ id: String(i), role: "user" as const, text: String(i), timestamp: i })) });
+    const detail = detailFromSnapshot({ ...snapshot, messages: Array.from({ length: 41 }, (_, i) => ({ id: String(i), role: "user" as const, text: String(i), timestamp: i })) }, undefined, localCursorPolicy);
     expect(detail.messages).toHaveLength(10);
     expect(detail.messages[0]?.id).toBe("31");
-    expect(detail.olderCursor).toEqual({ kind: "local", value: "31" });
+    expect(detail.olderCursor).toBe(asHostTranscriptCursor("local:31"));
     expect(detail.hasMore).toBe(true);
     expect(detail).not.toHaveProperty("models");
   });
@@ -42,53 +52,45 @@ describe("host protocol", () => {
         { id: "old-task", anchorMessageId: "0", progress: { tasks: [], completed: 0, total: 0 } },
         { id: "recent-task", anchorMessageId: "20", progress: { tasks: [], completed: 0, total: 0 } },
       ],
-    });
+    }, undefined, localCursorPolicy);
     expect(detail.taskHistory?.map((entry) => entry.id)).toEqual(["recent-task"]);
   });
 
   it("preserves a cursor when a cached snapshot is already bounded", () => {
-    const detail = detailFromSnapshot({ ...snapshot, messages: snapshot.messages, olderCursor: parseLocalTranscriptCursor("12") });
-    expect(detail.olderCursor).toEqual({ kind: "local", value: "12" });
+    const detail = detailFromSnapshot({ ...snapshot, messages: snapshot.messages, olderCursor: asHostTranscriptCursor("local:12") });
+    expect(detail.olderCursor).toBe(asHostTranscriptCursor("local:12"));
     expect(detail.hasMore).toBe(true);
   });
 
-  it("translates a bounded bridge window to the raw cursor before its first visible turn", () => {
+  it("keeps the host cursor opaque while bounding at a user-turn boundary", () => {
     const messages = Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index }));
     const detail = detailFromSnapshot({
       ...snapshot,
       messages,
       transcriptMessageIndexes: messages.map((_, index) => index + 100),
-    });
+    }, undefined, localCursorPolicy);
     expect(detail.messages.map((message) => message.id)).toEqual(Array.from({ length: 10 }, (_, index) => String(index + 20)));
     expect(detail.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
-    expect(detail.olderCursor).toEqual({ kind: "local", value: "120" });
+    expect(detail.olderCursor).toBe(asHostTranscriptCursor("local:20"));
+    expect(detail.cursorBeforeMessageId).toBe("20");
   });
 
-  it("keeps a bridge cursor when a bounded host snapshot has no local projection", () => {
+  it("keeps an adapter cursor when a bounded host snapshot has no local projection", () => {
     const detail = detailFromSnapshot({
       ...snapshot,
       messages: Array.from({ length: 10 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
-      olderCursor: parseRawBridgeTranscriptCursor("80"),
+      olderCursor: asHostTranscriptCursor("opaque:adapter-cursor"),
     });
-    expect(detail.olderCursor).toEqual({ kind: "bridge", value: "80" });
-  });
-
-  it("keeps bridge coordinate space when a full snapshot has no older cursor", () => {
-    const detail = detailFromSnapshot({
-      ...snapshot,
-      coordinateSpace: "bridge",
-      messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
-    });
-    expect(detail.coordinateSpace).toBe("bridge");
-    expect(detail.olderCursor).toEqual({ kind: "bridge", value: "20" });
+    expect(detail.olderCursor).toBe(asHostTranscriptCursor("opaque:adapter-cursor"));
   });
 
   it("projects a full snapshot into one shared thread-detail shape", () => {
-    const projected = threadDetailFromHostSnapshot({ ...snapshot, coordinateSpace: "bridge" });
+    const projected = threadDetailFromHostSnapshot({ ...snapshot, olderCursor: asHostTranscriptCursor("opaque:cursor"), cursorBeforeMessageId: "1" });
     expect(projected).toMatchObject({
       sessionId: "session",
       messages: snapshot.messages,
-      coordinateSpace: "bridge",
+      olderCursor: asHostTranscriptCursor("opaque:cursor"),
+      cursorBeforeMessageId: "1",
     });
     expect(projected).not.toHaveProperty("models");
   });
@@ -118,7 +120,7 @@ describe("host protocol", () => {
         timestamp: index,
       })),
       historyCompleteness: "legacy-truncated",
-    });
+    }, undefined, localCursorPolicy);
     expect(detail.messages).toHaveLength(10);
     expect(detail.olderCursor).toBeUndefined();
     expect(detail.hasMore).toBe(false);
@@ -173,11 +175,11 @@ describe("host protocol", () => {
     })).toBe(true);
   });
 
-  it("rejects a cursor whose origin contradicts the declared coordinate space", () => {
+  it("rejects a non-opaque cursor object at the desktop protocol seam", () => {
     expect(isHostUpdate({
       version: HOST_PROTOCOL_VERSION,
       type: "transcript-page",
-      page: { sessionId: "session", messages: [], hasMore: true, coordinateSpace: "local", olderCursor: { kind: "bridge", value: "4" } },
+      page: { sessionId: "session", messages: [], hasMore: true, olderCursor: { kind: "bridge", value: "4" } },
     })).toBe(false);
   });
 

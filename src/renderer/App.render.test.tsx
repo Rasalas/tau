@@ -13,6 +13,7 @@ vi.mock("./components/Message", () => ({
 
 import App, { latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
+import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 
 afterEach(cleanup);
 
@@ -212,7 +213,7 @@ describe("App render isolation", () => {
             { id: "new", role: "user" as const, text: "new request", timestamp: 1 },
             { id: "reply", role: "assistant" as const, text: "current reply", timestamp: 2 },
           ],
-          olderCursor: { kind: "local" as const, value: "2" as never },
+          olderCursor: asHostTranscriptCursor("opaque:2"),
           hasMore: true,
           isStreaming: false,
           activeTools: [],
@@ -229,7 +230,7 @@ describe("App render isolation", () => {
             { id: "new", role: "user" as const, text: "new request", timestamp: 1 },
             { id: "reply", role: "assistant" as const, text: "current reply", timestamp: 2 },
           ],
-          olderCursor: { kind: "local" as const, value: "2" as never },
+          olderCursor: asHostTranscriptCursor("opaque:2"),
           hasMore: true,
           isStreaming: false,
           activeTools: [],
@@ -262,7 +263,7 @@ describe("App render isolation", () => {
     render(<App />);
     await screen.findByText("current reply");
     fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
-    await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", { kind: "local", value: "2" }));
+    await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", asHostTranscriptCursor("opaque:2")));
 
     fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
     const modelPicker = await screen.findByRole("dialog", { name: "Select model" });

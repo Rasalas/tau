@@ -27,6 +27,6 @@ describe("Tau bridge transcript cursor validation", () => {
     expect(view.visibleMessages.filter((message) => message.role === "user")).toHaveLength(20);
     expect(view.visibleMessages).toHaveLength(40);
     expect(view.hasMore).toBe(true);
-    expect(view.olderCursor?.value).toBe("10");
+    expect(view.olderCursor).toBe("10");
   });
 });

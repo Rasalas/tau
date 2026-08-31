@@ -15,15 +15,8 @@ import type {
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
 import { isTranscriptHistoryMetadataConsistent, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
 import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "./transcript-indexes.js";
-import {
-  localTranscriptCursorAt,
-  parseTranscriptCursor,
-  rawBridgeTranscriptCursorAt,
-  transcriptCursorIndex,
-  type TranscriptCoordinateSpace,
-  type TranscriptCursor,
-} from "./transcript-cursor.js";
-import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "./transcript-pager.js";
+import { isHostTranscriptCursor, type HostTranscriptCursor } from "./transcript-cursor.js";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager, type TranscriptCursorPolicy } from "./transcript-pager.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
 export const HOST_PROTOCOL_VERSION = 1 as const;
@@ -40,7 +33,7 @@ export interface ThreadIndexUpdate {
   sessions: ThreadIndexSnapshot["sessions"];
 }
 
-export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], TranscriptCursor> {
+export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], HostTranscriptCursor> {
   sessionId: string;
   isStreaming: boolean;
   activeTools: string[];
@@ -51,7 +44,7 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], Tran
   hasMore?: boolean;
 }
 
-export type TranscriptPage = ThreadTranscriptPage<UiMessage, number[], TranscriptCursor>;
+export type TranscriptPage = ThreadTranscriptPage<UiMessage, number[], HostTranscriptCursor>;
 
 export interface HostCatalog {
   models: UiModel[];
@@ -103,23 +96,15 @@ function validIndexes(value: unknown): boolean {
   return value === undefined || (Array.isArray(value) && value.every((index) => Number.isSafeInteger(index) && index >= 0));
 }
 
-function validCoordinateSpace(value: unknown): value is TranscriptCoordinateSpace | undefined {
-  return value === undefined || value === "local" || value === "bridge";
+function validCursor(value: unknown): boolean {
+  return value === undefined || isHostTranscriptCursor(value);
 }
 
-function validCursor(value: unknown, coordinateSpace?: TranscriptCoordinateSpace): boolean {
-  if (value === undefined) return true;
-  try { parseTranscriptCursor(value, undefined, coordinateSpace); return true; }
-  catch { return false; }
-}
-
-function normalizeCursor(value: unknown, coordinateSpace?: TranscriptCoordinateSpace): TranscriptCursor | undefined {
-  if (value === undefined) return undefined;
-  return parseTranscriptCursor(value, undefined, coordinateSpace);
-}
-
-function cursorIndex(cursor: TranscriptCursor, maximum: number, coordinateSpace?: TranscriptCoordinateSpace): number {
-  return transcriptCursorIndex(cursor, maximum, coordinateSpace);
+function validCursorBoundaries(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every((boundary) => {
+    const item = record(boundary);
+    return Boolean(item && typeof item.messageId === "string" && validCursor(item.cursor));
+  }));
 }
 
 export function isHostUpdate(value: unknown): value is HostUpdate {
@@ -137,8 +122,8 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
     case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
-      && validCoordinateSpace(payload.coordinateSpace)
-      && validCursor(payload.olderCursor, payload.coordinateSpace)
+      && validCursor(payload.olderCursor)
+      && validCursorBoundaries(payload.cursorBoundaries)
       && isTranscriptHistoryMetadataConsistent({
         hasMore: payload.hasMore,
         hasCursor: payload.olderCursor !== undefined,
@@ -148,8 +133,8 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
       && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
-      && validCoordinateSpace(payload.coordinateSpace)
-      && validCursor(payload.olderCursor, payload.coordinateSpace)
+      && validCursor(payload.olderCursor)
+      && validCursorBoundaries(payload.cursorBoundaries)
       && isTranscriptHistoryMetadataConsistent({
         hasMore: payload.hasMore,
         hasCursor: payload.olderCursor !== undefined,
@@ -183,8 +168,10 @@ export function taskHistoryForMessages(
 
 /** Project a full host snapshot into the focused thread-detail contract. */
 export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDetail {
-  const coordinateSpace = snapshot.coordinateSpace
-    ?? (snapshot.olderCursor?.kind === "bridge" ? "bridge" : "local");
+  const cursorBoundaries = snapshot.cursorBoundaries
+    ?? (snapshot.olderCursor && snapshot.cursorBeforeMessageId
+      ? [{ messageId: snapshot.cursorBeforeMessageId, cursor: snapshot.olderCursor }]
+      : undefined);
   return {
     sessionId: snapshot.sessionId,
     messages: snapshot.messages,
@@ -195,63 +182,71 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     taskProgress: snapshot.taskProgress,
     taskHistory: snapshot.taskHistory,
     contextUsage: snapshot.contextUsage,
-    coordinateSpace,
     olderCursor: snapshot.olderCursor,
+    cursorBeforeMessageId: snapshot.cursorBeforeMessageId,
+    cursorBoundaries,
     hasMore: snapshot.olderCursor !== undefined,
     historyCompleteness: snapshot.historyCompleteness,
   };
 }
 
-function cursorForPage(
-  page: TranscriptPage,
-  snapshot: HostSnapshot,
-): TranscriptCursor | undefined {
-  const coordinateSpace = snapshot.coordinateSpace
-    ?? (typeof snapshot.olderCursor === "object" && snapshot.olderCursor?.kind === "bridge" ? "bridge" : "local");
-  const pageCursor = normalizeCursor(page.olderCursor, coordinateSpace);
-  const snapshotCursor = normalizeCursor(snapshot.olderCursor, coordinateSpace);
-  const messageRawIndexes = snapshot.transcriptMessageIndexes;
-  if (!messageRawIndexes) {
-    // A bridge cursor cannot be safely represented in the local coordinate
-    // space without the raw-index projection. Keep the bridge origin intact
-    // until such a mapping is actually available.
-    return snapshotCursor?.kind === "bridge"
-      ? snapshotCursor
-      : pageCursor ?? snapshotCursor;
-  }
-  if (pageCursor === undefined) return snapshotCursor;
-  const localStart = cursorIndex(
-    pageCursor,
-    pageCursor.kind === "local" ? snapshot.messages.length : Number.MAX_SAFE_INTEGER,
-    coordinateSpace,
-  );
-  const index = messageRawIndexes[localStart];
-  if (index === undefined || index <= 0) return snapshotCursor;
-  return coordinateSpace === "bridge"
-    ? rawBridgeTranscriptCursorAt(index)
-    : localTranscriptCursorAt(index);
+/** Project focused detail back onto the host snapshot shape without duplicating fields at call sites. */
+export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: ThreadDetail): HostSnapshot {
+  const cursorBoundaries = detail.cursorBoundaries
+    ?? (detail.olderCursor && detail.cursorBeforeMessageId
+      ? [{ messageId: detail.cursorBeforeMessageId, cursor: detail.olderCursor }]
+      : undefined);
+  return {
+    ...snapshot,
+    sessionId: detail.sessionId,
+    messages: detail.messages,
+    transcriptMessageIndexes: detail.transcriptMessageIndexes,
+    taskHistory: detail.taskHistory,
+    olderCursor: detail.olderCursor,
+    cursorBeforeMessageId: detail.cursorBeforeMessageId,
+    cursorBoundaries,
+    historyCompleteness: detail.historyCompleteness,
+    isStreaming: detail.isStreaming,
+    activeTools: detail.activeTools,
+    turnActivity: detail.turnActivity,
+    taskProgress: detail.taskProgress,
+    contextUsage: detail.contextUsage,
+  };
 }
 
-export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANSCRIPT_TURN_LIMIT): ThreadDetail {
-  const coordinateSpace = snapshot.coordinateSpace
-    ?? (typeof snapshot.olderCursor === "object" && snapshot.olderCursor?.kind === "bridge" ? "bridge" : "local");
-  const cursorAt = (index: number): TranscriptCursor => coordinateSpace === "bridge"
-    ? rawBridgeTranscriptCursorAt(index)
-    : localTranscriptCursorAt(index);
+export function detailFromSnapshot(
+  snapshot: HostSnapshot,
+  limit = INITIAL_TRANSCRIPT_TURN_LIMIT,
+  policy?: TranscriptCursorPolicy<HostTranscriptCursor>,
+): ThreadDetail {
+  const alreadyBounded = snapshot.messages.length <= limit;
+  if (alreadyBounded) return {
+    ...threadDetailFromHostSnapshot(snapshot),
+    messages: [...snapshot.messages],
+    activeTools: [...snapshot.activeTools],
+    taskHistory: taskHistoryForMessages(snapshot.taskHistory, snapshot.messages),
+    hasMore: snapshot.olderCursor !== undefined,
+    historyCompleteness: resolveTranscriptHistoryCompleteness(
+      snapshot.historyCompleteness,
+      snapshot.olderCursor !== undefined,
+    ),
+  };
+  if (!policy) throw new Error("A host transcript cursor policy is required to bound a full snapshot.");
   const page = TranscriptPager.pageFor(
     snapshot.sessionId,
     snapshot.messages,
     limit,
     undefined,
-    cursorAt,
+    policy,
   );
   const boundedWithoutPaging = snapshot.historyCompleteness === "legacy-truncated"
     || snapshot.historyCompleteness === "unknown";
-  const olderCursor = boundedWithoutPaging ? undefined : cursorForPage(page, snapshot);
+  const olderCursor = boundedWithoutPaging ? undefined : page.olderCursor;
   const transcriptMessageIndexes = projectRawIndexesByMessageId(
     page.messages,
     messageIdToRawIndexProjection(snapshot.messages, snapshot.transcriptMessageIndexes),
   );
+  const firstUserMessage = page.messages.find((message) => message.role === "user");
   return {
     sessionId: snapshot.sessionId,
     messages: page.messages,
@@ -262,8 +257,11 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANS
     taskProgress: snapshot.taskProgress,
     taskHistory: taskHistoryForMessages(snapshot.taskHistory, page.messages),
     contextUsage: snapshot.contextUsage,
-    coordinateSpace,
     ...(olderCursor ? { olderCursor } : {}),
+    ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
+    ...(olderCursor && firstUserMessage ? {
+      cursorBoundaries: [{ messageId: firstUserMessage.id, cursor: olderCursor }],
+    } : {}),
     hasMore: Boolean(olderCursor),
     historyCompleteness: resolveTranscriptHistoryCompleteness(
       snapshot.historyCompleteness,

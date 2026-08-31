@@ -1,5 +1,5 @@
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useLayoutEffect, type ReactNode, type RefObject } from "react";
+import { useCallback, type ReactNode, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptScrollAnchor } from "../transcript-history";
 import { Message } from "./Message";
@@ -72,18 +72,6 @@ export function VirtualTranscript({
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
 
   const measuredRows = virtualizer.getVirtualItems();
-  useLayoutEffect(() => {
-    const anchor = anchorRef?.current;
-    if (!anchor) return;
-    const index = messages.findIndex((message) => message.id === anchor.messageId);
-    const node = scrollRef.current;
-    if (index < 0 || !node) return;
-    const offset = virtualizer.getOffsetForIndex(index, "start");
-    if (!offset) return;
-    const target = Math.max(0, offset[0] - anchor.viewportOffset);
-    if (Math.abs(node.scrollTop - target) > 0.5) node.scrollTop = target;
-  }, [anchorRef, measuredRows, messages, scrollRef, virtualizer]);
-
   const rows = measuredRows.length > 0
     ? measuredRows
     : messages.slice(0, 12).map((message, index) => ({ index, key: message.id, start: index * 180 }));

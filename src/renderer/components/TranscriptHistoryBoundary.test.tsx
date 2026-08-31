@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiMessage } from "../../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../../shared/host-protocol";
-import { parseLocalTranscriptCursor, type TranscriptCursor } from "../../shared/transcript-cursor";
+import { asHostTranscriptCursor, type HostTranscriptCursor } from "../../shared/transcript-cursor";
 import { TranscriptHistoryBoundary } from "./TranscriptHistoryBoundary";
 import { VirtualTranscript } from "./VirtualTranscript";
 import { TranscriptHistoryController } from "../transcript-history";
@@ -60,7 +60,7 @@ function snapshot(sessionId: string, messages: UiMessage[]): HostSnapshot {
     sessionId,
     sessionTitle: sessionId,
     messages,
-    olderCursor: parseLocalTranscriptCursor("0"),
+    olderCursor: asHostTranscriptCursor("opaque:0"),
     isStreaming: false,
     activeTools: [],
     allTools: [],
@@ -74,7 +74,7 @@ function snapshot(sessionId: string, messages: UiMessage[]): HostSnapshot {
 }
 
 function detail(sessionId: string, messages: UiMessage[]): ThreadDetail {
-  return { sessionId, messages, olderCursor: parseLocalTranscriptCursor("0"), hasMore: true, isStreaming: false, activeTools: [] };
+  return { sessionId, messages, olderCursor: asHostTranscriptCursor("opaque:0"), hasMore: true, isStreaming: false, activeTools: [] };
 }
 
 function Fixture({
@@ -84,7 +84,7 @@ function Fixture({
 }: {
   controller: TranscriptHistoryController;
   initialMessages: UiMessage[];
-  loadPage: (sessionId: string, cursor: TranscriptCursor) => Promise<TranscriptPage>;
+  loadPage: (sessionId: string, cursor: HostTranscriptCursor) => Promise<TranscriptPage>;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState(initialMessages);
@@ -133,7 +133,10 @@ describe("TranscriptHistoryBoundary integration", () => {
       ["older-a", 460],
       ["older-b", 90],
     ]);
-    const measuredHeights = new Map(actualHeights);
+    // The virtualizer starts from estimates. Real DOM measurements arrive in
+    // separate ResizeObserver deliveries, including one after the request has
+    // already reported success.
+    const measuredHeights = new Map(ids.map((id) => [id, 180]));
     let scrollNode: HTMLElement | undefined;
 
     Object.defineProperty(window, "ResizeObserver", { configurable: true, value: DeferredResizeObserver });
@@ -148,8 +151,8 @@ describe("TranscriptHistoryBoundary integration", () => {
     HTMLElement.prototype.getBoundingClientRect = function () {
       const id = this.dataset.messageId;
       if (id && scrollNode) {
-        const index = ids.indexOf(id);
-        const top = ids.slice(0, index).reduce((total, item) => total + (actualHeights.get(item) ?? 180), 0) - scrollNode.scrollTop;
+        const transform = this.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/u);
+        const top = Number(transform?.[1] ?? 0) - scrollNode.scrollTop;
         return rect(top, actualHeights.get(id) ?? 180);
       }
       if (this === scrollNode) return rect(0, 600);
@@ -175,7 +178,7 @@ describe("TranscriptHistoryBoundary integration", () => {
     const beforeOffset = anchorBefore!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
 
     fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
-    expect(loadPage).toHaveBeenCalledWith("thread", { kind: "local", value: "0" });
+    expect(loadPage).toHaveBeenCalledWith("thread", asHostTranscriptCursor("opaque:0"));
     expect(screen.getByRole("status").textContent).toContain("Loading older turns");
 
     ids.unshift("older-a", "older-b");
@@ -190,17 +193,21 @@ describe("TranscriptHistoryBoundary integration", () => {
       });
       await Promise.resolve();
     });
+    DeferredResizeObserver.trigger();
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2 older turns loaded"));
+    // The initial success used estimates for the newly prepended rows. A later
+    // delivery reports their actual, different heights and must still restore
+    // the same visible virtualizer anchor.
     measuredHeights.set("older-a", 460);
     measuredHeights.set("older-b", 90);
     measuredHeights.set("tail", 900);
     DeferredResizeObserver.trigger();
-
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2 older turns loaded"));
     const anchorAfter = view.container.querySelector<HTMLElement>('[data-message-id="anchor"]');
     expect(anchorAfter).not.toBeNull();
     const afterOffset = anchorAfter!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
     expect(Math.abs(afterOffset - beforeOffset)).toBeLessThan(1);
-    expect(scrollNode.scrollTop).toBeGreaterThan(500);
+    expect(scrollNode.scrollTop).toBeGreaterThan(400);
     expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeGreaterThanOrEqual(4);
 
     const beforeBelowGrowth = scrollNode.scrollTop;

@@ -1,11 +1,11 @@
 import type { TranscriptHistoryStatus } from "../transcript-history";
 import type { TranscriptHistoryCompleteness } from "../../shared/transcript-completeness";
-import type { TranscriptCursor } from "../../shared/transcript-cursor";
+import type { HostTranscriptCursor } from "../../shared/transcript-cursor";
 
 export type { TranscriptHistoryStatus } from "../transcript-history";
 
 export interface TranscriptHistoryControlProps {
-  olderCursor?: TranscriptCursor;
+  olderCursor?: HostTranscriptCursor;
   historyCompleteness?: TranscriptHistoryCompleteness;
   loading: boolean;
   status?: TranscriptHistoryStatus;

@@ -1,11 +1,11 @@
 import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
-import { detailFromSnapshot } from "../shared/host-protocol";
-import { localTranscriptCursorAt, rawBridgeTranscriptCursorAt, transcriptCursorValue, type TranscriptCursor } from "../shared/transcript-cursor";
+import { isHostTranscriptCursor } from "../shared/transcript-cursor";
+import type { TranscriptCursorBoundary } from "../shared/transcript-contract";
 import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes";
-import { INITIAL_TRANSCRIPT_TURN_LIMIT } from "../shared/transcript-pager";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../shared/transcript-pager";
 
-const CACHE_KEY = "tau.bootstrap-cache.v4";
-const LEGACY_CACHE_KEY = "tau.bootstrap-cache.v3";
+const CACHE_KEY = "tau.bootstrap-cache.v5";
+const LEGACY_CACHE_KEYS = ["tau.bootstrap-cache.v4", "tau.bootstrap-cache.v3"] as const;
 const MAX_BYTES = 512 * 1024;
 
 export interface CachedBootstrap {
@@ -14,33 +14,38 @@ export interface CachedBootstrap {
 }
 
 function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
-  const detail = detailFromSnapshot(snapshot, INITIAL_TRANSCRIPT_TURN_LIMIT);
+  const bounds = transcriptPageBounds(snapshot.messages, INITIAL_TRANSCRIPT_TURN_LIMIT);
+  const messages = snapshot.messages.slice(bounds.start, bounds.end);
   const sourceIndexes = messageIdToRawIndexProjection(snapshot.messages, snapshot.transcriptMessageIndexes);
-  const retainedIndexes = projectRawIndexesByMessageId(detail.messages, sourceIndexes);
-  const firstRetainedIndex = detail.messages.length > 0
-    ? snapshot.messages.findIndex((message) => message.id === detail.messages[0]?.id)
-    : -1;
-  const mappedCursor = retainedIndexes?.[0];
-  const existingCursor = snapshot.olderCursor === undefined
-    ? undefined
-    : Number(transcriptCursorValue(snapshot.olderCursor));
-  const coordinateSpace = snapshot.coordinateSpace
-    ?? (snapshot.olderCursor?.kind === "bridge" ? "bridge" : detail.coordinateSpace ?? "local");
-  const cursorAtOrigin = (index: number): TranscriptCursor => coordinateSpace === "bridge"
-    ? rawBridgeTranscriptCursorAt(index)
-    : localTranscriptCursorAt(index);
-  const boundedCursor = mappedCursor !== undefined
-    ? detail.olderCursor !== undefined && mappedCursor > 0 ? cursorAtOrigin(mappedCursor) : undefined
-    : firstRetainedIndex >= 0 && existingCursor !== undefined && Number.isSafeInteger(existingCursor) && existingCursor >= 0
-      && detail.olderCursor !== undefined ? cursorAtOrigin(existingCursor + firstRetainedIndex)
-      : detail.olderCursor;
+  const retainedIndexes = projectRawIndexesByMessageId(messages, sourceIndexes);
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  const firstRetainedMessageId = firstUserMessage?.id ?? messages[0]?.id;
+  const boundaries = (snapshot.cursorBoundaries ?? []).filter((boundary): boundary is TranscriptCursorBoundary =>
+    typeof boundary?.messageId === "string" && isHostTranscriptCursor(boundary.cursor));
+  const directBoundary = snapshot.cursorBeforeMessageId && isHostTranscriptCursor(snapshot.olderCursor)
+    ? { messageId: snapshot.cursorBeforeMessageId, cursor: snapshot.olderCursor }
+    : undefined;
+  const selectedBoundary = boundaries.find((boundary) => boundary.messageId === firstRetainedMessageId)
+    ?? (directBoundary?.messageId === firstRetainedMessageId ? directBoundary : undefined);
+  const historyCompleteness = selectedBoundary || snapshot.historyCompleteness === "legacy-truncated" || snapshot.historyCompleteness === "unknown"
+    ? snapshot.historyCompleteness
+    : snapshot.olderCursor === undefined
+      ? snapshot.historyCompleteness
+      : "unknown";
   return {
     ...snapshot,
-    messages: detail.messages,
-    taskHistory: detail.taskHistory,
-    coordinateSpace,
-    historyCompleteness: detail.historyCompleteness,
-    ...(boundedCursor ? { olderCursor: boundedCursor } : { olderCursor: undefined }),
+    messages,
+    taskHistory: snapshot.taskHistory?.filter((entry) => !entry.anchorMessageId || messages.some((message) => message.id === entry.anchorMessageId)),
+    historyCompleteness,
+    ...(selectedBoundary ? {
+      olderCursor: selectedBoundary.cursor,
+      cursorBeforeMessageId: selectedBoundary.messageId,
+      cursorBoundaries: [selectedBoundary],
+    } : {
+      olderCursor: undefined,
+      cursorBeforeMessageId: undefined,
+      cursorBoundaries: undefined,
+    }),
     ...(retainedIndexes
       ? { transcriptMessageIndexes: retainedIndexes }
       : { transcriptMessageIndexes: undefined }),
@@ -53,7 +58,7 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
 
 export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStorage): CachedBootstrap | undefined {
   try {
-    const raw = storage.getItem(CACHE_KEY) ?? storage.getItem(LEGACY_CACHE_KEY);
+    const raw = [storage.getItem(CACHE_KEY), ...LEGACY_CACHE_KEYS.map((key) => storage.getItem(key))].find(Boolean);
     if (!raw || raw.length > MAX_BYTES) return undefined;
     const value = JSON.parse(raw) as CachedBootstrap;
     if (!value?.snapshot?.sessionId || !Array.isArray(value.snapshot.messages) || !Array.isArray(value.threadIndex?.sessions)) return undefined;

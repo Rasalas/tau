@@ -2,10 +2,11 @@
 import { describe, expect, it } from "vitest";
 import type { HostSnapshot, UiMessage } from "../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
-import { parseLocalTranscriptCursor } from "../shared/transcript-cursor";
+import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 import {
   applyTranscriptBundleMerge,
   mergeTranscriptMessages,
+  retainsLoadedHistory,
   TranscriptHistoryController,
 } from "./transcript-history";
 
@@ -17,7 +18,7 @@ function detail(sessionId: string, ids: string[], olderCursor?: string): ThreadD
   return {
     sessionId,
     messages: ids.map((id) => message(id)),
-    olderCursor: olderCursor === undefined ? undefined : parseLocalTranscriptCursor(olderCursor),
+    olderCursor: olderCursor === undefined ? undefined : asHostTranscriptCursor(`opaque:${olderCursor}`),
     hasMore: olderCursor !== undefined,
     isStreaming: false,
     activeTools: [],
@@ -31,7 +32,7 @@ function snapshot(sessionId: string, ids: string[], olderCursor?: string): HostS
     sessionId,
     sessionTitle: sessionId,
     messages: ids.map((id) => message(id)),
-    olderCursor: olderCursor === undefined ? undefined : parseLocalTranscriptCursor(olderCursor),
+    olderCursor: olderCursor === undefined ? undefined : asHostTranscriptCursor(`opaque:${olderCursor}`),
     isStreaming: false,
     activeTools: [],
     allTools: [],
@@ -48,7 +49,7 @@ function page(sessionId: string, ids: string[], olderCursor?: string): Transcrip
   return {
     sessionId,
     messages: ids.map((id) => message(id)),
-    olderCursor: olderCursor === undefined ? undefined : parseLocalTranscriptCursor(olderCursor),
+    olderCursor: olderCursor === undefined ? undefined : asHostTranscriptCursor(`opaque:${olderCursor}`),
     hasMore: olderCursor !== undefined,
   };
 }
@@ -64,7 +65,7 @@ describe("TranscriptHistoryController", () => {
 
     expect(applied?.messages.map((item) => item.id)).toEqual(["old", "new", "reply"]);
     expect(controller.getDetail("thread-a")?.messages.map((item) => item.id)).toEqual(["old", "new", "reply"]);
-    expect(controller.getSnapshot()).toMatchObject({ olderCursor: { kind: "local", value: "0" }, loading: true });
+    expect(controller.getSnapshot().olderCursor).toBe(asHostTranscriptCursor("opaque:0"));
     expect(controller.completeSuccess(request!, 1)).toBe(true);
     expect(controller.getSnapshot()).toMatchObject({ loading: false, status: { state: "success", loadedTurns: 1 } });
   });
@@ -162,7 +163,7 @@ describe("TranscriptHistoryController", () => {
       turnActivity: { tools: [], anchorMessageId: "new" },
     };
     expect(controller.applyDetail(lifecycleDetail, snapshot("thread-a", ["new", "reply"], "2"))).toBeDefined();
-    expect(controller.getSnapshot()).toMatchObject({ loading: true, olderCursor: { kind: "local", value: "2" } });
+    expect(controller.getSnapshot()).toMatchObject({ loading: true, olderCursor: asHostTranscriptCursor("opaque:2") });
     expect(controller.isCurrent(request!)).toBe(true);
 
     const pageResult = controller.applyPage(page("thread-a", ["old"], "0"), [message("new"), message("reply")], request);
@@ -188,6 +189,36 @@ describe("TranscriptHistoryController", () => {
     expect(controller.isCurrent(request!)).toBe(true);
     expect(controller.getSnapshot()).toMatchObject({ loading: true });
     expect(controller.completeSuccess(request!, 1)).toBe(true);
+  });
+
+  it.each([
+    ["equal", ["tail-0", "tail-1", "tail-2", "tail-3"]],
+    ["longer", ["tail-0", "tail-1", "tail-2", "tail-3", "tail-4"]],
+  ])("preserves an older prefix when an overlapping %s detail refresh updates its tail", (_label, incomingIds) => {
+    const controller = new TranscriptHistoryController();
+    const currentIds = ["old-0", "old-1", "tail-0", "tail-1", "tail-2", "tail-3"];
+    controller.syncSnapshot(
+      snapshot("thread-a", currentIds, "older-page"),
+      {
+        ...detail("thread-a", currentIds, "older-page"),
+        cursorBeforeMessageId: "tail-0",
+        cursorBoundaries: [{ messageId: "tail-0", cursor: asHostTranscriptCursor("opaque:older-page") }],
+      },
+    );
+    const incoming = {
+      ...detail("thread-a", incomingIds, "newer-page"),
+      messages: incomingIds.map((id) => ({ ...message(id), text: id === "tail-2" ? "updated tail" : id })),
+    };
+
+    const applied = controller.applyDetail(incoming);
+
+    expect(applied?.detail.messages.map((item) => item.id)).toEqual([...currentIds, ...(incomingIds.includes("tail-4") ? ["tail-4"] : [])]);
+    expect(applied?.detail.messages.find((item) => item.id === "tail-2")?.text).toBe("updated tail");
+    expect(applied?.detail.olderCursor).toBe(asHostTranscriptCursor("opaque:older-page"));
+    expect(applied?.detail.cursorBoundaries).toEqual([{
+      messageId: "tail-0",
+      cursor: asHostTranscriptCursor("opaque:older-page"),
+    }]);
   });
 
   it("retains the newest version when merging a repeated message id", () => {
@@ -217,5 +248,18 @@ describe("TranscriptHistoryController", () => {
     expect(merged.messages.map((item) => item.id)).toEqual(["old", "new"]);
     expect(merged.transcriptMessageIndexes).toEqual([9, 10]);
     expect(merged.taskHistory?.map((item) => item.id)).toEqual(["task", "task-older"]);
+  });
+
+  it("uses raw indexes only for an overlapping or directly adjacent history union", () => {
+    const current = detail("thread-a", ["current-0", "current-1"]);
+    const incoming = detail("thread-a", ["incoming-0"]);
+    expect(retainsLoadedHistory(
+      { ...current, transcriptMessageIndexes: [0, 100] },
+      { ...incoming, transcriptMessageIndexes: [50] },
+    )).toBe(false);
+    expect(retainsLoadedHistory(
+      { ...current, transcriptMessageIndexes: [0, 1] },
+      { ...incoming, transcriptMessageIndexes: [2] },
+    )).toBe(true);
   });
 });

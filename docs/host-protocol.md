@@ -12,18 +12,23 @@ state; it must not reinterpret it as a `HostSnapshot`.
 - `project` contains workspace identity, branch, and optional project metadata.
 - `run` contains lifecycle state for the active session.
 
-Within the typed host/page contracts, `olderCursor` is a discriminated cursor:
-`{ kind: "local", value }` for normalized host coordinates or
-`{ kind: "bridge", value }` for Pi branch coordinates. Legacy string cursors
-are accepted at the v1 boundary as local coordinates unless the bundle declares
-`coordinateSpace: "bridge"`. The Pi socket continues to encode its bridge cursor as an opaque string; the host attaches the bridge
-origin before it enters page state and only converts coordinates when a raw
-index projection is available. Every transcript bundle also carries an optional
-`coordinateSpace` (`local` or `bridge`). Unlike `olderCursor`, this field remains
-present for fully loaded snapshots with no older page, so cache trimming cannot
-silently change the origin of a reconstructed cursor. Older v1 bundles without
-the field are normalized from a discriminated cursor when possible and otherwise
-treated as local for compatibility.
+Within the typed host/page contracts, `olderCursor` is an opaque
+`HostTranscriptCursor`. The renderer and shared desktop contracts retain and
+return that value but never inspect its representation or infer a numeric
+position from it. The host adapter owns conversion between its local record
+coordinates and a Pi bridge's raw coordinates. A host supplies
+`cursorBeforeMessageId` (and, when needed, `cursorBoundaries`) so a renderer
+cache can select the cursor at the oldest retained user-turn boundary without
+interpreting the cursor. Other host adapters may use a different opaque
+encoding while preserving the same contract.
+
+The Pi socket continues to encode its bridge cursor as a raw opaque string. The
+desktop host wraps it at the adapter seam before it enters page state and only
+unwraps it when sending a request back to that same bridge. Legacy v1 payloads
+that contain the old cursor object are accepted only at the host migration seam;
+they are normalized to the opaque host contract or discarded conservatively by
+the renderer cache. The renderer never exposes the adapter coordinate or a
+`coordinateSpace` field.
 
 The legacy `HostSnapshot` remains a recovery shape for pre-v1 clients only. New
 bootstrap responses provide `version`, detail, catalog, project metadata, and the

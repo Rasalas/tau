@@ -1,6 +1,6 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
-import { threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
-import { parseTranscriptCursor, type TranscriptCoordinateSpace, type TranscriptCursor } from "../shared/transcript-cursor";
+import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
 import {
   captureTranscriptScrollAnchor,
@@ -47,15 +47,6 @@ export {
   restoreTranscriptScrollAnchor,
 } from "./transcript-history-page-state";
 
-function normalizeCursor(
-  value: TranscriptCursor | string | undefined,
-  coordinateSpace?: TranscriptCoordinateSpace,
-): TranscriptCursor | undefined {
-  if (value === undefined) return undefined;
-  try { return parseTranscriptCursor(value, undefined, coordinateSpace); }
-  catch { return undefined; }
-}
-
 export class TranscriptHistoryController {
   readonly preserveScrollRef: TranscriptHistoryPageState["preserveScrollRef"];
   readonly anchorRef: TranscriptHistoryPageState["anchorRef"];
@@ -78,13 +69,11 @@ export class TranscriptHistoryController {
     if (initialDetail) {
       this.cache.setDetail({
         ...initialDetail,
-        olderCursor: normalizeCursor(initialDetail.olderCursor, initialDetail.coordinateSpace),
       });
     }
     this.state = {
       sessionId: initialDetail?.sessionId,
-      coordinateSpace: initialDetail?.coordinateSpace,
-      olderCursor: normalizeCursor(initialDetail?.olderCursor, initialDetail?.coordinateSpace),
+      olderCursor: initialDetail?.olderCursor,
       historyCompleteness: initialDetail?.historyCompleteness,
       loading: false,
     };
@@ -131,17 +120,12 @@ export class TranscriptHistoryController {
       const applied = this.applyDetail(detail, snapshot);
       return applied !== undefined;
     }
-    const coordinateSpace = snapshot.coordinateSpace
-      ?? detail.coordinateSpace
-      ?? (snapshot.olderCursor?.kind === "bridge" ? "bridge" : "local");
-    const normalizedCursor = normalizeCursor(snapshot.olderCursor, coordinateSpace);
-    this.applyThreadState(snapshot.sessionId, snapshot.olderCursor, snapshot.historyCompleteness, false, coordinateSpace);
-    this.cache.setDetail({ ...detail, coordinateSpace, olderCursor: normalizeCursor(detail.olderCursor, coordinateSpace) });
-    this.cache.setSnapshot({ ...snapshot, coordinateSpace, olderCursor: normalizedCursor });
+    this.applyThreadState(snapshot.sessionId, snapshot.olderCursor, snapshot.historyCompleteness, false);
+    this.cache.setDetail(detail);
+    this.cache.setSnapshot(snapshot);
     this.publish({
       sessionId: snapshot.sessionId,
-      coordinateSpace,
-      olderCursor: normalizedCursor,
+      olderCursor: snapshot.olderCursor,
       historyCompleteness: detail.historyCompleteness ?? snapshot.historyCompleteness,
       loading: false,
     });
@@ -152,46 +136,29 @@ export class TranscriptHistoryController {
   applyDetail(detail: ThreadDetail, snapshot?: HostSnapshot): TranscriptDetailApplication | undefined {
     if (!this.acceptsDetail(detail.sessionId)) return undefined;
     const previous = this.cache.getDetail(detail.sessionId);
-    const incomingCoordinateSpace = detail.coordinateSpace
-      ?? (detail.olderCursor?.kind === "bridge" ? "bridge" : "local");
     const sameThreadPaging = this.state.loading
       && this.coordinator.isActiveSession(detail.sessionId)
       && previous?.sessionId === detail.sessionId;
     const keepHistory = sameThreadPaging || retainsLoadedHistory(previous, detail);
-    const coordinateSpace = keepHistory && previous?.coordinateSpace
-      ? previous.coordinateSpace
-      : incomingCoordinateSpace;
-    const incomingCursor = normalizeCursor(detail.olderCursor, coordinateSpace);
     const mergedBundle = applyTranscriptBundleMerge(
       keepHistory && previous ? previous : undefined,
       detail,
     );
-    const { messages, taskHistory, transcriptMessageIndexes } = mergedBundle;
+    const { messages, taskHistory, transcriptMessageIndexes, cursorBoundaries } = mergedBundle;
     const renderedDetail: ThreadDetail = {
       ...detail,
       messages,
       transcriptMessageIndexes,
       taskHistory,
-      coordinateSpace,
-      olderCursor: keepHistory ? previous?.olderCursor : incomingCursor,
+      olderCursor: keepHistory ? previous?.olderCursor : detail.olderCursor,
+      cursorBeforeMessageId: keepHistory ? previous?.cursorBeforeMessageId : detail.cursorBeforeMessageId,
+      cursorBoundaries: keepHistory ? cursorBoundaries : detail.cursorBoundaries,
       hasMore: keepHistory ? previous.hasMore : detail.hasMore,
       historyCompleteness: keepHistory ? previous.historyCompleteness : detail.historyCompleteness,
     };
-    const renderedSnapshot = snapshot ? {
-      ...snapshot,
-      sessionId: renderedDetail.sessionId,
-      messages,
-      transcriptMessageIndexes,
-      olderCursor: renderedDetail.olderCursor,
-      historyCompleteness: renderedDetail.historyCompleteness,
-      isStreaming: renderedDetail.isStreaming,
-      activeTools: renderedDetail.activeTools,
-      turnActivity: renderedDetail.turnActivity,
-      taskProgress: renderedDetail.taskProgress,
-      taskHistory,
-      contextUsage: renderedDetail.contextUsage,
-      coordinateSpace,
-    } : undefined;
+    const renderedSnapshot = snapshot
+      ? hostSnapshotFromThreadDetail(snapshot, renderedDetail)
+      : undefined;
     const preservePagingRequest = sameThreadPaging;
     const preserveAnchor = !preservePagingRequest
       && keepHistory
@@ -202,13 +169,12 @@ export class TranscriptHistoryController {
       renderedDetail.olderCursor,
       renderedDetail.historyCompleteness,
       preserveAnchor,
-      coordinateSpace,
     );
     this.cache.setDetail(renderedDetail);
     if (renderedSnapshot) this.cache.setSnapshot(renderedSnapshot);
     this.publish(preservePagingRequest
-      ? { ...this.state, sessionId: renderedDetail.sessionId, coordinateSpace, olderCursor: normalizeCursor(renderedDetail.olderCursor, coordinateSpace), historyCompleteness: renderedDetail.historyCompleteness }
-      : { sessionId: renderedDetail.sessionId, coordinateSpace, olderCursor: normalizeCursor(renderedDetail.olderCursor, coordinateSpace), historyCompleteness: renderedDetail.historyCompleteness, loading: false });
+      ? { ...this.state, sessionId: renderedDetail.sessionId, olderCursor: renderedDetail.olderCursor, historyCompleteness: renderedDetail.historyCompleteness }
+      : { sessionId: renderedDetail.sessionId, olderCursor: renderedDetail.olderCursor, historyCompleteness: renderedDetail.historyCompleteness, loading: false });
     this.persistCache();
     return { detail: renderedDetail, snapshot: renderedSnapshot };
   }
@@ -267,22 +233,29 @@ export class TranscriptHistoryController {
     if (!accepted) return undefined;
 
     const currentDetail = this.cache.getDetail(page.sessionId);
-    const coordinateSpace = page.coordinateSpace
-      ?? (page.olderCursor?.kind === "bridge" ? "bridge" : this.state.coordinateSpace ?? "local");
-    const pageCursor = normalizeCursor(page.olderCursor, coordinateSpace);
+    const pageBundle = page.cursorBeforeMessageId && page.olderCursor
+      ? {
+        ...page,
+        cursorBoundaries: [
+          ...(page.cursorBoundaries ?? []),
+          { messageId: page.cursorBeforeMessageId, cursor: page.olderCursor },
+        ],
+      }
+      : page;
     const baseBundle = applyTranscriptBundleMerge(
       currentDetail,
       { messages: visibleMessages },
     );
-    const mergedBundle = applyTranscriptBundleMerge(baseBundle, page, "prepend");
-    const { messages, taskHistory, transcriptMessageIndexes } = mergedBundle;
+    const mergedBundle = applyTranscriptBundleMerge(baseBundle, pageBundle, "prepend");
+    const { messages, taskHistory, transcriptMessageIndexes, cursorBoundaries } = mergedBundle;
     const detail = currentDetail ? {
       ...currentDetail,
       messages,
       transcriptMessageIndexes,
       taskHistory,
-      coordinateSpace,
-      olderCursor: pageCursor,
+      olderCursor: page.olderCursor,
+      cursorBeforeMessageId: page.cursorBeforeMessageId,
+      cursorBoundaries,
       hasMore: page.hasMore,
       historyCompleteness: page.historyCompleteness,
     } : undefined;
@@ -296,24 +269,26 @@ export class TranscriptHistoryController {
         cachedSnapshot,
         currentDetail ?? { messages: visibleMessages },
       );
-      const snapshotBundle = applyTranscriptBundleMerge(snapshotBase, page, "prepend");
-      snapshot = {
-        ...cachedSnapshot,
+      const snapshotBundle = applyTranscriptBundleMerge(snapshotBase, pageBundle, "prepend");
+      const snapshotDetail: ThreadDetail = {
+        ...(detail ?? threadDetailFromHostSnapshot(cachedSnapshot)),
         messages: snapshotBundle.messages,
         transcriptMessageIndexes: snapshotBundle.transcriptMessageIndexes,
         taskHistory: snapshotBundle.taskHistory,
-        coordinateSpace,
-        olderCursor: pageCursor,
+        olderCursor: page.olderCursor,
+        cursorBeforeMessageId: page.cursorBeforeMessageId,
+        cursorBoundaries: snapshotBundle.cursorBoundaries,
         historyCompleteness: page.historyCompleteness,
+        hasMore: page.hasMore,
       };
+      snapshot = hostSnapshotFromThreadDetail(cachedSnapshot, snapshotDetail);
       this.cache.setSnapshot(snapshot);
       this.persistCache();
     }
     this.publish({
       ...this.state,
       sessionId: page.sessionId,
-      coordinateSpace,
-      olderCursor: pageCursor,
+      olderCursor: page.olderCursor,
       historyCompleteness: page.historyCompleteness,
     });
     return { messages, detail, snapshot };
@@ -353,19 +328,16 @@ export class TranscriptHistoryController {
 
   private applyThreadState(
     sessionId: string,
-    olderCursor?: TranscriptCursor | string,
+    olderCursor?: HostTranscriptCursor,
     historyCompleteness?: TranscriptHistoryCompleteness,
     preserveAnchor = false,
-    coordinateSpace: TranscriptCoordinateSpace = this.state.coordinateSpace
-      ?? (typeof olderCursor === "object" && olderCursor?.kind === "bridge" ? "bridge" : "local"),
   ): void {
     const lease = this.pageState.leaseForThreadState(preserveAnchor);
     this.coordinator.activateSession(sessionId);
     this.pageState.restoreLease(lease);
     this.state = {
       sessionId,
-      coordinateSpace,
-      olderCursor: normalizeCursor(olderCursor, coordinateSpace),
+      olderCursor,
       historyCompleteness,
       loading: false,
     };

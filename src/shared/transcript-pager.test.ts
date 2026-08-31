@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { countUserTurns, INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds, TranscriptPager } from "./transcript-pager.js";
+import { countUserTurns, INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds, TranscriptPager, type TranscriptCursorPolicy } from "./transcript-pager.js";
 import type { UiMessage } from "./contracts.js";
-import { parseRawBridgeTranscriptCursor, rawBridgeTranscriptCursorAt } from "./transcript-cursor.js";
 
 const messages: UiMessage[] = Array.from({ length: 12 }, (_, i) => ({
   id: String(i), role: i % 2 === 0 ? "user" : "assistant", text: String(i), timestamp: i,
 }));
 
+const numericCursorPolicy: TranscriptCursorPolicy<string> = {
+  at: (index) => String(index),
+  index: (cursor, maximum) => {
+    if (!/^\d+$/u.test(cursor) || Number(cursor) > maximum) throw new Error("Invalid transcript cursor");
+    return Number(cursor);
+  },
+};
+
 describe("TranscriptPager", () => {
   it("returns the newest bounded page and a cursor for older records", () => {
-    const page = TranscriptPager.pageFor("thread", messages, 3);
+    const page = TranscriptPager.pageFor("thread", messages, 3, undefined, numericCursorPolicy);
     expect(page.sessionId).toBe("thread");
     expect(page.messages.length).toBeLessThanOrEqual(6);
     expect(page.hasMore).toBe(true);
@@ -23,12 +30,12 @@ describe("TranscriptPager", () => {
       ...(turn % 3 === 0 ? [{ id: `notice-${turn}`, role: "notice" as const, text: "activity", timestamp: turn * 3 + 2 }] : []),
     ]).flat();
 
-    const newest = new TranscriptPager(longHistory).page();
+    const newest = new TranscriptPager(longHistory, INITIAL_TRANSCRIPT_TURN_LIMIT, numericCursorPolicy).page();
     expect(countUserTurns(newest.messages)).toBe(INITIAL_TRANSCRIPT_TURN_LIMIT);
     expect(newest.messages).toContainEqual(expect.objectContaining({ id: "user-34" }));
     expect(newest.messages).toContainEqual(expect.objectContaining({ id: "assistant-25" }));
 
-    const older = new TranscriptPager(longHistory, OLDER_TRANSCRIPT_TURN_LIMIT).page(newest.olderCursor);
+    const older = new TranscriptPager(longHistory, OLDER_TRANSCRIPT_TURN_LIMIT, numericCursorPolicy).page(newest.olderCursor);
     expect(countUserTurns(older.messages)).toBe(OLDER_TRANSCRIPT_TURN_LIMIT);
     expect(older.messages.at(-1)?.id).toBe("notice-24");
     expect(newest.messages.some((message) => older.messages.some((candidate) => candidate.id === message.id))).toBe(false);
@@ -39,7 +46,7 @@ describe("TranscriptPager", () => {
       { id: `u-${turn}`, role: "user" as const, text: `turn ${turn}`, timestamp: turn * 2 },
       { id: `a-${turn}`, role: "assistant" as const, text: "ok", timestamp: turn * 2 + 1 },
     ]).flat();
-    const pager = new TranscriptPager(history);
+    const pager = new TranscriptPager(history, INITIAL_TRANSCRIPT_TURN_LIMIT, numericCursorPolicy);
     const loaded: UiMessage[] = [];
     let page = pager.page();
     loaded.push(...page.messages);
@@ -51,8 +58,8 @@ describe("TranscriptPager", () => {
   });
 
   it("rejects malformed cursors", () => {
-    expect(() => new TranscriptPager(messages, 2).page("nope")).toThrow("Invalid transcript cursor");
-    expect(() => new TranscriptPager(messages, 2).page("2x")).toThrow("Invalid transcript cursor");
+    expect(() => new TranscriptPager(messages, 2, numericCursorPolicy).page("nope")).toThrow("Invalid transcript cursor");
+    expect(() => new TranscriptPager(messages, 2, numericCursorPolicy).page("2x")).toThrow("Invalid transcript cursor");
   });
 
   it("shares the same user-boundary policy with Pi records that include tool roles", () => {
@@ -67,9 +74,17 @@ describe("TranscriptPager", () => {
     expect(bounds.hasMore).toBe(true);
   });
 
-  it("preserves a bridge cursor origin when the shared policy pages raw records", () => {
-    const bounds = transcriptPageBounds(messages, 3, parseRawBridgeTranscriptCursor("8"), rawBridgeTranscriptCursorAt);
-    expect(bounds.olderCursor?.kind).toBe("bridge");
+  it("preserves an adapter cursor through the shared policy", () => {
+    const adapterPolicy: TranscriptCursorPolicy<string> = {
+      at: (index) => `adapter:${index}`,
+      index: (cursor, maximum) => {
+        const value = cursor.startsWith("adapter:") ? cursor.slice("adapter:".length) : "invalid";
+        if (!/^\d+$/u.test(value) || Number(value) > maximum) throw new Error("Invalid transcript cursor");
+        return Number(value);
+      },
+    };
+    const bounds = transcriptPageBounds(messages, 3, "adapter:8", adapterPolicy);
+    expect(bounds.olderCursor).toMatch(/^adapter:/u);
   });
 
   it("does not turn leading orphan activities into a partial older page", () => {
@@ -79,7 +94,7 @@ describe("TranscriptPager", () => {
       { id: "user-0", role: "user", text: "first", timestamp: 2 },
       { id: "assistant-0", role: "assistant", text: "answer", timestamp: 3 },
     ];
-    const page = TranscriptPager.pageFor("thread", records, 10);
+    const page = TranscriptPager.pageFor("thread", records, 10, undefined, numericCursorPolicy);
     expect(page.messages.map((message) => message.id)).toEqual(["user-0", "assistant-0"]);
     expect(page.hasMore).toBe(false);
     expect(page.olderCursor).toBeUndefined();
@@ -90,7 +105,7 @@ describe("TranscriptPager", () => {
       { id: "activity-0", role: "notice", text: "tool activity", timestamp: 0 },
       { id: "activity-1", role: "assistant", text: "non-user record", timestamp: 1 },
     ];
-    const page = TranscriptPager.pageFor("thread", records, 10);
+    const page = TranscriptPager.pageFor("thread", records, 10, undefined, numericCursorPolicy);
     expect(page.messages).toEqual([]);
     expect(page.hasMore).toBe(false);
     expect(page.olderCursor).toBeUndefined();

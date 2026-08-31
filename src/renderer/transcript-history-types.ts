@@ -1,6 +1,6 @@
 import type { HostSnapshot, UiMessage } from "../shared/contracts";
 import type { TranscriptHistoryCompleteness } from "../shared/transcript-completeness";
-import type { TranscriptCoordinateSpace, TranscriptCursor } from "../shared/transcript-cursor";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
 
 declare const transitionTokenBrand: unique symbol;
@@ -16,8 +16,7 @@ export interface TranscriptHistoryStatus {
 
 export interface TranscriptHistoryState {
   sessionId?: string;
-  coordinateSpace?: TranscriptCoordinateSpace;
-  olderCursor?: TranscriptCursor;
+  olderCursor?: HostTranscriptCursor;
   historyCompleteness?: TranscriptHistoryCompleteness;
   loading: boolean;
   status?: TranscriptHistoryStatus;
@@ -26,7 +25,7 @@ export interface TranscriptHistoryState {
 export interface TranscriptHistoryRequest {
   generation: number;
   sessionId: string;
-  cursor: TranscriptCursor;
+  cursor: HostTranscriptCursor;
 }
 
 export interface TranscriptBootstrapRequest {

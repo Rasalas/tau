@@ -18,7 +18,7 @@ import type {
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts";
-import type { TranscriptCursor } from "../shared/transcript-cursor";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
@@ -67,7 +67,7 @@ import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, 
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
-import { threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
+import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -96,24 +96,10 @@ export function optimisticThreadSnapshot(
   target: UiSession,
   detail: ThreadDetail,
 ): HostSnapshot {
-  return {
-    ...snapshot,
-    sessionId: detail.sessionId,
-    sessionName: undefined,
-    sessionTitle: target.title,
-    branch: target.branch,
-    messages: detail.messages,
-    transcriptMessageIndexes: detail.transcriptMessageIndexes,
-    olderCursor: detail.olderCursor,
-    isStreaming: false,
-    activeTools: detail.activeTools,
-    turnActivity: detail.turnActivity,
-    taskProgress: detail.taskProgress,
-    taskHistory: detail.taskHistory,
-    contextUsage: detail.contextUsage,
-    coordinateSpace: detail.coordinateSpace,
-    historyCompleteness: detail.historyCompleteness,
-  };
+  return hostSnapshotFromThreadDetail(
+    { ...snapshot, sessionName: undefined, sessionTitle: target.title, branch: target.branch },
+    { ...detail, isStreaming: false },
+  );
 }
 
 const mockSnapshot: HostSnapshot = {
@@ -764,7 +750,7 @@ export default function App() {
       window.tau.bootstrap().then((bootstrap) => {
         if (!transcriptHistory.isCurrentBootstrap(bootstrapRequest)) return;
         applyThreadIndex(bootstrap.threadIndex);
-        const current: HostSnapshot = {
+        const current = hostSnapshotFromThreadDetail({
           cwd: bootstrap.project.cwd,
           branch: bootstrap.project.branch,
           sessionId: bootstrap.detail.sessionId,
@@ -778,18 +764,10 @@ export default function App() {
           allTools: bootstrap.catalog.allTools,
           composerCommands: bootstrap.catalog.composerCommands ?? [],
           extensionCount: bootstrap.catalog.extensionCount,
-          messages: bootstrap.detail.messages,
-          transcriptMessageIndexes: bootstrap.detail.transcriptMessageIndexes,
-          isStreaming: bootstrap.detail.isStreaming,
-          activeTools: bootstrap.detail.activeTools,
-          turnActivity: bootstrap.detail.turnActivity,
-          taskProgress: bootstrap.detail.taskProgress,
-          taskHistory: bootstrap.detail.taskHistory,
-          contextUsage: bootstrap.detail.contextUsage,
-          coordinateSpace: bootstrap.detail.coordinateSpace,
-          olderCursor: bootstrap.detail.olderCursor,
-          historyCompleteness: bootstrap.detail.historyCompleteness,
-        };
+          messages: [],
+          isStreaming: false,
+          activeTools: [],
+        }, bootstrap.detail);
         if (!applySnapshot(current, bootstrapRequest)) return;
         void refreshChanges();
         void refreshWorkspace();
@@ -831,7 +809,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-  const loadTranscriptPage = useCallback(async (sessionId: string, cursor: TranscriptCursor) => {
+  const loadTranscriptPage = useCallback(async (sessionId: string, cursor: HostTranscriptCursor) => {
     if (!window.tau) throw new Error("Transcript history requires the Electron host.");
     return window.tau.loadTranscript(sessionId, cursor);
   }, []);

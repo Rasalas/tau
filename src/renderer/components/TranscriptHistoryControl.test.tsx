@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseLocalTranscriptCursor } from "../../shared/transcript-cursor";
+import { asHostTranscriptCursor } from "../../shared/transcript-cursor";
 import { TranscriptHistoryControl } from "./TranscriptHistoryControl";
 
 describe("TranscriptHistoryControl", () => {
@@ -9,7 +9,7 @@ describe("TranscriptHistoryControl", () => {
 
   it("shows an explicit action while older turns are available", () => {
     const onLoad = vi.fn();
-    render(<TranscriptHistoryControl olderCursor={parseLocalTranscriptCursor("20")} loading={false} onLoad={onLoad} />);
+    render(<TranscriptHistoryControl olderCursor={asHostTranscriptCursor("opaque:20")} loading={false} onLoad={onLoad} />);
 
     expect(screen.getByRole("status").textContent).toContain("Older turns are available.");
     fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
@@ -18,7 +18,7 @@ describe("TranscriptHistoryControl", () => {
 
   it("makes loading, retry, and the end of history explicit", () => {
     const onLoad = vi.fn();
-    const olderCursor = parseLocalTranscriptCursor("20");
+    const olderCursor = asHostTranscriptCursor("opaque:20");
     const view = render(<TranscriptHistoryControl olderCursor={olderCursor} loading onLoad={onLoad} />);
     expect(screen.getByRole("status").textContent).toContain("Loading older turns…");
     expect((screen.getByRole("button", { name: "Loading older turns" }) as HTMLButtonElement).disabled).toBe(true);

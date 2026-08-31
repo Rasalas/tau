@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { AccessLevel, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
-import type { TranscriptCursor } from "../shared/transcript-cursor.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { PiHost } from "./pi-host.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
@@ -128,7 +128,7 @@ function installIpc(): void {
     await hostReady;
     return host.bootstrap();
   });
-  ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: TranscriptCursor | string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
+  ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: HostTranscriptCursor) => (await requireHostReady()).loadTranscript(sessionId, cursor));
   ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).prompt(text, attachments, sessionId));
   ipcMain.handle("tau:run-shell-action", async (_event, command: string, includeInContext?: boolean, expectedCwd?: string) => (await requireHostReady()).runShellAction(command, includeInContext, expectedCwd));
   ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).steer(text, attachments, sessionId));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HostSnapshot } from "../shared/contracts";
 import { detailFromSnapshot } from "../shared/host-protocol";
-import { parseLocalTranscriptCursor } from "../shared/transcript-cursor";
+import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 
 const snapshot: HostSnapshot = {
@@ -29,51 +29,55 @@ describe("bootstrap cache", () => {
     const paged = {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
-      olderCursor: parseLocalTranscriptCursor("11"),
+      olderCursor: asHostTranscriptCursor("opaque:cursor-before-20"),
+      cursorBeforeMessageId: "40",
+      cursorBoundaries: [{ messageId: "40", cursor: asHostTranscriptCursor("opaque:cursor-before-40") }],
     };
     writeBootstrapCache(paged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
-    expect(cached?.snapshot.olderCursor).toEqual({ kind: "local", value: "31" });
-    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toEqual({ kind: "local", value: "31" });
+    expect(cached?.snapshot.olderCursor).toBe(asHostTranscriptCursor("opaque:cursor-before-40"));
+    expect(cached?.snapshot.cursorBeforeMessageId).toBe("40");
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe(asHostTranscriptCursor("opaque:cursor-before-40"));
   });
 
-  it("keeps a bridge raw cursor when the retained window carries source indexes", () => {
+  it("keeps an opaque cursor when the retained window carries source indexes", () => {
     let value: string | null = null;
     const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
     const bridged = {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
       transcriptMessageIndexes: Array.from({ length: 30 }, (_, index) => index + 100),
-      olderCursor: parseLocalTranscriptCursor("100"),
+      olderCursor: asHostTranscriptCursor("opaque:cursor-before-40"),
+      cursorBeforeMessageId: "40",
     };
     writeBootstrapCache(bridged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
     expect(cached?.snapshot.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
-    expect(cached?.snapshot.olderCursor).toEqual({ kind: "local", value: "120" });
-    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toEqual({ kind: "local", value: "120" });
+    expect(cached?.snapshot.olderCursor).toBe(asHostTranscriptCursor("opaque:cursor-before-40"));
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe(asHostTranscriptCursor("opaque:cursor-before-40"));
   });
 
-  it("persists bridge coordinates even when a fully loaded snapshot has no cursor", () => {
+  it("retains an opaque host cursor without exposing its adapter coordinate", () => {
     let value: string | null = null;
     const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
     const bridged = {
       ...snapshot,
-      coordinateSpace: "bridge" as const,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
+      olderCursor: asHostTranscriptCursor("opaque:bridge-cursor"),
+      cursorBeforeMessageId: "20",
     };
     writeBootstrapCache(bridged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
-    expect(cached?.snapshot.coordinateSpace).toBe("bridge");
-    expect(cached?.snapshot.olderCursor).toEqual({ kind: "bridge", value: "20" });
-    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toEqual({ kind: "bridge", value: "20" });
+    expect(cached?.snapshot.olderCursor).toBe(asHostTranscriptCursor("opaque:bridge-cursor"));
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe(asHostTranscriptCursor("opaque:bridge-cursor"));
   });
 
-  it("migrates a v3 cache while retaining its persisted bridge coordinate", () => {
+  it("migrates a v4 cache without interpreting its legacy coordinate object", () => {
     const legacy = JSON.stringify({
       snapshot: {
         ...snapshot,
-        coordinateSpace: "bridge",
         messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user", text: String(index), timestamp: index })),
+        olderCursor: { kind: "bridge", value: "20" },
       },
       threadIndex: { projects: [], sessions: [] },
     });
@@ -83,8 +87,7 @@ describe("bootstrap cache", () => {
       removeItem: () => undefined,
     };
     const cached = readBootstrapCache(storage);
-    expect(cached?.snapshot.coordinateSpace).toBe("bridge");
-    expect(cached?.snapshot.olderCursor).toEqual({ kind: "bridge", value: "20" });
+    expect(cached?.snapshot.olderCursor).toBeUndefined();
   });
 
   it("keeps a legacy-truncated cache limited without retaining a discarded cursor", () => {
@@ -93,7 +96,7 @@ describe("bootstrap cache", () => {
     writeBootstrapCache({
       ...snapshot,
       messages: Array.from({ length: 160 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
-      olderCursor: parseLocalTranscriptCursor("0"),
+      olderCursor: asHostTranscriptCursor("opaque:discarded"),
       historyCompleteness: "legacy-truncated",
     }, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
@@ -113,7 +116,7 @@ describe("bootstrap cache", () => {
     const cached = readBootstrapCache(storage);
     expect(cached?.snapshot.messages).toHaveLength(10);
     expect(cached?.snapshot.messages[0]?.id).toBe("40");
-    expect(cached?.snapshot.olderCursor).toEqual({ kind: "local", value: "40" });
+    expect(cached?.snapshot.olderCursor).toBeUndefined();
 
     const oldOnly = {
       getItem: (key: string) => key === "tau.bootstrap-cache.v2" || key === "tau.bootstrap-cache.v1" ? stale : null,

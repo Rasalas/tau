@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./pi-host.js";
+import { decodeHostCursor } from "./transcript-cursor.js";
 
 describe("Pi message mapping", () => {
   it("keeps user image content for the renderer", () => {
@@ -33,7 +34,7 @@ describe("Pi message mapping", () => {
   });
 
   it("validates and maps bridge pages at the host seam", () => {
-    expect(mapBridgeTranscriptPageValue("thread", {
+    const page = mapBridgeTranscriptPageValue("thread", {
       sessionId: "thread",
       messages: [
         { role: "toolResult", content: "hidden" },
@@ -42,13 +43,15 @@ describe("Pi message mapping", () => {
       messagesOffset: 10,
       olderCursor: "4",
       hasMore: true,
-    })).toMatchObject({
+    });
+    expect(page).toMatchObject({
       sessionId: "thread",
       messages: [{ id: "user" }],
       transcriptMessageIndexes: [11],
-      olderCursor: { kind: "bridge", value: "4" },
+      olderCursor: expect.any(String),
       hasMore: true,
     });
+    expect(decodeHostCursor(page.olderCursor)).toEqual({ kind: "bridge", value: "4" });
     expect(() => mapBridgeTranscriptPageValue("thread", {
       sessionId: "thread", messages: [], olderCursor: "bad", hasMore: false,
     })).toThrow("invalid transcript page cursor");

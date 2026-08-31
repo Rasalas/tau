@@ -1,4 +1,4 @@
-import type { TranscriptCursor } from "../shared/transcript-cursor";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type {
   TranscriptBootstrapRequest,
   TranscriptHistoryRequest,
@@ -67,7 +67,7 @@ export class TranscriptHistoryCoordinator {
 
   beginLoad(
     sessionId: string | undefined,
-    cursor: TranscriptCursor | undefined,
+    cursor: HostTranscriptCursor | undefined,
     loading: boolean,
   ): TranscriptHistoryRequest | undefined {
     if (!sessionId || !cursor || loading || this.switching) return undefined;

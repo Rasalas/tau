@@ -1,6 +1,6 @@
 import type { HostActionResult } from "./host-protocol.js";
 import type { TranscriptBundle } from "./transcript-contract.js";
-import type { TranscriptCursor } from "./transcript-cursor.js";
+import type { HostTranscriptCursor } from "./transcript-cursor.js";
 
 export type UiRole = "user" | "assistant" | "notice";
 
@@ -293,7 +293,7 @@ export interface UiTurnActivity {
   anchorMessageId?: string;
 }
 
-export interface HostSnapshot extends TranscriptBundle<UiMessage, number[], TranscriptCursor> {
+export interface HostSnapshot extends TranscriptBundle<UiMessage, number[], HostTranscriptCursor> {
   cwd: string;
   branch?: string;
   sessionId: string;
@@ -322,7 +322,7 @@ export interface ThreadIndexSnapshot {
   sessions: UiSession[];
 }
 
-export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, number[], TranscriptCursor> {
+export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, number[], HostTranscriptCursor> {
   sessionId: string;
   isStreaming: boolean;
   activeTools: string[];
@@ -407,7 +407,7 @@ export interface TauDesktopApi {
   /** Host platform, so the title bar can leave room for native window controls. */
   readonly platform: string;
   bootstrap(): Promise<HostBootstrap>;
-  loadTranscript(sessionId: string, cursor?: TranscriptCursor | string): Promise<import("./host-protocol.js").TranscriptPage>;
+  loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<import("./host-protocol.js").TranscriptPage>;
   /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
   sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
