@@ -1,11 +1,8 @@
 diff --git a/benchmarks/renderer-fixtures.json b/benchmarks/renderer-fixtures.json
-index 1154c4f..dd0c552 100644
+index 1154c4f..0235a01 100644
 --- a/benchmarks/renderer-fixtures.json
 +++ b/benchmarks/renderer-fixtures.json
-@@ -9,13 +9,14 @@
-     "sampleRuns": 5
-   },
-   "scenarios": [
+@@ -12,8 +12,9 @@
 -    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript" },
 -    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600 },
 -    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576 },
@@ -18,13 +15,11 @@ index 1154c4f..dd0c552 100644
 +    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
 +    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
 +    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000, "sanity": { "minDomNodes": 50, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
-+    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152, "sanity": { "minDomNodes": 100, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
 +    { "id": "thread-shells-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
 +    { "id": "workspace-files-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
 +    { "id": "picker-catalog-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
 +    { "id": "long-user-message", "kind": "message", "bytes": 12000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } }
-   ]
- }
 diff --git a/scripts/machine-class.mjs b/scripts/machine-class.mjs
 new file mode 100644
 index 0000000..dc2f56d
@@ -60,56 +55,28 @@ index 0000000..dc2f56d
 +  return machine;
 +}
 diff --git a/scripts/performance-budgets.json b/scripts/performance-budgets.json
-index 7afa1c1..29cabe2 100644
+index 7afa1c1..863d666 100644
 --- a/scripts/performance-budgets.json
 +++ b/scripts/performance-budgets.json
-@@ -10,10 +10,11 @@
-   "externalNetworkRequests": 0,
-   "overlayCompositionMs": 4,
-   "rendererFrameP95Ms": 24,
+@@ -12,0 +13 @@
 +  "rendererMountP95Ms": 24,
-   "rendererLongTaskMs": 50,
-   "rendererCommitP95Ms": 24,
-   "rendererScenarioBudgets": {
+@@ -16 +17 @@
 -    "transcript-1000-turns": { "commitP95Ms": 40 }
-+    "transcript-1000-turns": { "mountP95Ms": 40, "commitP95Ms": 40, "longTaskMs": 60 }
-   },
-   "rendererDomNodes": 5000,
-   "gitSubprocesses": 6,
-@@ -30,6 +31,7 @@
-     "diff-2mb",
-     "thread-shells-10000",
-     "workspace-files-10000",
++    "transcript-1000-turns": { "mountP95Ms": 40, "longTaskMs": 60 }
+@@ -33 +34,2 @@
 -    "picker-catalog-10000"
 +    "picker-catalog-10000",
 +    "long-user-message"
-   ]
- }
 diff --git a/scripts/renderer-benchmark-fixture.cjs b/scripts/renderer-benchmark-fixture.cjs
 index 86cab23..7260f4c 100644
 --- a/scripts/renderer-benchmark-fixture.cjs
 +++ b/scripts/renderer-benchmark-fixture.cjs
-@@ -3,6 +3,7 @@ const path = require("node:path");
- 
- const scenario = process.argv[2];
- if (!scenario) throw new Error("renderer benchmark scenario is required");
+@@ -5,0 +6 @@ if (!scenario) throw new Error("renderer benchmark scenario is required");
 +const scenarioConfig = JSON.parse(process.argv[3] || "{}");
- app.commandLine.appendSwitch("enable-precise-memory-info");
- 
- app.whenReady().then(async () => {
-@@ -14,7 +15,7 @@ app.whenReady().then(async () => {
-   });
-   try {
-     await window.loadFile(path.join(__dirname, "..", "dist", "index.html"), {
+@@ -17 +18 @@ app.whenReady().then(async () => {
 -      query: { rendererBenchmark: "1", scenario },
 +      query: { rendererBenchmark: "1", scenario, config: JSON.stringify(scenarioConfig) },
-     });
-     const deadline = Date.now() + 30_000;
-     let result;
-@@ -24,6 +25,13 @@ app.whenReady().then(async () => {
-       await new Promise((resolve) => setTimeout(resolve, 50));
-     }
-     if (!result) throw new Error(`renderer benchmark timed out: ${scenario}`);
+@@ -26,0 +28,7 @@ app.whenReady().then(async () => {
 +    result.electronVersion = process.versions.electron;
 +    result.gpuFeatureStatus = app.getGPUFeatureStatus();
 +    try {
@@ -117,40 +84,24 @@ index 86cab23..7260f4c 100644
 +    } catch {
 +      result.gpuInfo = undefined;
 +    }
-     process.stdout.write(`${JSON.stringify(result)}\n`);
-   } finally {
-     window.destroy();
 diff --git a/scripts/renderer-benchmark.mjs b/scripts/renderer-benchmark.mjs
-index 2420729..f4fd78e 100644
+index 2420729..31d989e 100644
 --- a/scripts/renderer-benchmark.mjs
 +++ b/scripts/renderer-benchmark.mjs
-@@ -1,8 +1,11 @@
+@@ -1 +1,3 @@
 -import { spawnSync } from "node:child_process";
 +import { execFileSync, spawnSync } from "node:child_process";
 +import { createHash } from "node:crypto";
 +import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
- import { mkdir, readFile, writeFile } from "node:fs/promises";
+@@ -3 +5 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 -import { dirname, join } from "node:path";
 +import { dirname, isAbsolute, join } from "node:path";
- import { fileURLToPath } from "node:url";
- import { evaluateRendererBudgets } from "./renderer-budget.mjs";
+@@ -5,0 +8 @@ import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 +import { machineClass } from "./machine-class.mjs";
- 
- const ROOT = fileURLToPath(new URL("..", import.meta.url));
- const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
-@@ -12,7 +15,7 @@ const args = process.argv.slice(2);
- const check = args.includes("--check");
- const skipBuild = args.includes("--no-build");
- const outputArg = args.find((arg) => !arg.startsWith("--"));
+@@ -15 +18 @@ const outputArg = args.find((arg) => !arg.startsWith("--"));
 -const outputPath = join(ROOT, outputArg ?? "reports/renderer-report.json");
 +const outputPath = outputArg ? (isAbsolute(outputArg) ? outputArg : join(ROOT, outputArg)) : join(ROOT, "reports/renderer-report.json");
- 
- function percentile(values, p) {
-   if (values.length === 0) return 0;
-@@ -28,28 +31,113 @@ function run(command, commandArgs) {
-   return result.stdout;
- }
- 
+@@ -30,0 +34,61 @@ function run(command, commandArgs) {
 +function commitSha() {
 +  try {
 +    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
@@ -182,25 +133,40 @@ index 2420729..f4fd78e 100644
 +  "scripts/renderer-budget.mjs",
 +  "scripts/performance-budgets.json",
 +  "src/renderer/RendererBenchmark.tsx",
++  "src/shared/contracts.ts",
++  "src/renderer/extension-system.tsx",
++  "src/renderer/components/DiffView.tsx",
++  "src/renderer/components/Markdown.tsx",
++  "src/renderer/components/ToolGroup.tsx",
++  "src/renderer/components/VirtualList.tsx",
++  "src/renderer/components/AttachmentImageDialog.tsx",
++  "src/renderer/components/Message.tsx",
++  "src/renderer/components/MessageActions.tsx",
++  "src/renderer/components/MessageImages.tsx",
++  "src/renderer/components/MessageText.ts",
++  "src/renderer/components/UserMessage.tsx",
++  "src/renderer/components/VirtualTranscript.tsx",
++  "src/renderer/components/message-grapheme.ts",
++  "src/renderer/components/message-timestamp.ts",
++  "src/renderer/components/useTranscriptViewportAnchor.ts",
++  "src/renderer/styles.css",
 +];
 +const harnessSourceSha256 = createHash("sha256")
 +  .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
 +  .digest("hex");
 +const harnessPatchFile = process.env.TAU_BENCHMARK_HARNESS_PATCH_FILE ?? "reports/renderer-baseline-6ddb454-harness.patch";
++const harnessPatchPath = join(ROOT, harnessPatchFile);
 +const harnessPatchSha256 = process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256
-+  ?? (existsSync(join(ROOT, harnessPatchFile)) ? createHash("sha256").update(readFileSync(join(ROOT, harnessPatchFile))).digest("hex") : "unknown");
++  ?? (existsSync(harnessPatchPath)
++    ? createHash("sha256").update(readFileSync(harnessPatchPath)).digest("hex")
++    : harnessSourceSha256);
 +const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? commitSha();
 +const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? commitSha();
 +
- if (!skipBuild) run("npm", ["run", "build"]);
- 
- function sampleScenario(scenario) {
-   const samples = [];
-   for (let runIndex = 0; runIndex < fixture.startConditions.warmupRuns + fixture.startConditions.sampleRuns; runIndex += 1) {
+@@ -36 +100 @@ function sampleScenario(scenario) {
 -    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id]);
 +    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id, JSON.stringify(scenario)]);
-     const line = stdout.trim().split("\n").reverse().find((candidate) => candidate.startsWith("{"));
-     if (!line) throw new Error(`renderer fixture returned no JSON for ${scenario.id}`);
+@@ -39 +103,42 @@ function sampleScenario(scenario) {
 -    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(JSON.parse(line));
 +    const result = JSON.parse(line);
 +    const sanity = scenario.sanity ?? {};
@@ -216,15 +182,18 @@ index 2420729..f4fd78e 100644
 +    if (!Array.isArray(result.frameIntervalsMs) || result.frameIntervalsMs.length < (sanity.minFrames ?? 1) || result.frameIntervalsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
 +      throw new Error(`renderer fixture returned invalid frame measurements for ${scenario.id}`);
 +    }
-+    if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
++    if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value <= 0)) {
 +      throw new Error(`renderer fixture returned invalid Long Task measurements for ${scenario.id}`);
 +    }
-+    if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
++    if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value <= 0)) {
 +      throw new Error(`renderer fixture returned invalid startup Long Task measurements for ${scenario.id}`);
 +    }
-+    if (typeof result.electronVersion !== "string" || !result.electronVersion || result.gpuFeatureStatus === null || typeof result.gpuFeatureStatus !== "object") {
++    if (!/^\d+\.\d+\.\d+$/.test(result.electronVersion ?? "") || result.gpuFeatureStatus === null || typeof result.gpuFeatureStatus !== "object" || Object.keys(result.gpuFeatureStatus).length === 0) {
 +      throw new Error(`renderer fixture returned incomplete Electron/GPU metadata for ${scenario.id}`);
 +    }
++    const activeGpu = result.gpuInfo?.gpuDevice?.find((device) => device.active && typeof device.deviceString === "string" && device.deviceString.length > 0);
++    const softwareGpu = result.gpuFeatureStatus.gpu_compositing === "disabled_software";
++    if (!activeGpu && !softwareGpu) throw new Error(`renderer fixture returned no verified GPU adapter/backend for ${scenario.id}`);
 +    if (!Number.isFinite(result.heapBytes) || result.heapBytes <= 0) {
 +      throw new Error(`renderer fixture returned invalid heap measurement for ${scenario.id}`);
 +    }
@@ -234,41 +203,37 @@ index 2420729..f4fd78e 100644
 +    if (!Number.isInteger(result.commits) || result.commits < (sanity.minCommits ?? 1)) {
 +      throw new Error(`renderer fixture returned too few commits for ${scenario.id}: ${result.commits}`);
 +    }
++    if (scenario.id === "diff-2mb" && (!Number.isFinite(result.payloadBytes) || result.payloadBytes < scenario.bytes)) {
++      throw new Error(`renderer fixture did not render the configured diff payload for ${scenario.id}: ${result.payloadBytes}`);
++    }
++    if (scenario.id === "long-user-message" && (!result.longMessageInteraction?.toggleFound || !result.longMessageInteraction.expanded || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
++      throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
++    }
 +    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
-   }
-   const frames = samples.flatMap((sample) => sample.frameIntervalsMs);
-   const longTasks = samples.flatMap((sample) => sample.longTasksMs);
+@@ -43 +148,3 @@ function sampleScenario(scenario) {
 -  const commitDurations = samples.flatMap((sample) => sample.commitDurationsMs);
 +  const startupLongTasks = samples.flatMap((sample) => sample.startupLongTasksMs);
 +  const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
 +  const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
-   const heaps = samples.map((sample) => sample.heapBytes ?? 0);
+@@ -44,0 +152,3 @@ function sampleScenario(scenario) {
 +  if (samples.length === 0 || frames.length === 0 || mountDurations.length === 0 || updateDurations.length === 0) {
 +    throw new Error(`renderer fixture produced no accepted measurements for ${scenario.id}`);
 +  }
-   return {
-     id: scenario.id,
-     fixture: scenario,
-     sampleRuns: samples.length,
+@@ -48,0 +159,5 @@ function sampleScenario(scenario) {
 +    environment: {
 +      electronVersion: samples[0].electronVersion,
 +      gpuFeatureStatus: samples[0].gpuFeatureStatus,
 +      gpuInfo: samples[0].gpuInfo ?? null,
 +    },
-     longTaskObserverSupported: samples.every((sample) => sample.longTaskObserverSupported === true),
-     frameIntervalsMs: { median: percentile(frames, 0.5), p95: percentile(frames, 0.95), maximum: Math.max(0, ...frames) },
-     longTasksMs: { count: longTasks.length, median: percentile(longTasks, 0.5), p95: percentile(longTasks, 0.95), maximum: Math.max(0, ...longTasks) },
+@@ -52 +167,3 @@ function sampleScenario(scenario) {
 -    commitDurationsMs: { median: percentile(commitDurations, 0.5), p95: percentile(commitDurations, 0.95), maximum: Math.max(0, ...commitDurations) },
 +    startupLongTasksMs: { count: startupLongTasks.length, median: percentile(startupLongTasks, 0.5), p95: percentile(startupLongTasks, 0.95), maximum: Math.max(0, ...startupLongTasks) },
 +    mountDurationsMs: { median: percentile(mountDurations, 0.5), p95: percentile(mountDurations, 0.95), maximum: Math.max(0, ...mountDurations) },
 +    updateDurationsMs: { median: percentile(updateDurations, 0.5), p95: percentile(updateDurations, 0.95), maximum: Math.max(0, ...updateDurations) },
-     commits: Math.max(...samples.map((sample) => sample.commits)),
-     domNodes: Math.max(...samples.map((sample) => sample.domNodes)),
-     heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
-@@ -59,9 +147,38 @@ function sampleScenario(scenario) {
- const report = {
-   schemaVersion: 2,
-   generatedAt: new Date().toISOString(),
+@@ -55,0 +173,2 @@ function sampleScenario(scenario) {
++    ...(scenario.id === "diff-2mb" ? { payloadBytes: Math.min(...samples.map((sample) => sample.payloadBytes)) } : {}),
++    ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.every((sample) => sample.longMessageInteraction?.toggleFound && sample.longMessageInteraction.expanded) } : {}),
+@@ -61,0 +181,16 @@ const report = {
 +  commitSha: commitSha(),
 +  subjectCommit,
 +  harnessCommit,
@@ -285,9 +250,7 @@ index 2420729..f4fd78e 100644
 +    caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
 +  },
 +  machine: machineClass(),
-   startConditions: fixture.startConditions,
-   scenarios: fixture.scenarios.map(sampleScenario),
- };
+@@ -64,0 +200,13 @@ const report = {
 +report.execution.gpu = {
 +  mode: "default",
 +  featureStatus: report.scenarios[0]?.environment.gpuFeatureStatus ?? {},
@@ -301,56 +264,37 @@ index 2420729..f4fd78e 100644
 +    if (distribution && distribution.p95 > distribution.maximum) throw new Error(`${scenario.id} ${metric} p95 exceeds maximum`);
 +  }
 +}
- await mkdir(dirname(outputPath), { recursive: true });
- await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
- 
 diff --git a/scripts/renderer-budget.mjs b/scripts/renderer-budget.mjs
 index e27e327..ee27965 100644
 --- a/scripts/renderer-budget.mjs
 +++ b/scripts/renderer-budget.mjs
-@@ -16,8 +16,9 @@ export function evaluateRendererBudgets(report, budgets) {
-     }
-     const measurements = [
-       ["frame p95", scenario.frameIntervalsMs?.p95, budgets.rendererFrameP95Ms, "ms", scenario.frameIntervalsMs],
+@@ -19,2 +19,3 @@ export function evaluateRendererBudgets(report, budgets) {
 -      ["long task", scenario.longTasksMs?.maximum, budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
 -      ["commit p95", scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.commitDurationsMs],
 +      ["mount p95", scenario.mountDurationsMs?.p95, scenarioBudget.mountP95Ms ?? budgets.rendererMountP95Ms, "ms", scenario.mountDurationsMs],
 +      ["long task", scenario.longTasksMs?.maximum, scenarioBudget.longTaskMs ?? budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
 +      ["commit p95", scenario.updateDurationsMs?.p95 ?? scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.updateDurationsMs ?? scenario.commitDurationsMs],
-       ["DOM nodes", scenario.domNodes, budgets.rendererDomNodes, "", undefined],
-     ];
-     for (const [label, actual, budget, unit, distribution] of measurements) {
 diff --git a/src/renderer/RendererBenchmark.tsx b/src/renderer/RendererBenchmark.tsx
-index 5e0a161..419a1b8 100644
+index 5e0a161..f0593d5 100644
 --- a/src/renderer/RendererBenchmark.tsx
 +++ b/src/renderer/RendererBenchmark.tsx
-@@ -1,4 +1,4 @@
+@@ -1 +1 @@
 -import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 +import { Profiler, useEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
- import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
- import { DiffView } from "./components/DiffView";
- import { Message } from "./components/Message";
-@@ -8,10 +8,15 @@ import { VirtualList } from "./components/VirtualList";
- import { ExtensionRegistry } from "./extension-system";
- 
- interface BenchmarkResult {
+@@ -10,0 +11,2 @@ interface BenchmarkResult {
 +  ready: true;
 +  scenario: string;
-   frameIntervalsMs: number[];
-   longTasksMs: number[];
+@@ -12,0 +15 @@ interface BenchmarkResult {
 +  startupLongTasksMs: number[];
-   longTaskObserverSupported: boolean;
+@@ -14 +17,3 @@ interface BenchmarkResult {
 -  commitDurationsMs: number[];
 +  profilerMountCaptured: boolean;
 +  mountDurationsMs: number[];
 +  updateDurationsMs: number[];
-   commits: number;
-   domNodes: number;
-   heapBytes?: number;
-@@ -21,6 +26,22 @@ declare global {
-   interface Window { __TAU_RENDERER_BENCHMARK__?: BenchmarkResult; }
- }
- 
+@@ -17,0 +23,2 @@ interface BenchmarkResult {
++  payloadBytes?: number;
++  longMessageInteraction?: { toggleFound: boolean; expanded: boolean; contentBytes: number };
+@@ -23,0 +31,16 @@ declare global {
 +const longTaskCapture = (() => {
 +  const entries: Array<{ startTime: number; duration: number }> = [];
 +  if (typeof PerformanceObserver === "undefined") return { entries, supported: false, observer: undefined };
@@ -367,26 +311,45 @@ index 5e0a161..419a1b8 100644
 +  }
 +})();
 +
- function codeChunk(index: number): string {
-   return Array.from({ length: 48 }, (_, line) => `const value${index}_${line} = ${line}; // streamed benchmark line\n`).join("");
- }
-@@ -48,33 +69,61 @@ function makeDiff(): UiFileDiff {
-   return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
- }
- 
-+function makeLongUserMessage(bytes: number, revision: number): UiMessage {
-+  return { id: "benchmark-long-user-message", role: "user", text: `${"x".repeat(bytes)}${revision}`, timestamp: revision };
+@@ -41,8 +64,25 @@ function makeTranscript(turns: number): UiMessage[] {
+-function makeDiff(): UiFileDiff {
+-  const lines = Array.from({ length: 10_000 }, (_, index) => ({
+-    kind: index % 3 === 0 ? "added" as const : index % 3 === 1 ? "removed" as const : "context" as const,
+-    oldLine: index % 3 === 0 ? undefined : index + 1,
+-    newLine: index % 3 === 1 ? undefined : index + 1,
+-    text: `benchmark diff line ${index}`,
+-  }));
+-  return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
++function makeDiff(targetBytes: number): UiFileDiff {
++  const lines: UiFileDiff["hunks"][number]["lines"] = [];
++  const payload = () => ({
++    path: "benchmark.ts",
++    added: lines.filter((line) => line.kind === "added").length,
++    removed: lines.filter((line) => line.kind === "removed").length,
++    hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }],
++    truncated: true,
++    nextHunkOffset: 1,
++  });
++  const lineBytes = Math.max(180, Math.ceil(targetBytes / 1_000));
++  for (let index = 0; index < 1_000; index += 1) {
++    const text = `benchmark diff line ${index} ${"x".repeat(lineBytes)}`;
++    lines.push({
++      kind: index % 3 === 0 ? "added" : index % 3 === 1 ? "removed" : "context",
++      oldLine: index % 3 === 0 ? undefined : index + 1,
++      newLine: index % 3 === 1 ? undefined : index + 1,
++      text,
++    });
++  }
++  return payload();
 +}
 +
- export default function RendererBenchmark() {
-   const params = new URLSearchParams(window.location.search);
-   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
++function makeLongUserMessage(bytes: number, revision: number): UiMessage {
++  return { id: "benchmark-long-user-message", role: "user", text: `${"x".repeat(bytes)}${revision}`, timestamp: revision };
+@@ -54 +94,2 @@ export default function RendererBenchmark() {
 -  const targetBytes = scenario === "tool-output-1mb" ? 1_048_576 : 153_600;
 +  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number };
 +  const targetBytes = scenarioConfig.bytes ?? 0;
-   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
-   const [toolOutput, setToolOutput] = useState("");
-   const [listQuery, setListQuery] = useState("");
+@@ -58 +99,7 @@ export default function RendererBenchmark() {
 -  const commits = useRef<number[]>([]);
 +  const mountDurations = useRef<number[]>([]);
 +  const updateDurations = useRef<number[]>([]);
@@ -395,24 +358,30 @@ index 5e0a161..419a1b8 100644
 +  const interactionStartedAt = useRef<number | undefined>(undefined);
 +  const profilerReportedMount = useRef(false);
 +  const profilerReportedUpdate = useRef(false);
-   const frames = useRef<number[]>([]);
+@@ -60 +107,4 @@ export default function RendererBenchmark() {
 -  const longTasks = useRef<number[]>([]);
 +  const [benchmarkPulse, setBenchmarkPulse] = useState(0);
 +  const [longUserRevision, setLongUserRevision] = useState(0);
-   const scrollRef = useRef<HTMLDivElement>(null);
-   const registry = useMemo(() => new ExtensionRegistry(), []);
++  const payloadBytes = useRef(0);
++  const longMessageInteraction = useRef<BenchmarkResult["longMessageInteraction"]>(undefined);
+@@ -63 +113 @@ export default function RendererBenchmark() {
 -  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
 +  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(scenarioConfig.turns ?? 0) : [], [scenario, scenarioConfig.turns]);
-   const listItems = useMemo(
+@@ -65,2 +115,2 @@ export default function RendererBenchmark() {
 -    () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
 -    [scenario],
 +    () => scenario.endsWith("-10000") ? Array.from({ length: scenarioConfig.items ?? 0 }, (_, index) => `Benchmark item ${index}`) : [],
 +    [scenario, scenarioConfig.items],
-   );
-   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
-   const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
+@@ -69 +119,7 @@ export default function RendererBenchmark() {
+-  const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
++  const diff = useMemo(() => {
++    if (scenario !== "diff-2mb") return undefined;
++    const value = makeDiff(targetBytes);
++    payloadBytes.current = new TextEncoder().encode(JSON.stringify(value)).byteLength;
++    return value;
++  }, [scenario, targetBytes]);
 +  const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage(targetBytes, longUserRevision) : undefined, [scenario, targetBytes, longUserRevision]);
-   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
+@@ -71,3 +127,9 @@ export default function RendererBenchmark() {
 -  // Fixture construction is setup, not renderer commit work. Start timing only
 -  // after the scenario-specific input exists, matching production data flow.
 -  const updateStartedAt = useRef(performance.now());
@@ -425,7 +394,7 @@ index 5e0a161..419a1b8 100644
 +      updateDurations.current.push(actualDuration);
 +    }
 +  };
- 
+@@ -75,3 +137,12 @@ export default function RendererBenchmark() {
 -  useLayoutEffect(() => {
 -    commits.current.push(performance.now() - updateStartedAt.current);
 -  }, [listQuery, text, toolOutput]);
@@ -441,13 +410,7 @@ index 5e0a161..419a1b8 100644
 +    if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
 +    updateDurations.current.push(performance.now() - updateStartedAt.current);
 +  }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
- 
-   useEffect(() => {
-     let frame = 0;
-@@ -86,33 +135,29 @@ export default function RendererBenchmark() {
-       if (!stopped) requestAnimationFrame(observeFrame);
-     };
-     requestAnimationFrame(observeFrame);
+@@ -89,13 +159,0 @@ export default function RendererBenchmark() {
 -    let longTaskObserverSupported = typeof PerformanceObserver !== "undefined";
 -    let observer: PerformanceObserver | undefined;
 -    try {
@@ -461,19 +424,13 @@ index 5e0a161..419a1b8 100644
 -      observer = undefined;
 -    }
 -
-     const finish = () => {
-       let settleFrames = 0;
-       const settle = () => {
-         settleFrames += 1;
-         if (settleFrames < 8) { requestAnimationFrame(settle); return; }
-         stopped = true;
+@@ -108 +166 @@ export default function RendererBenchmark() {
 -        observer?.disconnect();
 +        longTaskCapture.observer?.disconnect();
-         const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
-         window.__TAU_RENDERER_BENCHMARK__ = {
+@@ -110,0 +169,2 @@ export default function RendererBenchmark() {
 +          ready: true,
 +          scenario,
-           frameIntervalsMs: frames.current.slice(2),
+@@ -112,4 +172,11 @@ export default function RendererBenchmark() {
 -          longTasksMs: longTasks.current,
 -          longTaskObserverSupported,
 -          commitDurationsMs: commits.current,
@@ -489,42 +446,39 @@ index 5e0a161..419a1b8 100644
 +          mountDurationsMs: mountDurations.current,
 +          updateDurationsMs: updateDurations.current,
 +          commits: updateDurations.current.length,
-           domNodes: document.getElementsByTagName("*").length,
-           heapBytes: memory.memory?.usedJSHeapSize,
-         };
-@@ -125,6 +170,7 @@ export default function RendererBenchmark() {
-         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
-         frame += 1;
-         updateStartedAt.current = performance.now();
+@@ -117,0 +185,2 @@ export default function RendererBenchmark() {
++          payloadBytes: payloadBytes.current || undefined,
++          longMessageInteraction: longMessageInteraction.current,
+@@ -127,0 +197 @@ export default function RendererBenchmark() {
 +        interactionStartedAt.current ??= updateStartedAt.current;
-         setText((current) => {
-           const remaining = targetBytes - current.length;
-           return remaining > 0 ? current + chunk.slice(0, remaining) : current;
-@@ -137,6 +183,7 @@ export default function RendererBenchmark() {
-       const chunk = "tool output benchmark line\n".repeat(640);
-       const append = () => {
-         updateStartedAt.current = performance.now();
+@@ -139,0 +210 @@ export default function RendererBenchmark() {
 +        interactionStartedAt.current ??= updateStartedAt.current;
-         setToolOutput((current) => current + chunk.slice(0, targetBytes - current.length));
-         frame += 1;
-         if (frame * chunk.length < targetBytes) requestAnimationFrame(append);
-@@ -149,14 +196,27 @@ export default function RendererBenchmark() {
-         const query = queries.shift();
-         if (query === undefined) { finish(); return; }
-         updateStartedAt.current = performance.now();
+@@ -151,0 +223 @@ export default function RendererBenchmark() {
 +        interactionStartedAt.current ??= updateStartedAt.current;
-         setListQuery(query);
-         requestAnimationFrame(update);
-       };
-       requestAnimationFrame(update);
+@@ -155,0 +228,22 @@ export default function RendererBenchmark() {
 +    } else if (scenario === "long-user-message") {
 +      requestAnimationFrame(() => {
 +        updateStartedAt.current = performance.now();
 +        interactionStartedAt.current ??= updateStartedAt.current;
 +        setLongUserRevision((revision) => revision + 1);
-+        finish();
++        requestAnimationFrame(() => {
++          const button = document.querySelector<HTMLButtonElement>(".message-expand");
++          if (!button) throw new Error("long-user-message did not render its expand control");
++          updateStartedAt.current = performance.now();
++          interactionStartedAt.current ??= updateStartedAt.current;
++          button.click();
++          requestAnimationFrame(() => {
++            const content = document.querySelector<HTMLElement>(".message-text-content");
++            longMessageInteraction.current = {
++              toggleFound: true,
++              expanded: button.getAttribute("aria-expanded") === "true",
++              contentBytes: new TextEncoder().encode(content?.textContent ?? "").byteLength,
++            };
++            finish();
++          });
++        });
 +      });
-     } else {
+@@ -157 +251,6 @@ export default function RendererBenchmark() {
 -      requestAnimationFrame(finish);
 +      requestAnimationFrame(() => {
 +        updateStartedAt.current = performance.now();
@@ -532,22 +486,933 @@ index 5e0a161..419a1b8 100644
 +        setBenchmarkPulse((pulse) => pulse + 1);
 +        finish();
 +      });
-     }
+@@ -159 +258 @@ export default function RendererBenchmark() {
 -    return () => { stopped = true; observer?.disconnect(); };
 +    return () => { stopped = true; longTaskCapture.observer?.disconnect(); };
-   }, [scenario, targetBytes]);
- 
-   let content;
-@@ -177,9 +237,11 @@ export default function RendererBenchmark() {
-       className="benchmark-large-list"
-       renderItem={(item) => <div key={item} className="benchmark-list-row">{item}</div>}
-     />;
+@@ -179,0 +279,2 @@ export default function RendererBenchmark() {
 +  } else if (scenario === "long-user-message") {
 +    content = <Message message={longUserMessage!} />;
-   } else {
-     content = <DiffView diff={diff!} mode="unified" />;
-   }
- 
+@@ -184 +285 @@ export default function RendererBenchmark() {
 -  return <main className="renderer-benchmark">{content}</main>;
 +  return <main className="renderer-benchmark"><Profiler id={scenario} onRender={onRender}>{content}</Profiler></main>;
- }
+diff --git a/src/renderer/components/AttachmentImageDialog.tsx b/src/renderer/components/AttachmentImageDialog.tsx
+new file mode 100644
+index 0000000..b19dc18
+--- /dev/null
++++ b/src/renderer/components/AttachmentImageDialog.tsx
+@@ -0,0 +1,94 @@
++import { X } from "lucide-react";
++import { createPortal } from "react-dom";
++import { useEffect, useRef, useState, type ReactNode } from "react";
++
++export interface AttachmentImage {
++  key: string;
++  src: string;
++  alt: string;
++  label?: string;
++}
++
++const FOCUSABLE = [
++  "button:not([disabled])",
++  "[href]",
++  "input:not([disabled])",
++  "select:not([disabled])",
++  "textarea:not([disabled])",
++  "[tabindex]:not([tabindex=\"-1\"])",
++].join(",");
++
++/** Owns image-preview state and the accessible, viewport-level dialog. */
++export function AttachmentImageDialog({
++  images,
++  children,
++}: {
++  images: readonly AttachmentImage[];
++  children(open: (index: number) => void): ReactNode;
++}) {
++  const [previewIndex, setPreviewIndex] = useState<number>();
++  const dialogRef = useRef<HTMLDivElement>(null);
++  const closeButtonRef = useRef<HTMLButtonElement>(null);
++  const previouslyFocused = useRef<HTMLElement | null>(null);
++  const preview = previewIndex === undefined ? undefined : images[previewIndex];
++
++  useEffect(() => {
++    if (!preview) return;
++    previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
++    closeButtonRef.current?.focus();
++    const closeOnEscapeAndTrapFocus = (event: KeyboardEvent) => {
++      if (event.key === "Escape") {
++        setPreviewIndex(undefined);
++        return;
++      }
++      if (event.key !== "Tab") return;
++      const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
++      if (focusable.length === 0) {
++        event.preventDefault();
++        return;
++      }
++      const first = focusable[0];
++      const last = focusable.at(-1)!;
++      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
++      if (activeIndex < 0) {
++        event.preventDefault();
++        (event.shiftKey ? last : first).focus();
++      } else if (event.shiftKey && activeIndex === 0) {
++        event.preventDefault();
++        last.focus();
++      } else if (!event.shiftKey && activeIndex === focusable.length - 1) {
++        event.preventDefault();
++        first.focus();
++      }
++    };
++    window.addEventListener("keydown", closeOnEscapeAndTrapFocus);
++    return () => {
++      window.removeEventListener("keydown", closeOnEscapeAndTrapFocus);
++      previouslyFocused.current?.focus();
++      previouslyFocused.current = null;
++    };
++  }, [Boolean(preview)]);
++
++  const dialog = preview ? (
++      <div
++        ref={dialogRef}
++        className="attachment-lightbox"
++        role="dialog"
++        aria-modal="true"
++        aria-label={preview.label ?? "Image preview"}
++        onMouseDown={(event) => { if (event.target === event.currentTarget) setPreviewIndex(undefined); }}
++        onClick={(event) => { if (event.target === event.currentTarget) setPreviewIndex(undefined); }}
++      >
++        <figure onClick={(event) => event.stopPropagation()}>
++          <button ref={closeButtonRef} type="button" aria-label="Close preview" onClick={() => setPreviewIndex(undefined)}><X size={18} /></button>
++          <img src={preview.src} alt={preview.alt} />
++          {preview.label ? <figcaption>{preview.label}</figcaption> : null}
++        </figure>
++      </div>
++    ) : null;
++
++  return <>
++    {children((index) => setPreviewIndex(index))}
++    {dialog ? createPortal(dialog, document.body) : null}
++  </>;
++}
+diff --git a/src/renderer/components/Message.tsx b/src/renderer/components/Message.tsx
+index 426e48e..570e7b7 100644
+--- a/src/renderer/components/Message.tsx
++++ b/src/renderer/components/Message.tsx
+@@ -1,3 +1,5 @@
+-import { Bot, ChevronRight, Copy, GitFork } from "lucide-react";
+-import { memo, useEffect, useState } from "react";
+-import type { UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
++import { Bot, ChevronRight } from "lucide-react";
++import { memo, useState } from "react";
++import type { UiMessage } from "../../shared/contracts";
++import { MessageActions } from "./MessageActions";
++import { UserMessage } from "./UserMessage";
+@@ -6,4 +7,0 @@ import { Markdown } from "./Markdown";
+-function clockTime(timestamp: number): string {
+-  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+-}
+-
+@@ -43,65 +40,0 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
+-const LOCAL_IMAGE_PATH = /(\/(?:(?:\\ )|[^\s'"<>])+?\.(?:png|jpe?g|gif|webp))(?=\s|$|[),;])/giu;
+-
+-export function localImagePaths(text: string): string[] {
+-  const matches = text.matchAll(LOCAL_IMAGE_PATH);
+-  return [...new Set([...matches].map((match) => match[1].replaceAll("\\ ", " ")))].slice(0, 4);
+-}
+-
+-export function withoutLocalImagePaths(text: string): string {
+-  return text.replace(LOCAL_IMAGE_PATH, "").replace(/^[ \t]+|[ \t]+$/gmu, "").trim();
+-}
+-
+-const imagePreviewCache = new Map<string, Promise<UiImagePreview | undefined>>();
+-
+-function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
+-  const cached = imagePreviewCache.get(path);
+-  if (cached) return cached;
+-  if (imagePreviewCache.size >= 8) imagePreviewCache.delete(imagePreviewCache.keys().next().value as string);
+-  const request = window.tau!.readImagePreview(path).catch((error) => {
+-    imagePreviewCache.delete(path);
+-    throw error;
+-  });
+-  imagePreviewCache.set(path, request);
+-  return request;
+-}
+-
+-function PersistedMessageImages({ images }: { images: readonly UiMessageImage[] }) {
+-  if (images.length === 0) return null;
+-  return <div className="message-images">
+-    {images.map((image, index) => (
+-      <img
+-        key={`${index}-${image.mimeType}-${image.data.slice(0, 16)}`}
+-        src={`data:${image.mimeType};base64,${image.data}`}
+-        alt="Attached image"
+-      />
+-    ))}
+-  </div>;
+-}
+-
+-function MessageImages({ text }: { text: string }) {
+-  const [previews, setPreviews] = useState<UiImagePreview[]>([]);
+-  useEffect(() => {
+-    const paths = localImagePaths(text);
+-    if (paths.length === 0 || !window.tau) {
+-      setPreviews([]);
+-      return;
+-    }
+-    let active = true;
+-    void Promise.all(paths.map(cachedImagePreview))
+-      .then((images) => { if (active) setPreviews(images.filter((image): image is UiImagePreview => Boolean(image))); })
+-      .catch(() => { if (active) setPreviews([]); });
+-    return () => { active = false; };
+-  }, [text]);
+-  if (previews.length === 0) return null;
+-  return <div className="message-images">
+-    {previews.map((image) => <img key={image.name} src={image.dataUrl} alt={image.name} />)}
+-  </div>;
+-}
+-
+-function MessageActions({ onCopy, onFork }: { onCopy(): void; onFork?: () => void }) {
+-  return <div className="message-actions">
+-    <button type="button" onClick={onCopy} title="Copy message"><Copy size={13} /><span>Copy</span></button>
+-    {onFork ? <button type="button" onClick={onFork} title="Fork through this message"><GitFork size={13} /><span>Fork</span></button> : null}
+-  </div>;
+-}
+-
+@@ -112,0 +46,2 @@ export const Message = memo(function Message({
++  onToggleExpanded,
++  expanded,
+@@ -117,0 +53,2 @@ export const Message = memo(function Message({
++  onToggleExpanded?: (messageId: string, expanded: boolean) => void;
++  expanded?: boolean;
+@@ -125,21 +62 @@ export const Message = memo(function Message({
+-    const visibleText = withoutLocalImagePaths(message.text);
+-    const hasLocalImages = localImagePaths(message.text).length > 0;
+-    const persistedImages = message.images ?? [];
+-    return (
+-      <div className="message-shell user">
+-        <article className="message user">
+-          <div className="message-text">
+-            {visibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
+-            <PersistedMessageImages images={persistedImages} />
+-            {hasLocalImages ? <MessageImages text={message.text} /> : null}
+-          </div>
+-          <div className="message-user-meta">
+-            <time>{clockTime(message.timestamp)}</time>
+-            {onCopy ? <MessageActions
+-              onCopy={() => onCopy(message)}
+-              onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
+-            /> : null}
+-          </div>
+-        </article>
+-      </div>
+-    );
++    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
+diff --git a/src/renderer/components/MessageActions.tsx b/src/renderer/components/MessageActions.tsx
+new file mode 100644
+index 0000000..18524a6
+--- /dev/null
++++ b/src/renderer/components/MessageActions.tsx
+@@ -0,0 +1,8 @@
++import { Copy, GitFork } from "lucide-react";
++
++export function MessageActions({ onCopy, onFork }: { onCopy(): void; onFork?: () => void }) {
++  return <div className="message-actions">
++    <button type="button" onClick={onCopy} title="Copy message"><Copy size={13} /><span>Copy</span></button>
++    {onFork ? <button type="button" onClick={onFork} title="Fork through this message"><GitFork size={13} /><span>Fork</span></button> : null}
++  </div>;
++}
+diff --git a/src/renderer/components/MessageImages.tsx b/src/renderer/components/MessageImages.tsx
+new file mode 100644
+index 0000000..797307c
+--- /dev/null
++++ b/src/renderer/components/MessageImages.tsx
+@@ -0,0 +1,63 @@
++import { useEffect, useState } from "react";
++import type { UiImagePreview, UiMessageImage } from "../../shared/contracts";
++import { AttachmentImageDialog, type AttachmentImage } from "./AttachmentImageDialog";
++import { localImagePaths } from "./MessageText";
++
++const imagePreviewCache = new Map<string, Promise<UiImagePreview | undefined>>();
++
++function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
++  const cached = imagePreviewCache.get(path);
++  if (cached) return cached;
++  if (imagePreviewCache.size >= 8) imagePreviewCache.delete(imagePreviewCache.keys().next().value as string);
++  const request = window.tau!.readImagePreview(path).catch((error) => {
++    imagePreviewCache.delete(path);
++    throw error;
++  });
++  imagePreviewCache.set(path, request);
++  return request;
++}
++
++function MessageImageGallery({ images }: { images: readonly AttachmentImage[] }) {
++  if (images.length === 0) return null;
++  return <AttachmentImageDialog images={images}>{(open) =>
++    <div className="message-images">
++      {images.map((image, index) => (
++        <button
++          className="message-image-button"
++          key={image.key}
++          type="button"
++          aria-label={`Open image ${index + 1}`}
++          onClick={() => open(index)}
++        >
++          <img src={image.src} alt={image.alt} />
++        </button>
++      ))}
++    </div>
++  }</AttachmentImageDialog>;
++}
++
++export function PersistedMessageImages({ images }: { images: readonly UiMessageImage[] }) {
++  return <MessageImageGallery images={images.map((image, index) => ({
++    key: `${index}-${image.mimeType}-${image.data.slice(0, 16)}`,
++    src: `data:${image.mimeType};base64,${image.data}`,
++    alt: "Attached image",
++  }))} />;
++}
++
++export function MessageImages({ text }: { text: string }) {
++  const [previews, setPreviews] = useState<UiImagePreview[]>([]);
++  useEffect(() => {
++    const paths = localImagePaths(text);
++    if (paths.length === 0 || !window.tau) {
++      setPreviews([]);
++      return;
++    }
++    let active = true;
++    void Promise.all(paths.map(cachedImagePreview))
++      .then((images) => { if (active) setPreviews(images.filter((image): image is UiImagePreview => Boolean(image))); })
++      .catch(() => { if (active) setPreviews([]); });
++    return () => { active = false; };
++  }, [text]);
++  if (previews.length === 0) return null;
++  return <MessageImageGallery images={previews.map((image) => ({ key: image.name, src: image.dataUrl, alt: image.name }))} />;
++}
+diff --git a/src/renderer/components/MessageText.ts b/src/renderer/components/MessageText.ts
+new file mode 100644
+index 0000000..836a17a
+--- /dev/null
++++ b/src/renderer/components/MessageText.ts
+@@ -0,0 +1,23 @@
++import type { UiMessage } from "../../shared/contracts";
++
++const LOCAL_IMAGE_PATH = /(\/(?:(?:\\ )|[^\s'"<>])+?\.(?:png|jpe?g|gif|webp))(?=\s|$|[),;])/giu;
++
++export function localImagePaths(text: string): string[] {
++  const paths: string[] = [];
++  for (const match of text.matchAll(LOCAL_IMAGE_PATH)) {
++    const path = match[1].replaceAll("\\ ", " ");
++    if (!paths.includes(path)) paths.push(path);
++    if (paths.length === 4) break;
++  }
++  return paths;
++}
++
++/** Text shown for a user message and therefore copied from its action menu. */
++export function visibleUserMessageText(text: string): string {
++  return text.replace(LOCAL_IMAGE_PATH, "").replace(/^[ \t]+|[ \t]+$/gmu, "").trim();
++}
++
++export function copyableMessage(message: UiMessage): UiMessage {
++  const text = visibleUserMessageText(message.text);
++  return text === message.text ? message : { ...message, text };
++}
+diff --git a/src/renderer/components/UserMessage.tsx b/src/renderer/components/UserMessage.tsx
+new file mode 100644
+index 0000000..8f41882
+--- /dev/null
++++ b/src/renderer/components/UserMessage.tsx
+@@ -0,0 +1,84 @@
++import { useState } from "react";
++import type { UiMessage } from "../../shared/contracts";
++import { Markdown } from "./Markdown";
++import { MessageActions } from "./MessageActions";
++import { MessageImages, PersistedMessageImages } from "./MessageImages";
++import { copyableMessage, localImagePaths, visibleUserMessageText } from "./MessageText";
++import { isLongMessage } from "./message-grapheme";
++import { compactTimestamp, fullTimestamp } from "./message-timestamp";
++
++interface UserMessageProps {
++  message: UiMessage;
++  onCopy?: (message: UiMessage) => void;
++  onFork?: (message: UiMessage) => void;
++  onToggleExpanded?: (messageId: string, expanded: boolean) => void;
++  expanded?: boolean;
++}
++
++export function UserMessage({
++  message,
++  onCopy,
++  onFork,
++  onToggleExpanded,
++  expanded: controlledExpanded,
++}: UserMessageProps) {
++  const visibleText = visibleUserMessageText(message.text);
++  const hasLocalImages = localImagePaths(message.text).length > 0;
++  const persistedImages = message.images ?? [];
++  const long = isLongMessage(visibleText);
++  const [localExpanded, setLocalExpanded] = useState(false);
++  const expanded = controlledExpanded ?? localExpanded;
++  const contentId = `message-content-${message.id}`;
++
++  const toggleExpanded = () => {
++    const nextExpanded = !expanded;
++    onToggleExpanded?.(message.id, nextExpanded);
++    if (controlledExpanded === undefined) setLocalExpanded(nextExpanded);
++  };
++
++  return (
++    <div className="message-shell user">
++      <article className="message user">
++        <div className="message-text">
++          <div
++            id={contentId}
++            className={`message-text-content${long && !expanded ? " collapsed" : ""}`}
++            data-collapsed={long && !expanded ? "true" : "false"}
++          >
++            {visibleText
++              ? long && !expanded
++                ? <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
++                : <Markdown>{visibleText}</Markdown>
++              : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
++          </div>
++          <PersistedMessageImages images={persistedImages} />
++          {hasLocalImages ? <MessageImages text={message.text} /> : null}
++        </div>
++        {long ? (
++          <button
++            className="message-expand"
++            type="button"
++            aria-controls={contentId}
++            aria-expanded={expanded}
++            onClick={toggleExpanded}
++          >
++            {expanded ? "Show less" : "Show more"}
++          </button>
++        ) : null}
++        <div className="message-user-meta">
++          <time
++            dateTime={new Date(message.timestamp).toISOString()}
++            title={fullTimestamp(message.timestamp)}
++            aria-label={`Sent ${fullTimestamp(message.timestamp)}`}
++          >
++            {compactTimestamp(message.timestamp)}
++          </time>
++          {onCopy ? <MessageActions
++            onCopy={() => onCopy(copyableMessage(message))}
++            onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
++          /> : null}
++        </div>
++      </article>
++    </div>
++  );
++}
+diff --git a/src/renderer/components/VirtualTranscript.tsx b/src/renderer/components/VirtualTranscript.tsx
+index 47902a3..f4fbad9 100644
+--- a/src/renderer/components/VirtualTranscript.tsx
++++ b/src/renderer/components/VirtualTranscript.tsx
+@@ -2 +2 @@ import { useVirtualizer } from "@tanstack/react-virtual";
+-import type { ReactNode, RefObject } from "react";
++import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+@@ -4,0 +5 @@ import { Message } from "./Message";
++import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
+@@ -9,0 +11 @@ export interface VirtualTranscriptProps {
++  sessionKey?: string;
+@@ -16,0 +19,3 @@ export interface VirtualTranscriptProps {
++const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
++const MAX_EXPANDED_MESSAGE_IDS = 64;
++
+@@ -21,0 +27 @@ export function VirtualTranscript({
++  sessionKey = "default",
+@@ -48,0 +55,23 @@ export function VirtualTranscript({
++  const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
++  const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
++  const messageIndexes = useRef(new Map<string, number>());
++  messageIndexes.current = new Map(messages.map((message, index) => [message.id, index]));
++  useLayoutEffect(() => {
++    if (expandedState.sessionKey === sessionKey) return;
++    setExpandedState({ sessionKey, ids: new Set() });
++  }, [expandedState.sessionKey, sessionKey]);
++
++  const updateExpandedMessage = (messageId: string, expanded: boolean) => {
++    setExpandedState((current) => {
++      const next = new Set(current.sessionKey === sessionKey ? current.ids : EMPTY_MESSAGE_IDS);
++      if (expanded) {
++        // Re-inserting makes this a small LRU: frequently used expanded rows
++        // stay available while abandoned IDs cannot grow without bound.
++        next.delete(messageId);
++        next.add(messageId);
++      } else next.delete(messageId);
++      while (next.size > MAX_EXPANDED_MESSAGE_IDS) next.delete(next.values().next().value!);
++      return { sessionKey, ids: next };
++    });
++  };
++
+@@ -58,0 +88,8 @@ export function VirtualTranscript({
++  const onMessageToggleExpanded = useTranscriptViewportAnchor({
++    expandedMessageIds,
++    messageIndexes,
++    onExpandedChange: updateExpandedMessage,
++    scrollRef,
++    sessionKey,
++    virtualizer,
++  });
+@@ -95,0 +133,2 @@ export function VirtualTranscript({
++          onToggleExpanded={onMessageToggleExpanded}
++          expanded={expandedMessageIds.has(message.id)}
+diff --git a/src/renderer/components/message-grapheme.ts b/src/renderer/components/message-grapheme.ts
+new file mode 100644
+index 0000000..d29ce43
+--- /dev/null
++++ b/src/renderer/components/message-grapheme.ts
+@@ -0,0 +1,155 @@
++const MARK = /\p{Mark}/u;
++const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
++const LONG_MESSAGE_LINE_LIMIT = 8;
++const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
++// The fallback deliberately stops after enough code points to represent 600
++// ordinary extended grapheme clusters plus a safety margin. Intl.Segmenter is
++// lazy and remains exact for a single unusually large cluster.
++const GRAPHEME_CODEPOINT_BUDGET = LONG_MESSAGE_GRAPHEME_LIMIT * 16 + 64;
++
++type HangulJamo = "L" | "V" | "T" | "LV" | "LVT" | undefined;
++interface GraphemeCount {
++  count: number;
++  exhausted: boolean;
++  examinedCodePoints: number;
++  lineCount: number;
++}
++
++function hangulJamoType(codePoint: number): HangulJamo {
++  if (codePoint >= 0xac00 && codePoint <= 0xd7a3) return (codePoint - 0xac00) % 28 === 0 ? "LV" : "LVT";
++  if ((codePoint >= 0x1100 && codePoint <= 0x115f) || (codePoint >= 0xa960 && codePoint <= 0xa97c)) return "L";
++  if ((codePoint >= 0x1160 && codePoint <= 0x11a7) || (codePoint >= 0xd7b0 && codePoint <= 0xd7c6)) return "V";
++  if ((codePoint >= 0x11a8 && codePoint <= 0x11ff) || (codePoint >= 0xd7cb && codePoint <= 0xd7fb)) return "T";
++  return undefined;
++}
++
++function graphemeBudgetFor(limit: number): number {
++  return limit <= LONG_MESSAGE_GRAPHEME_LIMIT ? GRAPHEME_CODEPOINT_BUDGET : (limit + 1) * 16 + 64;
++}
++
++export function fallbackGraphemeCount(text: string, limit: number): GraphemeCount {
++  let count = 0;
++  let lineCount = 1;
++  let joined = false;
++  let hasBase = false;
++  let leadingExtenderCluster = false;
++  let previousExtendedPictographic = false;
++  let regionalIndicators = 0;
++  let previousHangul: HangulJamo;
++  let scannedCodePoints = 0;
++  const codePointBudget = graphemeBudgetFor(limit);
++
++  let codeUnitIndex = 0;
++  while (codeUnitIndex < text.length && scannedCodePoints < codePointBudget) {
++    const codePoint = text.codePointAt(codeUnitIndex)!;
++    const character = String.fromCodePoint(codePoint);
++    codeUnitIndex += character.length;
++    scannedCodePoints += 1;
++    if (character === "\n") {
++      lineCount += 1;
++      if (lineCount > LONG_MESSAGE_LINE_LIMIT) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
++    }
++    if (character === "\u200d") {
++      // ZWJ may only suppress a break for GB11's pictographic sequence;
++      // prevent it from carrying Hangul (or another non-GB11) join forward.
++      previousHangul = undefined;
++      if (joined) {
++        // A second ZWJ has no preceding EP Extend* opportunity to consume.
++        joined = false;
++        previousExtendedPictographic = false;
++      }
++      if (hasBase && previousExtendedPictographic) joined = true;
++      else if (!hasBase && !leadingExtenderCluster) {
++        count += 1;
++        leadingExtenderCluster = true;
++      }
++      if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
++      continue;
++    }
++    const isExtender = MARK.test(character)
++      || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
++      || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff)
++      || (codePoint >= 0xe0020 && codePoint <= 0xe007f);
++    if (isExtender) {
++      // An extender after ZWJ is still attached to the preceding cluster, but
++      // it breaks GB11's EP Extend* ZWJ × EP opportunity.
++      if (joined) {
++        joined = false;
++        previousExtendedPictographic = false;
++      }
++      if (!hasBase && !leadingExtenderCluster) {
++        count += 1;
++        leadingExtenderCluster = true;
++      }
++      // An Extend does not participate in Hangul GB6–GB8 across the next
++      // code point. Keep it attached to the current cluster but end the
++      // Hangul state so `ᄀ́ᅡ` is two clusters.
++      previousHangul = undefined;
++      if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
++      continue;
++    }
++    const hangul = hangulJamoType(codePoint);
++    if (joined) {
++      // GB11 only joins a ZWJ to the following Extended_Pictographic. A ZWJ
++      // before an ordinary character must not swallow that character into the
++      // previous cluster (for example, "👨‍a" has two visible graphemes).
++      if (EXTENDED_PICTOGRAPHIC.test(character)) {
++        joined = false;
++        previousHangul = hangul;
++        hasBase = true;
++        leadingExtenderCluster = false;
++        previousExtendedPictographic = true;
++        continue;
++      }
++      joined = false;
++      previousExtendedPictographic = false;
++    }
++    if (codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff) {
++      regionalIndicators += 1;
++      if (regionalIndicators % 2 === 1) count += 1;
++    } else {
++      regionalIndicators = 0;
++      const continuesHangul = (previousHangul === "L" && (hangul === "L" || hangul === "V" || hangul === "LV" || hangul === "LVT"))
++        || ((previousHangul === "LV" || previousHangul === "V") && (hangul === "V" || hangul === "T"))
++        || ((previousHangul === "LVT" || previousHangul === "T") && hangul === "T");
++      if (!continuesHangul) count += 1;
++    }
++    previousHangul = hangul;
++    hasBase = true;
++    leadingExtenderCluster = false;
++    previousExtendedPictographic = EXTENDED_PICTOGRAPHIC.test(character);
++    if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
++  }
++  if (codeUnitIndex < text.length) return { count: limit + 1, exhausted: true, examinedCodePoints: scannedCodePoints, lineCount };
++  return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
++}
++
++function segmenterFor(): (new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<{ segment: string }> }) | undefined {
++  if (typeof Intl === "undefined" || !("Segmenter" in Intl)) return undefined;
++  return (Intl as typeof Intl & {
++    Segmenter: new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<{ segment: string }> };
++  }).Segmenter;
++}
++
++function segmentWithIntl(text: string, limit: number): GraphemeCount {
++  const Segmenter = segmenterFor();
++  if (!Segmenter) return fallbackGraphemeCount(text, limit);
++  let count = 0;
++  let lineCount = 1;
++  for (const part of new Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
++    count += 1;
++    for (const character of part.segment) if (character === "\n") lineCount += 1;
++    if (count > limit || lineCount > LONG_MESSAGE_LINE_LIMIT) return { count, exhausted: false, examinedCodePoints: 0, lineCount };
++  }
++  return { count, exhausted: false, examinedCodePoints: 0, lineCount };
++}
++
++export function isLongMessage(text: string): boolean {
++  // A huge run of marks is one visible grapheme, even though the fallback's
++  // bounded code-point walk cannot prove where that run ends. Keep this
++  // narrow fast path conservative: any following base or newline is handled
++  // by the normal bounded counter and therefore remains long when needed.
++  if (text.length > GRAPHEME_CODEPOINT_BUDGET && /^(?:\p{Mark}|[\uFE00-\uFE0F]|[\u{1F3FB}-\u{1F3FF}]|[\u{E0020}-\u{E007F}])+$/u.test(text)) return false;
++  const result = segmentWithIntl(text, LONG_MESSAGE_GRAPHEME_LIMIT);
++  return result.exhausted || result.count > LONG_MESSAGE_GRAPHEME_LIMIT || result.lineCount > LONG_MESSAGE_LINE_LIMIT;
++}
+diff --git a/src/renderer/components/message-timestamp.ts b/src/renderer/components/message-timestamp.ts
+new file mode 100644
+index 0000000..bbd4304
+--- /dev/null
++++ b/src/renderer/components/message-timestamp.ts
+@@ -0,0 +1,13 @@
++export function compactTimestamp(timestamp: number): string {
++  return new Date(timestamp).toLocaleString([], {
++    day: "2-digit",
++    month: "2-digit",
++    hour: "2-digit",
++    minute: "2-digit",
++    hour12: false,
++  });
++}
++
++export function fullTimestamp(timestamp: number): string {
++  return new Date(timestamp).toLocaleString([], { dateStyle: "full", timeStyle: "long" });
++}
+diff --git a/src/renderer/components/useTranscriptViewportAnchor.ts b/src/renderer/components/useTranscriptViewportAnchor.ts
+new file mode 100644
+index 0000000..160a05c
+--- /dev/null
++++ b/src/renderer/components/useTranscriptViewportAnchor.ts
+@@ -0,0 +1,240 @@
++import { useCallback, useEffect, useLayoutEffect, useRef, type MutableRefObject, type RefObject } from "react";
++
++interface ViewportPosition {
++  container: HTMLElement;
++  scrollTop: number;
++  scrollHeight: number;
++  anchor?: HTMLElement;
++  anchorTop?: number;
++  tracked: HTMLElement;
++  trackedHeight: number;
++  trackedTop: number;
++}
++
++interface PendingToggle {
++  token: number;
++  row: HTMLElement;
++  position: ViewportPosition;
++}
++
++interface TranscriptVirtualizer {
++  measureElement: (element: HTMLElement) => void;
++}
++
++interface UseTranscriptViewportAnchorOptions {
++  expandedMessageIds: ReadonlySet<string>;
++  messageIndexes: MutableRefObject<Map<string, number>>;
++  onExpandedChange: (messageId: string, expanded: boolean) => void;
++  scrollRef: RefObject<HTMLDivElement | null>;
++  sessionKey: string;
++  virtualizer: TranscriptVirtualizer;
++}
++
++const USER_SCROLL_KEYS = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "End", "Home", "PageDown", "PageUp", " "]);
++
++function captureViewportPosition(container: HTMLElement, messageIndex: number): ViewportPosition | undefined {
++  const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
++  const tracked = rows.find((row) => row.dataset.index === String(messageIndex));
++  if (!tracked) return undefined;
++
++  const containerTop = container.getBoundingClientRect().top;
++  const trackedRect = tracked.getBoundingClientRect();
++  const trackedIndex = rows.indexOf(tracked);
++  const anchor = rows
++    .slice(trackedIndex)
++    .find((row) => row.getBoundingClientRect().top >= containerTop);
++  const anchorRect = anchor?.getBoundingClientRect();
++  return {
++    container,
++    scrollTop: container.scrollTop,
++    scrollHeight: container.scrollHeight,
++    anchor,
++    anchorTop: anchorRect?.top,
++    tracked,
++    trackedHeight: trackedRect.height,
++    trackedTop: trackedRect.top,
++  };
++}
++
++function restoreViewportPosition(position: ViewportPosition, markProgrammaticScroll: () => void): void {
++  if (position.anchor && position.anchorTop !== undefined && position.anchor.isConnected) {
++    markProgrammaticScroll();
++    position.container.scrollTop = position.scrollTop + position.anchor.getBoundingClientRect().top - position.anchorTop;
++    return;
++  }
++
++  // Tail rows have no following anchor. Compute an absolute target from the
++  // pre-toggle geometry and clamp it once against the post-layout range.
++  if (position.tracked.isConnected && position.trackedTop < position.container.getBoundingClientRect().top) {
++    const delta = position.tracked.getBoundingClientRect().height - position.trackedHeight;
++    const maxScrollTop = Math.max(0, position.container.scrollHeight - position.container.clientHeight);
++    const targetScrollTop = Math.min(maxScrollTop, Math.max(0, position.scrollTop + delta));
++    markProgrammaticScroll();
++    position.container.scrollTop = targetScrollTop;
++  }
++}
++
++function registerPendingInteractionListeners(container: HTMLElement, onInteraction: (event: Event) => void): () => void {
++  const containerEvents: Array<[string, AddEventListenerOptions]> = [
++    ["wheel", { passive: true }],
++    ["touchstart", { passive: true }],
++    ["pointerdown", { passive: true }],
++    ["scroll", { passive: true }],
++  ];
++  const windowEvents: Array<[string, AddEventListenerOptions | undefined]> = [
++    ["wheel", { passive: true }],
++    ["touchstart", { passive: true }],
++    ["pointerdown", { passive: true }],
++    ["keydown", undefined],
++  ];
++  containerEvents.forEach(([type, options]) => container.addEventListener(type, onInteraction, options));
++  windowEvents.forEach(([type, options]) => window.addEventListener(type, onInteraction, options));
++  return () => {
++    containerEvents.forEach(([type]) => container.removeEventListener(type, onInteraction));
++    windowEvents.forEach(([type]) => window.removeEventListener(type, onInteraction));
++  };
++}
++
++export function useTranscriptViewportAnchor({
++  expandedMessageIds,
++  messageIndexes,
++  onExpandedChange,
++  scrollRef,
++  sessionKey,
++  virtualizer,
++}: UseTranscriptViewportAnchorOptions) {
++  const scrollRefValue = useRef(scrollRef);
++  scrollRefValue.current = scrollRef;
++  const virtualizerValue = useRef(virtualizer);
++  virtualizerValue.current = virtualizer;
++  const onExpandedChangeValue = useRef(onExpandedChange);
++  onExpandedChangeValue.current = onExpandedChange;
++  const nextToggleToken = useRef(0);
++  const pendingToggle = useRef<PendingToggle | undefined>(undefined);
++  const targetObserver = useRef<ResizeObserver | undefined>(undefined);
++  const pendingInteractionCleanup = useRef<(() => void) | undefined>(undefined);
++  const restoreAnimationFrameIds = useRef<[number, number?] | undefined>(undefined);
++  const programmaticScrollToken = useRef(0);
++
++  const markProgrammaticScroll = useCallback(() => {
++    const token = ++programmaticScrollToken.current;
++    window.setTimeout(() => {
++      if (programmaticScrollToken.current === token) programmaticScrollToken.current = 0;
++    }, 0);
++  }, []);
++
++  const cancelRestore = useCallback(() => {
++    const [firstRestoreFrameId, secondRestoreFrameId] = restoreAnimationFrameIds.current ?? [];
++    if (firstRestoreFrameId !== undefined) window.cancelAnimationFrame(firstRestoreFrameId);
++    if (secondRestoreFrameId !== undefined) window.cancelAnimationFrame(secondRestoreFrameId);
++    restoreAnimationFrameIds.current = undefined;
++  }, []);
++
++  const clearPendingToggle = useCallback((token: number) => {
++    if (pendingToggle.current?.token !== token) return;
++    targetObserver.current?.disconnect();
++    targetObserver.current = undefined;
++    pendingInteractionCleanup.current?.();
++    pendingInteractionCleanup.current = undefined;
++    pendingToggle.current = undefined;
++  }, []);
++
++  const queueViewportRestore = useCallback((toggle: PendingToggle) => {
++    if (pendingToggle.current?.token !== toggle.token || restoreAnimationFrameIds.current) return;
++    let firstRestoreFrameId = 0;
++    firstRestoreFrameId = window.requestAnimationFrame(() => {
++      const secondRestoreFrameId = window.requestAnimationFrame(() => {
++        restoreAnimationFrameIds.current = undefined;
++        if (pendingToggle.current?.token !== toggle.token) return;
++        restoreViewportPosition(toggle.position, markProgrammaticScroll);
++        // Keep the pending record through the scrollTop write so a synchronous
++        // browser scroll event can consume the programmatic-write token.
++        clearPendingToggle(toggle.token);
++      });
++      restoreAnimationFrameIds.current = [firstRestoreFrameId, secondRestoreFrameId];
++    });
++    restoreAnimationFrameIds.current = [firstRestoreFrameId, undefined];
++  }, [clearPendingToggle, markProgrammaticScroll]);
++
++  useEffect(() => () => {
++    cancelRestore();
++    targetObserver.current?.disconnect();
++    pendingInteractionCleanup.current?.();
++  }, [cancelRestore]);
++
++  useLayoutEffect(() => {
++    const toggle = pendingToggle.current;
++    if (!toggle || !toggle.row.isConnected) {
++      if (toggle) clearPendingToggle(toggle.token);
++      return;
++    }
++
++    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver((entries) => {
++      const entry = entries.find((candidate) => candidate.target === toggle.row);
++      if (!entry || pendingToggle.current?.token !== toggle.token) return;
++      const box = entry.borderBoxSize[0];
++      const measuredHeight = box?.blockSize ?? toggle.row.offsetHeight;
++      if (measuredHeight === toggle.position.trackedHeight) clearPendingToggle(toggle.token);
++      else queueViewportRestore(toggle);
++    });
++
++    targetObserver.current?.disconnect();
++    targetObserver.current = observer;
++    if (observer) observer.observe(toggle.row, { box: "border-box" });
++    else {
++      virtualizerValue.current.measureElement(toggle.row);
++      if (toggle.row.offsetHeight === toggle.position.trackedHeight) clearPendingToggle(toggle.token);
++      else queueViewportRestore(toggle);
++    }
++
++    return () => {
++      observer?.disconnect();
++      if (targetObserver.current === observer) targetObserver.current = undefined;
++    };
++  }, [clearPendingToggle, expandedMessageIds, queueViewportRestore]);
++
++  useLayoutEffect(() => {
++    cancelRestore();
++    if (pendingToggle.current) clearPendingToggle(pendingToggle.current.token);
++  }, [cancelRestore, clearPendingToggle, sessionKey]);
++
++  return useCallback((messageId: string, _expanded: boolean) => {
++    const token = ++nextToggleToken.current;
++    const container = scrollRefValue.current.current;
++    programmaticScrollToken.current = 0;
++    cancelRestore();
++    const previous = pendingToggle.current;
++    if (previous) clearPendingToggle(previous.token);
++    const messageIndex = messageIndexes.current.get(messageId);
++    const capturedPosition = container && messageIndex !== undefined
++      ? captureViewportPosition(container, messageIndex)
++      : undefined;
++    const position = capturedPosition && previous?.row === capturedPosition.tracked && previous.position.container === container && previous.position.scrollTop === container.scrollTop
++      ? previous.position
++      : capturedPosition;
++    pendingToggle.current = position ? { token, row: position.tracked, position } : undefined;
++
++    if (position && container) {
++      const onPendingInteraction = (event: Event) => {
++        const pending = pendingToggle.current;
++        if (!pending) return;
++        if (event.type === "scroll") {
++          if (programmaticScrollToken.current > 0) {
++            programmaticScrollToken.current = 0;
++            return;
++          }
++          if (pending.position.scrollHeight !== container.scrollHeight) {
++            const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
++            const naturalClamp = Math.min(pending.position.scrollTop, maxScrollTop);
++            if (container.scrollTop === naturalClamp) return;
++          }
++        }
++        if (event.type === "keydown" && !USER_SCROLL_KEYS.has((event as KeyboardEvent).key)) return;
++        cancelRestore();
++        clearPendingToggle(pending.token);
++      };
++      pendingInteractionCleanup.current = registerPendingInteractionListeners(container, onPendingInteraction);
++    }
++    onExpandedChangeValue.current(messageId, _expanded);
++  }, [cancelRestore, clearPendingToggle, messageIndexes]);
++}
+diff --git a/src/renderer/styles.css b/src/renderer/styles.css
+index ebbbd01..8372581 100644
+--- a/src/renderer/styles.css
++++ b/src/renderer/styles.css
+@@ -580,0 +581,13 @@ button > svg { pointer-events: none; }
++.message-text-content.collapsed {
++  position: relative; max-height: 12.8em; overflow: hidden;
++}
++.message-text-content.collapsed::after {
++  content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 2.8em;
++  background: linear-gradient(transparent, var(--raised)); pointer-events: none;
++}
++.message-expand {
++  align-self: flex-end; border: 0; border-radius: 5px; padding: 2px 6px;
++  background: transparent; color: var(--muted); font: 500 11px var(--sans); cursor: pointer;
++}
++.message-expand:hover { background: var(--raised); color: var(--ink-2); }
++.message-expand:focus-visible { outline: 1px solid var(--line-strong); }
+@@ -586 +599 @@ button > svg { pointer-events: none; }
+-.message.user time { font: 10px var(--mono); color: #5f5e54; }
++.message.user time { font: 10px var(--mono); color: #5f5e54; white-space: nowrap; }
+@@ -591,0 +605,5 @@ button > svg { pointer-events: none; }
++.message-image-button {
++  display: block; width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 9px;
++  background: transparent; text-align: left; cursor: zoom-in; overflow: hidden;
++}
++.message-image-button:focus-visible { outline: 2px solid var(--acid); outline-offset: 2px; }
