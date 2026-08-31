@@ -62,6 +62,23 @@ const harnessFiles = [
   "scripts/renderer-budget.mjs",
   "scripts/performance-budgets.json",
   "src/renderer/RendererBenchmark.tsx",
+  "src/shared/contracts.ts",
+  "src/renderer/extension-system.tsx",
+  "src/renderer/components/DiffView.tsx",
+  "src/renderer/components/Markdown.tsx",
+  "src/renderer/components/ToolGroup.tsx",
+  "src/renderer/components/VirtualList.tsx",
+  "src/renderer/components/AttachmentImageDialog.tsx",
+  "src/renderer/components/Message.tsx",
+  "src/renderer/components/MessageActions.tsx",
+  "src/renderer/components/MessageImages.tsx",
+  "src/renderer/components/MessageText.ts",
+  "src/renderer/components/UserMessage.tsx",
+  "src/renderer/components/VirtualTranscript.tsx",
+  "src/renderer/components/message-grapheme.ts",
+  "src/renderer/components/message-timestamp.ts",
+  "src/renderer/components/useTranscriptViewportAnchor.ts",
+  "src/renderer/styles.css",
 ];
 const harnessSourceSha256 = createHash("sha256")
   .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
