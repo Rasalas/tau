@@ -60,6 +60,12 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
     }
     const isExtender = MARK.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff);
     if (isExtender) {
+      // An extender after ZWJ is still attached to the preceding cluster, but
+      // it breaks GB11's EP Extend* ZWJ × EP opportunity.
+      if (joined) {
+        joined = false;
+        previousExtendedPictographic = false;
+      }
       if (!hasBase && !leadingExtenderCluster) {
         count += 1;
         leadingExtenderCluster = true;

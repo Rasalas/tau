@@ -5,11 +5,6 @@ import { MessageActions } from "./MessageActions";
 import { UserMessage } from "./UserMessage";
 import { Markdown } from "./Markdown";
 
-export { LONG_MESSAGE_GRAPHEME_LIMIT, LONG_MESSAGE_LINE_LIMIT, isLongMessage } from "./message-grapheme";
-export { compactTimestamp, fullTimestamp } from "./message-timestamp";
-export { copyableMessage, localImagePaths, visibleUserMessageText } from "./MessageText";
-export { visibleUserMessageText as withoutLocalImagePaths } from "./MessageText";
-
 interface AsyncActivity {
   label: string;
   detail: string;

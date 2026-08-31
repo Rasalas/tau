@@ -45,7 +45,11 @@ export function UserMessage({
             className={`message-text-content${long && !expanded ? " collapsed" : ""}`}
             data-collapsed={long && !expanded ? "true" : "false"}
           >
-            {visibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
+            {visibleText
+              ? long && !expanded
+                ? <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
+                : <Markdown>{visibleText}</Markdown>
+              : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
           </div>
           <PersistedMessageImages images={persistedImages} />
           {hasLocalImages ? <MessageImages text={message.text} /> : null}

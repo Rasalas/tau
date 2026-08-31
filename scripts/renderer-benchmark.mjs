@@ -45,7 +45,21 @@ function sampleScenario(scenario) {
     const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id]);
     const line = stdout.trim().split("\n").reverse().find((candidate) => candidate.startsWith("{"));
     if (!line) throw new Error(`renderer fixture returned no JSON for ${scenario.id}`);
-    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(JSON.parse(line));
+    const result = JSON.parse(line);
+    const sanity = scenario.sanity ?? {};
+    if (result.ready !== true || result.scenario !== scenario.id) {
+      throw new Error(`renderer fixture returned an invalid readiness marker for ${scenario.id}`);
+    }
+    if (!Number.isFinite(result.domNodes) || result.domNodes < (sanity.minDomNodes ?? 1) || result.domNodes > (sanity.maxDomNodes ?? Number.POSITIVE_INFINITY)) {
+      throw new Error(`renderer fixture returned implausible DOM node count for ${scenario.id}: ${result.domNodes}`);
+    }
+    if (!Number.isFinite(result.commits) || result.commits < (sanity.minCommits ?? 1)) {
+      throw new Error(`renderer fixture returned too few commits for ${scenario.id}: ${result.commits}`);
+    }
+    if (!Array.isArray(result.frameIntervalsMs) || result.frameIntervalsMs.length < (sanity.minFrames ?? 1)) {
+      throw new Error(`renderer fixture returned too few frame samples for ${scenario.id}`);
+    }
+    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
   }
   const frames = samples.flatMap((sample) => sample.frameIntervalsMs);
   const longTasks = samples.flatMap((sample) => sample.longTasksMs);
@@ -69,6 +83,12 @@ const report = {
   schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   commitSha: commitSha(),
+  execution: {
+    electronExecutable: "node_modules/.bin/electron",
+    gpu: "default",
+    parallelRuns: 1,
+    caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
+  },
   machine: machineClass(),
   startConditions: fixture.startConditions,
   scenarios: fixture.scenarios.map(sampleScenario),

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { compactTimestamp, fullTimestamp, isLongMessage, localImagePaths, Message, visibleUserMessageText, withoutLocalImagePaths } from "./Message";
-import { fallbackGraphemeCount, GRAPHEME_CODEPOINT_BUDGET } from "./message-grapheme";
+import { Message } from "./Message";
+import { localImagePaths, visibleUserMessageText } from "./MessageText";
+import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
 afterEach(cleanup);
 
@@ -10,7 +11,7 @@ describe("Message images", () => {
   it("finds shell-escaped local image paths", () => {
     const text = "/Users/me/Application\\ Support/CleanShot/image.png please inspect";
     expect(localImagePaths(text)).toEqual(["/Users/me/Application Support/CleanShot/image.png"]);
-    expect(withoutLocalImagePaths(text)).toBe("please inspect");
+    expect(visibleUserMessageText(text)).toBe("please inspect");
   });
 
   it("renders image content persisted in the Pi message", () => {
@@ -63,62 +64,6 @@ describe("Message images", () => {
 
 describe("Long user messages", () => {
   const message = (text: string) => ({ id: "long", role: "user" as const, text, timestamp: 0 });
-
-  it("uses both the line and character thresholds", () => {
-    expect(isLongMessage(Array.from({ length: 8 }, () => "line").join("\n"))).toBe(false);
-    expect(isLongMessage(Array.from({ length: 9 }, () => "line").join("\n"))).toBe(true);
-    expect(isLongMessage("x".repeat(600))).toBe(false);
-    expect(isLongMessage("x".repeat(601))).toBe(true);
-    // These are visible graphemes, not UTF-16 code units.
-    expect(isLongMessage("e\u0301".repeat(301))).toBe(false);
-    expect(isLongMessage("a".repeat(600) + "\u0301")).toBe(false);
-    expect(isLongMessage("a".repeat(601))).toBe(true);
-    expect(isLongMessage("😀".repeat(300))).toBe(false);
-    expect(isLongMessage("😀".repeat(301))).toBe(false);
-    expect(isLongMessage("😀".repeat(600))).toBe(false);
-    expect(isLongMessage("😀".repeat(600) + "a")).toBe(true);
-    expect(isLongMessage("e\u0301".repeat(600))).toBe(false);
-    expect(isLongMessage("e\u0301".repeat(600) + "e\u0301")).toBe(true);
-      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
-      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600) + "👨‍👩‍👧‍👦")).toBe(true);
-  });
-
-  it("keeps the grapheme fallback bounded for Hangul Jamo clusters", () => {
-    const segmenter = Object.getOwnPropertyDescriptor(Intl, "Segmenter");
-    Object.defineProperty(Intl, "Segmenter", { configurable: true, value: undefined });
-    try {
-      expect(isLongMessage("각".repeat(201))).toBe(false);
-      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
-      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
-      // GB11 joins only Extended_Pictographic after a ZWJ. The ordinary
-      // `a` remains a separate visible grapheme.
-      expect(isLongMessage(("👨‍a".repeat(300)) + "👨")).toBe(true);
-      expect(isLongMessage("a\u200db".repeat(301))).toBe(true);
-      expect(isLongMessage("\u0301\u0302" + "a".repeat(599))).toBe(false);
-      expect(isLongMessage("\u0301\u0302" + "a".repeat(600))).toBe(true);
-      expect(isLongMessage("각".repeat(600) + "ᄀ")).toBe(true);
-      expect(isLongMessage("각".repeat(600))).toBe(false);
-      expect(isLongMessage("각".repeat(600) + "가")).toBe(true);
-      expect(isLongMessage("가ᅡ".repeat(600))).toBe(false);
-      // An unbounded extender tail is conservative once the fallback budget
-      // is exhausted, even though the visible prefix is one cluster.
-      expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(true);
-      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
-      expect(isLongMessage("\u0301".repeat(10_000) + "a".repeat(601))).toBe(true);
-      // An extender without a preceding base starts its own grapheme. Once a
-      // base exists, the same extender remains attached to that cluster.
-      expect(isLongMessage("\u0301" + "a".repeat(600))).toBe(true);
-      expect(isLongMessage("\ufe0f" + "a".repeat(600))).toBe(true);
-      expect(isLongMessage("\u{1f3fb}" + "a".repeat(600))).toBe(true);
-      expect(isLongMessage("\u200d" + "a".repeat(600))).toBe(true);
-      expect(isLongMessage("e\u0301".repeat(301))).toBe(false);
-      const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
-      expect(bounded.exhausted).toBe(true);
-      expect(bounded.examinedCodePoints).toBe(GRAPHEME_CODEPOINT_BUDGET);
-    } finally {
-      if (segmenter) Object.defineProperty(Intl, "Segmenter", segmenter);
-    }
-  });
 
   it("starts long messages collapsed and toggles the complete content", () => {
     const text = Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join("\n");

@@ -105,8 +105,6 @@ export function useTranscriptViewportAnchor({
 }: UseTranscriptViewportAnchorOptions) {
   const scrollRefValue = useRef(scrollRef);
   scrollRefValue.current = scrollRef;
-  const sessionKeyValue = useRef(sessionKey);
-  sessionKeyValue.current = sessionKey;
   const virtualizerValue = useRef(virtualizer);
   virtualizerValue.current = virtualizer;
   const onExpandedChangeValue = useRef(onExpandedChange);

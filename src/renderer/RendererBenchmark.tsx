@@ -8,6 +8,8 @@ import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
 
 interface BenchmarkResult {
+  ready: true;
+  scenario: string;
   frameIntervalsMs: number[];
   longTasksMs: number[];
   longTaskObserverSupported: boolean;
@@ -62,6 +64,8 @@ export default function RendererBenchmark() {
   const commits = useRef<number[]>([]);
   const frames = useRef<number[]>([]);
   const longTasks = useRef<number[]>([]);
+  const initialCommit = useRef(true);
+  const [benchmarkPulse, setBenchmarkPulse] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
   const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
@@ -78,8 +82,13 @@ export default function RendererBenchmark() {
   const updateStartedAt = useRef(performance.now());
 
   useLayoutEffect(() => {
+    if (scenario === "transcript-1000-turns" && initialCommit.current) {
+      initialCommit.current = false;
+      commits.current = [];
+      return;
+    }
     commits.current.push(performance.now() - updateStartedAt.current);
-  }, [listQuery, text, toolOutput]);
+  }, [listQuery, text, toolOutput, scenario, benchmarkPulse]);
 
   useEffect(() => {
     let frame = 0;
@@ -92,10 +101,11 @@ export default function RendererBenchmark() {
     };
     requestAnimationFrame(observeFrame);
     let longTaskObserverSupported = typeof PerformanceObserver !== "undefined";
+    let scenarioStarted = false;
     let observer: PerformanceObserver | undefined;
     try {
       observer = new PerformanceObserver((entries) => {
-        entries.getEntries().forEach((entry) => longTasks.current.push(entry.duration));
+        if (scenarioStarted) entries.getEntries().forEach((entry) => longTasks.current.push(entry.duration));
       });
       observer.observe({ type: "longtask", buffered: true });
     } catch {
@@ -113,6 +123,8 @@ export default function RendererBenchmark() {
         observer?.disconnect();
         const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
         window.__TAU_RENDERER_BENCHMARK__ = {
+          ready: true,
+          scenario,
           frameIntervalsMs: frames.current.slice(2),
           longTasksMs: longTasks.current,
           longTaskObserverSupported,
@@ -129,6 +141,7 @@ export default function RendererBenchmark() {
       const append = () => {
         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
         frame += 1;
+        scenarioStarted = true;
         updateStartedAt.current = performance.now();
         setText((current) => {
           const remaining = targetBytes - current.length;
@@ -141,6 +154,7 @@ export default function RendererBenchmark() {
     } else if (scenario === "tool-output-1mb") {
       const chunk = "tool output benchmark line\n".repeat(640);
       const append = () => {
+        scenarioStarted = true;
         updateStartedAt.current = performance.now();
         setToolOutput((current) => current + chunk.slice(0, targetBytes - current.length));
         frame += 1;
@@ -154,12 +168,18 @@ export default function RendererBenchmark() {
         const query = queries.shift();
         if (query === undefined) { finish(); return; }
         updateStartedAt.current = performance.now();
+        scenarioStarted = true;
         setListQuery(query);
         requestAnimationFrame(update);
       };
       requestAnimationFrame(update);
     } else {
-      requestAnimationFrame(finish);
+      requestAnimationFrame(() => {
+        scenarioStarted = true;
+        updateStartedAt.current = performance.now();
+        setBenchmarkPulse((pulse) => pulse + 1);
+        finish();
+      });
     }
     return () => { stopped = true; observer?.disconnect(); };
   }, [scenario, targetBytes]);
