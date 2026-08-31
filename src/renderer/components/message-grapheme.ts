@@ -1,14 +1,14 @@
 const MARK = /\p{Mark}/u;
 const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
-export const LONG_MESSAGE_LINE_LIMIT = 8;
-export const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
+const LONG_MESSAGE_LINE_LIMIT = 8;
+const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
 // Sixteen code points covers the largest normal emoji sequence in the product
 // (including ZWJ components), with room for variation/modifier extenders.
 // Preflight uses this fixed bound before any newline or Segmenter traversal.
-export const GRAPHEME_CODEPOINT_BUDGET = LONG_MESSAGE_GRAPHEME_LIMIT * 16 + 64;
+const GRAPHEME_CODEPOINT_BUDGET = LONG_MESSAGE_GRAPHEME_LIMIT * 16 + 64;
 
 type HangulJamo = "L" | "V" | "T" | "LV" | "LVT" | undefined;
-export interface GraphemeCount {
+interface GraphemeCount {
   count: number;
   exhausted: boolean;
   examinedCodePoints: number;

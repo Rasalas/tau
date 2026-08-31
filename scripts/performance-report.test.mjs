@@ -136,6 +136,41 @@ describe("performance report checks", () => {
     expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
   });
 
+  it("keeps the documented renderer table generated from the checked-in report", async () => {
+    const [reportText, documentation] = await Promise.all([
+      readFile(new URL("../reports/renderer-report.json", import.meta.url), "utf8"),
+      readFile(new URL("../docs/PERFORMANCE.md", import.meta.url), "utf8"),
+    ]);
+    const report = JSON.parse(reportText);
+    const labels = new Map([
+      ["markdown-code-stream-150kb", "markdown code stream (150 KB)"],
+      ["markdown-plain-stream-150kb", "markdown plain stream (150 KB)"],
+      ["tool-output-1mb", "tool output (1 MB)"],
+      ["transcript-1000-turns", "transcript (1,000 turns)"],
+      ["diff-2mb", "diff (2 MB)"],
+      ["thread-shells-10000", "thread shells (10,000)"],
+      ["workspace-files-10000", "workspace files (10,000)"],
+      ["picker-catalog-10000", "picker catalog (10,000)"],
+      ["long-user-message", "long user message (12 KB)"],
+    ]);
+    const format = (value) => value.toFixed(1);
+    const number = new Intl.NumberFormat("en-US");
+    for (const scenario of report.scenarios) {
+      const row = [
+        labels.get(scenario.id),
+        ["frameIntervalsMs", "mountDurationsMs", "updateDurationsMs", "longTasksMs"].map((metric) => {
+          const values = scenario[metric];
+          return `${format(values.median)} / ${format(values.p95)} / ${format(values.maximum)}`;
+        }),
+        number.format(scenario.domNodes),
+      ];
+      expect(documentation).toContain(`| ${row[0]} | ${row[1][0]} | ${row[1][1]} | ${row[1][2]} | ${row[1][3]} | ${row[2]} |`);
+      for (const metric of ["frameIntervalsMs", "mountDurationsMs", "updateDurationsMs", "longTasksMs", "heapBytes"]) {
+        expect(scenario[metric].p95).toBeLessThanOrEqual(scenario[metric].maximum);
+      }
+    }
+  });
+
   it("supports explicit scenario budgets for one-time transcript mounting", () => {
     const report = { scenarios: [{
       id: "transcript-1000-turns",

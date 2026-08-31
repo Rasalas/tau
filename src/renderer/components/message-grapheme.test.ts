@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fallbackGraphemeCount, GRAPHEME_CODEPOINT_BUDGET, isLongMessage } from "./message-grapheme";
+import { fallbackGraphemeCount, isLongMessage } from "./message-grapheme";
 
 describe("message grapheme boundaries", () => {
   const segmenter = Object.getOwnPropertyDescriptor(Intl, "Segmenter");
@@ -39,6 +39,7 @@ describe("message grapheme boundaries", () => {
     expect(isLongMessage(englandFlag.repeat(600) + "a")).toBe(true);
     const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
     expect(bounded.exhausted).toBe(true);
-    expect(bounded.examinedCodePoints).toBe(GRAPHEME_CODEPOINT_BUDGET);
+    // 600 visible clusters * 16 code points plus the documented margin.
+    expect(bounded.examinedCodePoints).toBe(9_664);
   });
 });

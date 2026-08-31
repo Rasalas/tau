@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 import { machineClass } from "./machine-class.mjs";
@@ -15,7 +15,7 @@ const args = process.argv.slice(2);
 const check = args.includes("--check");
 const skipBuild = args.includes("--no-build");
 const outputArg = args.find((arg) => !arg.startsWith("--"));
-const outputPath = join(ROOT, outputArg ?? "reports/renderer-report.json");
+const outputPath = outputArg ? (isAbsolute(outputArg) ? outputArg : join(ROOT, outputArg)) : join(ROOT, "reports/renderer-report.json");
 
 function percentile(values, p) {
   if (values.length === 0) return 0;
@@ -86,6 +86,9 @@ function sampleScenario(scenario) {
   const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
   const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
   const heaps = samples.map((sample) => sample.heapBytes ?? 0);
+  if (samples.length === 0 || frames.length === 0 || mountDurations.length === 0 || updateDurations.length === 0) {
+    throw new Error(`renderer fixture produced no accepted measurements for ${scenario.id}`);
+  }
   return {
     id: scenario.id,
     fixture: scenario,
@@ -112,6 +115,7 @@ const report = {
     electronExecutable: "node_modules/.bin/electron",
     gpu: "default",
     parallelRuns: 1,
+    harnessFiles,
     caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
   },
   machine: machineClass(),
