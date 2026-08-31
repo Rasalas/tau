@@ -293,7 +293,7 @@ export interface UiTurnActivity {
   anchorMessageId?: string;
 }
 
-export interface HostSnapshot extends TranscriptBundle<UiMessage, number[], HostTranscriptCursor> {
+export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   cwd: string;
   branch?: string;
   sessionId: string;
@@ -322,7 +322,7 @@ export interface ThreadIndexSnapshot {
   sessions: UiSession[];
 }
 
-export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, number[], HostTranscriptCursor> {
+export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   sessionId: string;
   isStreaming: boolean;
   activeTools: string[];

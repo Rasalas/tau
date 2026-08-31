@@ -1,5 +1,5 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
-import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
+import { hostSnapshotFromThreadDetail, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
 import {
@@ -7,7 +7,6 @@ import {
   mergeTranscriptMessages,
   applyTranscriptBundleMerge,
   mergeTaskHistory,
-  mergeTranscriptMessageIndexes,
   retainsLoadedHistory,
   restoreTranscriptScrollAnchor,
   TranscriptHistoryPageState,
@@ -42,7 +41,6 @@ export {
   applyTranscriptBundleMerge,
   mergeTaskHistory,
   mergeTranscriptMessages,
-  mergeTranscriptMessageIndexes,
   retainsLoadedHistory,
   restoreTranscriptScrollAnchor,
 } from "./transcript-history-page-state";
@@ -144,17 +142,17 @@ export class TranscriptHistoryController {
       keepHistory && previous ? previous : undefined,
       detail,
     );
-    const { messages, taskHistory, transcriptMessageIndexes, cursorBoundaries } = mergedBundle;
+    const { messages, taskHistory, cursorBoundaries, transcriptWindow } = mergedBundle;
     const renderedDetail: ThreadDetail = {
       ...detail,
       messages,
-      transcriptMessageIndexes,
       taskHistory,
       olderCursor: keepHistory ? previous?.olderCursor : detail.olderCursor,
       cursorBeforeMessageId: keepHistory ? previous?.cursorBeforeMessageId : detail.cursorBeforeMessageId,
       cursorBoundaries: keepHistory ? cursorBoundaries : detail.cursorBoundaries,
       hasMore: keepHistory ? previous.hasMore : detail.hasMore,
       historyCompleteness: keepHistory ? previous.historyCompleteness : detail.historyCompleteness,
+      ...(transcriptWindow ? { transcriptWindow } : {}),
     };
     const renderedSnapshot = snapshot
       ? hostSnapshotFromThreadDetail(snapshot, renderedDetail)
@@ -233,31 +231,30 @@ export class TranscriptHistoryController {
     if (!accepted) return undefined;
 
     const currentDetail = this.cache.getDetail(page.sessionId);
-    const pageBundle = page.cursorBeforeMessageId && page.olderCursor
-      ? {
-        ...page,
-        cursorBoundaries: [
-          ...(page.cursorBoundaries ?? []),
-          { messageId: page.cursorBeforeMessageId, cursor: page.olderCursor },
-        ],
-      }
-      : page;
+    const pageBundle: TranscriptPage = {
+      ...page,
+      cursorBoundaries: normalizeTranscriptCursorBoundaries(
+        page.cursorBoundaries,
+        page.cursorBeforeMessageId,
+        page.olderCursor,
+      ),
+    };
     const baseBundle = applyTranscriptBundleMerge(
       currentDetail,
       { messages: visibleMessages },
     );
     const mergedBundle = applyTranscriptBundleMerge(baseBundle, pageBundle, "prepend");
-    const { messages, taskHistory, transcriptMessageIndexes, cursorBoundaries } = mergedBundle;
+    const { messages, taskHistory, cursorBoundaries, transcriptWindow } = mergedBundle;
     const detail = currentDetail ? {
       ...currentDetail,
       messages,
-      transcriptMessageIndexes,
       taskHistory,
       olderCursor: page.olderCursor,
       cursorBeforeMessageId: page.cursorBeforeMessageId,
       cursorBoundaries,
       hasMore: page.hasMore,
       historyCompleteness: page.historyCompleteness,
+      ...(transcriptWindow ? { transcriptWindow } : {}),
     } : undefined;
     if (detail) this.cache.setDetail(detail);
     this.pageState.markAnchorMeasured(messages);
@@ -273,13 +270,13 @@ export class TranscriptHistoryController {
       const snapshotDetail: ThreadDetail = {
         ...(detail ?? threadDetailFromHostSnapshot(cachedSnapshot)),
         messages: snapshotBundle.messages,
-        transcriptMessageIndexes: snapshotBundle.transcriptMessageIndexes,
         taskHistory: snapshotBundle.taskHistory,
         olderCursor: page.olderCursor,
         cursorBeforeMessageId: page.cursorBeforeMessageId,
         cursorBoundaries: snapshotBundle.cursorBoundaries,
         historyCompleteness: page.historyCompleteness,
         hasMore: page.hasMore,
+        ...(snapshotBundle.transcriptWindow ? { transcriptWindow: snapshotBundle.transcriptWindow } : {}),
       };
       snapshot = hostSnapshotFromThreadDetail(cachedSnapshot, snapshotDetail);
       this.cache.setSnapshot(snapshot);

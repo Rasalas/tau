@@ -66,13 +66,14 @@ export class TranscriptPager<TCursor extends string = HostTranscriptCursor> {
     this.messages = [...messages];
   }
 
-  page(cursor?: TCursor): TranscriptPageBundle<UiMessage, number[], TCursor> {
+  page(cursor?: TCursor): TranscriptPageBundle<UiMessage, TCursor> {
     const bounds = transcriptPageBounds(this.messages, this.turnLimit, cursor, this.policy);
     // A page always starts at a user message and includes every record after it
     // up to the cursor. This avoids splitting a visible conversation turn while
     // retaining notices and other records adjacent to that turn.
     return {
       messages: this.messages.slice(bounds.start, bounds.end),
+      transcriptWindow: "bounded",
       ...(bounds.olderCursor ? { olderCursor: bounds.olderCursor } : {}),
       hasMore: bounds.hasMore,
       historyCompleteness: bounds.hasMore ? "has-more" : "complete",
@@ -85,7 +86,7 @@ export class TranscriptPager<TCursor extends string = HostTranscriptCursor> {
     turnLimit: number = INITIAL_TRANSCRIPT_TURN_LIMIT,
     cursor?: TCursor,
     policy?: TranscriptCursorPolicy<TCursor>,
-  ): ThreadTranscriptPage<UiMessage, number[], TCursor> {
+  ): ThreadTranscriptPage<UiMessage, TCursor> {
     const page = new TranscriptPager<TCursor>(messages, turnLimit, policy).page(cursor);
     return { ...page, sessionId };
   }

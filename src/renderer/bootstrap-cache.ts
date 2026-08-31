@@ -1,10 +1,10 @@
-import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
-import { isHostTranscriptCursor } from "../shared/transcript-cursor";
-import type { TranscriptCursorBoundary } from "../shared/transcript-contract";
-import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes";
-import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../shared/transcript-pager";
+import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts.js";
+import { isHostTranscriptCursor } from "../shared/transcript-cursor.js";
+import type { TranscriptCursorBoundary } from "../shared/transcript-contract.js";
+import { normalizeTranscriptCursorBoundaries } from "../shared/host-protocol.js";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../shared/transcript-pager.js";
 
-const CACHE_KEY = "tau.bootstrap-cache.v5";
+const CACHE_KEY = "tau.bootstrap-cache.v6";
 const LEGACY_CACHE_KEYS = ["tau.bootstrap-cache.v4", "tau.bootstrap-cache.v3"] as const;
 const MAX_BYTES = 512 * 1024;
 
@@ -16,17 +16,16 @@ export interface CachedBootstrap {
 function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   const bounds = transcriptPageBounds(snapshot.messages, INITIAL_TRANSCRIPT_TURN_LIMIT);
   const messages = snapshot.messages.slice(bounds.start, bounds.end);
-  const sourceIndexes = messageIdToRawIndexProjection(snapshot.messages, snapshot.transcriptMessageIndexes);
-  const retainedIndexes = projectRawIndexesByMessageId(messages, sourceIndexes);
   const firstUserMessage = messages.find((message) => message.role === "user");
   const firstRetainedMessageId = firstUserMessage?.id ?? messages[0]?.id;
-  const boundaries = (snapshot.cursorBoundaries ?? []).filter((boundary): boundary is TranscriptCursorBoundary =>
-    typeof boundary?.messageId === "string" && isHostTranscriptCursor(boundary.cursor));
-  const directBoundary = snapshot.cursorBeforeMessageId && isHostTranscriptCursor(snapshot.olderCursor)
-    ? { messageId: snapshot.cursorBeforeMessageId, cursor: snapshot.olderCursor }
-    : undefined;
-  const selectedBoundary = boundaries.find((boundary) => boundary.messageId === firstRetainedMessageId)
-    ?? (directBoundary?.messageId === firstRetainedMessageId ? directBoundary : undefined);
+  const boundaries = normalizeTranscriptCursorBoundaries(
+    (snapshot.cursorBoundaries ?? []).filter((boundary): boundary is TranscriptCursorBoundary =>
+      typeof boundary?.messageId === "string" && isHostTranscriptCursor(boundary.cursor)),
+    snapshot.cursorBeforeMessageId,
+    isHostTranscriptCursor(snapshot.olderCursor) ? snapshot.olderCursor : undefined,
+  );
+  const selectedBoundary = boundaries?.find((boundary) => boundary.messageId === firstRetainedMessageId)
+    ?? undefined;
   const historyCompleteness = selectedBoundary || snapshot.historyCompleteness === "legacy-truncated" || snapshot.historyCompleteness === "unknown"
     ? snapshot.historyCompleteness
     : snapshot.olderCursor === undefined
@@ -46,9 +45,6 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
       cursorBeforeMessageId: undefined,
       cursorBoundaries: undefined,
     }),
-    ...(retainedIndexes
-      ? { transcriptMessageIndexes: retainedIndexes }
-      : { transcriptMessageIndexes: undefined }),
     models: [],
     allTools: [],
     activeTools: [],
@@ -63,7 +59,7 @@ export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStor
     const value = JSON.parse(raw) as CachedBootstrap;
     if (!value?.snapshot?.sessionId || !Array.isArray(value.snapshot.messages) || !Array.isArray(value.threadIndex?.sessions)) return undefined;
     // Normalize records written by an older renderer before exposing them to
-    // the first paint. The v3 key prevents normal reads of the old shape, while
+    // the first paint. The versioned key separates the opaque-boundary shape;
     // this guard also protects tests/imported caches with stale contents.
     return { snapshot: boundedSnapshot(value.snapshot), threadIndex: value.threadIndex };
   } catch {

@@ -18,14 +18,14 @@ describe("Pi message mapping", () => {
     });
   });
 
-  it("maps bridge records and their raw indexes in one place", () => {
+  it("maps bridge records without leaking provider coordinates", () => {
     const mapped = mapBridgeMessages([
       { role: "toolResult", content: "hidden" },
       { role: "user", content: "hello", tauEntryId: "entry-user" },
       { role: "assistant", content: "world", tauEntryId: "entry-assistant" },
     ], 40);
     expect(mapped.messages.map((message) => message.id)).toEqual(["entry-user", "entry-assistant"]);
-    expect(mapped.transcriptMessageIndexes).toEqual([41, 42]);
+    expect(mapped).not.toHaveProperty("transcriptMessageIndexes");
   });
 
   it("rejects an invalid bridge offset instead of guessing a cursor", () => {
@@ -41,19 +41,19 @@ describe("Pi message mapping", () => {
         { role: "user", content: "hello", tauEntryId: "user" },
       ],
       messagesOffset: 10,
-      olderCursor: "4",
+      olderCursor: "provider-token",
       hasMore: true,
     });
     expect(page).toMatchObject({
       sessionId: "thread",
       messages: [{ id: "user" }],
-      transcriptMessageIndexes: [11],
+      transcriptWindow: "bounded",
       olderCursor: expect.any(String),
       hasMore: true,
     });
-    expect(decodeHostCursor(page.olderCursor)).toEqual({ kind: "bridge", value: "4" });
+    expect(decodeHostCursor(page.olderCursor)).toEqual({ kind: "bridge", value: "provider-token" });
     expect(() => mapBridgeTranscriptPageValue("thread", {
-      sessionId: "thread", messages: [], olderCursor: "bad", hasMore: false,
+      sessionId: "thread", messages: [], olderCursor: "", hasMore: false,
     })).toThrow("invalid transcript page cursor");
     expect(() => mapBridgeTranscriptPageValue("thread", {
       sessionId: "thread", messages: [], hasMore: true,

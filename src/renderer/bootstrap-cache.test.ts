@@ -40,19 +40,17 @@ describe("bootstrap cache", () => {
     expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe(asHostTranscriptCursor("opaque:cursor-before-40"));
   });
 
-  it("keeps an opaque cursor when the retained window carries source indexes", () => {
+  it("keeps an opaque boundary when trimming a retained window", () => {
     let value: string | null = null;
     const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
     const bridged = {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
-      transcriptMessageIndexes: Array.from({ length: 30 }, (_, index) => index + 100),
       olderCursor: asHostTranscriptCursor("opaque:cursor-before-40"),
       cursorBeforeMessageId: "40",
     };
     writeBootstrapCache(bridged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
-    expect(cached?.snapshot.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
     expect(cached?.snapshot.olderCursor).toBe(asHostTranscriptCursor("opaque:cursor-before-40"));
     expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe(asHostTranscriptCursor("opaque:cursor-before-40"));
   });
@@ -135,7 +133,6 @@ describe("bootstrap cache", () => {
         { id: "user", role: "user", text: "hello", timestamp: 5 },
         { id: "answer", role: "assistant", text: "world", timestamp: 6 },
       ],
-      transcriptMessageIndexes: [5, 6],
     }, { projects: [], sessions: [] }, storage);
     expect(readBootstrapCache(storage)?.snapshot.olderCursor).toBeUndefined();
   });

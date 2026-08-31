@@ -12,9 +12,8 @@ import type {
   UiTurnActivity,
   UiWorkspaceChanges,
 } from "./contracts.js";
-import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
+import type { ThreadTranscriptPage, TranscriptBundle, TranscriptCursorBoundary } from "./transcript-contract.js";
 import { isTranscriptHistoryMetadataConsistent, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
-import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "./transcript-indexes.js";
 import { isHostTranscriptCursor, type HostTranscriptCursor } from "./transcript-cursor.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager, type TranscriptCursorPolicy } from "./transcript-pager.js";
 
@@ -33,7 +32,7 @@ export interface ThreadIndexUpdate {
   sessions: ThreadIndexSnapshot["sessions"];
 }
 
-export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], HostTranscriptCursor> {
+export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   sessionId: string;
   isStreaming: boolean;
   activeTools: string[];
@@ -44,7 +43,7 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], Host
   hasMore?: boolean;
 }
 
-export type TranscriptPage = ThreadTranscriptPage<UiMessage, number[], HostTranscriptCursor>;
+export type TranscriptPage = ThreadTranscriptPage<UiMessage, HostTranscriptCursor>;
 
 export interface HostCatalog {
   models: UiModel[];
@@ -92,12 +91,17 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
-function validIndexes(value: unknown): boolean {
-  return value === undefined || (Array.isArray(value) && value.every((index) => Number.isSafeInteger(index) && index >= 0));
-}
-
 function validCursor(value: unknown): boolean {
   return value === undefined || isHostTranscriptCursor(value);
+}
+
+function validTranscriptWindow(value: unknown): boolean {
+  return value === undefined || value === "bounded";
+}
+
+function hasProviderCoordinates(value: Record<string, unknown>): boolean {
+  return Object.prototype.hasOwnProperty.call(value, "transcriptMessageIndexes")
+    || Object.prototype.hasOwnProperty.call(value, "messagesOffset");
 }
 
 function validCursorBoundaries(value: unknown): boolean {
@@ -121,27 +125,27 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
   switch (candidate.type) {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
-    case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
+    case "thread-detail": return Boolean(payload && !hasProviderCoordinates(payload) && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
       && validCursor(payload.olderCursor)
       && validCursorBoundaries(payload.cursorBoundaries)
+      && validTranscriptWindow(payload.transcriptWindow)
       && isTranscriptHistoryMetadataConsistent({
         hasMore: payload.hasMore,
         hasCursor: payload.olderCursor !== undefined,
         historyCompleteness: payload.historyCompleteness,
         requireHasMore: false,
       })
-      && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
-    case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
+    case "transcript-page": return Boolean(payload && !hasProviderCoordinates(payload) && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
       && validCursor(payload.olderCursor)
       && validCursorBoundaries(payload.cursorBoundaries)
+      && validTranscriptWindow(payload.transcriptWindow)
       && isTranscriptHistoryMetadataConsistent({
         hasMore: payload.hasMore,
         hasCursor: payload.olderCursor !== undefined,
         historyCompleteness: payload.historyCompleteness,
         requireHasMore: true,
       })
-      && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
     case "project": return Boolean(payload && typeof payload.cwd === "string");
@@ -166,16 +170,41 @@ export function taskHistoryForMessages(
   return history.filter((entry) => !entry.anchorMessageId || ids.has(entry.anchorMessageId));
 }
 
+/**
+ * Normalize all opaque page-boundary metadata through one host/shared policy.
+ * An explicit boundary wins over the legacy direct pair for the same message;
+ * no cursor syntax or provider coordinate is interpreted here.
+ */
+export function normalizeTranscriptCursorBoundaries<TCursor extends string = HostTranscriptCursor>(
+  boundaries: readonly TranscriptCursorBoundary<TCursor>[] | undefined,
+  cursorBeforeMessageId?: string,
+  olderCursor?: TCursor,
+): TranscriptCursorBoundary<TCursor>[] | undefined {
+  const byMessageId = new Map<string, TranscriptCursorBoundary<TCursor>>();
+  for (const boundary of boundaries ?? []) {
+    if (boundary.messageId && boundary.cursor) byMessageId.set(boundary.messageId, {
+      messageId: boundary.messageId,
+      cursor: boundary.cursor,
+    });
+  }
+  if (cursorBeforeMessageId && olderCursor) {
+    if (!byMessageId.has(cursorBeforeMessageId)) {
+      byMessageId.set(cursorBeforeMessageId, { messageId: cursorBeforeMessageId, cursor: olderCursor });
+    }
+  }
+  return byMessageId.size > 0 ? [...byMessageId.values()] : undefined;
+}
+
 /** Project a full host snapshot into the focused thread-detail contract. */
 export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDetail {
-  const cursorBoundaries = snapshot.cursorBoundaries
-    ?? (snapshot.olderCursor && snapshot.cursorBeforeMessageId
-      ? [{ messageId: snapshot.cursorBeforeMessageId, cursor: snapshot.olderCursor }]
-      : undefined);
+  const cursorBoundaries = normalizeTranscriptCursorBoundaries(
+    snapshot.cursorBoundaries,
+    snapshot.cursorBeforeMessageId,
+    snapshot.olderCursor,
+  );
   return {
     sessionId: snapshot.sessionId,
     messages: snapshot.messages,
-    transcriptMessageIndexes: snapshot.transcriptMessageIndexes,
     isStreaming: snapshot.isStreaming,
     activeTools: snapshot.activeTools,
     turnActivity: snapshot.turnActivity,
@@ -187,25 +216,28 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     cursorBoundaries,
     hasMore: snapshot.olderCursor !== undefined,
     historyCompleteness: snapshot.historyCompleteness,
+    ...(snapshot.transcriptWindow ? { transcriptWindow: snapshot.transcriptWindow } : {}),
   };
 }
 
 /** Project focused detail back onto the host snapshot shape without duplicating fields at call sites. */
 export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: ThreadDetail): HostSnapshot {
-  const cursorBoundaries = detail.cursorBoundaries
-    ?? (detail.olderCursor && detail.cursorBeforeMessageId
-      ? [{ messageId: detail.cursorBeforeMessageId, cursor: detail.olderCursor }]
-      : undefined);
+  const cursorBoundaries = normalizeTranscriptCursorBoundaries(
+    detail.cursorBoundaries,
+    detail.cursorBeforeMessageId,
+    detail.olderCursor,
+  );
+  const transcriptWindow = detail.transcriptWindow ?? snapshot.transcriptWindow;
   return {
     ...snapshot,
     sessionId: detail.sessionId,
     messages: detail.messages,
-    transcriptMessageIndexes: detail.transcriptMessageIndexes,
     taskHistory: detail.taskHistory,
     olderCursor: detail.olderCursor,
     cursorBeforeMessageId: detail.cursorBeforeMessageId,
     cursorBoundaries,
     historyCompleteness: detail.historyCompleteness,
+    ...(transcriptWindow ? { transcriptWindow } : {}),
     isStreaming: detail.isStreaming,
     activeTools: detail.activeTools,
     turnActivity: detail.turnActivity,
@@ -219,7 +251,7 @@ export function detailFromSnapshot(
   limit = INITIAL_TRANSCRIPT_TURN_LIMIT,
   policy?: TranscriptCursorPolicy<HostTranscriptCursor>,
 ): ThreadDetail {
-  const alreadyBounded = snapshot.messages.length <= limit;
+  const alreadyBounded = snapshot.transcriptWindow === "bounded" || snapshot.messages.length <= limit;
   if (alreadyBounded) return {
     ...threadDetailFromHostSnapshot(snapshot),
     messages: [...snapshot.messages],
@@ -230,6 +262,7 @@ export function detailFromSnapshot(
       snapshot.historyCompleteness,
       snapshot.olderCursor !== undefined,
     ),
+    transcriptWindow: "bounded",
   };
   if (!policy) throw new Error("A host transcript cursor policy is required to bound a full snapshot.");
   const page = TranscriptPager.pageFor(
@@ -242,15 +275,10 @@ export function detailFromSnapshot(
   const boundedWithoutPaging = snapshot.historyCompleteness === "legacy-truncated"
     || snapshot.historyCompleteness === "unknown";
   const olderCursor = boundedWithoutPaging ? undefined : page.olderCursor;
-  const transcriptMessageIndexes = projectRawIndexesByMessageId(
-    page.messages,
-    messageIdToRawIndexProjection(snapshot.messages, snapshot.transcriptMessageIndexes),
-  );
   const firstUserMessage = page.messages.find((message) => message.role === "user");
   return {
     sessionId: snapshot.sessionId,
     messages: page.messages,
-    ...(transcriptMessageIndexes ? { transcriptMessageIndexes } : {}),
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
     turnActivity: snapshot.turnActivity,
@@ -267,6 +295,7 @@ export function detailFromSnapshot(
       snapshot.historyCompleteness,
       Boolean(olderCursor),
     ),
+    transcriptWindow: "bounded",
   };
 }
 

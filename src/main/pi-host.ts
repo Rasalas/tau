@@ -44,7 +44,7 @@ import type {
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, taskHistoryForMessages, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, normalizeTranscriptCursorBoundaries, taskHistoryForMessages, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
 import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { mergeTaskProgressHistory, taskProgressFromMessages, taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
@@ -69,13 +69,12 @@ import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge
 import { transcriptPagingNegotiated, type PiBridgeServerFrame, type PiBridgeSnapshot, type PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
 import { inferLegacyBridgeCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { mergeProjectedRawIndexes, messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes.js";
 import {
   bridgeCursorValue,
   decodeHostCursor,
   hostCursorAtBridgeValue,
   hostCursorAtLocalIndex,
-  parseBridgeCursor,
+  providerCursorValue,
 } from "./transcript-cursor.js";
 
 const localTranscriptCursorPolicy: TranscriptCursorPolicy<HostTranscriptCursor> = {
@@ -196,7 +195,6 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
 
 export interface BridgeMessageMapping {
   messages: UiMessage[];
-  transcriptMessageIndexes?: number[];
 }
 
 function bridgeMessagesOffset(value: unknown): number | undefined {
@@ -210,7 +208,7 @@ function bridgeMessagesOffset(value: unknown): number | undefined {
 function bridgeTranscriptCursor(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   try {
-    return parseBridgeCursor(value);
+    return providerCursorValue(value);
   } catch {
     throw new Error("Pi returned an invalid transcript page cursor.");
   }
@@ -227,21 +225,17 @@ export function historyCompletenessForBridgeSnapshot(
   );
 }
 
-/** Validate and map one bridge-owned raw page, preserving its raw indexes. */
+/** Validate and map one bridge-owned raw page without exposing provider coordinates. */
 export function mapBridgeMessages(value: unknown, messagesOffsetValue?: unknown): BridgeMessageMapping {
   if (!Array.isArray(value)) throw new Error("Pi returned an invalid transcript message list.");
   const rawMessageOffset = bridgeMessagesOffset(messagesOffsetValue);
-  const messages: UiMessage[] = [];
-  const transcriptMessageIndexes: number[] = [];
-  value.forEach((raw, index) => {
+  const messages = value.flatMap((raw, index) => {
     // When the bridge gives us a raw offset, use it for fallback IDs too. A
     // bridge record without tauEntryId must still deduplicate across pages.
     const mapped = mapMessage(raw, rawMessageOffset === undefined ? index : rawMessageOffset + index);
-    if (!mapped?.text) return;
-    messages.push(mapped);
-    if (rawMessageOffset !== undefined) transcriptMessageIndexes.push(rawMessageOffset + index);
+    return mapped?.text ? [mapped] : [];
   });
-  return rawMessageOffset === undefined ? { messages } : { messages, transcriptMessageIndexes };
+  return { messages };
 }
 
 type ValidatedBridgeTranscriptPage = Omit<PiBridgeTranscriptPage, "olderCursor"> & {
@@ -294,13 +288,19 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
   const olderCursor = page.olderCursor === undefined
     ? undefined
     : hostCursorAtBridgeValue(page.olderCursor);
+  const cursorBoundaries = normalizeTranscriptCursorBoundaries(
+    undefined,
+    firstUserMessage?.id,
+    olderCursor,
+  );
   return {
     sessionId,
     messages: mapped.messages,
-    ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
+    transcriptWindow: "bounded",
     ...(taskHistory ? { taskHistory } : {}),
     ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
+    ...(cursorBoundaries ? { cursorBoundaries } : {}),
     historyCompleteness: resolveTranscriptHistoryCompleteness(page.historyCompleteness, page.hasMore),
     hasMore: page.hasMore,
   };
@@ -930,9 +930,15 @@ export class PiHost {
     );
     const visibleHistory = taskHistoryForMessages(taskHistory, page.messages);
     const firstUserMessage = page.messages.find((message) => message.role === "user");
+    const cursorBoundaries = normalizeTranscriptCursorBoundaries(
+      page.cursorBoundaries,
+      firstUserMessage?.id,
+      page.olderCursor,
+    );
     return {
       ...page,
       ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
+      ...(cursorBoundaries ? { cursorBoundaries } : {}),
       ...(visibleHistory ? { taskHistory: visibleHistory } : {}),
     };
   }
@@ -2065,6 +2071,11 @@ export class PiHost {
       ? undefined
       : hostCursorAtBridgeValue(snapshot.olderCursor);
     const firstVisibleUser = mapped.messages.find((message) => message.role === "user");
+    const cursorBoundaries = normalizeTranscriptCursorBoundaries(
+      undefined,
+      firstVisibleUser?.id,
+      olderCursor,
+    );
     return {
       cwd: snapshot.cwd,
       sessionId: snapshot.sessionId,
@@ -2077,9 +2088,10 @@ export class PiHost {
       thinkingLevel: snapshot.thinkingLevel,
       thinkingLevels: snapshot.thinkingLevels,
       messages: mapped.messages,
-      ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
+      ...(transcriptPagingNegotiated(snapshot.capabilities) ? { transcriptWindow: "bounded" as const } : {}),
       ...(olderCursor ? { olderCursor } : {}),
       ...(firstVisibleUser ? { cursorBeforeMessageId: firstVisibleUser.id } : {}),
+      ...(cursorBoundaries ? { cursorBoundaries } : {}),
       historyCompleteness,
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,

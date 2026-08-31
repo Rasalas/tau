@@ -30,7 +30,7 @@ export interface PiBridgeDescriptor {
 }
 
 /** Wire payload: the bridge cursor remains an opaque JSON string at this seam. */
-export interface PiBridgeSnapshot extends TranscriptBundle<unknown, never, string> {
+export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
   sessionId: string;
   sessionFile: string;
   cwd: string;
@@ -56,7 +56,7 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, never, strin
 
 /** A bounded raw branch page returned by a Pi-owned runtime. */
 /** Wire payload: callers normalize the raw cursor before routing it further. */
-export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, never, string> {
+export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, string> {
   /** Raw branch index of the first entry in `messages`. */
   messagesOffset?: number;
 }

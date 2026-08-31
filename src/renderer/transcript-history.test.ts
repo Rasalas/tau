@@ -231,35 +231,31 @@ describe("TranscriptHistoryController", () => {
     ]);
   });
 
-  it("applies one bundle merge policy to messages, activities, and raw indexes", () => {
+  it("applies one bundle merge policy to messages, activities, and opaque boundaries", () => {
     const merged = applyTranscriptBundleMerge(
       {
         messages: [message("new")],
-        transcriptMessageIndexes: [10],
         taskHistory: [{ id: "task", progress: { tasks: [], completed: 0, total: 0 }, anchorMessageId: "new" }],
+        cursorBoundaries: [{ messageId: "new", cursor: asHostTranscriptCursor("opaque:new") }],
       },
       {
         messages: [message("old")],
-        transcriptMessageIndexes: [9],
         taskHistory: [{ id: "task-older", progress: { tasks: [], completed: 0, total: 0 }, anchorMessageId: "old" }],
+        cursorBoundaries: [{ messageId: "old", cursor: asHostTranscriptCursor("opaque:old") }],
       },
       "prepend",
     );
     expect(merged.messages.map((item) => item.id)).toEqual(["old", "new"]);
-    expect(merged.transcriptMessageIndexes).toEqual([9, 10]);
     expect(merged.taskHistory?.map((item) => item.id)).toEqual(["task", "task-older"]);
+    expect(merged.cursorBoundaries).toEqual([
+      { messageId: "new", cursor: asHostTranscriptCursor("opaque:new") },
+      { messageId: "old", cursor: asHostTranscriptCursor("opaque:old") },
+    ]);
   });
 
-  it("uses raw indexes only for an overlapping or directly adjacent history union", () => {
+  it("retains loaded history only when opaque windows overlap by message id", () => {
     const current = detail("thread-a", ["current-0", "current-1"]);
-    const incoming = detail("thread-a", ["incoming-0"]);
-    expect(retainsLoadedHistory(
-      { ...current, transcriptMessageIndexes: [0, 100] },
-      { ...incoming, transcriptMessageIndexes: [50] },
-    )).toBe(false);
-    expect(retainsLoadedHistory(
-      { ...current, transcriptMessageIndexes: [0, 1] },
-      { ...incoming, transcriptMessageIndexes: [2] },
-    )).toBe(true);
+    expect(retainsLoadedHistory(current, detail("thread-a", ["incoming-0"]))).toBe(false);
+    expect(retainsLoadedHistory(current, detail("thread-a", ["current-1", "incoming-0"]))).toBe(true);
   });
 });

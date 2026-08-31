@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate, threadDetailFromHostSnapshot } from "./host-protocol.js";
+import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot } from "./host-protocol.js";
 import type { HostSnapshot } from "./contracts.js";
 import { asHostTranscriptCursor, type HostTranscriptCursor } from "./transcript-cursor.js";
 import type { TranscriptCursorPolicy } from "./transcript-pager.js";
@@ -67,10 +67,8 @@ describe("host protocol", () => {
     const detail = detailFromSnapshot({
       ...snapshot,
       messages,
-      transcriptMessageIndexes: messages.map((_, index) => index + 100),
     }, undefined, localCursorPolicy);
     expect(detail.messages.map((message) => message.id)).toEqual(Array.from({ length: 10 }, (_, index) => String(index + 20)));
-    expect(detail.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
     expect(detail.olderCursor).toBe(asHostTranscriptCursor("local:20"));
     expect(detail.cursorBeforeMessageId).toBe("20");
   });
@@ -95,6 +93,19 @@ describe("host protocol", () => {
     expect(projected).not.toHaveProperty("models");
   });
 
+  it("deduplicates explicit and legacy cursor boundaries without inspecting cursor values", () => {
+    const explicit = asHostTranscriptCursor("provider::opaque/20");
+    const direct = asHostTranscriptCursor("provider::opaque/other");
+    expect(normalizeTranscriptCursorBoundaries(
+      [{ messageId: "first", cursor: explicit }],
+      "first",
+      direct,
+    )).toEqual([{ messageId: "first", cursor: explicit }]);
+    expect(normalizeTranscriptCursorBoundaries(undefined, "first", direct)).toEqual([
+      { messageId: "first", cursor: direct },
+    ]);
+  });
+
   it("does not infer older turns from an offset when only orphan activities precede the window", () => {
     const messages = [
       { id: "user", role: "user" as const, text: "hello", timestamp: 5 },
@@ -103,7 +114,6 @@ describe("host protocol", () => {
     const detail = detailFromSnapshot({
       ...snapshot,
       messages,
-      transcriptMessageIndexes: [5, 6],
     });
     expect(detail.messages.map((message) => message.id)).toEqual(["user", "answer"]);
     expect(detail.olderCursor).toBeUndefined();
@@ -180,6 +190,14 @@ describe("host protocol", () => {
       version: HOST_PROTOCOL_VERSION,
       type: "transcript-page",
       page: { sessionId: "session", messages: [], hasMore: true, olderCursor: { kind: "bridge", value: "4" } },
+    })).toBe(false);
+  });
+
+  it.each(["transcriptMessageIndexes", "messagesOffset"])("rejects provider coordinates at the desktop protocol seam: %s", (field) => {
+    expect(isHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "transcript-page",
+      page: { sessionId: "session", messages: [], hasMore: false, [field]: [0] },
     })).toBe(false);
   });
 

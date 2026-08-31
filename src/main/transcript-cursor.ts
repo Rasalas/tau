@@ -7,7 +7,11 @@ export type HostCursorCoordinate =
 
 const HOST_CURSOR_PREFIX = "tau-host-cursor.v1.";
 
-function parseDecimal(value: unknown, maximum?: number): string {
+declare const providerTranscriptCursorBrand: unique symbol;
+/** Cursor owned by a bridge adapter; its syntax is deliberately unavailable to the host contract. */
+export type ProviderTranscriptCursor = string & { readonly [providerTranscriptCursorBrand]: true };
+
+function parseLocalDecimal(value: unknown, maximum?: number): string {
   if (typeof value !== "string" || !/^\d+$/u.test(value)) throw new Error("Invalid transcript cursor");
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < 0 || (maximum !== undefined && number > maximum)) {
@@ -17,16 +21,13 @@ function parseDecimal(value: unknown, maximum?: number): string {
 }
 
 export function parseLocalCursor(value: unknown, maximum?: number): number {
-  return Number(parseDecimal(value, maximum));
+  return Number(parseLocalDecimal(value, maximum));
 }
 
-export function parseBridgeCursor(value: unknown, maximum?: number): string {
-  return parseDecimal(value, maximum);
-}
-
-export function rawBridgeCursorAt(index: number): string {
-  if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid transcript cursor");
-  return String(index);
+/** Validate only the transport shape; the provider owns cursor syntax. */
+export function providerCursorValue(value: unknown): ProviderTranscriptCursor {
+  if (typeof value !== "string" || value.length === 0) throw new Error("Invalid provider transcript cursor");
+  return value as ProviderTranscriptCursor;
 }
 
 function encodeCoordinate(coordinate: HostCursorCoordinate): HostTranscriptCursor {
@@ -40,7 +41,7 @@ export function hostCursorAtLocalIndex(index: number): HostTranscriptCursor {
 }
 
 export function hostCursorAtBridgeValue(value: unknown): HostTranscriptCursor {
-  return encodeCoordinate({ kind: "bridge", value: parseBridgeCursor(value) });
+  return encodeCoordinate({ kind: "bridge", value: providerCursorValue(value) });
 }
 
 function decodeEncodedCursor(value: string): HostCursorCoordinate {
@@ -61,7 +62,7 @@ function decodeEncodedCursor(value: string): HostCursorCoordinate {
     }
     return { kind: "local", index: candidate.index };
   }
-  if (candidate.kind === "bridge") return { kind: "bridge", value: parseBridgeCursor(candidate.value) };
+  if (candidate.kind === "bridge") return { kind: "bridge", value: providerCursorValue(candidate.value) };
   throw new Error("Invalid host transcript cursor");
 }
 
@@ -73,7 +74,7 @@ export function decodeHostCursor(value: unknown): HostCursorCoordinate {
   if (candidate.kind === "local") {
     return { kind: "local", index: parseLocalCursor(candidate.value ?? candidate.index) };
   }
-  if (candidate.kind === "bridge") return { kind: "bridge", value: parseBridgeCursor(candidate.value) };
+  if (candidate.kind === "bridge") return { kind: "bridge", value: providerCursorValue(candidate.value) };
   throw new Error("Invalid host transcript cursor");
 }
 

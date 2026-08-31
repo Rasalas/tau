@@ -9,12 +9,12 @@ export interface TranscriptCursorBoundary<TCursor extends string = HostTranscrip
 
 /**
  * Records shared by transcript details, history pages, and bridge payloads.
- * The message and mapping types stay generic so a bridge can transport its
- * raw records without pretending they are already renderer messages.
+ * The message type stays generic so a bridge can transport its raw records
+ * without pretending they are already renderer messages. Cursor coordinates
+ * are the only paging metadata crossing this contract and remain opaque.
  */
-export interface TranscriptBundle<TMessage = UiMessage, TMapping = number[], TCursor extends string = HostTranscriptCursor> {
+export interface TranscriptBundle<TMessage = UiMessage, TCursor extends string = HostTranscriptCursor> {
   messages: TMessage[];
-  transcriptMessageIndexes?: TMapping;
   taskHistory?: UiTaskProgressEntry[];
   /** Opaque host-owned cursor for the next older page. */
   olderCursor?: TCursor;
@@ -24,14 +24,16 @@ export interface TranscriptBundle<TMessage = UiMessage, TMapping = number[], TCu
   cursorBoundaries?: Array<TranscriptCursorBoundary<TCursor>>;
   /** Whether the source proves the visible window is complete. */
   historyCompleteness?: TranscriptHistoryCompleteness;
+  /** The source has already bounded this window to complete user turns. */
+  transcriptWindow?: "bounded";
 }
 
 /** A bounded page with the cursor needed to request its older records. */
-export interface TranscriptPageBundle<TMessage = UiMessage, TMapping = number[], TCursor extends string = HostTranscriptCursor>
-  extends TranscriptBundle<TMessage, TMapping, TCursor> {
+export interface TranscriptPageBundle<TMessage = UiMessage, TCursor extends string = HostTranscriptCursor>
+  extends TranscriptBundle<TMessage, TCursor> {
   hasMore: boolean;
 }
 
 /** A page whose records belong to one visible thread. */
-export type ThreadTranscriptPage<TMessage = UiMessage, TMapping = number[], TCursor extends string = HostTranscriptCursor> =
-  TranscriptPageBundle<TMessage, TMapping, TCursor> & { sessionId: string };
+export type ThreadTranscriptPage<TMessage = UiMessage, TCursor extends string = HostTranscriptCursor> =
+  TranscriptPageBundle<TMessage, TCursor> & { sessionId: string };

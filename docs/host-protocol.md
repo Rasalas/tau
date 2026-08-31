@@ -22,6 +22,11 @@ cache can select the cursor at the oldest retained user-turn boundary without
 interpreting the cursor. Other host adapters may use a different opaque
 encoding while preserving the same contract.
 
+An adapter-paged snapshot or page may mark `transcriptWindow: "bounded"`. This
+marker means the records already follow the adapter's complete-turn page policy;
+the host and renderer must preserve the opaque cursor instead of applying a
+second local paging pass.
+
 The Pi socket continues to encode its bridge cursor as a raw opaque string. The
 desktop host wraps it at the adapter seam before it enters page state and only
 unwraps it when sending a request back to that same bridge. Legacy v1 payloads

@@ -1,7 +1,7 @@
-import type { HostSnapshot, UiMessage } from "../shared/contracts";
-import type { TranscriptHistoryCompleteness } from "../shared/transcript-completeness";
-import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
+import type { HostSnapshot, UiMessage } from "../shared/contracts.js";
+import type { TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
+import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol.js";
 
 declare const transitionTokenBrand: unique symbol;
 
