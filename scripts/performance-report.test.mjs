@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { classifyAsset, evaluateBuildBudgets } from "./build-report.mjs";
@@ -5,6 +6,7 @@ import { evaluateStartBudgets } from "./start-report.mjs";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 import { evaluateHostBudgets } from "./host-budget.mjs";
 import { evaluateGitBudgets } from "./git-budget.mjs";
+import { buildRendererComparisonReproduction } from "./renderer-comparison-commands.mjs";
 
 describe("performance report checks", () => {
   it("separates entry assets from demand-loaded chunks", () => {
@@ -152,5 +154,41 @@ describe("performance report checks", () => {
       rendererRequiredScenarios: ["required"],
     });
     expect(failures).toHaveLength(6);
+  });
+
+  it("parses a dry-run renderer comparison recipe with all explicit inputs", () => {
+    const currentRoot = "/tmp/tau renderer subject";
+    const reproduction = buildRendererComparisonReproduction({
+      currentRoot,
+      baselineCommit: "baseline-commit",
+      currentCommit: "subject-commit",
+      baselinePatch: `${currentRoot}/reports/renderer-transcript-legacy-baseline.patch`,
+    });
+    const aggregateCommand = reproduction.aggregation.command;
+    expect((aggregateCommand.match(/--baseline /gu) ?? [])).toHaveLength(3);
+    expect((aggregateCommand.match(/--current /gu) ?? [])).toHaveLength(3);
+    expect(aggregateCommand).toContain('--baseline-root "$BASELINE_ROOT"');
+    expect(aggregateCommand).toContain('--current-root "$CURRENT_ROOT"');
+    expect(aggregateCommand).toContain('--baseline-commit "$BASELINE_COMMIT"');
+    expect(aggregateCommand).toContain('--current-commit "$CURRENT_COMMIT"');
+    expect(aggregateCommand).toContain('--baseline-patch "$BASELINE_PATCH"');
+    expect(aggregateCommand).not.toContain("...");
+    expect(reproduction.shell).toContain('git -C "$BASELINE_ROOT" apply "$BASELINE_PATCH"');
+    execFileSync("/bin/sh", ["-n"], { input: reproduction.shell, encoding: "utf8" });
+
+    const dryRun = JSON.parse(execFileSync(process.execPath, [
+      "scripts/renderer-comparison-aggregate.mjs",
+      "--dry-run",
+      "--current-root",
+      currentRoot,
+      "--baseline-commit",
+      "baseline-commit",
+      "--current-commit",
+      "subject-commit",
+      "--baseline-patch",
+      `${currentRoot}/reports/renderer-transcript-legacy-baseline.patch`,
+    ], { encoding: "utf8" }));
+    expect(dryRun.aggregation.command).toBe(aggregateCommand);
+    expect(dryRun.baseline.commands).toContain('git -C "$CURRENT_ROOT" worktree add --detach "$BASELINE_ROOT" "$BASELINE_COMMIT"');
   });
 });

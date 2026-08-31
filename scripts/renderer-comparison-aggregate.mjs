@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { hostname, platform, release, arch } from "node:os";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
+import { buildRendererComparisonReproduction } from "./renderer-comparison-commands.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/u, "");
 const HARNESS_FILES = [
@@ -10,6 +11,7 @@ const HARNESS_FILES = [
   "scripts/renderer-benchmark.mjs",
   "scripts/renderer-benchmark-fixture.cjs",
   "scripts/renderer-budget.mjs",
+  "scripts/renderer-comparison-commands.mjs",
   "scripts/performance-budgets.json",
   "src/renderer/RendererBenchmark.tsx",
   "src/renderer/components/TranscriptViewport.tsx",
@@ -35,11 +37,27 @@ function flagValue(flag, fallback) {
 const output = flagValue("--output", "reports/renderer-transcript-comparison-aggregate.json");
 const baselinePaths = flagValues("--baseline");
 const currentPaths = flagValues("--current");
+const dryRun = process.argv.includes("--dry-run");
 const baselineRoot = flagValue("--baseline-root", ROOT);
 const currentRoot = flagValue("--current-root", ROOT);
-const baselineCommit = flagValue("--baseline-commit", gitCommit(baselineRoot));
-const currentCommit = flagValue("--current-commit", gitCommit(currentRoot));
+const baselineCommit = flagValues("--baseline-commit")[0] ?? gitCommit(baselineRoot);
+const currentCommit = flagValues("--current-commit")[0] ?? gitCommit(currentRoot);
 const baselinePatch = flagValue("--baseline-patch", "reports/renderer-transcript-legacy-baseline.patch");
+
+const baselinePatchPath = isAbsolute(baselinePatch) ? baselinePatch : join(currentRoot, baselinePatch);
+const outputPath = isAbsolute(output) ? output : join(currentRoot, output);
+const reproduction = buildRendererComparisonReproduction({
+  currentRoot,
+  baselineCommit,
+  currentCommit,
+  baselinePatch: baselinePatchPath,
+  output: outputPath,
+});
+
+if (dryRun) {
+  console.log(JSON.stringify(reproduction, null, 2));
+  process.exit(0);
+}
 
 if (baselinePaths.length < 2 || currentPaths.length < 2) {
   throw new Error("Pass at least two complete --baseline and --current renderer reports.");
@@ -213,7 +231,7 @@ const baselineSourceHash = await sourceHash(baselineRoot);
 const currentSourceHash = await sourceHash(currentRoot);
 const baselineBuildHash = await buildHash(baselineRoot);
 const currentBuildHash = await buildHash(currentRoot);
-const patchPath = isAbsolute(baselinePatch) ? baselinePatch : join(currentRoot, baselinePatch);
+const patchPath = baselinePatchPath;
 const startConditions = firstCurrent.startConditions;
 const result = {
   schemaVersion: 2,
@@ -268,11 +286,9 @@ const result = {
     measuredPath: "TranscriptMessageIndex.update + TranscriptViewport revision + VirtualTranscript window",
   },
   reproduction: {
-    baseline: "git worktree add --detach <tmp> 6ddb4541b02410fa8c462dca4b9bb3b9969d5756; git apply reports/renderer-transcript-legacy-baseline.patch; npm run build; npm run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-N.json",
-    current: "npm run build; npm run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-N.json",
-    aggregation: "node scripts/renderer-comparison-aggregate.mjs --baseline ... --current ...",
+    ...reproduction,
     caveat: "Each raw report contains five measured samples after two warm-ups; aggregate p95/max values are aggregated from all complete-run summaries. Electron scheduling, GPU state, and other desktop load remain uncontrolled.",
   },
 };
-await writeFile(isAbsolute(output) ? output : join(ROOT, output), `${JSON.stringify(result, null, 2)}\n`);
-console.log(`Renderer comparison aggregate: ${isAbsolute(output) ? output : join(ROOT, output)}`);
+await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`);
+console.log(`Renderer comparison aggregate: ${outputPath}`);

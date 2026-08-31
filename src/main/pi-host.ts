@@ -733,8 +733,8 @@ export class PiHost {
   }
 
   async start(): Promise<HostBootstrap> {
+    const activationEpoch = this.beginActivation();
     return this.runLifecycle(async () => {
-      const activationEpoch = this.beginActivation();
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
         await this.rememberProject(this.cwd);
@@ -837,11 +837,12 @@ export class PiHost {
   }
 
   async setWorkspace(cwd: string): Promise<HostActionResult> {
-    return this.runLifecycle(() => this.setWorkspaceNow(cwd));
+    const activationEpoch = this.beginActivation();
+    return this.runLifecycle(() => this.setWorkspaceNow(cwd, activationEpoch));
   }
 
-  private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
-    const activationEpoch = this.beginActivation();
+  private async setWorkspaceNow(cwd: string, activationEpoch: number): Promise<HostActionResult> {
+    if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     await this.rememberProject(cwd);
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates(activationEpoch);
@@ -995,10 +996,15 @@ export class PiHost {
     cwd?: string,
     identity?: ClientTurnIdentity,
   ): Promise<HostActionResult> {
+    // Allocate ownership when the request is admitted, before it can wait on
+    // the lifecycle queue. A later live switch must supersede this intent even
+    // if the new-session callback starts only after that switch completes.
+    const activationEpoch = this.beginActivation();
     if (this.bridge && (!cwd || cwd === this.cwd)) {
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
       const bridge = this.bridge;
-      const bridgeEpoch = this.activationEpoch;
+      const bridgeEpoch = activationEpoch;
       try {
         await this.sendBridgeNewSession(initialPrompt, identity);
         if (this.bridge !== bridge || !this.isCurrentActivation(bridgeEpoch)) return this.staleActivationResult();
@@ -1019,7 +1025,7 @@ export class PiHost {
       }
     }
     return this.runLifecycle(async () => {
-      const activationEpoch = this.beginActivation();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       this.detachBridge();
@@ -1047,15 +1053,17 @@ export class PiHost {
   }
 
   async forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult> {
+    const activationEpoch = this.beginActivation();
     if (this.bridge) {
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       if (expectedSessionId && this.bridgeSnapshot?.sessionId !== expectedSessionId) {
         throw new Error("The selected thread changed before it could be forked.");
       }
       await this.bridge.command({ command: "fork", entryId });
-      return this.actionResult([]);
+      return this.isCurrentActivation(activationEpoch) ? this.actionResult([]) : this.staleActivationResult();
     }
     return this.runLifecycle(async () => {
-      const activationEpoch = this.beginActivation();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       const thread = this.requireActive();
       if (expectedSessionId && thread.sessionId !== expectedSessionId) {
         throw new Error("The selected thread changed before it could be forked.");
@@ -1102,18 +1110,18 @@ export class PiHost {
   }
 
   async switchSession(path: string): Promise<HostActionResult> {
+    const activationEpoch = this.beginActivation();
     // A thread whose runtime is already live switches immediately and outside
     // the lifecycle queue: nothing is created, aborted or replaced.
     const live = this.bridge ? undefined : this.liveThreadForPath(path);
     if (live) {
-      const activationEpoch = this.beginActivation();
       const startedAt = performance.now();
       if (!await this.activateThread(live, false, activationEpoch)) return this.staleActivationResult();
       this.logReplacement("live-switch", startedAt);
       return this.activeUpdates(activationEpoch);
     }
     return this.runLifecycle(async () => {
-      const activationEpoch = this.beginActivation();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       const startedAt = performance.now();
       if (await this.attachAvailableBridge(dirname(path), path, {}, activationEpoch)) {
         if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
@@ -1539,7 +1547,9 @@ export class PiHost {
   }
 
   async createWorktree(branch: string, baseRef?: string): Promise<HostActionResult> {
+    const activationEpoch = this.beginActivation();
     return this.runLifecycle(async () => {
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       const project = this.cwd;
       try {
         const destination = await workspaceGit.createWorktree(
@@ -1551,7 +1561,7 @@ export class PiHost {
         this.knownProjectNames.set(destination, await this.loadProjectName(project));
         this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
         this.log("git.worktree.added", destination);
-        return this.setWorkspaceNow(destination);
+        return this.setWorkspaceNow(destination, activationEpoch);
       } catch (error) {
         this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
         throw error;
@@ -1560,14 +1570,16 @@ export class PiHost {
   }
 
   async switchRef(ref: string): Promise<HostActionResult> {
+    const activationEpoch = this.beginActivation();
     return this.runLifecycle(async () => {
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       const project = this.cwd;
       try {
         const target = await workspaceGit.resolveRefTarget(project, ref, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
         this.log("git.ref.switch", `${ref} → ${target}`);
         this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-        if (target === this.cwd) return this.activeUpdates();
-        return this.setWorkspaceNow(target);
+        if (target === this.cwd) return this.activeUpdates(activationEpoch);
+        return this.setWorkspaceNow(target, activationEpoch);
       } catch (error) {
         this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
         throw error;

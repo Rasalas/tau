@@ -151,6 +151,47 @@ describe("PiHost.generateThreadTitle", () => {
     await expect(staleNewSession).resolves.toEqual({ version: 1, updates: [] });
     expect(internals.threads.active?.sessionId).toBe("live-thread");
   });
+
+  it("admits newSession before the lifecycle queue so a later live switch wins", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const makeThread = (sessionId: string, sessionFile: string) => ({
+      sessionId,
+      sessionFile,
+      cwd: "/repo",
+      session: {
+        sessionId,
+        sessionFile,
+        resourceLoader: { getExtensions: () => ({ extensions: [] }) },
+      },
+    });
+    const staleThread = makeThread("queued-new-thread", "/queued-new.jsonl");
+    const liveThread = makeThread("warm-live-thread", "/warm-live.jsonl");
+    await internals.threads.adopt({ sessionId: staleThread.sessionId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
+    await internals.threads.adopt({ sessionId: liveThread.sessionId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+
+    let releaseLifecycle!: () => void;
+    internals.lifecycleQueue = new Promise<void>((resolve) => { releaseLifecycle = resolve; });
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takeSpareThread = async () => undefined;
+    internals.openThread = async () => staleThread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.threads.release = async () => {};
+    const prompts: string[] = [];
+    internals.prompt = async (text: string) => { prompts.push(text); };
+
+    const queuedNewSession = host.newSession("must not be sent", [], "/repo");
+    await expect(host.switchSession("/warm-live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
+    releaseLifecycle();
+
+    await expect(queuedNewSession).resolves.toEqual({ version: 1, updates: [] });
+    expect(prompts).toEqual([]);
+    expect(internals.threads.active?.sessionId).toBe("warm-live-thread");
+  });
 });
 
 describe("lastTurnActivityFromMessages", () => {
