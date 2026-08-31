@@ -22,6 +22,7 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
   let joined = false;
   let regionalIndicators = 0;
   let previousHangul: HangulJamo;
+  let hasBase = false;
   let scannedCodePoints = 0;
   const codePointBudget = (limit + 1) * FALLBACK_CODEPOINT_BUDGET_MULTIPLIER;
   for (const character of text) {
@@ -31,14 +32,24 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
     scannedCodePoints += 1;
     const codePoint = character.codePointAt(0)!;
     if (character === "\u200d") {
-      joined = true;
+      // A leading ZWJ has no base to join to and therefore starts its own
+      // grapheme. ZWJs following a base keep the next base in that cluster.
+      if (hasBase) joined = true;
+      else count += 1;
       continue;
     }
-    if (MARK.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff)) continue;
+    const isExtender = MARK.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff);
+    if (isExtender) {
+      // UAX #29 keeps extenders with a preceding base. At the beginning of
+      // text there is no base, so an extender is itself the initial cluster.
+      if (!hasBase) count += 1;
+      continue;
+    }
     const hangul = hangulJamoType(codePoint);
     if (joined) {
       joined = false;
       previousHangul = hangul;
+      hasBase = true;
       continue;
     }
     if (codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff) {
@@ -54,6 +65,7 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
       if (!continuesHangul) count += 1;
     }
     previousHangul = hangul;
+    hasBase = true;
     if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints };
   }
   return { count, exhausted: false, examinedCodePoints: scannedCodePoints };

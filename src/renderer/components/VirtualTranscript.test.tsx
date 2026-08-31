@@ -50,6 +50,7 @@ class DelayedResizeObserver {
 function installDelayedMeasurementHarness(options: {
   rowHeight?: (node: HTMLElement) => number;
   scrollHeight?: (node: HTMLElement) => number;
+  getBoundingClientRect?: (node: HTMLElement) => DOMRect;
 } = {}) {
   const rafCallbacks = new Map<number, FrameRequestCallback>();
   let nextFrameId = 0;
@@ -61,7 +62,7 @@ function installDelayedMeasurementHarness(options: {
   });
   vi.stubGlobal("cancelAnimationFrame", (id: number) => { rafCallbacks.delete(id); });
 
-  const properties = ["clientWidth", "clientHeight", "offsetWidth", "offsetHeight", "scrollHeight"] as const;
+  const properties = ["clientWidth", "clientHeight", "offsetWidth", "offsetHeight", "scrollHeight", "getBoundingClientRect"] as const;
   const previous = new Map<typeof properties[number], PropertyDescriptor | undefined>();
   for (const property of properties) previous.set(property, Object.getOwnPropertyDescriptor(HTMLElement.prototype, property));
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 780 });
@@ -82,6 +83,17 @@ function installDelayedMeasurementHarness(options: {
       return options.scrollHeight?.(node) ?? 0;
     },
   });
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    writable: true,
+    value(this: HTMLElement) {
+      if (options.getBoundingClientRect) return options.getBoundingClientRect(this);
+      const original = previous.get("getBoundingClientRect")?.value;
+      return typeof original === "function"
+        ? original.call(this)
+        : { top: 0, bottom: 0, height: 0, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    },
+  });
 
   return {
     observerCount: () => DelayedResizeObserver.instances.length,
@@ -97,6 +109,7 @@ function installDelayedMeasurementHarness(options: {
       }
     },
     restore() {
+      rafCallbacks.clear();
       for (const property of properties) {
         const descriptor = previous.get(property);
         if (descriptor) Object.defineProperty(HTMLElement.prototype, property, descriptor);
@@ -104,6 +117,7 @@ function installDelayedMeasurementHarness(options: {
       }
       DelayedResizeObserver.instances = [];
       vi.unstubAllGlobals();
+      vi.clearAllTimers();
     },
   };
 }
@@ -174,11 +188,12 @@ describe("virtual transcript", () => {
   });
 
   it("keeps a thousand loaded turns out of the DOM", async () => {
-    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
-    HTMLElement.prototype.getBoundingClientRect = function () {
-      const height = this.classList.contains("virtual-transcript-row") ? 180 : 600;
-      return { x: 0, y: 0, top: 0, left: 0, right: 780, bottom: height, width: 780, height, toJSON: () => ({}) };
-    };
+    const harness = installDelayedMeasurementHarness({
+      getBoundingClientRect: (node) => {
+        const height = node.classList.contains("virtual-transcript-row") ? 180 : 600;
+        return { x: 0, y: 0, top: 0, left: 0, right: 780, bottom: height, width: 780, height, toJSON: () => ({}) } as DOMRect;
+      },
+    });
     const messages: UiMessage[] = Array.from({ length: 1_000 }, (_, index) => ({
       id: `message-${index}`,
       role: index % 2 ? "assistant" : "user",
@@ -186,8 +201,13 @@ describe("virtual transcript", () => {
       timestamp: index,
     }));
     const view = render(<Fixture messages={messages} />);
-    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeGreaterThan(0));
-    expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeLessThan(40);
+    try {
+      await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeGreaterThan(0));
+      expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeLessThan(40);
+    } finally {
+      view.unmount();
+      harness.restore();
+    }
   });
 
   it("restores the visible row after delayed ResizeObserver remeasurement on expand and collapse", async () => {
@@ -203,11 +223,12 @@ describe("virtual transcript", () => {
       { id: "long", role: "user", text: "x".repeat(601), timestamp: 1 },
       { id: "anchor", role: "assistant", text: "Current reading anchor", timestamp: 2 },
     ];
-    const view = render(<RealVirtualizerFixture messages={messages} />);
-    const container = view.container.querySelector<HTMLDivElement>(".virtualizer-test-container")!;
-    container.scrollTop = scrollTop;
+    let view: ReturnType<typeof render> | undefined;
 
     try {
+      view = render(<RealVirtualizerFixture messages={messages} />);
+      const container = view.container.querySelector<HTMLDivElement>(".virtualizer-test-container")!;
+      container.scrollTop = scrollTop;
       await waitFor(() => expect(container.querySelectorAll(".virtual-transcript-row")).toHaveLength(2));
       const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
       const content = rows[0].querySelector<HTMLElement>(".message-text-content")!;
@@ -281,6 +302,7 @@ describe("virtual transcript", () => {
       await harness.flushFrames();
       expect(container.scrollTop).toBe(440);
     } finally {
+      view?.unmount();
       harness.restore();
     }
   });
@@ -291,9 +313,10 @@ describe("virtual transcript", () => {
         ? (node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 700 : 900)
         : 0,
     });
-    const view = render(<RealVirtualizerFixture messages={[{ id: "tail", role: "user", text: "x".repeat(601), timestamp: 1 }]} />);
-    const container = view.container.querySelector<HTMLDivElement>(".virtualizer-test-container")!;
+    let view: ReturnType<typeof render> | undefined;
     try {
+      view = render(<RealVirtualizerFixture messages={[{ id: "tail", role: "user", text: "x".repeat(601), timestamp: 1 }]} />);
+      const container = view.container.querySelector<HTMLDivElement>(".virtualizer-test-container")!;
       await waitFor(() => expect(container.querySelectorAll(".virtual-transcript-row")).toHaveLength(1));
       const row = container.querySelector<HTMLElement>(".virtual-transcript-row")!;
       const content = row.querySelector<HTMLElement>(".message-text-content")!;
@@ -346,6 +369,7 @@ describe("virtual transcript", () => {
       // from the browser-clamped 100 a second time.
       expect(container.scrollTop).toBe(50);
     } finally {
+      view?.unmount();
       harness.restore();
     }
   });

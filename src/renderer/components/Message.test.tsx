@@ -97,6 +97,13 @@ describe("Long user messages", () => {
       expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(true);
       expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
       expect(isLongMessage("\u0301".repeat(10_000) + "a".repeat(601))).toBe(true);
+      // An extender without a preceding base starts its own grapheme. Once a
+      // base exists, the same extender remains attached to that cluster.
+      expect(isLongMessage("\u0301" + "a".repeat(600))).toBe(true);
+      expect(isLongMessage("\ufe0f" + "a".repeat(600))).toBe(true);
+      expect(isLongMessage("\u{1f3fb}" + "a".repeat(600))).toBe(true);
+      expect(isLongMessage("\u200d" + "a".repeat(600))).toBe(true);
+      expect(isLongMessage("e\u0301".repeat(301))).toBe(false);
       const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
       expect(bounded.exhausted).toBe(true);
       expect(bounded.examinedCodePoints).toBeLessThanOrEqual(2_404);
