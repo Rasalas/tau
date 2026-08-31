@@ -10,10 +10,9 @@ import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
 import {
-  IMAGE_MIME_TYPES,
+  attachmentPolicyMessage,
   MAX_ATTACHMENTS,
-  MAX_IMAGE_BYTES,
-  MAX_TOTAL_IMAGE_BYTES,
+  selectAttachmentCandidates,
 } from "../../shared/prompt-attachment-limits";
 
 type OpenMenu = "thinking" | "access" | undefined;
@@ -37,7 +36,7 @@ let nextAttachmentId = 0;
 type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
 
 export interface ComposerAttachmentHandle {
-  addFiles(files: FileList | readonly File[]): void;
+  addFiles(files: FileList | readonly File[]): Promise<void>;
 }
 
 type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
@@ -66,12 +65,9 @@ export function normalizeSkillInvocation(text: string, commands: readonly UiComp
 
 function readImage(file: File): Promise<PendingAttachment> {
   return new Promise((resolve, reject) => {
-    if (!IMAGE_MIME_TYPES.has(file.type)) {
-      reject(new Error(`${file.name} is not a supported PNG, JPEG, GIF, or WebP image.`));
-      return;
-    }
-    if (file.size < 1 || file.size > MAX_IMAGE_BYTES) {
-      reject(new Error(`${file.name} must be 10 MB or smaller.`));
+    const policyRejection = selectAttachmentCandidates([{ item: file, name: file.name, mimeType: file.type, size: file.size }]).rejected[0];
+    if (policyRejection) {
+      reject(new Error(attachmentPolicyMessage(policyRejection)));
       return;
     }
     const reader = new FileReader();
@@ -172,6 +168,7 @@ export function Composer({
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentQueueRef = useRef(Promise.resolve());
   const preserveDraftForWorkspaceRef = useRef(false);
   if (workspaceBusy) preserveDraftForWorkspaceRef.current = true;
   const text = value ?? draft;
@@ -217,41 +214,31 @@ export function Composer({
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
-  const addFiles = useCallback(async (files: FileList | readonly File[]) => {
+  const processFiles = useCallback(async (files: FileList | readonly File[]) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
     const current = attachmentsRef.current;
-    const available = Math.max(0, MAX_ATTACHMENTS - current.length);
-    const candidates = incoming.slice(0, available);
-    let totalBytes = current.reduce((total, attachment) => total + attachment.size, 0);
-    let firstError: string | undefined;
-    if (candidates.length < incoming.length) firstError = `Attach at most ${MAX_ATTACHMENTS} images.`;
-    const validCandidates: File[] = [];
-    for (const file of candidates) {
-      if (!IMAGE_MIME_TYPES.has(file.type)) {
-        firstError ??= `${file.name} is not a supported PNG, JPEG, GIF, or WebP image.`;
-      } else if (file.size < 1 || file.size > MAX_IMAGE_BYTES) {
-        firstError ??= `${file.name} must be 10 MB or smaller.`;
-      } else if (totalBytes + file.size > MAX_TOTAL_IMAGE_BYTES) {
-        firstError ??= "Image attachments must total 24 MB or less.";
-      } else {
-        totalBytes += file.size;
-        validCandidates.push(file);
-      }
-    }
+    const policy = selectAttachmentCandidates(
+      incoming.map((file) => ({ item: file, name: file.name, mimeType: file.type, size: file.size })),
+      current,
+    );
+    const validCandidates = policy.accepted.map((candidate) => candidate.item);
+    const firstError = policy.rejected[0] ? attachmentPolicyMessage(policy.rejected[0]) : undefined;
     const results = await Promise.allSettled(validCandidates.map(readImage));
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (rejection) firstError ??= rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason);
-    setAttachmentError(firstError);
-    if (accepted.length > 0) setAttachments((latest) => {
-      const next = [...latest, ...accepted].slice(0, MAX_ATTACHMENTS);
-      attachmentsRef.current = next;
-      return next;
-    });
+    setAttachmentError(firstError ?? (rejection ? rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason) : undefined));
+    if (accepted.length > 0) {
+      attachmentsRef.current = [...attachmentsRef.current, ...accepted].slice(0, MAX_ATTACHMENTS);
+      setAttachments((latest) => [...latest, ...accepted].slice(0, MAX_ATTACHMENTS));
+    }
   }, []);
-  attachmentsRef.current = attachments;
-  useImperativeHandle(attachmentRef, () => ({ addFiles: (files) => { void addFiles(files); } }), [addFiles]);
+  const addFiles = useCallback((files: FileList | readonly File[]) => {
+    const operation = attachmentQueueRef.current.then(() => processFiles(files));
+    attachmentQueueRef.current = operation.then(() => undefined, () => undefined);
+    return operation;
+  }, [processFiles]);
+  useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
 
   // An editor prompt arrives with text to edit; seed the field once.
   const seededPromptRef = useRef<string | undefined>(undefined);

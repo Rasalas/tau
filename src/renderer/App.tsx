@@ -68,7 +68,12 @@ import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
-import { IMAGE_MIME_TYPES } from "../shared/prompt-attachment-limits";
+import {
+  IMAGE_MIME_TYPES,
+  MAX_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  SUPPORTED_IMAGE_TYPES_LABEL,
+} from "../shared/prompt-attachment-limits";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -1813,10 +1818,10 @@ export default function App() {
                     <strong>{chatDrop === "unsupported" ? "That file type is not supported" : "Drop images anywhere in chat"}</strong>
                     <span>
                       {chatDrop === "unsupported"
-                        ? "Use PNG, JPEG, GIF, or WebP images."
+                        ? `Use ${SUPPORTED_IMAGE_TYPES_LABEL} images.`
                         : chatDrop === "mixed"
                           ? "Supported images will be attached; other files will be skipped."
-                          : "PNG, JPEG, GIF, and WebP · up to 4 images · 10 MB each"}
+                          : `${SUPPORTED_IMAGE_TYPES_LABEL} · up to ${MAX_ATTACHMENTS} images · ${MAX_IMAGE_BYTES / 1024 / 1024} MB each`}
                     </span>
                   </div>
                 </div>

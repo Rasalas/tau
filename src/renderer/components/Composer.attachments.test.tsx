@@ -66,6 +66,21 @@ describe("Composer attachments", () => {
     expect(await screen.findByRole("button", { name: "Preview dropped.png" })).toBeTruthy();
   });
 
+  it("keeps valid files after unsupported files in the same drop", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    renderComposer(vi.fn(), attachmentRef);
+    const image = new File([new Uint8Array([137, 80, 78, 71])], "valid.png", { type: "image/png" });
+
+    await attachmentRef.current?.addFiles([
+      new File(["text"], "notes.txt", { type: "text/plain" }),
+      image,
+    ]);
+
+    expect(await screen.findByRole("button", { name: "Preview valid.png" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Preview notes.txt" })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toMatch(/not a supported/u);
+  });
+
   it("keeps existing attachments when a dropped file is unsupported", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     renderComposer(vi.fn(), attachmentRef);
@@ -99,5 +114,29 @@ describe("Composer attachments", () => {
     expect(await screen.findAllByRole("button", { name: /Preview (one|two|three)\.png/u })).toHaveLength(3);
     expect((await screen.findByRole("alert")).textContent).toMatch(/24 MB/u);
     expect(screen.queryByRole("button", { name: "Preview four.png" })).toBeNull();
+  });
+
+  it("serializes concurrent drops so the total limit cannot be bypassed", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    renderComposer(vi.fn(), attachmentRef);
+    const image = (name: string, size: number) => {
+      const file = new File([new Uint8Array([1])], name, { type: "image/png" });
+      Object.defineProperty(file, "size", { value: size });
+      return file;
+    };
+    const first = attachmentRef.current!.addFiles([
+      image("one.png", 8 * 1024 * 1024),
+      image("two.png", 8 * 1024 * 1024),
+    ]);
+    const second = attachmentRef.current!.addFiles([
+      image("three.png", 8 * 1024 * 1024),
+      image("four.png", 8 * 1024 * 1024),
+    ]);
+
+    await Promise.all([first, second]);
+
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview (one|two|three)\.png/u })).toHaveLength(3));
+    expect(screen.queryByRole("button", { name: "Preview four.png" })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toMatch(/24 MB/u);
   });
 });
