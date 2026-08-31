@@ -1,9 +1,7 @@
 import type {
   ChangeStatus,
+  DiffLoadOptions,
   UiChangedFile,
-  UiDiffHunk,
-  UiDiffLine,
-  UiFileDiff,
   UiTurnCheckpoint,
   UiWorkspaceChanges,
 } from "./contracts.js";
@@ -12,11 +10,98 @@ import type {
 export const TURN_CHECKPOINT_CUSTOM_TYPE = "tau.turn-checkpoint.v1";
 
 /**
- * The renderer only receives the small summary. The host keeps the captured
- * diffs in this persisted shape and serves them on demand.
+ * A persisted checkpoint contains only immutable snapshot references and a
+ * bounded summary. The file patch is deliberately not stored here: it is read
+ * from Git when the user opens one file in the historical review.
  */
 export interface StoredTurnCheckpoint extends UiTurnCheckpoint {
-  diffs: Record<string, UiFileDiff>;
+  beforeSnapshotId: string;
+  afterSnapshotId: string;
+}
+
+const SNAPSHOT_ID_PATTERN = /^refs\/tau\/checkpoints\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/(?:before|after)$/u;
+
+/** Snapshot IDs are refs created by the host, never arbitrary Git arguments. */
+export function isTurnSnapshotId(value: unknown): value is string {
+  if (typeof value !== "string" || !SNAPSHOT_ID_PATTERN.test(value)) return false;
+  const components = value.split("/").slice(3, -1);
+  return components.every((component) => component !== "."
+    && component !== ".."
+    && !component.includes("..")
+    && !component.endsWith(".lock"));
+}
+
+export type TurnOutcome = "completed" | "aborted" | "error";
+
+/**
+ * Shared lifecycle state used by both the embedded host and the Pi bridge.
+ * `Snapshot` is intentionally opaque to this transport-neutral module: the
+ * host-side Git adapter owns how a snapshot is captured and addressed.
+ */
+export interface TurnCaptureState<Snapshot = unknown> {
+  id: string;
+  startedAt: number;
+  beforeSnapshot: Promise<Snapshot | undefined>;
+  /** Set once the runtime has accepted the prompt and emitted agent_start. */
+  started?: boolean;
+  outcome?: TurnOutcome;
+  lastAssistant?: { stopReason?: string; timestamp?: number };
+}
+
+export interface TurnOutcomeEvent {
+  messages?: readonly unknown[];
+  willRetry?: boolean;
+}
+
+export interface TurnCheckpointCaptureResult<Snapshot> {
+  beforeSnapshot: Snapshot;
+  afterSnapshot: Snapshot;
+  changes: UiWorkspaceChanges;
+  anchorMessageId: string;
+  endedAt: number;
+}
+
+/** Shared before-boundary creation used by both the desktop host and bridge. */
+export function startTurnCapture<Snapshot>(
+  id: string,
+  startedAt: number,
+  createBeforeSnapshot: () => Promise<Snapshot | undefined>,
+  onError?: (error: unknown) => void,
+): TurnCaptureState<Snapshot> {
+  const beforeSnapshot = Promise.resolve()
+    .then(createBeforeSnapshot)
+    .catch((error) => {
+      onError?.(error);
+      return undefined;
+    });
+  return { id, startedAt, beforeSnapshot, started: false };
+}
+
+/**
+ * Shared after-boundary and summary lifecycle. Transports provide only their
+ * Git adapter and durable assistant anchor; no wire/session implementation is
+ * coupled to this module.
+ */
+export async function completeTurnCapture<Snapshot>(
+  capture: TurnCaptureState<Snapshot>,
+  options: {
+    createAfterSnapshot: () => Promise<Snapshot | undefined>;
+    summarize: (before: Snapshot, after: Snapshot) => Promise<UiWorkspaceChanges>;
+    anchorMessageId?: string;
+  },
+): Promise<TurnCheckpointCaptureResult<Snapshot> | undefined> {
+  if (!shouldPersistTurnCapture(capture)) return undefined;
+  const beforeSnapshot = await capture.beforeSnapshot;
+  if (!beforeSnapshot || !options.anchorMessageId) return undefined;
+  const afterSnapshot = await options.createAfterSnapshot();
+  if (!afterSnapshot) return undefined;
+  return {
+    beforeSnapshot,
+    afterSnapshot,
+    changes: await options.summarize(beforeSnapshot, afterSnapshot),
+    anchorMessageId: options.anchorMessageId,
+    endedAt: Date.now(),
+  };
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -52,54 +137,6 @@ function changedFile(value: unknown): UiChangedFile | undefined {
   };
 }
 
-function diffLine(value: unknown): UiDiffLine | undefined {
-  const item = record(value);
-  if (!item || (item.kind !== "context" && item.kind !== "added" && item.kind !== "removed")
-    || typeof item.text !== "string") return undefined;
-  return {
-    kind: item.kind,
-    ...(finite(item.oldLine) ? { oldLine: item.oldLine } : {}),
-    ...(finite(item.newLine) ? { newLine: item.newLine } : {}),
-    text: item.text,
-  };
-}
-
-function diffHunk(value: unknown): UiDiffHunk | undefined {
-  const item = record(value);
-  if (!item || typeof item.header !== "string" || !Array.isArray(item.lines)) return undefined;
-  const lines = item.lines.map(diffLine);
-  return lines.every((line): line is UiDiffLine => Boolean(line))
-    ? { header: item.header, lines }
-    : undefined;
-}
-
-function fileDiff(value: unknown, fallbackPath: string): UiFileDiff | undefined {
-  const item = record(value);
-  if (!item || (typeof item.path !== "string" && fallbackPath.length === 0)
-    || !finite(item.added) || !finite(item.removed) || !Array.isArray(item.hunks)) return undefined;
-  const hunks = item.hunks.map(diffHunk);
-  if (!hunks.every((hunk): hunk is UiDiffHunk => Boolean(hunk))) return undefined;
-  return {
-    path: typeof item.path === "string" ? item.path : fallbackPath,
-    added: Math.max(0, item.added),
-    removed: Math.max(0, item.removed),
-    hunks,
-    ...(typeof item.note === "string" ? { note: item.note } : {}),
-    ...(typeof item.truncated === "boolean" ? { truncated: item.truncated } : {}),
-    ...(finite(item.nextHunkOffset) ? { nextHunkOffset: item.nextHunkOffset } : {}),
-  };
-}
-
-function cloneDiff(diff: UiFileDiff): UiFileDiff {
-  return {
-    ...diff,
-    hunks: diff.hunks.map((hunk) => ({
-      ...hunk,
-      lines: hunk.lines.map((line) => ({ ...line })),
-    })),
-  };
-}
-
 export function cloneTurnCheckpoint(checkpoint: UiTurnCheckpoint): UiTurnCheckpoint {
   return {
     ...checkpoint,
@@ -110,7 +147,8 @@ export function cloneTurnCheckpoint(checkpoint: UiTurnCheckpoint): UiTurnCheckpo
 export function cloneStoredTurnCheckpoint(checkpoint: StoredTurnCheckpoint): StoredTurnCheckpoint {
   return {
     ...cloneTurnCheckpoint(checkpoint),
-    diffs: Object.fromEntries(Object.entries(checkpoint.diffs).map(([path, diff]) => [path, cloneDiff(diff)])),
+    beforeSnapshotId: checkpoint.beforeSnapshotId,
+    afterSnapshotId: checkpoint.afterSnapshotId,
   };
 }
 
@@ -124,6 +162,8 @@ export function parseStoredTurnCheckpoint(value: unknown, expectedSessionId?: st
     || typeof item.sessionId !== "string"
     || (expectedSessionId !== undefined && item.sessionId !== expectedSessionId)
     || typeof item.anchorMessageId !== "string"
+    || !isTurnSnapshotId(item.beforeSnapshotId)
+    || !isTurnSnapshotId(item.afterSnapshotId)
     || !finite(item.startedAt)
     || !finite(item.endedAt)
     || !Array.isArray(item.files)
@@ -132,26 +172,19 @@ export function parseStoredTurnCheckpoint(value: unknown, expectedSessionId?: st
   ) return undefined;
   const files = item.files.map(changedFile);
   if (!files.every((file): file is UiChangedFile => Boolean(file))) return undefined;
-  const rawDiffs = record(item.diffs);
-  const diffs: Record<string, UiFileDiff> = {};
-  if (rawDiffs) {
-    for (const [path, value] of Object.entries(rawDiffs)) {
-      const diff = fileDiff(value, path);
-      if (diff) diffs[path] = diff;
-    }
-  }
   const checkpoint: StoredTurnCheckpoint = {
     id: item.id,
     turnId: item.turnId,
     sessionId: item.sessionId,
     anchorMessageId: item.anchorMessageId,
+    beforeSnapshotId: item.beforeSnapshotId,
+    afterSnapshotId: item.afterSnapshotId,
     startedAt: item.startedAt,
     endedAt: item.endedAt,
     files,
     added: Math.max(0, item.added),
     removed: Math.max(0, item.removed),
     ...(typeof item.branch === "string" ? { branch: item.branch } : {}),
-    diffs,
   };
   return cloneStoredTurnCheckpoint(checkpoint);
 }
@@ -197,7 +230,7 @@ function turnStats(before: UiChangedFile | undefined, after: UiChangedFile): { a
   };
 }
 
-/** Net worktree changes observed between the start and end of one run. */
+/** Legacy renderer activity helper; persisted checkpoints use Git snapshots instead. */
 export function changesSinceTurn(
   baseline: UiWorkspaceChanges | undefined,
   current: UiWorkspaceChanges,
@@ -218,3 +251,57 @@ export function changesSinceTurn(
   };
 }
 
+/**
+ * Keep diff paging bounded at the shared seam. Both host implementations pass
+ * these values to the Git adapter, which loads exactly the requested file.
+ */
+export function normalizeDiffLoadOptions(
+  options: DiffLoadOptions | undefined,
+  maxHunks: number,
+): Required<DiffLoadOptions> {
+  const offset = Number.isFinite(options?.hunkOffset) ? Math.max(0, Math.floor(options?.hunkOffset ?? 0)) : 0;
+  const limit = Number.isFinite(options?.hunkLimit)
+    ? Math.min(maxHunks, Math.max(1, Math.floor(options?.hunkLimit ?? maxHunks)))
+    : maxHunks;
+  return { hunkOffset: offset, hunkLimit: limit };
+}
+
+function assistantFromMessages(messages: readonly unknown[]): { stopReason?: string; timestamp?: number } | undefined {
+  const message = [...messages].reverse().map(record).find((candidate) => candidate?.role === "assistant");
+  if (!message) return undefined;
+  return {
+    ...(typeof message.stopReason === "string" ? { stopReason: message.stopReason } : {}),
+    ...(finite(message.timestamp) ? { timestamp: message.timestamp } : {}),
+  };
+}
+
+/** Shared outcome semantics: retries keep one turn identity until a final result. */
+export function recordTurnOutcome<Snapshot>(capture: TurnCaptureState<Snapshot>, event: TurnOutcomeEvent): void {
+  const assistant = assistantFromMessages(event.messages ?? []);
+  if (event.willRetry) capture.outcome = undefined;
+  if (!assistant) return;
+  capture.lastAssistant = assistant;
+  if (event.willRetry) {
+    return;
+  } else if (assistant.stopReason === "aborted") {
+    capture.outcome = "aborted";
+  } else if (assistant.stopReason === "error") {
+    capture.outcome = "error";
+  } else {
+    capture.outcome = "completed";
+  }
+}
+
+/** Keep only the small assistant marker needed for lifecycle diagnostics. */
+export function recordTurnAssistant<Snapshot>(capture: TurnCaptureState<Snapshot>, message: unknown): void {
+  const item = record(message);
+  if (item?.role !== "assistant") return;
+  capture.lastAssistant = {
+    ...(typeof item.stopReason === "string" ? { stopReason: item.stopReason } : {}),
+    ...(finite(item.timestamp) ? { timestamp: item.timestamp } : {}),
+  };
+}
+
+export function shouldPersistTurnCapture<Snapshot>(capture: TurnCaptureState<Snapshot>): boolean {
+  return capture.started === true && capture.outcome === "completed";
+}

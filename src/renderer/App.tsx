@@ -204,10 +204,22 @@ export function useTailScroll(
   ref: RefObject<HTMLDivElement | null>,
   updates: readonly unknown[],
   resetKey?: unknown,
+  preservePosition = false,
 ): void {
   const pinnedRef = useRef(true);
   const frameRef = useRef<number | undefined>(undefined);
+  const preservePositionRef = useRef(preservePosition);
+  const skipTailAfterPreserveRef = useRef(false);
+  preservePositionRef.current = preservePosition;
   const scheduleTail = () => {
+    if (preservePositionRef.current) {
+      skipTailAfterPreserveRef.current = true;
+      return;
+    }
+    if (skipTailAfterPreserveRef.current) {
+      skipTailAfterPreserveRef.current = false;
+      return;
+    }
     if (!pinnedRef.current || frameRef.current !== undefined) return;
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = undefined;
@@ -272,10 +284,18 @@ export function useTailScroll(
   }, [ref, resetKey]);
 
   useEffect(() => {
+    if (preservePosition) {
+      skipTailAfterPreserveRef.current = true;
+      if (frameRef.current !== undefined) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = undefined;
+      }
+      return;
+    }
     scheduleTail();
   // The array identity is intentionally controlled by the caller's visible records.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, updates);
+  }, [...updates, preservePosition]);
 }
 
 export default function App() {
@@ -460,6 +480,7 @@ export default function App() {
       taskProgress: next.taskProgress,
       taskHistory: next.taskHistory,
       contextUsage: next.contextUsage,
+      ...(next.olderCursor ? { olderCursor: next.olderCursor } : {}),
     };
     detailStoreRef.current.set(detail);
     setOlderCursor(detail.olderCursor);
@@ -530,6 +551,7 @@ export default function App() {
           taskProgress: detail.taskProgress,
           taskHistory: detail.taskHistory,
           contextUsage: detail.contextUsage,
+          olderCursor: detail.olderCursor,
         };
         cachedSnapshotRef.current = next;
         writeBootstrapCache(next, cachedIndexRef.current);
@@ -811,6 +833,7 @@ export default function App() {
           taskProgress: bootstrap.detail.taskProgress,
           taskHistory: bootstrap.detail.taskHistory,
           contextUsage: bootstrap.detail.contextUsage,
+          olderCursor: bootstrap.detail.olderCursor,
         };
         applySnapshot(current);
         setOlderCursor(bootstrap.detail.olderCursor);
@@ -852,7 +875,10 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline, turnCheckpoints], snapshot?.sessionId);
+  // Historical checkpoint cards can appear when an older transcript page is
+  // loaded. They are anchored rows, not a new tail activity, so paging must not
+  // pull the user's viewport back to the newest turn.
+  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId, loadingOlder);
 
   const loadOlder = useCallback(async () => {
     if (!olderCursor || loadingOlder || !snapshot || !window.tau) return;
@@ -860,19 +886,25 @@ export default function App() {
     if (!transcript) return;
     setLoadingOlder(true);
     const previousHeight = transcript.scrollHeight;
+    let positionRestoreScheduled = false;
     try {
       const page = await window.tau.loadTranscript(snapshot.sessionId, olderCursor);
       if (page.sessionId !== snapshot.sessionId) return;
       setMessages((current) => [...page.messages, ...current]);
       setOlderCursor(page.olderCursor);
+      positionRestoreScheduled = true;
       window.requestAnimationFrame(() => {
         const current = transcriptRef.current;
         if (current) current.scrollTop += current.scrollHeight - previousHeight;
+        setLoadingOlder(false);
       });
     } catch (error) {
       setNotice(String(error));
     } finally {
-      setLoadingOlder(false);
+      // Keep the tail-scroll suppression active until the height correction has
+      // run. This also prevents a batched state update from observing the new
+      // page and `loadingOlder=false` in the same render.
+      if (!positionRestoreScheduled) setLoadingOlder(false);
     }
   }, [loadingOlder, olderCursor, snapshot]);
 
@@ -1554,12 +1586,22 @@ export default function App() {
     [changes, tools, turnBaseline],
   );
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
+  const loadedMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of messages) {
+      ids.add(message.id);
+      if (message.sourceEntryId) ids.add(message.sourceEntryId);
+    }
+    return ids;
+  }, [messages]);
   const checkpointActivities = useMemo(() => (pendingNewThread ? [] : turnCheckpoints)
-    .filter((checkpoint) => checkpoint.files.length > 0)
+    // A persisted checkpoint may belong to a page that is not loaded yet. Do
+    // not send it to the transcript with a tail fallback; it becomes visible at
+    // its original position as soon as that page is fetched.
+    .filter((checkpoint) => checkpoint.files.length > 0 && loadedMessageIds.has(checkpoint.anchorMessageId))
     .map((checkpoint) => ({
       id: `turn-checkpoint-${checkpoint.id}`,
       afterMessageId: checkpoint.anchorMessageId,
-      fallbackToTail: true,
       content: (
         <div className="turn-checkpoint-card" data-checkpoint-id={checkpoint.id}>
           <ChangedFiles
@@ -1569,7 +1611,7 @@ export default function App() {
           />
         </div>
       ),
-    })), [openCheckpointReview, pendingNewThread, turnCheckpoints]);
+    })), [loadedMessageIds, openCheckpointReview, pendingNewThread, turnCheckpoints]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;

@@ -208,6 +208,10 @@ export interface UiTurnCheckpoint extends UiWorkspaceChanges {
   sessionId: string;
   /** Persisted message-entry id used to place the card below the answer. */
   anchorMessageId: string;
+  /** Immutable Git tree/ref captured immediately before this turn. */
+  beforeSnapshotId: string;
+  /** Immutable Git tree/ref captured when this turn settled. */
+  afterSnapshotId: string;
   startedAt: number;
   endedAt: number;
 }
@@ -326,6 +330,8 @@ export interface HostSnapshot {
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
   contextUsage?: UiContextUsage;
+  /** Cursor supplied by a transport that keeps raw transcript records paged. */
+  olderCursor?: string;
   serviceTier: ServiceTier;
   /** False when the active model's API has no priority tier to ask for. */
   serviceTierAvailable: boolean;

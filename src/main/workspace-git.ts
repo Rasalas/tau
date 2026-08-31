@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, open, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type {
   ChangeStatus,
@@ -17,6 +18,7 @@ import type {
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts.js";
+import { isTurnSnapshotId, normalizeDiffLoadOptions } from "../shared/turn-checkpoints.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,13 +40,27 @@ const KNOWN_EDITORS: ReadonlyArray<UiEditor> = [
 ];
 
 export type GitRunner = (cwd: string, args: string[], maxBuffer?: number, signal?: AbortSignal) => Promise<string>;
+export type SnapshotGitRunner = (
+  cwd: string,
+  args: string[],
+  maxBuffer?: number,
+  signal?: AbortSignal,
+  env?: NodeJS.ProcessEnv,
+) => Promise<string>;
 
-export async function runGitCommand(cwd: string, args: string[], maxBuffer = 4 * 1024 * 1024, signal?: AbortSignal): Promise<string> {
+export async function runGitCommand(
+  cwd: string,
+  args: string[],
+  maxBuffer = 4 * 1024 * 1024,
+  signal?: AbortSignal,
+  env?: NodeJS.ProcessEnv,
+): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], {
     cwd,
     maxBuffer,
     timeout: 10_000,
     signal,
+    env,
   });
   return stdout;
 }
@@ -194,6 +210,158 @@ export function emptyProjectGitState(cwd: string): ProjectGitState {
   };
 }
 
+export interface WorkspaceSnapshot {
+  /** Stable namespaced ref persisted in the turn checkpoint. */
+  id: string;
+  ref: string;
+  /** The tree object addressed by the ref, useful for diagnostics and tests. */
+  treeId: string;
+}
+
+export interface WorkspaceSnapshotOptions {
+  /** Session/turn namespace. It must not contain an empty or `..` component. */
+  namespace: string;
+  phase: "before" | "after";
+  runGit?: SnapshotGitRunner;
+}
+
+export interface SnapshotDiffOptions {
+  branch?: string;
+  runGit?: GitRunner;
+}
+
+const SNAPSHOT_REF_PREFIX = "refs/tau/checkpoints";
+const SNAPSHOT_GIT_BUFFER = 64 * 1024 * 1024;
+
+function snapshotRef(namespace: string, phase: WorkspaceSnapshotOptions["phase"]): string {
+  const components = namespace.split("/").map((component) => component.replace(/[^A-Za-z0-9._-]/gu, "-"));
+  if (components.length === 0 || components.some((component) => !component
+    || component === "."
+    || component === ".."
+    || component.includes("..")
+    || component.endsWith(".lock"))) {
+    throw new Error("Invalid turn checkpoint snapshot namespace.");
+  }
+  return `${SNAPSHOT_REF_PREFIX}/${components.join("/")}/${phase}`;
+}
+
+/**
+ * Captures the complete worktree into a temporary Git index and publishes only
+ * its tree as a namespaced ref. The user's index and worktree are never used as
+ * write targets. `git add -A` also folds tracked, deleted, and non-ignored
+ * untracked files into the immutable tree, so a pre-existing dirty base is
+ * naturally part of the before snapshot and drops out of the later diff.
+ */
+export async function createWorkspaceSnapshot(
+  cwd: string,
+  options: WorkspaceSnapshotOptions,
+): Promise<WorkspaceSnapshot> {
+  const runGit = options.runGit ?? git;
+  const ref = snapshotRef(options.namespace, options.phase);
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "tau-turn-snapshot-"));
+  const temporaryIndex = join(temporaryDirectory, "index");
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_INDEX_FILE: temporaryIndex,
+    GIT_OPTIONAL_LOCKS: "0",
+  };
+  const run = (args: string[], maxBuffer = SNAPSHOT_GIT_BUFFER): Promise<string> =>
+    runGit(cwd, args, maxBuffer, undefined, env);
+  try {
+    await run(["rev-parse", "--is-inside-work-tree"]);
+    const head = await run(["rev-parse", "--verify", "HEAD"]).catch(() => "");
+    await run(head.trim() ? ["read-tree", head.trim()] : ["read-tree", "--empty"]);
+    await run(["add", "-A"]);
+    const treeId = (await run(["write-tree"])).trim();
+    if (!/^[0-9a-f]{40,64}$/iu.test(treeId)) throw new Error("Git did not return a valid workspace snapshot tree.");
+    // Publish once. A retry for the same turn may observe the existing tree,
+    // but a ref that already points somewhere else must never be overwritten:
+    // the IDs stored in a checkpoint are immutable historical boundaries.
+    const existing = (await run(["rev-parse", "--verify", ref]).catch(() => "")).trim();
+    if (existing && existing !== treeId) throw new Error(`Snapshot ref ${ref} already points to another tree.`);
+    if (!existing) {
+      try {
+        // An all-zero old value makes creation conditional and remains valid
+        // for both SHA-1 and SHA-256 repositories.
+        await run(["update-ref", ref, treeId, "0".repeat(treeId.length)]);
+      } catch (error) {
+        // Another process may have won the create race. Accept it only when it
+        // published the exact same tree; otherwise preserve the first value.
+        const published = (await run(["rev-parse", "--verify", ref]).catch(() => "")).trim();
+        if (published !== treeId) throw error;
+      }
+    }
+    return { id: ref, ref, treeId };
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function snapshotStatus(value: string): ChangeStatus {
+  if (value.startsWith("A")) return "added";
+  if (value.startsWith("D")) return "deleted";
+  if (value.startsWith("R") || value.startsWith("C")) return "renamed";
+  return "modified";
+}
+
+/** Parse `git diff --name-status -z` without interpreting file contents. */
+function parseSnapshotNameStatus(stdout: string): Map<string, ChangeStatus> {
+  const statuses = new Map<string, ChangeStatus>();
+  const tokens = stdout.split("\0");
+  for (let index = 0; index < tokens.length;) {
+    const code = tokens[index++] ?? "";
+    if (!code) continue;
+    const oldPath = tokens[index++] ?? "";
+    const isRename = code.startsWith("R") || code.startsWith("C");
+    const path = isRename ? (tokens[index++] ?? oldPath) : oldPath;
+    if (path) statuses.set(path, snapshotStatus(code));
+  }
+  return statuses;
+}
+
+/**
+ * Produces one checkpoint summary from the two immutable trees. It performs a
+ * numstat and a name-status scan, but never opens a per-file patch; the latter
+ * is reserved for `getSnapshotFileDiff` when a user explicitly opens a file.
+ */
+export async function diffWorkspaceSnapshots(
+  cwd: string,
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+  options: SnapshotDiffOptions = {},
+): Promise<UiWorkspaceChanges> {
+  if (!isTurnSnapshotId(beforeSnapshotId) || !isTurnSnapshotId(afterSnapshotId)) {
+    throw new Error("Invalid turn checkpoint snapshot ID.");
+  }
+  const runGit = options.runGit ?? git;
+  const args = ["diff", "--no-ext-diff", "--find-renames", "--numstat", "-z", beforeSnapshotId, afterSnapshotId, "--"];
+  const statusArgs = ["diff", "--no-ext-diff", "--find-renames", "--name-status", "-z", beforeSnapshotId, afterSnapshotId, "--"];
+  const [numstat, nameStatus] = await Promise.all([
+    runGit(cwd, args, SNAPSHOT_GIT_BUFFER),
+    runGit(cwd, statusArgs, SNAPSHOT_GIT_BUFFER),
+  ]);
+  const counts = parseNumstat(numstat);
+  const statuses = parseSnapshotNameStatus(nameStatus);
+  const paths = new Set([...counts.keys(), ...statuses.keys()]);
+  const files: UiChangedFile[] = [...paths].filter(Boolean).map((path) => {
+    const counted = counts.get(path) ?? { added: 0, removed: 0 };
+    return {
+      path,
+      ...describe(path),
+      status: statuses.get(path) ?? "modified",
+      added: counted.added,
+      removed: counted.removed,
+    };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    ...(options.branch ? { branch: options.branch } : {}),
+    files,
+    added: files.reduce((total, file) => total + file.added, 0),
+    removed: files.reduce((total, file) => total + file.removed, 0),
+    proposedMessage: proposeMessage(files),
+  };
+}
+
 /** One bounded scan supplies all project metadata consumers need. */
 export async function readProjectGitState(
   cwd: string,
@@ -321,8 +489,7 @@ export function parseUnifiedDiff(path: string, patch: string, options: DiffLoadO
     current.lines.push(line);
   }
 
-  const offset = Math.max(0, options.hunkOffset ?? 0);
-  const limit = Math.min(MAX_DIFF_HUNKS, Math.max(1, options.hunkLimit ?? MAX_DIFF_HUNKS));
+  const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
   const visibleHunks = hunks.slice(offset, offset + limit);
   const hasMoreParsedHunks = hunks.length > offset + visibleHunks.length;
   const truncated = byteTruncated || lineTruncated || hasMoreParsedHunks;
@@ -359,8 +526,7 @@ async function streamFilePatch(
   options: DiffLoadOptions,
   allowNoIndexDifference = false,
 ): Promise<StreamedPatch> {
-  const offset = Math.max(0, options.hunkOffset ?? 0);
-  const limit = Math.min(MAX_DIFF_HUNKS, Math.max(1, options.hunkLimit ?? MAX_DIFF_HUNKS));
+  const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
   return new Promise((resolve, reject) => {
     const child = spawn("git", ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.setEncoding("utf8");
@@ -480,6 +646,46 @@ export async function getFileDiff(cwd: string, path: string, options: DiffLoadOp
     return result;
   } catch {
     return empty("Could not read this diff.");
+  }
+}
+
+/**
+ * Loads one file's historical patch directly from the immutable before/after
+ * snapshots. No checkpoint entry contains patch bytes, and this call performs
+ * one `git diff <before> <after> -- <path>` on demand.
+ */
+export async function getSnapshotFileDiff(
+  cwd: string,
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+  path: string,
+  options: DiffLoadOptions = {},
+): Promise<UiFileDiff> {
+  const empty = (note: string): UiFileDiff => ({ path, added: 0, removed: 0, hunks: [], note });
+  if (!isTurnSnapshotId(beforeSnapshotId) || !isTurnSnapshotId(afterSnapshotId)) {
+    return empty("This turn checkpoint is no longer available.");
+  }
+  try {
+    const streamed = await streamFilePatch(
+      cwd,
+      ["diff", "--no-ext-diff", "--find-renames", "-U3", beforeSnapshotId, afterSnapshotId, "--", path],
+      options,
+    );
+    if (!streamed.patch.trim()) return empty("No textual changes.");
+    if (/^Binary files /mu.test(streamed.patch)) return empty("Binary file — no line diff.");
+    const result = parseUnifiedDiff(path, streamed.patch, {}, streamed.terminalTruncation);
+    if (streamed.hasMoreHunks) {
+      const offset = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS).hunkOffset;
+      return {
+        ...result,
+        truncated: true,
+        nextHunkOffset: offset + streamed.capturedHunks,
+        note: `Showing ${streamed.capturedHunks} hunks. Load more to continue.`,
+      };
+    }
+    return result;
+  } catch {
+    return empty("Could not read this historical diff.");
   }
 }
 

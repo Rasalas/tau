@@ -1,9 +1,21 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createWorktree, getFileDiff, MAX_DIFF_BYTES, MAX_DIFF_HUNKS, parseUnifiedDiff, push, readProjectGitState, repositoryDisplayName } from "./workspace-git.js";
+import {
+  createWorktree,
+  createWorkspaceSnapshot,
+  diffWorkspaceSnapshots,
+  getFileDiff,
+  getSnapshotFileDiff,
+  MAX_DIFF_BYTES,
+  MAX_DIFF_HUNKS,
+  parseUnifiedDiff,
+  push,
+  readProjectGitState,
+  repositoryDisplayName,
+} from "./workspace-git.js";
 
 describe("large diff bounds", () => {
   it("pages hunks and marks the bounded payload", () => {
@@ -49,6 +61,81 @@ describe("large diff bounds", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+});
+
+describe("immutable turn snapshots", () => {
+  it("diffs the complete before/after trees and excludes a pre-existing dirty base", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-snapshot-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "tracked.txt"), "one\ntwo\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+
+      // This is the dirty state that existed before the turn started. It is
+      // intentionally staged to prove the real index is not touched.
+      await writeFile(join(cwd, "tracked.txt"), "one\npreexisting\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd });
+      await writeFile(join(cwd, "preexisting.txt"), "keep\n");
+      const stagedBefore = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8" });
+      const before = await createWorkspaceSnapshot(cwd, { namespace: "session/turn", phase: "before" });
+
+      // Same numstat as the dirty base, but different content. A status/count
+      // comparison would miss this edit; a tree diff must report it.
+      await writeFile(join(cwd, "tracked.txt"), "one\nturn\n");
+      await writeFile(join(cwd, "new.txt"), "new\n");
+      const after = await createWorkspaceSnapshot(cwd, { namespace: "session/turn", phase: "after" });
+      const summary = await diffWorkspaceSnapshots(cwd, before.id, after.id);
+
+      // A stable turn ref is write-once; a later retry cannot silently move the
+      // historical boundary to a different worktree state.
+      await expect(createWorkspaceSnapshot(cwd, { namespace: "session/turn", phase: "before" }))
+        .rejects.toThrow("already points to another tree");
+
+      expect(summary.files.map((file) => file.path)).toEqual(["new.txt", "tracked.txt"]);
+      expect(summary.files.find((file) => file.path === "tracked.txt")).toMatchObject({
+        status: "modified",
+        added: 1,
+        removed: 1,
+      });
+      expect(summary.files.find((file) => file.path === "new.txt")).toMatchObject({ status: "added", added: 1, removed: 0 });
+      expect(summary.files.some((file) => file.path === "preexisting.txt")).toBe(false);
+      expect(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8" })).toBe(stagedBefore);
+      expect(await readFile(join(cwd, "tracked.txt"), "utf8")).toBe("one\nturn\n");
+
+      const historical = await getSnapshotFileDiff(cwd, before.id, after.id, "tracked.txt");
+      const lines = historical.hunks.flatMap((hunk) => hunk.lines.map((line) => `${line.kind}:${line.text}`));
+      expect(lines).toEqual(expect.arrayContaining(["removed:preexisting", "added:turn"]));
+      expect(before.id).toMatch(/^refs\/tau\/checkpoints\/session\/turn\/before$/u);
+      expect(after.id).toMatch(/^refs\/tau\/checkpoints\/session\/turn\/after$/u);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("keeps every changed file in the summary while opening one file lazily", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-many-snapshots-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "seed.txt"), "seed\n");
+      execFileSync("git", ["add", "seed.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      const before = await createWorkspaceSnapshot(cwd, { namespace: "session/many", phase: "before" });
+      await Promise.all(Array.from({ length: 300 }, (_, index) => writeFile(join(cwd, `file-${index}.txt`), `${index}\n`)));
+      const after = await createWorkspaceSnapshot(cwd, { namespace: "session/many", phase: "after" });
+      const summary = await diffWorkspaceSnapshots(cwd, before.id, after.id);
+      expect(summary.files).toHaveLength(300);
+      expect(summary.files.at(-1)?.path).toBe("file-99.txt");
+      const one = await getSnapshotFileDiff(cwd, before.id, after.id, "file-299.txt");
+      expect(one.hunks.flatMap((hunk) => hunk.lines).some((line) => line.kind === "added" && line.text === "299")).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 describe("worktree creation", () => {

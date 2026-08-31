@@ -266,6 +266,8 @@ describe("App render isolation", () => {
             turnId: "turn-1",
             sessionId: "session",
             anchorMessageId: "answer-entry",
+            beforeSnapshotId: "refs/tau/checkpoints/session/turn-1/before",
+            afterSnapshotId: "refs/tau/checkpoints/session/turn-1/after",
             startedAt: 1,
             endedAt: 3,
             files: [{ path: "src/old.ts", name: "old.ts", directory: "src", status: "modified" as const, added: 1, removed: 0 }],

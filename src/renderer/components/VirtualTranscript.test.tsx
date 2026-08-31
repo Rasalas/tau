@@ -9,7 +9,7 @@ function Fixture({ messages, activity, activityAfterMessageId, activities }: {
   messages: UiMessage[];
   activity?: ReactNode;
   activityAfterMessageId?: string;
-  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode; fallbackToTail?: boolean }>;
+  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   return <div ref={ref} style={{ height: 600, overflow: "auto" }}>
@@ -76,6 +76,19 @@ describe("virtual transcript", () => {
       expect.stringMatching(/Persisted answer.*turn changes/u),
       expect.stringContaining("Later request"),
     ]);
+  });
+
+  it("does not move an unresolved historical activity to the tail", async () => {
+    const messages: UiMessage[] = [
+      { id: "first", role: "user", text: "First", timestamp: 1 },
+      { id: "latest", role: "assistant", text: "Latest", timestamp: 2 },
+    ];
+    const view = render(<Fixture messages={messages} activities={[
+      { id: "old-checkpoint", afterMessageId: "paged-out-answer", content: <div>old changes</div> },
+    ]} />);
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(2));
+    expect(view.container.textContent).not.toContain("old changes");
+    expect(view.container.querySelector(".virtual-transcript-row:last-child")?.textContent).toContain("Latest");
   });
 
   it("keeps message alignment working through the virtualization wrapper", async () => {

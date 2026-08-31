@@ -35,6 +35,8 @@ export interface PiBridgeSnapshot {
   taskHistory?: UiTaskProgressEntry[];
   /** Optional because older Pi bridge extensions do not provide checkpoints. */
   turnCheckpoints?: UiTurnCheckpoint[];
+  /** Cursor for raw records older than the newest bridge snapshot page. */
+  olderCursor?: string;
   /** Set while Pi blocks on an extension question in its own terminal. */
   awaitingInput?: PiBridgeAwaitingInput;
 }
@@ -49,6 +51,7 @@ export type PiBridgeCommand =
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
   | { command: "new_session"; initialPrompt?: string }
+  | { command: "transcript_page"; cursor?: string }
   | { command: "export_markdown" }
   | ({ command: "turn_file_diff"; checkpointId: string; path: string } & DiffLoadOptions)
   | { command: "snapshot" }

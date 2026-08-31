@@ -1,6 +1,40 @@
 import type { UiMessage } from "./contracts.js";
 import type { TranscriptPage } from "./host-protocol.js";
 
+export interface BoundedTranscriptPage<T> {
+  messages: T[];
+  olderCursor?: string;
+  hasMore: boolean;
+}
+
+/**
+ * Pages any Pi record stream by user turns. The bridge uses this same cursor
+ * algorithm for raw session records, while the desktop host uses it for the
+ * already-normalized renderer messages.
+ */
+export function pageRecords<T>(
+  records: readonly T[],
+  turnLimit: number,
+  cursor: string | undefined,
+  isUser: (record: T) => boolean,
+): BoundedTranscriptPage<T> {
+  if (!Number.isInteger(turnLimit) || turnLimit < 1) throw new Error("turnLimit must be positive");
+  const end = cursor === undefined ? records.length : Number.parseInt(cursor, 10);
+  if (!Number.isInteger(end) || end < 0 || end > records.length) throw new Error("Invalid transcript cursor");
+  if (end <= 0) return { messages: [], hasMore: false };
+  let start = end;
+  let turns = 0;
+  while (start > 0 && turns < turnLimit) {
+    start -= 1;
+    if (isUser(records[start]!)) turns += 1;
+  }
+  return {
+    messages: records.slice(start, end),
+    ...(start > 0 ? { olderCursor: String(start) } : {}),
+    hasMore: start > 0,
+  };
+}
+
 /** Pages the message stream by user turns while retaining message boundaries. */
 export class TranscriptPager {
   private readonly messages: UiMessage[];
@@ -10,33 +44,15 @@ export class TranscriptPager {
   }
 
   page(cursor?: string): TranscriptPage {
-    const end = cursor === undefined ? this.messages.length : this.parseCursor(cursor);
-    if (end <= 0) return { sessionId: "", messages: [], hasMore: false };
-    let start = end;
-    let turns = 0;
-    while (start > 0 && turns < this.turnLimit) {
-      start -= 1;
-      if (this.messages[start]?.role === "user") turns += 1;
-    }
-    // A page always includes the complete assistant/tool-adjacent records after
-    // its first user message; this avoids splitting a visible conversation turn.
-    const pageStart = start === 0 ? 0 : start;
+    const page = pageRecords(this.messages, this.turnLimit, cursor, (message) => message.role === "user");
     return {
       sessionId: "",
-      messages: this.messages.slice(pageStart, end),
-      ...(pageStart > 0 ? { olderCursor: String(pageStart) } : {}),
-      hasMore: pageStart > 0,
+      ...page,
     };
   }
 
   static pageFor(sessionId: string, messages: readonly UiMessage[], turnLimit: number, cursor?: string): TranscriptPage {
     const page = new TranscriptPager(messages, turnLimit).page(cursor);
     return { ...page, sessionId };
-  }
-
-  private parseCursor(cursor: string): number {
-    const value = Number.parseInt(cursor, 10);
-    if (!Number.isInteger(value) || value < 0 || value > this.messages.length) throw new Error("Invalid transcript cursor");
-    return value;
   }
 }

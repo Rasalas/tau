@@ -9,7 +9,7 @@ export interface VirtualTranscriptProps {
   isStreaming: boolean;
   activity?: ReactNode;
   activityAfterMessageId?: string;
-  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode; fallbackToTail?: boolean }>;
+  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
 }
@@ -39,7 +39,7 @@ export function VirtualTranscript({
   for (const entry of pendingActivities) {
     const resolvedAnchor = resolveMessageId(messages, entry.afterMessageId);
     const anchor = entry.afterMessageId
-      ? (resolvedAnchor ?? ((entry.id === "turn-activity" || entry.fallbackToTail) ? tailMessageId : undefined))
+      ? (resolvedAnchor ?? (entry.id === "turn-activity" ? tailMessageId : undefined))
       : tailMessageId;
     if (!anchor) continue;
     const anchored = activitiesByMessage.get(anchor) ?? [];

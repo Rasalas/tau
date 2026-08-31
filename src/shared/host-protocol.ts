@@ -138,7 +138,11 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDe
     taskProgress: snapshot.taskProgress,
     taskHistory: snapshot.taskHistory,
     contextUsage: snapshot.contextUsage,
-    ...(snapshot.messages.length > messages.length ? { olderCursor: String(snapshot.messages.length - messages.length) } : {}),
+    ...(snapshot.olderCursor !== undefined
+      ? { olderCursor: snapshot.olderCursor }
+      : snapshot.messages.length > messages.length
+        ? { olderCursor: String(snapshot.messages.length - messages.length) }
+        : {}),
   };
 }
 
