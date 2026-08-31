@@ -82,6 +82,7 @@ interface PromptPreflightResult {
   error?: unknown;
 }
 type PromptPreflight = (result: PromptPreflightResult) => void;
+type PromptPreflightState = "pending" | "accepted" | "rejected";
 
 function processIsAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
@@ -950,20 +951,28 @@ export class PiHost {
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       this.detachBridge();
-      const spare = await this.takeSpareThread(targetCwd);
+      const spare = await this.takePreparedThread(targetCwd);
       const thread = spare ?? await this.openThread(
         SessionManager.create(targetCwd),
         { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
+        { adopt: false },
       );
-      await this.activateThread(thread, true);
-      assertImageInputCapability(thread.session, attachments);
+      try {
+        assertImageInputCapability(thread.session, attachments);
+        if (initialPrompt || attachments.length > 0) await this.startPrompt(thread, initialPrompt ?? "", attachments);
+      } catch (error) {
+        // Keep the prepared blank runtime and the renderer's draft aligned. It
+        // has not been adopted or published, so a rejected first prompt cannot
+        // leave an invisible active thread behind.
+        this.retainPreparedThread(thread);
+        throw error;
+      }
+      await this.adoptThread(thread);
       // The first prompt names the thread right away; the run that follows
       // would otherwise leave it "Untitled" until it finishes.
       if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
+      await this.activateThread(thread, true);
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
-      if (initialPrompt || attachments.length > 0) {
-        await this.startPrompt(initialPrompt ?? "", attachments, thread.sessionId);
-      }
       this.scheduleSpareThread(targetCwd);
       return this.activeUpdates();
     });
@@ -988,8 +997,8 @@ export class PiHost {
   }
 
   /** Start a first prompt and wait only until Pi accepts it, not for the turn. */
-  private async startPrompt(text: string, attachments: UiPromptAttachment[], sessionId: string): Promise<void> {
-    await this.prompt(text, attachments, sessionId);
+  private async startPrompt(thread: ThreadRuntime, text: string, attachments: UiPromptAttachment[]): Promise<void> {
+    await this.promptThread(thread, text, attachments);
   }
 
   async forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult> {
@@ -1110,8 +1119,12 @@ export class PiHost {
       return;
     }
     const thread = this.requireThread(sessionId);
+    await this.promptThread(thread, text, attachments, onPreflightResult);
+  }
+
+  private async promptThread(thread: ThreadRuntime, text: string, attachments: UiPromptAttachment[], onPreflightResult?: PromptPreflight): Promise<void> {
     const session = thread.session;
-    let preflightReported = false;
+    let preflightState: PromptPreflightState = "pending";
     let resolvePreflight!: () => void;
     let rejectPreflight!: (error: unknown) => void;
     const preflight = new Promise<void>((resolve, reject) => {
@@ -1119,8 +1132,8 @@ export class PiHost {
       rejectPreflight = reject;
     });
     const reportPreflight = (result: PromptPreflightResult) => {
-      if (preflightReported) return;
-      preflightReported = true;
+      if (preflightState !== "pending") return;
+      preflightState = result.accepted ? "accepted" : "rejected";
       onPreflightResult?.(result);
       if (result.accepted) resolvePreflight();
       else rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
@@ -1136,19 +1149,19 @@ export class PiHost {
         },
       });
       void run.then(async () => {
-        if (!preflightReported) reportPreflight({ accepted: true });
+        if (preflightState === "pending") reportPreflight({ accepted: true });
         if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
       }).catch((error) => {
-        if (!preflightReported) reportPreflight({ accepted: false, error });
-        else this.fail(error, thread.sessionId);
+        if (preflightState === "pending") reportPreflight({ accepted: false, error });
+        else if (preflightState === "accepted") this.fail(error, thread.sessionId);
       });
     } catch (error) {
-      if (preflightReported) {
+      const stateAtFailure = preflightState as PromptPreflightState;
+      if (stateAtFailure === "accepted") {
         this.fail(error, thread.sessionId);
         return;
       }
-      reportPreflight({ accepted: false, error });
-      throw error;
+      if (stateAtFailure === "pending") reportPreflight({ accepted: false, error });
     }
     await preflight;
     this.log("prompt.accepted", `${text.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
@@ -1734,14 +1747,17 @@ export class PiHost {
     this.spare = { cwd, pending };
   }
 
-  private async takeSpareThread(cwd: string): Promise<ThreadRuntime | undefined> {
+  private async takePreparedThread(cwd: string): Promise<ThreadRuntime | undefined> {
     const spare = this.spare;
     if (!spare || spare.cwd !== cwd) return undefined;
     this.spare = undefined;
     const thread = await spare.pending;
     if (!thread) return undefined;
-    await this.adoptThread(thread);
     return thread;
+  }
+
+  private retainPreparedThread(thread: ThreadRuntime): void {
+    this.spare = { cwd: thread.cwd, pending: Promise.resolve(thread) };
   }
 
   private async discardSpare(): Promise<void> {

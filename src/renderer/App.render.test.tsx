@@ -160,6 +160,47 @@ describe("App render isolation", () => {
     expect(screen.getAllByText("Build the first screen").find((element) => element.tagName === "DIV")).toBeTruthy();
   });
 
+  it("keeps a new-thread draft and attachments when host preflight rejects", async () => {
+    let rejectNewSession!: (error: Error) => void;
+    const newSession = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectNewSession = reject; }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(dialog).getByRole("option", { name: /project/u }));
+    const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const image = new File([new Uint8Array([137, 80, 78, 71])], "draft.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [image] } });
+    await screen.findByRole("button", { name: "Preview draft.png" });
+    fireEvent.change(composer, { target: { value: "submitted text" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith("submitted text", [expect.objectContaining({ name: "draft.png" })], "/project"));
+
+    fireEvent.change(composer, { target: { value: "newer draft" } });
+    rejectNewSession(new Error("prompt rejected"));
+    await waitFor(() => expect(screen.getByText(/prompt rejected/u)).toBeTruthy());
+    expect(composer.value).toBe("newer draft");
+    expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
+  });
+
   it("shows a whole-column drop target and clears it on leave and drop", async () => {
     window.tau = {
       bootstrap: async () => ({

@@ -8,13 +8,19 @@ import { ModelPicker, modelKey } from "./ModelPicker";
 import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
-import { readComposerDraft, writeComposerDraft } from "../draft-store";
+import { writeComposerDraft } from "../draft-store";
 import {
   attachmentPolicyMessage,
   MAX_ATTACHMENTS,
   selectAttachmentCandidates,
 } from "../../shared/prompt-attachment-limits";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
+import {
+  ComposerScopeStore,
+  createDraftKey,
+  type ComposerScope,
+  type PendingAttachment,
+} from "../composer-scope-store";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -35,48 +41,10 @@ const THINKING_LABELS: Record<string, string> = {
 let nextAttachmentId = 0;
 let nextSubmissionId = 0;
 
-type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
-declare const draftKeyBrand: unique symbol;
-type DraftKey = string & { readonly [draftKeyBrand]: true };
-type ComposerScope = DraftKey;
-interface ComposerScopeState {
-  draft: string;
-  revision: number;
-  attachments: PendingAttachment[];
-  error?: string;
-  errorSubmissionId?: number;
-  queue: Promise<void>;
-  pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; revision: number }>;
-}
 type ComposerSubmissionResult = void | boolean | Promise<void | boolean>;
-
-function createDraftKey(storageKey: string | undefined): DraftKey {
-  return (storageKey ?? "thread:default") as DraftKey;
-}
 
 export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
-}
-
-function createComposerScopeState(scope: ComposerScope): ComposerScopeState {
-  return {
-    draft: readComposerDraft(window.localStorage, scope),
-    revision: 0,
-    attachments: [],
-    queue: Promise.resolve(),
-    pendingSubmissions: new Map(),
-  };
-}
-
-function ensureComposerScopeState(
-  states: Map<ComposerScope, ComposerScopeState>,
-  scope: ComposerScope,
-): ComposerScopeState {
-  const existing = states.get(scope);
-  if (existing) return existing;
-  const created = createComposerScopeState(scope);
-  states.set(scope, created);
-  return created;
 }
 
 type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
@@ -130,6 +98,7 @@ function readImage(file: File): Promise<PendingAttachment> {
 
 export function Composer({
   snapshot,
+  scopeStore,
   value,
   seed,
   draftStorageKey,
@@ -161,6 +130,7 @@ export function Composer({
   onSwitchRef,
 }: {
   snapshot?: HostSnapshot;
+  scopeStore: ComposerScopeStore;
   value?: string;
   seed?: string;
   draftStorageKey?: string;
@@ -195,9 +165,8 @@ export function Composer({
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const attachmentScope = createDraftKey(draftStorageKey);
-  const scopeStatesRef = useRef(new Map<ComposerScope, ComposerScopeState>());
   const [, refreshScope] = useState(0);
-  const activeScopeState = ensureComposerScopeState(scopeStatesRef.current, attachmentScope);
+  const activeScopeState = scopeStore.ensure(attachmentScope);
   const activeAttachmentScopeRef = useRef<ComposerScope>(attachmentScope);
   const attachments = activeScopeState.attachments;
   const attachmentError = activeScopeState.error;
@@ -248,10 +217,10 @@ export function Composer({
     const previousScope = activeAttachmentScopeRef.current;
     if (previousScope === attachmentScope) return;
     activeAttachmentScopeRef.current = attachmentScope;
-    ensureComposerScopeState(scopeStatesRef.current, attachmentScope);
+    scopeStore.ensure(attachmentScope);
     setPreviewId(undefined);
     refreshScope((current) => current + 1);
-  }, [attachmentScope, refreshScope]);
+  }, [attachmentScope, refreshScope, scopeStore]);
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
@@ -260,7 +229,7 @@ export function Composer({
   ) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
-    const state = ensureComposerScopeState(scopeStatesRef.current, scope);
+    const state = scopeStore.ensure(scope);
     if (!capability) {
       state.error = IMAGE_INPUT_UNAVAILABLE_MESSAGE;
       state.errorSubmissionId = undefined;
@@ -283,18 +252,18 @@ export function Composer({
       state.attachments = [...state.attachments, ...accepted].slice(0, MAX_ATTACHMENTS);
     }
     if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
-  }, []);
+  }, [scopeStore]);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
     const snapshot = Array.from(files);
     const scope = attachmentScope;
-    const state = ensureComposerScopeState(scopeStatesRef.current, scope);
+    const state = scopeStore.ensure(scope);
     const previous = state.queue;
     const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput));
     state.queue = operation.then(() => undefined, () => undefined);
     return operation;
-  }, [attachmentScope, processFiles, supportsImageInput]);
+  }, [attachmentScope, processFiles, scopeStore, supportsImageInput]);
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
 
   // An editor prompt arrives with text to edit; seed the field once.
@@ -318,13 +287,13 @@ export function Composer({
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     const submittedText = normalizeSkillInvocation(text, commands);
     const submittedScope = attachmentScope;
-    const submittedState = ensureComposerScopeState(scopeStatesRef.current, submittedScope);
+    const submittedState = scopeStore.ensure(submittedScope);
     const submittedAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
     const submittedRevision = submittedState.revision;
     const submissionId = nextSubmissionId++;
     submittedState.pendingSubmissions.set(submissionId, { attachmentIds: submittedAttachmentIds, revision: submittedRevision });
     const settleSubmission = (accepted: boolean, error?: unknown) => {
-      const state = ensureComposerScopeState(scopeStatesRef.current, submittedScope);
+      const state = scopeStore.ensure(submittedScope);
       if (!state.pendingSubmissions.delete(submissionId)) return;
       if (accepted) {
         state.attachments = state.attachments.filter((attachment) => !submittedAttachmentIds.has(attachment.id));

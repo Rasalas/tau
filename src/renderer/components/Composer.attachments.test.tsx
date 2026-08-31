@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer } from "./Composer";
 import type { ComposerAttachmentHandle } from "./Composer";
+import { ComposerScopeStore } from "../composer-scope-store";
 
 function renderComposer(
   onSubmit = vi.fn(),
@@ -17,8 +18,10 @@ function renderComposer(
   },
   draftStorageKey = "thread:session",
 ) {
+  const scopeStore = new ComposerScopeStore();
   const element = (scope: string) => (
     <Composer
+      scopeStore={scopeStore}
       draftStorageKey={scope}
       queue={[]}
       accessLevel="full"

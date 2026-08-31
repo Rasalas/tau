@@ -4,6 +4,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, normalizeSkillInvocation } from "./Composer";
+import { ComposerScopeStore } from "../composer-scope-store";
 
 const composerCommands = [
   { name: "skill:tdd", description: "Build features test-first", source: "skill" as const },
@@ -30,7 +31,9 @@ const snapshot: HostSnapshot = {
 };
 
 function renderComposer(onSubmit = vi.fn(), streaming = false) {
+  const scopeStore = new ComposerScopeStore();
   render(<Composer
+    scopeStore={scopeStore}
     snapshot={{ ...snapshot, isStreaming: streaming }}
     queue={[]}
     accessLevel="full"

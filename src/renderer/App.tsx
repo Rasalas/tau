@@ -23,6 +23,7 @@ import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer, type ComposerAttachmentHandle } from "./components/Composer";
+import { ComposerScopeStore } from "./composer-scope-store";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
@@ -361,6 +362,7 @@ export default function App() {
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
+  const [composerScopeStore] = useState(() => new ComposerScopeStore());
   const [notice, setNotice] = useState<string>();
   const [dockOpen, setDockOpen] = useState(true);
   const [olderCursor, setOlderCursor] = useState<string>();
@@ -1427,7 +1429,6 @@ export default function App() {
           await window.tau.steer(text, attachments, snapshot?.sessionId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          writeComposerDraft(window.localStorage, activeDraftKey, text);
           setNotice(String(error));
           return false;
         }
@@ -1443,7 +1444,6 @@ export default function App() {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
           });
-          writeComposerDraft(window.localStorage, activeDraftKey, text);
           setNotice(String(error));
           return false;
         }
@@ -1485,18 +1485,15 @@ export default function App() {
               taskHistory: [],
             } : undefined,
           }, actions).catch((error) => setNotice(String(error)));
-          writeComposerDraft(window.localStorage, pendingKey, "");
           return true;
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
           // view stays until that report arrives.
           applyActionResult(result);
-          writeComposerDraft(window.localStorage, pendingKey, "");
           return true;
         }
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        writeComposerDraft(window.localStorage, pendingKey, text);
         setNotice(String(error));
         return false;
       }
@@ -1514,7 +1511,6 @@ export default function App() {
         return true;
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        writeComposerDraft(window.localStorage, activeDraftKey, text);
         setNotice(String(error));
         return false;
       }
@@ -1676,6 +1672,7 @@ export default function App() {
   const conversationComposer = (
     <Composer
       snapshot={conversationSnapshot}
+      scopeStore={composerScopeStore}
       seed={composerSeed}
       draftStorageKey={activeDraftKey}
       queue={queue}

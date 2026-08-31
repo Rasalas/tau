@@ -47,16 +47,19 @@ describe("PiHost prompt preflight", () => {
   });
 
   it("rejects before acceptance when the SDK preflight is rejected", async () => {
+    let rejectRun!: (error: Error) => void;
+    const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
     const session = {
       sessionId: "session",
       model: { input: ["text"] },
       isStreaming: false,
       prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => {
         options?.preflightResult?.(false);
-        throw new Error("runtime refused prompt");
+        await run;
       },
     };
-    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
     const internals = host as unknown as {
       threads: { adopt(record: unknown): Promise<void> };
     };
@@ -65,6 +68,33 @@ describe("PiHost prompt preflight", () => {
 
     await expect(host.prompt("hello", [], "session", preflight)).rejects.toThrow("prompt was rejected before it started");
     expect(preflight).toHaveBeenCalledWith({ accepted: false });
+    rejectRun(new Error("late refusal"));
+    await Promise.resolve();
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "late refusal" }));
+  });
+
+  it("owns synchronous validation rejection without an unhandled promise", async () => {
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: vi.fn(),
+    };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const internals = host as unknown as {
+      threads: { adopt(record: unknown): Promise<void> };
+    };
+    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      await expect(host.prompt("hello", [{ kind: "image", name: "blocked.png", mimeType: "image/png", data: "x", size: 1 }], "session")).rejects.toThrow(/image input/i);
+      await Promise.resolve();
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(session.prompt).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 });
 
