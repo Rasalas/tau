@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
+import { normalizeSkillInvocationForProvider } from "../../src/shared/skill-invocation.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import {
   encodePiBridgeFrame,
@@ -29,6 +30,12 @@ function boundedBridgeValue<T>(value: T): T {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
+  const normalizePrompt = (text: string, ctx: ExtensionContext): string => normalizeSkillInvocationForProvider(
+    text,
+    ctx.model?.provider,
+    pi.getCommands(),
+  );
+
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
@@ -38,7 +45,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const initialPrompt = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as string : undefined;
       await ctx.newSession({
-        ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
+        ...(initialPrompt ? { withSession: async (fresh) => {
+          await fresh.sendUserMessage(normalizePrompt(initialPrompt, ctx), { expandPromptTemplates: true });
+        } } : {}),
       });
     },
   });
@@ -169,7 +178,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
         case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
         case "prompt":
-          pi.sendUserMessage(frame.text, {
+          pi.sendUserMessage(normalizePrompt(frame.text, ctx), {
             ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
             expandPromptTemplates: true,
           });

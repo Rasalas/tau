@@ -66,6 +66,7 @@ import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import { normalizeSkillInvocationForProvider } from "../shared/skill-invocation.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -913,7 +914,7 @@ export class PiHost {
     if (this.bridge && (!cwd || cwd === this.cwd)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt });
+        await this.bridgeCommand({ command: "new_session", initialPrompt: this.normalizeBridgePrompt(initialPrompt) });
         return this.actionResult([]);
       } catch (error) {
         // A new thread is a different session, so Pi has no standing to veto it.
@@ -1054,16 +1055,18 @@ export class PiHost {
   async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text });
-      this.log("prompt.accepted", text.slice(0, 80));
+      const prompt = this.normalizeBridgePrompt(text);
+      await this.bridge!.command({ command: "prompt", text: prompt });
+      this.log("prompt.accepted", prompt.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
     const session = thread.session;
+    const prompt = this.normalizeThreadPrompt(thread, text);
     const images = promptImages(attachments);
-    this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
+    this.log("prompt.accepted", `${prompt.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
     try {
-      await session.prompt(text, {
+      await session.prompt(prompt, {
         images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
       });
@@ -1102,11 +1105,12 @@ export class PiHost {
   async steer(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer" });
+      await this.bridge!.command({ command: "prompt", text: this.normalizeBridgePrompt(text), deliverAs: "steer" });
       return;
     }
     try {
-      await this.requireThread(sessionId).session.steer(text, promptImages(attachments));
+      const thread = this.requireThread(sessionId);
+      await thread.session.steer(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
     } catch (error) {
       this.fail(error);
       throw error;
@@ -1116,11 +1120,12 @@ export class PiHost {
   async followUp(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp" });
+      await this.bridge!.command({ command: "prompt", text: this.normalizeBridgePrompt(text), deliverAs: "followUp" });
       return;
     }
     try {
-      await this.requireThread(sessionId).session.followUp(text, promptImages(attachments));
+      const thread = this.requireThread(sessionId);
+      await thread.session.followUp(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
     } catch (error) {
       this.fail(error);
       throw error;
@@ -2229,6 +2234,27 @@ export class PiHost {
       }
     }
     return [...commands.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  private normalizeThreadPrompt(thread: ThreadRuntime, text: string): string {
+    return normalizeSkillInvocationForProvider(
+      text,
+      thread.session.model?.provider,
+      this.composerCommands(thread),
+    );
+  }
+
+  private normalizeBridgePrompt(text: string): string;
+  private normalizeBridgePrompt(text: undefined): undefined;
+  private normalizeBridgePrompt(text: string | undefined): string | undefined;
+  private normalizeBridgePrompt(text: string | undefined): string | undefined {
+    if (text === undefined) return undefined;
+    const snapshot = this.bridgeSnapshot;
+    return normalizeSkillInvocationForProvider(
+      text,
+      snapshot?.model?.provider,
+      snapshot?.composerCommands ?? [],
+    );
   }
 
   private snapshotSync(models: UiModel[]): HostSnapshot {

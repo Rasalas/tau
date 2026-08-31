@@ -9,6 +9,7 @@ import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
+import { normalizeSkillInvocationForProvider } from "../../shared/skill-invocation";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -47,14 +48,12 @@ export function composerTrigger(text: string, caret: number): ComposerTrigger | 
   return { kind: match[1] as "/" | "$", query: match[2], start, end: caret };
 }
 
-export function normalizeSkillInvocation(text: string, commands: readonly UiComposerCommand[]): string {
-  const match = /^(\s*)([$/])([^\s]+)(?=\s|$)/u.exec(text);
-  if (!match) return text;
-  const requested = match[3];
-  const skill = commands.find((command) => command.source === "skill" && skillName(command) === requested);
-  if (!skill) return text;
-  if (match[2] === "/" && commands.some((command) => command.source !== "skill" && command.name === requested)) return text;
-  return `${match[1]}/skill:${requested}${text.slice(match[0].length)}`;
+export function normalizeSkillInvocation(
+  text: string,
+  commands: readonly UiComposerCommand[],
+  provider?: string,
+): string {
+  return normalizeSkillInvocationForProvider(text, provider, commands);
 }
 
 function readImage(file: File): Promise<PendingAttachment> {
@@ -238,7 +237,7 @@ export function Composer({
     }
     if (!text.trim() && attachments.length === 0) return;
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
-    const submittedText = normalizeSkillInvocation(text, commands);
+    const submittedText = normalizeSkillInvocation(text, commands, snapshot?.model?.provider);
     if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
     else onSubmit(submittedText, submittedAttachments);
     updateDraft("");

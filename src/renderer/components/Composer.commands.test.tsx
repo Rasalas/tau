@@ -28,9 +28,9 @@ const snapshot: HostSnapshot = {
   serviceTierAvailable: false,
 };
 
-function renderComposer(onSubmit = vi.fn(), streaming = false) {
+function renderComposer(onSubmit = vi.fn(), streaming = false, provider?: string) {
   render(<Composer
-    snapshot={{ ...snapshot, isStreaming: streaming }}
+    snapshot={{ ...snapshot, isStreaming: streaming, model: provider ? { provider, id: "model", name: "Model" } : undefined }}
     queue={[]}
     accessLevel="full"
     contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
@@ -118,5 +118,15 @@ describe("Composer command menu", () => {
       ...composerCommands,
       { name: "skill:review", source: "skill", description: "Review skill" },
     ])).toBe("/review this");
+  });
+
+  it("sends Claude Code skills as slash commands without the dollar form", () => {
+    const onSubmit = renderComposer(vi.fn(), false, "claude-code");
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "$tdd fix the parser", selectionStart: 19 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", []);
+    expect(onSubmit.mock.calls[0]?.[0]).not.toContain("$tdd");
   });
 });

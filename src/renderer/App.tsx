@@ -67,6 +67,7 @@ import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
+import { compactSkillInvocation } from "../shared/skill-invocation";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
@@ -1249,12 +1250,16 @@ export default function App() {
 
   const copyMessage = useCallback(async (message: UiMessage) => {
     try {
-      await window.tau?.copyText(message.text);
+      await window.tau?.copyText(compactSkillInvocation(
+        message.text,
+        snapshot?.model?.provider,
+        snapshot?.composerCommands ?? [],
+      ));
       setNotice("Message copied.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [snapshot?.composerCommands, snapshot?.model?.provider]);
 
   const forkMessage = useCallback(async (message: UiMessage) => {
     if (!message.sourceEntryId || !snapshot?.sessionId || !requireHost("Fork thread")) return;
@@ -1792,6 +1797,7 @@ export default function App() {
                       />
                     ) : undefined}
                     activityAfterMessageId={visibleToolAnchorId}
+                    skillCommands={conversationSnapshot?.composerCommands}
                     activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
                       id: entry.id,
                       afterMessageId: entry.anchorMessageId,

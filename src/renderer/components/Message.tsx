@@ -1,6 +1,7 @@
-import { Bot, ChevronRight, Copy, GitFork } from "lucide-react";
+import { Bot, ChevronRight, Copy, GitFork, Sparkles } from "lucide-react";
 import { memo, useEffect, useState } from "react";
-import type { UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
+import type { UiComposerCommand, UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
+import { parseSkillInvocation } from "../../shared/skill-invocation";
 import { Markdown } from "./Markdown";
 
 function clockTime(timestamp: number): string {
@@ -105,16 +106,32 @@ function MessageActions({ onCopy, onFork }: { onCopy(): void; onFork?: () => voi
   </div>;
 }
 
+function SkillChip({ name }: { name: string }) {
+  return <span
+    className="skill-chip"
+    role="img"
+    aria-label={`Skill ${name}`}
+    title={`Skill: ${name}`}
+    data-skill-name={name}
+  >
+    <Sparkles size={13} strokeWidth={2} aria-hidden="true" />
+    <strong>{name}</strong>
+    <span>Skill</span>
+  </span>;
+}
+
 export const Message = memo(function Message({
   message,
   streaming = false,
   onCopy,
   onFork,
+  skillCommands = [],
 }: {
   message: UiMessage;
   streaming?: boolean;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
+  skillCommands?: readonly UiComposerCommand[];
 }) {
   const activity = parseAsyncActivity(message.text);
 
@@ -122,16 +139,20 @@ export const Message = memo(function Message({
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
-    const visibleText = withoutLocalImagePaths(message.text);
-    const hasLocalImages = localImagePaths(message.text).length > 0;
+    const skill = parseSkillInvocation(message.text, skillCommands);
+    const skillInstruction = skill?.userMessage ?? "";
+    const messageText = skill ? skillInstruction : message.text;
+    const visibleText = withoutLocalImagePaths(messageText);
+    const hasLocalImages = localImagePaths(messageText).length > 0;
     const persistedImages = message.images ?? [];
     return (
       <div className="message-shell user">
         <article className="message user">
           <div className="message-text">
+            {skill ? <SkillChip name={skill.name} /> : null}
             {visibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
             <PersistedMessageImages images={persistedImages} />
-            {hasLocalImages ? <MessageImages text={message.text} /> : null}
+            {hasLocalImages ? <MessageImages text={messageText} /> : null}
           </div>
           <div className="message-user-meta">
             <time>{clockTime(message.timestamp)}</time>
