@@ -509,19 +509,33 @@ export default function App() {
     if (update.type === "thread-shell") {
       const shell = update.update.shell;
       threadStore.applyThreadShell(update.update.sessionId, shell, update.update.removed);
-      if (shell) promoteFromHostReport(update.update.sessionId, shell.projectPath);
       if (shell) setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, branch: shell.branch } : current);
       return;
     }
     if (update.type === "thread-detail") {
       const detail = update.detail;
       const shell = threadStore.getThread(detail.sessionId);
-      if (shell) promoteFromHostReport(detail.sessionId, shell.projectPath);
-      else if (pendingNewThreadRef.current && detail.sessionId !== cachedSnapshotRef.current?.sessionId) {
+      const prompt = detail.messages.find((message) => message.role === "user")?.text;
+      if (shell && prompt !== undefined && pendingNewThreadRef.current) {
+        const pending = pendingNewThreadRef.current;
+        if (promoteFromHostReport(detail.sessionId, shell.projectPath, prompt, detail.requestId)) {
+          composerScopeStore.moveScope(
+            createDraftKey(draftKey(undefined, pending)),
+            createDraftKey(draftKey(detail.sessionId)),
+          );
+        }
+      }
+      else if (pendingNewThreadRef.current && detail.sessionId !== cachedSnapshotRef.current?.sessionId && prompt !== undefined) {
         // Older bridge instances acknowledge the replacement without returning
         // a snapshot. The first subsequent detail is the authoritative handoff;
         // the request guard prevents an unrelated/late thread from promoting it.
-        promoteFromHostReport(detail.sessionId, pendingNewThreadRef.current.projectPath);
+        const pending = pendingNewThreadRef.current;
+        if (promoteFromHostReport(detail.sessionId, pending.projectPath, prompt, detail.requestId)) {
+          composerScopeStore.moveScope(
+            createDraftKey(draftKey(undefined, pending)),
+            createDraftKey(draftKey(detail.sessionId)),
+          );
+        }
       }
       detailStoreRef.current.set(detail);
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
@@ -588,7 +602,7 @@ export default function App() {
       threadStore.setStreaming(update.event === "started");
     }
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, promoteFromHostReport, threadStore]);
+  }, [applyThreadIndex, composerScopeStore, promoteFromHostReport, threadStore]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult) => {
     result.updates.forEach((update) => applyHostUpdate(update));
@@ -745,7 +759,11 @@ export default function App() {
         setTools((current) => current.map((tool) => tool.id === event.tool.id ? event.tool : tool));
         if (event.tool.name === "edit" || event.tool.name === "write") void refreshChanges();
         break;
-      case "event-log": addEvent(event.label, event.detail, event.timestamp); break;
+      case "event-log":
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) {
+          addEvent(event.label, event.detail, event.timestamp);
+        }
+        break;
       case "error":
         if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
         break;
@@ -782,10 +800,12 @@ export default function App() {
         break;
       }
       case "extension-ui-resolved":
-        setUiPrompts((current) => current.filter((entry) => entry.id !== event.id));
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) {
+          setUiPrompts((current) => current.filter((entry) => entry.id !== event.id));
+        }
         break;
       case "notice":
-        setNotice(event.message);
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
         break;
       case "queue":
         setQueue([...event.steering, ...event.followUp]);
@@ -1392,6 +1412,9 @@ export default function App() {
     setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
       ? { ...entry, scope: `session:${sessionId}` }
       : entry));
+    if (scope) {
+      composerScopeStore.moveScope(createDraftKey(scope), createDraftKey(draftKey(sessionId)));
+    }
     writeNewThreadDraft(window.localStorage);
     setPendingNewThread(undefined);
     if (result) acceptWorkspace(result);
@@ -1412,7 +1435,7 @@ export default function App() {
         taskHistory: [],
       } : undefined,
     }, actions).catch((error) => setNotice(errorMessage(error)));
-  }, [acceptWorkspace, actions, isCurrentNewThreadRequest, registry, snapshot, threadStore]);
+  }, [acceptWorkspace, actions, composerScopeStore, isCurrentNewThreadRequest, registry, snapshot, threadStore]);
 
   const submit = useCallback(async (
     value: string,
@@ -1479,11 +1502,13 @@ export default function App() {
           completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId });
           return { accepted: true };
         }
-        const result = await window.tau.newSession(text, attachments, pending.projectPath);
+        const result = await window.tau.newSession(text, attachments, pending.projectPath, String(newThreadRequestId));
         if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) return result.submission;
         const created = result.updates.find((update) => update.type === "thread-detail");
-        if (result.submission.accepted && created?.type !== "thread-detail") {
-          markAwaitingPromotion(pending, submittedDraftKey, newThreadRequestId);
+        if (result.submission.accepted
+          && created?.type !== "thread-detail"
+          && result.requestId === String(newThreadRequestId)) {
+          markAwaitingPromotion(pending, submittedDraftKey, newThreadRequestId, text);
         }
         applyActionResult(result);
         if (!result.submission.accepted) {
@@ -1613,7 +1638,7 @@ export default function App() {
   const scopedOptimisticMessages = optimisticMessages.filter((entry) => entry.scope === activeDraftKey);
   const unconfirmedOptimisticMessages = reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message);
   const preparedThreadCapability = usePreparedThreadCapability(
-    pendingNewThread?.projectPath,
+    pendingNewThread?.sessionId ? undefined : pendingNewThread?.projectPath,
     window.tau?.getPreparedThreadCapability,
   );
   const conversationMessages = pendingNewThread
@@ -1629,9 +1654,11 @@ export default function App() {
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
-    supportsImageInput: preparedThreadCapability?.cwd === pendingNewThread.projectPath
-      ? preparedThreadCapability.supportsImageInput ?? false
-      : false,
+    supportsImageInput: pendingNewThread.sessionId
+      ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
+      : preparedThreadCapability?.cwd === pendingNewThread.projectPath
+        ? preparedThreadCapability.supportsImageInput ?? false
+        : false,
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;

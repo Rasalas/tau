@@ -22,6 +22,12 @@ export type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: s
 let nextAttachmentId = 0;
 export function allocateAttachmentId(): number { return nextAttachmentId++; }
 
+const volatilePersistence: ComposerScopePersistence = {
+  load: async () => undefined,
+  save: async () => {},
+  delete: async () => {},
+};
+
 export interface ComposerScopeState {
   draft: string;
   revision: number;
@@ -76,7 +82,10 @@ export class ComposerScopeStore {
 
   private nextSubmissionId = 0;
 
-  constructor(private readonly persistence: ComposerScopePersistence = indexedDbPersistence) {}
+  // Draft text and image data are intentionally renderer-lifetime state. A
+  // caller may inject persistence for an explicit product feature or test, but
+  // the application default must not put base64 images into cross-restart storage.
+  constructor(private readonly persistence: ComposerScopePersistence = volatilePersistence) {}
 
   ensure(scope: ComposerScope): ComposerScopeState {
     const existing = this.states.get(scope);
@@ -118,6 +127,21 @@ export class ComposerScopeStore {
       listeners.delete(listener);
       if (listeners.size === 0) this.listeners.delete(scope);
     };
+  }
+
+  /** Move a pending draft atomically when a correlated new thread gets an id. */
+  moveScope(from: ComposerScope, to: ComposerScope): void {
+    if (from === to) return;
+    const source = this.states.get(from);
+    if (!source) return;
+    const destination = this.states.get(to);
+    if (!destination || (destination.draft === "" && destination.attachments.length === 0)) {
+      this.states.set(to, source);
+      this.states.delete(from);
+      this.snapshots.delete(from);
+      this.snapshots.delete(to);
+      this.notify(to);
+    }
   }
 
   private snapshotFor(state: ComposerScopeState): ComposerScopeSnapshot {

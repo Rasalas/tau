@@ -2,17 +2,23 @@ import { useCallback, useRef, useState } from "react";
 import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { createDraftKey, type DraftKey } from "./composer-scope-store";
 
+let draftIdentityCounter = 0;
+function newDraftIdentity(): string {
+  return `${Date.now()}-${++draftIdentityCounter}`;
+}
+
 export function useNewThreadController(storage: Storage) {
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
   const pendingRef = useRef(pendingNewThread);
   pendingRef.current = pendingNewThread;
   const requestRef = useRef(0);
-  const awaitingPromotionRef = useRef<{ scope: DraftKey; requestId: number } | undefined>(undefined);
+  const awaitingPromotionRef = useRef<{ scope: DraftKey; requestId: number; prompt: string } | undefined>(undefined);
 
   const begin = useCallback((draft: NewThreadDraft) => {
     requestRef.current += 1;
-    writeNewThreadDraft(storage, draft);
-    setPendingNewThread(draft);
+    const scopedDraft = { ...draft, draftId: draft.draftId ?? newDraftIdentity() };
+    writeNewThreadDraft(storage, scopedDraft);
+    setPendingNewThread(scopedDraft);
   }, [storage]);
 
   const invalidate = useCallback(() => {
@@ -29,17 +35,20 @@ export function useNewThreadController(storage: Storage) {
       && current.sessionId === pending.sessionId;
   }, []);
 
-  const markAwaitingPromotion = useCallback((pending: NewThreadDraft, scope: string | undefined, requestId: number) => {
+  const markAwaitingPromotion = useCallback((pending: NewThreadDraft, scope: string | undefined, requestId: number, prompt: string) => {
     if (!isCurrent(pending, scope, requestId)) return false;
-    awaitingPromotionRef.current = { scope: createDraftKey(scope), requestId };
+    awaitingPromotionRef.current = { scope: createDraftKey(scope), requestId, prompt };
     return true;
   }, [isCurrent]);
 
-  const promoteFromHostReport = useCallback((sessionId: string, projectPath: string): boolean => {
+  const promoteFromHostReport = useCallback((sessionId: string, projectPath: string, prompt: string, requestId?: string): boolean => {
     const current = pendingRef.current;
     const awaiting = awaitingPromotionRef.current;
     if (!current || !awaiting || current.projectPath !== projectPath || current.sessionId) return false;
-    if (awaiting.requestId !== requestRef.current || awaiting.scope !== createDraftKey(draftKey(undefined, current))) return false;
+    if (awaiting.requestId !== requestRef.current
+      || awaiting.scope !== createDraftKey(draftKey(undefined, current))
+      || prompt !== awaiting.prompt
+      || requestId !== String(awaiting.requestId)) return false;
     awaitingPromotionRef.current = undefined;
     writeNewThreadDraft(storage);
     setPendingNewThread(undefined);

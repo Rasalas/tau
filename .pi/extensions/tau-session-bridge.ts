@@ -22,6 +22,23 @@ interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
 /** The Pi TUI bridge deliberately rejects image prompt payloads. */
 export const PI_BRIDGE_SUPPORTS_IMAGE_INPUT = false as const;
 
+/** Encode the registered command used by the socket side of the bridge.
+ *
+ * Socket callbacks receive an ExtensionContext, not the command-only context
+ * that owns session replacement. Going through this registered command keeps
+ * that distinction real at runtime as well as in the types.
+ */
+export function bridgeNewSessionCommand(initialPrompt?: string): string {
+  if (initialPrompt === undefined) return "/tau-bridge-new";
+  return `/tau-bridge-new ${Buffer.from(JSON.stringify(initialPrompt), "utf8").toString("base64url")}`;
+}
+
+async function createPiSession(ctx: ExtensionCommandContext, initialPrompt?: string): Promise<void> {
+  await ctx.newSession({
+    ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
+  });
+}
+
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
     if (typeof item !== "string") return item;
@@ -40,9 +57,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     description: "Create a new Pi session for an attached Tau client",
     handler: async (args, ctx) => {
       const initialPrompt = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as string : undefined;
-      await ctx.newSession({
-        ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
-      });
+      await createPiSession(ctx, initialPrompt);
     },
   });
   pi.registerCommand("tau-bridge-fork", {
@@ -211,25 +226,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         }
         case "new_session": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before creating a new thread.");
-          let replacementSnapshot: PiBridgeSnapshot | undefined;
-          const result = await (ctx as ExtensionCommandContext).newSession({
-            withSession: async (fresh) => {
-              replacementSnapshot = snapshot(fresh);
-              if (frame.initialPrompt) {
-                void fresh.sendUserMessage(frame.initialPrompt, { expandPromptTemplates: true }).catch((error) => {
-                  fresh.ui.notify(`The initial prompt failed: ${error instanceof Error ? error.message : String(error)}`, "error");
-                });
-              }
-            },
-          });
-          if (result.cancelled || !replacementSnapshot) throw new Error("Pi cancelled creation of the new thread.");
-          // Keep the connected bridge's ownership boundary aligned with the
-          // replacement session before any subsequent client command arrives.
-          if (descriptor) {
-            descriptor.sessionId = replacementSnapshot.sessionId;
-            descriptor.sessionFile = replacementSnapshot.sessionFile;
-          }
-          respond(client, frame.id, true, { accepted: true, snapshot: replacementSnapshot });
+          // Only a registered command receives ExtensionCommandContext. The
+          // socket callback deliberately dispatches that command instead of
+          // pretending its event context has command-only session methods.
+          pi.sendUserMessage(bridgeNewSessionCommand(frame.initialPrompt), { expandPromptTemplates: true });
+          respond(client, frame.id, true, { accepted: true, requestId: frame.requestId ?? frame.id });
           break;
         }
         case "fork": {

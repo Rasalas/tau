@@ -134,6 +134,20 @@ describe("ComposerScopeStore", () => {
     expect(store.getSnapshot(key).error).toBe("The dropped file is not supported.");
   });
 
+  it("moves a correlated draft without losing attachments", () => {
+    const store = new ComposerScopeStore();
+    const from = createDraftKey("new:/project:request-1");
+    const to = createDraftKey("session:created");
+    store.setDraft(from, "keep edits", () => {});
+    store.setAttachments(from, [{
+      id: 10, kind: "image", name: "keep.png", mimeType: "image/png", data: "aA==", size: 1,
+      previewUrl: "data:image/png;base64,aA==",
+    }], () => {});
+    store.moveScope(from, to);
+    expect(store.getSnapshot(to)).toMatchObject({ draft: "keep edits", attachments: [{ name: "keep.png" }] });
+    expect(store.getSnapshot(from)).toMatchObject({ draft: "", attachments: [] });
+  });
+
   it("migrates legacy attachment records without replacing newer local text", async () => {
     const key = createDraftKey("thread:legacy");
     writeComposerDraft(window.localStorage, key, "new local text");

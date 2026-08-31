@@ -31,6 +31,8 @@ export interface ThreadIndexUpdate {
 
 export interface ThreadDetail {
   sessionId: string;
+  /** Present only when this detail completes a correlated bridge handoff. */
+  requestId?: string;
   messages: UiMessage[];
   isStreaming: boolean;
   activeTools: string[];
@@ -88,6 +90,8 @@ export interface HostActionResult {
 
 export interface NewThreadResult extends HostActionResult {
   submission: SubmissionResult;
+  /** Correlates a bridge replacement with the originating composer request. */
+  requestId?: string;
 }
 
 /** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */
@@ -117,7 +121,7 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
   switch (candidate.type) {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
-    case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
+    case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && (payload.requestId === undefined || typeof payload.requestId === "string") && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean");
     case "catalog": return Boolean(payload && (payload.sessionId === undefined || typeof payload.sessionId === "string") && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number" && (payload.supportsImageInput === undefined || typeof payload.supportsImageInput === "boolean"));
     case "project": return Boolean(payload && typeof payload.cwd === "string");

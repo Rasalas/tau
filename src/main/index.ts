@@ -135,8 +135,8 @@ function installIpc(): void {
   // Stopping must not queue behind host readiness: a thread stuck on a question
   // is exactly what the user is trying to get out of.
   ipcMain.handle("tau:abort", async (_event, sessionId?: string) => host?.abort(sessionId));
-  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string) =>
-    (await requireHostReady()).newSession(initialPrompt, attachments, cwd));
+  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: string) =>
+    (await requireHostReady()).newSession(initialPrompt, attachments, cwd, requestId));
   ipcMain.handle("tau:prepared-thread-capability", async (_event, cwd?: string) =>
     (await requireHostReady()).getPreparedThreadCapability(cwd));
   ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));

@@ -15,4 +15,10 @@ describe("composer drafts", () => {
     expect(readComposerDraft(localStorage, draftKey(undefined, pending))).toBe("new thread text");
     expect(readNewThreadDraft(localStorage)).toEqual(pending);
   });
+
+  it("keeps same-project new-thread drafts in distinct scopes", () => {
+    const first = { projectPath: "/repos/tau", projectName: "tau", draftId: "request-1" };
+    const second = { projectPath: "/repos/tau", projectName: "tau", draftId: "request-2" };
+    expect(draftKey(undefined, first)).not.toBe(draftKey(undefined, second));
+  });
 });

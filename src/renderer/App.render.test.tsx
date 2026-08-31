@@ -192,7 +192,7 @@ describe("App render isolation", () => {
     await screen.findByRole("button", { name: "Preview draft.png" });
     fireEvent.change(composer, { target: { value: "submitted text" } });
     fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("submitted text", [expect.objectContaining({ name: "draft.png" })], "/project"));
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith("submitted text", [expect.objectContaining({ name: "draft.png" })], "/project", expect.any(String)));
 
     fireEvent.change(composer, { target: { value: "newer draft" } });
     rejectNewSession(new Error("prompt rejected"));
@@ -204,7 +204,7 @@ describe("App render isolation", () => {
   });
 
   it("promotes a bridge new thread from a later detail when the acknowledgement has no updates", async () => {
-    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [], submission: { accepted: true as const } }));
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [], requestId: "1", submission: { accepted: true as const } }));
     let emitHostEvent: ((event: HostEvent) => void) | undefined;
     window.tau = {
       bootstrap: async () => ({
@@ -232,7 +232,7 @@ describe("App render isolation", () => {
     const composer = await screen.findByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "bridge prompt" } });
     fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("bridge prompt", [], "/project"));
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith("bridge prompt", [], "/project", expect.any(String)));
 
     emitHostEvent?.({
       type: "host-update",
@@ -241,6 +241,7 @@ describe("App render isolation", () => {
         type: "thread-detail",
         detail: {
           sessionId: "bridge-created",
+          requestId: "1",
           messages: [{ id: "bridge-user", role: "user", text: "bridge prompt", timestamp: 2 }],
           isStreaming: false,
           activeTools: [],
@@ -387,7 +388,7 @@ describe("App render isolation", () => {
     expect(screen.getByRole("status").textContent).toMatch(/unavailable/u);
   });
 
-  it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
+  it("keeps a new thread draft in memory without persisting image-capable composer data", async () => {
     const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[], submission: { accepted: true as const } }));
     const capabilityResolvers = new Map<string, Array<(capability: { cwd: string; generation: number; supportsImageInput: boolean }) => void>>();
     const getPreparedThreadCapability = vi.fn((cwd: string) => new Promise<{ cwd: string; generation: number; supportsImageInput: boolean }>((resolve) => {
@@ -448,16 +449,8 @@ describe("App render isolation", () => {
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.change(composer, { target: { value: "persistent draft" } });
 
+    expect(localStorage.getItem("tau.composer-drafts.v1")).toBeNull();
     view.unmount();
-    render(<App />);
-    const restored = await waitFor(() => {
-      const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
-      expect(textarea.value).toBe("persistent draft");
-      return textarea;
-    });
-    fireEvent.keyDown(restored, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("persistent draft", [], "/other"));
-    expect(screen.getAllByText("persistent draft").find((element) => element.tagName === "DIV")).toBeTruthy();
   });
 
   it("shows the start screen for a new thread even when the previous thread has activity", async () => {

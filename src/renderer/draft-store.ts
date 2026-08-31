@@ -5,6 +5,8 @@ export interface NewThreadDraft {
   projectPath: string;
   projectName: string;
   sessionId?: string;
+  /** Unique draft identity; same-project new-thread requests must not share state. */
+  draftId?: string;
 }
 
 function readMap(storage: Storage): Record<string, string> {
@@ -15,7 +17,7 @@ function readMap(storage: Storage): Record<string, string> {
 }
 
 export function draftKey(sessionId?: string, pending?: NewThreadDraft): string | undefined {
-  if (pending) return `new:${pending.projectPath}`;
+  if (pending) return `new:${pending.projectPath}:${pending.draftId ?? "legacy"}`;
   return sessionId ? `session:${sessionId}` : undefined;
 }
 

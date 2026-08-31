@@ -380,10 +380,10 @@ export type HostEvent =
   | { type: "queue"; sessionId: string; steering: string[]; followUp: string[] }
   | { type: "tool-approval"; request: ToolApprovalRequest }
   | { type: "extension-ui-prompt"; prompt: ExtensionUiPrompt }
-  | { type: "extension-ui-resolved"; id: string }
-  | { type: "notice"; message: string; level: "info" | "warning" | "error" }
+  | { type: "extension-ui-resolved"; id: string; sessionId?: string }
+  | { type: "notice"; message: string; level: "info" | "warning" | "error"; sessionId?: string }
   | { type: "error"; message: string; sessionId?: string }
-  | { type: "event-log"; label: string; detail?: string; timestamp: number };
+  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: string };
 
 /** The single result shape used by host, scoped composer store, and renderer. */
 export type SubmissionResult =
@@ -432,7 +432,7 @@ export interface TauDesktopApi {
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").NewThreadResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: string): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
