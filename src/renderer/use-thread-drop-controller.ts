@@ -4,15 +4,27 @@ import { THREAD_DROP_FEEDBACK, classifyThreadDrop, type ThreadDropState } from "
 export function useThreadDropController(
   supportsImageInput: boolean,
   addFiles: (files: FileList | readonly File[]) => void,
+  existingAttachments: readonly { size: number }[] = [],
 ) {
   const [state, setState] = useState<ThreadDropState>("idle");
   const depthRef = useRef(0);
 
-  const classify = useCallback((dataTransfer: DataTransfer): ThreadDropState => classifyThreadDrop(
-    Array.from(dataTransfer.types).includes("Files"),
-    Array.from(dataTransfer.items ?? []).map((item) => ({ kind: item.kind, mimeType: item.type })),
-    supportsImageInput,
-  ), [supportsImageInput]);
+  const classify = useCallback((dataTransfer: DataTransfer): ThreadDropState => {
+    const files = Array.from(dataTransfer.files ?? []);
+    let fileIndex = 0;
+    const items = Array.from(dataTransfer.items ?? []).map((item) => ({
+      kind: item.kind,
+      mimeType: item.type,
+      size: item.kind === "file" ? files[fileIndex++]?.size : undefined,
+    }));
+    return classifyThreadDrop(
+      Array.from(dataTransfer.types).includes("Files"),
+      items,
+      supportsImageInput,
+      existingAttachments.length,
+      existingAttachments.reduce((total, attachment) => total + attachment.size, 0),
+    );
+  }, [existingAttachments, supportsImageInput]);
 
   const cancel = useCallback(() => {
     depthRef.current = 0;

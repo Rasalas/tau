@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { THREAD_DROP_FEEDBACK, classifyThreadDrop } from "./thread-drop.js";
+import { MAX_IMAGE_BYTES } from "./prompt-attachment-limits.js";
 
 describe("thread drop policy", () => {
   it("ignores string items while classifying file items", () => {
@@ -21,5 +22,14 @@ describe("thread drop policy", () => {
     expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "image/png" }], false)).toBe("unavailable");
     expect(THREAD_DROP_FEEDBACK.unavailable.dropEffect).toBe("none");
     expect(THREAD_DROP_FEEDBACK.valid.dropEffect).toBe("copy");
+  });
+
+  it("marks a known oversized file as rejected before the drop", () => {
+    expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "image/png", size: MAX_IMAGE_BYTES + 1 }], true)).toBe("unsupported");
+    expect(THREAD_DROP_FEEDBACK.unsupported.dropEffect).toBe("none");
+    expect(classifyThreadDrop(true, [
+      { kind: "file", mimeType: "image/png", size: 1 },
+      { kind: "file", mimeType: "image/png", size: MAX_IMAGE_BYTES + 1 },
+    ], true)).toBe("mixed");
   });
 });

@@ -79,6 +79,7 @@ export class ComposerScopeStore {
   private readonly listeners = new Map<ComposerScope, Set<() => void>>();
   private readonly pendingSubmissionPromises = new Map<ComposerScope, Promise<SubmissionHandle>>();
   private readonly activeSubmissionHandles = new Map<ComposerScope, SubmissionHandle>();
+  private readonly submissionScopeRefs = new Map<SubmissionHandle | Promise<SubmissionHandle>, { scope: ComposerScope }>();
 
   private nextSubmissionId = 0;
 
@@ -140,6 +141,20 @@ export class ComposerScopeStore {
       this.states.delete(from);
       this.snapshots.delete(from);
       this.snapshots.delete(to);
+      const pending = this.pendingSubmissionPromises.get(from);
+      if (pending) {
+        this.pendingSubmissionPromises.delete(from);
+        this.pendingSubmissionPromises.set(to, pending);
+        const scopeRef = this.submissionScopeRefs.get(pending);
+        if (scopeRef) scopeRef.scope = to;
+      }
+      const active = this.activeSubmissionHandles.get(from);
+      if (active) {
+        this.activeSubmissionHandles.delete(from);
+        this.activeSubmissionHandles.set(to, active);
+        const scopeRef = this.submissionScopeRefs.get(active);
+        if (scopeRef) scopeRef.scope = to;
+      }
       this.notify(to);
     }
   }
@@ -309,20 +324,24 @@ export class ComposerScopeStore {
     state.submissionBusy = true;
     this.notify(scope);
     if (!state.attachmentProcessingReady) {
-      const pending = state.attachmentProcessing.then(() => this.createSubmission(scope, onError));
+      const scopeRef = { scope };
+      const pending = state.attachmentProcessing.then(() => this.createSubmission(scopeRef, onError));
       const owned = pending.catch((error) => {
-        if (this.pendingSubmissionPromises.get(scope) === owned) this.pendingSubmissionPromises.delete(scope);
-        state.submissionBusy = false;
-        this.notify(scope);
+        if (this.pendingSubmissionPromises.get(scopeRef.scope) === owned) this.pendingSubmissionPromises.delete(scopeRef.scope);
+        const current = this.ensure(scopeRef.scope);
+        current.submissionBusy = false;
+        this.notify(scopeRef.scope);
         throw error;
       });
       this.pendingSubmissionPromises.set(scope, owned);
+      this.submissionScopeRefs.set(owned, scopeRef);
       return owned;
     }
-    return this.createSubmission(scope, onError);
+    return this.createSubmission({ scope }, onError);
   }
 
-  private createSubmission(scope: ComposerScope, onError: (error: unknown) => void): SubmissionHandle {
+  private createSubmission(scopeRef: { scope: ComposerScope }, onError: (error: unknown) => void): SubmissionHandle {
+    const scope = scopeRef.scope;
     const state = this.ensure(scope);
     const id = this.nextSubmissionId++;
     const textRevision = state.textRevision;
@@ -342,23 +361,28 @@ export class ComposerScopeStore {
         if (settled) return;
         settled = true;
         try {
-          this.settleSubmission(scope, id, result, onError);
+          this.settleSubmission(scopeRef.scope, id, result, onError);
         } finally {
-          if (this.activeSubmissionHandles.get(scope) === handle) this.activeSubmissionHandles.delete(scope);
-          this.ensure(scope).submissionBusy = false;
-          this.notify(scope);
+          if (this.activeSubmissionHandles.get(scopeRef.scope) === handle) this.activeSubmissionHandles.delete(scopeRef.scope);
+          this.submissionScopeRefs.delete(handle);
+          const current = this.ensure(scopeRef.scope);
+          current.submissionBusy = false;
+          this.notify(scopeRef.scope);
         }
       },
       cancel: () => {
         if (settled) return;
         settled = true;
-        this.ensure(scope).pendingSubmissions.delete(id);
-        this.activeSubmissionHandles.delete(scope);
-        this.ensure(scope).submissionBusy = false;
-        this.notify(scope);
+        const currentScope = scopeRef.scope;
+        this.ensure(currentScope).pendingSubmissions.delete(id);
+        this.activeSubmissionHandles.delete(currentScope);
+        this.submissionScopeRefs.delete(handle);
+        this.ensure(currentScope).submissionBusy = false;
+        this.notify(currentScope);
       },
     };
     this.activeSubmissionHandles.set(scope, handle);
+    this.submissionScopeRefs.set(handle, scopeRef);
     return handle;
   }
 

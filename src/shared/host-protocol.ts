@@ -12,6 +12,7 @@ import type {
   UiTurnActivity,
   UiWorkspaceChanges,
   SubmissionResult,
+  NewThreadRequestId,
 } from "./contracts.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
@@ -32,7 +33,7 @@ export interface ThreadIndexUpdate {
 export interface ThreadDetail {
   sessionId: string;
   /** Present only when this detail completes a correlated bridge handoff. */
-  requestId?: string;
+  requestId?: NewThreadRequestId;
   messages: UiMessage[];
   isStreaming: boolean;
   activeTools: string[];
@@ -91,7 +92,7 @@ export interface HostActionResult {
 export interface NewThreadResult extends HostActionResult {
   submission: SubmissionResult;
   /** Correlates a bridge replacement with the originating composer request. */
-  requestId?: string;
+  requestId?: NewThreadRequestId;
 }
 
 /** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */

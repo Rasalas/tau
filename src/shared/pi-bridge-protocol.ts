@@ -1,4 +1,4 @@
-import type { ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
+import type { ExtensionUiPromptKind, NewThreadRequestId, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -37,6 +37,8 @@ export interface PiBridgeSnapshot {
   taskHistory?: UiTaskProgressEntry[];
   /** Set while Pi blocks on an extension question in its own terminal. */
   awaitingInput?: PiBridgeAwaitingInput;
+  /** Token echoed once a registered new-session command has actually switched sessions. */
+  newSessionRequestId?: NewThreadRequestId;
 }
 
 export type PiBridgeCommand =
@@ -48,7 +50,7 @@ export type PiBridgeCommand =
   | { command: "reload" }
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
-  | { command: "new_session"; initialPrompt?: string; requestId?: string }
+  | { command: "new_session"; initialPrompt?: string; requestId?: NewThreadRequestId }
   | { command: "export_markdown" }
   | { command: "snapshot" }
   | { command: "ping" };

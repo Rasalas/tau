@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
+import type { NewThreadRequestId } from "../../src/shared/contracts.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import {
   encodePiBridgeFrame,
@@ -28,15 +29,18 @@ export const PI_BRIDGE_SUPPORTS_IMAGE_INPUT = false as const;
  * that owns session replacement. Going through this registered command keeps
  * that distinction real at runtime as well as in the types.
  */
-export function bridgeNewSessionCommand(initialPrompt?: string): string {
-  if (initialPrompt === undefined) return "/tau-bridge-new";
-  return `/tau-bridge-new ${Buffer.from(JSON.stringify(initialPrompt), "utf8").toString("base64url")}`;
+export function bridgeNewSessionCommand(initialPrompt?: string, requestId?: NewThreadRequestId): string {
+  if (initialPrompt === undefined && requestId === undefined) return "/tau-bridge-new";
+  const value = requestId ? { initialPrompt, requestId } : initialPrompt;
+  return `/tau-bridge-new ${Buffer.from(JSON.stringify(value), "utf8").toString("base64url")}`;
 }
 
-async function createPiSession(ctx: ExtensionCommandContext, initialPrompt?: string): Promise<void> {
-  await ctx.newSession({
+async function createPiSession(ctx: ExtensionCommandContext, initialPrompt?: string): Promise<{ cancelled: boolean }> {
+  const result = await ctx.newSession({
     ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
   });
+  if (result.cancelled) throw new Error("Pi cancelled creation of the new thread.");
+  return result;
 }
 
 function boundedBridgeValue<T>(value: T): T {
@@ -49,6 +53,7 @@ function boundedBridgeValue<T>(value: T): T {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
+  let pendingNewSessionRequestId: NewThreadRequestId | undefined;
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
@@ -56,8 +61,24 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   pi.registerCommand("tau-bridge-new", {
     description: "Create a new Pi session for an attached Tau client",
     handler: async (args, ctx) => {
-      const initialPrompt = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as string : undefined;
-      await createPiSession(ctx, initialPrompt);
+      const decoded = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as unknown : undefined;
+      const payload = typeof decoded === "string"
+        ? { initialPrompt: decoded }
+        : decoded && typeof decoded === "object"
+          ? decoded as { initialPrompt?: unknown; requestId?: unknown }
+          : {};
+      const initialPrompt = typeof payload.initialPrompt === "string" ? payload.initialPrompt : undefined;
+      const requestId = typeof payload.requestId === "string" ? payload.requestId as NewThreadRequestId : undefined;
+      pendingNewSessionRequestId = requestId;
+      try {
+        await createPiSession(ctx, initialPrompt);
+      } catch (error) {
+        if (requestId) {
+          broadcast({ type: "new_session_failed", requestId, message: error instanceof Error ? error.message : String(error) }, ctx);
+          pendingNewSessionRequestId = undefined;
+        }
+        throw error;
+      }
     },
   });
   pi.registerCommand("tau-bridge-fork", {
@@ -118,6 +139,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
       awaitingInput,
+      ...(pendingNewSessionRequestId ? { newSessionRequestId: pendingNewSessionRequestId } : {}),
     };
   };
 
@@ -167,12 +189,14 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       client.authenticated = true;
       const ctx = latestContext;
       if (!ctx) return client.socket.destroy();
+      const readySnapshot = snapshot(ctx);
+      pendingNewSessionRequestId = undefined;
       send(client, {
         protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
         type: "ready",
         id: frame.id,
         epoch: descriptor.epoch,
-        snapshot: snapshot(ctx),
+        snapshot: readySnapshot,
       });
       return;
     }

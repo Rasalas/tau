@@ -5,7 +5,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } fr
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { AccessLevel, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
+import type { AccessLevel, ExtensionUiAnswer, HostEvent, NewThreadRequestId, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
@@ -135,7 +135,7 @@ function installIpc(): void {
   // Stopping must not queue behind host readiness: a thread stuck on a question
   // is exactly what the user is trying to get out of.
   ipcMain.handle("tau:abort", async (_event, sessionId?: string) => host?.abort(sessionId));
-  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: string) =>
+  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: NewThreadRequestId) =>
     (await requireHostReady()).newSession(initialPrompt, attachments, cwd, requestId));
   ipcMain.handle("tau:prepared-thread-capability", async (_event, cwd?: string) =>
     (await requireHostReady()).getPreparedThreadCapability(cwd));

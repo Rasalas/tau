@@ -1,5 +1,12 @@
 import type { HostActionResult } from "./host-protocol.js";
 
+declare const newThreadRequestIdBrand: unique symbol;
+/** Opaque identity for one new-thread request across renderer, host, and bridge. */
+export type NewThreadRequestId = string & { readonly [newThreadRequestIdBrand]: true };
+export function createNewThreadRequestId(value: string): NewThreadRequestId {
+  return value as NewThreadRequestId;
+}
+
 export type UiRole = "user" | "assistant" | "notice";
 
 export interface UiMessageImage {
@@ -432,7 +439,7 @@ export interface TauDesktopApi {
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: string): Promise<import("./host-protocol.js").NewThreadResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: NewThreadRequestId): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;

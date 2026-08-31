@@ -148,6 +148,24 @@ describe("ComposerScopeStore", () => {
     expect(store.getSnapshot(from)).toMatchObject({ draft: "", attachments: [] });
   });
 
+  it("moves an in-flight submission with its scope before settling", () => {
+    const store = new ComposerScopeStore();
+    const from = createDraftKey("new:/project:request-2");
+    const to = createDraftKey("session:created-2");
+    store.setDraft(from, "sent before handoff", () => {});
+    const submission = store.beginSubmission(from);
+    if (!("settle" in submission)) throw new Error("expected a submission handle");
+
+    store.setDraft(from, "edited while sending", () => {});
+    store.moveScope(from, to);
+    expect(store.getSnapshot(to)).toMatchObject({ draft: "edited while sending", submissionPending: true });
+
+    submission.settle({ accepted: true });
+    expect(store.getSnapshot(to)).toMatchObject({ draft: "edited while sending", submissionPending: false });
+    const next = store.beginSubmission(to);
+    expect("settle" in next).toBe(true);
+  });
+
   it("migrates legacy attachment records without replacing newer local text", async () => {
     const key = createDraftKey("thread:legacy");
     writeComposerDraft(window.localStorage, key, "new local text");

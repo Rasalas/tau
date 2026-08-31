@@ -17,6 +17,7 @@ import type {
   UiToolRun,
   UiWorkspaceChanges,
   WorkspaceInfo,
+  NewThreadRequestId,
 } from "../shared/contracts";
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
@@ -204,7 +205,7 @@ interface NewThreadSubmissionCompletion {
   optimisticId: string;
   prompt: string;
   scope: string | undefined;
-  requestId: number;
+  requestId: NewThreadRequestId;
   result?: HostActionResult;
 }
 
@@ -516,21 +517,10 @@ export default function App() {
       const detail = update.detail;
       const shell = threadStore.getThread(detail.sessionId);
       const prompt = detail.messages.find((message) => message.role === "user")?.text;
-      if (shell && prompt !== undefined && pendingNewThreadRef.current) {
+      const isCorrelatedCandidate = shell || detail.sessionId !== cachedSnapshotRef.current?.sessionId;
+      if (isCorrelatedCandidate && prompt !== undefined && pendingNewThreadRef.current) {
         const pending = pendingNewThreadRef.current;
-        if (promoteFromHostReport(detail.sessionId, shell.projectPath, prompt, detail.requestId)) {
-          composerScopeStore.moveScope(
-            createDraftKey(draftKey(undefined, pending)),
-            createDraftKey(draftKey(detail.sessionId)),
-          );
-        }
-      }
-      else if (pendingNewThreadRef.current && detail.sessionId !== cachedSnapshotRef.current?.sessionId && prompt !== undefined) {
-        // Older bridge instances acknowledge the replacement without returning
-        // a snapshot. The first subsequent detail is the authoritative handoff;
-        // the request guard prevents an unrelated/late thread from promoting it.
-        const pending = pendingNewThreadRef.current;
-        if (promoteFromHostReport(detail.sessionId, pending.projectPath, prompt, detail.requestId)) {
+        if (promoteFromHostReport(detail.sessionId, shell?.projectPath ?? pending.projectPath, prompt, detail.requestId)) {
           composerScopeStore.moveScope(
             createDraftKey(draftKey(undefined, pending)),
             createDraftKey(draftKey(detail.sessionId)),
@@ -1502,12 +1492,12 @@ export default function App() {
           completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId });
           return { accepted: true };
         }
-        const result = await window.tau.newSession(text, attachments, pending.projectPath, String(newThreadRequestId));
+        const result = await window.tau.newSession(text, attachments, pending.projectPath, newThreadRequestId);
         if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) return result.submission;
         const created = result.updates.find((update) => update.type === "thread-detail");
         if (result.submission.accepted
           && created?.type !== "thread-detail"
-          && result.requestId === String(newThreadRequestId)) {
+          && result.requestId === newThreadRequestId) {
           markAwaitingPromotion(pending, submittedDraftKey, newThreadRequestId, text);
         }
         applyActionResult(result);
@@ -1665,9 +1655,13 @@ export default function App() {
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
     void composerAttachmentRef.current?.addFiles(files);
   }, []);
+  const currentAttachments = activeDraftKey
+    ? composerScopeStore.getSnapshot(createDraftKey(activeDraftKey)).attachments
+    : [];
   const threadDropController = useThreadDropController(
     conversationSnapshot?.supportsImageInput ?? false,
     addDroppedFiles,
+    currentAttachments,
   );
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
   const conversationPrompts = pendingNewThread ? [] : threadPrompts;

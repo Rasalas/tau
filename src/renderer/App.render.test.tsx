@@ -2,7 +2,7 @@
 import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HostEvent } from "../shared/contracts";
+import { createNewThreadRequestId, type HostEvent } from "../shared/contracts";
 
 const messageRenders = vi.hoisted(() => ({ count: 0 }));
 vi.mock("./components/Message", () => ({
@@ -241,7 +241,7 @@ describe("App render isolation", () => {
         type: "thread-detail",
         detail: {
           sessionId: "bridge-created",
-          requestId: "1",
+          requestId: createNewThreadRequestId("1"),
           messages: [{ id: "bridge-user", role: "user", text: "bridge prompt", timestamp: 2 }],
           isStreaming: false,
           activeTools: [],
