@@ -131,7 +131,7 @@ export function Composer({
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onChange?(value: string): void;
-  onSubmit(text?: string, attachments?: UiPromptAttachment[]): void;
+  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): void;
   onAbort(): void;
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
@@ -228,7 +228,7 @@ export function Composer({
   }, [prompt, updateDraft]);
 
   const answerable = prompt && prompt.answerElsewhere !== true;
-  const submitCurrent = () => {
+  const submitCurrent = (delivery?: "followUp" | "steer") => {
     if (workspaceBusy) return;
     if (answerable && prompt) {
       if (!text.trim()) return;
@@ -237,10 +237,10 @@ export function Composer({
       return;
     }
     if (!text.trim() && attachments.length === 0) return;
-    onSubmit(
-      normalizeSkillInvocation(text, commands),
-      attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment),
-    );
+    const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
+    const submittedText = normalizeSkillInvocation(text, commands);
+    if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
+    else onSubmit(submittedText, submittedAttachments);
     updateDraft("");
     setAttachments([]);
     setAttachmentError(undefined);
@@ -390,14 +390,16 @@ export function Composer({
             }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              submitCurrent();
+              submitCurrent(streaming
+                ? event.metaKey || event.ctrlKey ? "steer" : "followUp"
+                : undefined);
             }
           }}
           placeholder={
             answerable && prompt
               ? prompt.placeholder ?? "Answer yourself — ↵ sends it back to the extension"
               : streaming
-                ? "Steer the run — ↵ queues it for the agent"
+                ? "Queue after this turn — ↵ queues, ⌘↵ steers now"
                 : "Direct the agent — $ skills, / commands, @ files, ⇧↵ newline"
           }
         />
@@ -511,7 +513,7 @@ export function Composer({
               title="Send"
               aria-label="Send"
               disabled={workspaceBusy || (text.trim().length === 0 && attachments.length === 0)}
-              onClick={submitCurrent}
+              onClick={() => submitCurrent()}
             >
               <ArrowUp size={16} />
             </button>

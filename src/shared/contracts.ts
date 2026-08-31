@@ -2,6 +2,12 @@ import type { HostActionResult } from "./host-protocol.js";
 
 export type UiRole = "user" | "assistant" | "notice";
 
+export interface UiMessageImage {
+  mimeType: string;
+  /** Raw base64 image payload persisted by Pi. */
+  data: string;
+}
+
 export interface UiMessage {
   id: string;
   /** Persisted Pi session entry used for exact branch/fork operations. */
@@ -9,6 +15,7 @@ export interface UiMessage {
   role: UiRole;
   text: string;
   thinking?: string;
+  images?: readonly UiMessageImage[];
   timestamp: number;
 }
 
@@ -352,6 +359,7 @@ export type HostEvent =
   | { type: "assistant-delta"; sessionId: string; id: string; delta: string }
   | { type: "assistant-thinking"; sessionId: string; id: string; delta: string }
   | { type: "assistant-end"; sessionId: string; message: UiMessage }
+  | { type: "user-message"; sessionId: string; message: UiMessage }
   | { type: "tool-start"; sessionId: string; tool: UiToolRun }
   | { type: "tool-update"; sessionId: string; id: string; output: string }
   | { type: "tool-end"; sessionId: string; tool: UiToolRun }
@@ -402,6 +410,7 @@ export interface TauDesktopApi {
   sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
   steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, TauDesktopApi, UiToolRun } from "../shared/contracts";
 import App from "./App";
+import { preferences } from "./preferences";
 import { writeCachedTurnActivity } from "./turn-activity";
 
 afterEach(cleanup);
@@ -35,6 +36,26 @@ describe("last-turn activity", () => {
       getFileTree: async () => [],
       setAccessLevel: async () => {},
     } as unknown as TauDesktopApi;
+  });
+
+  it("does not unsettle a thread for a recovered run without a new user message", async () => {
+    preferences.unsettle("session");
+    preferences.toggleSettled("session");
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+
+    act(() => {
+      publish({ type: "agent-status", sessionId: "session", running: true });
+      publish({ type: "agent-status", sessionId: "session", running: false });
+    });
+    expect(preferences.isSettled("session")).toBe(true);
+
+    act(() => publish({
+      type: "user-message",
+      sessionId: "session",
+      message: { id: "new-work", role: "user", text: "new work", timestamp: Date.now() },
+    }));
+    expect(preferences.isSettled("session")).toBe(false);
   });
 
   it("prefers authoritative completed tools over stale running cache entries", async () => {
@@ -174,6 +195,40 @@ describe("last-turn activity", () => {
     const dock = view.container.querySelector(".conversation-files-dock");
     expect(dock?.textContent).toContain("App.tsx");
     expect(view.container.querySelector(".transcript")?.contains(dock)).toBe(false);
+  });
+
+  it("keeps an Enter follow-up visible until the current run can process it", async () => {
+    const followUp = vi.fn(async () => undefined);
+    const steer = vi.fn(async () => undefined);
+    window.tau!.followUp = followUp;
+    window.tau!.steer = steer;
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+
+    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    fireEvent.change(composer, { target: { value: "after this turn" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(followUp).toHaveBeenCalledWith("after this turn", [], "session"));
+    expect(steer).not.toHaveBeenCalled();
+    expect(screen.getByTitle("after this turn")).toBeTruthy();
+  });
+
+  it("steers with Cmd+Enter and shows the message in the transcript immediately", async () => {
+    const steer = vi.fn(async () => undefined);
+    window.tau!.followUp = vi.fn(async () => undefined);
+    window.tau!.steer = steer;
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+
+    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    fireEvent.change(composer, { target: { value: "use this now" } });
+    fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+
+    await waitFor(() => expect(steer).toHaveBeenCalledWith("use this now", [], "session"));
+    expect(screen.getByText("use this now")).toBeTruthy();
   });
 
   it("aggregates steering into the current run and resets on the next run", async () => {

@@ -587,12 +587,15 @@ export default function App() {
   }, [refreshChanges, refreshWorkspace, workspaceCwd]);
 
   const handleHostEvent = useCallback((event: HostEvent) => {
+    // A real user message starts new work even when its thread is off-screen.
+    // Recovered run status alone must not undo an explicit settled choice.
+    if (event.type === "user-message") preferences.unsettle(event.sessionId);
     // Every thread streams from its own runtime. Transcript and tool events for a
     // thread that is not on screen are dropped here; its persisted state is
     // re-read when it is opened.
     if (
       (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
-        || event.type === "assistant-end" || event.type === "tool-start" || event.type === "tool-update"
+        || event.type === "assistant-end" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
         || event.type === "tool-end" || event.type === "queue")
       && event.sessionId !== threadStore.getSnapshot().activeThreadId
     ) return;
@@ -600,7 +603,6 @@ export default function App() {
       case "host-update": applyHostUpdate(event.update); break;
       case "thread-index": applyThreadIndex(event.threadIndex); break;
       case "agent-status": {
-        if (event.running) preferences.unsettle(event.sessionId);
         // Record the run against its own thread first: a thread keeps its
         // WORKING state while you are reading a different one.
         threadStore.setThreadRunning(event.sessionId, event.running);
@@ -667,6 +669,12 @@ export default function App() {
             ? current.map((message) => message.id === event.message.id ? event.message : message)
             : [...current, event.message];
         });
+        break;
+      case "user-message":
+        setMessages((current) => current.some((message) => message.id === event.message.id)
+          ? current.map((message) => message.id === event.message.id ? event.message : message)
+          : [...current, event.message]);
+        setOptimisticMessages((current) => reconcileOptimisticMessages(current, [event.message]));
         break;
       case "tool-start": {
         threadStore.toolStarted(event.tool.id, event.tool.name);
@@ -1319,7 +1327,11 @@ export default function App() {
     activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
-  const submit = useCallback(async (value: string, attachments: UiPromptAttachment[] = []) => {
+  const submit = useCallback(async (
+    value: string,
+    attachments: UiPromptAttachment[] = [],
+    delivery?: "followUp" | "steer",
+  ) => {
     const text = value.trim();
     if (!text && attachments.length === 0) return;
     if (text === "/reload" && attachments.length === 0) {
@@ -1334,17 +1346,45 @@ export default function App() {
       restartWorkbench();
       return;
     }
+    const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
+    const optimistic: UiMessage = {
+      id: `local-${Date.now()}`,
+      role: "user",
+      text: optimisticText,
+      images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
+      timestamp: Date.now(),
+    };
+    const optimisticScope = activeDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
-      if (window.tau) {
-        try { await window.tau.steer(text, attachments, snapshot?.sessionId); } catch (error) { setNotice(String(error)); }
+      if (delivery === "steer") {
+        setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+        try {
+          if (!window.tau) throw new Error("Steering requires the Electron host.");
+          await window.tau.steer(text, attachments, snapshot?.sessionId);
+        } catch (error) {
+          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+          writeComposerDraft(window.localStorage, activeDraftKey, text);
+          setComposerSeed(text);
+          setNotice(String(error));
+        }
       } else {
-        setQueue((current) => [...current, text || attachments.map((attachment) => attachment.name).join(", ")]);
+        const queuedText = optimisticText;
+        setQueue((current) => [...current, queuedText]);
+        try {
+          if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
+          await window.tau.followUp(text, attachments, snapshot?.sessionId);
+        } catch (error) {
+          setQueue((current) => {
+            const index = current.lastIndexOf(queuedText);
+            return index < 0 ? current : current.filter((_, at) => at !== index);
+          });
+          writeComposerDraft(window.localStorage, activeDraftKey, text);
+          setComposerSeed(text);
+          setNotice(String(error));
+        }
       }
       return;
     }
-    const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
-    const optimistic: UiMessage = { id: `local-${Date.now()}`, role: "user", text: optimisticText, timestamp: Date.now() };
-    const optimisticScope = activeDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (pendingNewThread) {
       const pending = pendingNewThread;
       const pendingKey = draftKey(undefined, pending);
@@ -1535,7 +1575,7 @@ export default function App() {
       contextUsage={snapshot?.contextUsage}
       contextBreakdown={contextBreakdown}
       textareaRef={composerRef}
-      onSubmit={(text, attachments) => void submit(text ?? "", attachments)}
+      onSubmit={(text, attachments, delivery) => void submit(text ?? "", attachments, delivery)}
       onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
       onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
       onSetModel={(provider, id) => void setModel(provider, id)}

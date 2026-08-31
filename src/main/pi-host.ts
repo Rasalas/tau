@@ -34,6 +34,7 @@ import type {
   UiEditor,
   UiFileDiff,
   UiMessage,
+  UiMessageImage,
   UiModel,
   UiPromptAttachment,
   UiSession,
@@ -95,9 +96,22 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
-function imageCountFromContent(content: unknown): number {
-  if (!Array.isArray(content)) return 0;
-  return content.filter((part) => part && typeof part === "object" && (part as { type?: string }).type === "image").length;
+const MESSAGE_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+function imagesFromContent(content: unknown): UiMessageImage[] {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((part) => {
+    if (!part || typeof part !== "object") return [];
+    const image = part as { type?: string; mimeType?: string; data?: string };
+    if (
+      image.type !== "image"
+      || !image.mimeType
+      || !MESSAGE_IMAGE_MIME_TYPES.has(image.mimeType)
+      || typeof image.data !== "string"
+      || image.data.length === 0
+    ) return [];
+    return [{ mimeType: image.mimeType, data: image.data }];
+  }).slice(0, 4);
 }
 
 function thinkingFromContent(content: unknown): string | undefined {
@@ -113,7 +127,7 @@ function thinkingFromContent(content: unknown): string | undefined {
   return value || undefined;
 }
 
-function mapMessage(message: unknown, index: number): UiMessage | undefined {
+export function mapMessage(message: unknown, index: number): UiMessage | undefined {
   if (!message || typeof message !== "object") return undefined;
   const value = message as {
     role?: string;
@@ -125,12 +139,13 @@ function mapMessage(message: unknown, index: number): UiMessage | undefined {
 
   if (value.role === "user") {
     const text = textFromContent(value.content);
-    const imageCount = imageCountFromContent(value.content);
+    const images = imagesFromContent(value.content);
     return {
       id: value.tauEntryId ?? `user-${value.timestamp ?? index}-${index}`,
       sourceEntryId: value.tauEntryId,
       role: "user",
-      text: text || (imageCount ? `[${imageCount} image${imageCount === 1 ? "" : "s"} attached]` : ""),
+      text: text || (images.length ? `[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""),
+      images,
       timestamp: value.timestamp ?? Date.now(),
     };
   }
@@ -1098,6 +1113,20 @@ export class PiHost {
     }
   }
 
+  async followUp(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+    if (this.bridgeOwns(sessionId)) {
+      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp" });
+      return;
+    }
+    try {
+      await this.requireThread(sessionId).session.followUp(text, promptImages(attachments));
+    } catch (error) {
+      this.fail(error);
+      throw error;
+    }
+  }
+
   async abort(sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       await this.bridge!.command({ command: "abort" });
@@ -1951,6 +1980,9 @@ export class PiHost {
             }
             thread.currentAssistantId = undefined;
             thread.liveAssistant = undefined;
+          } else if (event.message.role === "user") {
+            const message = mapMessage(event.message, 0);
+            if (message) this.emit({ type: "user-message", sessionId, message });
           }
           break;
         case "tool_execution_start": {

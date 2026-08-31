@@ -8,6 +8,7 @@ const api: TauDesktopApi = {
   sendPrompt: (text, attachments, sessionId) => ipcRenderer.invoke("tau:prompt", text, attachments, sessionId),
   runShellAction: (command, includeInContext, expectedCwd) => ipcRenderer.invoke("tau:run-shell-action", command, includeInContext, expectedCwd),
   steer: (text, attachments, sessionId) => ipcRenderer.invoke("tau:steer", text, attachments, sessionId),
+  followUp: (text, attachments, sessionId) => ipcRenderer.invoke("tau:follow-up", text, attachments, sessionId),
   abort: (sessionId) => ipcRenderer.invoke("tau:abort", sessionId),
   newSession: (initialPrompt, attachments, cwd) => ipcRenderer.invoke("tau:new-session", initialPrompt, attachments, cwd),
   forkThread: (entryId, expectedSessionId) => ipcRenderer.invoke("tau:fork-thread", entryId, expectedSessionId),

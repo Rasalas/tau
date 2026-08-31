@@ -28,9 +28,9 @@ const snapshot: HostSnapshot = {
   serviceTierAvailable: false,
 };
 
-function renderComposer(onSubmit = vi.fn()) {
+function renderComposer(onSubmit = vi.fn(), streaming = false) {
   render(<Composer
-    snapshot={snapshot}
+    snapshot={{ ...snapshot, isStreaming: streaming }}
     queue={[]}
     accessLevel="full"
     contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
@@ -83,6 +83,19 @@ describe("Composer command menu", () => {
     fireEvent.change(textarea, { target: { value: "/tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSubmit).toHaveBeenCalledWith("/skill:tdd fix the parser", []);
+  });
+
+  it("queues Enter and steers with Command-Enter while streaming", () => {
+    const onSubmit = renderComposer(vi.fn(), true);
+    const textarea = screen.getByPlaceholderText(/queues/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "after this turn", selectionStart: 15 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenLastCalledWith("after this turn", [], "followUp");
+
+    fireEvent.change(textarea, { target: { value: "adjust now", selectionStart: 10 } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onSubmit).toHaveBeenLastCalledWith("adjust now", [], "steer");
   });
 
   it("offers prompt templates and extension commands under slash", () => {

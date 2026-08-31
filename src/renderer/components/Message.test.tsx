@@ -11,6 +11,19 @@ describe("Message images", () => {
     expect(localImagePaths(text)).toEqual(["/Users/me/Application Support/CleanShot/image.png"]);
     expect(withoutLocalImagePaths(text)).toBe("please inspect");
   });
+
+  it("renders image content persisted in the Pi message", () => {
+    render(<Message message={{
+      id: "user-image",
+      role: "user",
+      text: "please inspect",
+      images: [{ mimeType: "image/png", data: "iVBORw==" }],
+      timestamp: 0,
+    }} />);
+
+    const image = screen.getByRole("img", { name: "Attached image" }) as HTMLImageElement;
+    expect(image.src).toBe("data:image/png;base64,iVBORw==");
+  });
 });
 
 describe("Message actions", () => {

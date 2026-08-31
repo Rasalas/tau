@@ -1,6 +1,6 @@
 import { Bot, ChevronRight, Copy, GitFork } from "lucide-react";
 import { memo, useEffect, useState } from "react";
-import type { UiImagePreview, UiMessage } from "../../shared/contracts";
+import type { UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
 
 function clockTime(timestamp: number): string {
@@ -65,6 +65,19 @@ function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
   return request;
 }
 
+function PersistedMessageImages({ images }: { images: readonly UiMessageImage[] }) {
+  if (images.length === 0) return null;
+  return <div className="message-images">
+    {images.map((image, index) => (
+      <img
+        key={`${index}-${image.mimeType}-${image.data.slice(0, 16)}`}
+        src={`data:${image.mimeType};base64,${image.data}`}
+        alt="Attached image"
+      />
+    ))}
+  </div>;
+}
+
 function MessageImages({ text }: { text: string }) {
   const [previews, setPreviews] = useState<UiImagePreview[]>([]);
   useEffect(() => {
@@ -111,11 +124,13 @@ export const Message = memo(function Message({
   if (message.role === "user") {
     const visibleText = withoutLocalImagePaths(message.text);
     const hasLocalImages = localImagePaths(message.text).length > 0;
+    const persistedImages = message.images ?? [];
     return (
       <div className="message-shell user">
         <article className="message user">
           <div className="message-text">
-            {visibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages ? <span className="image-placeholder">Image attached</span> : null}
+            {visibleText ? <Markdown>{visibleText}</Markdown> : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
+            <PersistedMessageImages images={persistedImages} />
             {hasLocalImages ? <MessageImages text={message.text} /> : null}
           </div>
           <div className="message-user-meta">
