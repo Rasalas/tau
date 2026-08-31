@@ -173,7 +173,7 @@
     }
   },
   "current": {
-    "commit": "64f3be3250e041278658479e9a14cb287603c3d6",
+    "commit": "72ffd1a73d1bedf1f98b87ce0dd65f2602ff54d9",
     "component": "TranscriptViewport",
     "sourceSha256": "660ef6f01b96c1b1500bfef0f9ddb4f02929c98cfadc6a6deeaa075cde2426cc",
     "buildArtifactSha256": "b1c737a43a38a138fc072f6cd2b086c9513dae70b8abb5568dc90a1121a45b64",
