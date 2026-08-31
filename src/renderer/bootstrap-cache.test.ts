@@ -53,6 +53,40 @@ describe("bootstrap cache", () => {
     expect(detailFromSnapshot(cached!.snapshot).olderCursor).toEqual({ kind: "local", value: "120" });
   });
 
+  it("persists bridge coordinates even when a fully loaded snapshot has no cursor", () => {
+    let value: string | null = null;
+    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const bridged = {
+      ...snapshot,
+      coordinateSpace: "bridge" as const,
+      messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
+    };
+    writeBootstrapCache(bridged, { projects: [], sessions: [] }, storage);
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.coordinateSpace).toBe("bridge");
+    expect(cached?.snapshot.olderCursor).toEqual({ kind: "bridge", value: "20" });
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toEqual({ kind: "bridge", value: "20" });
+  });
+
+  it("migrates a v3 cache while retaining its persisted bridge coordinate", () => {
+    const legacy = JSON.stringify({
+      snapshot: {
+        ...snapshot,
+        coordinateSpace: "bridge",
+        messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user", text: String(index), timestamp: index })),
+      },
+      threadIndex: { projects: [], sessions: [] },
+    });
+    const storage = {
+      getItem: (key: string) => key === "tau.bootstrap-cache.v3" ? legacy : null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.coordinateSpace).toBe("bridge");
+    expect(cached?.snapshot.olderCursor).toEqual({ kind: "bridge", value: "20" });
+  });
+
   it("keeps a legacy-truncated cache limited without retaining a discarded cursor", () => {
     let value: string | null = null;
     const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };

@@ -6,6 +6,18 @@ import type {
   TranscriptScrollAnchor,
 } from "./transcript-history-types";
 
+export interface TranscriptBundleMergeInput {
+  messages: readonly UiMessage[];
+  transcriptMessageIndexes?: readonly number[];
+  taskHistory?: readonly UiTaskProgressEntry[];
+}
+
+export interface TranscriptBundleMergeResult {
+  messages: UiMessage[];
+  transcriptMessageIndexes?: number[];
+  taskHistory?: UiTaskProgressEntry[];
+}
+
 export function mergeTranscriptMessages(
   current: readonly UiMessage[],
   incoming: readonly UiMessage[],
@@ -36,6 +48,35 @@ export function mergeTaskHistory(
   for (const entry of current ?? []) byId.set(entry.id, entry);
   for (const entry of incoming ?? []) byId.set(entry.id, entry);
   return [...byId.values()];
+}
+
+/** Apply one transcript bundle merge policy across detail, page, and snapshot paths. */
+export function applyTranscriptBundleMerge(
+  current: TranscriptBundleMergeInput | undefined,
+  incoming: TranscriptBundleMergeInput,
+  position: "prepend" | "append" = "append",
+): TranscriptBundleMergeResult {
+  if (!current) {
+    return {
+      messages: [...incoming.messages],
+      ...(incoming.transcriptMessageIndexes ? { transcriptMessageIndexes: [...incoming.transcriptMessageIndexes] } : {}),
+      ...(incoming.taskHistory ? { taskHistory: [...incoming.taskHistory] } : {}),
+    };
+  }
+  const messages = mergeTranscriptMessages(current.messages, incoming.messages, position);
+  const transcriptMessageIndexes = mergeProjectedRawIndexes(
+    current.messages,
+    current.transcriptMessageIndexes,
+    incoming.messages,
+    incoming.transcriptMessageIndexes,
+    messages,
+  );
+  const taskHistory = mergeTaskHistory(current.taskHistory, incoming.taskHistory);
+  return {
+    messages,
+    ...(transcriptMessageIndexes ? { transcriptMessageIndexes } : {}),
+    ...(taskHistory ? { taskHistory } : {}),
+  };
 }
 
 export function retainsLoadedHistory(

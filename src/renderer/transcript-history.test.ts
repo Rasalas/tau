@@ -4,6 +4,7 @@ import type { HostSnapshot, UiMessage } from "../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
 import { parseLocalTranscriptCursor } from "../shared/transcript-cursor";
 import {
+  applyTranscriptBundleMerge,
   mergeTranscriptMessages,
   TranscriptHistoryController,
 } from "./transcript-history";
@@ -170,6 +171,25 @@ describe("TranscriptHistoryController", () => {
     expect(controller.getSnapshot()).toMatchObject({ loading: false, status: { state: "success", loadedTurns: 1 } });
   });
 
+  it("does not invalidate paging when an action returns detail for the visible thread", () => {
+    const controller = new TranscriptHistoryController();
+    controller.syncSnapshot(snapshot("thread-a", ["new", "reply"], "2"), detail("thread-a", ["new", "reply"], "2"));
+    const request = controller.beginLoad({ messageId: "new", viewportOffset: 80 });
+    expect(request).toBeDefined();
+
+    expect(controller.prepareActionDetail("thread-a")).toBe(true);
+    expect(controller.isCurrent(request!)).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({ loading: true });
+
+    expect(controller.applyDetail({
+      ...detail("thread-a", ["new", "reply"], "2"),
+      isStreaming: true,
+    }, snapshot("thread-a", ["new", "reply"], "2"))).toBeDefined();
+    expect(controller.isCurrent(request!)).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({ loading: true });
+    expect(controller.completeSuccess(request!, 1)).toBe(true);
+  });
+
   it("retains the newest version when merging a repeated message id", () => {
     const current = [message("old"), message("same", "assistant")];
     const incoming = [{ ...message("same", "assistant"), text: "updated" }, message("new")];
@@ -178,5 +198,24 @@ describe("TranscriptHistoryController", () => {
       message("old"),
       { ...message("same", "assistant"), text: "updated" },
     ]);
+  });
+
+  it("applies one bundle merge policy to messages, activities, and raw indexes", () => {
+    const merged = applyTranscriptBundleMerge(
+      {
+        messages: [message("new")],
+        transcriptMessageIndexes: [10],
+        taskHistory: [{ id: "task", progress: { tasks: [], completed: 0, total: 0 }, anchorMessageId: "new" }],
+      },
+      {
+        messages: [message("old")],
+        transcriptMessageIndexes: [9],
+        taskHistory: [{ id: "task-older", progress: { tasks: [], completed: 0, total: 0 }, anchorMessageId: "old" }],
+      },
+      "prepend",
+    );
+    expect(merged.messages.map((item) => item.id)).toEqual(["old", "new"]);
+    expect(merged.transcriptMessageIndexes).toEqual([9, 10]);
+    expect(merged.taskHistory?.map((item) => item.id)).toEqual(["task", "task-older"]);
   });
 });

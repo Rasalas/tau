@@ -194,6 +194,90 @@ describe("App render isolation", () => {
     expect(screen.getByText("Build the first screen")).toBeTruthy();
   });
 
+  it("keeps an in-flight history load when a same-thread action returns detail", async () => {
+    let resolvePage!: (page: {
+      sessionId: string;
+      messages: Array<{ id: string; role: "user" | "assistant"; text: string; timestamp: number }>;
+      hasMore: boolean;
+    }) => void;
+    const loadTranscript = vi.fn(() => new Promise((resolve) => { resolvePage = resolve; }));
+    const setModel = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [{
+        version: 1 as const,
+        type: "thread-detail" as const,
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "new", role: "user" as const, text: "new request", timestamp: 1 },
+            { id: "reply", role: "assistant" as const, text: "current reply", timestamp: 2 },
+          ],
+          olderCursor: { kind: "local" as const, value: "2" as never },
+          hasMore: true,
+          isStreaming: false,
+          activeTools: [],
+        },
+      }],
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "new", role: "user" as const, text: "new request", timestamp: 1 },
+            { id: "reply", role: "assistant" as const, text: "current reply", timestamp: 2 },
+          ],
+          olderCursor: { kind: "local" as const, value: "2" as never },
+          hasMore: true,
+          isStreaming: false,
+          activeTools: [],
+        },
+        catalog: {
+          models: [
+            { provider: "provider", id: "current", name: "Current model" },
+            { provider: "provider", id: "next", name: "Next model" },
+          ],
+          model: { provider: "provider", id: "current", name: "Current model" },
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+          serviceTier: "standard" as const,
+          serviceTierAvailable: false,
+          allTools: [],
+          extensionCount: 0,
+        },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      loadTranscript,
+      setModel,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByText("current reply");
+    fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
+    await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", { kind: "local", value: "2" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
+    const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
+    fireEvent.click(within(modelPicker).getByText("Next model").closest("button")!);
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("provider", "next"));
+
+    resolvePage({
+      sessionId: "session",
+      messages: [{ id: "old", role: "user", text: "older request", timestamp: 0 }],
+      hasMore: false,
+    });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("1 older turn loaded"));
+    expect(screen.getByText("older request")).toBeTruthy();
+  });
+
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
     const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[] }));
     window.tau = {

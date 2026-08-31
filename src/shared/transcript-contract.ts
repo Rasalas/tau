@@ -1,6 +1,6 @@
 import type { UiMessage, UiTaskProgressEntry } from "./contracts.js";
 import type { TranscriptHistoryCompleteness } from "./transcript-completeness.js";
-import type { TranscriptCursor } from "./transcript-cursor.js";
+import type { TranscriptCoordinateSpace, TranscriptCursor } from "./transcript-cursor.js";
 
 /**
  * Records shared by transcript details, history pages, and bridge payloads.
@@ -11,6 +11,8 @@ export interface TranscriptBundle<TMessage = UiMessage, TMapping = number[], TCu
   messages: TMessage[];
   transcriptMessageIndexes?: TMapping;
   taskHistory?: UiTaskProgressEntry[];
+  /** Coordinate system for cursors, retained even when a window has no cursor. */
+  coordinateSpace?: TranscriptCoordinateSpace;
   olderCursor?: TCursor;
   /** Whether the source proves the visible window is complete. */
   historyCompleteness?: TranscriptHistoryCompleteness;

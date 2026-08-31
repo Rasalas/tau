@@ -4,7 +4,8 @@ import { localTranscriptCursorAt, rawBridgeTranscriptCursorAt, transcriptCursorV
 import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT } from "../shared/transcript-pager";
 
-const CACHE_KEY = "tau.bootstrap-cache.v3";
+const CACHE_KEY = "tau.bootstrap-cache.v4";
+const LEGACY_CACHE_KEY = "tau.bootstrap-cache.v3";
 const MAX_BYTES = 512 * 1024;
 
 export interface CachedBootstrap {
@@ -23,7 +24,9 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   const existingCursor = snapshot.olderCursor === undefined
     ? undefined
     : Number(transcriptCursorValue(snapshot.olderCursor));
-  const cursorAtOrigin = (index: number): TranscriptCursor => snapshot.olderCursor?.kind === "bridge"
+  const coordinateSpace = snapshot.coordinateSpace
+    ?? (snapshot.olderCursor?.kind === "bridge" ? "bridge" : detail.coordinateSpace ?? "local");
+  const cursorAtOrigin = (index: number): TranscriptCursor => coordinateSpace === "bridge"
     ? rawBridgeTranscriptCursorAt(index)
     : localTranscriptCursorAt(index);
   const boundedCursor = mappedCursor !== undefined
@@ -35,6 +38,7 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
     ...snapshot,
     messages: detail.messages,
     taskHistory: detail.taskHistory,
+    coordinateSpace,
     historyCompleteness: detail.historyCompleteness,
     ...(boundedCursor ? { olderCursor: boundedCursor } : { olderCursor: undefined }),
     ...(retainedIndexes
@@ -49,7 +53,7 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
 
 export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStorage): CachedBootstrap | undefined {
   try {
-    const raw = storage.getItem(CACHE_KEY);
+    const raw = storage.getItem(CACHE_KEY) ?? storage.getItem(LEGACY_CACHE_KEY);
     if (!raw || raw.length > MAX_BYTES) return undefined;
     const value = JSON.parse(raw) as CachedBootstrap;
     if (!value?.snapshot?.sessionId || !Array.isArray(value.snapshot.messages) || !Array.isArray(value.threadIndex?.sessions)) return undefined;

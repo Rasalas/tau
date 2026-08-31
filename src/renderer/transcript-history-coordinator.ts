@@ -2,6 +2,7 @@ import type { TranscriptCursor } from "../shared/transcript-cursor";
 import type {
   TranscriptBootstrapRequest,
   TranscriptHistoryRequest,
+  TransitionToken,
 } from "./transcript-history-types";
 
 /**
@@ -28,18 +29,18 @@ export class TranscriptHistoryCoordinator {
     return request.generation === this.generation && !this.switching;
   }
 
-  beginThreadSwitch(threadId?: string): number {
+  beginThreadSwitch(threadId?: string): TransitionToken {
     this.generation += 1;
     this.switching = true;
     this.pendingThreadId = threadId;
-    return this.generation;
+    return this.generation as TransitionToken;
   }
 
-  isCurrentThreadTransition(generation: number): boolean {
+  isCurrentThreadTransition(generation: TransitionToken): boolean {
     return generation === this.generation && this.switching;
   }
 
-  confirmThreadTransition(generation: number, threadId: string): boolean {
+  confirmThreadTransition(generation: TransitionToken, threadId: string): boolean {
     if (!this.isCurrentThreadTransition(generation)) return false;
     if (this.pendingThreadId && this.pendingThreadId !== threadId) return false;
     this.pendingThreadId = threadId;
@@ -48,6 +49,7 @@ export class TranscriptHistoryCoordinator {
 
   prepareActionDetail(threadId: string): boolean {
     if (this.switching) return this.pendingThreadId === threadId;
+    if (this.isActiveThread(threadId)) return true;
     this.beginThreadSwitch(threadId);
     return true;
   }
@@ -81,6 +83,7 @@ export class TranscriptHistoryCoordinator {
 
   /** Commit a visible thread after bootstrap or a same-thread detail refresh. */
   activateThread(threadId: string): void {
+    if (this.bootstrapped && !this.switching && this.activeThreadId === threadId) return;
     this.generation += 1;
     this.activeThreadId = threadId;
     this.pendingThreadId = undefined;

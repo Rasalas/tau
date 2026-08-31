@@ -225,20 +225,20 @@ export function historyCompletenessForBridgeSnapshot(
 }
 
 /** Validate and map one bridge-owned raw page, preserving its raw indexes. */
-export function mapBridgeMessages(value: unknown, offsetValue?: unknown): BridgeMessageMapping {
+export function mapBridgeMessages(value: unknown, messagesOffsetValue?: unknown): BridgeMessageMapping {
   if (!Array.isArray(value)) throw new Error("Pi returned an invalid transcript message list.");
-  const offset = bridgeMessagesOffset(offsetValue);
+  const rawMessageOffset = bridgeMessagesOffset(messagesOffsetValue);
   const messages: UiMessage[] = [];
   const transcriptMessageIndexes: number[] = [];
   value.forEach((raw, index) => {
     // When the bridge gives us a raw offset, use it for fallback IDs too. A
     // bridge record without tauEntryId must still deduplicate across pages.
-    const mapped = mapMessage(raw, offset === undefined ? index : offset + index);
+    const mapped = mapMessage(raw, rawMessageOffset === undefined ? index : rawMessageOffset + index);
     if (!mapped?.text) return;
     messages.push(mapped);
-    if (offset !== undefined) transcriptMessageIndexes.push(offset + index);
+    if (rawMessageOffset !== undefined) transcriptMessageIndexes.push(rawMessageOffset + index);
   });
-  return offset === undefined ? { messages } : { messages, transcriptMessageIndexes };
+  return rawMessageOffset === undefined ? { messages } : { messages, transcriptMessageIndexes };
 }
 
 type ValidatedBridgeTranscriptPage = Omit<PiBridgeTranscriptPage, "olderCursor"> & {
@@ -293,6 +293,7 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
     messages: mapped.messages,
     ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
     ...(taskHistory ? { taskHistory } : {}),
+    coordinateSpace: "bridge",
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     historyCompleteness: resolveTranscriptHistoryCompleteness(page.historyCompleteness, page.hasMore),
     hasMore: page.hasMore,
@@ -918,6 +919,7 @@ export class PiHost {
     const visibleHistory = taskHistoryForMessages(taskHistory, page.messages);
     return {
       ...page,
+      coordinateSpace: "local",
       ...(visibleHistory ? { taskHistory: visibleHistory } : {}),
     };
   }
@@ -2062,6 +2064,7 @@ export class PiHost {
       thinkingLevels: snapshot.thinkingLevels,
       messages: mapped.messages,
       ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
+      coordinateSpace: "bridge",
       ...(olderCursor ? { olderCursor } : {}),
       historyCompleteness,
       isStreaming: snapshot.isStreaming,
@@ -2409,6 +2412,7 @@ export class PiHost {
       thinkingLevel: session.thinkingLevel,
       thinkingLevels: session.getAvailableThinkingLevels(),
       messages: this.messageSnapshot(thread),
+      coordinateSpace: "local",
       isStreaming: session.isStreaming,
       activeTools: session.getActiveToolNames(),
       turnActivity: this.turnActivity(thread, branchMessages),

@@ -39,9 +39,10 @@ export function transcriptPageBounds<TCursor extends TranscriptCursor = LocalTra
 ): TranscriptPageBounds<TCursor> {
   if (!Number.isInteger(turnLimit) || turnLimit < 1) throw new Error("turnLimit must be positive");
   const makeCursor = cursorFactory(cursor, cursorAt);
+  const coordinateSpace = typeof cursor !== "string" && cursor?.kind === "bridge" ? "bridge" : "local";
   const end = cursor === undefined
     ? messages.length
-    : transcriptCursorIndex(cursor, messages.length);
+    : transcriptCursorIndex(cursor, coordinateSpace === "local" ? messages.length : undefined, coordinateSpace);
   if (end <= 0) return { start: 0, end, hasMore: false };
   const firstUser = messages.findIndex((message, index) => index < end && message.role === "user");
   // Records before the first user turn are orphan activities. They cannot be

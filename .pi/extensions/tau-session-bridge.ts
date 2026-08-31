@@ -149,6 +149,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       cwd: ctx.cwd,
       sessionName: pi.getSessionName(),
       messages: boundedBridgeValue(view.visibleMessages),
+      coordinateSpace: "bridge",
       ...(paged ? {
         messagesOffset: view.messagesOffset,
         capabilities: { transcriptPaging: true },
@@ -182,6 +183,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const page = {
       sessionId: ctx.sessionManager.getSessionId(),
       messages: boundedBridgeValue(view.visibleMessages),
+      coordinateSpace: "bridge",
       messagesOffset: view.messagesOffset,
       ...(view.olderCursor ? { olderCursor: view.olderCursor.value } : {}),
       hasMore: view.hasMore,

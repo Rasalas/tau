@@ -20,6 +20,7 @@ import {
   parseTranscriptCursor,
   rawBridgeTranscriptCursorAt,
   transcriptCursorIndex,
+  type TranscriptCoordinateSpace,
   type TranscriptCursor,
 } from "./transcript-cursor.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "./transcript-pager.js";
@@ -102,19 +103,23 @@ function validIndexes(value: unknown): boolean {
   return value === undefined || (Array.isArray(value) && value.every((index) => Number.isSafeInteger(index) && index >= 0));
 }
 
-function validCursor(value: unknown): boolean {
+function validCoordinateSpace(value: unknown): value is TranscriptCoordinateSpace | undefined {
+  return value === undefined || value === "local" || value === "bridge";
+}
+
+function validCursor(value: unknown, coordinateSpace?: TranscriptCoordinateSpace): boolean {
   if (value === undefined) return true;
-  try { parseTranscriptCursor(value); return true; }
+  try { parseTranscriptCursor(value, undefined, coordinateSpace); return true; }
   catch { return false; }
 }
 
-function normalizeCursor(value: unknown): TranscriptCursor | undefined {
+function normalizeCursor(value: unknown, coordinateSpace?: TranscriptCoordinateSpace): TranscriptCursor | undefined {
   if (value === undefined) return undefined;
-  return parseTranscriptCursor(value);
+  return parseTranscriptCursor(value, undefined, coordinateSpace);
 }
 
-function cursorIndex(cursor: TranscriptCursor, maximum: number): number {
-  return transcriptCursorIndex(cursor, maximum);
+function cursorIndex(cursor: TranscriptCursor, maximum: number, coordinateSpace?: TranscriptCoordinateSpace): number {
+  return transcriptCursorIndex(cursor, maximum, coordinateSpace);
 }
 
 export function isHostUpdate(value: unknown): value is HostUpdate {
@@ -132,7 +137,8 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
     case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
-      && validCursor(payload.olderCursor)
+      && validCoordinateSpace(payload.coordinateSpace)
+      && validCursor(payload.olderCursor, payload.coordinateSpace)
       && isTranscriptHistoryMetadataConsistent({
         hasMore: payload.hasMore,
         hasCursor: payload.olderCursor !== undefined,
@@ -142,7 +148,8 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
       && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
-      && validCursor(payload.olderCursor)
+      && validCoordinateSpace(payload.coordinateSpace)
+      && validCursor(payload.olderCursor, payload.coordinateSpace)
       && isTranscriptHistoryMetadataConsistent({
         hasMore: payload.hasMore,
         hasCursor: payload.olderCursor !== undefined,
@@ -174,14 +181,37 @@ export function taskHistoryForMessages(
   return history.filter((entry) => !entry.anchorMessageId || ids.has(entry.anchorMessageId));
 }
 
+/** Project a full host snapshot into the focused thread-detail contract. */
+export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDetail {
+  const coordinateSpace = snapshot.coordinateSpace
+    ?? (snapshot.olderCursor?.kind === "bridge" ? "bridge" : "local");
+  return {
+    sessionId: snapshot.sessionId,
+    messages: snapshot.messages,
+    transcriptMessageIndexes: snapshot.transcriptMessageIndexes,
+    isStreaming: snapshot.isStreaming,
+    activeTools: snapshot.activeTools,
+    turnActivity: snapshot.turnActivity,
+    taskProgress: snapshot.taskProgress,
+    taskHistory: snapshot.taskHistory,
+    contextUsage: snapshot.contextUsage,
+    coordinateSpace,
+    olderCursor: snapshot.olderCursor,
+    hasMore: snapshot.olderCursor !== undefined,
+    historyCompleteness: snapshot.historyCompleteness,
+  };
+}
+
 function cursorForPage(
   page: TranscriptPage,
   snapshot: HostSnapshot,
 ): TranscriptCursor | undefined {
-  const pageCursor = normalizeCursor(page.olderCursor);
-  const snapshotCursor = normalizeCursor(snapshot.olderCursor);
-  const offset = snapshot.transcriptMessageIndexes;
-  if (!offset) {
+  const coordinateSpace = snapshot.coordinateSpace
+    ?? (typeof snapshot.olderCursor === "object" && snapshot.olderCursor?.kind === "bridge" ? "bridge" : "local");
+  const pageCursor = normalizeCursor(page.olderCursor, coordinateSpace);
+  const snapshotCursor = normalizeCursor(snapshot.olderCursor, coordinateSpace);
+  const messageRawIndexes = snapshot.transcriptMessageIndexes;
+  if (!messageRawIndexes) {
     // A bridge cursor cannot be safely represented in the local coordinate
     // space without the raw-index projection. Keep the bridge origin intact
     // until such a mapping is actually available.
@@ -193,16 +223,28 @@ function cursorForPage(
   const localStart = cursorIndex(
     pageCursor,
     pageCursor.kind === "local" ? snapshot.messages.length : Number.MAX_SAFE_INTEGER,
+    coordinateSpace,
   );
-  const index = offset[localStart];
+  const index = messageRawIndexes[localStart];
   if (index === undefined || index <= 0) return snapshotCursor;
-  return snapshotCursor?.kind === "bridge"
+  return coordinateSpace === "bridge"
     ? rawBridgeTranscriptCursorAt(index)
     : localTranscriptCursorAt(index);
 }
 
 export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANSCRIPT_TURN_LIMIT): ThreadDetail {
-  const page = TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, limit);
+  const coordinateSpace = snapshot.coordinateSpace
+    ?? (typeof snapshot.olderCursor === "object" && snapshot.olderCursor?.kind === "bridge" ? "bridge" : "local");
+  const cursorAt = (index: number): TranscriptCursor => coordinateSpace === "bridge"
+    ? rawBridgeTranscriptCursorAt(index)
+    : localTranscriptCursorAt(index);
+  const page = TranscriptPager.pageFor(
+    snapshot.sessionId,
+    snapshot.messages,
+    limit,
+    undefined,
+    cursorAt,
+  );
   const boundedWithoutPaging = snapshot.historyCompleteness === "legacy-truncated"
     || snapshot.historyCompleteness === "unknown";
   const olderCursor = boundedWithoutPaging ? undefined : cursorForPage(page, snapshot);
@@ -220,6 +262,7 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANS
     taskProgress: snapshot.taskProgress,
     taskHistory: taskHistoryForMessages(snapshot.taskHistory, page.messages),
     contextUsage: snapshot.contextUsage,
+    coordinateSpace,
     ...(olderCursor ? { olderCursor } : {}),
     hasMore: Boolean(olderCursor),
     historyCompleteness: resolveTranscriptHistoryCompleteness(

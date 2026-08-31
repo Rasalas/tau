@@ -15,10 +15,15 @@ state; it must not reinterpret it as a `HostSnapshot`.
 Within the typed host/page contracts, `olderCursor` is a discriminated cursor:
 `{ kind: "local", value }` for normalized host coordinates or
 `{ kind: "bridge", value }` for Pi branch coordinates. Legacy string cursors
-are accepted at the v1 boundary as local coordinates. The Pi socket continues
-to encode its bridge cursor as an opaque string; the host attaches the bridge
+are accepted at the v1 boundary as local coordinates unless the bundle declares
+`coordinateSpace: "bridge"`. The Pi socket continues to encode its bridge cursor as an opaque string; the host attaches the bridge
 origin before it enters page state and only converts coordinates when a raw
-index projection is available.
+index projection is available. Every transcript bundle also carries an optional
+`coordinateSpace` (`local` or `bridge`). Unlike `olderCursor`, this field remains
+present for fully loaded snapshots with no older page, so cache trimming cannot
+silently change the origin of a reconstructed cursor. Older v1 bundles without
+the field are normalized from a discriminated cursor when possible and otherwise
+treated as local for compatibility.
 
 The legacy `HostSnapshot` remains a recovery shape for pre-v1 clients only. New
 bootstrap responses provide `version`, detail, catalog, project metadata, and the

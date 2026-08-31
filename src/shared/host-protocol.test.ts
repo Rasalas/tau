@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate } from "./host-protocol.js";
+import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate, threadDetailFromHostSnapshot } from "./host-protocol.js";
 import type { HostSnapshot } from "./contracts.js";
 import { parseLocalTranscriptCursor, parseRawBridgeTranscriptCursor } from "./transcript-cursor.js";
 
@@ -71,6 +71,26 @@ describe("host protocol", () => {
       olderCursor: parseRawBridgeTranscriptCursor("80"),
     });
     expect(detail.olderCursor).toEqual({ kind: "bridge", value: "80" });
+  });
+
+  it("keeps bridge coordinate space when a full snapshot has no older cursor", () => {
+    const detail = detailFromSnapshot({
+      ...snapshot,
+      coordinateSpace: "bridge",
+      messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
+    });
+    expect(detail.coordinateSpace).toBe("bridge");
+    expect(detail.olderCursor).toEqual({ kind: "bridge", value: "20" });
+  });
+
+  it("projects a full snapshot into one shared thread-detail shape", () => {
+    const projected = threadDetailFromHostSnapshot({ ...snapshot, coordinateSpace: "bridge" });
+    expect(projected).toMatchObject({
+      sessionId: "session",
+      messages: snapshot.messages,
+      coordinateSpace: "bridge",
+    });
+    expect(projected).not.toHaveProperty("models");
   });
 
   it("does not infer older turns from an offset when only orphan activities precede the window", () => {
@@ -151,6 +171,14 @@ describe("host protocol", () => {
       type: "transcript-page",
       page: { sessionId: "session", messages: [], ...page },
     })).toBe(true);
+  });
+
+  it("rejects a cursor whose origin contradicts the declared coordinate space", () => {
+    expect(isHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "transcript-page",
+      page: { sessionId: "session", messages: [], hasMore: true, coordinateSpace: "local", olderCursor: { kind: "bridge", value: "4" } },
+    })).toBe(false);
   });
 
 });

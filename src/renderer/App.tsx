@@ -67,7 +67,7 @@ import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, 
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
-import type { HostActionResult, HostUpdate, ThreadDetail, TranscriptPage } from "../shared/host-protocol";
+import { threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -82,6 +82,7 @@ import {
   TranscriptHistoryController,
   type TranscriptBootstrapRequest,
   type TranscriptHistoryRequest,
+  type TransitionToken,
 } from "./transcript-history";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
@@ -110,6 +111,7 @@ export function optimisticThreadSnapshot(
     taskProgress: detail.taskProgress,
     taskHistory: detail.taskHistory,
     contextUsage: detail.contextUsage,
+    coordinateSpace: detail.coordinateSpace,
     historyCompleteness: detail.historyCompleteness,
   };
 }
@@ -455,20 +457,7 @@ export default function App() {
     toolFrameRef.current = undefined;
     if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
     deltaFrameRef.current = undefined;
-    const detail: import("../shared/host-protocol").ThreadDetail = {
-      sessionId: next.sessionId,
-      messages: next.messages,
-      transcriptMessageIndexes: next.transcriptMessageIndexes,
-      isStreaming: next.isStreaming,
-      activeTools: next.activeTools,
-      turnActivity: next.turnActivity,
-      taskProgress: next.taskProgress,
-      taskHistory: next.taskHistory,
-      contextUsage: next.contextUsage,
-      olderCursor: next.olderCursor,
-      hasMore: next.olderCursor !== undefined,
-      historyCompleteness: next.historyCompleteness,
-    };
+    const detail = threadDetailFromHostSnapshot(next);
     if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
     threadStore.applyHostSnapshot(next);
     threadStore.setThreadRunning(next.sessionId, next.isStreaming);
@@ -553,7 +542,7 @@ export default function App() {
     if (update.type === "error") setNotice(update.message);
   }, [applyThreadIndex, applyTranscriptPage, threadStore, transcriptHistory]);
 
-  const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: number): boolean => {
+  const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: TransitionToken): boolean => {
     if (expectedTransition !== undefined && !transcriptHistory.isCurrentThreadTransition(expectedTransition)) return false;
     const detail = result.updates.find((update) => update.type === "thread-detail");
     if (detail?.type === "thread-detail") {
@@ -797,6 +786,7 @@ export default function App() {
           taskProgress: bootstrap.detail.taskProgress,
           taskHistory: bootstrap.detail.taskHistory,
           contextUsage: bootstrap.detail.contextUsage,
+          coordinateSpace: bootstrap.detail.coordinateSpace,
           olderCursor: bootstrap.detail.olderCursor,
           historyCompleteness: bootstrap.detail.historyCompleteness,
         };

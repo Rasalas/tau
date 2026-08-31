@@ -1,6 +1,8 @@
 declare const localTranscriptCursorBrand: unique symbol;
 declare const rawBridgeTranscriptCursorBrand: unique symbol;
 
+export type TranscriptCoordinateSpace = "local" | "bridge";
+
 /** The branded value carried by a cursor over local/normalized records. */
 export type LocalTranscriptCursorValue = string & { readonly [localTranscriptCursorBrand]: true };
 
@@ -34,8 +36,8 @@ export function parseLocalTranscriptCursor(value: unknown, maximum?: number): Lo
   return { kind: "local", value: parseDecimalCursor(value, maximum) as LocalTranscriptCursorValue };
 }
 
-export function parseRawBridgeTranscriptCursor(value: unknown): RawBridgeTranscriptCursor {
-  return { kind: "bridge", value: parseDecimalCursor(value) as RawBridgeTranscriptCursorValue };
+export function parseRawBridgeTranscriptCursor(value: unknown, maximum?: number): RawBridgeTranscriptCursor {
+  return { kind: "bridge", value: parseDecimalCursor(value, maximum) as RawBridgeTranscriptCursorValue };
 }
 
 export function localTranscriptCursorAt(index: number): LocalTranscriptCursor {
@@ -49,12 +51,26 @@ export function rawBridgeTranscriptCursorAt(index: number): RawBridgeTranscriptC
 }
 
 /** Parse either a typed cursor or a legacy v1 string at a contract boundary. */
-export function parseTranscriptCursor(value: unknown, maximum?: number): TranscriptCursor {
-  if (typeof value === "string") return parseLocalTranscriptCursor(value, maximum);
+export function parseTranscriptCursor(
+  value: unknown,
+  maximum?: number,
+  coordinateSpace?: TranscriptCoordinateSpace,
+): TranscriptCursor {
+  if (typeof value === "string") {
+    return coordinateSpace === "bridge"
+      ? parseRawBridgeTranscriptCursor(value, maximum)
+      : parseLocalTranscriptCursor(value, maximum);
+  }
   if (value !== null && typeof value === "object") {
     const cursor = value as { kind?: unknown; value?: unknown };
-    if (cursor.kind === "local") return parseLocalTranscriptCursor(cursor.value, maximum);
-    if (cursor.kind === "bridge") return parseRawBridgeTranscriptCursor(cursor.value);
+    if (cursor.kind === "local") {
+      if (coordinateSpace === "bridge") throw new Error("Transcript cursor coordinate space does not match its origin");
+      return parseLocalTranscriptCursor(cursor.value, maximum);
+    }
+    if (cursor.kind === "bridge") {
+      if (coordinateSpace === "local") throw new Error("Transcript cursor coordinate space does not match its origin");
+      return parseRawBridgeTranscriptCursor(cursor.value, maximum);
+    }
   }
   throw new Error("Invalid transcript cursor");
 }
@@ -64,7 +80,12 @@ export function transcriptCursorValue(cursor: TranscriptCursor | string): string
   return typeof cursor === "string" ? cursor : cursor.value;
 }
 
-/** Read the numeric coordinate without changing the cursor's origin. */
-export function transcriptCursorIndex(cursor: TranscriptCursor | string, maximum?: number): number {
-  return Number(parseDecimalCursor(transcriptCursorValue(cursor), maximum));
+/** Validate and read a numeric coordinate without changing the cursor's origin. */
+export function transcriptCursorIndex(
+  cursor: TranscriptCursor | string,
+  maximum?: number,
+  coordinateSpace?: TranscriptCoordinateSpace,
+): number {
+  const parsed = parseTranscriptCursor(cursor, maximum, coordinateSpace);
+  return Number(parsed.value);
 }
