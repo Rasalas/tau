@@ -21,6 +21,7 @@ import {
   type ComposerScope,
   type PendingAttachment,
 } from "../composer-scope-store";
+import { errorMessage } from "../error-message";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -240,7 +241,7 @@ export function Composer({
     const results = await Promise.allSettled(validCandidates.map(readImage));
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    const error = firstError ?? (rejection ? rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason) : undefined);
+    const error = firstError ?? (rejection ? errorMessage(rejection.reason) : undefined);
     scopeStore.setError(scope, error, undefined);
     if (accepted.length > 0) {
       scopeStore.addAttachments(scope, accepted, MAX_ATTACHMENTS, (storageError) => reportStorageError(scope, storageError));
@@ -270,6 +271,7 @@ export function Composer({
   const answerable = prompt && prompt.answerElsewhere !== true;
   const submitCurrent = (delivery?: "followUp" | "steer") => {
     if (workspaceBusy) return;
+    if (activeScopeSnapshot.submissionPending) return;
     if (answerable && prompt) {
       if (!text.trim()) return;
       onAnswerPrompt?.(text, true);
@@ -278,6 +280,7 @@ export function Composer({
     }
     const submittedScope = attachmentScope;
     const submission = scopeStore.beginSubmission(submittedScope, (error) => reportStorageError(submittedScope, error));
+    if ("busy" in submission) return;
     const sendSubmission = async (handle: Awaited<typeof submission>) => {
       if (!handle.text.trim() && handle.attachments.length === 0) {
         handle.cancel();
@@ -290,13 +293,13 @@ export function Composer({
           ? await onSubmit(submittedText, [...handle.attachments], delivery)
           : await onSubmit(submittedText, [...handle.attachments]);
       } catch (error) {
-        result = { accepted: false, message: error instanceof Error ? error.message : String(error) };
+        result = { accepted: false, message: errorMessage(error) };
       }
       handle.settle(result);
       if (result.accepted && activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
     };
     const handleSubmissionError = (error: unknown) => {
-      scopeStore.setError(submittedScope, error instanceof Error ? error.message : String(error), undefined);
+      scopeStore.setError(submittedScope, errorMessage(error), undefined);
     };
     if ("then" in submission) {
       void submission.then(sendSubmission).catch(handleSubmissionError);
@@ -567,7 +570,8 @@ export function Composer({
               className="send-button"
               title="Send"
               aria-label="Send"
-              disabled={workspaceBusy || (text.trim().length === 0 && attachments.length === 0)}
+              aria-busy={activeScopeSnapshot.submissionPending}
+              disabled={workspaceBusy || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0)}
               onClick={() => submitCurrent()}
             >
               <ArrowUp size={16} />

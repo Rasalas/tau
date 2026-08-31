@@ -199,6 +199,23 @@ describe("Composer attachments", () => {
     expect(draft.value).toBe("retain this prompt");
   });
 
+  it("does not start a second submission for a double click", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    let resolve!: (result: SubmitResult) => void;
+    const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
+    renderComposer(onSubmit, attachmentRef);
+    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(draft, { target: { value: "once" } });
+    const send = screen.getByRole("button", { name: "Send" });
+    fireEvent.click(send);
+    fireEvent.click(send);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    const pendingSend = screen.getByRole("button", { name: "Send" });
+    expect((pendingSend as HTMLButtonElement).disabled).toBe(true);
+    expect(pendingSend.getAttribute("aria-busy")).toBe("true");
+    resolve({ accepted: true });
+  });
+
   it("keeps queued drops with their originating thread scope", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     const submission = renderComposer(vi.fn(), attachmentRef, undefined, "thread:a");

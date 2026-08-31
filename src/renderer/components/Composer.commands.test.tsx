@@ -30,7 +30,7 @@ const snapshot: HostSnapshot = {
   supportsImageInput: true,
 };
 
-function renderComposer(onSubmit = vi.fn(), streaming = false) {
+function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const })), streaming = false) {
   const scopeStore = new ComposerScopeStore();
   render(<Composer
     scopeStore={scopeStore}
@@ -89,13 +89,14 @@ describe("Composer command menu", () => {
     expect(onSubmit).toHaveBeenCalledWith("/skill:tdd fix the parser", []);
   });
 
-  it("queues Enter and steers with Command-Enter while streaming", () => {
-    const onSubmit = renderComposer(vi.fn(), true);
+  it("queues Enter and steers with Command-Enter while streaming", async () => {
+    const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), true);
     const textarea = screen.getByPlaceholderText(/queues/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "after this turn", selectionStart: 15 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSubmit).toHaveBeenLastCalledWith("after this turn", [], "followUp");
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     fireEvent.change(textarea, { target: { value: "adjust now", selectionStart: 10 } });
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });

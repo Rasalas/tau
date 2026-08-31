@@ -473,12 +473,11 @@ class ThreadRuntime implements LiveTurnState {
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
-  private deferredSequence = 0;
   private deferredRecords?: Array<
-    | { kind: "event"; sequence: number; event: any; sessionId: string; cwd: string }
-    | { kind: "error"; sequence: number; error: unknown }
-    | { kind: "host"; sequence: number; event: HostEvent }
-    | { kind: "title"; sequence: number; title: string }
+    | { kind: "event"; event: any; sessionId: string; cwd: string }
+    | { kind: "error"; error: unknown }
+    | { kind: "host"; event: HostEvent }
+    | { kind: "title"; title: string }
   >;
 
   constructor(readonly runtime: AgentSessionRuntime) {}
@@ -497,31 +496,30 @@ class ThreadRuntime implements LiveTurnState {
   }
 
   beginEventBarrier(): void {
-    this.deferredSequence = 0;
     this.deferredRecords = [];
   }
 
   deferEvent(event: any, sessionId: string, cwd: string): boolean {
     if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "event", sequence: this.deferredSequence++, event, sessionId, cwd });
+    this.deferredRecords.push({ kind: "event", event, sessionId, cwd });
     return true;
   }
 
   deferError(error: unknown): boolean {
     if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "error", sequence: this.deferredSequence++, error });
+    this.deferredRecords.push({ kind: "error", error });
     return true;
   }
 
   deferHostEvent(event: HostEvent): boolean {
     if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "host", sequence: this.deferredSequence++, event });
+    this.deferredRecords.push({ kind: "host", event });
     return true;
   }
 
   deferTitle(title: string): boolean {
     if (!this.deferredRecords) return false;
-    this.deferredRecords.push({ kind: "title", sequence: this.deferredSequence++, title });
+    this.deferredRecords.push({ kind: "title", title });
     return true;
   }
 
@@ -532,7 +530,7 @@ class ThreadRuntime implements LiveTurnState {
   ): void {
     const records = this.deferredRecords;
     this.deferredRecords = undefined;
-    for (const record of [...(records ?? [])].sort((left, right) => left.sequence - right.sequence)) {
+    for (const record of records ?? []) {
       if (record.kind === "event") dispatch(record.event, this, record.sessionId, record.cwd);
       else if (record.kind === "error") dispatch(undefined, this, this.sessionId, this.cwd, record.error);
       else if (record.kind === "host") dispatchHost(record.event);
@@ -1055,7 +1053,6 @@ export class PiHost {
           this.retainPreparedThread(thread);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) });
         } else if (!promoted) {
-          thread.cancelEventBarrier();
           if (this.threads.has(thread.sessionId)) await this.threads.release(thread.sessionId);
           else await this.disposeThread(thread);
           this.scheduleSpareThread(targetCwd, true);
@@ -1799,14 +1796,13 @@ export class PiHost {
   private async disposeThread(thread: ThreadRuntime): Promise<void> {
     this.settleApprovalsFor(thread.sessionId, { allowed: false, reason: "Blocked by Tau: the thread was closed." });
     this.cancelUiPromptsFor(thread.sessionId);
-    // Prepared runtimes must never leak buffered questions, notices, titles, or
-    // session effects after they are discarded. Cancel after settling prompts
-    // so their resolved notifications are discarded with the prompt itself.
-    thread.cancelEventBarrier();
     thread.unsubscribe?.();
     thread.unsubscribe = undefined;
     for (const id of thread.tools.keys()) this.toolOwners.delete(id);
     const errors = await this.teardownRuntime(thread.runtime);
+    // Keep the prepared barrier alive through prompt settlement and runtime
+    // teardown. Any resolution events produced by disposal are discarded too.
+    thread.cancelEventBarrier();
     if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");
   }
 

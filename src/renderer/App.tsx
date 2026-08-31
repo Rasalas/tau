@@ -24,6 +24,7 @@ import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readC
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
 import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
+import { errorMessage } from "./error-message";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
@@ -615,7 +616,7 @@ export default function App() {
   const workspaceCwd = safeMode ? undefined : snapshot?.cwd;
   useEffect(() => {
     if (!workspaceCwd || !window.tau) return;
-    void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(String(error)));
+    void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, workspaceCwd]);
 
   const refreshChanges = useCallback(async () => {
@@ -626,7 +627,7 @@ export default function App() {
       const next = await window.tau.getChanges();
       if (request === changesRequestRef.current && cwd === activeWorkspaceRef.current) setChanges(next);
     } catch (error) {
-      if (request === changesRequestRef.current) setNotice(String(error));
+      if (request === changesRequestRef.current) setNotice(errorMessage(error));
     }
   }, []);
 
@@ -638,7 +639,7 @@ export default function App() {
       const next = await window.tau.getWorkspaceInfo();
       if (request === workspaceRequestRef.current && cwd === activeWorkspaceRef.current) setWorkspace(next);
     } catch (error) {
-      if (request === workspaceRequestRef.current) setNotice(String(error));
+      if (request === workspaceRequestRef.current) setNotice(errorMessage(error));
     }
   }, []);
 
@@ -842,7 +843,7 @@ export default function App() {
         setOlderCursor(bootstrap.detail.olderCursor);
         void refreshChanges();
         void refreshWorkspace();
-      }).catch((error) => setNotice(String(error)));
+      }).catch((error) => setNotice(errorMessage(error)));
       window.tau.listEditors().then(setEditors).catch(() => setEditors([]));
     } else {
       applyThreadIndex(mockThreadIndex);
@@ -896,7 +897,7 @@ export default function App() {
         if (current) current.scrollTop += current.scrollHeight - previousHeight;
       });
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     } finally {
       setLoadingOlder(false);
     }
@@ -985,7 +986,7 @@ export default function App() {
       acceptWorkspace(next);
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [acceptWorkspace, requireHost]);
@@ -997,7 +998,7 @@ export default function App() {
       acceptWorkspace(await window.tau!.openProject(path));
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [acceptWorkspace, requireHost, snapshot?.cwd]);
@@ -1007,7 +1008,7 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.removeProject(project.path));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1032,7 +1033,7 @@ export default function App() {
       acceptWorkspace(next);
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [acceptWorkspace, requireHost]);
@@ -1057,7 +1058,7 @@ export default function App() {
       return true;
     } catch (error) {
       if (previous) applySnapshot(previous);
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
@@ -1071,7 +1072,7 @@ export default function App() {
       ));
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [applyActionResult, requireHost, threadStore]);
@@ -1087,7 +1088,7 @@ export default function App() {
       ));
       return true;
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [applyActionResult, requireHost, threadStore]);
@@ -1097,7 +1098,7 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.setModel(provider, id));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1106,7 +1107,7 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.setThinkingLevel(level));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1115,7 +1116,7 @@ export default function App() {
     try {
       applyActionResult(await window.tau!.setServiceTier(tier));
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1131,7 +1132,7 @@ export default function App() {
       setToolAnchorId(undefined);
       setNotice("Closed the interrupted call. The thread can continue.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
@@ -1141,7 +1142,7 @@ export default function App() {
       applyActionResult(await window.tau!.compactContext());
       setNotice("Context compacted.");
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost]);
 
@@ -1152,7 +1153,7 @@ export default function App() {
     try {
       await window.tau!.openInEditor(editorId, path);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [editors, requireHost, settings.editorId]);
 
@@ -1167,7 +1168,7 @@ export default function App() {
       void refreshWorkspace();
       if (result.changes.files.length === 0) setReview(undefined);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     } finally {
       setCommitting(false);
     }
@@ -1182,7 +1183,7 @@ export default function App() {
       addEvent("git.push", result.detail);
       await Promise.all([refreshChanges(), refreshWorkspace()]);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     } finally {
       setCommitting(false);
     }
@@ -1197,7 +1198,7 @@ export default function App() {
       setNotice(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`);
       await Promise.all([refreshChanges(), refreshWorkspace()]);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
 
@@ -1210,11 +1211,11 @@ export default function App() {
       acceptWorkspace(result);
       const detail = result.updates.find((update) => update.type === "thread-detail");
       if (pendingDraft && detail?.type === "thread-detail") {
-        composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft, (error) => setNotice(String(error)));
+        composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft, (error) => setNotice(errorMessage(error)));
       }
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
       return false;
     } finally {
       setWorkspaceBusy(false);
@@ -1290,7 +1291,7 @@ export default function App() {
         await window.tau.copyThreadMarkdown(snapshot.sessionId);
         setNotice("Chat copied as Markdown.");
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : String(error));
+        setNotice(errorMessage(error));
       }
       return;
     }
@@ -1307,7 +1308,7 @@ export default function App() {
       await window.tau?.copyText(value);
       setNotice(`${kind === "path" ? "Path" : kind === "branch" ? "Branch" : "Thread ID"} copied.`);
     } catch (error) {
-      setNotice(String(error));
+      setNotice(errorMessage(error));
     }
   }, [snapshot?.branch, snapshot?.cwd, snapshot?.sessionId]);
 
@@ -1316,7 +1317,7 @@ export default function App() {
       await window.tau?.copyText(message.text);
       setNotice("Message copied.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
     }
   }, []);
 
@@ -1326,7 +1327,7 @@ export default function App() {
       setNotice("Forking thread…");
       applyActionResult(await window.tau!.forkThread(message.sourceEntryId, snapshot.sessionId));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
@@ -1347,7 +1348,7 @@ export default function App() {
       window.location.reload();
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [addEvent, requireHost]);
@@ -1365,7 +1366,7 @@ export default function App() {
       window.location.reload();
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      setNotice(errorMessage(error));
       return false;
     }
   }, [requireHost]);
@@ -1427,7 +1428,7 @@ export default function App() {
         taskProgress: undefined,
         taskHistory: [],
       } : undefined,
-    }, actions).catch((error) => setNotice(String(error)));
+    }, actions).catch((error) => setNotice(errorMessage(error)));
   }, [acceptWorkspace, actions, registry, snapshot, threadStore]);
 
   const submit = useCallback(async (
@@ -1464,7 +1465,7 @@ export default function App() {
           await window.tau.steer(text, attachments, snapshot?.sessionId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          return { accepted: false, message: error instanceof Error ? error.message : String(error) };
+          return { accepted: false, message: errorMessage(error) };
         }
         return { accepted: true };
       } else {
@@ -1478,7 +1479,7 @@ export default function App() {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
           });
-          return { accepted: false, message: error instanceof Error ? error.message : String(error) };
+          return { accepted: false, message: errorMessage(error) };
         }
         return { accepted: true };
       }
@@ -1519,7 +1520,7 @@ export default function App() {
         }
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        return { accepted: false, message: error instanceof Error ? error.message : String(error) };
+        return { accepted: false, message: errorMessage(error) };
       }
     }
     if (snapshot) {
@@ -1531,11 +1532,11 @@ export default function App() {
       try {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
         void registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions)
-          .catch((error) => setNotice(String(error)));
+          .catch((error) => setNotice(errorMessage(error)));
         return { accepted: true };
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        return { accepted: false, message: error instanceof Error ? error.message : String(error) };
+        return { accepted: false, message: errorMessage(error) };
       }
     } else {
       setSnapshot((current) => current ? { ...current, isStreaming: true } : current);

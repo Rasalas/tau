@@ -4,6 +4,7 @@ import {
   type ComposerScopePersistence,
   type PersistedScope,
 } from "./composer-draft-persistence";
+import { errorMessage } from "./error-message";
 
 export { ComposerDraftPersistence, indexedDbPersistence } from "./composer-draft-persistence";
 export type { ComposerScopePersistence, PersistedAttachment, PersistedScope } from "./composer-draft-persistence";
@@ -34,6 +35,7 @@ export interface ComposerScopeState {
   persistenceQueue: Promise<void>;
   updatedAt: number;
   persistenceError?: string;
+  submissionBusy: boolean;
 }
 
 /** Opaque snapshot/settlement handle owned by one composer scope. */
@@ -46,6 +48,10 @@ export interface SubmissionHandle {
   cancel(): void;
 }
 
+export interface SubmissionBusy {
+  readonly busy: true;
+}
+
 export interface ComposerScopeSnapshot {
   readonly draft: string;
   readonly attachments: readonly PendingAttachment[];
@@ -53,12 +59,15 @@ export interface ComposerScopeSnapshot {
   readonly errorSubmissionId?: number;
   readonly attachmentProcessing: Promise<void>;
   readonly persistenceError?: string;
+  readonly submissionPending: boolean;
 }
 
 export class ComposerScopeStore {
   private readonly states = new Map<ComposerScope, ComposerScopeState>();
   private readonly snapshots = new Map<ComposerScope, ComposerScopeSnapshot>();
   private readonly listeners = new Map<ComposerScope, Set<() => void>>();
+  private readonly pendingSubmissionPromises = new Map<ComposerScope, Promise<SubmissionHandle>>();
+  private readonly activeSubmissionHandles = new Map<ComposerScope, SubmissionHandle>();
 
   private nextSubmissionId = 0;
 
@@ -78,6 +87,7 @@ export class ComposerScopeStore {
       hydrationGeneration: 0,
       persistenceQueue: Promise.resolve(),
       updatedAt: draft ? Date.now() : 0,
+      submissionBusy: false,
     };
     this.states.set(scope, created);
     return created;
@@ -110,6 +120,7 @@ export class ComposerScopeStore {
       errorSubmissionId: state.errorSubmissionId,
       attachmentProcessing: state.attachmentProcessing,
       persistenceError: state.persistenceError,
+      submissionPending: state.submissionBusy,
     };
   }
 
@@ -150,7 +161,7 @@ export class ComposerScopeStore {
       state.revision = Math.max(state.revision, persistedRevision);
       if (changed) this.notify(scope);
     }).catch((error) => {
-      state.persistenceError = error instanceof Error ? error.message : String(error);
+      state.persistenceError = errorMessage(error);
       this.notify(scope);
       onError(error);
     });
@@ -172,7 +183,7 @@ export class ComposerScopeStore {
       state.persistenceError = undefined;
       this.notify(scope);
     }).catch((error) => {
-      state.persistenceError = error instanceof Error ? error.message : String(error);
+      state.persistenceError = errorMessage(error);
       this.notify(scope);
       onError(error);
     });
@@ -187,7 +198,7 @@ export class ComposerScopeStore {
     try {
       this.persistence.writeLegacyDraft?.(scope, draft);
     } catch (error) {
-      state.persistenceError = error instanceof Error ? error.message : String(error);
+      state.persistenceError = errorMessage(error);
       onError(error);
     }
     this.notify(scope);
@@ -223,7 +234,7 @@ export class ComposerScopeStore {
 
   setPersistenceError(scope: ComposerScope, error: unknown): void {
     const state = this.ensure(scope);
-    state.persistenceError = error instanceof Error ? error.message : String(error);
+    state.persistenceError = errorMessage(error);
     this.notify(scope);
   }
 
@@ -239,9 +250,25 @@ export class ComposerScopeStore {
     this.notify(scope);
   }
 
-  beginSubmission(scope: ComposerScope, onError: (error: unknown) => void = () => {}): SubmissionHandle | Promise<SubmissionHandle> {
+  beginSubmission(scope: ComposerScope, onError: (error: unknown) => void = () => {}): SubmissionHandle | Promise<SubmissionHandle> | SubmissionBusy {
     const state = this.ensure(scope);
-    if (!state.attachmentProcessingReady) return state.attachmentProcessing.then(() => this.createSubmission(scope, onError));
+    const active = this.activeSubmissionHandles.get(scope);
+    if (active) return { busy: true };
+    const existing = this.pendingSubmissionPromises.get(scope);
+    if (existing || state.submissionBusy) return { busy: true };
+    state.submissionBusy = true;
+    this.notify(scope);
+    if (!state.attachmentProcessingReady) {
+      const pending = state.attachmentProcessing.then(() => this.createSubmission(scope, onError));
+      const owned = pending.catch((error) => {
+        if (this.pendingSubmissionPromises.get(scope) === owned) this.pendingSubmissionPromises.delete(scope);
+        state.submissionBusy = false;
+        this.notify(scope);
+        throw error;
+      });
+      this.pendingSubmissionPromises.set(scope, owned);
+      return owned;
+    }
     return this.createSubmission(scope, onError);
   }
 
@@ -253,23 +280,34 @@ export class ComposerScopeStore {
     const text = state.draft;
     const attachments = state.attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     state.pendingSubmissions.set(id, { attachmentIds, revision, draft: text });
+    this.pendingSubmissionPromises.delete(scope);
     this.notify(scope);
     let settled = false;
-    return {
+    const handle: SubmissionHandle = {
       text,
       attachments,
       settle: (result) => {
         if (settled) return;
         settled = true;
-        this.settleSubmission(scope, id, result, onError);
+        try {
+          this.settleSubmission(scope, id, result, onError);
+        } finally {
+          if (this.activeSubmissionHandles.get(scope) === handle) this.activeSubmissionHandles.delete(scope);
+          this.ensure(scope).submissionBusy = false;
+          this.notify(scope);
+        }
       },
       cancel: () => {
         if (settled) return;
         settled = true;
         this.ensure(scope).pendingSubmissions.delete(id);
+        this.activeSubmissionHandles.delete(scope);
+        this.ensure(scope).submissionBusy = false;
         this.notify(scope);
       },
     };
+    this.activeSubmissionHandles.set(scope, handle);
+    return handle;
   }
 
   private settleSubmission(scope: ComposerScope, id: number, result: SubmissionResult, onError: (error: unknown) => void): void {
@@ -296,7 +334,7 @@ export class ComposerScopeStore {
       try {
         this.persistence.writeLegacyDraft?.(scope, "");
       } catch (error) {
-        state.persistenceError = error instanceof Error ? error.message : String(error);
+        state.persistenceError = errorMessage(error);
         onError(error);
       }
     }
