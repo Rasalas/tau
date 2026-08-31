@@ -39,10 +39,12 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
   let scannedCodePoints = 0;
   const codePointBudget = graphemeBudgetFor(limit);
 
-  for (const character of text) {
-    if (scannedCodePoints >= codePointBudget) return { count: limit + 1, exhausted: true, examinedCodePoints: scannedCodePoints, lineCount };
+  let codeUnitIndex = 0;
+  while (codeUnitIndex < text.length && scannedCodePoints < codePointBudget) {
+    const codePoint = text.codePointAt(codeUnitIndex)!;
+    const character = String.fromCodePoint(codePoint);
+    codeUnitIndex += character.length;
     scannedCodePoints += 1;
-    const codePoint = character.codePointAt(0)!;
     if (character === "\n") {
       lineCount += 1;
       if (lineCount > LONG_MESSAGE_LINE_LIMIT) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
@@ -67,12 +69,19 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
     }
     const hangul = hangulJamoType(codePoint);
     if (joined) {
+      // GB11 only joins a ZWJ to the following Extended_Pictographic. A ZWJ
+      // before an ordinary character must not swallow that character into the
+      // previous cluster (for example, "👨‍a" has two visible graphemes).
+      if (EXTENDED_PICTOGRAPHIC.test(character)) {
+        joined = false;
+        previousHangul = hangul;
+        hasBase = true;
+        leadingExtenderCluster = false;
+        previousExtendedPictographic = true;
+        continue;
+      }
       joined = false;
-      previousHangul = hangul;
-      hasBase = true;
-      leadingExtenderCluster = false;
-      previousExtendedPictographic = EXTENDED_PICTOGRAPHIC.test(character);
-      continue;
+      previousExtendedPictographic = false;
     }
     if (codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff) {
       regionalIndicators += 1;
@@ -90,16 +99,19 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
     previousExtendedPictographic = EXTENDED_PICTOGRAPHIC.test(character);
     if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
   }
+  if (codeUnitIndex < text.length) return { count: limit + 1, exhausted: true, examinedCodePoints: scannedCodePoints, lineCount };
   return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
 }
 
 function withinGraphemeBudget(text: string): boolean {
   let examinedCodePoints = 0;
-  for (const _character of text) {
+  let codeUnitIndex = 0;
+  while (codeUnitIndex < text.length && examinedCodePoints < GRAPHEME_CODEPOINT_BUDGET) {
+    const codePoint = text.codePointAt(codeUnitIndex)!;
+    codeUnitIndex += codePoint > 0xffff ? 2 : 1;
     examinedCodePoints += 1;
-    if (examinedCodePoints > GRAPHEME_CODEPOINT_BUDGET) return false;
   }
-  return true;
+  return codeUnitIndex >= text.length;
 }
 
 function segmenterFor(): (new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<{ segment: string }> }) | undefined {

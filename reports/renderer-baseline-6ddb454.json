@@ -1,6 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-08-31T17:21:59.973Z",
+  "commitSha": "6ddb4541b02410fa8c462dca4b9bb3b9969d5756",
   "machine": {
     "platform": "darwin",
     "architecture": "arm64",
@@ -281,39 +282,6 @@
         "median": 8662513,
         "p95": 8690921,
         "maximum": 8690921
-      }
-    },
-    {
-      "id": "long-user-message",
-      "fixture": {
-        "id": "long-user-message",
-        "kind": "message",
-        "bytes": 12000
-      },
-      "sampleRuns": 5,
-      "longTaskObserverSupported": true,
-      "frameIntervalsMs": {
-        "median": 16.700000000000017,
-        "p95": 18.099999999999994,
-        "maximum": 18.5
-      },
-      "longTasksMs": {
-        "count": 0,
-        "median": 0,
-        "p95": 0,
-        "maximum": 0
-      },
-      "commitDurationsMs": {
-        "median": 13.800000071525574,
-        "p95": 14.700000047683716,
-        "maximum": 14.700000047683716
-      },
-      "commits": 1,
-      "domNodes": 21,
-      "heapBytes": {
-        "median": 8274808,
-        "p95": 8286184,
-        "maximum": 8286184
       }
     }
   ]

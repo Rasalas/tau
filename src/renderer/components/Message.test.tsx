@@ -90,6 +90,9 @@ describe("Long user messages", () => {
       expect(isLongMessage("각".repeat(201))).toBe(false);
       expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
       expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
+      // GB11 joins only Extended_Pictographic after a ZWJ. The ordinary
+      // `a` remains a separate visible grapheme.
+      expect(isLongMessage(("👨‍a".repeat(300)) + "👨")).toBe(true);
       expect(isLongMessage("a\u200db".repeat(301))).toBe(true);
       expect(isLongMessage("\u0301\u0302" + "a".repeat(599))).toBe(false);
       expect(isLongMessage("\u0301\u0302" + "a".repeat(600))).toBe(true);
@@ -111,7 +114,7 @@ describe("Long user messages", () => {
       expect(isLongMessage("e\u0301".repeat(301))).toBe(false);
       const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
       expect(bounded.exhausted).toBe(true);
-      expect(bounded.examinedCodePoints).toBeLessThanOrEqual(GRAPHEME_CODEPOINT_BUDGET);
+      expect(bounded.examinedCodePoints).toBe(GRAPHEME_CODEPOINT_BUDGET);
     } finally {
       if (segmenter) Object.defineProperty(Intl, "Segmenter", segmenter);
     }

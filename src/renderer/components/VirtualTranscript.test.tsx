@@ -3,6 +3,7 @@ import { useRef, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
+import { testDomRect } from "./test-dom-geometry";
 import { VirtualTranscript } from "./VirtualTranscript";
 
 afterEach(cleanup);
@@ -52,15 +53,15 @@ function installDelayedMeasurementHarness(options: {
   scrollHeight?: (node: HTMLElement) => number;
   getBoundingClientRect?: (node: HTMLElement) => DOMRect;
 } = {}) {
-  const rafCallbacks = new Map<number, FrameRequestCallback>();
+  const pendingFrameCallbacks = new Map<number, FrameRequestCallback>();
   let nextFrameId = 0;
   vi.stubGlobal("ResizeObserver", DelayedResizeObserver);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     const id = ++nextFrameId;
-    rafCallbacks.set(id, callback);
+    pendingFrameCallbacks.set(id, callback);
     return id;
   });
-  vi.stubGlobal("cancelAnimationFrame", (id: number) => { rafCallbacks.delete(id); });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => { pendingFrameCallbacks.delete(id); });
 
   const properties = ["clientWidth", "clientHeight", "offsetWidth", "offsetHeight", "scrollHeight", "getBoundingClientRect"] as const;
   const previous = new Map<typeof properties[number], PropertyDescriptor | undefined>();
@@ -91,7 +92,7 @@ function installDelayedMeasurementHarness(options: {
       const original = previous.get("getBoundingClientRect")?.value;
       return typeof original === "function"
         ? original.call(this)
-        : { top: 0, bottom: 0, height: 0, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+        : testDomRect();
     },
   });
 
@@ -105,11 +106,11 @@ function installDelayedMeasurementHarness(options: {
     },
     flushFrames: async (count = 2) => {
       for (let frame = 0; frame < count; frame += 1) {
-        await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+        await act(async () => { for (const callback of [...pendingFrameCallbacks.values()]) callback(0); });
       }
     },
     restore() {
-      rafCallbacks.clear();
+      pendingFrameCallbacks.clear();
       for (const property of properties) {
         const descriptor = previous.get(property);
         if (descriptor) Object.defineProperty(HTMLElement.prototype, property, descriptor);
@@ -191,7 +192,7 @@ describe("virtual transcript", () => {
     const harness = installDelayedMeasurementHarness({
       getBoundingClientRect: (node) => {
         const height = node.classList.contains("virtual-transcript-row") ? 180 : 600;
-        return { x: 0, y: 0, top: 0, left: 0, right: 780, bottom: height, width: 780, height, toJSON: () => ({}) } as DOMRect;
+        return testDomRect({ bottom: height, height });
       },
     });
     const messages: UiMessage[] = Array.from({ length: 1_000 }, (_, index) => ({
@@ -232,12 +233,12 @@ describe("virtual transcript", () => {
       await waitFor(() => expect(container.querySelectorAll(".virtual-transcript-row")).toHaveLength(2));
       const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
       const content = rows[0].querySelector<HTMLElement>(".message-text-content")!;
-      container.getBoundingClientRect = () => ({ top: 0, bottom: 600, height: 600, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
+      container.getBoundingClientRect = () => testDomRect({ bottom: 600, height: 600 });
       rows[0].getBoundingClientRect = () => {
         const height = naturalHeightSame ? 300 : content.classList.contains("collapsed") ? 300 : 500;
-        return { top: -200, bottom: -200 + height, height, left: 0, right: 780, width: 780, x: 0, y: -200, toJSON: () => ({}) };
+        return testDomRect({ top: -200, bottom: -200 + height, height, y: -200 });
       };
-      rows[1].getBoundingClientRect = () => ({ top: naturalHeightSame ? 300 : content.classList.contains("collapsed") ? 300 : 500, bottom: 340, height: 40, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
+      rows[1].getBoundingClientRect = () => testDomRect({ top: naturalHeightSame ? 300 : content.classList.contains("collapsed") ? 300 : 500, bottom: 340, height: 40 });
 
       const observersBeforeExpand = harness.observerCount();
       fireEvent.click(screen.getByRole("button", { name: "Show more" }));
@@ -320,10 +321,10 @@ describe("virtual transcript", () => {
       await waitFor(() => expect(container.querySelectorAll(".virtual-transcript-row")).toHaveLength(1));
       const row = container.querySelector<HTMLElement>(".virtual-transcript-row")!;
       const content = row.querySelector<HTMLElement>(".message-text-content")!;
-      container.getBoundingClientRect = () => ({ top: 0, bottom: 600, height: 600, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
+      container.getBoundingClientRect = () => testDomRect({ bottom: 600, height: 600 });
       row.getBoundingClientRect = () => {
         const height = content.classList.contains("collapsed") ? 300 : 500;
-        return { top: -200, bottom: -200 + height, height, left: 0, right: 780, width: 780, x: 0, y: -200, toJSON: () => ({}) };
+        return testDomRect({ top: -200, bottom: -200 + height, height, y: -200 });
       };
 
       container.scrollTop = 100;

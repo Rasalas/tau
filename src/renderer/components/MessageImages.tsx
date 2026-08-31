@@ -3,9 +3,6 @@ import type { UiImagePreview, UiMessageImage } from "../../shared/contracts";
 import { AttachmentImageDialog, type AttachmentImage } from "./AttachmentImageDialog";
 import { localImagePaths } from "./MessageText";
 
-export { copyableMessage, localImagePaths, visibleUserMessageText } from "./MessageText";
-export { visibleUserMessageText as withoutLocalImagePaths } from "./MessageText";
-
 const imagePreviewCache = new Map<string, Promise<UiImagePreview | undefined>>();
 
 function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
