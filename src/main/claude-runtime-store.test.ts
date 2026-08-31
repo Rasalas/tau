@@ -1,7 +1,8 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
+import { formatChatTranscript } from "../shared/chat-transcript.js";
 import type { UiMessage } from "../shared/contracts.js";
 import { ClaudeRuntimeSessionStore } from "./claude-runtime-store.js";
 
@@ -20,7 +21,7 @@ async function temporaryStore() {
 describe("Claude runtime session store", () => {
   it("atomically reloads runtime ids, visible transcript metadata, and title source", async () => {
     const { directory, filePath } = await temporaryStore();
-    const store = new ClaudeRuntimeSessionStore({ filePath, now: () => 10, knownSkillNames: ["tdd"] });
+    const store = new ClaudeRuntimeSessionStore({ filePath, now: () => 10 });
     const record = await store.ensure("tau-session", "/repo");
     await store.markStarted("tau-session", "/repo");
     const user: UiMessage = {
@@ -32,10 +33,10 @@ describe("Claude runtime session store", () => {
       timestamp: 11,
     };
     const assistant: UiMessage = { id: "assistant", role: "assistant", text: "Done", timestamp: 12 };
-    await store.appendExchange("tau-session", "/repo", [user, assistant]);
+    await store.appendExchange("tau-session", "/repo", [user, assistant], { knownSkillNames: ["tdd"] });
     await store.setTitle("tau-session", "/repo", "Parser fix", "renamed");
 
-    const reloaded = new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] });
+    const reloaded = new ClaudeRuntimeSessionStore({ filePath });
     const restored = await reloaded.get("tau-session");
     expect(restored).toMatchObject({
       tauThreadId: "tau-session",
@@ -56,29 +57,23 @@ describe("Claude runtime session store", () => {
     expect(await reloaded.list()).toHaveLength(1);
   });
 
-  it("strips runtime wrappers before accepting persisted user content", async () => {
+  it("normalizes a Tau-authorized runtime wrapper once before persisting it", async () => {
     const { filePath } = await temporaryStore();
-    await mkdir(join(filePath, ".."), { recursive: true });
-    await writeFile(filePath, JSON.stringify({ sessions: [{
-      tauThreadId: "tau-session",
-      claudeSessionId: "123e4567-e89b-12d3-a456-426614174000",
-      cwd: "/repo",
-      started: true,
-      messages: [{
-        role: "user",
-        text: '<skill name="tdd" location="/private/SKILL.md">\nSECRET BODY\n</skill>\n\nVisible request',
-        timestamp: 1,
-        skill: { name: "tdd", command: "/tdd", copyText: "/tdd Visible request" },
-      }],
-      updatedAt: 1,
-    }] }), { encoding: "utf8", mode: 0o600 });
-    const restored = await new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] }).get("tau-session");
+    const raw = '<skill name="tdd" location="/private/SKILL.md">\nSECRET BODY\n</skill>\n\nVisible request';
+    const store = new ClaudeRuntimeSessionStore({ filePath });
+    await store.appendExchange("tau-session", "/repo", [{
+      id: "user",
+      role: "user",
+      text: raw,
+      timestamp: 1,
+      skill: { name: "tdd", command: "/tdd", copyText: "/tdd Visible request" },
+    }], { knownSkillNames: ["tdd"] });
+    const restored = await new ClaudeRuntimeSessionStore({ filePath }).get("tau-session");
     expect(restored?.messages[0]?.text).toBe("Visible request");
     expect(JSON.stringify(restored)).not.toContain("SECRET BODY");
-    await chmod(filePath, 0o600);
   });
 
-  it("revalidates a legacy envelope when the runtime catalog arrives after load", async () => {
+  it("never migrates a raw envelope when a catalog arrives after load", async () => {
     const { filePath } = await temporaryStore();
     await mkdir(join(filePath, ".."), { recursive: true });
     const raw = '<skill name="tdd" location="/private/SKILL.md">\nSECRET BODY\n</skill>\n\nVisible request';
@@ -96,12 +91,44 @@ describe("Claude runtime session store", () => {
       updatedAt: 1,
     }] }), { encoding: "utf8", mode: 0o600 });
     const store = new ClaudeRuntimeSessionStore({ filePath });
+    const before = await readFile(filePath, "utf8");
     expect((await store.get("tau-session"))?.messages[0]?.text).toBe(raw);
     await store.setKnownSkillNames(["tdd"]);
-    expect((await store.get("tau-session"))?.messages[0]).toMatchObject({
-      text: "Visible request",
-      skill: { name: "tdd", command: "/tdd", copyText: "/tdd Visible request" },
+    expect((await store.get("tau-session"))?.messages[0]?.text).toBe(raw);
+    expect(await readFile(filePath, "utf8")).toBe(before);
+    expect((await new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] }).get("tau-session"))?.messages[0]?.text)
+      .toBe(raw);
+  });
+
+  it("keeps workspace-scoped unknown wrappers immutable when another workspace knows them", async () => {
+    const { filePath } = await temporaryStore();
+    const raw = '<skill name="removed" location="/workspace-a/.agents/SKILL.md">\nSECRET FROM A\n</skill>\n\nKeep this request raw';
+    const workspaceA = new ClaudeRuntimeSessionStore({ filePath });
+    await workspaceA.appendExchange("thread-a", "/workspace-a", [{
+      id: "a-user",
+      role: "user",
+      text: raw,
+      timestamp: 1,
+    }]);
+    const before = await readFile(filePath, "utf8");
+
+    // Opening workspace B supplies a different runtime catalog. It must not
+    // reinterpret A's already persisted append-only payload.
+    const workspaceB = new ClaudeRuntimeSessionStore({ filePath });
+    await workspaceB.setKnownSkillNames(["removed"]);
+    expect((await workspaceB.get("thread-a"))?.messages[0]?.text).toBe(raw);
+    expect(await readFile(filePath, "utf8")).toBe(before);
+
+    const reloadedA = await new ClaudeRuntimeSessionStore({ filePath }).get("thread-a");
+    expect(reloadedA?.messages[0]?.text).toBe(raw);
+    const exported = formatChatTranscript({
+      cwd: "/workspace-a",
+      threadId: "thread-a",
+      exportedAt: new Date("2026-08-31T00:00:00.000Z"),
+      messages: reloadedA?.messages.map((message) => ({ role: message.role, content: message.text })) ?? [],
     });
+    expect(exported).toContain(raw);
+    expect(exported).toContain("SECRET FROM A");
   });
 
   it("keeps unknown and malformed wrappers lossless across a restart", async () => {
@@ -109,14 +136,14 @@ describe("Claude runtime session store", () => {
     const unknown = '<skill name="removed" location="/private/removed/SKILL.md">\nSECRET BODY\n</skill>\n\nKeep this raw';
     const unknownWithMetadata = '<skill name="removed" location="/private/removed/SKILL.md">\nSECOND SECRET\n</skill>\n\nKeep this raw too';
     const malformed = '<skill name="tdd" location="/private/tdd/SKILL.md">\nBODY\n</skill\n\nKeep this malformed';
-    const store = new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] });
+    const store = new ClaudeRuntimeSessionStore({ filePath });
     await store.appendExchange("tau-session", "/repo", [
       { id: "unknown", role: "user", text: unknown, timestamp: 1 },
       { id: "unknown-with-metadata", role: "user", text: unknownWithMetadata, skill: { name: "removed", command: "/removed", copyText: "/removed Keep this raw too" }, timestamp: 2 },
       { id: "malformed", role: "user", text: malformed, skill: { name: "tdd", command: "/tdd", copyText: "/tdd Keep this malformed" }, timestamp: 3 },
     ]);
 
-    const restored = await new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] }).get("tau-session");
+    const restored = await new ClaudeRuntimeSessionStore({ filePath }).get("tau-session");
     expect(restored?.messages.map((message) => message.text)).toEqual([unknown, unknownWithMetadata, malformed]);
     expect(restored?.messages[1]?.skill).toBeUndefined();
     expect(JSON.stringify(restored)).toContain("SECRET BODY");
@@ -126,10 +153,10 @@ describe("Claude runtime session store", () => {
 
   it("never derives a title from raw runtime wrappers", async () => {
     const { filePath } = await temporaryStore();
-    const store = new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] });
+    const store = new ClaudeRuntimeSessionStore({ filePath });
     await store.setTitle("tau-session", "/repo", '<skill name="removed" location="/private/SKILL.md">\nSECRET\n</skill>\n\nVisible title', "generated");
 
-    const restored = await new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] }).get("tau-session");
+    const restored = await new ClaudeRuntimeSessionStore({ filePath }).get("tau-session");
     expect(restored?.title).toBe("Skill invocation");
     expect(JSON.stringify(restored)).not.toContain("SECRET");
     expect(JSON.stringify(restored)).not.toContain("location=");
@@ -146,7 +173,7 @@ describe("Claude runtime session store", () => {
 
   it("rejects forged persisted skill metadata without changing visible content", async () => {
    const { filePath } = await temporaryStore();
-    const store = new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] });
+    const store = new ClaudeRuntimeSessionStore({ filePath });
     await store.appendExchange("tau-session", "/repo", [{
       id: "user",
       role: "user",
@@ -155,7 +182,7 @@ describe("Claude runtime session store", () => {
       timestamp: 1,
     }]);
 
-    const restored = await new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] }).get("tau-session");
+    const restored = await new ClaudeRuntimeSessionStore({ filePath }).get("tau-session");
     expect(restored?.messages[0]?.skill).toBeUndefined();
     expect(restored?.messages[0]?.text).toBe("Please inspect location=/repo");
     expect(JSON.stringify(restored)).not.toContain("SECRET");

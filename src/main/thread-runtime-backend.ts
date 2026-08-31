@@ -414,13 +414,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
  async create(): Promise<void> {
-    await this.configureSkillCatalog();
    this.record = await this.store.ensure(this.threadId, this.cwd);
    this.restoreRecord(this.record);
  }
 
  async resume(): Promise<void> {
-    await this.configureSkillCatalog();
    this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
     if (this.record.cwd !== this.cwd) throw new Error("Claude session belongs to another workspace.");
     this.restoreRecord(this.record);
@@ -586,8 +584,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
  async abort(): Promise<void> { await this.runtimeAdapter.transport.abort?.(this.threadId); this.streaming = false; }
   async persist(messages: readonly UiMessage[]): Promise<void> {
-    await this.configureSkillCatalog();
-    await this.store.appendExchange(this.threadId, this.cwd, messages);
+    const commands = await this.skills();
+    await this.store.appendExchange(this.threadId, this.cwd, messages, {
+      knownSkillNames: knownSkillNames(commands),
+    });
   }
   async setTitle(title: string, source: ClaudeTitleSource): Promise<void> {
     const safeTitle = derivedClaudeTitle(title) ?? "Skill invocation";
@@ -636,10 +636,6 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   isStreaming(): boolean { return this.streaming; }
   isIdle(): boolean { return !this.streaming; }
  async dispose(): Promise<void> { if (this.streaming) await this.abort(); }
-
-  private async configureSkillCatalog(): Promise<void> {
-    await this.store.setKnownSkillNames(knownSkillNames(await this.skills()));
-  }
 
   private assertPreparedPrompt(
     text: string,

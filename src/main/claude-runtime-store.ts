@@ -44,8 +44,20 @@ export interface ClaudeRuntimeSessionRecord {
 export interface ClaudeRuntimeSessionStoreOptions {
   filePath: string;
   now?(): number;
-  /** Skill names proven by the current runtime catalog before wrapper migration. */
+  /**
+   * @deprecated Skill knowledge is request-scoped. Pass it to appendExchange
+   * instead; this option is accepted only for source compatibility and never
+   * migrates records.
+   */
   knownSkillNames?: readonly string[];
+}
+
+export interface ClaudeExchangeOptions {
+  /**
+   * Catalog names proven by the runtime owner for this one append request.
+   * They are never retained by the app-data store or applied to old records.
+   */
+  knownSkillNames?: Iterable<string>;
 }
 
 interface StoredMessageOnDisk {
@@ -145,7 +157,7 @@ function visibleStoredTitle(text: string): string {
   return /<skill\b/iu.test(text) ? "Skill invocation" : text;
 }
 
-function storedMessage(value: unknown, knownSkills: ReadonlySet<string> = new Set()): ClaudeStoredMessage | undefined {
+function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
   if (item.role !== "user" && item.role !== "assistant") return undefined;
@@ -158,24 +170,18 @@ function storedMessage(value: unknown, knownSkills: ReadonlySet<string> = new Se
   if (rawText === undefined || timestamp === undefined) return undefined;
   const clientMessageId = boundedString(item.clientMessageId, MAX_ID_LENGTH);
   const parsedSkill = item.role === "user" ? storedSkill(item.skill) : undefined;
-  const text = visibleStoredText(item.role, rawText, parsedSkill, knownSkills);
-  const envelope = parseSkillEnvelope(rawText);
-  const envelopeMatchesMetadata = envelope !== undefined
-    && parsedSkill !== undefined
-    && envelope.name === parsedSkill.name
-    && envelope.name === parsedSkill.command.replace(/^\/skill:/u, "").replace(/^\//u, "");
-  // When the catalog was not available during the first disk read, validate
-  // the copy text against the envelope's visible suffix without exposing that
-  // suffix yet. This lets a later backend catalog re-run the migration.
-  const metadataText = envelopeMatchesMetadata ? envelope.userMessage : text;
+  // Disk reads are deliberately lossless. A raw runtime-looking value is
+  // never reinterpreted later when another workspace happens to know the same
+  // skill; only appendExchange may normalize a new, Tau-authorized request.
+  const text = rawText;
+  // Structured metadata is usable after reload only when the stored text is
+  // already the visible projection. Legacy raw envelopes remain plain text,
+  // even if they carry forged or stale metadata, so they cannot turn into a
+  // chip (or lose their body) after a later catalog change.
   const metadataIsConsistent = parsedSkill !== undefined
-    && parsedSkill.copyText === skillCopyText(parsedSkill, metadataText)
-    && (!runtimeLikeEnvelope(rawText) || envelope !== undefined);
- // Keep untrusted metadata attached while the catalog is unavailable so a
- // later backend can revalidate it; only a known name is allowed to hide an
- // envelope in visibleStoredText above.
-  const catalogAllowsMetadata = knownSkills.size === 0 || (parsedSkill !== undefined && knownSkills.has(parsedSkill.name));
-  const skill = catalogAllowsMetadata && metadataIsConsistent ? parsedSkill : undefined;
+    && !runtimeLikeEnvelope(rawText)
+    && parsedSkill.copyText === skillCopyText(parsedSkill, text);
+  const skill = metadataIsConsistent ? parsedSkill : undefined;
   return {
     role: item.role,
     text,
@@ -185,7 +191,7 @@ function storedMessage(value: unknown, knownSkills: ReadonlySet<string> = new Se
   };
 }
 
-function storedRecord(value: unknown, knownSkills: ReadonlySet<string> = new Set()): ClaudeRuntimeSessionRecord | undefined {
+function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
   // Read the pre-backend-ownership key once for migration, but always expose
@@ -197,7 +203,7 @@ function storedRecord(value: unknown, knownSkills: ReadonlySet<string> = new Set
   if (!tauThreadId || !claudeSessionId || !UUID.test(claudeSessionId) || !cwd || updatedAt === undefined) return undefined;
   const messages = Array.isArray(item.messages)
     ? item.messages.flatMap((message) => {
-      const parsed = storedMessage(message, knownSkills);
+      const parsed = storedMessage(message);
       return parsed ? [parsed] : [];
     })
     : [];
@@ -252,7 +258,6 @@ function sameStoredMessage(left: ClaudeStoredMessage, right: ClaudeStoredMessage
 /** App-data persistence for Claude session ids and the visible Tau projection. */
 export class ClaudeRuntimeSessionStore {
   private readonly now: () => number;
-  private readonly knownSkills: Set<string>;
   private readonly records = new Map<string, ClaudeRuntimeSessionRecord>();
   private loaded = false;
   private loading?: Promise<void>;
@@ -260,7 +265,6 @@ export class ClaudeRuntimeSessionStore {
 
   constructor(private readonly options: ClaudeRuntimeSessionStoreOptions) {
     this.now = options.now ?? Date.now;
-    this.knownSkills = new Set((options.knownSkillNames ?? []).filter((name) => SKILL_NAME.test(name)));
   }
 
   static defaultPath(agentDir: string): string {
@@ -274,33 +278,13 @@ export class ClaudeRuntimeSessionStore {
   }
 
   /**
-   * Supplies the runtime catalog before migrating a legacy expanded envelope.
-   * The set is monotonic because app-data can contain threads from different
-   * workspaces while the host is indexing them.
+   * Kept as a compatibility no-op for older host callers. Skill catalogs are
+   * request-scoped and must never be retained by this app-data store: in
+   * particular, opening a workspace where a skill exists cannot reinterpret
+   * or rewrite a raw message belonging to another workspace or thread.
    */
-  async setKnownSkillNames(names: Iterable<string>): Promise<void> {
-    let changed = false;
-    for (const name of names) {
-      if (!SKILL_NAME.test(name) || this.knownSkills.has(name)) continue;
-      this.knownSkills.add(name);
-      changed = true;
-    }
-    if (!changed || !this.loaded) return;
-    let recordsChanged = false;
-    for (const record of this.records.values()) {
-      const next = record.messages.map((message) => storedMessage({
-        role: message.role,
-        text: message.text,
-        timestamp: message.timestamp,
-        ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
-        ...(message.skill ? { skill: message.skill } : {}),
-      }, this.knownSkills));
-      if (next.every((message, index) => message && sameStoredMessage(message, record.messages[index]!))) continue;
-      record.messages = next.flatMap((message) => message ? [message] : []);
-      record.updatedAt = this.now();
-      recordsChanged = true;
-    }
-    if (recordsChanged) await this.persist();
+  async setKnownSkillNames(_names: Iterable<string>): Promise<void> {
+    await this.load();
   }
 
   private async readFromDisk(): Promise<void> {
@@ -310,7 +294,7 @@ export class ClaudeRuntimeSessionStore {
         ? (parsed as { sessions: unknown[] }).sessions
         : [];
       for (const value of values) {
-        const record = storedRecord(value, this.knownSkills);
+        const record = storedRecord(value);
         if (record) this.records.set(record.tauThreadId, record);
       }
       await chmod(this.options.filePath, 0o600).catch(() => undefined);
@@ -411,24 +395,26 @@ export class ClaudeRuntimeSessionStore {
     tauThreadId: string,
     cwd: string,
     messages: readonly UiMessage[],
+    options: ClaudeExchangeOptions = {},
   ): Promise<void> {
     await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
+    const knownSkills = new Set([...options.knownSkillNames ?? []].filter((name) => SKILL_NAME.test(name)));
     const additions: ClaudeStoredMessage[] = [];
     for (const message of messages) {
       if (message.role !== "user" && message.role !== "assistant") continue;
       const parsedSkill = message.role === "user" && message.skill
         ? storedSkill(message.skill)
         : undefined;
-      const visibleText = visibleStoredText(message.role, message.text, parsedSkill, this.knownSkills);
+      const visibleText = visibleStoredText(message.role, message.text, parsedSkill, knownSkills);
       const clientMessageId = boundedString(message.clientMessageId, MAX_ID_LENGTH);
       const stored: ClaudeStoredMessage = {
         role: message.role,
         text: visibleText,
         timestamp: message.timestamp,
         ...(clientMessageId ? { clientMessageId } : {}),
-        ...(parsedSkill && this.knownSkills.has(parsedSkill.name)
+        ...(parsedSkill && knownSkills.has(parsedSkill.name)
           && parsedSkill.copyText === skillCopyText(parsedSkill, visibleText)
           && (!runtimeLikeEnvelope(message.text) || parseSkillEnvelope(message.text) !== undefined)
           ? { skill: parsedSkill }
