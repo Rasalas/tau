@@ -96,7 +96,7 @@ export function buildRendererComparisonReproduction({
   ].join("\n");
 
   return {
-    subject: { currentRoot: subjectRoot, measuredCurrentRoot: currentRoot, baselineCommit, currentCommit },
+    subject: { currentRoot: subjectRoot, measuredCurrentRoot: "$CURRENT_ROOT", baselineCommit, currentCommit },
     harness: { baselinePatch },
     baseline: {
       worktreeVariable: "$BASELINE_ROOT",
@@ -112,7 +112,7 @@ export function buildRendererComparisonReproduction({
     current: {
       worktreeVariable: "$CURRENT_ROOT",
       subjectRoot,
-      measuredRoot: currentRoot,
+      measuredRoot: "$CURRENT_ROOT",
       reports: currentReports,
       commands: [
         'CURRENT_ROOT="$(mktemp -d -t tau-transcript-current.XXXXXX)"',

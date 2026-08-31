@@ -179,7 +179,7 @@ describe("performance report checks", () => {
     expect(aggregateCommand).not.toContain("...");
     expect(reproduction.subject.currentCommit).toBe("subject-commit");
     expect(reproduction.subject.currentRoot).toBe(subjectRoot);
-    expect(reproduction.subject.measuredCurrentRoot).toBe(currentRoot);
+    expect(reproduction.subject.measuredCurrentRoot).toBe("$CURRENT_ROOT");
     expect(reproduction.current.worktreeVariable).toBe("$CURRENT_ROOT");
     expect(reproduction.shell).toContain('git -C "$SUBJECT_ROOT" worktree add --detach "$CURRENT_ROOT" "$CURRENT_COMMIT"');
     expect(reproduction.shell).toContain('git -C "$BASELINE_ROOT" apply "$BASELINE_PATCH"');
