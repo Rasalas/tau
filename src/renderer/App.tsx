@@ -4,7 +4,7 @@ import type {
   FileNode,
   HostEvent,
   HostSnapshot,
-  NewSessionCapability,
+  PreparedThreadCapability,
   ThreadIndexSnapshot,
   UiEditor,
   UiMessage,
@@ -354,9 +354,9 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
-  const [newThreadCapability, setNewThreadCapability] = useState<NewSessionCapability>();
-  const newThreadCapabilityRequestRef = useRef(0);
-  const newThreadCapabilityGenerationRef = useRef(0);
+  const [preparedThreadCapability, setPreparedThreadCapability] = useState<PreparedThreadCapability>();
+  const preparedThreadCapabilityRequestRef = useRef(0);
+  const preparedThreadCapabilityGenerationRef = useRef(0);
   const [settingsPage, setSettingsPage] = useState<string>();
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
@@ -390,24 +390,24 @@ export default function App() {
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
   useEffect(() => {
-    const request = ++newThreadCapabilityRequestRef.current;
+    const request = ++preparedThreadCapabilityRequestRef.current;
     const projectPath = pendingNewThread?.projectPath;
-    const getCapability = window.tau?.getNewSessionCapability;
+    const getCapability = window.tau?.getPreparedThreadCapability;
     if (!projectPath || !getCapability) {
-      setNewThreadCapability(undefined);
+      setPreparedThreadCapability(undefined);
       return;
     }
-    setNewThreadCapability(undefined);
+    setPreparedThreadCapability(undefined);
     void getCapability(projectPath).then((capability) => {
       if (
-        request !== newThreadCapabilityRequestRef.current
+        request !== preparedThreadCapabilityRequestRef.current
         || capability.cwd !== projectPath
-        || capability.generation < newThreadCapabilityGenerationRef.current
+        || capability.generation < preparedThreadCapabilityGenerationRef.current
       ) return;
-      newThreadCapabilityGenerationRef.current = capability.generation;
-      setNewThreadCapability(capability);
+      preparedThreadCapabilityGenerationRef.current = capability.generation;
+      setPreparedThreadCapability(capability);
     }).catch(() => {
-      if (request === newThreadCapabilityRequestRef.current) setNewThreadCapability(undefined);
+      if (request === preparedThreadCapabilityRequestRef.current) setPreparedThreadCapability(undefined);
     });
   }, [pendingNewThread?.projectPath]);
   useEffect(() => {
@@ -752,7 +752,9 @@ export default function App() {
         if (event.tool.name === "edit" || event.tool.name === "write") void refreshChanges();
         break;
       case "event-log": addEvent(event.label, event.detail, event.timestamp); break;
-      case "error": setNotice(event.message); break;
+      case "error":
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
+        break;
       case "tool-approval":
         setApprovals((current) => [...current, event.request]);
         break;
@@ -1612,8 +1614,8 @@ export default function App() {
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
-    supportsImageInput: newThreadCapability?.cwd === pendingNewThread.projectPath
-      ? newThreadCapability.supportsImageInput
+    supportsImageInput: preparedThreadCapability?.cwd === pendingNewThread.projectPath
+      ? preparedThreadCapability.supportsImageInput
       : false,
     taskProgress: undefined,
     taskHistory: [],
@@ -1658,13 +1660,13 @@ export default function App() {
     setThreadDrop(state);
   };
   const onThreadDragLeave = (event: React.DragEvent<HTMLElement>) => {
-    if (classifyDataTransfer(event.dataTransfer) === "idle") return;
+    if (threadDropDepthRef.current === 0) return;
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     threadDropDepthRef.current = Math.max(0, threadDropDepthRef.current - 1);
     if (threadDropDepthRef.current === 0) setThreadDrop("idle");
   };
   const onThreadDrop = (event: React.DragEvent<HTMLElement>) => {
-    if (classifyDataTransfer(event.dataTransfer) === "idle" || event.dataTransfer.files.length === 0) return;
+    if (classifyDataTransfer(event.dataTransfer) === "idle") return;
     event.preventDefault();
     threadDropDepthRef.current = 0;
     setThreadDrop("idle");

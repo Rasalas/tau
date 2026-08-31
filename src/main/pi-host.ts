@@ -27,7 +27,7 @@ import type {
   HostBootstrap,
   HostEvent,
   HostSnapshot,
-  NewSessionCapability,
+  PreparedThreadCapability,
   PushResult,
   ShellActionResult,
   ThreadIndexSnapshot,
@@ -77,7 +77,11 @@ const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-elect
 
 type Emit = (event: HostEvent) => void;
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
-type PromptAcceptance = (error?: unknown) => void;
+interface PromptPreflightResult {
+  accepted: boolean;
+  error?: unknown;
+}
+type PromptPreflight = (result: PromptPreflightResult) => void;
 
 function processIsAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
@@ -516,7 +520,7 @@ export class PiHost {
   private readonly openingThreads = new Map<string, Promise<ThreadRuntime>>();
   /** A blank runtime for the current project, so a new thread is ready before it is asked for. */
   private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined> };
-  private newSessionCapabilityGeneration = 0;
+  private preparedThreadCapabilityGeneration = 0;
   /** Session managers whose runtime is being built in the background, outside any measurement. */
   private readonly backgroundManagers = new WeakSet<SessionManager>();
   private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
@@ -965,10 +969,10 @@ export class PiHost {
     });
   }
 
-  async getNewSessionCapability(cwd?: string): Promise<NewSessionCapability> {
+  async getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability> {
     return this.runLifecycle(async () => {
       const targetCwd = cwd ?? this.cwd;
-      const generation = ++this.newSessionCapabilityGeneration;
+      const generation = ++this.preparedThreadCapabilityGeneration;
       if (this.bridge && (!cwd || cwd === this.cwd)) {
         return { cwd: targetCwd, generation, supportsImageInput: false };
       }
@@ -985,17 +989,7 @@ export class PiHost {
 
   /** Start a first prompt and wait only until Pi accepts it, not for the turn. */
   private async startPrompt(text: string, attachments: UiPromptAttachment[], sessionId: string): Promise<void> {
-    let resolveAcceptance!: () => void;
-    let rejectAcceptance!: (error: unknown) => void;
-    const accepted = new Promise<void>((resolve, reject) => {
-      resolveAcceptance = resolve;
-      rejectAcceptance = reject;
-    });
-    void this.prompt(text, attachments, sessionId, (error) => {
-      if (error) rejectAcceptance(error);
-      else resolveAcceptance();
-    }).catch(() => undefined);
-    await accepted;
+    await this.prompt(text, attachments, sessionId);
   }
 
   async forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult> {
@@ -1098,42 +1092,66 @@ export class PiHost {
     }
   }
 
-  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string, onAccepted?: PromptAcceptance): Promise<void> {
+  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string, onPreflightResult?: PromptPreflight): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text });
-      onAccepted?.();
+      if (attachments.length > 0) {
+        const error = new Error("Image attachments are not supported while Tau is attached to Pi.");
+        onPreflightResult?.({ accepted: false, error });
+        throw error;
+      }
+      try {
+        await this.bridge!.command({ command: "prompt", text });
+      } catch (error) {
+        onPreflightResult?.({ accepted: false, error });
+        throw error;
+      }
+      onPreflightResult?.({ accepted: true });
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
     const session = thread.session;
-    let acceptanceReported = false;
-    const reportAcceptance = (error?: unknown) => {
-      if (acceptanceReported || !onAccepted) return;
-      acceptanceReported = true;
-      if (error === undefined) onAccepted();
-      else onAccepted(error);
+    let preflightReported = false;
+    let resolvePreflight!: () => void;
+    let rejectPreflight!: (error: unknown) => void;
+    const preflight = new Promise<void>((resolve, reject) => {
+      resolvePreflight = resolve;
+      rejectPreflight = reject;
+    });
+    const reportPreflight = (result: PromptPreflightResult) => {
+      if (preflightReported) return;
+      preflightReported = true;
+      onPreflightResult?.(result);
+      if (result.accepted) resolvePreflight();
+      else rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
     };
     try {
       assertImageInputCapability(session, attachments);
       const images = promptImages(attachments);
-      this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
-      await session.prompt(text, {
+      const run = session.prompt(text, {
         images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
         preflightResult: (success) => {
-          if (success) reportAcceptance();
+          reportPreflight({ accepted: success });
         },
       });
-      if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
+      void run.then(async () => {
+        if (!preflightReported) reportPreflight({ accepted: true });
+        if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
+      }).catch((error) => {
+        if (!preflightReported) reportPreflight({ accepted: false, error });
+        else this.fail(error, thread.sessionId);
+      });
     } catch (error) {
-      reportAcceptance(error);
-      // A thread released mid-run reports nothing: its runtime is gone on purpose.
-      if (this.threads.get(thread.sessionId)?.runtime !== thread) return;
-      this.fail(error);
+      if (preflightReported) {
+        this.fail(error, thread.sessionId);
+        return;
+      }
+      reportPreflight({ accepted: false, error });
       throw error;
     }
+    await preflight;
+    this.log("prompt.accepted", `${text.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
   }
 
   async runShellAction(command: string, includeInContext = false, expectedCwd?: string): Promise<ShellActionResult> {
@@ -2511,9 +2529,9 @@ export class PiHost {
     return error instanceof Error ? error.message : String(error);
   }
 
-  private fail(error: unknown): void {
+  private fail(error: unknown, sessionId?: string): void {
     const message = this.errorMessage(error);
-    this.emit({ type: "error", message });
+    this.emit({ type: "error", message, ...(sessionId ? { sessionId } : {}) });
     this.log("host.error", message);
   }
 }

@@ -204,6 +204,20 @@ describe("App render isolation", () => {
     expect(screen.queryByRole("status")).toBeNull();
 
     fireEvent.dragEnter(column, { dataTransfer });
+    fireEvent.dragEnter(column, { dataTransfer });
+    fireEvent.dragLeave(column, { dataTransfer, relatedTarget: null });
+    expect(screen.getByRole("status")).toBeTruthy();
+    fireEvent(window, createEvent("dragend", window));
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.dragEnter(column, { dataTransfer });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.dragEnter(column, { dataTransfer });
+    fireEvent(window, createEvent("blur", window));
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.dragEnter(column, { dataTransfer });
     fireEvent.drop(column, { dataTransfer });
     liveFilesBacking.length = 0;
     expect(screen.queryByRole("status")).toBeNull();
@@ -285,7 +299,12 @@ describe("App render isolation", () => {
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
     const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[] }));
-    const getNewSessionCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
+    const capabilityResolvers = new Map<string, Array<(capability: { cwd: string; generation: number; supportsImageInput: boolean }) => void>>();
+    const getPreparedThreadCapability = vi.fn((cwd: string) => new Promise<{ cwd: string; generation: number; supportsImageInput: boolean }>((resolve) => {
+      const pending = capabilityResolvers.get(cwd) ?? [];
+      pending.push(resolve);
+      capabilityResolvers.set(cwd, pending);
+    }));
     window.tau = {
       bootstrap: async () => ({
         version: 1,
@@ -304,7 +323,7 @@ describe("App render isolation", () => {
       getFileTree: async () => [],
       setAccessLevel: async () => {},
       newSession,
-      getNewSessionCapability,
+      getPreparedThreadCapability,
     } as unknown as typeof window.tau;
     const view = render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
@@ -317,8 +336,25 @@ describe("App render isolation", () => {
     fireEvent.click(projectOption);
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     expect(newSession).not.toHaveBeenCalled();
-    await waitFor(() => expect(getNewSessionCapability).toHaveBeenCalledWith("/other"));
-    expect(screen.getByRole("button", { name: "Attach files" }).hasAttribute("disabled")).toBe(false);
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/other"));
+    const attach = screen.getByRole("button", { name: "Attach files" });
+    expect(attach.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project other" }));
+    const secondDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(secondDialog).getByRole("option", { name: /project/u }));
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/project"));
+    capabilityResolvers.get("/other")?.[0]?.({ cwd: "/other", generation: 1, supportsImageInput: true });
+    expect(attach.hasAttribute("disabled")).toBe(true);
+    capabilityResolvers.get("/project")?.[0]?.({ cwd: "/project", generation: 2, supportsImageInput: false });
+    await waitFor(() => expect(attach.hasAttribute("disabled")).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const thirdDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(thirdDialog).getByRole("option", { name: /other/u }));
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledTimes(3));
+    capabilityResolvers.get("/other")?.[1]?.({ cwd: "/other", generation: 3, supportsImageInput: true });
+    await waitFor(() => expect(attach.hasAttribute("disabled")).toBe(false));
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.change(composer, { target: { value: "persistent draft" } });
 

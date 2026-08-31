@@ -319,7 +319,7 @@ export interface HostSnapshot {
 }
 
 /** Capability of the runtime prepared for a not-yet-created thread. */
-export interface NewSessionCapability {
+export interface PreparedThreadCapability {
   cwd: string;
   generation: number;
   supportsImageInput: boolean;
@@ -379,7 +379,7 @@ export type HostEvent =
   | { type: "extension-ui-prompt"; prompt: ExtensionUiPrompt }
   | { type: "extension-ui-resolved"; id: string }
   | { type: "notice"; message: string; level: "info" | "warning" | "error" }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; sessionId?: string }
   | { type: "event-log"; label: string; detail?: string; timestamp: number };
 
 /** A desktop extension compiled by the host, ready for the renderer to import. */
@@ -425,7 +425,7 @@ export interface TauDesktopApi {
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;
-  getNewSessionCapability(cwd?: string): Promise<NewSessionCapability>;
+  getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;

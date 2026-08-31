@@ -17,8 +17,8 @@ describe("modelSupportsImageInput", () => {
   });
 });
 
-describe("PiHost prompt acceptance", () => {
-  it("reports SDK preflight acceptance before a later run rejection", async () => {
+describe("PiHost prompt preflight", () => {
+  it("resolves after SDK preflight acceptance and reports later run errors", async () => {
     let rejectRun!: (error: Error) => void;
     const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
     const session = {
@@ -30,7 +30,8 @@ describe("PiHost prompt acceptance", () => {
         await run;
       },
     };
-    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
     const internals = host as unknown as {
       threads: { adopt(record: unknown): Promise<void> };
     };
@@ -38,10 +39,32 @@ describe("PiHost prompt acceptance", () => {
     const accepted = vi.fn();
     const prompt = host.prompt("hello", [], "session", accepted);
 
-    await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith());
+    await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith({ accepted: true }));
+    await expect(prompt).resolves.toBeUndefined();
     rejectRun(new Error("late runtime failure"));
-    await expect(prompt).rejects.toThrow("late runtime failure");
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "late runtime failure", sessionId: "session" })));
     expect(accepted).toHaveBeenCalledOnce();
+  });
+
+  it("rejects before acceptance when the SDK preflight is rejected", async () => {
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => {
+        options?.preflightResult?.(false);
+        throw new Error("runtime refused prompt");
+      },
+    };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const internals = host as unknown as {
+      threads: { adopt(record: unknown): Promise<void> };
+    };
+    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    const preflight = vi.fn();
+
+    await expect(host.prompt("hello", [], "session", preflight)).rejects.toThrow("prompt was rejected before it started");
+    expect(preflight).toHaveBeenCalledWith({ accepted: false });
   });
 });
 

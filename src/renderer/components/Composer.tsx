@@ -36,7 +36,9 @@ let nextAttachmentId = 0;
 let nextSubmissionId = 0;
 
 type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
-type ComposerScope = string;
+declare const draftKeyBrand: unique symbol;
+type DraftKey = string & { readonly [draftKeyBrand]: true };
+type ComposerScope = DraftKey;
 interface ComposerScopeState {
   draft: string;
   revision: number;
@@ -47,6 +49,10 @@ interface ComposerScopeState {
   pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; revision: number }>;
 }
 type ComposerSubmissionResult = void | boolean | Promise<void | boolean>;
+
+function createDraftKey(storageKey: string | undefined): DraftKey {
+  return (storageKey ?? "thread:default") as DraftKey;
+}
 
 export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
@@ -188,7 +194,7 @@ export function Composer({
   onSwitchRef(ref: string): Promise<boolean>;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
-  const attachmentScope: ComposerScope = draftStorageKey ?? "__default__";
+  const attachmentScope = createDraftKey(draftStorageKey);
   const scopeStatesRef = useRef(new Map<ComposerScope, ComposerScopeState>());
   const [, refreshScope] = useState(0);
   const activeScopeState = ensureComposerScopeState(scopeStatesRef.current, attachmentScope);
@@ -249,7 +255,7 @@ export function Composer({
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
-    scope: string,
+    scope: ComposerScope,
     capability: boolean,
   ) => {
     const incoming = Array.from(files);
