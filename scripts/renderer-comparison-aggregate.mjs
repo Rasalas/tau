@@ -65,12 +65,34 @@ if (baselinePaths.length < 2 || currentPaths.length < 2) {
   throw new Error("Pass at least two complete --baseline and --current renderer reports.");
 }
 
+assertDetachedCommit(baselineRoot, baselineCommit, "baseline");
+assertDetachedCommit(currentRoot, currentCommit, "current");
+
 function gitCommit(root) {
   try {
     return execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   } catch {
     return "unknown";
   }
+}
+
+function gitBranch(root) {
+  try {
+    return execFileSync("git", ["-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  } catch (error) {
+    if (error?.status === 1) return null;
+    throw error;
+  }
+}
+
+function assertDetachedCommit(root, expectedCommit, label) {
+  const actualCommit = gitCommit(root);
+  if (actualCommit === "unknown") throw new Error(`${label} renderer root is not a Git checkout: ${root}`);
+  if (actualCommit !== expectedCommit) {
+    throw new Error(`${label} renderer root is at ${actualCommit}, expected ${expectedCommit}`);
+  }
+  const branch = gitBranch(root);
+  if (branch !== null) throw new Error(`${label} renderer root must be detached at ${expectedCommit}, found branch ${branch}`);
 }
 
 async function sha256File(path) {

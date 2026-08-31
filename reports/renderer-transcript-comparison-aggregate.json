@@ -176,7 +176,7 @@
     "commit": "c01a4163f8ab41cc1d407b28abff1a9f88ea6baf",
     "component": "TranscriptViewport",
     "sourceSha256": "b00d670bd060c647ad96d122873670ee163bc5ea9f071052b08d2e4c65a92221",
-    "buildArtifactSha256": "b1c737a43a38a138fc072f6cd2b086c9513dae70b8abb5568dc90a1121a45b64",
+    "buildArtifactSha256": "4fcf88e9d616a9b18f143d7737e20aa9f0ed871992a17f99b0f887b14f1bb20c",
     "runs": [
       {
         "path": "reports/renderer-transcript-current-run-01.json",

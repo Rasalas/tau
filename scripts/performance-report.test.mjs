@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { classifyAsset, evaluateBuildBudgets } from "./build-report.mjs";
 import { evaluateStartBudgets } from "./start-report.mjs";
@@ -203,5 +207,84 @@ describe("performance report checks", () => {
     ], { encoding: "utf8" }));
     expect(dryRun.aggregation.command).toBe(aggregateCommand);
     expect(dryRun.baseline.commands).toContain('git -C "$SUBJECT_ROOT" worktree add --detach "$BASELINE_ROOT" "$BASELINE_COMMIT"');
+  });
+
+  it("hashes artifacts from the pinned detached current root", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "tau-renderer-aggregate-"));
+    const subjectRoot = join(fixtureRoot, "subject");
+    const baselineRoot = join(fixtureRoot, "baseline");
+    const currentRoot = join(fixtureRoot, "current");
+    const reports = [
+      "renderer-transcript-baseline-run-01.json",
+      "renderer-transcript-baseline-run-02.json",
+      "renderer-transcript-baseline-run-03.json",
+      "renderer-transcript-current-run-01.json",
+      "renderer-transcript-current-run-02.json",
+      "renderer-transcript-current-run-03.json",
+    ];
+    try {
+      await Promise.all([
+        mkdir(join(subjectRoot, "reports"), { recursive: true }),
+        mkdir(join(subjectRoot, "dist"), { recursive: true }),
+        mkdir(join(baselineRoot, "dist"), { recursive: true }),
+        mkdir(join(currentRoot, "dist"), { recursive: true }),
+      ]);
+      await Promise.all([
+        writeFile(join(subjectRoot, "dist", "artifact.js"), "subject artifact"),
+        writeFile(join(baselineRoot, "dist", "artifact.js"), "baseline artifact"),
+        writeFile(join(currentRoot, "dist", "artifact.js"), "current artifact"),
+        writeFile(join(subjectRoot, "reports", "renderer-transcript-legacy-baseline.patch"), ""),
+        ...reports.map(async (name) => writeFile(
+          join(subjectRoot, "reports", name),
+          await readFile(new URL(`../reports/${name}`, import.meta.url)),
+        )),
+      ]);
+
+      for (const root of [baselineRoot, currentRoot]) {
+        execFileSync("git", ["init", "--quiet", root], { stdio: "ignore" });
+        execFileSync("git", ["-C", root, "add", "."], { stdio: "ignore" });
+        execFileSync("git", [
+          "-C", root,
+          "-c", "user.name=Renderer Test",
+          "-c", "user.email=renderer-test@example.invalid",
+          "commit", "--quiet", "-m", "fixture",
+        ], { stdio: "ignore" });
+      }
+      const gitHead = (root) => execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      const baselineCommit = gitHead(baselineRoot);
+      const currentCommit = gitHead(currentRoot);
+      execFileSync("git", ["-C", baselineRoot, "checkout", "--quiet", "--detach", "HEAD"], { stdio: "ignore" });
+
+      const aggregateArgs = [
+        fileURLToPath(new URL("./renderer-comparison-aggregate.mjs", import.meta.url)),
+        ...reports.slice(0, 3).flatMap((name) => ["--baseline", join(subjectRoot, "reports", name)]),
+        ...reports.slice(3).flatMap((name) => ["--current", join(subjectRoot, "reports", name)]),
+        "--baseline-root", baselineRoot,
+        "--current-root", currentRoot,
+        "--baseline-commit", baselineCommit,
+        "--current-commit", currentCommit,
+        "--baseline-patch", join(subjectRoot, "reports", "renderer-transcript-legacy-baseline.patch"),
+        "--output", join(subjectRoot, "reports", "aggregate.json"),
+        "--subject-root", subjectRoot,
+      ];
+      let detachedFailure;
+      try {
+        execFileSync(process.execPath, aggregateArgs, { encoding: "utf8" });
+      } catch (error) {
+        detachedFailure = error;
+      }
+      expect(`${detachedFailure?.message ?? ""}${detachedFailure?.stderr ?? ""}`).toMatch(/must be detached/u);
+
+      execFileSync("git", ["-C", currentRoot, "checkout", "--quiet", "--detach", "HEAD"], { stdio: "ignore" });
+      execFileSync(process.execPath, aggregateArgs, { encoding: "utf8" });
+      const aggregate = JSON.parse(await readFile(join(subjectRoot, "reports", "aggregate.json"), "utf8"));
+      const expectedCurrentHash = createHash("sha256").update("dist/artifact.js\0current artifact\0").digest("hex");
+      const baselineHash = createHash("sha256").update("dist/artifact.js\0baseline artifact\0").digest("hex");
+      expect(aggregate.current.buildArtifactSha256).toBe(expectedCurrentHash);
+      expect(aggregate.current.buildArtifactSha256).not.toBe(baselineHash);
+      expect(aggregate.reproduction.current.measuredRoot).toBe("$CURRENT_ROOT");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 });
