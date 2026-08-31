@@ -5,6 +5,7 @@ import {
   createDraftKey,
   type ComposerScopePersistence,
 } from "./composer-scope-store";
+import { writeComposerDraft } from "./draft-store";
 
 function memoryPersistence(): ComposerScopePersistence {
   const records = new Map<string, Parameters<ComposerScopePersistence["save"]>[0]>();
@@ -57,5 +58,72 @@ describe("ComposerScopeStore", () => {
     resolveLoad(undefined);
     await Promise.resolve();
     expect(state.draft).toBe("newer edit");
+  });
+
+  it("does not restore an attachment after it was removed while hydration was pending", async () => {
+    let resolveLoad!: (record: Parameters<ComposerScopePersistence["save"]>[0]) => void;
+    const persisted = {
+      key: "thread:remove",
+      draft: "old",
+      revision: 1,
+      updatedAt: 1,
+      attachments: [{ id: 1, kind: "image" as const, name: "old.png", mimeType: "image/png", data: "aA==", size: 1 }],
+    };
+    const persistence: ComposerScopePersistence = {
+      load: () => new Promise((resolve) => { resolveLoad = resolve; }),
+      save: async () => {},
+      delete: async () => {},
+    };
+    const store = new ComposerScopeStore(persistence);
+    const key = createDraftKey("thread:remove");
+    const state = store.ensure(key);
+    store.hydrate(key, () => { throw new Error("stale hydration applied"); }, (error) => { throw error; });
+    store.setAttachments(key, [], (error) => { throw error; });
+    resolveLoad(persisted);
+    await Promise.resolve();
+    expect(state.attachments).toEqual([]);
+  });
+
+  it("clears a persistence error after a later write succeeds", async () => {
+    let attempts = 0;
+    const persistence: ComposerScopePersistence = {
+      load: async () => undefined,
+      save: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("quota exceeded");
+      },
+      delete: async () => {},
+    };
+    const store = new ComposerScopeStore(persistence);
+    const key = createDraftKey("thread:quota");
+    const errors: unknown[] = [];
+    store.setDraft(key, "first", (error) => errors.push(error));
+    await store.ensure(key).persistenceQueue;
+    expect(errors).toHaveLength(1);
+    expect(store.ensure(key).persistenceError).toMatch(/quota/u);
+    store.setDraft(key, "second", (error) => errors.push(error));
+    await store.ensure(key).persistenceQueue;
+    expect(store.ensure(key).persistenceError).toBeUndefined();
+    expect(store.ensure(key).draft).toBe("second");
+  });
+
+  it("migrates legacy attachment records without replacing newer local text", async () => {
+    const key = createDraftKey("thread:legacy");
+    writeComposerDraft(window.localStorage, key, "new local text");
+    const persistence: ComposerScopePersistence = {
+      load: async () => ({
+        key,
+        draft: "old persisted text",
+        attachments: [{ id: 2, kind: "image", name: "legacy.png", mimeType: "image/png", data: "aA==", size: 1 }],
+      }),
+      save: async () => {},
+      delete: async () => {},
+    };
+    const store = new ComposerScopeStore(persistence);
+    let changed = false;
+    store.hydrate(key, () => { changed = true; }, (error) => { throw error; });
+    await Promise.resolve();
+    expect(changed).toBe(true);
+    expect(store.ensure(key)).toMatchObject({ draft: "new local text", attachments: [{ name: "legacy.png" }] });
   });
 });

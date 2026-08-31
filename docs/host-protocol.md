@@ -8,6 +8,8 @@ state; it must not reinterpret it as a `HostSnapshot`.
 - `thread-detail` contains the active session's messages, run state, tools, and usage.
 - `transcript-page` contains a bounded page plus a cursor for older records.
 - `catalog` contains models, thinking levels, tools, and extension count.
+  The image-input capability is optional for v1 wire compatibility; an omitted
+  `supportsImageInput` is parsed as `false` by newer clients.
 - `project` contains workspace identity, branch, and optional project metadata.
 - `run` contains lifecycle state for the active session.
 

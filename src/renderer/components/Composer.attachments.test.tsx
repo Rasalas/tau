@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
-import { Composer } from "./Composer";
+import { Composer, type SubmitResult } from "./Composer";
 import type { ComposerAttachmentHandle } from "./Composer";
 import { ComposerScopeStore } from "../composer-scope-store";
 
@@ -169,7 +169,7 @@ describe("Composer attachments", () => {
 
   it("keeps attachments when submission is rejected", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
-    const onSubmit = vi.fn(async () => false);
+    const onSubmit = vi.fn(async (): Promise<SubmitResult> => ({ accepted: false, message: "Prompt rejected." }));
     renderComposer(onSubmit, attachmentRef);
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "retain.png", { type: "image/png" })]);
     expect(await screen.findByRole("button", { name: "Preview retain.png" })).toBeTruthy();
@@ -195,8 +195,8 @@ describe("Composer attachments", () => {
 
   it("preserves edits and new attachments when a pending submission succeeds", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
-    let resolve!: (accepted: boolean) => void;
-    const onSubmit = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
+    let resolve!: (result: SubmitResult) => void;
+    const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
     renderComposer(onSubmit, attachmentRef);
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "sent.png", { type: "image/png" })]);
     const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -205,7 +205,7 @@ describe("Composer attachments", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     fireEvent.change(draft, { target: { value: "new prompt" } });
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "new.png", { type: "image/png" })]);
-    resolve(true);
+    resolve({ accepted: true });
     await waitFor(() => expect(screen.getByRole("button", { name: "Preview new.png" })).toBeTruthy());
     expect(draft.value).toBe("new prompt");
     expect(screen.queryByRole("button", { name: "Preview sent.png" })).toBeNull();
@@ -213,8 +213,8 @@ describe("Composer attachments", () => {
 
   it("does not bypass attachment limits while restoring a rejected submission", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
-    let resolve!: (accepted: boolean) => void;
-    const onSubmit = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
+    let resolve!: (result: SubmitResult) => void;
+    const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
     renderComposer(onSubmit, attachmentRef);
     await attachmentRef.current?.addFiles([
       new File([new Uint8Array([1])], "one.png", { type: "image/png" }),
@@ -228,7 +228,7 @@ describe("Composer attachments", () => {
       new File([new Uint8Array([1])], "five.png", { type: "image/png" }),
       new File([new Uint8Array([1])], "six.png", { type: "image/png" }),
     ]);
-    resolve(false);
+    resolve({ accepted: false, message: "Prompt rejected." });
     await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview/u })).toHaveLength(4));
     expect(screen.queryByRole("button", { name: "Preview five.png" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Preview six.png" })).toBeNull();
@@ -236,8 +236,8 @@ describe("Composer attachments", () => {
 
   it("keeps out-of-order submission results isolated by composer scope", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
-    const resolvers = new Map<string, (accepted: boolean) => void>();
-    const onSubmit = vi.fn((text: string) => new Promise<boolean>((resolve) => { resolvers.set(text, resolve); }));
+    const resolvers = new Map<string, (result: SubmitResult) => void>();
+    const onSubmit = vi.fn((text: string) => new Promise<SubmitResult>((resolve) => { resolvers.set(text, resolve); }));
     const submission = renderComposer(onSubmit, attachmentRef, undefined, "thread:a");
 
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "a.png", { type: "image/png" })]);
@@ -249,8 +249,8 @@ describe("Composer attachments", () => {
     fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "b" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    resolvers.get("a")?.(false);
-    resolvers.get("b")?.(true);
+    resolvers.get("a")?.({ accepted: false, message: "Prompt rejected." });
+    resolvers.get("b")?.({ accepted: true });
     await waitFor(() => expect((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value).toBe(""));
     expect(screen.queryByRole("button", { name: "Preview b.png" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -262,12 +262,12 @@ describe("Composer attachments", () => {
 
   it("does not let an older success clear a newer scope failure", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
-    const resolvers = new Map<string, (accepted: boolean) => void>();
+    const resolvers = new Map<string, (result: SubmitResult) => void>();
     const settled = new Map<string, Promise<void>>();
-    const onSubmit = vi.fn((text: string) => new Promise<boolean>((resolve) => {
+    const onSubmit = vi.fn((text: string) => new Promise<SubmitResult>((resolve) => {
       let markSettled!: () => void;
       settled.set(text, new Promise<void>((done) => { markSettled = done; }));
-      resolvers.set(text, (accepted) => { resolve(accepted); markSettled(); });
+      resolvers.set(text, (result) => { resolve(result); markSettled(); });
     }));
     const submission = renderComposer(onSubmit, attachmentRef, undefined, "thread:a");
 
@@ -280,8 +280,8 @@ describe("Composer attachments", () => {
     fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "b" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    resolvers.get("b")?.(false);
-    resolvers.get("a")?.(true);
+    resolvers.get("b")?.({ accepted: false, message: "Prompt rejected." });
+    resolvers.get("a")?.({ accepted: true });
     await Promise.all([settled.get("a"), settled.get("b")]);
     submission.rerenderScope("thread:a");
     await waitFor(() => expect(screen.queryByRole("button", { name: "Preview a.png" })).toBeNull());

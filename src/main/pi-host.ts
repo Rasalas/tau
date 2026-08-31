@@ -64,7 +64,7 @@ import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
-import { promptImages } from "./prompt-attachments.js";
+import { promptImages, type PromptImage } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
@@ -472,8 +472,11 @@ class ThreadRuntime implements LiveTurnState {
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
-  private deferredEvents?: Array<{ event: any; sessionId: string; cwd: string }>;
-  private deferredErrors?: unknown[];
+  private deferredSequence = 0;
+  private deferredRecords?: Array<
+    | { kind: "event"; sequence: number; event: any; sessionId: string; cwd: string }
+    | { kind: "error"; sequence: number; error: unknown }
+  >;
 
   constructor(readonly runtime: AgentSessionRuntime) {}
 
@@ -491,34 +494,33 @@ class ThreadRuntime implements LiveTurnState {
   }
 
   beginEventBarrier(): void {
-    this.deferredEvents = [];
-    this.deferredErrors = [];
+    this.deferredSequence = 0;
+    this.deferredRecords = [];
   }
 
   deferEvent(event: any, sessionId: string, cwd: string): boolean {
-    if (!this.deferredEvents) return false;
-    this.deferredEvents.push({ event, sessionId, cwd });
+    if (!this.deferredRecords) return false;
+    this.deferredRecords.push({ kind: "event", sequence: this.deferredSequence++, event, sessionId, cwd });
     return true;
   }
 
   deferError(error: unknown): boolean {
-    if (!this.deferredErrors) return false;
-    this.deferredErrors.push(error);
+    if (!this.deferredRecords) return false;
+    this.deferredRecords.push({ kind: "error", sequence: this.deferredSequence++, error });
     return true;
   }
 
   releaseEventBarrier(dispatch: (event: any, thread: ThreadRuntime, sessionId: string, cwd: string, error?: unknown) => void): void {
-    const events = this.deferredEvents;
-    const errors = this.deferredErrors;
-    this.deferredEvents = undefined;
-    this.deferredErrors = undefined;
-    for (const entry of events ?? []) dispatch(entry.event, this, entry.sessionId, entry.cwd);
-    for (const error of errors ?? []) dispatch(undefined, this, this.sessionId, this.cwd, error);
+    const records = this.deferredRecords;
+    this.deferredRecords = undefined;
+    for (const record of [...(records ?? [])].sort((left, right) => left.sequence - right.sequence)) {
+      if (record.kind === "event") dispatch(record.event, this, record.sessionId, record.cwd);
+      else dispatch(undefined, this, this.sessionId, this.cwd, record.error);
+    }
   }
 
   cancelEventBarrier(): void {
-    this.deferredEvents = undefined;
-    this.deferredErrors = undefined;
+    this.deferredRecords = undefined;
   }
 }
 
@@ -992,31 +994,44 @@ export class PiHost {
       );
       thread.beginEventBarrier();
       let adopted = false;
+      let adoptionAttempted = false;
+      let promoted = false;
       try {
         assertImageInputCapability(thread.session, attachments);
-        if (initialPrompt || attachments.length > 0) await this.promptThread(thread, initialPrompt ?? "", attachments);
+        // Decode and validate the untrusted attachment payload while the
+        // runtime is still prepared. Promotion must never be followed by a
+        // pure input-validation failure.
+        const images = attachments.length > 0 ? promptImages(attachments) : [];
+        adoptionAttempted = true;
         await this.adoptThread(thread);
         adopted = true;
+        await this.activateThread(thread, true);
+        promoted = true;
         // The first prompt names the thread right away; the run that follows
         // would otherwise leave it "Untitled" until it finishes.
         if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
-        await this.activateThread(thread, true);
         // Shell/index publication is intentionally coalesced on a timer. Wait
         // for that publication before releasing runtime events from the
-        // promotion barrier, so the first agent event cannot outrun the UI's
-        // active-thread state.
+        // promotion barrier. Prompt acceptance is intentionally after
+        // promotion, so no runtime prompt can start on a prepared spare.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        if (initialPrompt || attachments.length > 0) await this.promptThread(thread, initialPrompt ?? "", attachments, undefined, images);
         thread.releaseEventBarrier((event, runtime, sessionId, cwd, error) => {
           if (error) this.fail(error, sessionId);
           else this.handleSessionEvent(event, runtime, sessionId, cwd);
         });
       } catch (error) {
+        // A pure validation failure leaves an untouched spare available. Once
+        // adoption or activation has started, discard the candidate on failure
+        // (except a prompt rejection after promotion: the visible blank thread
+        // remains active and the scoped renderer draft remains untouched).
         thread.cancelEventBarrier();
-        // Keep the prepared blank runtime and the renderer's draft aligned. It
-        // has not been adopted or published, so a rejected first prompt cannot
-        // leave an invisible active thread behind.
-        if (adopted) await this.threads.release(thread.sessionId);
-        else this.retainPreparedThread(thread);
+        if (!adopted && !adoptionAttempted) this.retainPreparedThread(thread);
+        else if (!promoted) {
+          if (this.threads.has(thread.sessionId)) await this.threads.release(thread.sessionId);
+          else await this.disposeThread(thread);
+          this.scheduleSpareThread(targetCwd, true);
+        }
         throw error;
       }
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
@@ -1164,7 +1179,7 @@ export class PiHost {
     await this.promptThread(thread, text, attachments, onPreflightResult);
   }
 
-  private async promptThread(thread: ThreadRuntime, text: string, attachments: UiPromptAttachment[], onPreflightResult?: PromptPreflight): Promise<void> {
+  private async promptThread(thread: ThreadRuntime, text: string, attachments: UiPromptAttachment[], onPreflightResult?: PromptPreflight, preparedImages?: PromptImage[]): Promise<void> {
     const session = thread.session;
     let preflightState: PromptPreflightState = "pending";
     let resolvePreflight!: () => void;
@@ -1182,7 +1197,7 @@ export class PiHost {
     };
     try {
       assertImageInputCapability(session, attachments);
-      const images = promptImages(attachments);
+      const images = preparedImages ?? promptImages(attachments);
       const run = session.prompt(text, {
         images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,

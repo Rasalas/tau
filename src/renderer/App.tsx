@@ -23,7 +23,7 @@ import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
-import { ComposerScopeStore } from "./composer-scope-store";
+import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
@@ -64,7 +64,7 @@ import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
-import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
@@ -583,7 +583,7 @@ export default function App() {
     }
     if (update.type === "catalog") {
       setSnapshot((current) => current && current.sessionId === update.catalog.sessionId
-        ? { ...current, ...update.catalog }
+        ? { ...current, ...update.catalog, supportsImageInput: update.catalog.supportsImageInput ?? false }
         : current);
       return;
     }
@@ -825,7 +825,7 @@ export default function App() {
           allTools: bootstrap.catalog.allTools,
           composerCommands: bootstrap.catalog.composerCommands ?? [],
           extensionCount: bootstrap.catalog.extensionCount,
-          supportsImageInput: bootstrap.catalog.supportsImageInput,
+          supportsImageInput: bootstrap.catalog.supportsImageInput ?? false,
           messages: bootstrap.detail.messages,
           isStreaming: bootstrap.detail.isStreaming,
           activeTools: bootstrap.detail.activeTools,
@@ -1206,8 +1206,7 @@ export default function App() {
       acceptWorkspace(result);
       const detail = result.updates.find((update) => update.type === "thread-detail");
       if (pendingDraft && detail?.type === "thread-detail") {
-        writeComposerDraft(window.localStorage, draftKey(detail.detail.sessionId), pendingDraft);
-        setComposerSeed(pendingDraft);
+        composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft, (error) => setNotice(String(error)));
       }
       return true;
     } catch (error) {
@@ -1216,7 +1215,7 @@ export default function App() {
     } finally {
       setWorkspaceBusy(false);
     }
-  }, [acceptWorkspace, requireHost]);
+  }, [acceptWorkspace, composerScopeStore, requireHost]);
 
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -1379,7 +1378,7 @@ export default function App() {
     reloadRuntime,
     rebuildWorkbench,
     restartWorkbench,
-    focusComposer: (seed) => { if (seed !== undefined) { setComposerSeed(seed); writeComposerDraft(window.localStorage, activeDraftKey, seed); } composerRef.current?.focus(); },
+    focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     chooseWorkspace,
     openWorkspace,
@@ -1606,7 +1605,7 @@ export default function App() {
     sessionTitle: "Untitled thread",
     isStreaming: false,
     supportsImageInput: preparedThreadCapability?.cwd === pendingNewThread.projectPath
-      ? preparedThreadCapability.supportsImageInput
+      ? preparedThreadCapability.supportsImageInput ?? false
       : false,
     taskProgress: undefined,
     taskHistory: [],

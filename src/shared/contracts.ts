@@ -315,14 +315,16 @@ export interface HostSnapshot {
   /** False when the active model's API has no priority tier to ask for. */
   serviceTierAvailable: boolean;
   /** Whether the active host/runtime adapter accepts image prompt input. */
-  supportsImageInput: boolean;
+  /** Optional for protocol-v1 compatibility; missing means unsupported. */
+  supportsImageInput?: boolean;
 }
 
 /** Capability of the runtime prepared for a not-yet-created thread. */
 export interface PreparedThreadCapability {
   cwd: string;
   generation: number;
-  supportsImageInput: boolean;
+  /** Optional for protocol-v1 compatibility; missing means unsupported. */
+  supportsImageInput?: boolean;
 }
 
 export interface ThreadIndexSnapshot {
@@ -355,7 +357,8 @@ export interface HostBootstrap {
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;
-    supportsImageInput: boolean;
+    /** Optional for protocol-v1 compatibility; missing means unsupported. */
+    supportsImageInput?: boolean;
   };
   project: { cwd: string; branch?: string };
 }

@@ -16,7 +16,8 @@ describe("host protocol", () => {
   it("accepts only the current version and known focused messages", () => {
     const update = { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true } };
     expect(isHostUpdate(update)).toBe(true);
-    expect(isHostUpdate({ ...update, catalog: { ...update.catalog, supportsImageInput: undefined } })).toBe(false);
+    expect(isHostUpdate({ ...update, catalog: { ...update.catalog, supportsImageInput: undefined } })).toBe(true);
+    expect(catalogFromSnapshot({ ...snapshot, supportsImageInput: undefined }).supportsImageInput).toBe(false);
     expect(decodeHostUpdates([
       update,
       { version: 99, type: "snapshot" },
