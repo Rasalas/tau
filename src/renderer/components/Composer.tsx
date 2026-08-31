@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -32,6 +32,30 @@ const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image
 let nextAttachmentId = 0;
 
 type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+
+type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
+
+function skillName(command: UiComposerCommand): string {
+  return command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
+}
+
+export function composerTrigger(text: string, caret: number): ComposerTrigger | undefined {
+  const before = text.slice(0, caret);
+  const match = /^\s*([/$])([^\s]*)$/u.exec(before);
+  if (!match) return undefined;
+  const start = before.lastIndexOf(match[1]);
+  return { kind: match[1] as "/" | "$", query: match[2], start, end: caret };
+}
+
+export function normalizeSkillInvocation(text: string, commands: readonly UiComposerCommand[]): string {
+  const match = /^(\s*)([$/])([^\s]+)(?=\s|$)/u.exec(text);
+  if (!match) return text;
+  const requested = match[3];
+  const skill = commands.find((command) => command.source === "skill" && skillName(command) === requested);
+  if (!skill) return text;
+  if (match[2] === "/" && commands.some((command) => command.source !== "skill" && command.name === requested)) return text;
+  return `${match[1]}/skill:${requested}${text.slice(match[0].length)}`;
+}
 
 function readImage(file: File): Promise<PendingAttachment> {
   return new Promise((resolve, reject) => {
@@ -134,8 +158,23 @@ export function Composer({
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
   const [previewId, setPreviewId] = useState<number>();
+  const [caret, setCaret] = useState(0);
+  const [commandCursor, setCommandCursor] = useState(0);
+  const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const text = value ?? draft;
+  const commands = snapshot?.composerCommands ?? [];
+  const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
+  const commandMatches = useMemo(() => {
+    if (!trigger) return [];
+    const query = trigger.query.toLowerCase();
+    return commands.filter((command) => {
+      if (trigger.kind === "$" && command.source !== "skill") return false;
+      const name = command.source === "skill" ? skillName(command) : command.name;
+      return !query || name.toLowerCase().includes(query) || command.name.toLowerCase().includes(query) || command.description?.toLowerCase().includes(query);
+    }).slice(0, 10);
+  }, [commands, trigger]);
+  useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (value === undefined) setDraft(readComposerDraft(window.localStorage, draftStorageKey));
@@ -189,7 +228,10 @@ export function Composer({
       return;
     }
     if (!text.trim() && attachments.length === 0) return;
-    onSubmit(text, attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment));
+    onSubmit(
+      normalizeSkillInvocation(text, commands),
+      attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment),
+    );
     updateDraft("");
     setAttachments([]);
     setAttachmentError(undefined);
@@ -260,12 +302,83 @@ export function Composer({
           </div>
         ) : null}
         {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
+        {trigger ? (
+          <div className="composer-command-menu" role="listbox" aria-label={trigger.kind === "$" ? "Skills" : "Commands"}>
+            {commandMatches.length > 0 ? commandMatches.map((command, index) => {
+              const name = command.source === "skill" ? skillName(command) : command.name;
+              const invocation = `${trigger.kind}${name}`;
+              const choose = () => {
+                const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
+                const nextCaret = trigger.start + invocation.length + 1;
+                updateDraft(next);
+                setCaret(nextCaret);
+                setCommandMenuDismissed(true);
+                requestAnimationFrame(() => {
+                  textareaRef.current?.focus();
+                  textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+                });
+              };
+              return <button
+                type="button"
+                role="option"
+                aria-selected={index === commandCursor}
+                className={index === commandCursor ? "selected" : ""}
+                key={`${command.source}:${command.name}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={choose}
+              >
+                <span className="composer-command-mark">{trigger.kind}</span>
+                <span className="composer-command-copy">
+                  <strong>{name}{command.argumentHint ? <i>{command.argumentHint}</i> : null}</strong>
+                  <small>{command.description || (command.source === "skill" ? "Load this skill for the next turn" : "Run this command")}</small>
+                </span>
+                <span className={`composer-command-source ${command.source}`}>{command.source}</span>
+              </button>;
+            }) : <div className="composer-command-empty">No {trigger.kind === "$" ? "skill" : "command"} matches “{trigger.query}”.</div>}
+          </div>
+        ) : null}
         <textarea
           ref={textareaRef}
           rows={1}
           value={text}
-          onChange={(event) => updateDraft(event.target.value)}
+          onChange={(event) => {
+            updateDraft(event.target.value);
+            setCaret(event.target.selectionStart);
+            setCommandMenuDismissed(false);
+          }}
+          onClick={(event) => setCaret(event.currentTarget.selectionStart)}
+          onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
+            if (trigger && commandMatches.length > 0) {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setCommandCursor((current) => (current + 1) % commandMatches.length);
+                return;
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setCommandCursor((current) => (current - 1 + commandMatches.length) % commandMatches.length);
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                const command = commandMatches[commandCursor];
+                const name = command.source === "skill" ? skillName(command) : command.name;
+                const invocation = `${trigger.kind}${name}`;
+                const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
+                const nextCaret = trigger.start + invocation.length + 1;
+                updateDraft(next);
+                setCaret(nextCaret);
+                setCommandMenuDismissed(true);
+                requestAnimationFrame(() => textareaRef.current?.setSelectionRange(nextCaret, nextCaret));
+                return;
+              }
+            }
+            if (trigger && event.key === "Escape") {
+              event.preventDefault();
+              setCommandMenuDismissed(true);
+              return;
+            }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               submitCurrent();
@@ -276,7 +389,7 @@ export function Composer({
               ? prompt.placeholder ?? "Answer yourself — ↵ sends it back to the extension"
               : streaming
                 ? "Steer the run — ↵ queues it for the agent"
-                : "Direct the agent — @ files, / commands, ⇧↵ newline"
+                : "Direct the agent — $ skills, / commands, @ files, ⇧↵ newline"
           }
         />
 

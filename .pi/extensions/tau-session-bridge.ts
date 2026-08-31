@@ -88,6 +88,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
       activeTools: pi.getActiveTools(),
       allTools: pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+      composerCommands: pi.getCommands()
+        .filter((command) => !command.name.startsWith("tau-bridge-"))
+        .map((command) => ({
+          name: command.name,
+          description: command.description,
+          source: command.source,
+        })),
       contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : undefined,
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),

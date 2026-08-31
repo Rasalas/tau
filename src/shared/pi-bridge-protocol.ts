@@ -1,4 +1,4 @@
-import type { ExtensionUiPromptKind, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
+import type { ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -28,6 +28,8 @@ export interface PiBridgeSnapshot {
   thinkingLevels: string[];
   activeTools: string[];
   allTools: Array<{ name: string; description: string }>;
+  /** Optional for compatibility with Pi instances running an older bridge. */
+  composerCommands?: UiComposerCommand[];
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];

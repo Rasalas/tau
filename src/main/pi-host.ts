@@ -30,6 +30,7 @@ import type {
   PushResult,
   ShellActionResult,
   ThreadIndexSnapshot,
+  UiComposerCommand,
   UiEditor,
   UiFileDiff,
   UiMessage,
@@ -1853,6 +1854,7 @@ export class PiHost {
       taskProgress: snapshot.taskProgress ?? taskProgressFromMessages(snapshot.messages),
       taskHistory,
       allTools: snapshot.allTools,
+      composerCommands: snapshot.composerCommands ?? [],
       extensionCount: 0,
       serviceTier: "standard",
       serviceTierAvailable: false,
@@ -2126,6 +2128,41 @@ export class PiHost {
     };
   }
 
+  private composerCommands(thread: ThreadRuntime): UiComposerCommand[] {
+    const loader = thread.session.resourceLoader;
+    const commands = new Map<string, UiComposerCommand>();
+    for (const extension of loader.getExtensions().extensions) {
+      if (extension.hidden) continue;
+      for (const command of extension.commands.values()) {
+        if (command.name.startsWith("tau-bridge-")) continue;
+        commands.set(command.name, {
+          name: command.name,
+          description: command.description,
+          source: "extension",
+        });
+      }
+    }
+    for (const prompt of loader.getPrompts().prompts) {
+      if (commands.has(prompt.name)) continue;
+      commands.set(prompt.name, {
+        name: prompt.name,
+        description: prompt.description,
+        argumentHint: prompt.argumentHint,
+        source: "prompt",
+      });
+    }
+    if (thread.session.settingsManager.getEnableSkillCommands()) {
+      for (const skill of loader.getSkills().skills) {
+        commands.set(`skill:${skill.name}`, {
+          name: `skill:${skill.name}`,
+          description: skill.description,
+          source: "skill",
+        });
+      }
+    }
+    return [...commands.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
   private snapshotSync(models: UiModel[]): HostSnapshot {
     if (this.bridgeSnapshot) return { ...this.bridgeHostSnapshot(), models };
     const thread = this.requireActive();
@@ -2149,6 +2186,7 @@ export class PiHost {
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
       allTools: session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+      composerCommands: this.composerCommands(thread),
       extensionCount: this.extensionCount,
       serviceTier: this.serviceTier,
       serviceTierAvailable: this.serviceTierAvailable(),

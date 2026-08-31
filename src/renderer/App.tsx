@@ -755,6 +755,7 @@ export default function App() {
           serviceTier: bootstrap.catalog.serviceTier,
           serviceTierAvailable: bootstrap.catalog.serviceTierAvailable,
           allTools: bootstrap.catalog.allTools,
+          composerCommands: bootstrap.catalog.composerCommands ?? [],
           extensionCount: bootstrap.catalog.extensionCount,
           messages: bootstrap.detail.messages,
           isStreaming: bootstrap.detail.isStreaming,

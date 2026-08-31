@@ -2,6 +2,7 @@ import type {
   HostSnapshot,
   ServiceTier,
   ThreadIndexSnapshot,
+  UiComposerCommand,
   UiContextUsage,
   UiMessage,
   UiModel,
@@ -55,6 +56,7 @@ export interface HostCatalog {
   serviceTier: ServiceTier;
   serviceTierAvailable: boolean;
   allTools: Array<{ name: string; description: string }>;
+  composerCommands?: UiComposerCommand[];
   extensionCount: number;
 }
 
@@ -146,6 +148,7 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     serviceTier: snapshot.serviceTier,
     serviceTierAvailable: snapshot.serviceTierAvailable,
     allTools: [...snapshot.allTools],
+    composerCommands: snapshot.composerCommands?.map((command) => ({ ...command })),
     extensionCount: snapshot.extensionCount,
   };
 }

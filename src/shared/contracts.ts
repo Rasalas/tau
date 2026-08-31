@@ -62,6 +62,14 @@ export interface UiModel {
   name: string;
 }
 
+export interface UiComposerCommand {
+  /** Invocation without the leading slash, for example `review` or `skill:tdd`. */
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  source: "extension" | "prompt" | "skill";
+}
+
 export interface UiSession {
   id: string;
   path: string;
@@ -293,6 +301,7 @@ export interface HostSnapshot {
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
   allTools: Array<{ name: string; description: string }>;
+  composerCommands?: UiComposerCommand[];
   extensionCount: number;
   contextUsage?: UiContextUsage;
   serviceTier: ServiceTier;
@@ -327,6 +336,7 @@ export interface HostBootstrap {
     serviceTier: ServiceTier;
     serviceTierAvailable: boolean;
     allTools: Array<{ name: string; description: string }>;
+    composerCommands?: UiComposerCommand[];
     extensionCount: number;
   };
   project: { cwd: string; branch?: string };

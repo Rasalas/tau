@@ -932,6 +932,34 @@ button > svg { pointer-events: none; }
 }
 .attachment-remove:hover { background: #34352f; color: var(--ink); }
 .composer-attachment-error { padding: 7px 16px 0; color: #d88c83; font: 11px/1.4 var(--sans); }
+.composer-command-menu {
+  position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px);
+  overflow: hidden; border: 1px solid #3a3b34; border-radius: 12px;
+  background: #171814; box-shadow: 0 18px 52px #000b, 0 1px 0 #ffffff0a inset;
+}
+.composer-command-menu > button {
+  width: 100%; min-height: 49px; padding: 7px 10px; display: flex; align-items: center; gap: 10px;
+  border: 0; border-bottom: 1px solid #ffffff08; background: transparent; color: var(--ink-2);
+  text-align: left; cursor: pointer;
+}
+.composer-command-menu > button:last-of-type { border-bottom: 0; }
+.composer-command-menu > button.selected { background: linear-gradient(90deg, #d7ff5930, #d7ff5908 72%); }
+.composer-command-mark {
+  width: 27px; height: 27px; flex: none; display: grid; place-items: center;
+  border: 1px solid #4a4b42; border-radius: 7px; background: #23241f;
+  color: var(--acid); font: 600 14px var(--mono);
+}
+.composer-command-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.composer-command-copy strong { overflow: hidden; color: var(--ink); font: 550 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.composer-command-copy strong i { margin-left: 8px; color: var(--faint); font: 400 10px var(--mono); font-style: normal; }
+.composer-command-copy > small { overflow: hidden; color: var(--muted); font: 11px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
+.composer-command-source {
+  flex: none; border: 1px solid var(--line-control); border-radius: 999px; padding: 2px 7px;
+  color: var(--faint); font: 500 9px var(--mono); text-transform: uppercase;
+}
+.composer-command-source.skill { border-color: #d7ff593d; color: #b9d958; background: #d7ff590c; }
+.composer-command-source.prompt { border-color: #63a8ff35; color: #79acf0; background: #4f9fff0b; }
+.composer-command-empty { padding: 18px 14px; color: var(--faint); font: 11px var(--sans); text-align: center; }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
   color: var(--ink); padding: 13px 16px 6px; font-size: 13px; line-height: 1.55;
