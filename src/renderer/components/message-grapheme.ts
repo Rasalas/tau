@@ -50,6 +50,9 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
       if (lineCount > LONG_MESSAGE_LINE_LIMIT) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
     }
     if (character === "\u200d") {
+      // ZWJ may only suppress a break for GB11's pictographic sequence;
+      // prevent it from carrying Hangul (or another non-GB11) join forward.
+      previousHangul = undefined;
       if (joined) {
         // A second ZWJ has no preceding EP Extend* opportunity to consume.
         joined = false;

@@ -7,7 +7,7 @@ import { copyableMessage, localImagePaths, visibleUserMessageText } from "./Mess
 import { isLongMessage } from "./message-grapheme";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
-export interface UserMessageProps {
+interface UserMessageProps {
   message: UiMessage;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;

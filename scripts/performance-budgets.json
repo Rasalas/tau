@@ -10,6 +10,7 @@
   "externalNetworkRequests": 0,
   "overlayCompositionMs": 4,
   "rendererFrameP95Ms": 24,
+  "rendererMountP95Ms": 24,
   "rendererLongTaskMs": 50,
   "rendererCommitP95Ms": 24,
   "rendererScenarioBudgets": {

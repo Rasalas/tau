@@ -68,14 +68,15 @@ function makeDiff(): UiFileDiff {
   return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
 }
 
-function makeLongUserMessage(): UiMessage {
-  return { id: "benchmark-long-user-message", role: "user", text: "x".repeat(12_000), timestamp: 0 };
+function makeLongUserMessage(bytes: number, revision: number): UiMessage {
+  return { id: "benchmark-long-user-message", role: "user", text: `${"x".repeat(bytes)}${revision}`, timestamp: revision };
 }
 
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
-  const targetBytes = scenario === "tool-output-1mb" ? 1_048_576 : 153_600;
+  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number };
+  const targetBytes = scenarioConfig.bytes ?? 0;
   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
   const [toolOutput, setToolOutput] = useState("");
   const [listQuery, setListQuery] = useState("");
@@ -87,16 +88,17 @@ export default function RendererBenchmark() {
   const profilerReportedUpdate = useRef(false);
   const frames = useRef<number[]>([]);
   const [benchmarkPulse, setBenchmarkPulse] = useState(0);
+  const [longUserRevision, setLongUserRevision] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
-  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
+  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(scenarioConfig.turns ?? 0) : [], [scenario, scenarioConfig.turns]);
   const listItems = useMemo(
-    () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
-    [scenario],
+    () => scenario.endsWith("-10000") ? Array.from({ length: scenarioConfig.items ?? 0 }, (_, index) => `Benchmark item ${index}`) : [],
+    [scenario, scenarioConfig.items],
   );
   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
   const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
-  const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage() : undefined, [scenario]);
+  const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage(targetBytes, longUserRevision) : undefined, [scenario, targetBytes, longUserRevision]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
   const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
     if (phase === "mount") {
@@ -119,7 +121,7 @@ export default function RendererBenchmark() {
   useEffect(() => {
     if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
     updateDurations.current.push(performance.now() - updateStartedAt.current);
-  }, [listQuery, text, toolOutput, benchmarkPulse]);
+  }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
 
   useEffect(() => {
     let frame = 0;
@@ -189,6 +191,12 @@ export default function RendererBenchmark() {
         requestAnimationFrame(update);
       };
       requestAnimationFrame(update);
+    } else if (scenario === "long-user-message") {
+      requestAnimationFrame(() => {
+        updateStartedAt.current = performance.now();
+        setLongUserRevision((revision) => revision + 1);
+        finish();
+      });
     } else {
       requestAnimationFrame(() => {
         updateStartedAt.current = performance.now();

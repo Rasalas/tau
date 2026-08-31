@@ -256,6 +256,7 @@ Initial local targets:
 - local host switch confirmed within 150 ms at p95
 - one transcript commit per animation frame while streaming
 - 150 KB plain-text and fenced-code streams below 24 ms frame p95 after initial block parsing
+- renderer mount work below 24 ms mount p95, with the transcript setup exception documented below
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
 - unchanged sidebar rows do not rerender when another row changes

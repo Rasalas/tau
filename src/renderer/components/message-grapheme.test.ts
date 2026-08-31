@@ -31,6 +31,7 @@ describe("message grapheme boundaries", () => {
     expect(isLongMessage("\u0301\u0302" + "a".repeat(600))).toBe(true);
     expect(isLongMessage("각".repeat(600))).toBe(false);
     expect(isLongMessage("각".repeat(600) + "가")).toBe(true);
+    expect(isLongMessage(("ᄀ‍ᅡ").repeat(301))).toBe(true);
     expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(true);
     expect(isLongMessage("\u0301" + "a".repeat(600))).toBe(true);
     expect(isLongMessage("\u200d" + "a".repeat(600))).toBe(true);

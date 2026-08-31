@@ -112,17 +112,19 @@ describe("performance report checks", () => {
       id: "regression",
       longTaskObserverSupported: true,
       frameIntervalsMs: { p95: 40 },
+      mountDurationsMs: { median: 998, p95: 999, maximum: 999 },
       longTasksMs: { maximum: 80 },
       commitDurationsMs: { p95: 30 },
       domNodes: 9_000,
     }] };
     const failures = evaluateRendererBudgets(report, {
       rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
       rendererLongTaskMs: 50,
       rendererCommitP95Ms: 24,
       rendererDomNodes: 5_000,
     });
-    expect(failures).toHaveLength(4);
+    expect(failures).toHaveLength(5);
   });
 
   it("keeps documented renderer budgets aligned with the release gate", async () => {
@@ -132,6 +134,7 @@ describe("performance report checks", () => {
     ]);
     const budgets = JSON.parse(budgetText);
     expect(documentation).toContain(`${budgets.rendererFrameP95Ms} ms frame p95`);
+    expect(documentation).toContain(`${budgets.rendererMountP95Ms} ms mount p95`);
     expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms`);
     expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
   });
@@ -176,17 +179,39 @@ describe("performance report checks", () => {
       id: "transcript-1000-turns",
       longTaskObserverSupported: true,
       frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { median: 22, p95: 32, maximum: 32 },
       longTasksMs: { maximum: 0 },
       commitDurationsMs: { median: 22, p95: 32, maximum: 32 },
       domNodes: 100,
     }] };
     expect(evaluateRendererBudgets(report, {
       rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
       rendererLongTaskMs: 50,
       rendererCommitP95Ms: 24,
       rendererDomNodes: 5_000,
-      rendererScenarioBudgets: { "transcript-1000-turns": { commitP95Ms: 40 } },
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, commitP95Ms: 40 } },
     })).toEqual([]);
+  });
+
+  it("enforces the transcript mount budget independently from update work", () => {
+    const failures = evaluateRendererBudgets({ scenarios: [{
+      id: "transcript-1000-turns",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { median: 900, p95: 999, maximum: 999 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { median: 1, p95: 2, maximum: 2 },
+      domNodes: 100,
+    }] }, {
+      rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
+      rendererLongTaskMs: 50,
+      rendererCommitP95Ms: 24,
+      rendererDomNodes: 5_000,
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, longTaskMs: 60 } },
+    });
+    expect(failures.some((failure) => failure.includes("mount p95 999.0ms > 40ms"))).toBe(true);
   });
 
   it("rejects missing renderer scenarios and measurements", () => {
@@ -197,6 +222,6 @@ describe("performance report checks", () => {
       rendererDomNodes: 5_000,
       rendererRequiredScenarios: ["required"],
     });
-    expect(failures).toHaveLength(6);
+    expect(failures).toHaveLength(7);
   });
 });

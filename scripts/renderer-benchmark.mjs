@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,11 +43,17 @@ const harnessFiles = [
   "benchmarks/renderer-fixtures.json",
   "scripts/renderer-benchmark.mjs",
   "scripts/renderer-benchmark-fixture.cjs",
+  "scripts/machine-class.mjs",
+  "scripts/renderer-budget.mjs",
+  "scripts/performance-budgets.json",
   "src/renderer/RendererBenchmark.tsx",
 ];
-const harnessPatchSha256 = createHash("sha256")
+const harnessSourceSha256 = createHash("sha256")
   .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
   .digest("hex");
+const harnessPatchFile = process.env.TAU_BENCHMARK_HARNESS_PATCH_FILE ?? "reports/renderer-baseline-6ddb454-harness.patch";
+const harnessPatchSha256 = process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256
+  ?? (existsSync(join(ROOT, harnessPatchFile)) ? createHash("sha256").update(readFileSync(join(ROOT, harnessPatchFile))).digest("hex") : "unknown");
 const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? commitSha();
 const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? commitSha();
 
@@ -56,7 +62,7 @@ if (!skipBuild) run("npm", ["run", "build"]);
 function sampleScenario(scenario) {
   const samples = [];
   for (let runIndex = 0; runIndex < fixture.startConditions.warmupRuns + fixture.startConditions.sampleRuns; runIndex += 1) {
-    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id]);
+    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id, JSON.stringify(scenario)]);
     const line = stdout.trim().split("\n").reverse().find((candidate) => candidate.startsWith("{"));
     if (!line) throw new Error(`renderer fixture returned no JSON for ${scenario.id}`);
     const result = JSON.parse(line);
@@ -70,14 +76,20 @@ function sampleScenario(scenario) {
     if (!Array.isArray(result.updateDurationsMs) || result.updateDurationsMs.length === 0 || result.updateDurationsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
       throw new Error(`renderer fixture did not capture a valid Profiler update for ${scenario.id}`);
     }
+    if (!Array.isArray(result.frameIntervalsMs) || result.frameIntervalsMs.length < (sanity.minFrames ?? 1) || result.frameIntervalsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
+      throw new Error(`renderer fixture returned invalid frame measurements for ${scenario.id}`);
+    }
+    if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
+      throw new Error(`renderer fixture returned invalid Long Task measurements for ${scenario.id}`);
+    }
+    if (!Number.isFinite(result.heapBytes) || result.heapBytes <= 0) {
+      throw new Error(`renderer fixture returned invalid heap measurement for ${scenario.id}`);
+    }
     if (!Number.isFinite(result.domNodes) || result.domNodes < (sanity.minDomNodes ?? 1) || result.domNodes > (sanity.maxDomNodes ?? Number.POSITIVE_INFINITY)) {
       throw new Error(`renderer fixture returned implausible DOM node count for ${scenario.id}: ${result.domNodes}`);
     }
-    if (!Number.isFinite(result.commits) || result.commits < (sanity.minCommits ?? 1)) {
+    if (!Number.isInteger(result.commits) || result.commits < (sanity.minCommits ?? 1)) {
       throw new Error(`renderer fixture returned too few commits for ${scenario.id}: ${result.commits}`);
-    }
-    if (!Array.isArray(result.frameIntervalsMs) || result.frameIntervalsMs.length < (sanity.minFrames ?? 1)) {
-      throw new Error(`renderer fixture returned too few frame samples for ${scenario.id}`);
     }
     if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
   }
@@ -110,12 +122,15 @@ const report = {
   commitSha: commitSha(),
   subjectCommit,
   harnessCommit,
+  harnessSourceSha256,
   harnessPatchSha256,
+  reproducibilityScript: "scripts/reproduce-renderer-baseline.mjs",
   execution: {
     electronExecutable: "node_modules/.bin/electron",
     gpu: "default",
     parallelRuns: 1,
     harnessFiles,
+    harnessPatchFile,
     caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
   },
   machine: machineClass(),

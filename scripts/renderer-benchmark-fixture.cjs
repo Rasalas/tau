@@ -3,6 +3,7 @@ const path = require("node:path");
 
 const scenario = process.argv[2];
 if (!scenario) throw new Error("renderer benchmark scenario is required");
+const scenarioConfig = JSON.parse(process.argv[3] || "{}");
 app.commandLine.appendSwitch("enable-precise-memory-info");
 
 app.whenReady().then(async () => {
@@ -14,7 +15,7 @@ app.whenReady().then(async () => {
   });
   try {
     await window.loadFile(path.join(__dirname, "..", "dist", "index.html"), {
-      query: { rendererBenchmark: "1", scenario },
+      query: { rendererBenchmark: "1", scenario, config: JSON.stringify(scenarioConfig) },
     });
     const deadline = Date.now() + 30_000;
     let result;

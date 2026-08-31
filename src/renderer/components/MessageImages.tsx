@@ -17,7 +17,7 @@ function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
   return request;
 }
 
-export function MessageImageGallery({ images }: { images: readonly AttachmentImage[] }) {
+function MessageImageGallery({ images }: { images: readonly AttachmentImage[] }) {
   if (images.length === 0) return null;
   return <AttachmentImageDialog images={images}>{(open) =>
     <div className="message-images">
