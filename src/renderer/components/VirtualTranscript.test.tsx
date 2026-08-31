@@ -167,6 +167,36 @@ describe("virtual transcript", () => {
     ]);
   });
 
+  it("resolves persisted entry anchors after message ids are remapped", async () => {
+    const messages: UiMessage[] = [
+      { id: "rendered-user", sourceEntryId: "persisted-user", role: "user", text: "Persisted request", timestamp: 1 },
+      { id: "rendered-answer", sourceEntryId: "persisted-answer", role: "assistant", text: "Persisted answer", timestamp: 2 },
+      { id: "later", role: "user", text: "Later request", timestamp: 3 },
+    ];
+    const view = render(<Fixture messages={messages} activities={[
+      { id: "checkpoint", afterMessageId: "persisted-answer", content: <div>turn changes</div> },
+    ]} />);
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(3));
+    expect(Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Persisted request"),
+      expect.stringMatching(/Persisted answer.*turn changes/u),
+      expect.stringContaining("Later request"),
+    ]);
+  });
+
+  it("does not move an unresolved historical activity to the tail", async () => {
+    const messages: UiMessage[] = [
+      { id: "first", role: "user", text: "First", timestamp: 1 },
+      { id: "latest", role: "assistant", text: "Latest", timestamp: 2 },
+    ];
+    const view = render(<Fixture messages={messages} activities={[
+      { id: "old-checkpoint", afterMessageId: "paged-out-answer", content: <div>old changes</div> },
+    ]} />);
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(2));
+    expect(view.container.textContent).not.toContain("old changes");
+    expect(view.container.querySelector(".virtual-transcript-row:last-child")?.textContent).toContain("Latest");
+  });
+
   it("keeps message alignment working through the virtualization wrapper", async () => {
     const message: UiMessage = { id: "user", role: "user", text: "Right aligned", timestamp: 1 };
     const view = render(<Fixture messages={[message]} />);

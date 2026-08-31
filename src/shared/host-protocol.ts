@@ -8,6 +8,7 @@ import type {
   UiModel,
   UiTaskProgress,
   UiTaskProgressEntry,
+  UiTurnCheckpoint,
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
@@ -49,13 +50,36 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscript
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
+  turnCheckpoints?: UiTurnCheckpoint[];
   taskProgress?: UiTaskProgress;
   contextUsage?: UiContextUsage;
   /** Whether another page exists; omitted by older protocol peers. */
   hasMore?: boolean;
 }
 
-export type TranscriptPage = ThreadTranscriptPage<UiMessage, HostTranscriptCursor>;
+/** A bounded page carrying only checkpoints anchored in the visible messages. */
+export type TranscriptPage = ThreadTranscriptPage<UiMessage, HostTranscriptCursor> & {
+  turnCheckpoints?: UiTurnCheckpoint[];
+};
+
+/** Keep checkpoint summaries attached only to assistant messages exposed by this page. */
+export function checkpointsForMessages(
+  checkpoints: readonly UiTurnCheckpoint[] | undefined,
+  messages: readonly UiMessage[],
+): UiTurnCheckpoint[] {
+  if (!checkpoints || checkpoints.length === 0) return [];
+  const ids = new Set(messages.flatMap((message) => [message.id, ...(message.sourceEntryId ? [message.sourceEntryId] : [])]));
+  return checkpoints.filter((checkpoint) => ids.has(checkpoint.anchorMessageId));
+}
+
+export function messageHasCheckpointAnchor(
+  message: UiMessage | undefined,
+  checkpoints: readonly UiTurnCheckpoint[] | undefined,
+): boolean {
+  if (!message || !checkpoints || checkpoints.length === 0) return false;
+  return checkpoints.some((checkpoint) => checkpoint.anchorMessageId === message.id
+    || checkpoint.anchorMessageId === message.sourceEntryId);
+}
 
 export interface HostCatalog {
   /** Absent in legacy v1 catalogs; clients must not apply capability without it. */
@@ -235,6 +259,7 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     isStreaming: snapshot.isStreaming,
     activeTools: snapshot.activeTools,
     turnActivity: snapshot.turnActivity,
+    turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, snapshot.messages),
     taskProgress: snapshot.taskProgress,
     taskHistory: snapshot.taskHistory,
     contextUsage: snapshot.contextUsage,
@@ -268,6 +293,7 @@ export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: Thr
     isStreaming: detail.isStreaming,
     activeTools: detail.activeTools,
     turnActivity: detail.turnActivity,
+    turnCheckpoints: detail.turnCheckpoints,
     taskProgress: detail.taskProgress,
     contextUsage: detail.contextUsage,
   };
@@ -283,6 +309,7 @@ export function detailFromSnapshot(
     ...threadDetailFromHostSnapshot(snapshot),
     messages: [...snapshot.messages],
     activeTools: [...snapshot.activeTools],
+    turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, snapshot.messages),
     taskHistory: taskHistoryForMessages(snapshot.taskHistory, snapshot.messages),
     hasMore: snapshot.olderCursor !== undefined,
     historyCompleteness: resolveTranscriptHistoryCompleteness(
@@ -322,6 +349,7 @@ export function detailFromSnapshot(
       Boolean(olderCursor),
     ),
     transcriptWindow: "bounded",
+    turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, page.messages),
   };
 }
 

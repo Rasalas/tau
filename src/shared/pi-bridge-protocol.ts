@@ -1,6 +1,16 @@
-import type { ExtensionUiPromptKind, NewThreadRequestId, UiComposerCommand, UiTaskProgress } from "./contracts.js";
+import type {
+  DiffLoadOptions,
+  ExtensionUiPromptKind,
+  NewThreadRequestId,
+  RuntimeCapabilities,
+  UiComposerCommand,
+  UiSkillInvocation,
+  UiTaskProgress,
+  UiTaskProgressEntry,
+  UiTurnCheckpoint,
+  UiWorkspaceChangesPage,
+} from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
-import type { RuntimeCapabilities, UiSkillInvocation } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -65,8 +75,15 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
   supportsImageInput: false;
   /** Optional for compatibility with Pi instances running an older bridge. */
   composerCommands?: UiComposerCommand[];
+  /** Raw records for restoring completed tool activity; the transcript page is mapped separately. */
+  activityMessages?: unknown[];
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
   taskProgress?: UiTaskProgress;
+  taskHistory?: UiTaskProgressEntry[];
+  /** Optional because older Pi bridge extensions do not provide checkpoints. */
+  turnCheckpoints?: UiTurnCheckpoint[];
+  /** Cursor for raw records older than the newest bridge snapshot page. */
+  olderCursor?: string;
   /** Set while Pi blocks on an extension question in its own terminal. */
   awaitingInput?: PiBridgeAwaitingInput;
   /** Token echoed once a registered new-session command has actually switched sessions. */
@@ -78,6 +95,10 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
 export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, string> {
   /** Raw branch index of the first entry in `messages`. */
   messagesOffset?: number;
+  /** Bounded raw activity records accompanying the mapped transcript page. */
+  activityMessages?: unknown[];
+  /** Checkpoints whose anchors are present in this page. */
+  turnCheckpoints?: UiTurnCheckpoint[];
 }
 
 /**
@@ -95,7 +116,16 @@ export interface PiBridgePreparedPrompt {
 
 export type PiBridgeCommand =
   | { command: "prepare_prompt"; text: string; skill?: import("./contracts.js").UiSkillDraft }
-  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp"; clientMessageId?: string; prepared?: PiBridgePreparedPrompt }
+  | {
+      command: "prompt";
+      text: string;
+      /** Checkpoint lifecycle correlation; required for newly created turns. */
+      clientTurnId?: string;
+      /** Renderer submission correlation retained by the bridge handoff flow. */
+      clientMessageId?: string;
+      deliverAs?: "steer" | "followUp";
+      prepared?: PiBridgePreparedPrompt;
+    }
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
   | { command: "set_model"; provider: string; id: string }
@@ -107,9 +137,16 @@ export type PiBridgeCommand =
   | { command: "new_session_ack"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "new_session_abort"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "transcript_page"; cursor?: string }
+  | { command: "turn_files_page"; checkpointId: string; cursor?: string; limit?: number }
   | { command: "export_markdown" }
+  | ({ command: "turn_file_diff"; checkpointId: string; path: string } & DiffLoadOptions)
   | { command: "snapshot" }
   | { command: "ping" };
+
+export interface PiBridgeTurnFilesPage extends UiWorkspaceChangesPage {
+  sessionId: string;
+  checkpointId: string;
+}
 
 /**
  * A blocking question Pi is waiting on. Pi owns its own UI context while it owns

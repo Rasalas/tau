@@ -46,4 +46,19 @@ describe("ExtensionRegistry contribution selectors", () => {
     expect(registry.getCommands()).toEqual([]);
     expect(registry.isActive("broken")).toBe(false);
   });
+
+  it("owns changes and historical review slots by extension lifecycle", () => {
+    const registry = new ExtensionRegistry();
+    const component = () => null;
+    registry.activate({ id: "workspace", name: "Workspace Kit", activate(context) {
+      context.registerChanges({ id: "workspace.changes", Component: component });
+      context.registerReview({ id: "workspace.history", kind: "historical", Component: component });
+    } });
+    expect(registry.getChangesContributions().map((entry) => entry.id)).toEqual(["workspace.changes"]);
+    expect(registry.getReviewContributions("historical").map((entry) => entry.id)).toEqual(["workspace.history"]);
+
+    registry.deactivate("workspace");
+    expect(registry.getChangesContributions()).toEqual([]);
+    expect(registry.getReviewContributions("historical")).toEqual([]);
+  });
 });

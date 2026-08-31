@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { countUserTurns, INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds, TranscriptPager, type TranscriptCursorPolicy } from "./transcript-pager.js";
+import {
+  countUserTurns,
+  INITIAL_TRANSCRIPT_TURN_LIMIT,
+  OLDER_TRANSCRIPT_TURN_LIMIT,
+  pageRecords,
+  transcriptPageBounds,
+  TranscriptPager,
+  type TranscriptCursorPolicy,
+} from "./transcript-pager.js";
 import type { UiMessage } from "./contracts.js";
 
 const messages: UiMessage[] = Array.from({ length: 12 }, (_, i) => ({
@@ -109,5 +117,16 @@ describe("TranscriptPager", () => {
     expect(page.messages).toEqual([]);
     expect(page.hasMore).toBe(false);
     expect(page.olderCursor).toBeUndefined();
+  });
+
+  it("uses the same cursor semantics for raw bridge records", () => {
+    const records = messages.map((message) => ({ role: message.role, id: message.id }));
+    const page = pageRecords(records, 3, undefined, (record) => record.role === "user");
+    expect(page.messages.map((record) => record.id)).toEqual(["6", "7", "8", "9", "10", "11"]);
+    expect(page.olderCursor).toBe("6");
+
+    const beforeTail = pageRecords(records, 3, "6", (record) => record.role === "user");
+    expect(beforeTail.messages.map((record) => record.id)).toEqual(["0", "1", "2", "3", "4", "5"]);
+    expect(beforeTail.hasMore).toBe(false);
   });
 });

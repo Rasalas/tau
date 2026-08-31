@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { ArrowLeft, ExternalLink, GitCommitHorizontal } from "lucide-react";
-import type { DiffLoadOptions, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../../shared/contracts";
+import type { DiffLoadOptions, UiEditor, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/contracts";
 import { DiffView } from "./DiffView";
 import { VirtualList } from "./VirtualList";
+import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
 
 const STATUS_GLYPH: Record<string, string> = {
   modified: "M",
@@ -24,6 +25,9 @@ export function ReviewMode({
   onCommit,
   onOpenInEditor,
   loadDiff,
+  loadFiles,
+  readOnly = false,
+  checkpointTitle,
 }: {
   changes: UiWorkspaceChanges;
   selectedPath?: string;
@@ -35,11 +39,17 @@ export function ReviewMode({
   onCommit(message: string, push: boolean): void;
   onOpenInEditor(path: string): void;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** Loads the next bounded historical file-list page, when available. */
+  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+  /** Historical turn diffs are inspect-only and must not offer workspace commits. */
+  readOnly?: boolean;
+  checkpointTitle?: string;
 }) {
   const [diff, setDiff] = useState<UiFileDiff>();
   const [mode, setMode] = useState<"unified" | "split">("unified");
   const [message, setMessage] = useState(changes.proposedMessage ?? "");
   const [editingMessage, setEditingMessage] = useState(false);
+  const { files, fileCount, hasMore: hasMoreFiles, loading: loadingFiles, error: fileLoadError, loadNextPage: loadNextFiles } = usePagedWorkspaceFiles(changes, loadFiles);
 
   useEffect(() => {
     if (!selectedPath) { setDiff(undefined); return; }
@@ -65,46 +75,56 @@ export function ReviewMode({
         <span style={{ width: 1, height: 16, background: "var(--line)" }} />
         <div className="title-identity">
           <strong>{changes.branch ?? "review"}</strong>
-          <span>review · {changes.files.length} {changes.files.length === 1 ? "file" : "files"}</span>
+          <span>review · {fileCount} {fileCount === 1 ? "file" : "files"}</span>
         </div>
         <div className="title-spacer" />
-        <button
-          className="chrome-button accent"
-          disabled={busy || changes.files.length === 0 || message.trim().length === 0}
-          onClick={() => onCommit(message, primaryPush)}
-        >
-          <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
-        </button>
+        {!readOnly ? <button
+            className="chrome-button accent"
+            disabled={busy || fileCount === 0 || message.trim().length === 0}
+            onClick={() => onCommit(message, primaryPush)}
+          >
+            <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
+          </button> : <span className="review-read-only">Historical turn</span>}
       </header>
 
       <div className="review-body">
         <div className="review-list">
           <header>
-            <h2>Changes</h2>
+            <h2>{readOnly ? checkpointTitle ?? "Turn changes" : "Changes"}</h2>
             <small>{changes.branch ?? "detached"}</small>
             <span className="spacer" />
             <span className="stat-add">+{changes.added}</span>
             <span className="stat-del">−{changes.removed}</span>
           </header>
           <div className="review-files">
+            {changes.completeness === "partial" ? <p className="file-tree-error changed-files-warning">
+              {changes.incompleteReason ?? "Snapshot coverage is partial; some workspace changes may be omitted."}
+              {changes.omittedFileCount ? ` (${changes.omittedFileCount} file${changes.omittedFileCount === 1 ? "" : "s"} omitted)` : ""}
+            </p> : null}
             <VirtualList
-              items={changes.files}
+              items={files}
               itemHeight={43}
               className="review-files-virtual"
-              empty={<p className="empty-copy">The worktree is clean.</p>}
+              empty={<p className="empty-copy">{changes.completeness === "partial" ? "No fully captured file entries are available." : "The worktree is clean."}</p>}
               renderItem={(file) => <button
                 key={file.path}
                 className={`review-file ${file.path === selectedPath ? "active" : ""}`}
                 onClick={() => onSelect(file.path)}
               >
                 <i>{STATUS_GLYPH[file.status] ?? "M"}</i>
-                <span className="meta"><strong>{file.name}</strong><small>{file.directory || "."}</small></span>
+                <span className="meta"><strong>{file.name}</strong><small>{(file.note ?? file.directory) || "."}</small></span>
                 <span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
               </button>}
             />
-            {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : null}
+            {fileCount === 0 ? <p className="empty-copy">{changes.completeness === "partial" ? "No fully captured file entries are available." : "The worktree is clean."}</p> : null}
+            {loadFiles && hasMoreFiles ? <div className="changed-files-more-row">
+              <button className="text-button" disabled={loadingFiles} onClick={() => void loadNextFiles()}>
+                {loadingFiles ? "Loading…" : `Load more (${Math.max(0, fileCount - files.length)} remaining)`}
+              </button>
+              {fileLoadError ? <small className="file-tree-error">{fileLoadError}</small> : null}
+            </div> : null}
 
-            {changes.files.length > 0 ? (
+            {fileCount > 0 && !readOnly ? (
               <div className="commit-proposal">
                 Commit message: {editingMessage ? null : <em>“{message || "none"}”</em>}
                 {editingMessage ? (

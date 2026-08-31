@@ -53,3 +53,20 @@ One declared piece of behavior that a desktop extension registers with the workb
 ## Core
 
 The minimum workbench and host machinery required to load extensions, run Pi, route typed messages, and provide shared placement and lifecycle. Core does not own optional product features.
+
+## Turn checkpoint
+
+An immutable record for one accepted Pi user turn. Its before tree is captured
+immediately before that client turn is delivered to the canonical workspace,
+including all pre-existing dirty tracked and non-ignored untracked files. Its
+after tree is captured at that turn's final assistant boundary, after retries
+and tool calls have ended. The two write-once Git tree refs are namespaced by
+the sanitized session ID, client turn ID, and phase, and are validated against
+that exact tuple before a diff or restore operation. A checkpoint custom entry
+stores only those ref IDs, a bounded summary preview, total file count, line
+totals, and the persisted assistant-entry anchor. Complete file lists and
+file patches are historical lazy reads from the ref pair, never data copied
+into the entry or transport snapshot. Refs remain while the session/checkpoint
+is retained, are cloned into a fork's namespace with the same turn anchor, and
+are garbage-collected when the owning session is actually deleted or pruned;
+runtime eviction alone does not delete them.

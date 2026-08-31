@@ -17,6 +17,7 @@ import type {
   ServiceTier,
   ToolApprovalRequest,
   UiToolRun,
+  UiTurnCheckpoint,
   UiWorkspaceChanges,
   WorkspaceInfo,
   NewThreadRequestId,
@@ -33,7 +34,6 @@ import { optionForLabel, splitOption } from "../shared/extension-prompt-options"
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
-const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
 
 const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
@@ -97,6 +97,7 @@ import {
 } from "./transcript-history";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+type CheckpointStatus = "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
 
 function questionKey(sessionId: string, index: number): string {
   return `${sessionId}:${index}`;
@@ -231,27 +232,48 @@ interface NewThreadSubmissionCompletion {
   result?: HostActionResult;
 }
 
-function LiveStatus({ startedAt }: { startedAt?: number }) {
+function LiveStatus({ startedAt, label = "Pi is working" }: { startedAt?: number; label?: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (startedAt === undefined) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [startedAt]);
-  return <div className="live-status"><span className="spinner" /><span>Pi is working{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
+  return <div className="live-status"><span className="spinner" /><span>{label}{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
 }
 
 export function useTailScroll(
   ref: RefObject<HTMLDivElement | null>,
   updates: readonly unknown[],
   resetKey?: unknown,
-  preserveScrollRef?: RefObject<boolean | undefined>,
+  preserveScrollRefOrPosition?: RefObject<boolean | undefined> | boolean,
+  preservePosition = false,
 ): void {
+  // Keep the old boolean fourth argument usable for focused hook tests and
+  // callers, while the transcript controller uses its mutable preservation
+  // ref and the paging state occupies the fifth argument.
+  const preserveScrollRef = typeof preserveScrollRefOrPosition === "object"
+    ? preserveScrollRefOrPosition
+    : undefined;
+  const preservePositionValue = typeof preserveScrollRefOrPosition === "boolean"
+    ? preserveScrollRefOrPosition
+    : preservePosition;
   const pinnedRef = useRef(true);
   const frameRef = useRef<number | undefined>(undefined);
+  const preservePositionRef = useRef(preservePositionValue);
+  const skipTailAfterPreserveRef = useRef(false);
+  preservePositionRef.current = preservePositionValue;
   const scheduleTail = () => {
     if (preserveScrollRef?.current) {
       pinnedRef.current = false;
+      return;
+    }
+    if (preservePositionRef.current) {
+      skipTailAfterPreserveRef.current = true;
+      return;
+    }
+    if (skipTailAfterPreserveRef.current) {
+      skipTailAfterPreserveRef.current = false;
       return;
     }
     if (!pinnedRef.current || frameRef.current !== undefined) return;
@@ -322,10 +344,18 @@ export function useTailScroll(
       pinnedRef.current = false;
       return;
     }
+    if (preservePositionValue) {
+      skipTailAfterPreserveRef.current = true;
+      if (frameRef.current !== undefined) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = undefined;
+      }
+      return;
+    }
     scheduleTail();
   // The array identity is intentionally controlled by the caller's visible records.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, updates);
+  }, [...updates, preservePositionValue]);
 }
 
 export default function App() {
@@ -381,6 +411,9 @@ export default function App() {
   const [messages, setMessages] = useState<UiMessage[]>(cachedBootstrap?.snapshot.messages ?? []);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [tools, setTools] = useState<UiToolRun[]>([]);
+  const [turnCheckpoints, setTurnCheckpoints] = useState<UiTurnCheckpoint[]>(cachedBootstrap?.snapshot.turnCheckpoints ?? []);
+  const turnCheckpointsRef = useRef(turnCheckpoints);
+  turnCheckpointsRef.current = turnCheckpoints;
   const [toolAnchorId, setToolAnchorId] = useState<string>();
   const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -391,6 +424,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
+  const [checkpointStatus, setCheckpointStatus] = useState<CheckpointStatus>();
   const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
   const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
   const uiPromptsRef = useRef(uiPrompts);
@@ -401,6 +435,9 @@ export default function App() {
   const questionnaireChoicesRef = useRef(questionnaireChoices);
   questionnaireChoicesRef.current = questionnaireChoices;
   const [runStartedAt, setRunStartedAt] = useState<number>();
+  // Legacy sessions may only have the old renderer cache. A settled run with
+  // no durable checkpoint must not leave that stale cache looking current.
+  const [turnSettledWithoutCheckpoint, setTurnSettledWithoutCheckpoint] = useState(false);
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -419,7 +456,12 @@ export default function App() {
   const pendingNewThreadRef = useRef(pendingNewThread);
   pendingNewThreadRef.current = pendingNewThread;
   const [settingsPage, setSettingsPage] = useState<string>();
-  const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
+  const [review, setReview] = useState<{
+    path?: string;
+    primaryPush: boolean;
+    checkpointId?: string;
+    sessionId?: string;
+  }>();
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
@@ -438,6 +480,8 @@ export default function App() {
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
   const assistantStartsRef = useRef(new Map<string, number>());
+  /** Empty live assistant rows wait here until a durable checkpoint proves they are visible. */
+  const pendingAssistantAnchorsRef = useRef(new Map<string, { id: string; timestamp: number; beforeMessageId?: string }>());
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
   const pendingToolUpdatesRef = useRef(new Map<string, string>());
@@ -495,6 +539,7 @@ export default function App() {
   const applySnapshot = useCallback((next: HostSnapshot, request?: TranscriptBootstrapRequest): boolean => {
     if (request && !transcriptHistory.isCurrentBootstrap(request)) return false;
     assistantStartsRef.current.clear();
+    pendingAssistantAnchorsRef.current.clear();
     pendingDeltasRef.current.clear();
     pendingToolUpdatesRef.current.clear();
     if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
@@ -508,6 +553,10 @@ export default function App() {
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     setSnapshot(next);
     setMessages(next.messages);
+    turnCheckpointsRef.current = next.turnCheckpoints ?? [];
+    setTurnCheckpoints(turnCheckpointsRef.current);
+    setCheckpointStatus(undefined);
+    setTurnSettledWithoutCheckpoint(false);
     const restoredActivity = next.turnActivity ?? cachedActivity;
     setTools(restoredActivity?.tools ?? []);
     setToolAnchorId(restoredActivity?.anchorMessageId);
@@ -583,6 +632,10 @@ export default function App() {
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
       setMessages(detailForRender.messages);
+      turnCheckpointsRef.current = detailForRender.turnCheckpoints ?? [];
+      setTurnCheckpoints(turnCheckpointsRef.current);
+      setCheckpointStatus(undefined);
+      setTurnSettledWithoutCheckpoint(false);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detailForRender.sessionId);
       const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
       setTools(restoredActivity?.tools ?? []);
@@ -597,6 +650,7 @@ export default function App() {
           ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
           ...(detail.threadId ? { threadId: detail.threadId } : {}),
           ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
+          turnCheckpoints: detailForRender.turnCheckpoints,
         };
         cachedSnapshotRef.current = enriched;
         writeBootstrapCache(enriched, cachedIndexRef.current);
@@ -706,8 +760,9 @@ export default function App() {
     // re-read when it is opened.
     if (
       (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
-        || event.type === "assistant-end" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
-        || event.type === "tool-end" || event.type === "queue")
+        || event.type === "assistant-end" || event.type === "assistant-anchor" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
+        || event.type === "tool-end" || event.type === "queue" || event.type === "turn-checkpoint"
+        || event.type === "turn-checkpoint-status")
       && event.sessionId !== threadStore.getSnapshot().activeThreadId
     ) return;
     switch (event.type) {
@@ -726,6 +781,7 @@ export default function App() {
           setToolAnchorId(undefined);
           setTurnBaseline(changesRef.current);
           setTurnActivitySessionId(event.sessionId);
+          setTurnSettledWithoutCheckpoint(false);
         }
         threadStore.setStreaming(event.running);
         setSnapshot((current) => {
@@ -744,7 +800,57 @@ export default function App() {
           const viewed = threadStore.getSnapshot().activeThreadId;
           if (finished && (finished !== viewed || document.hidden)) threadStore.markUnread(finished);
           runningThreadRef.current = "";
+          setTurnSettledWithoutCheckpoint(true);
           void refreshChanges();
+        }
+        break;
+      }
+      case "turn-checkpoint-status":
+        if (event.status === "ready" || event.status === "failed") setCheckpointStatus(undefined);
+        else setCheckpointStatus(event.status);
+        break;
+      case "turn-checkpoint": {
+        const next = [...turnCheckpointsRef.current.filter((entry) => entry.id !== event.checkpoint.id), event.checkpoint]
+          .sort((left, right) => left.endedAt - right.endedAt);
+        turnCheckpointsRef.current = next;
+        setTurnCheckpoints(next);
+        setTurnSettledWithoutCheckpoint(false);
+        setSnapshot((current) => {
+          if (!current || current.sessionId !== event.sessionId) return current;
+          const updated = { ...current, turnCheckpoints: next };
+          cachedSnapshotRef.current = updated;
+          writeBootstrapCache(updated, cachedIndexRef.current);
+          return updated;
+        });
+        const pending = pendingAssistantAnchorsRef.current.get(event.checkpoint.anchorMessageId);
+        if (pending) {
+          pendingAssistantAnchorsRef.current.delete(event.checkpoint.anchorMessageId);
+        }
+        if (pending && (event.checkpoint.completeness === "partial"
+          || (event.checkpoint.fileCount ?? event.checkpoint.files.length) > 0)) {
+          setMessages((current) => {
+            if (current.some((message) => message.sourceEntryId === event.checkpoint.anchorMessageId)) return current;
+            const existing = current.find((message) => message.id === pending.id);
+            if (existing) {
+              return current.map((message) => message.id === pending.id
+                ? { ...message, sourceEntryId: event.checkpoint.anchorMessageId }
+                : message);
+            }
+            const anchor: UiMessage = {
+              id: pending.id,
+              sourceEntryId: event.checkpoint.anchorMessageId,
+              role: "assistant",
+              text: "",
+              timestamp: pending.timestamp,
+            };
+            const beforeIndex = pending.beforeMessageId === undefined
+              ? -1
+              : current.findIndex((message) => message.id === pending.beforeMessageId
+                || message.sourceEntryId === pending.beforeMessageId);
+            return beforeIndex < 0
+              ? [...current, anchor]
+              : [...current.slice(0, beforeIndex), anchor, ...current.slice(beforeIndex)];
+          });
         }
         break;
       }
@@ -779,6 +885,50 @@ export default function App() {
           return exists
             ? current.map((message) => message.id === event.message.id ? event.message : message)
             : [...current, event.message];
+        });
+        break;
+      case "assistant-anchor":
+        pendingAssistantAnchorsRef.current.set(event.sourceEntryId, {
+          id: event.id,
+          timestamp: event.timestamp,
+          ...(event.beforeMessageId ? { beforeMessageId: event.beforeMessageId } : {}),
+        });
+        setMessages((current) => {
+          const existing = current.find((message) => message.id === event.id
+            || message.sourceEntryId === event.sourceEntryId);
+          if (existing) {
+            pendingAssistantAnchorsRef.current.delete(event.sourceEntryId);
+            const next = current.map((message) => message.id === event.id
+              || message.sourceEntryId === event.sourceEntryId
+                ? { ...message, sourceEntryId: event.sourceEntryId }
+              : message);
+            messagesRef.current = next;
+            return next;
+          }
+          // A text-empty assistant is intentionally omitted from assistant-end
+          // events. Only insert its marker when the corresponding checkpoint is
+          // already known; a historical checkpoint arriving without this live
+          // anchor must never be appended to the transcript tail.
+          const checkpoint = turnCheckpointsRef.current.find((entry) => entry.anchorMessageId === event.sourceEntryId);
+          if (!checkpoint || (checkpoint.completeness !== "partial"
+            && (checkpoint.fileCount ?? checkpoint.files.length) === 0)) return current;
+          pendingAssistantAnchorsRef.current.delete(event.sourceEntryId);
+          const anchor: UiMessage = {
+            id: event.id,
+            sourceEntryId: event.sourceEntryId,
+            role: "assistant",
+            text: "",
+            timestamp: event.timestamp,
+          };
+          const beforeIndex = event.beforeMessageId === undefined
+            ? -1
+            : current.findIndex((message) => message.id === event.beforeMessageId
+              || message.sourceEntryId === event.beforeMessageId);
+          const next = beforeIndex < 0
+            ? [...current, anchor]
+            : [...current.slice(0, beforeIndex), anchor, ...current.slice(beforeIndex)];
+          messagesRef.current = next;
+          return next;
         });
         break;
       case "user-message":
@@ -990,6 +1140,15 @@ export default function App() {
     void refreshChanges();
     setReview({ path, primaryPush });
   }, [refreshChanges, workspace?.upstream]);
+
+  const openCheckpointReview = useCallback((checkpointId: string, path?: string) => {
+    const checkpoint = turnCheckpoints.find((entry) => entry.id === checkpointId);
+    if (!checkpoint) {
+      setNotice("This turn checkpoint is no longer available.");
+      return;
+    }
+    setReview({ path, primaryPush: false, checkpointId, sessionId: checkpoint.sessionId });
+  }, [turnCheckpoints]);
 
   const acceptWorkspace = useCallback((result: HostActionResult) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
@@ -1668,7 +1827,38 @@ export default function App() {
     () => turnBaseline ? changesSinceTurn(turnBaseline, changes) : changesTouchedByTools(tools, changes),
     [changes, tools, turnBaseline],
   );
+  const changesContributions = registry.getChangesContributions();
+  const ChangesComponent = changesContributions[0]?.Component;
+  const checkpointContributions = registry.getTurnCheckpointContributions();
+  const CheckpointComponent = checkpointContributions[0]?.Component;
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
+  const loadedMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of messages) {
+      ids.add(message.id);
+      if (message.sourceEntryId) ids.add(message.sourceEntryId);
+    }
+    return ids;
+  }, [messages]);
+  const checkpointActivities = useMemo(() => (!CheckpointComponent || pendingNewThread ? [] : turnCheckpoints)
+    // A persisted checkpoint may belong to a page that is not loaded yet. Do
+    // not send it to the transcript with a tail fallback; it becomes visible at
+    // its original position as soon as that page is fetched.
+    .filter((checkpoint) => (checkpoint.completeness === "partial"
+      || (checkpoint.fileCount ?? checkpoint.files.length) > 0) && loadedMessageIds.has(checkpoint.anchorMessageId))
+    .map((checkpoint) => ({
+      id: `turn-checkpoint-${checkpoint.id}`,
+      afterMessageId: checkpoint.anchorMessageId,
+      content: (
+        <CheckpointComponent
+            checkpoint={checkpoint}
+            onOpenDiff={(path) => openCheckpointReview(checkpoint.id, path)}
+            loadFiles={window.tau
+              ? (cursor, limit) => window.tau!.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit)
+              : undefined}
+          />
+      ),
+    })), [CheckpointComponent, loadedMessageIds, openCheckpointReview, pendingNewThread, turnCheckpoints]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -1696,6 +1886,11 @@ export default function App() {
   const filesContextValue = useMemo(() => ({ fileTree, snapshot: panelProject, refreshFiles, loadFiles }), [fileTree, panelProject, refreshFiles, loadFiles]);
   const changesContextValue = useMemo(() => ({ changes, snapshot: panelProject, refreshChanges, openReview }), [changes, panelProject, refreshChanges, openReview]);
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
+  const reviewChanges = review?.checkpointId
+    ? turnCheckpoints.find((checkpoint) => checkpoint.id === review.checkpointId) ?? NO_CHANGES
+    : changes;
+  const reviewContribution = registry.getReviewContributions(review?.checkpointId ? "historical" : "workspace")[0];
+  const ReviewComponent = reviewContribution?.Component;
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
@@ -1864,24 +2059,43 @@ export default function App() {
             <FilesContext.Provider value={filesContextValue}>
               <ChangesContext.Provider value={changesContextValue}>
                 <ObservatoryContext.Provider value={observatoryContextValue}>
-                  <LazyFeatureBoundary label="review">
+                  {ReviewComponent ? <LazyFeatureBoundary label="review">
                     <Suspense fallback={<LazyFeatureFallback label="review" />}>
-                      <LazyReviewMode
-                        changes={changes}
-                        selectedPath={review.path ?? changes.files[0]?.path}
+                      <ReviewComponent
+                        changes={reviewChanges}
+                        selectedPath={review.path ?? reviewChanges.files[0]?.path}
                         editor={activeEditor}
                         busy={committing}
                         primaryPush={review.primaryPush}
-                        onSelect={(path) => setReview((current) => ({ path, primaryPush: current?.primaryPush ?? Boolean(workspace?.upstream) }))}
+                        onSelect={(path) => setReview((current) => current ? { ...current, path } : current)}
                         onBack={() => setReview(undefined)}
                         onCommit={(message, push) => void commit(message, push)}
                         onOpenInEditor={(path) => void openInEditor(path)}
-                        loadDiff={async (path) => window.tau
-                          ? window.tau.getFileDiff(path)
-                          : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }}
+                        readOnly={Boolean(review.checkpointId)}
+                        checkpointTitle={review.checkpointId ? "Turn changes" : undefined}
+                        loadFiles={review.checkpointId && window.tau
+                          ? (cursor, limit) => window.tau!.getTurnFiles(
+                            review.sessionId ?? snapshot?.sessionId ?? "",
+                            review.checkpointId!,
+                            cursor,
+                            limit,
+                          )
+                          : undefined}
+                        loadDiff={async (path, options) => {
+                          if (!window.tau) return { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." };
+                          if (review.checkpointId) {
+                            return window.tau.getTurnFileDiff(
+                              review.sessionId ?? snapshot?.sessionId ?? "",
+                              review.checkpointId,
+                              path,
+                              options,
+                            );
+                          }
+                          return window.tau.getFileDiff(path, options);
+                        }}
                       />
                     </Suspense>
-                  </LazyFeatureBoundary>
+                  </LazyFeatureBoundary> : <div className="review-unavailable">The review extension is disabled.</div>}
             {overlays}
               </ObservatoryContext.Provider>
               </ChangesContext.Provider>
@@ -2011,23 +2225,30 @@ export default function App() {
                           id: entry.id,
                           afterMessageId: entry.anchorMessageId,
                           content: <TaskProgress progress={entry.progress} placement="transcript" />,
-                        }))}
+                        })).concat(checkpointActivities)}
                         onCopyMessage={(message) => void copyMessage(message)}
                         onForkMessage={(message) => void forkMessage(message)}
                       />
                       {/* The tool block already says a run is in flight; two live rows
                           both duplicate the signal and collide with the virtual list. */}
-                      {conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
-                        ? <LiveStatus startedAt={runStartedAt} />
-                        : null}
+                      {checkpointStatus === "queued" || checkpointStatus === "waiting"
+                        ? <LiveStatus label="Waiting for workspace…" />
+                        : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
+                          ? <LiveStatus startedAt={runStartedAt} />
+                          : null}
                     </>}
                   </TranscriptHistoryBoundary>
                 </div>
               </div>
 
-              {!pendingNewThread && turnChanges.files.length > 0 ? (
+              {!pendingNewThread
+                && turnChanges.files.length > 0
+                && turnCheckpoints.length === 0
+                && !turnSettledWithoutCheckpoint
+                && ChangesComponent
+                ? (
                 <div className="conversation-files-dock">
-                  <ChangedFiles changes={turnChanges} onOpenDiff={openReview} />
+                  <ChangesComponent changes={turnChanges} onOpenDiff={openReview} />
                 </div>
               ) : null}
               {conversationComposer}
