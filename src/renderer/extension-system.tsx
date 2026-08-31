@@ -15,6 +15,9 @@ export interface WorkbenchActions {
   settleActiveThread(): void;
   abort(): void;
   reloadRuntime(): Promise<boolean>;
+  /** Rebuilds the workbench from source and reloads it; a changed host still needs a restart. */
+  rebuildWorkbench(): Promise<boolean>;
+  restartWorkbench(): void;
   focusComposer(seed?: string): void;
   notify(message: string): void;
   chooseWorkspace(): Promise<boolean>;

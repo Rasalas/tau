@@ -64,6 +64,7 @@ import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
 import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
+import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
 import {
@@ -277,6 +278,21 @@ export default function App() {
     return value;
   });
   useSyncExternalStore(registry.subscribe, registry.getVersion);
+  // Extensions from ~/.tau/extensions and <project>/.tau/extensions load at
+  // runtime, like Pi's own; the project set follows the open workspace.
+  const noticeRef = useRef<(message: string) => void>(() => {});
+  const eventRef = useRef<(label: string, detail?: string) => void>(() => {});
+  const [runtimeExtensions] = useState(() => {
+    installSharedModules();
+    return new RuntimeExtensions(registry, {
+      load: (cwd, sharedExports) => window.tau?.loadDesktopExtensions
+        ? window.tau.loadDesktopExtensions(cwd, sharedExports)
+        : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
+      isEnabled: (id) => preferences.isExtensionEnabled(id),
+      notify: (message) => noticeRef.current(message),
+      log: (label, detail) => eventRef.current(label, detail),
+    });
+  });
   const [threadStore] = useState(() => {
     const store = new ThreadStore();
     if (cachedBootstrap) {
@@ -521,6 +537,14 @@ export default function App() {
   const addEvent = useCallback((label: string, detail?: string, timestamp = Date.now()) => {
     setEvents((current) => [...current.slice(-99), { id: `${timestamp}-${Math.random()}`, label, detail, timestamp }]);
   }, []);
+  noticeRef.current = setNotice;
+  eventRef.current = addEvent;
+
+  const workspaceCwd = safeMode ? undefined : snapshot?.cwd;
+  useEffect(() => {
+    if (!workspaceCwd || !window.tau) return;
+    void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(String(error)));
+  }, [runtimeExtensions, workspaceCwd]);
 
   const refreshChanges = useCallback(async () => {
     if (!window.tau) return;
@@ -1207,6 +1231,33 @@ export default function App() {
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
+  const rebuildWorkbench = useCallback(async () => {
+    if (!requireHost("Rebuilding")) return false;
+    setNotice("Rebuilding Tau from source…");
+    try {
+      const result = await window.tau!.rebuildWorkbench();
+      if (!result.ok) {
+        addEvent("workbench.build.failed", result.output);
+        setNotice(`Build failed: ${result.output.split("\n").filter(Boolean).at(-1) ?? "see Signals"}`);
+        return false;
+      }
+      if (result.mainChanged) {
+        setNotice(`Rebuilt in ${Math.round(result.durationMs / 100) / 10}s. The host changed too — run /restart to apply it.`);
+        return true;
+      }
+      window.location.reload();
+      return true;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [addEvent, requireHost]);
+
+  const restartWorkbench = useCallback(() => {
+    if (!requireHost("Restarting")) return;
+    void window.tau!.relaunchWorkbench();
+  }, [requireHost]);
+
   const reloadRuntime = useCallback(async () => {
     if (!requireHost("Runtime reload")) return false;
     try {
@@ -1230,6 +1281,8 @@ export default function App() {
     settleActiveThread,
     abort: () => void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined),
     reloadRuntime,
+    rebuildWorkbench,
+    restartWorkbench,
     focusComposer: (seed) => { if (seed !== undefined) { setComposerSeed(seed); writeComposerDraft(window.localStorage, activeDraftKey, seed); } composerRef.current?.focus(); },
     notify: setNotice,
     chooseWorkspace,
@@ -1243,7 +1296,7 @@ export default function App() {
     },
   }), [
     chooseWorkspace, cloneWorkspace, generateThreadTitle, openPanel,
-    activeDraftKey, openReview, openWorkspace, reloadRuntime, settleActiveThread, snapshot?.model, switchSession,
+    activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot?.model, switchSession,
   ]);
 
   const submit = useCallback(async (value: string, attachments: UiPromptAttachment[] = []) => {
@@ -1251,6 +1304,14 @@ export default function App() {
     if (!text && attachments.length === 0) return;
     if (text === "/reload" && attachments.length === 0) {
       await reloadRuntime();
+      return;
+    }
+    if (text === "/rebuild" && attachments.length === 0) {
+      await rebuildWorkbench();
+      return;
+    }
+    if (text === "/restart" && attachments.length === 0) {
+      restartWorkbench();
       return;
     }
     if (!pendingNewThread && visibleStreaming) {
@@ -1326,7 +1387,7 @@ export default function App() {
         setRunStartedAt(undefined);
       }, 650);
     }
-  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, registry, reloadRuntime, snapshot, threadStore, visibleStreaming]);
+  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {

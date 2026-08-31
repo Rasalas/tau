@@ -42,6 +42,9 @@ const api: TauDesktopApi = {
   switchRef: (ref) => ipcRenderer.invoke("tau:switch-ref", ref),
   listEditors: () => ipcRenderer.invoke("tau:list-editors"),
   openInEditor: (editorId, path) => ipcRenderer.invoke("tau:open-in-editor", editorId, path),
+  loadDesktopExtensions: (cwd, sharedExports) => ipcRenderer.invoke("tau:desktop-extensions", cwd, sharedExports),
+  rebuildWorkbench: () => ipcRenderer.invoke("tau:rebuild-workbench"),
+  relaunchWorkbench: () => ipcRenderer.invoke("tau:relaunch-workbench"),
   onHostEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: HostEvent) => listener(payload);
     ipcRenderer.on("tau:host-event", handler);

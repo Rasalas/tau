@@ -44,6 +44,12 @@ Tau can attach to a Pi TUI that already owns the active session instead of openi
 
 The Pi TUI is the sole writer while attached. Tau will not fall back to writing the same session if the owner is alive but unreachable. It retries a lost socket with bounded backoff and resnapshots automatically after Pi reloads or restarts the bridge. Enter `/reload` in Tau, or run “Reload Pi and desktop extensions” from the command palette, to reload Pi resources and rebuild the renderer-side extension registry. Electron main-process and preload changes still require an app restart; production source changes must be built first. Image prompts, Tau project-shell actions, Tau access-policy changes, new-session creation, and automatic title generation remain Pi-side operations in this mode. Safe mode refuses to attach because it cannot enforce safe-mode tool policy on a runtime owned by another process.
 
+### Extend Tau while it runs
+
+Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) file in `~/.tau/extensions/`, or in `<project>/.tau/extensions/` for a project Pi trusts, and run `/reload`. The file default-exports a `DesktopExtension` and may import `react`, `lucide-react` and `tau` (the workbench hooks and types); the host compiles it with esbuild and the renderer binds those imports to its own copies. `examples/desktop-extensions/hello-panel.tsx` is a complete example; `tau.d.ts` next to it gives an editor the types.
+
+Tau's own source can be changed from inside Tau too. `/rebuild` runs the production build without leaving the app and reloads the renderer; when the main process or preload changed, it says so and `/restart` relaunches the app. Both are also in the command palette.
+
 ## Prototype surface
 
 - real Pi SDK session with streamed text, thinking and tool events

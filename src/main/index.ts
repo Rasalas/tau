@@ -10,6 +10,9 @@ import { PiHost } from "./pi-host.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
+import { loadDesktopExtensions } from "./desktop-extensions.js";
+import { rebuildWorkbench } from "./workbench-build.js";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
@@ -58,6 +61,8 @@ let hostReady: Promise<unknown> | undefined;
 let projectHistory: ProjectHistory;
 let shutdownStarted = false;
 let shutdownComplete = false;
+/** One build at a time; a second request joins the running one. */
+let rebuild: Promise<unknown> | undefined;
 
 function publish(event: HostEvent): void {
   if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send("tau:host-event", event);
@@ -163,6 +168,19 @@ function installIpc(): void {
   ipcMain.handle("tau:list-editors", async () => (await requireHostReady()).listEditors());
   ipcMain.handle("tau:open-in-editor", async (_event, editorId: string, path?: string) => (await requireHostReady()).openInEditor(editorId, path));
   ipcMain.handle("tau:list-directories", async (_event, path?: string) => listDirectories(path));
+  ipcMain.handle("tau:desktop-extensions", async (_event, cwd: string, sharedExports: Record<string, string[]>) =>
+    loadDesktopExtensions(cwd, getAgentDir(), { sharedExports }));
+  ipcMain.handle("tau:rebuild-workbench", async () => {
+    if (rebuild) return rebuild;
+    rebuild = rebuildWorkbench(app.getAppPath(), {
+      onOutput: (line) => publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() }),
+    }).finally(() => { rebuild = undefined; });
+    return rebuild;
+  });
+  ipcMain.handle("tau:relaunch-workbench", () => {
+    app.relaunch();
+    app.quit();
+  });
   ipcMain.handle("tau:choose-workspace", async () => {
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ["openDirectory"] });
     const selected = result.filePaths[0];

@@ -353,6 +353,30 @@ export type HostEvent =
   | { type: "error"; message: string }
   | { type: "event-log"; label: string; detail?: string; timestamp: number };
 
+/** A desktop extension compiled by the host, ready for the renderer to import. */
+export interface DesktopExtensionBundle {
+  path: string;
+  scope: "global" | "project";
+  projectPath?: string;
+  /** Self-contained ES module; shared libraries come from `globalThis.__tauShared`. */
+  code: string;
+}
+
+export interface DesktopExtensionLoadResult {
+  bundles: DesktopExtensionBundle[];
+  errors: Array<{ path: string; message: string }>;
+  skipped: Array<{ directory: string; reason: string }>;
+}
+
+export interface WorkbenchBuildResult {
+  ok: boolean;
+  durationMs: number;
+  /** The main process or preload changed; only a restart applies that. */
+  mainChanged: boolean;
+  /** Last lines of the build output. */
+  output: string;
+}
+
 export interface UiDirectoryListing {
   path: string;
   parent?: string;
@@ -405,6 +429,15 @@ export interface TauDesktopApi {
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, path?: string): Promise<void>;
+  /**
+   * Compiles the desktop extensions for a workspace. `sharedExports` names what the
+   * renderer publishes on `globalThis.__tauShared`, so bundles can bind to it.
+   */
+  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
+  /** Rebuilds the workbench from source without leaving the app. */
+  rebuildWorkbench(): Promise<WorkbenchBuildResult>;
+  /** Restarts the app so a rebuilt main process takes effect. */
+  relaunchWorkbench(): Promise<void>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
 }
 

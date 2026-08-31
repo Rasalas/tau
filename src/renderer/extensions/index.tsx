@@ -110,6 +110,8 @@ export const settingsExtension: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", shortcut: "⌘N", run: (app) => app.newSession() });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", shortcut: "Esc", run: (app) => app.abort() });
     plugin.registerCommand({ id: "runtime.reload", label: "Reload Pi and desktop extensions", group: "Runtime", run: async (app) => { await app.reloadRuntime(); } });
+    plugin.registerCommand({ id: "runtime.rebuild", label: "Rebuild Tau from source and reload", group: "Runtime", run: async (app) => { await app.rebuildWorkbench(); } });
+    plugin.registerCommand({ id: "runtime.restart", label: "Restart Tau", group: "Runtime", run: (app) => app.restartWorkbench() });
   },
 };
 
