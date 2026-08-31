@@ -38,13 +38,35 @@ function todoDetails(message: TodoMessage): { details: TodoDetails; tasks: UiTas
   return { details, tasks: details.tasks.map(task).filter((item): item is UiTask => Boolean(item)) };
 }
 
-function progress(tasks: UiTask[]): UiTaskProgress | undefined {
-  if (tasks.length === 0) return undefined;
+function taskSnapshot(tasks: UiTask[]): UiTaskProgress {
   return {
     tasks,
     completed: tasks.filter((item) => item.status === "completed").length,
     total: tasks.length,
   };
+}
+
+function progress(tasks: UiTask[]): UiTaskProgress | undefined {
+  return tasks.length > 0 ? taskSnapshot(tasks) : undefined;
+}
+
+function sameTask(left: UiTask, right: UiTask): boolean {
+  return left.id === right.id
+    && left.subject === right.subject
+    && left.status === right.status
+    && left.activeForm === right.activeForm
+    && (left.blockedBy ?? []).join(",") === (right.blockedBy ?? []).join(",");
+}
+
+function changedTaskIds(previous: readonly UiTask[], next: readonly UiTask[]): Set<number> {
+  const before = new Map(previous.map((item) => [item.id, item]));
+  const after = new Map(next.map((item) => [item.id, item]));
+  const ids = new Set([...before.keys(), ...after.keys()]);
+  return new Set([...ids].filter((id) => {
+    const left = before.get(id);
+    const right = after.get(id);
+    return !left || !right || !sameTask(left, right);
+  }));
 }
 
 interface TaskScan {
@@ -63,52 +85,63 @@ function hasVisibleText(message: TodoMessage): boolean {
 
 function scan(messages: readonly unknown[]): TaskScan {
   let latestTasks: UiTask[] = [];
+  let hasTaskSnapshot = false;
   let anchorMessageId: string | undefined;
   let lastVisibleMessageId: string | undefined;
   let turnKey = "root";
+  let segment = 0;
   const touched = new Set<number>();
   const history: UiTaskProgressEntry[] = [];
 
-  const finishTurn = () => {
-    const snapshot = progress(latestTasks.filter((item) => touched.has(item.id)));
+  const finishSegment = () => {
+    const changedTasks = latestTasks.filter((item) => touched.has(item.id));
+    const snapshot = progress(changedTasks) ?? (touched.size > 0 ? taskSnapshot(latestTasks) : undefined);
     if (snapshot) {
-      const previous = history.at(-1);
-      const continuesPrevious = previous?.progress.tasks.some((item) => touched.has(item.id));
-      if (previous && continuesPrevious) {
-        const ids = new Set([...previous.progress.tasks.map((item) => item.id), ...touched]);
-        previous.progress = progress(latestTasks.filter((item) => ids.has(item.id))) ?? previous.progress;
-      } else {
-        history.push({ id: `tasks-${turnKey}`, anchorMessageId, progress: snapshot });
-      }
+      segment += 1;
+      history.push({
+        id: `tasks-${turnKey}${segment === 1 ? "" : `-${segment}`}`,
+        anchorMessageId,
+        progress: snapshot,
+      });
     }
     touched.clear();
+    anchorMessageId = undefined;
   };
 
   messages.forEach((raw, index) => {
     const message = raw as TodoMessage | undefined;
     if (!message) return;
     if (message.role === "user") {
-      finishTurn();
+      finishSegment();
       lastVisibleMessageId = message.tauEntryId ?? `user-${message.timestamp ?? index}-${index}`;
-      anchorMessageId = undefined;
       turnKey = lastVisibleMessageId;
+      segment = 0;
       return;
     }
-    if (message.role === "assistant" && hasVisibleText(message) && message.tauEntryId) lastVisibleMessageId = message.tauEntryId;
+    if (message.role === "assistant" && hasVisibleText(message) && message.tauEntryId) {
+      finishSegment();
+      lastVisibleMessageId = message.tauEntryId;
+    }
     const snapshot = todoDetails(message);
     if (!snapshot) return;
-    latestTasks = snapshot.tasks;
-    const { details } = snapshot;
-    if (typeof details.params?.id === "number") touched.add(details.params.id);
-    if (details.action === "create" && typeof details.nextId === "number") touched.add(details.nextId - 1);
-    if (touched.size > 0 && !anchorMessageId) anchorMessageId = lastVisibleMessageId;
-    if (details.action === "clear") touched.clear();
+
+    const { details, tasks } = snapshot;
+    const isMutation = ["create", "update", "delete", "clear"].includes(details.action ?? "");
+    if (isMutation) {
+      const changed = hasTaskSnapshot ? changedTaskIds(latestTasks, tasks) : new Set<number>();
+      if (!hasTaskSnapshot && typeof details.params?.id === "number") changed.add(details.params.id);
+      if (!hasTaskSnapshot && details.action === "create" && typeof details.nextId === "number") changed.add(details.nextId - 1);
+      changed.forEach((id) => touched.add(id));
+      if (changed.size > 0 && !anchorMessageId) anchorMessageId = lastVisibleMessageId;
+    }
+    latestTasks = tasks;
+    hasTaskSnapshot = true;
   });
 
   const current = progress(latestTasks.filter((item) =>
     item.status === "pending" || item.status === "in_progress" || touched.has(item.id),
   ));
-  finishTurn();
+  finishSegment();
   return { current, history };
 }
 

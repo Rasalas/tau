@@ -27,7 +27,7 @@ describe("taskProgressFromMessages", () => {
     });
   });
 
-  it("keeps steering updates for the same task in one anchored card", () => {
+  it("anchors each changed snapshot where the change happened", () => {
     const pending = { id: 2, subject: "Render tasks", status: "pending" };
     const completed = { ...pending, status: "completed" };
     const messages = [
@@ -37,10 +37,83 @@ describe("taskProgressFromMessages", () => {
       { role: "user", content: "also align it", tauEntryId: "steer" },
       result("update", [completed], { id: 2 }, 3),
     ];
+    expect(taskProgressHistoryFromMessages(messages)).toEqual([
+      {
+        id: "tasks-user",
+        anchorMessageId: "commentary",
+        progress: { tasks: [pending], completed: 0, total: 1 },
+      },
+      {
+        id: "tasks-steer",
+        anchorMessageId: "steer",
+        progress: { tasks: [completed], completed: 1, total: 1 },
+      },
+    ]);
+  });
+
+  it("starts a new row when a later visible reply is followed by another change", () => {
+    const pending = { id: 2, subject: "Render tasks", status: "pending" } satisfies UiTask;
+    const active = { ...pending, status: "in_progress" } satisfies UiTask;
+    const messages = [
+      { role: "user", content: "start", tauEntryId: "user" },
+      result("create", [pending], {}, 3),
+      { role: "assistant", content: "Plan created.", tauEntryId: "reply" },
+      result("update", [active], { id: 2 }, 3),
+    ];
+
+    expect(taskProgressHistoryFromMessages(messages)).toEqual([
+      {
+        id: "tasks-user",
+        anchorMessageId: "user",
+        progress: { tasks: [pending], completed: 0, total: 1 },
+      },
+      {
+        id: "tasks-user-2",
+        anchorMessageId: "reply",
+        progress: { tasks: [active], completed: 0, total: 1 },
+      },
+    ]);
+  });
+
+  it("does not add a chat row when a todo action leaves the task list unchanged", () => {
+    const pending = { id: 2, subject: "Render tasks", status: "pending" } satisfies UiTask;
+    const messages = [
+      result("list", [pending], {}, 3),
+      { role: "user", content: "continue", tauEntryId: "user" },
+      result("update", [pending], { id: 2 }, 3),
+    ];
+
+    expect(taskProgressHistoryFromMessages(messages)).toEqual([]);
+  });
+
+  it("records the resulting list when a task is removed", () => {
+    const removed = { id: 2, subject: "Old task", status: "pending" } satisfies UiTask;
+    const remaining = { id: 3, subject: "Next task", status: "pending" } satisfies UiTask;
+    const messages = [
+      result("list", [removed, remaining], {}, 4),
+      { role: "user", content: "remove the old task", tauEntryId: "user" },
+      result("delete", [remaining], { id: 2 }, 4),
+    ];
+
     expect(taskProgressHistoryFromMessages(messages)).toEqual([{
       id: "tasks-user",
-      anchorMessageId: "commentary",
-      progress: { tasks: [completed], completed: 1, total: 1 },
+      anchorMessageId: "user",
+      progress: { tasks: [remaining], completed: 0, total: 1 },
+    }]);
+  });
+
+  it("records an empty snapshot when the task list is cleared", () => {
+    const pending = { id: 2, subject: "Old task", status: "pending" } satisfies UiTask;
+    const messages = [
+      result("list", [pending], {}, 3),
+      { role: "user", content: "clear tasks", tauEntryId: "user" },
+      result("clear", [], {}, 1),
+    ];
+
+    expect(taskProgressHistoryFromMessages(messages)).toEqual([{
+      id: "tasks-user",
+      anchorMessageId: "user",
+      progress: { tasks: [], completed: 0, total: 0 },
     }]);
   });
 

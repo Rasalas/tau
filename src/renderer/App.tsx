@@ -1128,13 +1128,15 @@ export default function App() {
     }
   }, [refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
 
-  const runWorkspaceAction = useCallback(async (action: () => Promise<HostActionResult>) => {
-    if (!requireHost("Worktrees")) return;
+  const runWorkspaceAction = useCallback(async (action: () => Promise<HostActionResult>): Promise<boolean> => {
+    if (!requireHost("Worktrees")) return false;
     setWorkspaceBusy(true);
     try {
       acceptWorkspace(await action());
+      return true;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setWorkspaceBusy(false);
     }
@@ -1505,10 +1507,12 @@ export default function App() {
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
+  const conversationActivityTools = pendingNewThread ? [] : activityTools;
+  const conversationPrompts = pendingNewThread ? [] : threadPrompts;
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
-    && activityTools.length === 0
-    && threadPrompts.length === 0;
+    && conversationActivityTools.length === 0
+    && conversationPrompts.length === 0;
   const startProjectPath = conversationSnapshot?.cwd ?? "";
   const startProjectName = pendingNewThread?.projectName
     ?? projects.find((project) => project.path === startProjectPath)?.name
@@ -1537,15 +1541,15 @@ export default function App() {
       onSetModel={(provider, id) => void setModel(provider, id)}
       onSetThinking={(level) => void setThinking(level)}
       onSetServiceTier={(tier) => void setServiceTier(tier)}
-      prompt={threadPrompts[0]}
-      promptsPending={Math.max(0, threadPrompts.length - 1)}
+      prompt={conversationPrompts[0]}
+      promptsPending={Math.max(0, conversationPrompts.length - 1)}
       onAnswerPrompt={(value, typed) => {
-        const active = threadPrompts[0];
+        const active = conversationPrompts[0];
         if (!active) return;
         answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
       }}
       onCancelPrompt={() => {
-        const active = threadPrompts[0];
+        const active = conversationPrompts[0];
         if (active) answerUiPrompt(active.id, { cancelled: true });
       }}
       promptChoices={promptChoices}
@@ -1554,9 +1558,11 @@ export default function App() {
       onCompactContext={() => void compactContext()}
       workspace={workspace}
       workspaceBusy={workspaceBusy}
-      onOpenWorktree={(path) => void openWorkspace(path)}
-      onCreateWorktree={(branch) => void runWorkspaceAction(() => window.tau!.createWorktree(branch))}
-      onSwitchRef={(ref) => void runWorkspaceAction(() => window.tau!.switchRef(ref))}
+      onOpenWorktree={(path) => path === snapshot?.cwd
+        ? Promise.resolve(true)
+        : runWorkspaceAction(() => window.tau!.openProject(path))}
+      onCreateWorktree={(branch, baseRef) => runWorkspaceAction(() => window.tau!.createWorktree(branch, baseRef))}
+      onSwitchRef={(ref) => runWorkspaceAction(() => window.tau!.switchRef(ref))}
     />
   );
 
@@ -1728,18 +1734,18 @@ export default function App() {
                     messages={conversationMessages}
                     scrollRef={transcriptRef}
                     isStreaming={Boolean(conversationSnapshot?.isStreaming)}
-                    activity={!pendingNewThread && activityTools.length > 0 ? (
+                    activity={conversationActivityTools.length > 0 ? (
                       <ToolGroup
-                        tools={activityTools}
+                        tools={conversationActivityTools}
                         registry={registry}
                         streaming={conversationSnapshot?.isStreaming}
-                        waiting={threadPrompts.length > 0}
+                        waiting={conversationPrompts.length > 0}
                         onRecover={() => void recoverThread()}
                         onStop={() => void window.tau?.abort(snapshot?.sessionId)}
                       />
                     ) : undefined}
                     activityAfterMessageId={visibleToolAnchorId}
-                    activities={(conversationSnapshot?.taskHistory ?? []).filter((entry) => entry.progress.total > 1).map((entry) => ({
+                    activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
                       id: entry.id,
                       afterMessageId: entry.anchorMessageId,
                       content: <TaskProgress progress={entry.progress} placement="transcript" />,
@@ -1749,7 +1755,7 @@ export default function App() {
                   />
                   {/* The tool block already says a run is in flight; two live rows
                       both duplicate the signal and collide with the virtual list. */}
-                  {conversationSnapshot?.isStreaming && activityTools.length === 0
+                  {conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
                     ? <LiveStatus startedAt={runStartedAt} />
                     : null}
                 </div>
