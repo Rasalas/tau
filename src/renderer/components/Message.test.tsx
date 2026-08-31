@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { compactTimestamp, fullTimestamp, isLongMessage, localImagePaths, Message, withoutLocalImagePaths } from "./Message";
 
@@ -80,6 +80,36 @@ describe("Long user messages", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(scrollContainer.scrollTop).toBe(240);
+  });
+
+  it("preserves a visible row anchor after virtualizer remeasurement in both directions", async () => {
+    const scrollContainer = document.createElement("div");
+    scrollContainer.className = "transcript";
+    scrollContainer.scrollTop = 240;
+    document.body.append(scrollContainer);
+    const text = "x".repeat(601);
+    try {
+      render(
+        <>
+          <div className="virtual-transcript-row"><Message message={message(text)} /></div>
+          <div className="virtual-transcript-row">Current reading anchor</div>
+        </>,
+        { container: scrollContainer },
+      );
+      const content = scrollContainer.querySelector(".message-text-content") as HTMLElement;
+      const rows = [...scrollContainer.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
+      const anchor = rows[1];
+      scrollContainer.getBoundingClientRect = () => ({ top: 0, bottom: 400, height: 400, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
+      rows[0].getBoundingClientRect = () => ({ top: -200, bottom: content.classList.contains("collapsed") ? 100 : 300, height: content.classList.contains("collapsed") ? 300 : 500, left: 0, right: 780, width: 780, x: 0, y: -200, toJSON: () => ({}) });
+      anchor.getBoundingClientRect = () => ({ top: content.classList.contains("collapsed") ? 300 : 500, bottom: 340, height: 40, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
+
+      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      await waitFor(() => expect(scrollContainer.scrollTop).toBe(440));
+      fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+      await waitFor(() => expect(scrollContainer.scrollTop).toBe(240));
+    } finally {
+      scrollContainer.remove();
+    }
   });
 
   it("passes the full message to copy while the preview is collapsed", () => {

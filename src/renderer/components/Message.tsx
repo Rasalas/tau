@@ -1,5 +1,5 @@
 import { Bot, ChevronRight, Copy, GitFork, X } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import type { UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
 
@@ -167,6 +167,80 @@ function MessageActions({ onCopy, onFork }: { onCopy(): void; onFork?: () => voi
   </div>;
 }
 
+interface ScrollPosition {
+  container: HTMLElement;
+  anchor?: HTMLElement;
+  anchorTop?: number;
+  tracked: HTMLElement;
+  trackedHeight: number;
+  trackedTop: number;
+}
+
+function findScrollContainer(element: HTMLElement): HTMLElement | undefined {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const overflow = window.getComputedStyle(parent).overflowY || window.getComputedStyle(parent).overflow;
+    if (parent.classList.contains("transcript") || /auto|scroll|overlay/u.test(overflow)) return parent;
+  }
+  return undefined;
+}
+
+function captureScrollPosition(article: HTMLElement): ScrollPosition | undefined {
+  const container = findScrollContainer(article);
+  if (!container) return undefined;
+
+  const containerTop = container.getBoundingClientRect().top;
+  const tracked = article.closest<HTMLElement>(".virtual-transcript-row") ?? article;
+  const trackedRect = tracked.getBoundingClientRect();
+  const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
+  const trackedIndex = rows.indexOf(tracked);
+  const anchor = rows
+    .slice(trackedIndex < 0 ? 0 : trackedIndex)
+    .find((row) => row.getBoundingClientRect().top >= containerTop);
+  const anchorRect = anchor?.getBoundingClientRect();
+  return {
+    container,
+    anchor,
+    anchorTop: anchorRect?.top,
+    tracked,
+    trackedHeight: trackedRect.height,
+    trackedTop: trackedRect.top,
+  };
+}
+
+function restoreScrollPosition(position: ScrollPosition): void {
+  if (position.anchor && position.anchorTop !== undefined && position.anchor.isConnected) {
+    position.container.scrollTop += position.anchor.getBoundingClientRect().top - position.anchorTop;
+    return;
+  }
+
+  // A message at the transcript tail has no following row to anchor. If it is
+  // above the viewport, compensate for its measured height change instead.
+  if (position.trackedTop < position.container.getBoundingClientRect().top && position.tracked.isConnected) {
+    const heightDelta = position.tracked.getBoundingClientRect().height - position.trackedHeight;
+    position.container.scrollTop += heightDelta;
+  }
+}
+
+function usePreservedScrollPosition(expanded: boolean, articleRef: RefObject<HTMLElement | null>, pendingPosition: MutableRefObject<ScrollPosition | undefined>) {
+  useLayoutEffect(() => {
+    const position = pendingPosition.current;
+    if (!position) return;
+    pendingPosition.current = undefined;
+
+    // Virtualizer measurement is ResizeObserver-driven and may itself publish
+    // on the next animation frame. Waiting a second frame observes the final
+    // row position in both the browser and the absolute-row test fixture.
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => restoreScrollPosition(position));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [articleRef, expanded, pendingPosition]);
+}
+
 function UserMessage({
   message,
   onCopy,
@@ -181,11 +255,19 @@ function UserMessage({
   const persistedImages = message.images ?? [];
   const long = isLongMessage(visibleText);
   const [expanded, setExpanded] = useState(false);
+  const articleRef = useRef<HTMLElement>(null);
+  const pendingPosition = useRef<ScrollPosition | undefined>(undefined);
   const contentId = `message-content-${message.id}`;
+  usePreservedScrollPosition(expanded, articleRef, pendingPosition);
+
+  const toggleExpanded = () => {
+    if (articleRef.current) pendingPosition.current = captureScrollPosition(articleRef.current);
+    setExpanded((value) => !value);
+  };
 
   return (
     <div className="message-shell user">
-      <article className="message user">
+      <article className="message user" ref={articleRef}>
         <div className="message-text">
           <div
             id={contentId}
@@ -203,7 +285,7 @@ function UserMessage({
             type="button"
             aria-controls={contentId}
             aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
+            onClick={toggleExpanded}
           >
             {expanded ? "Show less" : "Show more"}
           </button>
