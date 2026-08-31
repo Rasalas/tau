@@ -148,6 +148,9 @@ export default function RendererBenchmark() {
   }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
 
   useEffect(() => {
+    // Mark the interaction before any scheduled task can execute. This keeps
+    // the first scenario update out of startup Long Task measurements.
+    interactionStartedAt.current = performance.now();
     let frame = 0;
     let previous = performance.now();
     let stopped = false;

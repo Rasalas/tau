@@ -196,6 +196,7 @@ const report = {
   },
   machine: machineClass(),
   startConditions: fixture.startConditions,
+  aggregation: { warmupRuns: fixture.startConditions.warmupRuns, sampleRuns: fixture.startConditions.sampleRuns, percentile: "nearest-rank", rawSamples: true },
   scenarios: fixture.scenarios.map(sampleScenario),
 };
 report.execution.gpu = {
