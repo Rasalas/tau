@@ -17,14 +17,28 @@ const progress: UiTaskProgress = {
 afterEach(cleanup);
 
 describe("TaskProgress", () => {
-  it("shows compact progress and expands the Pi task snapshot", () => {
-    render(<TaskProgress progress={progress} placement="dock" />);
-    expect(screen.getByText("rendering tasks")).toBeTruthy();
-    expect(screen.getByText("1/3")).toBeTruthy();
+  it("shows segmented step progress and previews the task snapshot on hover", () => {
+    const view = render(<TaskProgress progress={progress} placement="dock" />);
+    expect(screen.getByText("2/3")).toBeTruthy();
     expect(screen.queryByText("Inspect source")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Tasks/u }));
+    fireEvent.mouseEnter(view.container.querySelector(".task-progress")!);
     expect(screen.getByText("Inspect source")).toBeTruthy();
     expect(screen.getByText("Verify behavior")).toBeTruthy();
+
+    fireEvent.mouseLeave(view.container.querySelector(".task-progress")!);
+    expect(screen.queryByText("Inspect source")).toBeNull();
+  });
+
+  it("keeps the task snapshot open when the progress control is clicked", () => {
+    const view = render(<TaskProgress progress={progress} placement="dock" />);
+    const section = view.container.querySelector(".task-progress")!;
+    const button = screen.getByRole("button", { name: "Tasks, step 2 of 3" });
+
+    fireEvent.click(button);
+    fireEvent.mouseLeave(section);
+
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Inspect source")).toBeTruthy();
   });
 });

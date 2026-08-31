@@ -249,7 +249,6 @@ export function Composer({
 
   return (
     <footer className="composer-zone">
-      {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
       {queue.length > 0 ? (
         <div className="composer-queue">
           {queue.map((entry, index) => (
@@ -273,6 +272,8 @@ export function Composer({
           onPreselect={onPreselectQuestion}
         />
       ) : null}
+
+      {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
 
       <div
         className={`composer-frame ${queue.length > 0 || prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
