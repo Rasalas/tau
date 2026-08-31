@@ -39,6 +39,7 @@ describe("thread drop policy", () => {
   });
 
   it("never presents unknown file metadata as a valid copy", () => {
+    expect(classifyThreadDrop(true, [], true)).toBe("unknown");
     expect(classifyThreadDrop(true, [{ kind: "file", mimeType: "image/png" }], true)).toBe("unknown");
     expect(classifyThreadDrop(true, [
       { kind: "file", mimeType: "image/png", size: 1 },

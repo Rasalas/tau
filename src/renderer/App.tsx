@@ -1500,7 +1500,7 @@ export default function App() {
         if (result.submission.accepted
           && created?.type !== "thread-detail"
           && result.requestId === newThreadRequestId) {
-          markAwaitingPromotion(pending, submittedDraftKey, newThreadRequestId, text);
+          markAwaitingPromotion({ pending, scope: submittedDraftKey, requestId: newThreadRequestId, prompt: text });
         }
         applyActionResult(result);
         if (!result.submission.accepted) {

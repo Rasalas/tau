@@ -4,6 +4,7 @@ import {
   MAX_TOTAL_IMAGE_BYTES,
   selectAttachmentCandidates,
   SUPPORTED_IMAGE_TYPES_LABEL,
+  type AttachmentPolicyReason,
 } from "./prompt-attachment-limits.js";
 
 export type ThreadDropState = "idle" | "valid" | "mixed" | "unsupported" | "invalid-type" | "invalid-size" | "too-many" | "total-size" | "unavailable" | "unknown";
@@ -13,6 +14,14 @@ export interface ThreadDropFeedback {
   description: string;
   dropEffect: "copy" | "none";
 }
+
+const THREAD_DROP_REASON_STATE: Readonly<Record<AttachmentPolicyReason, ThreadDropState>> = {
+  "unsupported-type": "invalid-type",
+  "invalid-size": "invalid-size",
+  "unknown-size": "unknown",
+  "too-many": "too-many",
+  "total-size": "total-size",
+};
 
 export const THREAD_DROP_FEEDBACK: Readonly<Record<ThreadDropState, ThreadDropFeedback>> = {
   idle: { title: "", description: "", dropEffect: "none" },
@@ -81,7 +90,7 @@ export function classifyThreadDrop(
   if (!hasFilesSignal) return "idle";
   if (!supportsImageInput) return "unavailable";
   const fileItems = items.filter((item) => item.kind === "file");
-  if (fileItems.length === 0) return items.length === 0 ? "valid" : "unknown";
+  if (fileItems.length === 0) return "unknown";
   const existing = Array.from({ length: existingCount }, (_, index) => ({
     mimeType: "image/png",
     size: index === 0 ? existingBytes : 0,
@@ -93,14 +102,7 @@ export function classifyThreadDrop(
   if (unknown) return "unknown";
   if (supported && unsupported) return "mixed";
   if (supported) return "valid";
-  switch (policy.rejected[0]?.reason) {
-    case "unsupported-type": return "invalid-type";
-    case "invalid-size": return "invalid-size";
-    case "too-many": return "too-many";
-    case "total-size": return "total-size";
-    case "unknown-size": return "unknown";
-    default: return "unsupported";
-  }
+  return policy.rejected[0] ? THREAD_DROP_REASON_STATE[policy.rejected[0].reason] : "unsupported";
 }
 
 export const IMAGE_INPUT_UNAVAILABLE_MESSAGE = "Image attachments are unavailable for the active runtime.";

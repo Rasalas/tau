@@ -43,6 +43,46 @@ async function createPiSession(ctx: ExtensionCommandContext, initialPrompt?: str
   return result;
 }
 
+export interface NewSessionRequestTracker {
+  begin(requestId: NewThreadRequestId): void;
+  remove(requestId: NewThreadRequestId): void;
+  markReady(requestId: NewThreadRequestId): void;
+  requestIdForSnapshot(): NewThreadRequestId | undefined;
+  acknowledge(requestId: NewThreadRequestId): boolean;
+}
+
+/** Keeps a request token alive until Pi receives the host's correlated ACK. */
+export function createNewSessionRequestTracker(): NewSessionRequestTracker {
+  type Entry = { state: "pending" | "ready"; timeout?: ReturnType<typeof setTimeout> };
+  const entries = new Map<NewThreadRequestId, Entry>();
+  const remove = (requestId: NewThreadRequestId) => {
+    const entry = entries.get(requestId);
+    if (!entry) return;
+    if (entry.timeout) clearTimeout(entry.timeout);
+    entries.delete(requestId);
+  };
+  return {
+    begin(requestId) {
+      if (entries.size > 0) throw new Error("Pi is already creating a new thread.");
+      entries.set(requestId, { state: "pending" });
+    },
+    remove,
+    markReady(requestId) {
+      const entry = entries.get(requestId);
+      if (!entry || entry.state === "ready") return;
+      entry.state = "ready";
+      entry.timeout = setTimeout(() => remove(requestId), 30_000);
+      entry.timeout.unref?.();
+    },
+    requestIdForSnapshot: () => entries.keys().next().value,
+    acknowledge(requestId) {
+      if (!entries.has(requestId)) return false;
+      remove(requestId);
+      return true;
+    },
+  };
+}
+
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
     if (typeof item !== "string") return item;
@@ -53,7 +93,7 @@ function boundedBridgeValue<T>(value: T): T {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
-  const pendingNewSessionRequestIds = new Map<NewThreadRequestId, { state: "pending" | "ready" }>();
+  const newSessionRequests = createNewSessionRequestTracker();
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
@@ -71,17 +111,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const requestId = typeof payload.requestId === "string" ? payload.requestId as NewThreadRequestId : undefined;
       try {
         if (requestId) {
-          for (const [readyRequestId, pending] of pendingNewSessionRequestIds) {
-            if (pending.state === "ready") pendingNewSessionRequestIds.delete(readyRequestId);
-          }
-          if (pendingNewSessionRequestIds.size > 0) throw new Error("Pi is already creating a new thread.");
-          pendingNewSessionRequestIds.set(requestId, { state: "pending" });
+          newSessionRequests.begin(requestId);
         }
         await createPiSession(ctx, initialPrompt);
       } catch (error) {
         if (requestId) {
           broadcast({ type: "new_session_failed", requestId, message: error instanceof Error ? error.message : String(error) }, ctx);
-          pendingNewSessionRequestIds.delete(requestId);
+          newSessionRequests.remove(requestId);
         }
         throw error;
       }
@@ -109,9 +145,6 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   let awaitingInput: PiBridgeAwaitingInput | undefined;
   let sequence = 0;
   const clients = new Set<ClientState>();
-  const pendingRequestId = (): NewThreadRequestId | undefined => [...pendingNewSessionRequestIds.entries()]
-    .find(([, pending]) => pending.state === "pending")?.[0];
-
   const send = (client: ClientState, frame: PiBridgeServerFrame) => {
     if (!client.socket.destroyed) client.socket.write(encodePiBridgeFrame(frame));
   };
@@ -122,7 +155,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const usage = ctx.getContextUsage();
     const branchMessages = ctx.sessionManager.getBranch()
       .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
-    const newSessionRequestId = pendingRequestId();
+    const newSessionRequestId = newSessionRequests.requestIdForSnapshot();
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
@@ -206,10 +239,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         epoch: descriptor.epoch,
         snapshot: readySnapshot,
       });
-      if (readySnapshot.newSessionRequestId) {
-        const pending = pendingNewSessionRequestIds.get(readySnapshot.newSessionRequestId);
-        if (pending) pending.state = "ready";
-      }
+      if (readySnapshot.newSessionRequestId) newSessionRequests.markReady(readySnapshot.newSessionRequestId);
       return;
     }
     if (frame.type !== "command" || frame.expectedSessionId !== descriptor.sessionId) {
@@ -225,10 +255,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         case "snapshot": {
           const current = snapshot(ctx);
           respond(client, frame.id, true, current);
-          if (current.newSessionRequestId) {
-            const pending = pendingNewSessionRequestIds.get(current.newSessionRequestId);
-            if (pending) pending.state = "ready";
-          }
+          if (current.newSessionRequestId) newSessionRequests.markReady(current.newSessionRequestId);
           break;
         }
         case "prompt":
@@ -275,6 +302,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           // pretending its event context has command-only session methods.
           pi.sendUserMessage(bridgeNewSessionCommand(frame.initialPrompt, frame.requestId), { expandPromptTemplates: true });
           respond(client, frame.id, true, { accepted: true, requestId: frame.requestId ?? frame.id });
+          break;
+        }
+        case "new_session_ack": {
+          if (!newSessionRequests.acknowledge(frame.requestId)) throw new Error("The new-thread request is no longer pending.");
+          respond(client, frame.id, true, { accepted: true, requestId: frame.requestId });
           break;
         }
         case "fork": {

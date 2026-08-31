@@ -13,6 +13,13 @@ function newRequestIdentity(): NewThreadRequestId {
   return createNewThreadRequestId(`new-thread-${Date.now()}-${++requestIdentityCounter}`);
 }
 
+export interface NewThreadPromotionContext {
+  pending: NewThreadDraft;
+  scope: string | undefined;
+  requestId: NewThreadRequestId;
+  prompt: string;
+}
+
 export function useNewThreadController(storage: Storage) {
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
   const pendingRef = useRef(pendingNewThread);
@@ -41,9 +48,9 @@ export function useNewThreadController(storage: Storage) {
       && current.sessionId === pending.sessionId;
   }, []);
 
-  const markAwaitingPromotion = useCallback((pending: NewThreadDraft, scope: string | undefined, requestId: NewThreadRequestId, prompt: string) => {
-    if (!isCurrent(pending, scope, requestId)) return false;
-    awaitingPromotionRef.current = { scope: createDraftKey(scope), requestId, prompt };
+  const markAwaitingPromotion = useCallback((context: NewThreadPromotionContext) => {
+    if (!isCurrent(context.pending, context.scope, context.requestId)) return false;
+    awaitingPromotionRef.current = { scope: createDraftKey(context.scope), requestId: context.requestId, prompt: context.prompt };
     return true;
   }, [isCurrent]);
 

@@ -1,10 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
-import tauSessionBridge, { bridgeNewSessionCommand, PI_BRIDGE_SUPPORTS_IMAGE_INPUT } from "./tau-session-bridge.js";
+import tauSessionBridge, {
+  bridgeNewSessionCommand,
+  createNewSessionRequestTracker,
+  PI_BRIDGE_SUPPORTS_IMAGE_INPUT,
+} from "./tau-session-bridge.js";
 import { createNewThreadRequestId } from "../../src/shared/contracts.js";
 
 describe("Tau Pi bridge capability", () => {
   it("declares that the bridge cannot send image prompt input", () => {
     expect(PI_BRIDGE_SUPPORTS_IMAGE_INPUT).toBe(false);
+  });
+
+  it("keeps a ready request token until the exact host acknowledgement", () => {
+    const tracker = createNewSessionRequestTracker();
+    const requestId = createNewThreadRequestId("request-lifecycle");
+    const foreignId = createNewThreadRequestId("request-foreign");
+
+    tracker.begin(requestId);
+    expect(tracker.requestIdForSnapshot()).toBe(requestId);
+    tracker.markReady(requestId);
+    expect(tracker.requestIdForSnapshot()).toBe(requestId);
+    expect(tracker.acknowledge(foreignId)).toBe(false);
+    expect(tracker.requestIdForSnapshot()).toBe(requestId);
+    expect(tracker.acknowledge(requestId)).toBe(true);
+    expect(tracker.requestIdForSnapshot()).toBeUndefined();
+    expect(tracker.acknowledge(requestId)).toBe(false);
   });
 
   it("routes session creation through the registered command boundary", () => {

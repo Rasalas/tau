@@ -51,6 +51,7 @@ export type PiBridgeCommand =
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
   | { command: "new_session"; initialPrompt?: string; requestId?: NewThreadRequestId }
+  | { command: "new_session_ack"; requestId: NewThreadRequestId }
   | { command: "export_markdown" }
   | { command: "snapshot" }
   | { command: "ping" };
