@@ -926,6 +926,7 @@ export default function App() {
     writeNewThreadDraft(window.localStorage, draft);
     setPendingNewThread(draft);
     setNewThreadOpen(false);
+    window.setTimeout(() => composerRef.current?.focus(), 0);
   }, []);
 
   const browseForNewThread = useCallback(async () => {
@@ -1344,6 +1345,22 @@ export default function App() {
           setPendingNewThread(undefined);
           acceptWorkspace(result);
           threadStore.markRead(sessionId);
+          await registry.notifyPromptSubmitted({
+            prompt: text,
+            snapshot: snapshot ? {
+              ...snapshot,
+              cwd: pending.projectPath,
+              sessionId,
+              sessionName: undefined,
+              sessionTitle: "Untitled thread",
+              messages: [],
+              isStreaming: false,
+              activeTools: [],
+              turnActivity: undefined,
+              taskProgress: undefined,
+              taskHistory: [],
+            } : undefined,
+          }, actions);
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
           // view stays until that report arrives.
@@ -1458,7 +1475,7 @@ export default function App() {
   const conversationMessages = pendingNewThread
     ? unconfirmedOptimisticMessages
     : [...messages, ...unconfirmedOptimisticMessages].sort((left, right) => left.timestamp - right.timestamp);
-  const visibleToolAnchorId = latestActivityAnchor(conversationMessages);
+  const visibleToolAnchorId = toolAnchorId ?? latestActivityAnchor(conversationMessages);
   const conversationSnapshot = pendingNewThread && snapshot ? {
     ...snapshot,
     cwd: pendingNewThread.projectPath,

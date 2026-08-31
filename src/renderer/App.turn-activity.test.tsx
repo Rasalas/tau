@@ -77,6 +77,41 @@ describe("last-turn activity", () => {
     expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(0);
   });
 
+  it("keeps completed tools between the user prompt and the final reply", async () => {
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          messages: [{ id: "user", role: "user" as const, text: "Do the work", timestamp: 1 }],
+        },
+      };
+    };
+    const view = render(<App />);
+    await screen.findByText("Do the work");
+
+    act(() => {
+      publish({ type: "agent-status", sessionId: "session", running: true });
+      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("one"), status: "running", endedAt: undefined } });
+      publish({ type: "tool-end", sessionId: "session", tool: tool("one") });
+      publish({
+        type: "assistant-end",
+        sessionId: "session",
+        message: { id: "assistant", role: "assistant", text: "Finished", timestamp: 2 },
+      });
+      publish({ type: "agent-status", sessionId: "session", running: false });
+    });
+
+    await screen.findByText("Finished");
+    const rows = Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent);
+    expect(rows).toEqual([
+      expect.stringMatching(/Do the work.*Used 1 tool/u),
+      expect.stringContaining("Finished"),
+    ]);
+  });
+
   it("aggregates steering into the current run and resets on the next run", async () => {
     render(<App />);
     await screen.findByText("Thread");
@@ -88,14 +123,14 @@ describe("last-turn activity", () => {
       publish({ type: "tool-start", sessionId: "session", tool: { ...tool("two"), status: "running", endedAt: undefined } });
       publish({ type: "tool-end", sessionId: "session", tool: tool("two") });
     });
-    expect(await screen.findByText("Used 2 tools")).toBeTruthy();
+    expect(await screen.findByText(/Working · Used 2 tools/u)).toBeTruthy();
 
     act(() => {
       publish({ type: "queue", sessionId: "session", steering: ["keep going"], followUp: [] });
       publish({ type: "tool-start", sessionId: "session", tool: { ...tool("three"), status: "running", endedAt: undefined } });
       publish({ type: "tool-end", sessionId: "session", tool: tool("three") });
     });
-    expect(await screen.findByText("Used 3 tools")).toBeTruthy();
+    expect(await screen.findByText(/Working · Used 3 tools/u)).toBeTruthy();
 
     act(() => {
       publish({ type: "agent-status", sessionId: "session", running: false });
@@ -103,7 +138,7 @@ describe("last-turn activity", () => {
       publish({ type: "tool-start", sessionId: "session", tool: { ...tool("four"), status: "running", endedAt: undefined } });
       publish({ type: "tool-end", sessionId: "session", tool: tool("four") });
     });
-    await waitFor(() => expect(screen.queryByText("Used 3 tools")).toBeNull());
-    expect(screen.getByText("Used 1 tool")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText(/Used 3 tools/u)).toBeNull());
+    expect(screen.getByText(/Working · Used 1 tool/u)).toBeTruthy();
   });
 });

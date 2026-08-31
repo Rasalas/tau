@@ -666,11 +666,16 @@ button > svg { pointer-events: none; }
   border: 1px solid var(--line-card); border-radius: 10px;
   background: var(--chrome); overflow: hidden;
 }
-.tool-activity { color: var(--muted); }
+.tool-activity { color: var(--muted); animation: fade-up 180ms ease-out; }
 .tool-activity-summary { padding: 7px 2px; }
 .tool-activity-detail {
   margin: 5px 0 0 26px; overflow: hidden;
   border: 1px solid var(--line-card); border-radius: 9px; background: var(--chrome);
+  transform-origin: top; animation: tool-detail-in 180ms ease-out;
+}
+@keyframes tool-detail-in {
+  from { opacity: 0; transform: translateY(-3px) scaleY(.97); }
+  to { opacity: 1; transform: none; }
 }
 .tool-group-header {
   display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 13px;
@@ -680,7 +685,11 @@ button > svg { pointer-events: none; }
 .tool-group-header > b { flex: 1; }
 .tool-group-header > span { color: var(--faint); font-weight: 400; letter-spacing: 0; }
 
-.tool-run { border-bottom: 1px solid #1f1f1a; }
+.tool-run { border-bottom: 1px solid #1f1f1a; animation: tool-run-in 180ms ease-out; }
+@keyframes tool-run-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
 .tool-run:last-child { border-bottom: 0; }
 .tool-run-line {
   width: 100%; display: flex; align-items: center; gap: 10px;
@@ -1775,7 +1784,7 @@ button > svg { pointer-events: none; }
 .toast i { color: var(--faint); font-style: normal; }
 
 @media (prefers-reduced-motion: reduce) {
-  .project-picker, .project-modal, .toast { animation: none; }
+  .project-picker, .project-modal, .toast, .tool-activity, .tool-activity-detail, .tool-run { animation: none; }
 }
 
 @media (max-width: 1240px) {

@@ -130,12 +130,17 @@ describe("App render isolation", () => {
     } as unknown as typeof window.tau;
     const view = render(<App />);
     await screen.findByText("Untitled thread");
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.click(screen.getByRole("button", { name: "Untitled thread" }));
     fireEvent.click(screen.getByText(/New thread/u));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
-    fireEvent.click(within(dialog).getByRole("option"));
+    const projectOption = within(dialog).getByRole("option");
+    projectOption.focus();
+    fireEvent.click(projectOption);
     expect(newSession).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "persistent draft" } });
+    await waitFor(() => expect(document.activeElement).toBe(composer));
+    fireEvent.change(composer, { target: { value: "persistent draft" } });
 
     view.unmount();
     render(<App />);
@@ -147,6 +152,83 @@ describe("App render isolation", () => {
     fireEvent.keyDown(restored, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalledWith("persistent draft", [], "/project"));
     expect(screen.getByText("persistent draft")).toBeTruthy();
+  });
+
+  it("generates a title after the first prompt creates a thread", async () => {
+    const shell = {
+      id: "created",
+      path: "/created.jsonl",
+      title: "Untitled thread",
+      modifiedAt: 2,
+      projectPath: "/project",
+      projectName: "project",
+      messageCount: 2,
+    };
+    const newSession = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [
+        { version: 1 as const, type: "thread-shell" as const, update: { sessionId: "created", shell } },
+        {
+          version: 1 as const,
+          type: "thread-detail" as const,
+          detail: {
+            sessionId: "created",
+            messages: [
+              { id: "user", role: "user" as const, text: "Name this thread", timestamp: 1 },
+              { id: "assistant", role: "assistant" as const, text: "Done", timestamp: 2 },
+            ],
+            isStreaming: false,
+            activeTools: [],
+          },
+        },
+      ],
+    }));
+    const generateThreadTitle = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [{
+        version: 1 as const,
+        type: "thread-shell" as const,
+        update: { sessionId: "created", shell: { ...shell, title: "Created thread title" } },
+      }],
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: {
+          models: [{ provider: "provider", id: "model", name: "Model" }],
+          model: { provider: "provider", id: "model", name: "Model" },
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+          serviceTier: "standard" as const,
+          serviceTierAvailable: false,
+          allTools: [],
+          extensionCount: 0,
+        },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+      generateThreadTitle,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByText("Untitled thread");
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(dialog).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "Name this thread" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(generateThreadTitle).toHaveBeenCalledWith("provider", "model", false, "created"));
+    expect(await screen.findByText("Created thread title")).toBeTruthy();
   });
 
   it("does not rerender existing transcript messages for a composer keystroke", () => {

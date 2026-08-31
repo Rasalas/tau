@@ -1,5 +1,5 @@
 import { ChevronRight, Hammer, Square } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { UiToolRun } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
@@ -90,6 +90,46 @@ const ToolRun = memo(function ToolRun({
   );
 });
 
+export const TOOL_PREVIEW_MIN_MS = 3_000;
+
+function useToolPreview(tools: UiToolRun[], keepLatest: boolean): UiToolRun | undefined {
+  const newestRunning = [...tools].reverse().find((tool) => tool.status === "running");
+  const initialPreview = newestRunning ?? (keepLatest ? tools.at(-1) : undefined);
+  const [previewId, setPreviewId] = useState<string | undefined>(initialPreview?.id);
+  const previewIdRef = useRef(previewId);
+  const shownAtRef = useRef(Date.now());
+  previewIdRef.current = previewId;
+
+  useEffect(() => {
+    const currentId = previewIdRef.current;
+    const nextRunning = [...tools].reverse().find((tool) => tool.status === "running");
+    const nextCandidate = nextRunning ?? (keepLatest ? tools.at(-1) : undefined);
+    const replace = (id?: string) => {
+      previewIdRef.current = id;
+      shownAtRef.current = Date.now();
+      setPreviewId(id);
+    };
+    if (!currentId) {
+      if (nextCandidate) replace(nextCandidate.id);
+      return;
+    }
+
+    const currentRunning = tools.some((tool) => tool.id === currentId && tool.status === "running");
+    const successor = nextCandidate?.id !== currentId ? nextCandidate : undefined;
+    if (!successor && currentRunning) return;
+
+    const remaining = TOOL_PREVIEW_MIN_MS - (Date.now() - shownAtRef.current);
+    if (remaining <= 0) {
+      replace(successor?.id);
+      return;
+    }
+    const timer = window.setTimeout(() => replace(successor?.id), remaining);
+    return () => window.clearTimeout(timer);
+  }, [keepLatest, tools]);
+
+  return previewId ? tools.find((tool) => tool.id === previewId) : undefined;
+}
+
 function activitySummary(tools: UiToolRun[], live: number): string {
   const commands = tools.filter((tool) => tool.name === "bash" || tool.name === "powershell").length;
   const otherTools = tools.length - commands;
@@ -129,17 +169,24 @@ export function ToolGroup({
   // an unknown streaming state must not turn live tools into "interrupted".
   const stalled = streaming === false && !waiting;
   const live = tools.filter((tool) => tool.status === "running").length;
-  const [expanded, setExpanded] = useState(live > 0);
-  useEffect(() => setExpanded(live > 0), [live]);
+  const previewTool = useToolPreview(tools, Boolean(streaming));
+  const previewToolId = previewTool?.id;
+  const [expanded, setExpanded] = useState(Boolean(previewTool));
+  useEffect(() => setExpanded(Boolean(previewToolId) || live > 0), [live, previewToolId]);
   if (tools.length === 0) return null;
+  const activity = activitySummary(tools, live);
   const summary = waiting && live > 0
     ? "Waiting for your answer"
     : stalled && live > 0
       ? `${live} tool ${live === 1 ? "call" : "calls"} interrupted`
-      : activitySummary(tools, live);
-  const visibleTools = live > 0
-    ? tools.filter((tool) => tool.status === "running").slice(-1)
-    : tools;
+      : streaming
+        ? `Working · ${activity.replace(/^Using /u, "")}`
+        : activity;
+  const visibleTools = previewTool
+    ? [previewTool]
+    : live > 0
+      ? tools.filter((tool) => tool.status === "running").slice(-1)
+      : tools;
 
   return (
     <section className={`tool-activity${expanded ? " expanded" : ""}`}>
@@ -149,7 +196,7 @@ export function ToolGroup({
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
       >
-        {live > 0 && !stalled ? <span className="spinner acid small" /> : <Hammer size={16} strokeWidth={1.7} />}
+        {(live > 0 || streaming) && !stalled ? <span className="spinner acid small" /> : <Hammer size={16} strokeWidth={1.7} />}
         <span>{summary}</span>
         <ChevronRight className="activity-chevron" size={14} />
       </button>
