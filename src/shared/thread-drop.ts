@@ -1,11 +1,12 @@
 import {
   MAX_ATTACHMENTS,
   MAX_IMAGE_BYTES,
+  MAX_TOTAL_IMAGE_BYTES,
   selectAttachmentCandidates,
   SUPPORTED_IMAGE_TYPES_LABEL,
 } from "./prompt-attachment-limits.js";
 
-export type ThreadDropState = "idle" | "valid" | "mixed" | "unsupported" | "unavailable" | "unknown";
+export type ThreadDropState = "idle" | "valid" | "mixed" | "unsupported" | "invalid-type" | "invalid-size" | "too-many" | "total-size" | "unavailable" | "unknown";
 
 export interface ThreadDropFeedback {
   title: string;
@@ -28,6 +29,26 @@ export const THREAD_DROP_FEEDBACK: Readonly<Record<ThreadDropState, ThreadDropFe
   unsupported: {
     title: "That file type is not supported",
     description: `Use ${SUPPORTED_IMAGE_TYPES_LABEL} images.`,
+    dropEffect: "none",
+  },
+  "invalid-type": {
+    title: "That file type is not supported",
+    description: `Use ${SUPPORTED_IMAGE_TYPES_LABEL} images.`,
+    dropEffect: "none",
+  },
+  "invalid-size": {
+    title: "That image is too large",
+    description: `Each image must be ${MAX_IMAGE_BYTES / 1024 / 1024} MB or smaller.`,
+    dropEffect: "none",
+  },
+  "too-many": {
+    title: "Too many image attachments",
+    description: `Attach at most ${MAX_ATTACHMENTS} images.`,
+    dropEffect: "none",
+  },
+  "total-size": {
+    title: "The images are too large together",
+    description: `Image attachments must total ${MAX_TOTAL_IMAGE_BYTES / 1024 / 1024} MB or less.`,
     dropEffect: "none",
   },
   unavailable: {
@@ -71,7 +92,15 @@ export function classifyThreadDrop(
   const unsupported = policy.rejected.some(({ reason }) => reason !== "unknown-size");
   if (unknown) return "unknown";
   if (supported && unsupported) return "mixed";
-  return supported ? "valid" : "unsupported";
+  if (supported) return "valid";
+  switch (policy.rejected[0]?.reason) {
+    case "unsupported-type": return "invalid-type";
+    case "invalid-size": return "invalid-size";
+    case "too-many": return "too-many";
+    case "total-size": return "total-size";
+    case "unknown-size": return "unknown";
+    default: return "unsupported";
+  }
 }
 
 export const IMAGE_INPUT_UNAVAILABLE_MESSAGE = "Image attachments are unavailable for the active runtime.";

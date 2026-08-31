@@ -2091,7 +2091,7 @@ export class PiHost {
     this.detachBridge(false);
     this.bridge = client;
     this.bridgeSnapshot = bridgeSnapshot;
-    this.acceptPendingBridgeSnapshot(bridgeSnapshot);
+    this.acceptPendingBridgeSnapshot(bridgeSnapshot, client.descriptor.epoch);
     this.cwd = bridgeSnapshot.cwd;
     const unsubscribeEvents = client.subscribe((frame) => this.handleBridgeFrame(frame));
     const unsubscribeDisconnect = client.subscribeDisconnect(() => {
@@ -2146,14 +2146,15 @@ export class PiHost {
     );
   }
 
-  private acceptPendingBridgeSnapshot(snapshot: PiBridgeSnapshot): NewThreadRequestId | undefined {
+  private acceptPendingBridgeSnapshot(snapshot: PiBridgeSnapshot, transportEpoch?: string): NewThreadRequestId | undefined {
     const requestId = snapshot.newSessionRequestId;
     if (!requestId) return undefined;
     const pending = this.pendingBridgeNewSessions.get(requestId);
     if (!pending
       || snapshot.sessionId === pending.previousSessionId
       || snapshot.cwd !== pending.projectPath
-      || this.bridge?.descriptor.epoch !== pending.bridgeEpoch) return undefined;
+      || transportEpoch === undefined
+      || transportEpoch !== this.bridge?.descriptor.epoch) return undefined;
     this.pendingBridgeNewSessions.delete(requestId);
     pending.resolve(snapshot);
     return requestId;
@@ -2177,7 +2178,7 @@ export class PiHost {
     }
     if (frame.type !== "snapshot") return;
     this.bridgeSnapshot = frame.snapshot;
-    const requestId = this.acceptPendingBridgeSnapshot(frame.snapshot);
+    const requestId = this.acceptPendingBridgeSnapshot(frame.snapshot, frame.epoch);
     this.syncBridgeAwaitingInput(frame.snapshot);
     this.cwd = frame.snapshot.cwd;
     void this.snapshot().then((snapshot) => {

@@ -1,13 +1,4 @@
 import type { SubmissionResult, UiPromptAttachment } from "../shared/contracts";
-import {
-  indexedDbPersistence,
-  type ComposerScopePersistence,
-  type PersistedScope,
-} from "./composer-draft-persistence";
-import { errorMessage } from "./error-message";
-
-export { ComposerDraftPersistence, indexedDbPersistence } from "./composer-draft-persistence";
-export type { ComposerScopePersistence, PersistedAttachment, PersistedScope } from "./composer-draft-persistence";
 
 declare const draftKeyBrand: unique symbol;
 export type DraftKey = string & { readonly [draftKeyBrand]: true };
@@ -23,12 +14,6 @@ export interface ComposerScopeReference { scope: ComposerScope }
 let nextAttachmentId = 0;
 export function allocateAttachmentId(): number { return nextAttachmentId++; }
 
-const volatilePersistence: ComposerScopePersistence = {
-  load: async () => undefined,
-  save: async () => {},
-  delete: async () => {},
-};
-
 export interface ComposerScopeState {
   draft: string;
   revision: number;
@@ -40,10 +25,6 @@ export interface ComposerScopeState {
   attachmentProcessingReady: boolean;
   attachmentGeneration: number;
   pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; textRevision: number; attachmentRevision: number; attachmentGeneration: number; draft: string }>;
-  hydrationGeneration: number;
-  persistenceQueue: Promise<void>;
-  updatedAt: number;
-  persistenceError?: string;
   submissionBusy: boolean;
 }
 
@@ -70,7 +51,6 @@ export interface ComposerScopeSnapshot {
   readonly attachments: readonly PendingAttachment[];
   readonly error?: string;
   readonly attachmentProcessing: Promise<void>;
-  readonly persistenceError?: string;
   readonly submissionPending: boolean;
 }
 
@@ -90,17 +70,11 @@ export class ComposerScopeStore {
 
   private nextSubmissionId = 0;
 
-  // Draft text and image data are intentionally renderer-lifetime state. A
-  // caller may inject persistence for an explicit product feature or test, but
-  // the application default must not put base64 images into cross-restart storage.
-  constructor(private readonly persistence: ComposerScopePersistence = volatilePersistence) {}
-
   ensure(scope: ComposerScope): ComposerScopeState {
     const existing = this.states.get(scope);
     if (existing) return existing;
-    const draft = this.persistence.readLegacyDraft?.(scope) ?? "";
     const created: ComposerScopeState = {
-      draft,
+      draft: "",
       revision: 0,
       textRevision: 0,
       attachmentRevision: 0,
@@ -109,9 +83,6 @@ export class ComposerScopeStore {
       attachmentProcessingReady: true,
       attachmentGeneration: 0,
       pendingSubmissions: new Map(),
-      hydrationGeneration: 0,
-      persistenceQueue: Promise.resolve(),
-      updatedAt: draft ? Date.now() : 0,
       submissionBusy: false,
     };
     this.states.set(scope, created);
@@ -194,7 +165,6 @@ export class ComposerScopeStore {
       attachments: [...state.attachments],
       error: state.error?.message,
       attachmentProcessing: state.attachmentProcessing,
-      persistenceError: state.persistenceError,
       submissionPending: state.submissionBusy,
     };
   }
@@ -207,123 +177,40 @@ export class ComposerScopeStore {
     for (const listener of this.listeners.get(scope) ?? []) listener();
   }
 
-  hydrate(scope: ComposerScope, onError: (error: unknown) => void): void {
-    const state = this.ensure(scope);
-    const generation = ++state.hydrationGeneration;
-    const revision = state.revision;
-    const updatedAt = state.updatedAt;
-    void this.persistence.load(scope).then((persisted) => {
-      if (!persisted || state.hydrationGeneration !== generation || state.revision !== revision) return;
-      const persistedUpdatedAt = persisted.updatedAt ?? 0;
-      const persistedRevision = persisted.revision ?? 0;
-      const hasLocalState = state.draft.length > 0 || state.attachments.length > 0 || revision > 0;
-      const legacyRecord = persisted.revision === undefined && persisted.updatedAt === undefined;
-      const persistedIsNewer = !hasLocalState || legacyRecord || persistedRevision > revision || persistedUpdatedAt > updatedAt;
-      if (!persistedIsNewer) return;
-      const keepLocalDraft = state.draft.length > 0 && state.updatedAt > persistedUpdatedAt;
-      // The legacy localStorage record contains text only. It must never erase
-      // images that were added while its asynchronous migration was pending.
-      const nextAttachments = legacyRecord && state.attachments.length > 0
-        ? state.attachments
-        : persisted.attachments.map((attachment) => {
-          nextAttachmentId = Math.max(nextAttachmentId, attachment.id + 1);
-          return { ...attachment, previewUrl: `data:${attachment.mimeType};base64,${attachment.data}` };
-        });
-      const changed = (!keepLocalDraft && state.draft !== persisted.draft)
-        || state.attachments.length !== nextAttachments.length
-        || state.attachments.some((attachment, index) => attachment.id !== nextAttachments[index]?.id);
-      if (!keepLocalDraft) state.draft = persisted.draft;
-      state.attachments = nextAttachments;
-      state.updatedAt = Math.max(state.updatedAt, persistedUpdatedAt);
-      state.revision = Math.max(state.revision, persistedRevision);
-      state.textRevision = Math.max(state.textRevision, persisted.textRevision ?? persistedRevision);
-      state.attachmentRevision = Math.max(state.attachmentRevision, persisted.attachmentRevision ?? persistedRevision);
-      if (changed) this.notify(scope);
-    }).catch((error) => {
-      state.persistenceError = errorMessage(error);
-      this.notify(scope);
-      onError(error);
-    });
-  }
-
-  persist(scope: ComposerScope, onError: (error: unknown) => void): void {
-    const state = this.ensure(scope);
-    const snapshot: PersistedScope = {
-      key: scope,
-      draft: state.draft,
-      attachments: state.attachments.map(({ previewUrl: _previewUrl, ...attachment }) => attachment),
-      revision: state.revision,
-      textRevision: state.textRevision,
-      attachmentRevision: state.attachmentRevision,
-      updatedAt: state.updatedAt,
-    };
-    state.persistenceQueue = state.persistenceQueue.then(() => {
-      if (!snapshot.draft && snapshot.attachments.length === 0) return this.persistence.delete(snapshot.key);
-      return this.persistence.save(snapshot);
-    }).then(() => {
-      state.persistenceError = undefined;
-      this.notify(scope);
-    }).catch((error) => {
-      state.persistenceError = errorMessage(error);
-      this.notify(scope);
-      onError(error);
-    });
-  }
-
-  setDraft(scope: ComposerScope, draft: string, onError: (error: unknown) => void): void {
+  setDraft(scope: ComposerScope, draft: string): void {
     const state = this.ensure(scope);
     state.draft = draft;
     state.revision += 1;
     state.textRevision += 1;
-    state.updatedAt = Date.now();
-    state.persistenceError = undefined;
-    try {
-      this.persistence.writeLegacyDraft?.(scope, draft);
-    } catch (error) {
-      state.persistenceError = errorMessage(error);
-      onError(error);
-    }
     this.notify(scope);
-    this.persist(scope, onError);
   }
 
-  setAttachments(scope: ComposerScope, attachments: PendingAttachment[], onError: (error: unknown) => void): void {
+  setAttachments(scope: ComposerScope, attachments: PendingAttachment[]): void {
     const state = this.ensure(scope);
     state.attachments = attachments;
     state.revision += 1;
     state.attachmentRevision += 1;
-    state.updatedAt = Date.now();
-    state.persistenceError = undefined;
     this.notify(scope);
-    this.persist(scope, onError);
   }
 
-  addAttachments(scope: ComposerScope, attachments: PendingAttachment[], maxAttachments: number, onError: (error: unknown) => void): void {
+  addAttachments(scope: ComposerScope, attachments: PendingAttachment[], maxAttachments: number): void {
     const state = this.ensure(scope);
-    this.setAttachments(scope, [...state.attachments, ...attachments].slice(0, maxAttachments), onError);
+    this.setAttachments(scope, [...state.attachments, ...attachments].slice(0, maxAttachments));
   }
 
-  removeAttachment(scope: ComposerScope, attachmentId: number, onError: (error: unknown) => void): void {
+  removeAttachment(scope: ComposerScope, attachmentId: number): void {
     const state = this.ensure(scope);
-    this.setAttachments(scope, state.attachments.filter((attachment) => attachment.id !== attachmentId), onError);
+    this.setAttachments(scope, state.attachments.filter((attachment) => attachment.id !== attachmentId));
   }
 
   setAttachmentError(scope: ComposerScope, message: string | undefined, generation: number): void {
     const state = this.ensure(scope);
     if (generation !== state.attachmentGeneration) return;
-    state.error = message ? { kind: "attachment", generation, message } : undefined;
-    this.notify(scope);
-  }
-
-  setSubmissionError(scope: ComposerScope, message: string, submissionId: number): void {
-    const state = this.ensure(scope);
-    state.error = { kind: "submission", submissionId, message };
-    this.notify(scope);
-  }
-
-  setPersistenceError(scope: ComposerScope, error: unknown): void {
-    const state = this.ensure(scope);
-    state.persistenceError = errorMessage(error);
+    if (message) {
+      state.error = { kind: "attachment", generation, message };
+    } else if (state.error?.kind === "attachment" && state.error.generation <= generation) {
+      state.error = undefined;
+    }
     this.notify(scope);
   }
 
@@ -346,7 +233,7 @@ export class ComposerScopeStore {
     return this.ensure(scope).attachmentGeneration;
   }
 
-  beginSubmission(scope: ComposerScope, onError: (error: unknown) => void = () => {}): SubmissionHandle | Promise<SubmissionHandle> | SubmissionBusy {
+  beginSubmission(scope: ComposerScope): SubmissionHandle | Promise<SubmissionHandle> | SubmissionBusy {
     const state = this.ensure(scope);
     const active = this.activeSubmissionHandles.get(scope);
     if (active) return { busy: true };
@@ -356,7 +243,7 @@ export class ComposerScopeStore {
     this.notify(scope);
     if (!state.attachmentProcessingReady) {
       const scopeRef = { scope };
-      const pending = state.attachmentProcessing.then(() => this.createSubmission(scopeRef, onError));
+      const pending = state.attachmentProcessing.then(() => this.createSubmission(scopeRef));
       const owned = pending.catch((error) => {
         if (this.pendingSubmissionPromises.get(scopeRef.scope) === owned) this.pendingSubmissionPromises.delete(scopeRef.scope);
         const current = this.ensure(scopeRef.scope);
@@ -368,10 +255,10 @@ export class ComposerScopeStore {
       this.submissionScopeRefs.set(owned, scopeRef);
       return owned;
     }
-    return this.createSubmission({ scope }, onError);
+    return this.createSubmission({ scope });
   }
 
-  private createSubmission(scopeRef: { scope: ComposerScope }, onError: (error: unknown) => void): SubmissionHandle {
+  private createSubmission(scopeRef: { scope: ComposerScope }): SubmissionHandle {
     const scope = scopeRef.scope;
     const state = this.ensure(scope);
     const id = this.nextSubmissionId++;
@@ -392,7 +279,7 @@ export class ComposerScopeStore {
         if (settled) return;
         settled = true;
         try {
-          this.settleSubmission(scopeRef.scope, id, result, onError);
+          this.settleSubmission(scopeRef.scope, id, result);
         } finally {
           if (this.activeSubmissionHandles.get(scopeRef.scope) === handle) this.activeSubmissionHandles.delete(scopeRef.scope);
           this.submissionScopeRefs.delete(handle);
@@ -417,7 +304,7 @@ export class ComposerScopeStore {
     return handle;
   }
 
-  private settleSubmission(scope: ComposerScope, id: number, result: SubmissionResult, onError: (error: unknown) => void): void {
+  private settleSubmission(scope: ComposerScope, id: number, result: SubmissionResult): void {
     const state = this.ensure(scope);
     const pending = state.pendingSubmissions.get(id);
     if (!pending) return;
@@ -431,20 +318,16 @@ export class ComposerScopeStore {
       if (state.error?.kind !== "attachment" && (state.error === undefined || state.error.submissionId === id)) {
         state.error = undefined;
       }
-    } else if (state.attachmentGeneration <= pending.attachmentGeneration) {
-      state.error = { kind: "submission", submissionId: id, message: result.message };
-    }
-    state.revision += 1;
-    state.updatedAt = Date.now();
-    if (result.accepted && sameTextRevision) {
-      try {
-        this.persistence.writeLegacyDraft?.(scope, "");
-      } catch (error) {
-        state.persistenceError = errorMessage(error);
-        onError(error);
+    } else {
+      const newerAttachmentError = state.error?.kind === "attachment"
+        && state.error.generation > pending.attachmentGeneration;
+      const newerSubmissionError = state.error?.kind === "submission"
+        && state.error.submissionId > id;
+      if (!newerAttachmentError && !newerSubmissionError) {
+        state.error = { kind: "submission", submissionId: id, message: result.message };
       }
     }
-    this.persist(scope, onError);
+    state.revision += 1;
     this.notify(scope);
   }
 }

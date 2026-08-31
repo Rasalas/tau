@@ -1210,7 +1210,7 @@ export default function App() {
       acceptWorkspace(result);
       const detail = result.updates.find((update) => update.type === "thread-detail");
       if (pendingDraft && detail?.type === "thread-detail") {
-        composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft, (error) => setNotice(errorMessage(error)));
+        composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
       }
       return true;
     } catch (error) {

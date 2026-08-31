@@ -1,4 +1,3 @@
-const DRAFTS_KEY = "tau.composer-drafts.v1";
 const NEW_THREAD_KEY = "tau.active-new-thread.v1";
 
 export interface NewThreadDraft {
@@ -9,28 +8,9 @@ export interface NewThreadDraft {
   draftId?: string;
 }
 
-function readMap(storage: Storage): Record<string, string> {
-  try {
-    const value = JSON.parse(storage.getItem(DRAFTS_KEY) ?? "{}");
-    return value && typeof value === "object" ? value as Record<string, string> : {};
-  } catch { return {}; }
-}
-
 export function draftKey(sessionId?: string, pending?: NewThreadDraft): string | undefined {
   if (pending) return `new:${pending.projectPath}:${pending.draftId ?? "legacy"}`;
   return sessionId ? `session:${sessionId}` : undefined;
-}
-
-export function readComposerDraft(storage: Storage, key?: string): string {
-  return key ? readMap(storage)[key] ?? "" : "";
-}
-
-export function writeComposerDraft(storage: Storage, key: string | undefined, text: string): void {
-  if (!key) return;
-  const drafts = readMap(storage);
-  if (text) drafts[key] = text;
-  else delete drafts[key];
-  storage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
 }
 
 export function readNewThreadDraft(storage: Storage): NewThreadDraft | undefined {

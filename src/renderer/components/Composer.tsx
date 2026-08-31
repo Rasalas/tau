@@ -169,13 +169,7 @@ export function Composer({
   const activeScopeSnapshot = useSyncExternalStore(subscribeToScope, readScope, readScope);
   const activeAttachmentScopeRef = useRef<ComposerScope>(attachmentScope);
   const attachments = activeScopeSnapshot.attachments;
-  const attachmentError = activeScopeSnapshot.error ?? activeScopeSnapshot.persistenceError;
-  const reportStorageError = useCallback((scope: ComposerScope, error: unknown) => {
-    scopeStore.setPersistenceError(scope, error);
-  }, [scopeStore]);
-  const reportAttachmentStorageError = useCallback((error: unknown) => {
-    reportStorageError(attachmentScope, error);
-  }, [attachmentScope, reportStorageError]);
+  const attachmentError = activeScopeSnapshot.error;
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
@@ -198,11 +192,11 @@ export function Composer({
   useEffect(() => {
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
       appliedSeed.current = seed;
-      scopeStore.setDraft(attachmentScope, seed, reportAttachmentStorageError);
+      scopeStore.setDraft(attachmentScope, seed);
     }
-  }, [attachmentScope, reportAttachmentStorageError, scopeStore, seed, value]);
+  }, [attachmentScope, scopeStore, seed, value]);
   const updateDraft = (next: string) => {
-    scopeStore.setDraft(attachmentScope, next, reportAttachmentStorageError);
+    scopeStore.setDraft(attachmentScope, next);
     onChange?.(next);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -219,10 +213,6 @@ export function Composer({
     activeAttachmentScopeRef.current = attachmentScope;
     setPreviewId(undefined);
   }, [attachmentScope]);
-
-  useEffect(() => {
-    scopeStore.hydrate(attachmentScope, reportAttachmentStorageError);
-  }, [attachmentScope, reportAttachmentStorageError, scopeStore]);
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
@@ -249,9 +239,9 @@ export function Composer({
     const error = firstError ?? (rejection ? errorMessage(rejection.reason) : undefined);
     scopeStore.setAttachmentError(scopeRef.scope, error, generation);
     if (accepted.length > 0) {
-      scopeStore.addAttachments(scopeRef.scope, accepted, MAX_ATTACHMENTS, (storageError) => reportStorageError(scopeRef.scope, storageError));
+      scopeStore.addAttachments(scopeRef.scope, accepted, MAX_ATTACHMENTS);
     }
-  }, [reportStorageError, scopeStore]);
+  }, [scopeStore]);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
@@ -287,7 +277,7 @@ export function Composer({
       return;
     }
     const submittedScope = attachmentScope;
-    const submission = scopeStore.beginSubmission(submittedScope, (error) => reportStorageError(submittedScope, error));
+    const submission = scopeStore.beginSubmission(submittedScope);
     if ("busy" in submission) return;
     const sendSubmission = async (handle: Awaited<typeof submission>) => {
       if (!handle.text.trim() && handle.attachments.length === 0) {
@@ -370,7 +360,7 @@ export function Composer({
                   className="attachment-remove"
                   aria-label={`Remove ${attachment.name}`}
                   onClick={() => {
-                    scopeStore.removeAttachment(attachmentScope, attachment.id, reportAttachmentStorageError);
+                    scopeStore.removeAttachment(attachmentScope, attachment.id);
                   }}
                 >
                   <X size={13} />
