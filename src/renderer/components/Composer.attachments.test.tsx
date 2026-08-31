@@ -30,6 +30,12 @@ function renderComposer(onSubmit = vi.fn(), attachmentRef?: React.RefObject<Comp
   return onSubmit;
 }
 
+function sizedImageFile(name: string, size: number): File {
+  const file = new File([new Uint8Array([1])], name, { type: "image/png" });
+  Object.defineProperty(file, "size", { value: size });
+  return file;
+}
+
 afterEach(cleanup);
 
 describe("Composer attachments", () => {
@@ -98,17 +104,11 @@ describe("Composer attachments", () => {
   it("enforces the shared total image-size limit before reading a drop", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     renderComposer(vi.fn(), attachmentRef);
-    const image = (name: string, size: number) => {
-      const file = new File([new Uint8Array([1])], name, { type: "image/png" });
-      Object.defineProperty(file, "size", { value: size });
-      return file;
-    };
-
     attachmentRef.current?.addFiles([
-      image("one.png", 8 * 1024 * 1024),
-      image("two.png", 8 * 1024 * 1024),
-      image("three.png", 8 * 1024 * 1024),
-      image("four.png", 1),
+      sizedImageFile("one.png", 8 * 1024 * 1024),
+      sizedImageFile("two.png", 8 * 1024 * 1024),
+      sizedImageFile("three.png", 8 * 1024 * 1024),
+      sizedImageFile("four.png", 1),
     ]);
 
     expect(await screen.findAllByRole("button", { name: /Preview (one|two|three)\.png/u })).toHaveLength(3);
@@ -119,18 +119,13 @@ describe("Composer attachments", () => {
   it("serializes concurrent drops so the total limit cannot be bypassed", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     renderComposer(vi.fn(), attachmentRef);
-    const image = (name: string, size: number) => {
-      const file = new File([new Uint8Array([1])], name, { type: "image/png" });
-      Object.defineProperty(file, "size", { value: size });
-      return file;
-    };
     const first = attachmentRef.current!.addFiles([
-      image("one.png", 8 * 1024 * 1024),
-      image("two.png", 8 * 1024 * 1024),
+      sizedImageFile("one.png", 8 * 1024 * 1024),
+      sizedImageFile("two.png", 8 * 1024 * 1024),
     ]);
     const second = attachmentRef.current!.addFiles([
-      image("three.png", 8 * 1024 * 1024),
-      image("four.png", 8 * 1024 * 1024),
+      sizedImageFile("three.png", 8 * 1024 * 1024),
+      sizedImageFile("four.png", 8 * 1024 * 1024),
     ]);
 
     await Promise.all([first, second]);
