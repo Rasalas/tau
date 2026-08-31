@@ -1190,7 +1190,11 @@ export class PiHost {
     }
     const thread = this.requireThread(expectedSessionId);
     const session = thread.session;
-    if (session.isStreaming) throw new Error("Wait for the active agent run before generating a title.");
+    if (session.isStreaming) {
+      if (force) throw new Error("Wait for the active agent run before generating a title.");
+      await session.waitForIdle();
+      if (this.threads.get(thread.sessionId)?.runtime !== thread) return { version: HOST_PROTOCOL_VERSION, updates: [] };
+    }
     if (session.sessionName && !force) return { version: HOST_PROTOCOL_VERSION, updates: [] };
     const model = session.modelRuntime.getModel(provider, modelId);
     if (!model) throw new Error(`Unknown title model: ${provider}/${modelId}`);

@@ -1,11 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { cleanThreadTitle, lastTurnActivityFromMessages } from "./pi-host.js";
+import { cleanThreadTitle, lastTurnActivityFromMessages, PiHost } from "./pi-host.js";
 
 describe("cleanThreadTitle", () => {
   it("removes Markdown and title-model framing", () => {
     expect(cleanThreadTitle("## **Thread title: `Persist Turn Activity`**\nExtra explanation")).toBe("Persist Turn Activity");
     expect(cleanThreadTitle("Titel: [Sidebar-Namen](https://example.test)."))
       .toBe("Sidebar-Namen");
+  });
+});
+
+describe("PiHost.generateThreadTitle", () => {
+  it("waits for a new thread's active first run before generating its title", async () => {
+    let streaming = true;
+    let finishRun!: () => void;
+    const runFinished = new Promise<void>((resolve) => { finishRun = resolve; });
+    const callOrder: string[] = [];
+    const session = {
+      sessionId: "session",
+      get isStreaming() { return streaming; },
+      sessionName: undefined as string | undefined,
+      messages: [{ role: "user", content: [{ type: "text", text: "Fix automatic titles" }], timestamp: 1 }],
+      waitForIdle: async () => {
+        callOrder.push("wait");
+        await runFinished;
+        streaming = false;
+      },
+      modelRuntime: {
+        getModel: () => ({ provider: "provider", id: "model" }),
+        completeSimple: async () => {
+          callOrder.push("complete");
+          return { stopReason: "stop", content: [{ type: "text", text: "Automatic Thread Titles" }] };
+        },
+      },
+      sessionManager: { getBranch: () => [] },
+      setSessionName: (title: string) => { session.sessionName = title; },
+    };
+    const thread = { session, sessionId: "session", cwd: "/repo" };
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as {
+      threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
+      sessions: Array<Record<string, unknown>>;
+    };
+    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    internals.threads.setActive("session");
+    internals.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 1 }];
+
+    const generated = host.generateThreadTitle("provider", "model", false, "session");
+    await Promise.resolve();
+    expect(callOrder).toEqual(["wait"]);
+
+    finishRun();
+    await expect(generated).resolves.toMatchObject({
+      updates: [{ type: "thread-shell", update: { sessionId: "session", shell: { title: "Automatic Thread Titles" } } }],
+    });
+    expect(callOrder).toEqual(["wait", "complete"]);
   });
 });
 
