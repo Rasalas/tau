@@ -37,6 +37,17 @@ describe("App render isolation", () => {
     }])).toBe("reply");
   });
 
+  it("moves active tool activity after a later steering message", () => {
+    const messages = [
+      { id: "request", role: "user" as const, text: "Start", timestamp: 1 },
+      { id: "partial", role: "assistant" as const, text: "First result", timestamp: 2 },
+      { id: "steering", role: "user" as const, text: "fahre bitte fort", timestamp: 3 },
+      { id: "reply", role: "assistant" as const, text: "Done", timestamp: 4 },
+    ];
+
+    expect(latestActivityAnchor(messages, "request")).toBe("steering");
+  });
+
   it("switches cached content and its title in the same optimistic snapshot", () => {
     const current = {
       cwd: "/project",

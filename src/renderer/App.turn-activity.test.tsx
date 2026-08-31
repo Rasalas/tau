@@ -77,6 +77,39 @@ describe("last-turn activity", () => {
     expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(0);
   });
 
+  it("keeps working activity below a steering message", async () => {
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          isStreaming: true,
+          messages: [
+            { id: "request", role: "user" as const, text: "Start", timestamp: 1 },
+            { id: "partial", role: "assistant" as const, text: "First result", timestamp: 2 },
+            { id: "steering", role: "user" as const, text: "fahre bitte fort", timestamp: 3 },
+          ],
+          turnActivity: {
+            anchorMessageId: "request",
+            tools: [{ ...tool("one"), status: "running" as const, endedAt: undefined }],
+          },
+        },
+      };
+    };
+
+    const view = render(<App />);
+    await screen.findByText("fahre bitte fort");
+
+    const rows = Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent);
+    expect(rows).toEqual([
+      expect.stringContaining("Start"),
+      expect.stringContaining("First result"),
+      expect.stringMatching(/fahre bitte fort.*Working/u),
+    ]);
+  });
+
   it("keeps completed tools between the user prompt and the final reply", async () => {
     const originalBootstrap = window.tau!.bootstrap;
     window.tau!.bootstrap = async () => {

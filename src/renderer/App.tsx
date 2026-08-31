@@ -146,8 +146,17 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-export function latestActivityAnchor(messages: readonly UiMessage[]): string | undefined {
-  return messages.at(-1)?.id;
+export function latestActivityAnchor(
+  messages: readonly UiMessage[],
+  currentAnchorId?: string,
+): string | undefined {
+  if (!currentAnchorId) return messages.at(-1)?.id;
+  const currentIndex = messages.findIndex((message) => message.id === currentAnchorId);
+  if (currentIndex < 0) return messages.at(-1)?.id;
+  for (let index = messages.length - 1; index > currentIndex; index -= 1) {
+    if (messages[index]?.role === "user") return messages[index].id;
+  }
+  return currentAnchorId;
 }
 
 interface OptimisticUserMessage {
@@ -1482,7 +1491,9 @@ export default function App() {
   const conversationMessages = pendingNewThread
     ? unconfirmedOptimisticMessages
     : [...messages, ...unconfirmedOptimisticMessages].sort((left, right) => left.timestamp - right.timestamp);
-  const visibleToolAnchorId = toolAnchorId ?? latestActivityAnchor(conversationMessages);
+  const visibleToolAnchorId = visibleStreaming
+    ? latestActivityAnchor(conversationMessages)
+    : latestActivityAnchor(conversationMessages, toolAnchorId);
   const conversationSnapshot = pendingNewThread && snapshot ? {
     ...snapshot,
     cwd: pendingNewThread.projectPath,
