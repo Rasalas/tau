@@ -19,8 +19,9 @@ export function pageRecords<T>(
   isUser: (record: T) => boolean,
 ): BoundedTranscriptPage<T> {
   if (!Number.isInteger(turnLimit) || turnLimit < 1) throw new Error("turnLimit must be positive");
-  const end = cursor === undefined ? records.length : Number.parseInt(cursor, 10);
-  if (!Number.isInteger(end) || end < 0 || end > records.length) throw new Error("Invalid transcript cursor");
+  if (cursor !== undefined && !/^\d+$/u.test(cursor)) throw new Error("Invalid transcript cursor");
+  const end = cursor === undefined ? records.length : Number(cursor);
+  if (!Number.isSafeInteger(end) || end < 0 || end > records.length) throw new Error("Invalid transcript cursor");
   if (end <= 0) return { messages: [], hasMore: false };
   let start = end;
   let turns = 0;

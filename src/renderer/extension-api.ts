@@ -25,6 +25,11 @@ export type {
   CommandContribution,
   PromptHookContribution,
   PromptSubmittedEvent,
+  ChangesContribution,
+  ChangesContributionProps,
+  ReviewContribution,
+  ReviewContributionKind,
+  ReviewContributionProps,
   ToolPresentation,
   ExtensionOption,
 } from "./extension-system";

@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, open, rm, stat } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { mkdir, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type {
@@ -16,13 +16,42 @@ import type {
   UiRef,
   UiWorktree,
   UiWorkspaceChanges,
+  UiWorkspaceChangesPage,
   WorkspaceInfo,
 } from "../shared/contracts.js";
-import { isTurnSnapshotId, normalizeDiffLoadOptions } from "../shared/turn-checkpoints.js";
+import {
+  isTurnSnapshotId,
+  namespacedSnapshotRef,
+  normalizeDiffLoadOptions,
+  sanitizeTurnSnapshotComponent,
+  turnSnapshotRef,
+} from "../shared/turn-checkpoints.js";
 
 const execFileAsync = promisify(execFile);
 
 const EMPTY_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+
+function within(root: string, target: string): boolean {
+  return target === root || target.startsWith(`${root}${sep}`);
+}
+
+/** Rejects traversal and symlink escapes before any path is passed to Git. */
+export async function assertWorkspacePath(cwd: string, path: string): Promise<void> {
+  const target = resolve(cwd, path);
+  if (!within(cwd, target)) throw new Error("Path is outside the workspace.");
+  const rootReal = await realpath(cwd);
+  let probe = target;
+  while (true) {
+    try {
+      if (!within(rootReal, await realpath(probe))) throw new Error("Path is outside the workspace.");
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.message === "Path is outside the workspace.") throw error;
+      if (probe === cwd) throw error;
+      probe = dirname(probe);
+    }
+  }
+}
 
 // Diff ceilings keep generated files from turning one review into an unbounded IPC payload.
 export const MAX_DIFF_BYTES = 1_024 * 1_024;
@@ -216,6 +245,11 @@ export interface WorkspaceSnapshot {
   ref: string;
   /** The tree object addressed by the ref, useful for diagnostics and tests. */
   treeId: string;
+  /** Capture location/identity, used to clean provisional refs after a switch. */
+  cwd?: string;
+  sessionId?: string;
+  turnId?: string;
+  phase?: "before" | "after";
 }
 
 export interface WorkspaceSnapshotOptions {
@@ -228,21 +262,25 @@ export interface WorkspaceSnapshotOptions {
 export interface SnapshotDiffOptions {
   branch?: string;
   runGit?: GitRunner;
+  expected?: SnapshotRefExpectation;
 }
 
-const SNAPSHOT_REF_PREFIX = "refs/tau/checkpoints";
+export interface SnapshotRefExpectation {
+  sessionId: string;
+  turnId: string;
+}
+
+export interface SnapshotPageOptions extends SnapshotRefExpectation {
+  branch?: string;
+  cursor?: string;
+  limit?: number;
+  runGit?: GitRunner;
+}
+
 const SNAPSHOT_GIT_BUFFER = 64 * 1024 * 1024;
 
 function snapshotRef(namespace: string, phase: WorkspaceSnapshotOptions["phase"]): string {
-  const components = namespace.split("/").map((component) => component.replace(/[^A-Za-z0-9._-]/gu, "-"));
-  if (components.length === 0 || components.some((component) => !component
-    || component === "."
-    || component === ".."
-    || component.includes("..")
-    || component.endsWith(".lock"))) {
-    throw new Error("Invalid turn checkpoint snapshot namespace.");
-  }
-  return `${SNAPSHOT_REF_PREFIX}/${components.join("/")}/${phase}`;
+  return namespacedSnapshotRef(namespace, phase);
 }
 
 /**
@@ -291,9 +329,93 @@ export async function createWorkspaceSnapshot(
         if (published !== treeId) throw error;
       }
     }
-    return { id: ref, ref, treeId };
+    return { id: ref, ref, treeId, cwd };
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/** Turn-specific wrapper that makes the persisted ref name derivation explicit. */
+export async function createTurnWorkspaceSnapshot(
+  cwd: string,
+  sessionId: string,
+  turnId: string,
+  phase: "before" | "after",
+  runGit?: SnapshotGitRunner,
+): Promise<WorkspaceSnapshot> {
+  const snapshot = await createWorkspaceSnapshot(cwd, {
+    namespace: `${sanitizeTurnSnapshotComponent(sessionId)}/${sanitizeTurnSnapshotComponent(turnId)}`,
+    phase,
+    ...(runGit ? { runGit } : {}),
+  });
+  return { ...snapshot, cwd, sessionId, turnId, phase };
+}
+
+function validObjectId(value: string): boolean {
+  return /^[0-9a-f]{40,64}$/iu.test(value.trim());
+}
+
+/**
+ * Resolves both exact namespaced refs and verifies that each ref currently
+ * addresses a tree. This is the restore/diff trust boundary: arbitrary refs,
+ * swapped phases, and foreign session snapshots are rejected before Git sees
+ * a historical operation.
+ */
+export async function validateWorkspaceSnapshotRefs(
+  cwd: string,
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+  expected: SnapshotRefExpectation,
+  runGit: GitRunner = git,
+): Promise<{ beforeTreeId: string; afterTreeId: string }> {
+  const expectedBefore = turnSnapshotRef(expected.sessionId, expected.turnId, "before");
+  const expectedAfter = turnSnapshotRef(expected.sessionId, expected.turnId, "after");
+  if (beforeSnapshotId !== expectedBefore || afterSnapshotId !== expectedAfter) {
+    throw new Error("Turn checkpoint snapshot refs do not match their session and turn.");
+  }
+  const [beforeTree, afterTree, beforeType, afterType] = await Promise.all([
+    runGit(cwd, ["rev-parse", "--verify", `${expectedBefore}^{tree}`]),
+    runGit(cwd, ["rev-parse", "--verify", `${expectedAfter}^{tree}`]),
+    runGit(cwd, ["cat-file", "-t", expectedBefore]),
+    runGit(cwd, ["cat-file", "-t", expectedAfter]),
+  ]);
+  const beforeTreeId = beforeTree.trim();
+  const afterTreeId = afterTree.trim();
+  if (!validObjectId(beforeTreeId) || !validObjectId(afterTreeId)
+    || beforeType.trim() !== "tree" || afterType.trim() !== "tree") {
+    throw new Error("Turn checkpoint snapshot refs are missing or do not address trees.");
+  }
+  return { beforeTreeId, afterTreeId };
+}
+
+/** Delete only a verified, namespaced snapshot ref. The real index/worktree are untouched. */
+export async function deleteWorkspaceSnapshot(
+  cwd: string,
+  snapshotId: string,
+  expected?: SnapshotRefExpectation & { phase?: "before" | "after"; treeId?: string },
+  runGit: GitRunner = git,
+): Promise<void> {
+  if (!isTurnSnapshotId(snapshotId)) return;
+  if (expected) {
+    const phase = expected.phase ?? (snapshotId.endsWith("/after") ? "after" : "before");
+    if (snapshotId !== turnSnapshotRef(expected.sessionId, expected.turnId, phase)) return;
+    if (expected.treeId) {
+      const current = (await runGit(cwd, ["rev-parse", "--verify", snapshotId]).catch(() => "")).trim();
+      if (current && current !== expected.treeId) return;
+    }
+  }
+  await runGit(cwd, ["update-ref", "-d", snapshotId]).catch(() => undefined);
+}
+
+/** Session/pruning hook: remove all refs owned by a completed checkpoint. */
+export async function cleanupTurnCheckpointRefs(
+  cwd: string,
+  checkpoints: readonly SnapshotRefExpectation[],
+  runGit: GitRunner = git,
+): Promise<void> {
+  for (const checkpoint of checkpoints) {
+    await deleteWorkspaceSnapshot(cwd, turnSnapshotRef(checkpoint.sessionId, checkpoint.turnId, "before"), checkpoint, runGit);
+    await deleteWorkspaceSnapshot(cwd, turnSnapshotRef(checkpoint.sessionId, checkpoint.turnId, "after"), { ...checkpoint, phase: "after" }, runGit);
   }
 }
 
@@ -334,6 +456,7 @@ export async function diffWorkspaceSnapshots(
     throw new Error("Invalid turn checkpoint snapshot ID.");
   }
   const runGit = options.runGit ?? git;
+  if (options.expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, options.expected, runGit);
   const args = ["diff", "--no-ext-diff", "--find-renames", "--numstat", "-z", beforeSnapshotId, afterSnapshotId, "--"];
   const statusArgs = ["diff", "--no-ext-diff", "--find-renames", "--name-status", "-z", beforeSnapshotId, afterSnapshotId, "--"];
   const [numstat, nameStatus] = await Promise.all([
@@ -359,6 +482,47 @@ export async function diffWorkspaceSnapshots(
     added: files.reduce((total, file) => total + file.added, 0),
     removed: files.reduce((total, file) => total + file.removed, 0),
     proposedMessage: proposeMessage(files),
+  };
+}
+
+const MAX_SNAPSHOT_FILE_PAGE = 40;
+
+function snapshotCursor(cursor: string | undefined, total: number): number {
+  if (cursor === undefined) return 0;
+  if (!/^\d+$/u.test(cursor)) throw new Error("Invalid turn file cursor.");
+  const offset = Number(cursor);
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > total) throw new Error("Invalid turn file cursor.");
+  return offset;
+}
+
+/** Loads a bounded file-list page from Git; no complete list crosses the API seam. */
+export async function diffWorkspaceSnapshotPage(
+  cwd: string,
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+  options: SnapshotPageOptions,
+): Promise<UiWorkspaceChangesPage> {
+  const runGit = options.runGit ?? git;
+  const changes = await diffWorkspaceSnapshots(cwd, beforeSnapshotId, afterSnapshotId, {
+    branch: options.branch,
+    runGit,
+    expected: { sessionId: options.sessionId, turnId: options.turnId },
+  });
+  const offset = snapshotCursor(options.cursor, changes.files.length);
+  const requestedLimit = Number.isFinite(options.limit) ? Math.floor(options.limit as number) : MAX_SNAPSHOT_FILE_PAGE;
+  const limit = Math.min(MAX_SNAPSHOT_FILE_PAGE, Math.max(1, requestedLimit));
+  const files = changes.files.slice(offset, offset + limit).map((file) => ({ ...file }));
+  const nextCursor = offset + files.length < changes.files.length ? String(offset + files.length) : undefined;
+  return {
+    branch: changes.branch,
+    files,
+    fileCount: changes.files.length,
+    added: changes.added,
+    removed: changes.removed,
+    proposedMessage: changes.proposedMessage,
+    ...(options.cursor !== undefined ? { cursor: options.cursor } : {}),
+    ...(nextCursor ? { nextCursor } : {}),
+    hasMore: Boolean(nextCursor),
   };
 }
 
@@ -660,12 +824,14 @@ export async function getSnapshotFileDiff(
   afterSnapshotId: string,
   path: string,
   options: DiffLoadOptions = {},
+  expected?: SnapshotRefExpectation,
 ): Promise<UiFileDiff> {
   const empty = (note: string): UiFileDiff => ({ path, added: 0, removed: 0, hunks: [], note });
   if (!isTurnSnapshotId(beforeSnapshotId) || !isTurnSnapshotId(afterSnapshotId)) {
     return empty("This turn checkpoint is no longer available.");
   }
   try {
+    if (expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, expected);
     const streamed = await streamFilePatch(
       cwd,
       ["diff", "--no-ext-diff", "--find-renames", "-U3", beforeSnapshotId, afterSnapshotId, "--", path],

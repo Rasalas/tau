@@ -37,6 +37,7 @@ const api: TauDesktopApi = {
   getChanges: () => ipcRenderer.invoke("tau:changes"),
   getFileDiff: (path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:file-diff", path, options),
   getTurnFileDiff: (sessionId, checkpointId, path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:turn-file-diff", sessionId, checkpointId, path, options),
+  getTurnFiles: (sessionId, checkpointId, cursor, limit) => ipcRenderer.invoke("tau:turn-files", sessionId, checkpointId, cursor, limit),
   commit: (message, push) => ipcRenderer.invoke("tau:commit", message, push),
   push: () => ipcRenderer.invoke("tau:push"),
   getWorkspaceInfo: () => ipcRenderer.invoke("tau:workspace-info"),

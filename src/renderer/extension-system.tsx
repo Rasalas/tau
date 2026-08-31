@@ -1,5 +1,13 @@
 import type { ComponentType } from "react";
-import type { HostSnapshot, UiToolRun } from "../shared/contracts";
+import type {
+  DiffLoadOptions,
+  HostSnapshot,
+  UiEditor,
+  UiFileDiff,
+  UiToolRun,
+  UiWorkspaceChanges,
+  UiWorkspaceChangesPage,
+} from "../shared/contracts";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -101,6 +109,47 @@ export interface PromptHookContribution {
   afterPrompt(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
 }
 
+/** Props for a changes card rendered in a transcript or workspace dock. */
+export interface ChangesContributionProps {
+  changes: UiWorkspaceChanges;
+  onOpenDiff(path?: string): void;
+  label?: string;
+  /** Loads the next immutable file-list page, when the source is paged. */
+  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+}
+
+export interface ChangesContribution {
+  id: string;
+  order?: number;
+  Component: ComponentType<ChangesContributionProps>;
+}
+
+export type ReviewContributionKind = "workspace" | "historical";
+
+/** Complete review slot owned by an extension; App only supplies generic data/actions. */
+export interface ReviewContributionProps {
+  changes: UiWorkspaceChanges;
+  selectedPath?: string;
+  editor?: UiEditor;
+  busy: boolean;
+  primaryPush: boolean;
+  onSelect(path: string): void;
+  onBack(): void;
+  onCommit(message: string, push: boolean): void;
+  onOpenInEditor(path: string): void;
+  loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+  readOnly?: boolean;
+  checkpointTitle?: string;
+}
+
+export interface ReviewContribution {
+  id: string;
+  kind: ReviewContributionKind;
+  order?: number;
+  Component: ComponentType<ReviewContributionProps>;
+}
+
 export interface ToolPresentation {
   glyph: string;
   title: string;
@@ -121,6 +170,8 @@ export interface DesktopExtensionContext {
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
+  registerChanges(contribution: ChangesContribution): () => void;
+  registerReview(contribution: ReviewContribution): () => void;
   registerOptions(options: ExtensionOption[]): () => void;
   registerToolRenderer(
     id: string,
@@ -158,6 +209,8 @@ export class ExtensionRegistry {
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
+  private changesContributions = new Map<string, Owned<ChangesContribution>>();
+  private reviewContributions = new Map<string, Owned<ReviewContribution>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
   private options = new Map<string, ExtensionOption[]>();
   private contributionKinds = new Map<string, string[]>();
@@ -198,6 +251,14 @@ export class ExtensionRegistry {
       registerPromptHook: (hook) => {
         note("prompt hooks");
         return this.register(this.promptHooks, hook.id, { ...hook, ...owner }, disposers);
+      },
+      registerChanges: (contribution) => {
+        note("changes");
+        return this.register(this.changesContributions, contribution.id, { ...contribution, ...owner }, disposers);
+      },
+      registerReview: (contribution) => {
+        note(contribution.kind === "historical" ? "historical review" : "review");
+        return this.register(this.reviewContributions, contribution.id, { ...contribution, ...owner }, disposers);
       },
       registerToolRenderer: (id, match, render) => {
         note("tool renderers");
@@ -272,6 +333,15 @@ export class ExtensionRegistry {
 
   getCommands(): Array<Owned<CommandContribution>> {
     return this.sorted("commands", this.commands, false);
+  }
+
+  getChangesContributions(): Array<Owned<ChangesContribution>> {
+    return this.sorted("changes", this.changesContributions);
+  }
+
+  getReviewContributions(kind?: ReviewContributionKind): Array<Owned<ReviewContribution>> {
+    const contributions = this.sorted("review", this.reviewContributions);
+    return kind ? contributions.filter((contribution) => contribution.kind === kind) : contributions;
   }
 
   getExtensionSummaries(): ExtensionSummary[] {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { ArrowLeft, ExternalLink, GitCommitHorizontal } from "lucide-react";
-import type { DiffLoadOptions, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../../shared/contracts";
+import type { DiffLoadOptions, UiEditor, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/contracts";
 import { DiffView } from "./DiffView";
 import { VirtualList } from "./VirtualList";
 
@@ -24,6 +24,7 @@ export function ReviewMode({
   onCommit,
   onOpenInEditor,
   loadDiff,
+  loadFiles,
   readOnly = false,
   checkpointTitle,
 }: {
@@ -37,6 +38,8 @@ export function ReviewMode({
   onCommit(message: string, push: boolean): void;
   onOpenInEditor(path: string): void;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** Loads the next bounded historical file-list page, when available. */
+  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   /** Historical turn diffs are inspect-only and must not offer workspace commits. */
   readOnly?: boolean;
   checkpointTitle?: string;
@@ -45,6 +48,39 @@ export function ReviewMode({
   const [mode, setMode] = useState<"unified" | "split">("unified");
   const [message, setMessage] = useState(changes.proposedMessage ?? "");
   const [editingMessage, setEditingMessage] = useState(false);
+  const [files, setFiles] = useState(changes.files);
+  const fileCount = changes.fileCount ?? changes.files.length;
+  const previewCursor = fileCount > changes.files.length ? String(changes.files.length) : undefined;
+  const [nextFileCursor, setNextFileCursor] = useState<string | undefined>(previewCursor);
+  const [hasMoreFiles, setHasMoreFiles] = useState(() => Boolean(previewCursor));
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [fileLoadError, setFileLoadError] = useState<string>();
+
+  useEffect(() => {
+    setFiles(changes.files);
+    setNextFileCursor(previewCursor);
+    setHasMoreFiles(Boolean(previewCursor));
+    setFileLoadError(undefined);
+  }, [changes.files, fileCount, previewCursor]);
+
+  const loadNextFiles = async () => {
+    if (!loadFiles || loadingFiles || !hasMoreFiles) return;
+    setLoadingFiles(true);
+    setFileLoadError(undefined);
+    try {
+      const page = await loadFiles(nextFileCursor, 40);
+      setFiles((current) => {
+        const known = new Set(current.map((file) => file.path));
+        return [...current, ...page.files.filter((file) => !known.has(file.path))];
+      });
+      setNextFileCursor(page.nextCursor);
+      setHasMoreFiles(page.hasMore);
+    } catch (error) {
+      setFileLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedPath) { setDiff(undefined); return; }
@@ -70,12 +106,12 @@ export function ReviewMode({
         <span style={{ width: 1, height: 16, background: "var(--line)" }} />
         <div className="title-identity">
           <strong>{changes.branch ?? "review"}</strong>
-          <span>review · {changes.files.length} {changes.files.length === 1 ? "file" : "files"}</span>
+          <span>review · {fileCount} {fileCount === 1 ? "file" : "files"}</span>
         </div>
         <div className="title-spacer" />
         {!readOnly ? <button
             className="chrome-button accent"
-            disabled={busy || changes.files.length === 0 || message.trim().length === 0}
+            disabled={busy || fileCount === 0 || message.trim().length === 0}
             onClick={() => onCommit(message, primaryPush)}
           >
             <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
@@ -93,7 +129,7 @@ export function ReviewMode({
           </header>
           <div className="review-files">
             <VirtualList
-              items={changes.files}
+              items={files}
               itemHeight={43}
               className="review-files-virtual"
               empty={<p className="empty-copy">The worktree is clean.</p>}
@@ -107,9 +143,15 @@ export function ReviewMode({
                 <span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
               </button>}
             />
-            {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : null}
+            {fileCount === 0 ? <p className="empty-copy">The worktree is clean.</p> : null}
+            {loadFiles && hasMoreFiles ? <div className="changed-files-more-row">
+              <button className="text-button" disabled={loadingFiles} onClick={() => void loadNextFiles()}>
+                {loadingFiles ? "Loading…" : `Load more (${Math.max(0, fileCount - files.length)} remaining)`}
+              </button>
+              {fileLoadError ? <small className="file-tree-error">{fileLoadError}</small> : null}
+            </div> : null}
 
-            {changes.files.length > 0 && !readOnly ? (
+            {fileCount > 0 && !readOnly ? (
               <div className="commit-proposal">
                 Commit message: {editingMessage ? null : <em>“{message || "none"}”</em>}
                 {editingMessage ? (

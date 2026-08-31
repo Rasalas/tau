@@ -163,6 +163,8 @@ function installIpc(): void {
   ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));
   ipcMain.handle("tau:turn-file-diff", async (_event, sessionId: string, checkpointId: string, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) =>
     (await requireHostReady()).getTurnFileDiff(sessionId, checkpointId, path, options));
+  ipcMain.handle("tau:turn-files", async (_event, sessionId: string, checkpointId: string, cursor?: string, limit?: number) =>
+    (await requireHostReady()).getTurnFiles(sessionId, checkpointId, cursor, limit));
   ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => (await requireHostReady()).commit(message, push));
   ipcMain.handle("tau:push", async () => (await requireHostReady()).push());
   ipcMain.handle("tau:workspace-info", async () => (await requireHostReady()).getWorkspaceInfo());

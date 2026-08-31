@@ -192,6 +192,8 @@ export interface UiWorkspaceChanges {
   /** Last refresh outcome; stale data may remain visible after a failed scan. */
   refreshStatus?: { state: "ready" | "refreshing" | "error"; message?: string };
   files: UiChangedFile[];
+  /** Optional total when `files` is only a bounded preview. */
+  fileCount?: number;
   added: number;
   removed: number;
   /** Derived from the changed paths — a starting point, not a generated message. */
@@ -199,8 +201,9 @@ export interface UiWorkspaceChanges {
 }
 
 /**
- * Immutable workspace summary captured when one agent run settles. The id is
- * generated once for the run and is reused as the durable identity after reload.
+ * Immutable workspace summary captured when one accepted user turn reaches its
+ * final assistant boundary. The id is generated once for that client turn and
+ * is reused as the durable identity after reload.
  */
 export interface UiTurnCheckpoint extends UiWorkspaceChanges {
   id: string;
@@ -214,6 +217,17 @@ export interface UiTurnCheckpoint extends UiWorkspaceChanges {
   afterSnapshotId: string;
   startedAt: number;
   endedAt: number;
+}
+
+/** A lazy page of files belonging to one immutable turn snapshot pair. */
+export interface UiWorkspaceChangesPage extends UiWorkspaceChanges {
+  /** Total number of changed files across all pages. */
+  fileCount: number;
+  /** Cursor used to request this page. */
+  cursor?: string;
+  /** Cursor for the next page, when more files remain. */
+  nextCursor?: string;
+  hasMore: boolean;
 }
 
 export type DiffLineKind = "context" | "added" | "removed";
@@ -376,6 +390,16 @@ export type HostEvent =
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
   | { type: "agent-status"; sessionId: string; running: boolean }
   | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
+  /** Adds the persisted session-entry id to a row emitted optimistically at message_end. */
+  | {
+      type: "assistant-anchor";
+      sessionId: string;
+      id: string;
+      sourceEntryId: string;
+      timestamp: number;
+      /** Next transcript-visible row in branch order, when one is loaded. */
+      beforeMessageId?: string;
+    }
   // Every thread has its own runtime, so live events name the thread they belong
   // to; the renderer applies them only to the thread it is showing.
   | { type: "assistant-start"; sessionId: string; id: string; timestamp: number }
@@ -466,6 +490,8 @@ export interface TauDesktopApi {
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   /** Loads the immutable diff captured for one completed turn. */
   getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** Loads one bounded page of files from an immutable turn snapshot pair. */
+  getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;

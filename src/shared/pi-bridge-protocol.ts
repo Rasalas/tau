@@ -1,4 +1,4 @@
-import type { DiffLoadOptions, ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry, UiTurnCheckpoint } from "./contracts.js";
+import type { DiffLoadOptions, ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry, UiTurnCheckpoint, UiWorkspaceChangesPage } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -30,6 +30,8 @@ export interface PiBridgeSnapshot {
   allTools: Array<{ name: string; description: string }>;
   /** Optional for compatibility with Pi instances running an older bridge. */
   composerCommands?: UiComposerCommand[];
+  /** Raw records for restoring completed tool activity; the transcript page is mapped separately. */
+  activityMessages?: unknown[];
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
@@ -42,7 +44,7 @@ export interface PiBridgeSnapshot {
 }
 
 export type PiBridgeCommand =
-  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp" }
+  | { command: "prompt"; text: string; clientTurnId: string; deliverAs?: "steer" | "followUp" }
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
   | { command: "set_model"; provider: string; id: string }
@@ -52,10 +54,16 @@ export type PiBridgeCommand =
   | { command: "fork"; entryId: string }
   | { command: "new_session"; initialPrompt?: string }
   | { command: "transcript_page"; cursor?: string }
+  | { command: "turn_files_page"; checkpointId: string; cursor?: string; limit?: number }
   | { command: "export_markdown" }
   | ({ command: "turn_file_diff"; checkpointId: string; path: string } & DiffLoadOptions)
   | { command: "snapshot" }
   | { command: "ping" };
+
+export interface PiBridgeTurnFilesPage extends UiWorkspaceChangesPage {
+  sessionId: string;
+  checkpointId: string;
+}
 
 /**
  * A blocking question Pi is waiting on. Pi owns its own UI context while it owns

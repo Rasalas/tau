@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { UiWorkspaceChanges } from "../../shared/contracts";
+import type { UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/contracts";
 import { VirtualList } from "./VirtualList";
 import { FileKindIcon } from "./FileKindIcon";
 
@@ -8,16 +8,53 @@ export function ChangedFiles({
   changes,
   onOpenDiff,
   label,
+  loadFiles,
 }: {
   changes: UiWorkspaceChanges;
   onOpenDiff(path?: string): void;
   /** Optional context shown in a transcript checkpoint card. */
   label?: string;
+  /** Optional lazy file-list source for immutable checkpoint summaries. */
+  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
 }) {
   const [open, setOpen] = useState(false);
-  if (changes.files.length === 0) return null;
-  const previewFiles = changes.files.slice(0, 3);
-  const remainingFiles = changes.files.length - previewFiles.length;
+  const [loadedFiles, setLoadedFiles] = useState(changes.files);
+  const fileCount = changes.fileCount ?? changes.files.length;
+  const previewCursor = fileCount > changes.files.length ? String(changes.files.length) : undefined;
+  const [nextCursor, setNextCursor] = useState<string | undefined>(previewCursor);
+  const [hasMore, setHasMore] = useState(() => Boolean(previewCursor));
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
+
+  useEffect(() => {
+    setLoadedFiles(changes.files);
+    setNextCursor(previewCursor);
+    setHasMore(Boolean(previewCursor));
+    setLoadError(undefined);
+  }, [changes.files, fileCount, previewCursor]);
+
+  const loadNextPage = async () => {
+    if (!loadFiles || loading || !hasMore) return;
+    setLoading(true);
+    setLoadError(undefined);
+    try {
+      const page = await loadFiles(nextCursor, 40);
+      setLoadedFiles((current) => {
+        const known = new Set(current.map((file) => file.path));
+        return [...current, ...page.files.filter((file) => !known.has(file.path))];
+      });
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (fileCount === 0) return null;
+  const previewFiles = loadedFiles.slice(0, 3);
+  const remainingFiles = Math.max(0, fileCount - previewFiles.length);
 
   return (
     <section className="transcript-card">
@@ -27,7 +64,7 @@ export function ChangedFiles({
         onClick={() => setOpen((value) => !value)}
       >
         {open ? <ChevronDown size={13} className="chev" /> : <ChevronRight size={13} className="chev" />}
-        <strong>{label ? `${label} · ` : ""}{changes.files.length} changed {changes.files.length === 1 ? "file" : "files"}</strong>
+        <strong>{label ? `${label} · ` : ""}{fileCount} changed {fileCount === 1 ? "file" : "files"}</strong>
         <span className="stat-add">+{changes.added}</span>
         <span className="stat-del">−{changes.removed}</span>
         <span className="spacer" />
@@ -54,12 +91,20 @@ export function ChangedFiles({
           {remainingFiles > 0 ? <strong className="changed-files-more">+{remainingFiles} more</strong> : null}
         </button>
       ) : null}
-      {open ? <VirtualList items={changes.files} itemHeight={35} className="changed-files-list" renderItem={(file) => (
+      {open ? <>
+        <VirtualList items={loadedFiles} itemHeight={35} className="changed-files-list" renderItem={(file) => (
         <button className="changed-file-row" key={file.path} onClick={() => onOpenDiff(file.path)}>
           <FileKindIcon name={file.name} size={13} />
           <span className="path" title={file.path}>{file.path}</span><span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
         </button>
-      )} /> : null}
+        )} />
+        {loadFiles && hasMore ? <div className="changed-files-more-row">
+          <button className="text-button" disabled={loading} onClick={() => void loadNextPage()}>
+            {loading ? "Loading…" : `Load more (${Math.max(0, fileCount - loadedFiles.length)} remaining)`}
+          </button>
+          {loadError ? <small className="file-tree-error">{loadError}</small> : null}
+        </div> : null}
+      </> : null}
     </section>
   );
 }

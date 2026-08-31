@@ -46,8 +46,29 @@ export interface ThreadDetail {
 export interface TranscriptPage {
   sessionId: string;
   messages: UiMessage[];
+  /** Checkpoint summaries whose assistant anchors are present in this page. */
+  turnCheckpoints?: UiTurnCheckpoint[];
   olderCursor?: string;
   hasMore: boolean;
+}
+
+/** Keep checkpoint summaries attached only to assistant messages exposed by this page. */
+export function checkpointsForMessages(
+  checkpoints: readonly UiTurnCheckpoint[] | undefined,
+  messages: readonly UiMessage[],
+): UiTurnCheckpoint[] {
+  if (!checkpoints || checkpoints.length === 0) return [];
+  const ids = new Set(messages.flatMap((message) => [message.id, ...(message.sourceEntryId ? [message.sourceEntryId] : [])]));
+  return checkpoints.filter((checkpoint) => ids.has(checkpoint.anchorMessageId));
+}
+
+export function messageHasCheckpointAnchor(
+  message: UiMessage | undefined,
+  checkpoints: readonly UiTurnCheckpoint[] | undefined,
+): boolean {
+  if (!message || !checkpoints || checkpoints.length === 0) return false;
+  return checkpoints.some((checkpoint) => checkpoint.anchorMessageId === message.id
+    || checkpoint.anchorMessageId === message.sourceEntryId);
 }
 
 export interface HostCatalog {
@@ -128,13 +149,14 @@ export function decodeHostUpdates(value: unknown): HostUpdate[] {
 
 export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDetail {
   const messages = snapshot.messages.length > limit ? snapshot.messages.slice(-limit) : snapshot.messages;
+  const turnCheckpoints = checkpointsForMessages(snapshot.turnCheckpoints, messages);
   return {
     sessionId: snapshot.sessionId,
     messages,
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
     turnActivity: snapshot.turnActivity,
-    turnCheckpoints: snapshot.turnCheckpoints,
+    turnCheckpoints,
     taskProgress: snapshot.taskProgress,
     taskHistory: snapshot.taskHistory,
     contextUsage: snapshot.contextUsage,

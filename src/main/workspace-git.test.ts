@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
   createWorktree,
   createWorkspaceSnapshot,
+  cleanupTurnCheckpointRefs,
   diffWorkspaceSnapshots,
+  diffWorkspaceSnapshotPage,
   getFileDiff,
   getSnapshotFileDiff,
   MAX_DIFF_BYTES,
@@ -15,6 +17,7 @@ import {
   push,
   readProjectGitState,
   repositoryDisplayName,
+  validateWorkspaceSnapshotRefs,
 } from "./workspace-git.js";
 
 describe("large diff bounds", () => {
@@ -88,6 +91,12 @@ describe("immutable turn snapshots", () => {
       await writeFile(join(cwd, "new.txt"), "new\n");
       const after = await createWorkspaceSnapshot(cwd, { namespace: "session/turn", phase: "after" });
       const summary = await diffWorkspaceSnapshots(cwd, before.id, after.id);
+      await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, { sessionId: "session", turnId: "turn" })).resolves.toMatchObject({
+        beforeTreeId: before.treeId,
+        afterTreeId: after.treeId,
+      });
+      await expect(validateWorkspaceSnapshotRefs(cwd, after.id, before.id, { sessionId: "session", turnId: "turn" }))
+        .rejects.toThrow("do not match");
 
       // A stable turn ref is write-once; a later retry cannot silently move the
       // historical boundary to a different worktree state.
@@ -110,6 +119,17 @@ describe("immutable turn snapshots", () => {
       expect(lines).toEqual(expect.arrayContaining(["removed:preexisting", "added:turn"]));
       expect(before.id).toMatch(/^refs\/tau\/checkpoints\/session\/turn\/before$/u);
       expect(after.id).toMatch(/^refs\/tau\/checkpoints\/session\/turn\/after$/u);
+      const page = await diffWorkspaceSnapshotPage(cwd, before.id, after.id, {
+        sessionId: "session",
+        turnId: "turn",
+        limit: 1,
+      });
+      expect(page.fileCount).toBe(2);
+      expect(page.files).toHaveLength(1);
+      expect(page.hasMore).toBe(true);
+      await cleanupTurnCheckpointRefs(cwd, [{ sessionId: "session", turnId: "turn" }]);
+      expect(() => execFileSync("git", ["show-ref", "--verify", before.id], { cwd, encoding: "utf8" })).toThrow();
+      expect(() => execFileSync("git", ["show-ref", "--verify", after.id], { cwd, encoding: "utf8" })).toThrow();
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

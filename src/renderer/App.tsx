@@ -19,7 +19,6 @@ import type {
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts";
-import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer } from "./components/Composer";
@@ -28,7 +27,6 @@ import { optionForLabel, splitOption } from "../shared/extension-prompt-options"
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
-const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
 
 
@@ -404,6 +402,8 @@ export default function App() {
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
   const assistantStartsRef = useRef(new Map<string, number>());
+  /** Empty live assistant rows wait here until a durable checkpoint proves they are visible. */
+  const pendingAssistantAnchorsRef = useRef(new Map<string, { id: string; timestamp: number; beforeMessageId?: string }>());
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
   const pendingToolUpdatesRef = useRef(new Map<string, string>());
@@ -464,6 +464,7 @@ export default function App() {
 
   const applySnapshot = useCallback((next: HostSnapshot) => {
     assistantStartsRef.current.clear();
+    pendingAssistantAnchorsRef.current.clear();
     pendingDeltasRef.current.clear();
     pendingToolUpdatesRef.current.clear();
     if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
@@ -561,8 +562,20 @@ export default function App() {
     }
     if (update.type === "transcript-page") {
       const page = update.page;
+      const loadedCheckpoints = page.turnCheckpoints ?? [];
+      if (loadedCheckpoints.length > 0) {
+        const next = [...turnCheckpointsRef.current.filter((entry) => !loadedCheckpoints.some((loaded) => loaded.id === entry.id)), ...loadedCheckpoints]
+          .sort((left, right) => left.endedAt - right.endedAt);
+        turnCheckpointsRef.current = next;
+        setTurnCheckpoints(next);
+      }
       detailStoreRef.current.update(page.sessionId, (current) => current
-        ? { ...current, messages: [...page.messages, ...current.messages], olderCursor: page.olderCursor }
+        ? {
+          ...current,
+          messages: [...page.messages, ...current.messages],
+          olderCursor: page.olderCursor,
+          ...(loadedCheckpoints.length > 0 ? { turnCheckpoints: turnCheckpointsRef.current } : {}),
+        }
         : current);
       setOlderCursor(page.olderCursor);
       setMessages((current) => [...page.messages, ...current]);
@@ -638,7 +651,7 @@ export default function App() {
     // re-read when it is opened.
     if (
       (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
-        || event.type === "assistant-end" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
+        || event.type === "assistant-end" || event.type === "assistant-anchor" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
         || event.type === "tool-end" || event.type === "queue" || event.type === "turn-checkpoint")
       && event.sessionId !== threadStore.getSnapshot().activeThreadId
     ) return;
@@ -695,6 +708,35 @@ export default function App() {
           writeBootstrapCache(updated, cachedIndexRef.current);
           return updated;
         });
+        const pending = pendingAssistantAnchorsRef.current.get(event.checkpoint.anchorMessageId);
+        if (pending) {
+          pendingAssistantAnchorsRef.current.delete(event.checkpoint.anchorMessageId);
+        }
+        if (pending && (event.checkpoint.fileCount ?? event.checkpoint.files.length) > 0) {
+          setMessages((current) => {
+            if (current.some((message) => message.sourceEntryId === event.checkpoint.anchorMessageId)) return current;
+            const existing = current.find((message) => message.id === pending.id);
+            if (existing) {
+              return current.map((message) => message.id === pending.id
+                ? { ...message, sourceEntryId: event.checkpoint.anchorMessageId }
+                : message);
+            }
+            const anchor: UiMessage = {
+              id: pending.id,
+              sourceEntryId: event.checkpoint.anchorMessageId,
+              role: "assistant",
+              text: "",
+              timestamp: pending.timestamp,
+            };
+            const beforeIndex = pending.beforeMessageId === undefined
+              ? -1
+              : current.findIndex((message) => message.id === pending.beforeMessageId
+                || message.sourceEntryId === pending.beforeMessageId);
+            return beforeIndex < 0
+              ? [...current, anchor]
+              : [...current.slice(0, beforeIndex), anchor, ...current.slice(beforeIndex)];
+          });
+        }
         break;
       }
       case "assistant-start":
@@ -728,6 +770,49 @@ export default function App() {
           return exists
             ? current.map((message) => message.id === event.message.id ? event.message : message)
             : [...current, event.message];
+        });
+        break;
+      case "assistant-anchor":
+        pendingAssistantAnchorsRef.current.set(event.sourceEntryId, {
+          id: event.id,
+          timestamp: event.timestamp,
+          ...(event.beforeMessageId ? { beforeMessageId: event.beforeMessageId } : {}),
+        });
+        setMessages((current) => {
+          const existing = current.find((message) => message.id === event.id
+            || message.sourceEntryId === event.sourceEntryId);
+          if (existing) {
+            pendingAssistantAnchorsRef.current.delete(event.sourceEntryId);
+            const next = current.map((message) => message.id === event.id
+              || message.sourceEntryId === event.sourceEntryId
+                ? { ...message, sourceEntryId: event.sourceEntryId }
+              : message);
+            messagesRef.current = next;
+            return next;
+          }
+          // A text-empty assistant is intentionally omitted from assistant-end
+          // events. Only insert its marker when the corresponding checkpoint is
+          // already known; a historical checkpoint arriving without this live
+          // anchor must never be appended to the transcript tail.
+          const checkpoint = turnCheckpointsRef.current.find((entry) => entry.anchorMessageId === event.sourceEntryId);
+          if (!checkpoint || (checkpoint.fileCount ?? checkpoint.files.length) === 0) return current;
+          pendingAssistantAnchorsRef.current.delete(event.sourceEntryId);
+          const anchor: UiMessage = {
+            id: event.id,
+            sourceEntryId: event.sourceEntryId,
+            role: "assistant",
+            text: "",
+            timestamp: event.timestamp,
+          };
+          const beforeIndex = event.beforeMessageId === undefined
+            ? -1
+            : current.findIndex((message) => message.id === event.beforeMessageId
+              || message.sourceEntryId === event.beforeMessageId);
+          const next = beforeIndex < 0
+            ? [...current, anchor]
+            : [...current.slice(0, beforeIndex), anchor, ...current.slice(beforeIndex)];
+          messagesRef.current = next;
+          return next;
         });
         break;
       case "user-message":
@@ -891,6 +976,12 @@ export default function App() {
       const page = await window.tau.loadTranscript(snapshot.sessionId, olderCursor);
       if (page.sessionId !== snapshot.sessionId) return;
       setMessages((current) => [...page.messages, ...current]);
+      if (page.turnCheckpoints?.length) {
+        const next = [...turnCheckpointsRef.current.filter((entry) => !page.turnCheckpoints!.some((loaded) => loaded.id === entry.id)), ...page.turnCheckpoints]
+          .sort((left, right) => left.endedAt - right.endedAt);
+        turnCheckpointsRef.current = next;
+        setTurnCheckpoints(next);
+      }
       setOlderCursor(page.olderCursor);
       positionRestoreScheduled = true;
       window.requestAnimationFrame(() => {
@@ -1585,6 +1676,8 @@ export default function App() {
     () => turnBaseline ? changesSinceTurn(turnBaseline, changes) : changesTouchedByTools(tools, changes),
     [changes, tools, turnBaseline],
   );
+  const changesContributions = registry.getChangesContributions();
+  const ChangesComponent = changesContributions[0]?.Component;
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
   const loadedMessageIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1594,24 +1687,27 @@ export default function App() {
     }
     return ids;
   }, [messages]);
-  const checkpointActivities = useMemo(() => (pendingNewThread ? [] : turnCheckpoints)
+  const checkpointActivities = useMemo(() => (!ChangesComponent || pendingNewThread ? [] : turnCheckpoints)
     // A persisted checkpoint may belong to a page that is not loaded yet. Do
     // not send it to the transcript with a tail fallback; it becomes visible at
     // its original position as soon as that page is fetched.
-    .filter((checkpoint) => checkpoint.files.length > 0 && loadedMessageIds.has(checkpoint.anchorMessageId))
+    .filter((checkpoint) => (checkpoint.fileCount ?? checkpoint.files.length) > 0 && loadedMessageIds.has(checkpoint.anchorMessageId))
     .map((checkpoint) => ({
       id: `turn-checkpoint-${checkpoint.id}`,
       afterMessageId: checkpoint.anchorMessageId,
       content: (
         <div className="turn-checkpoint-card" data-checkpoint-id={checkpoint.id}>
-          <ChangedFiles
+          <ChangesComponent
             changes={checkpoint}
             label="Turn changes"
             onOpenDiff={(path) => openCheckpointReview(checkpoint.id, path)}
+            loadFiles={window.tau
+              ? (cursor, limit) => window.tau!.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit)
+              : undefined}
           />
         </div>
       ),
-    })), [loadedMessageIds, openCheckpointReview, pendingNewThread, turnCheckpoints]);
+    })), [ChangesComponent, loadedMessageIds, openCheckpointReview, pendingNewThread, turnCheckpoints]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -1642,6 +1738,8 @@ export default function App() {
   const reviewChanges = review?.checkpointId
     ? turnCheckpoints.find((checkpoint) => checkpoint.id === review.checkpointId) ?? NO_CHANGES
     : changes;
+  const reviewContribution = registry.getReviewContributions(review?.checkpointId ? "historical" : "workspace")[0];
+  const ReviewComponent = reviewContribution?.Component;
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
@@ -1782,9 +1880,9 @@ export default function App() {
             <FilesContext.Provider value={filesContextValue}>
               <ChangesContext.Provider value={changesContextValue}>
                 <ObservatoryContext.Provider value={observatoryContextValue}>
-                  <LazyFeatureBoundary label="review">
+                  {ReviewComponent ? <LazyFeatureBoundary label="review">
                     <Suspense fallback={<LazyFeatureFallback label="review" />}>
-                      <LazyReviewMode
+                      <ReviewComponent
                         changes={reviewChanges}
                         selectedPath={review.path ?? reviewChanges.files[0]?.path}
                         editor={activeEditor}
@@ -1796,6 +1894,14 @@ export default function App() {
                         onOpenInEditor={(path) => void openInEditor(path)}
                         readOnly={Boolean(review.checkpointId)}
                         checkpointTitle={review.checkpointId ? "Turn changes" : undefined}
+                        loadFiles={review.checkpointId && window.tau
+                          ? (cursor, limit) => window.tau!.getTurnFiles(
+                            review.sessionId ?? snapshot?.sessionId ?? "",
+                            review.checkpointId!,
+                            cursor,
+                            limit,
+                          )
+                          : undefined}
                         loadDiff={async (path, options) => {
                           if (!window.tau) return { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." };
                           if (review.checkpointId) {
@@ -1810,7 +1916,7 @@ export default function App() {
                         }}
                       />
                     </Suspense>
-                  </LazyFeatureBoundary>
+                  </LazyFeatureBoundary> : <div className="review-unavailable">The review extension is disabled.</div>}
             {overlays}
               </ObservatoryContext.Provider>
               </ChangesContext.Provider>
@@ -1932,9 +2038,10 @@ export default function App() {
                 && turnChanges.files.length > 0
                 && turnCheckpoints.length === 0
                 && !turnSettledWithoutCheckpoint
+                && ChangesComponent
                 ? (
                 <div className="conversation-files-dock">
-                  <ChangedFiles changes={turnChanges} onOpenDiff={openReview} />
+                  <ChangesComponent changes={turnChanges} onOpenDiff={openReview} />
                 </div>
               ) : null}
               {conversationComposer}
