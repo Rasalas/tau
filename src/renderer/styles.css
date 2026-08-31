@@ -455,8 +455,24 @@ button > svg { pointer-events: none; }
 .conversation-column {
   grid-area: 2 / 2 / 3 / 3;
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  background: var(--stage);
+  position: relative; background: var(--stage);
 }
+.conversation-drop-overlay {
+  position: absolute; inset: 0; z-index: 40; pointer-events: none;
+  display: grid; place-items: center; padding: 32px;
+  background: #080908b8; border: 2px solid var(--acid);
+}
+.conversation-drop-card {
+  max-width: min(440px, 90%); padding: 18px 24px; display: flex; flex-direction: column;
+  align-items: center; gap: 7px; border: 1px solid #d7ff597a; border-radius: 14px;
+  background: #20221cee; box-shadow: 0 14px 46px #000b; text-align: center;
+}
+.conversation-drop-card strong { color: var(--ink); font-size: 15px; font-weight: 650; }
+.conversation-drop-card span { color: var(--ink-3); font: 11px/1.45 var(--sans); }
+.conversation-drop-overlay.mixed .conversation-drop-card { border-color: #d7ff5966; }
+.conversation-drop-overlay.unsupported { border-color: #d88c83; }
+.conversation-drop-overlay.unsupported .conversation-drop-card { border-color: #d88c837a; }
+.conversation-drop-overlay.unsupported .conversation-drop-card strong { color: #f0aaa0; }
 .conversation-start { overflow: hidden; }
 .conversation-start-screen {
   flex: 1; min-height: 0; overflow: auto;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
@@ -9,6 +9,12 @@ import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
+import {
+  IMAGE_MIME_TYPES,
+  MAX_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  MAX_TOTAL_IMAGE_BYTES,
+} from "../../shared/prompt-attachment-limits";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -26,12 +32,13 @@ const THINKING_LABELS: Record<string, string> = {
   max: "Max",
 };
 
-const MAX_ATTACHMENTS = 4;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 let nextAttachmentId = 0;
 
 type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+
+export interface ComposerAttachmentHandle {
+  addFiles(files: FileList | readonly File[]): void;
+}
 
 type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
 
@@ -100,6 +107,7 @@ export function Composer({
   contextUsage,
   contextBreakdown,
   textareaRef,
+  attachmentRef,
   onChange,
   onSubmit,
   onAbort,
@@ -130,6 +138,7 @@ export function Composer({
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
   onChange?(value: string): void;
   onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): void;
   onAbort(): void;
@@ -156,6 +165,7 @@ export function Composer({
   const [menu, setMenu] = useState<OpenMenu>();
   const [draft, setDraft] = useState(() => readComposerDraft(window.localStorage, draftStorageKey));
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
@@ -207,17 +217,41 @@ export function Composer({
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
-  const addFiles = async (files: FileList | readonly File[]) => {
-    const available = Math.max(0, MAX_ATTACHMENTS - attachments.length);
-    const candidates = Array.from(files).slice(0, available);
-    if (candidates.length < files.length) setAttachmentError(`Attach at most ${MAX_ATTACHMENTS} images.`);
-    const results = await Promise.allSettled(candidates.map(readImage));
+  const addFiles = useCallback(async (files: FileList | readonly File[]) => {
+    const incoming = Array.from(files);
+    if (incoming.length === 0) return;
+    const current = attachmentsRef.current;
+    const available = Math.max(0, MAX_ATTACHMENTS - current.length);
+    const candidates = incoming.slice(0, available);
+    let totalBytes = current.reduce((total, attachment) => total + attachment.size, 0);
+    let firstError: string | undefined;
+    if (candidates.length < incoming.length) firstError = `Attach at most ${MAX_ATTACHMENTS} images.`;
+    const validCandidates: File[] = [];
+    for (const file of candidates) {
+      if (!IMAGE_MIME_TYPES.has(file.type)) {
+        firstError ??= `${file.name} is not a supported PNG, JPEG, GIF, or WebP image.`;
+      } else if (file.size < 1 || file.size > MAX_IMAGE_BYTES) {
+        firstError ??= `${file.name} must be 10 MB or smaller.`;
+      } else if (totalBytes + file.size > MAX_TOTAL_IMAGE_BYTES) {
+        firstError ??= "Image attachments must total 24 MB or less.";
+      } else {
+        totalBytes += file.size;
+        validCandidates.push(file);
+      }
+    }
+    const results = await Promise.allSettled(validCandidates.map(readImage));
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (rejection) setAttachmentError(rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason));
-    else if (candidates.length === files.length) setAttachmentError(undefined);
-    if (accepted.length > 0) setAttachments((current) => [...current, ...accepted].slice(0, MAX_ATTACHMENTS));
-  };
+    if (rejection) firstError ??= rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason);
+    setAttachmentError(firstError);
+    if (accepted.length > 0) setAttachments((latest) => {
+      const next = [...latest, ...accepted].slice(0, MAX_ATTACHMENTS);
+      attachmentsRef.current = next;
+      return next;
+    });
+  }, []);
+  attachmentsRef.current = attachments;
+  useImperativeHandle(attachmentRef, () => ({ addFiles: (files) => { void addFiles(files); } }), [addFiles]);
 
   // An editor prompt arrives with text to edit; seed the field once.
   const seededPromptRef = useRef<string | undefined>(undefined);
@@ -243,6 +277,7 @@ export function Composer({
     else onSubmit(submittedText, submittedAttachments);
     updateDraft("");
     setAttachments([]);
+    attachmentsRef.current = [];
     setAttachmentError(undefined);
     setPreviewId(undefined);
   };
@@ -276,12 +311,6 @@ export function Composer({
 
       <div
         className={`composer-frame ${queue.length > 0 || prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
-        onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
-        onDrop={(event) => {
-          if (event.dataTransfer.files.length === 0) return;
-          event.preventDefault();
-          void addFiles(event.dataTransfer.files);
-        }}
         onPaste={(event) => {
           if (event.clipboardData.files.length === 0) return;
           event.preventDefault();
@@ -302,7 +331,11 @@ export function Composer({
                 <button
                   className="attachment-remove"
                   aria-label={`Remove ${attachment.name}`}
-                  onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                  onClick={() => setAttachments((current) => {
+                    const next = current.filter((item) => item.id !== attachment.id);
+                    attachmentsRef.current = next;
+                    return next;
+                  })}
                 >
                   <X size={13} />
                 </button>

@@ -1,9 +1,10 @@
 import type { UiPromptAttachment } from "../shared/contracts.js";
-
-const MAX_ATTACHMENTS = 4;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 24 * 1024 * 1024;
-const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+import {
+  IMAGE_MIME_TYPES,
+  MAX_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  MAX_TOTAL_IMAGE_BYTES,
+} from "../shared/prompt-attachment-limits.js";
 
 export interface PromptImage {
   type: "image";
@@ -25,7 +26,7 @@ export function promptImages(attachments: readonly UiPromptAttachment[] = []): P
       throw new Error(`Each image attachment must be 10 MB or smaller.`);
     }
     totalBytes += attachment.size;
-    if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Image attachments must total 24 MB or less.");
+    if (totalBytes > MAX_TOTAL_IMAGE_BYTES) throw new Error("Image attachments must total 24 MB or less.");
     if (!attachment.data || attachment.data.length > Math.ceil(attachment.size / 3) * 4 + 8) {
       throw new Error(`The attachment ${attachment.name || "image"} has an invalid payload.`);
     }

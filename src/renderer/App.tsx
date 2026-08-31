@@ -21,7 +21,7 @@ import type {
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
-import { Composer } from "./components/Composer";
+import { Composer, type ComposerAttachmentHandle } from "./components/Composer";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
@@ -68,6 +68,7 @@ import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
+import { IMAGE_MIME_TYPES } from "../shared/prompt-attachment-limits";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -79,6 +80,20 @@ import {
 } from "./workbench-context";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+
+type ChatDropState = "idle" | "valid" | "mixed" | "unsupported";
+
+function chatDropState(dataTransfer: DataTransfer): ChatDropState {
+  if (!Array.from(dataTransfer.types).includes("Files")) return "idle";
+  const itemTypes = Array.from(dataTransfer.items ?? [])
+    .map((item) => item.type.toLowerCase())
+    .filter(Boolean);
+  if (itemTypes.length === 0) return "valid";
+  const supported = itemTypes.some((type) => IMAGE_MIME_TYPES.has(type));
+  const unsupported = itemTypes.some((type) => !IMAGE_MIME_TYPES.has(type));
+  if (supported && unsupported) return "mixed";
+  return supported ? "valid" : "unsupported";
+}
 
 function questionKey(sessionId: string, index: number): string {
   return `${sessionId}:${index}`;
@@ -357,6 +372,9 @@ export default function App() {
   const [olderCursor, setOlderCursor] = useState<string>();
   const [loadingOlder, setLoadingOlder] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
+  const [chatDrop, setChatDrop] = useState<ChatDropState>("idle");
+  const chatDropDepthRef = useRef(0);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
@@ -377,6 +395,26 @@ export default function App() {
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
+  useEffect(() => {
+    if (chatDrop === "idle") return;
+    const cancel = () => {
+      chatDropDepthRef.current = 0;
+      setChatDrop("idle");
+    };
+    const cancelKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancel();
+    };
+    window.addEventListener("dragend", cancel);
+    window.addEventListener("drop", cancel);
+    window.addEventListener("blur", cancel);
+    window.addEventListener("keydown", cancelKey);
+    return () => {
+      window.removeEventListener("dragend", cancel);
+      window.removeEventListener("drop", cancel);
+      window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", cancelKey);
+    };
+  }, [chatDrop]);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -1572,6 +1610,34 @@ export default function App() {
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
 
+  const onChatDragEnter = (event: React.DragEvent<HTMLElement>) => {
+    if (chatDropState(event.dataTransfer) === "idle") return;
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    event.preventDefault();
+    chatDropDepthRef.current += 1;
+    setChatDrop(chatDropState(event.dataTransfer));
+  };
+  const onChatDragOver = (event: React.DragEvent<HTMLElement>) => {
+    const state = chatDropState(event.dataTransfer);
+    if (state === "idle") return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = state === "unsupported" ? "none" : "copy";
+    setChatDrop(state);
+  };
+  const onChatDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (chatDropState(event.dataTransfer) === "idle") return;
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    chatDropDepthRef.current = Math.max(0, chatDropDepthRef.current - 1);
+    if (chatDropDepthRef.current === 0) setChatDrop("idle");
+  };
+  const onChatDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (event.dataTransfer.files.length === 0) return;
+    event.preventDefault();
+    chatDropDepthRef.current = 0;
+    setChatDrop("idle");
+    composerAttachmentRef.current?.addFiles(event.dataTransfer.files);
+  };
+
   const conversationComposer = (
     <Composer
       snapshot={conversationSnapshot}
@@ -1582,6 +1648,7 @@ export default function App() {
       contextUsage={snapshot?.contextUsage}
       contextBreakdown={contextBreakdown}
       textareaRef={composerRef}
+      attachmentRef={composerAttachmentRef}
       onSubmit={(text, attachments, delivery) => void submit(text ?? "", attachments, delivery)}
       onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
       onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
@@ -1733,7 +1800,27 @@ export default function App() {
               </LazyFeatureBoundary>
             ))}
 
-            <main className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}>
+            <main
+              className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
+              onDragEnter={onChatDragEnter}
+              onDragOver={onChatDragOver}
+              onDragLeave={onChatDragLeave}
+              onDrop={onChatDrop}
+            >
+              {chatDrop !== "idle" ? (
+                <div className={`conversation-drop-overlay ${chatDrop}`} role="status" aria-live="polite">
+                  <div className="conversation-drop-card">
+                    <strong>{chatDrop === "unsupported" ? "That file type is not supported" : "Drop images anywhere in chat"}</strong>
+                    <span>
+                      {chatDrop === "unsupported"
+                        ? "Use PNG, JPEG, GIF, or WebP images."
+                        : chatDrop === "mixed"
+                          ? "Supported images will be attached; other files will be skipped."
+                          : "PNG, JPEG, GIF, and WebP · up to 4 images · 10 MB each"}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
               {showStartScreen ? (
                 <section className="conversation-start-screen" aria-labelledby="start-screen-title">
                   <div className="conversation-start-content">

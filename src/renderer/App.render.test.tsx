@@ -157,6 +157,50 @@ describe("App render isolation", () => {
     expect(screen.getByText("Build the first screen")).toBeTruthy();
   });
 
+  it("shows a whole-column drop target and clears it on leave and drop", async () => {
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
+    const column = heading.closest("main");
+    expect(column).toBeTruthy();
+    if (!column) throw new Error("conversation column not rendered");
+    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(draft, { target: { value: "keep this draft" } });
+    const image = new File([new Uint8Array([137, 80, 78, 71])], "dropped.png", { type: "image/png" });
+    const dataTransfer = {
+      types: ["Files"],
+      items: [{ type: "image/png" }],
+      files: [image],
+      dropEffect: "none",
+    } as unknown as DataTransfer;
+
+    fireEvent.dragEnter(column, { dataTransfer });
+    expect(screen.getByRole("status").className).toContain("valid");
+    fireEvent.dragLeave(column, { dataTransfer, relatedTarget: null });
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.dragEnter(column, { dataTransfer });
+    fireEvent.drop(column, { dataTransfer });
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(await screen.findByRole("button", { name: "Preview dropped.png" })).toBeTruthy();
+    expect(draft.value).toBe("keep this draft");
+  });
+
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
     const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[] }));
     window.tau = {
