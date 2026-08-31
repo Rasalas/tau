@@ -2,9 +2,9 @@ const MARK = /\p{Mark}/u;
 const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
 const LONG_MESSAGE_LINE_LIMIT = 8;
 const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
-// Sixteen code points covers the largest normal emoji sequence in the product
-// (including ZWJ components), with room for variation/modifier extenders.
-// Preflight uses this fixed bound before any newline or Segmenter traversal.
+// The fallback deliberately stops after enough code points to represent 600
+// ordinary extended grapheme clusters plus a safety margin. Intl.Segmenter is
+// lazy and remains exact for a single unusually large cluster.
 const GRAPHEME_CODEPOINT_BUDGET = LONG_MESSAGE_GRAPHEME_LIMIT * 16 + 64;
 
 type HangulJamo = "L" | "V" | "T" | "LV" | "LVT" | undefined;
@@ -81,6 +81,10 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
         count += 1;
         leadingExtenderCluster = true;
       }
+      // An Extend does not participate in Hangul GB6–GB8 across the next
+      // code point. Keep it attached to the current cluster but end the
+      // Hangul state so `ᄀ́ᅡ` is two clusters.
+      previousHangul = undefined;
       if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
       continue;
     }
@@ -120,17 +124,6 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
   return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
 }
 
-function withinGraphemeBudget(text: string): boolean {
-  let examinedCodePoints = 0;
-  let codeUnitIndex = 0;
-  while (codeUnitIndex < text.length && examinedCodePoints < GRAPHEME_CODEPOINT_BUDGET) {
-    const codePoint = text.codePointAt(codeUnitIndex)!;
-    codeUnitIndex += codePoint > 0xffff ? 2 : 1;
-    examinedCodePoints += 1;
-  }
-  return codeUnitIndex >= text.length;
-}
-
 function segmenterFor(): (new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<{ segment: string }> }) | undefined {
   if (typeof Intl === "undefined" || !("Segmenter" in Intl)) return undefined;
   return (Intl as typeof Intl & {
@@ -152,7 +145,11 @@ function segmentWithIntl(text: string, limit: number): GraphemeCount {
 }
 
 export function isLongMessage(text: string): boolean {
-  if (!withinGraphemeBudget(text)) return true;
+  // A huge run of marks is one visible grapheme, even though the fallback's
+  // bounded code-point walk cannot prove where that run ends. Keep this
+  // narrow fast path conservative: any following base or newline is handled
+  // by the normal bounded counter and therefore remains long when needed.
+  if (text.length > GRAPHEME_CODEPOINT_BUDGET && /^(?:\p{Mark}|[\uFE00-\uFE0F]|[\u{1F3FB}-\u{1F3FF}]|[\u{E0020}-\u{E007F}])+$/u.test(text)) return false;
   const result = segmentWithIntl(text, LONG_MESSAGE_GRAPHEME_LIMIT);
   return result.exhausted || result.count > LONG_MESSAGE_GRAPHEME_LIMIT || result.lineCount > LONG_MESSAGE_LINE_LIMIT;
 }

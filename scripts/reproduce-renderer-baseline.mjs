@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, symlinkSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +18,8 @@ function run(command, args, cwd = ROOT, env = process.env) {
 
 if (!existsSync(patchFile)) throw new Error(`missing reproducible harness patch: ${patchFile}`);
 if (!existsSync(nodeModules) || !lstatSync(nodeModules).isDirectory()) throw new Error(`provide a prepared node_modules directory as the third argument: ${nodeModules}`);
+const harnessCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+const harnessPatchSha256 = createHash("sha256").update(await readFile(patchFile)).digest("hex");
 run("git", ["worktree", "add", "--detach", worktree, subject]);
 try {
   run("git", ["apply", patchFile], worktree);
@@ -26,9 +30,9 @@ try {
   run("node", ["scripts/renderer-benchmark.mjs", "--no-build", outputFile], worktree, {
     ...process.env,
     TAU_BENCHMARK_SUBJECT_COMMIT: subjectCommit,
-    TAU_BENCHMARK_HARNESS_COMMIT: process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? "unknown",
+    TAU_BENCHMARK_HARNESS_COMMIT: harnessCommit,
     TAU_BENCHMARK_HARNESS_PATCH_FILE: "reports/renderer-baseline-6ddb454-harness.patch",
-    TAU_BENCHMARK_HARNESS_PATCH_SHA256: process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256 ?? "unknown",
+    TAU_BENCHMARK_HARNESS_PATCH_SHA256: harnessPatchSha256,
   });
 } finally {
   run("git", ["worktree", "remove", "--force", worktree]);

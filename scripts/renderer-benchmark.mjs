@@ -67,8 +67,11 @@ const harnessSourceSha256 = createHash("sha256")
   .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
   .digest("hex");
 const harnessPatchFile = process.env.TAU_BENCHMARK_HARNESS_PATCH_FILE ?? "reports/renderer-baseline-6ddb454-harness.patch";
+const harnessPatchPath = join(ROOT, harnessPatchFile);
 const harnessPatchSha256 = process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256
-  ?? (existsSync(join(ROOT, harnessPatchFile)) ? createHash("sha256").update(readFileSync(join(ROOT, harnessPatchFile))).digest("hex") : "unknown");
+  ?? (existsSync(harnessPatchPath)
+    ? createHash("sha256").update(readFileSync(harnessPatchPath)).digest("hex")
+    : harnessSourceSha256);
 const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? commitSha();
 const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? commitSha();
 
@@ -94,15 +97,18 @@ function sampleScenario(scenario) {
     if (!Array.isArray(result.frameIntervalsMs) || result.frameIntervalsMs.length < (sanity.minFrames ?? 1) || result.frameIntervalsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
       throw new Error(`renderer fixture returned invalid frame measurements for ${scenario.id}`);
     }
-    if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
+    if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value <= 0)) {
       throw new Error(`renderer fixture returned invalid Long Task measurements for ${scenario.id}`);
     }
-    if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
+    if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value <= 0)) {
       throw new Error(`renderer fixture returned invalid startup Long Task measurements for ${scenario.id}`);
     }
-    if (typeof result.electronVersion !== "string" || !result.electronVersion || result.gpuFeatureStatus === null || typeof result.gpuFeatureStatus !== "object") {
+    if (!/^\d+\.\d+\.\d+$/.test(result.electronVersion ?? "") || result.gpuFeatureStatus === null || typeof result.gpuFeatureStatus !== "object" || Object.keys(result.gpuFeatureStatus).length === 0) {
       throw new Error(`renderer fixture returned incomplete Electron/GPU metadata for ${scenario.id}`);
     }
+    const activeGpu = result.gpuInfo?.gpuDevice?.find((device) => device.active && typeof device.deviceString === "string" && device.deviceString.length > 0);
+    const softwareGpu = result.gpuFeatureStatus.gpu_compositing === "disabled_software";
+    if (!activeGpu && !softwareGpu) throw new Error(`renderer fixture returned no verified GPU adapter/backend for ${scenario.id}`);
     if (!Number.isFinite(result.heapBytes) || result.heapBytes <= 0) {
       throw new Error(`renderer fixture returned invalid heap measurement for ${scenario.id}`);
     }
@@ -111,6 +117,12 @@ function sampleScenario(scenario) {
     }
     if (!Number.isInteger(result.commits) || result.commits < (sanity.minCommits ?? 1)) {
       throw new Error(`renderer fixture returned too few commits for ${scenario.id}: ${result.commits}`);
+    }
+    if (scenario.id === "diff-2mb" && (!Number.isFinite(result.payloadBytes) || result.payloadBytes < scenario.bytes)) {
+      throw new Error(`renderer fixture did not render the configured diff payload for ${scenario.id}: ${result.payloadBytes}`);
+    }
+    if (scenario.id === "long-user-message" && (!result.longMessageInteraction?.toggleFound || !result.longMessageInteraction.expanded || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
+      throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
     }
     if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
   }

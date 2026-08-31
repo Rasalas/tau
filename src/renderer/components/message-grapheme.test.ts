@@ -15,6 +15,7 @@ describe("message grapheme boundaries", () => {
     expect(isLongMessage("a".repeat(600) + "\u0301")).toBe(false);
     expect(isLongMessage("a".repeat(601))).toBe(true);
     expect(isLongMessage("😀".repeat(600) + "a")).toBe(true);
+    expect(isLongMessage("\u0301".repeat(10_000))).toBe(false);
   });
 
   it("keeps the fallback bounded and follows UAX-like joins", () => {
@@ -31,6 +32,7 @@ describe("message grapheme boundaries", () => {
     expect(isLongMessage("\u0301\u0302" + "a".repeat(600))).toBe(true);
     expect(isLongMessage("각".repeat(600))).toBe(false);
     expect(isLongMessage("각".repeat(600) + "가")).toBe(true);
+    expect(isLongMessage(("ᄀ\u0301ᅡ").repeat(300) + "x")).toBe(true);
     expect(isLongMessage(("ᄀ‍ᅡ").repeat(301))).toBe(true);
     expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(true);
     expect(isLongMessage("\u0301" + "a".repeat(600))).toBe(true);

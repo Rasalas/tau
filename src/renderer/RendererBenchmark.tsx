@@ -20,6 +20,8 @@ interface BenchmarkResult {
   commits: number;
   domNodes: number;
   heapBytes?: number;
+  payloadBytes?: number;
+  longMessageInteraction?: { toggleFound: boolean; expanded: boolean; contentBytes: number };
 }
 
 declare global {
@@ -59,14 +61,29 @@ function makeTranscript(turns: number): UiMessage[] {
   }));
 }
 
-function makeDiff(): UiFileDiff {
-  const lines = Array.from({ length: 10_000 }, (_, index) => ({
-    kind: index % 3 === 0 ? "added" as const : index % 3 === 1 ? "removed" as const : "context" as const,
-    oldLine: index % 3 === 0 ? undefined : index + 1,
-    newLine: index % 3 === 1 ? undefined : index + 1,
-    text: `benchmark diff line ${index}`,
-  }));
-  return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
+function makeDiff(targetBytes: number): UiFileDiff {
+  const lines: UiFileDiff["hunks"][number]["lines"] = [];
+  const encoder = new TextEncoder();
+  const payload = () => ({
+    path: "benchmark.ts",
+    added: lines.filter((line) => line.kind === "added").length,
+    removed: lines.filter((line) => line.kind === "removed").length,
+    hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }],
+    truncated: true,
+    nextHunkOffset: 1,
+  });
+  let bytes = 0;
+  while (bytes < targetBytes) {
+    const index = lines.length;
+    lines.push({
+      kind: index % 3 === 0 ? "added" : index % 3 === 1 ? "removed" : "context",
+      oldLine: index % 3 === 0 ? undefined : index + 1,
+      newLine: index % 3 === 1 ? undefined : index + 1,
+      text: `benchmark diff line ${index} ${"x".repeat(180)}`,
+    });
+    if (index % 256 === 0) bytes = encoder.encode(JSON.stringify(payload())).byteLength;
+  }
+  return payload();
 }
 
 function makeLongUserMessage(bytes: number, revision: number): UiMessage {
@@ -91,6 +108,8 @@ export default function RendererBenchmark() {
   const frames = useRef<number[]>([]);
   const [benchmarkPulse, setBenchmarkPulse] = useState(0);
   const [longUserRevision, setLongUserRevision] = useState(0);
+  const payloadBytes = useRef(0);
+  const longMessageInteraction = useRef<BenchmarkResult["longMessageInteraction"]>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
   const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(scenarioConfig.turns ?? 0) : [], [scenario, scenarioConfig.turns]);
@@ -99,7 +118,12 @@ export default function RendererBenchmark() {
     [scenario, scenarioConfig.items],
   );
   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
-  const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
+  const diff = useMemo(() => {
+    if (scenario !== "diff-2mb") return undefined;
+    const value = makeDiff(targetBytes);
+    payloadBytes.current = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    return value;
+  }, [scenario, targetBytes]);
   const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage(targetBytes, longUserRevision) : undefined, [scenario, targetBytes, longUserRevision]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
   const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
@@ -160,6 +184,8 @@ export default function RendererBenchmark() {
           commits: updateDurations.current.length,
           domNodes: document.getElementsByTagName("*").length,
           heapBytes: memory.memory?.usedJSHeapSize,
+          payloadBytes: payloadBytes.current || undefined,
+          longMessageInteraction: longMessageInteraction.current,
         };
       };
       requestAnimationFrame(settle);
@@ -206,7 +232,22 @@ export default function RendererBenchmark() {
         updateStartedAt.current = performance.now();
         interactionStartedAt.current ??= updateStartedAt.current;
         setLongUserRevision((revision) => revision + 1);
-        finish();
+        requestAnimationFrame(() => {
+          const button = document.querySelector<HTMLButtonElement>(".message-expand");
+          if (!button) throw new Error("long-user-message did not render its expand control");
+          updateStartedAt.current = performance.now();
+          interactionStartedAt.current ??= updateStartedAt.current;
+          button.click();
+          requestAnimationFrame(() => {
+            const content = document.querySelector<HTMLElement>(".message-text-content");
+            longMessageInteraction.current = {
+              toggleFound: true,
+              expanded: button.getAttribute("aria-expanded") === "true",
+              contentBytes: new TextEncoder().encode(content?.textContent ?? "").byteLength,
+            };
+            finish();
+          });
+        });
       });
     } else {
       requestAnimationFrame(() => {

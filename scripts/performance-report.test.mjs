@@ -138,6 +138,7 @@ describe("performance report checks", () => {
     expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms`);
     expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
     expect(budgets.rendererScenarioBudgets["transcript-1000-turns"].mountP95Ms).toBe(40);
+    expect(budgets.rendererScenarioBudgets["transcript-1000-turns"].commitP95Ms).toBeUndefined();
   });
 
   it("keeps the documented renderer table generated from the checked-in report", async () => {
@@ -213,6 +214,26 @@ describe("performance report checks", () => {
       rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, longTaskMs: 60 } },
     });
     expect(failures.some((failure) => failure.includes("mount p95 999.0ms > 40ms"))).toBe(true);
+  });
+
+  it("keeps transcript updates on the strict global 24 ms budget", () => {
+    const failures = evaluateRendererBudgets({ scenarios: [{
+      id: "transcript-1000-turns",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { p95: 38 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { median: 25, p95: 32, maximum: 32 },
+      domNodes: 100,
+    }] }, {
+      rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
+      rendererLongTaskMs: 50,
+      rendererCommitP95Ms: 24,
+      rendererDomNodes: 5_000,
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, longTaskMs: 60 } },
+    });
+    expect(failures.some((failure) => failure.includes("commit p95 32.0ms > 24ms"))).toBe(true);
   });
 
   it("rejects missing renderer scenarios and measurements", () => {
