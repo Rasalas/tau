@@ -1,4 +1,4 @@
-import type { UiMessage, UiTaskProgressEntry } from "../shared/contracts.js";
+import type { UiMessage, UiTaskProgressEntry, UiTurnActivityEntry } from "../shared/contracts.js";
 import type { ThreadDetail } from "../shared/host-protocol.js";
 import type { TranscriptCursorBoundary } from "../shared/transcript-contract.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
@@ -10,6 +10,7 @@ import type {
 export interface TranscriptBundleMergeInput {
   messages: readonly UiMessage[];
   taskHistory?: readonly UiTaskProgressEntry[];
+  turnActivityHistory?: readonly UiTurnActivityEntry[];
   cursorBoundaries?: readonly TranscriptCursorBoundary<HostTranscriptCursor>[];
   transcriptWindow?: "bounded";
 }
@@ -17,6 +18,7 @@ export interface TranscriptBundleMergeInput {
 export interface TranscriptBundleMergeResult {
   messages: UiMessage[];
   taskHistory?: UiTaskProgressEntry[];
+  turnActivityHistory?: UiTurnActivityEntry[];
   cursorBoundaries?: TranscriptCursorBoundary<HostTranscriptCursor>[];
   transcriptWindow?: "bounded";
 }
@@ -70,6 +72,21 @@ export function mergeTaskHistory(
   return [...byId.values()];
 }
 
+export function mergeTurnActivityHistory(
+  current: readonly UiTurnActivityEntry[] | undefined,
+  incoming: readonly UiTurnActivityEntry[] | undefined,
+): UiTurnActivityEntry[] | undefined {
+  if (!current && !incoming) return undefined;
+  const byId = new Map<string, UiTurnActivityEntry>();
+  for (const entry of current ?? []) byId.set(entry.id, entry);
+  for (const entry of incoming ?? []) byId.set(entry.id, entry);
+  return [...byId.values()].sort((left, right) => {
+    const leftStart = left.tools[0]?.startedAt ?? Number.POSITIVE_INFINITY;
+    const rightStart = right.tools[0]?.startedAt ?? Number.POSITIVE_INFINITY;
+    return leftStart - rightStart || left.id.localeCompare(right.id);
+  });
+}
+
 /** Apply one transcript bundle merge policy across detail, page, and snapshot paths. */
 export function applyTranscriptBundleMerge(
   current: TranscriptBundleMergeInput | undefined,
@@ -80,17 +97,20 @@ export function applyTranscriptBundleMerge(
     return {
       messages: [...incoming.messages],
       ...(incoming.taskHistory ? { taskHistory: [...incoming.taskHistory] } : {}),
+      ...(incoming.turnActivityHistory ? { turnActivityHistory: [...incoming.turnActivityHistory] } : {}),
       ...(incoming.cursorBoundaries ? { cursorBoundaries: [...incoming.cursorBoundaries] } : {}),
       ...(incoming.transcriptWindow ? { transcriptWindow: incoming.transcriptWindow } : {}),
     };
   }
   const messages = mergeTranscriptMessages(current.messages, incoming.messages, position);
   const taskHistory = mergeTaskHistory(current.taskHistory, incoming.taskHistory);
+  const turnActivityHistory = mergeTurnActivityHistory(current.turnActivityHistory, incoming.turnActivityHistory);
   const cursorBoundaries = mergeCursorBoundaries(current.cursorBoundaries, incoming.cursorBoundaries);
   const transcriptWindow = incoming.transcriptWindow ?? current.transcriptWindow;
   return {
     messages,
     ...(taskHistory ? { taskHistory } : {}),
+    ...(turnActivityHistory ? { turnActivityHistory } : {}),
     ...(cursorBoundaries ? { cursorBoundaries } : {}),
     ...(transcriptWindow ? { transcriptWindow } : {}),
   };

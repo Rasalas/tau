@@ -48,6 +48,7 @@ import type {
   UiToolRun,
   UiTurnCheckpoint,
   UiTurnActivity,
+  UiTurnActivityEntry,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
   WorkspaceInfo,
@@ -64,6 +65,7 @@ import {
   messageHasCheckpointAnchor,
   normalizeTranscriptCursorBoundaries,
   taskHistoryForMessages,
+  turnActivityHistoryForMessages,
   type HostActionResult,
   type HostUpdate,
   type NewThreadResult,
@@ -399,6 +401,9 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
   if (page.taskHistory !== undefined && !Array.isArray(page.taskHistory)) {
     throw new Error("Pi returned an invalid transcript activity history.");
   }
+  if (page.activityMessages !== undefined && !Array.isArray(page.activityMessages)) {
+    throw new Error("Pi returned an invalid transcript activity records list.");
+  }
   const turnCheckpoints = Array.isArray(page.turnCheckpoints)
     ? page.turnCheckpoints.filter((checkpoint): checkpoint is UiTurnCheckpoint => Boolean(checkpoint && typeof checkpoint === "object"))
     : undefined;
@@ -407,6 +412,7 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
     messages,
     hasMore,
     ...(page.taskHistory !== undefined ? { taskHistory: page.taskHistory } : {}),
+    ...(page.activityMessages !== undefined ? { activityMessages: page.activityMessages } : {}),
     ...(messagesOffset !== undefined ? { messagesOffset } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     ...(historyCompleteness !== undefined ? { historyCompleteness } : {}),
@@ -419,6 +425,10 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
   const page = bridgeTranscriptPage(value, sessionId);
   const messages = mapBridgeMessages(page.messages, page.messagesOffset, { checkpoints: page.turnCheckpoints });
   const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
+  const turnActivityHistory = turnActivityHistoryForMessages(
+    turnActivityHistoryFromMessages(page.activityMessages ?? page.messages),
+    messages,
+  );
   const firstUserMessage = messages.find((message) => message.role === "user");
   const olderCursor = page.olderCursor === undefined
     ? undefined
@@ -433,6 +443,7 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
     messages,
     transcriptWindow: "bounded",
     ...(taskHistory ? { taskHistory } : {}),
+    ...(turnActivityHistory ? { turnActivityHistory } : {}),
     ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     ...(cursorBoundaries ? { cursorBoundaries } : {}),
@@ -470,44 +481,78 @@ function nextVisibleMessageId(
   return undefined;
 }
 
-export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivity | undefined {
-  let turnStart = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index] as { role?: string } | undefined;
-    if (message?.role === "user") {
-      turnStart = index;
-      break;
-    }
-  }
-  if (turnStart < 0) return undefined;
-
-  const tools: UiToolRun[] = [];
-  const toolIndexes = new Map<string, number>();
-  let anchorMessageId: string | undefined;
+/**
+ * Reconstructs every tool group from the raw branch, preserving the user-turn
+ * boundary that the renderer needs for chronological placement.  Keeping this
+ * derivation host-side means the renderer receives bounded, typed activity
+ * rather than the provider's hidden tool-result records.
+ */
+export function turnActivityHistoryFromMessages(messages: unknown[]): UiTurnActivityEntry[] {
+  const history: UiTurnActivityEntry[] = [];
+  let active: {
+    id: string;
+    anchorMessageId?: string;
+    tools: UiToolRun[];
+    interrupted: boolean;
+    error: boolean;
+  } | undefined;
+  let toolIndexes = new Map<string, number>();
   let lastVisibleMessageId: string | undefined;
 
-  for (let index = turnStart; index < messages.length; index += 1) {
-    const raw = messages[index];
-    if (!raw || typeof raw !== "object") continue;
+  const finish = () => {
+    if (!active || active.tools.length === 0) {
+      active = undefined;
+      toolIndexes = new Map();
+      lastVisibleMessageId = undefined;
+      return;
+    }
+    const hasError = active.error || active.tools.some((tool) => tool.status === "error");
+    const hasRunning = active.tools.some((tool) => tool.status === "running");
+    history.push({
+      id: active.id,
+      ...(active.anchorMessageId ? { anchorMessageId: active.anchorMessageId } : {}),
+      tools: active.tools,
+      status: hasError ? "error" : active.interrupted ? "interrupted" : hasRunning ? "running" : "completed",
+    });
+    active = undefined;
+    toolIndexes = new Map();
+    lastVisibleMessageId = undefined;
+  };
+
+  messages.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object") return;
     const message = raw as {
       role?: string;
       content?: unknown;
       timestamp?: number;
+      tauEntryId?: string;
       toolCallId?: string;
       toolName?: string;
       isError?: boolean;
+      stopReason?: string;
     };
+    if (message.role === "user") {
+      finish();
+      const mapped = mapMessage(message, index);
+      const id = mapped?.id ?? `user-${message.timestamp ?? index}-${index}`;
+      active = { id: `turn-activity-${id}`, anchorMessageId: mapped?.id ?? id, tools: [], interrupted: false, error: false };
+      lastVisibleMessageId = mapped?.id ?? id;
+      return;
+    }
+    if (!active) return;
     const mapped = mapMessage(message, index);
     if (mapped && (mapped.role === "user" || mapped.text.trim())) lastVisibleMessageId = mapped.id;
+    if (message.stopReason === "aborted" || message.stopReason === "cancelled") active.interrupted = true;
+    if (message.stopReason === "error") active.error = true;
 
     if (message.role === "assistant" && Array.isArray(message.content)) {
       for (const part of message.content) {
         if (!part || typeof part !== "object") continue;
         const call = part as { type?: string; id?: string; name?: string; arguments?: unknown };
         if (call.type !== "toolCall" || !call.id || !call.name) continue;
-        anchorMessageId ??= lastVisibleMessageId;
-        toolIndexes.set(call.id, tools.length);
-        tools.push({
+        active.anchorMessageId ??= lastVisibleMessageId;
+        toolIndexes.set(call.id, active.tools.length);
+        active.tools.push({
           id: call.id,
           name: call.name,
           args: call.arguments && typeof call.arguments === "object" ? call.arguments as Record<string, unknown> : {},
@@ -519,20 +564,25 @@ export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivit
 
     if (message.role === "toolResult" && message.toolCallId) {
       const toolIndex = toolIndexes.get(message.toolCallId);
-      if (toolIndex === undefined) continue;
-      const tool = tools[toolIndex];
+      if (toolIndex === undefined) return;
+      const tool = active.tools[toolIndex];
       const output = textFromContent(message.content);
-      tools[toolIndex] = {
+      active.tools[toolIndex] = {
         ...tool,
         name: message.toolName ?? tool.name,
         status: message.isError ? "error" : "done",
-        output: output.length > 8_192 ? `${output.slice(0, 8_192)}\n[Restored output truncated]` : output,
+        output: boundedToolOutput(output),
         endedAt: message.timestamp ?? tool.startedAt,
       };
     }
-  }
+  });
+  finish();
+  return history;
+}
 
-  return tools.length > 0 ? { tools, anchorMessageId } : undefined;
+export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivity | undefined {
+  const latest = turnActivityHistoryFromMessages(messages).at(-1);
+  return latest ? { tools: latest.tools, ...(latest.anchorMessageId ? { anchorMessageId: latest.anchorMessageId } : {}) } : undefined;
 }
 
 function mapModel(model: { provider: string; id: string; name?: string }): UiModel {
@@ -1271,7 +1321,13 @@ export class PiHost {
     const snapshot = await this.snapshot();
     const result = cursor !== undefined
       ? (() => {
-        const page = this.transcriptPage(snapshot.sessionId, snapshot.messages, snapshot.taskHistory, cursor);
+        const page = this.transcriptPage(
+          snapshot.sessionId,
+          snapshot.messages,
+          snapshot.taskHistory,
+          snapshot.turnActivityHistory,
+          cursor,
+        );
         return { ...page, turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, page.messages) };
       })()
       : this.detailForSnapshot(snapshot);
@@ -1290,7 +1346,13 @@ export class PiHost {
       // Older Pi bridge extensions expose a bounded snapshot but no paging
       // command. Keep that compatibility path local to the retained window.
       const snapshot = this.bridgeHostSnapshot();
-      result = this.transcriptPage(sessionId, snapshot.messages, snapshot.taskHistory, cursor);
+      result = this.transcriptPage(
+        sessionId,
+        snapshot.messages,
+        snapshot.taskHistory,
+        snapshot.turnActivityHistory,
+        cursor,
+      );
     } else {
       const thread = this.requireThread(sessionId);
       const rawMessages = this.branchMessagesWithEntryIds(thread);
@@ -1298,6 +1360,7 @@ export class PiHost {
         sessionId,
         this.messageSnapshot(thread),
         taskProgressHistoryFromMessages(rawMessages),
+        turnActivityHistoryFromMessages(rawMessages),
         cursor,
       );
     }
@@ -1316,6 +1379,7 @@ export class PiHost {
     sessionId: string,
     messages: readonly UiMessage[],
     taskHistory: readonly UiTaskProgressEntry[] | undefined,
+    turnActivityHistory: readonly UiTurnActivityEntry[] | undefined,
     cursor?: HostTranscriptCursor,
   ): TranscriptPage {
     const page = TranscriptPager.pageFor(
@@ -1326,6 +1390,7 @@ export class PiHost {
       localTranscriptCursorPolicy,
     );
     const visibleHistory = taskHistoryForMessages(taskHistory, page.messages);
+    const visibleActivityHistory = turnActivityHistoryForMessages(turnActivityHistory, page.messages);
     const firstUserMessage = page.messages.find((message) => message.role === "user");
     const cursorBoundaries = normalizeTranscriptCursorBoundaries(
       page.cursorBoundaries,
@@ -1337,6 +1402,7 @@ export class PiHost {
       ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
       ...(cursorBoundaries ? { cursorBoundaries } : {}),
       ...(visibleHistory ? { taskHistory: visibleHistory } : {}),
+      ...(visibleActivityHistory ? { turnActivityHistory: visibleActivityHistory } : {}),
     };
   }
 
@@ -3521,6 +3587,8 @@ export class PiHost {
       snapshot.taskHistory,
       taskProgressHistoryFromMessages(snapshot.messages),
     );
+    const activityHistory = snapshot.turnActivityHistory
+      ?? turnActivityHistoryFromMessages(snapshot.activityMessages ?? snapshot.messages);
     const historyCompleteness = historyCompletenessForBridgeSnapshot(snapshot);
     const olderCursor = !transcriptPagingNegotiated(snapshot.capabilities) || snapshot.olderCursor === undefined
       ? undefined
@@ -3553,6 +3621,7 @@ export class PiHost {
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,
       turnActivity: lastTurnActivityFromMessages(snapshot.activityMessages ?? snapshot.messages),
+      turnActivityHistory: activityHistory,
       turnCheckpoints: checkpointsForMessages(checkpoints, messages),
       taskProgress: snapshot.taskProgress ?? taskProgressFromMessages(snapshot.messages),
       taskHistory,
@@ -4270,6 +4339,7 @@ export class PiHost {
       isStreaming: thread.backend.isStreaming() || thread.adapterStreaming,
       activeTools: thread.backend.activeToolNames(),
       turnActivity: this.turnActivity(thread, branchMessages),
+      turnActivityHistory: turnActivityHistoryFromMessages(branchMessages),
       turnCheckpoints: this.turnCheckpoints(thread),
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),

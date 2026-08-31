@@ -399,6 +399,18 @@ export interface UiTurnActivity {
   anchorMessageId?: string;
 }
 
+/**
+ * Historical activity for one user turn.  The host keeps this separate from
+ * the live activity payload so a bounded transcript can render each turn at
+ * its own anchor without replaying the entire raw Pi branch in the renderer.
+ */
+export interface UiTurnActivityEntry extends UiTurnActivity {
+  /** Stable id derived from the owning turn and safe to use as a React key. */
+  id: string;
+  /** Result of the activity group as a whole, not just its newest tool call. */
+  status: "running" | "completed" | "interrupted" | "error";
+}
+
 export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   cwd: string;
   /** Canonical Tau thread owner. `sessionId` remains for v1 renderer clients. */

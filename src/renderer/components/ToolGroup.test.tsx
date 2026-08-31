@@ -95,4 +95,50 @@ describe("ToolGroup computer-use presentation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/ }));
     expect(screen.getByText("README.md")).toBeTruthy();
   });
+
+  it("keeps the full settled output behind an explicit tool-row action", () => {
+    const output = Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n");
+    const view = render(<ToolGroup
+      tools={[{ id: "bash", name: "bash", args: { command: "verbose" }, status: "done", output, startedAt: 0, endedAt: 10 }]}
+      registry={registryWithBundledExtensions()}
+      activityStatus="completed"
+    />);
+
+    expect(screen.getByText("Completed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Ran 1 command/u }));
+    expect(view.container.querySelector(".tool-output")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 0");
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 39");
+  });
+
+  it("keeps waiting, interrupted, and failed results distinct in collapsed summaries", () => {
+    const registry = registryWithBundledExtensions();
+    const { rerender } = render(<ToolGroup
+      tools={[{ id: "waiting", name: "read", args: { path: "question.ts" }, status: "running", startedAt: 0 }]}
+      registry={registry}
+      streaming
+      waiting
+    />);
+    expect(screen.getByText("Waiting for your answer")).toBeTruthy();
+    expect(screen.getByText("waiting for you")).toBeTruthy();
+
+    rerender(<ToolGroup
+      tools={[{ id: "interrupted", name: "read", args: { path: "stopped.ts" }, status: "running", startedAt: 0 }]}
+      registry={registry}
+      streaming={false}
+      activityStatus="interrupted"
+    />);
+    expect(screen.getByText("Interrupted")).toBeTruthy();
+    expect(screen.getByText("interrupted")).toBeTruthy();
+
+    rerender(<ToolGroup
+      tools={[{ id: "failed", name: "read", args: { path: "failed.ts" }, status: "error", startedAt: 0, endedAt: 1 }]}
+      registry={registry}
+      activityStatus="error"
+    />);
+    expect(screen.getByText("1 failed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
+    expect(screen.getByText("failed.ts")).toBeTruthy();
+  });
 });

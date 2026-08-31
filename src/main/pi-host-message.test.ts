@@ -64,6 +64,29 @@ describe("Pi message mapping", () => {
     })).toThrow("invalid transcript page");
   });
 
+  it("projects bridge activity records into the page's turn history", () => {
+    const page = mapBridgeTranscriptPageValue("thread", {
+      sessionId: "thread",
+      messages: [
+        { role: "user", content: "inspect", tauEntryId: "user" },
+        { role: "assistant", content: "done", tauEntryId: "assistant" },
+      ],
+      activityMessages: [
+        { role: "user", content: "inspect", tauEntryId: "user", timestamp: 1 },
+        { role: "assistant", content: [{ type: "toolCall", id: "read", name: "read", arguments: { path: "a.ts" } }], timestamp: 2 },
+        { role: "toolResult", toolCallId: "read", toolName: "read", content: "ok", isError: false, timestamp: 3 },
+      ],
+      hasMore: false,
+    });
+
+    expect(page.turnActivityHistory).toMatchObject([{
+      id: "turn-activity-user",
+      anchorMessageId: "user",
+      status: "completed",
+      tools: [{ id: "read", name: "read", status: "done", output: "ok" }],
+    }]);
+  });
+
   it.each([
     ["complete with cursor", { olderCursor: "4", hasMore: false, historyCompleteness: "complete" }],
     ["has-more without cursor", { hasMore: true, historyCompleteness: "has-more" }],

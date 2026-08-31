@@ -4,7 +4,7 @@ import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
-import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost } from "./pi-host.js";
+import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost, turnActivityHistoryFromMessages } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
@@ -238,6 +238,76 @@ describe("lastTurnActivityFromMessages", () => {
         endedAt: 5,
       }],
     });
+  });
+});
+
+describe("turnActivityHistoryFromMessages", () => {
+  it("keeps completed tool groups anchored to each turn in chronological order", () => {
+    const history = turnActivityHistoryFromMessages([
+      { role: "user", tauEntryId: "user-1", content: "inspect", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } }], timestamp: 2 },
+      { role: "toolResult", toolCallId: "read-1", toolName: "read", content: "first output", isError: false, timestamp: 3 },
+      { role: "assistant", content: [{ type: "text", text: "first answer" }], timestamp: 4 },
+      { role: "user", tauEntryId: "user-2", content: "change", timestamp: 5 },
+      { role: "assistant", content: [{ type: "toolCall", id: "edit-2", name: "edit", arguments: { path: "b.ts" } }], timestamp: 6 },
+      { role: "toolResult", toolCallId: "edit-2", toolName: "edit", content: "permission denied", isError: true, timestamp: 7 },
+    ]);
+
+    expect(history).toEqual([
+      {
+        id: "turn-activity-user-1",
+        anchorMessageId: "user-1",
+        status: "completed",
+        tools: [{
+          id: "read-1",
+          name: "read",
+          args: { path: "a.ts" },
+          status: "done",
+          output: "first output",
+          startedAt: 2,
+          endedAt: 3,
+        }],
+      },
+      {
+        id: "turn-activity-user-2",
+        anchorMessageId: "user-2",
+        status: "error",
+        tools: [{
+          id: "edit-2",
+          name: "edit",
+          args: { path: "b.ts" },
+          status: "error",
+          output: "permission denied",
+          startedAt: 6,
+          endedAt: 7,
+        }],
+      },
+    ]);
+  });
+
+  it("retains an interrupted running call as an honest historical state", () => {
+    expect(turnActivityHistoryFromMessages([
+      { role: "user", tauEntryId: "user", content: "run", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "call", name: "bash", arguments: { command: "npm test" } }], timestamp: 2 },
+      { role: "assistant", content: [{ type: "text", text: "stopped" }], stopReason: "aborted", timestamp: 3 },
+    ])).toMatchObject([{
+      id: "turn-activity-user",
+      anchorMessageId: "user",
+      status: "interrupted",
+      tools: [{ id: "call", status: "running" }],
+    }]);
+  });
+
+  it("classifies an agent-level error even when no tool result was written", () => {
+    expect(turnActivityHistoryFromMessages([
+      { role: "user", tauEntryId: "user", content: "run", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "call", name: "bash", arguments: {} }], timestamp: 2 },
+      { role: "assistant", content: [{ type: "text", text: "failed" }], stopReason: "error", timestamp: 3 },
+    ])).toMatchObject([{
+      id: "turn-activity-user",
+      status: "error",
+      tools: [{ id: "call", status: "running" }],
+    }]);
   });
 });
 

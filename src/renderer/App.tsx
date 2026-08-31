@@ -17,6 +17,7 @@ import type {
   ServiceTier,
   ToolApprovalRequest,
   UiToolRun,
+  UiTurnActivityEntry,
   UiTurnCheckpoint,
   UiWorkspaceChanges,
   WorkspaceInfo,
@@ -178,6 +179,44 @@ export function latestActivityAnchor(
     if (messages[index]?.role === "user") return messages[index].id;
   }
   return currentAnchorId;
+}
+
+function upsertSettledTurnActivity(
+  history: readonly UiTurnActivityEntry[],
+  tools: readonly UiToolRun[],
+  anchorMessageId?: string,
+  turnId?: string,
+): UiTurnActivityEntry[] {
+  if (tools.length === 0) return [...history];
+  const toolIds = new Set(tools.map((tool) => tool.id));
+  const existingIndex = [...history].reverse().findIndex((entry) => (
+    (anchorMessageId !== undefined && entry.anchorMessageId === anchorMessageId)
+    || entry.tools.some((tool) => toolIds.has(tool.id))
+  ));
+  const resolvedIndex = existingIndex < 0 ? -1 : history.length - 1 - existingIndex;
+  const status: UiTurnActivityEntry["status"] = tools.some((tool) => tool.status === "error")
+    ? "error"
+    : tools.some((tool) => tool.status === "running")
+      ? "interrupted"
+      : "completed";
+  const nextEntry = resolvedIndex >= 0
+    ? { ...history[resolvedIndex], tools: [...tools], status }
+    : {
+      id: `turn-activity-${turnId ?? anchorMessageId ?? `live-${Date.now()}`}`,
+      ...(anchorMessageId ? { anchorMessageId } : {}),
+      tools: [...tools],
+      status,
+    };
+  if (resolvedIndex < 0) return [...history, nextEntry];
+  return history.map((entry, index) => index === resolvedIndex ? nextEntry : entry);
+}
+
+function turnOwnerMessageId(messages: readonly UiMessage[], anchorMessageId?: string): string | undefined {
+  const anchorIndex = anchorMessageId === undefined
+    ? messages.length
+    : messages.findIndex((message) => message.id === anchorMessageId || message.sourceEntryId === anchorMessageId);
+  const end = anchorIndex < 0 ? messages.length : anchorIndex + 1;
+  return [...messages.slice(0, end)].reverse().find((message) => message.role === "user")?.id;
 }
 
 interface OptimisticUserMessage {
@@ -411,6 +450,7 @@ export default function App() {
   const [messages, setMessages] = useState<UiMessage[]>(cachedBootstrap?.snapshot.messages ?? []);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [tools, setTools] = useState<UiToolRun[]>([]);
+  const [turnActivityHistory, setTurnActivityHistory] = useState(cachedBootstrap?.snapshot.turnActivityHistory ?? []);
   const [turnCheckpoints, setTurnCheckpoints] = useState<UiTurnCheckpoint[]>(cachedBootstrap?.snapshot.turnCheckpoints ?? []);
   const turnCheckpointsRef = useRef(turnCheckpoints);
   turnCheckpointsRef.current = turnCheckpoints;
@@ -477,6 +517,10 @@ export default function App() {
   const workspaceRequestRef = useRef(0);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const toolsRef = useRef(tools);
+  toolsRef.current = tools;
+  const turnActivityHistoryRef = useRef(turnActivityHistory);
+  turnActivityHistoryRef.current = turnActivityHistory;
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
   const assistantStartsRef = useRef(new Map<string, number>());
@@ -488,6 +532,11 @@ export default function App() {
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
+  const updateTools = useCallback((update: UiToolRun[] | ((current: UiToolRun[]) => UiToolRun[])) => {
+    const next = typeof update === "function" ? update(toolsRef.current) : update;
+    toolsRef.current = next;
+    setTools(next);
+  }, []);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -525,11 +574,11 @@ export default function App() {
     const pending = pendingToolUpdatesRef.current;
     if (pending.size === 0) return;
     pendingToolUpdatesRef.current = new Map();
-    setTools((current) => current.map((tool) => {
+    updateTools((current) => current.map((tool) => {
       const output = pending.get(tool.id);
       return output === undefined || output === tool.output ? tool : { ...tool, output };
     }));
-  }, []);
+  }, [updateTools]);
 
   const queueToolUpdate = useCallback((id: string, output: string) => {
     pendingToolUpdatesRef.current.set(id, output);
@@ -558,15 +607,18 @@ export default function App() {
     setCheckpointStatus(undefined);
     setTurnSettledWithoutCheckpoint(false);
     const restoredActivity = next.turnActivity ?? cachedActivity;
-    setTools(restoredActivity?.tools ?? []);
+    updateTools(restoredActivity?.tools ?? []);
+    toolAnchorRef.current = restoredActivity?.anchorMessageId;
     setToolAnchorId(restoredActivity?.anchorMessageId);
+    turnActivityHistoryRef.current = next.turnActivityHistory ?? [];
+    setTurnActivityHistory(next.turnActivityHistory ?? []);
     setTurnBaseline(cachedActivity?.baseline);
     setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
     cachedSnapshotRef.current = next;
     writeBootstrapCache(next, cachedIndexRef.current);
     activeWorkspaceRef.current = next.cwd;
     return true;
-  }, [threadStore, transcriptHistory]);
+  }, [threadStore, transcriptHistory, updateTools]);
 
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
@@ -579,6 +631,9 @@ export default function App() {
     const application = transcriptHistory.applyPage(page, messagesRef.current, request);
     if (!application) return false;
     setMessages(application.messages);
+    const nextActivityHistory = application.snapshot?.turnActivityHistory ?? application.detail?.turnActivityHistory ?? [];
+    turnActivityHistoryRef.current = nextActivityHistory;
+    setTurnActivityHistory(nextActivityHistory);
     if (application.snapshot) setSnapshot(application.snapshot);
     return true;
   }, [transcriptHistory]);
@@ -638,8 +693,12 @@ export default function App() {
       setTurnSettledWithoutCheckpoint(false);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detailForRender.sessionId);
       const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
-      setTools(restoredActivity?.tools ?? []);
+      updateTools(restoredActivity?.tools ?? []);
+      toolAnchorRef.current = restoredActivity?.anchorMessageId;
       setToolAnchorId(restoredActivity?.anchorMessageId);
+      const nextActivityHistory = detailForRender.turnActivityHistory ?? [];
+      turnActivityHistoryRef.current = nextActivityHistory;
+      setTurnActivityHistory(nextActivityHistory);
       setTurnBaseline(cachedActivity?.baseline);
       setTurnActivitySessionId(restoredActivity ? detailForRender.sessionId : undefined);
       setSnapshot((current) => {
@@ -651,6 +710,7 @@ export default function App() {
           ...(detail.threadId ? { threadId: detail.threadId } : {}),
           ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
           turnCheckpoints: detailForRender.turnCheckpoints,
+          turnActivityHistory: detailForRender.turnActivityHistory,
         };
         cachedSnapshotRef.current = enriched;
         writeBootstrapCache(enriched, cachedIndexRef.current);
@@ -686,7 +746,7 @@ export default function App() {
       threadStore.setStreaming(update.event === "started");
     }
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, promoteFromHostReport, threadStore, transcriptHistory]);
+  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, flushToolUpdates, promoteFromHostReport, threadStore, transcriptHistory, updateTools]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: TransitionToken): boolean => {
     if (expectedTransition !== undefined && !transcriptHistory.isCurrentThreadTransition(expectedTransition)) return false;
@@ -777,7 +837,8 @@ export default function App() {
           pendingToolUpdatesRef.current.clear();
           if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
           toolFrameRef.current = undefined;
-          setTools([]);
+          updateTools([]);
+          toolAnchorRef.current = undefined;
           setToolAnchorId(undefined);
           setTurnBaseline(changesRef.current);
           setTurnActivitySessionId(event.sessionId);
@@ -790,11 +851,26 @@ export default function App() {
         });
         setRunStartedAt(event.running ? Date.now() : undefined);
         if (!event.running) {
-          // A reconnect can miss a final tool-end frame. Pi settling is authoritative:
-          // no tool may remain running after this point.
-          setTools((current) => current.map((tool) => tool.status === "running"
-            ? { ...tool, status: "done", endedAt: Date.now() }
-            : tool));
+          // A reconnect can miss a final tool-end frame. Keep that call open
+          // in the UI so ToolGroup can truthfully present it as interrupted;
+          // the next authoritative snapshot replaces it when a result exists.
+          flushToolUpdates();
+          const nextActivityHistory = upsertSettledTurnActivity(
+            turnActivityHistoryRef.current,
+            toolsRef.current,
+            toolAnchorRef.current,
+            turnOwnerMessageId(messagesRef.current, toolAnchorRef.current),
+          );
+          turnActivityHistoryRef.current = nextActivityHistory;
+          setTurnActivityHistory(nextActivityHistory);
+          transcriptHistory.updateTurnActivityHistory(event.sessionId, nextActivityHistory);
+          setSnapshot((current) => {
+            if (!current) return current;
+            const updated = { ...current, turnActivityHistory: nextActivityHistory };
+            cachedSnapshotRef.current = updated;
+            writeBootstrapCache(updated, cachedIndexRef.current);
+            return updated;
+          });
           // "Ready" is an unread badge: only raise it if the user was not watching this finish.
           const finished = runningThreadRef.current;
           const viewed = threadStore.getSnapshot().activeThreadId;
@@ -944,7 +1020,7 @@ export default function App() {
           toolAnchorRef.current = anchor;
           setToolAnchorId(anchor);
         }
-        setTools((current) => [...current.filter((tool) => tool.id !== event.tool.id), event.tool]);
+        updateTools((current) => [...current.filter((tool) => tool.id !== event.tool.id), event.tool]);
         break;
       }
       case "tool-update":
@@ -953,7 +1029,7 @@ export default function App() {
       case "tool-end":
         pendingToolUpdatesRef.current.delete(event.tool.id);
         threadStore.toolEnded(event.tool.id);
-        setTools((current) => current.map((tool) => tool.id === event.tool.id ? event.tool : tool));
+        updateTools((current) => current.map((tool) => tool.id === event.tool.id ? event.tool : tool));
         if (event.tool.name === "edit" || event.tool.name === "write") void refreshChanges();
         break;
       case "event-log":
@@ -1319,13 +1395,14 @@ export default function App() {
       // The stalled row is restored from a renderer-side cache, so clearing the
       // session alone would leave the ghost on screen.
       if (sessionId) clearCachedTurnActivity(window.localStorage, sessionId);
-      setTools([]);
+      updateTools([]);
+      toolAnchorRef.current = undefined;
       setToolAnchorId(undefined);
       setNotice("Closed the interrupted call. The thread can continue.");
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, [applyActionResult, requireHost, snapshot?.sessionId]);
+  }, [applyActionResult, requireHost, snapshot?.sessionId, updateTools]);
 
   const compactContext = useCallback(async () => {
     if (!requireHost("Compaction")) return;
@@ -1939,7 +2016,51 @@ export default function App() {
     composerAttachmentSnapshot.attachments,
   );
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
+  const conversationActivityHistory = pendingNewThread
+    ? []
+    : (turnActivityHistory.length > 0 ? turnActivityHistory : conversationSnapshot?.turnActivityHistory ?? []);
+  const currentActivityToolIds = new Set(conversationActivityTools.map((tool) => tool.id));
+  const currentActivityHistoryId = conversationActivityTools.length > 0
+    ? [...conversationActivityHistory].reverse().find((entry) => (
+      (toolAnchorId !== undefined && entry.anchorMessageId === toolAnchorId)
+      || entry.tools.some((tool) => currentActivityToolIds.has(tool.id))
+    ))?.id
+    : undefined;
+  const historicalActivityRows = conversationActivityHistory
+    .filter((entry) => entry.id !== currentActivityHistoryId)
+    .filter((entry) => entry.tools.some((tool) => tool.name !== "todo"))
+    .map((entry) => ({
+      id: entry.id,
+      afterMessageId: entry.anchorMessageId,
+      content: (
+        <ToolGroup
+          tools={entry.tools.filter((tool) => tool.name !== "todo")}
+          registry={registry}
+          streaming={entry.status === "running"}
+          activityStatus={entry.status}
+          onRecover={entry.status === "interrupted" ? () => void recoverThread() : undefined}
+        />
+      ),
+    }));
   const conversationPrompts = pendingNewThread ? [] : threadPrompts;
+  const liveTaskProgress = conversationSnapshot?.isStreaming && conversationSnapshot.taskProgress
+    ? <TaskProgress progress={conversationSnapshot.taskProgress} placement="transcript" />
+    : undefined;
+  const liveActivity = conversationActivityTools.length > 0 || liveTaskProgress
+    ? <div className="turn-live-activity">
+      {conversationActivityTools.length > 0 ? (
+        <ToolGroup
+          tools={conversationActivityTools}
+          registry={registry}
+          streaming={conversationSnapshot?.isStreaming}
+          waiting={conversationPrompts.length > 0}
+          onRecover={() => void recoverThread()}
+          onStop={() => void window.tau?.abort(snapshot?.sessionId)}
+        />
+      ) : null}
+      {liveTaskProgress}
+    </div>
+    : undefined;
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
@@ -2210,22 +2331,13 @@ export default function App() {
                         anchorRef={anchorRef}
                         isStreaming={Boolean(conversationSnapshot?.isStreaming)}
                         sessionKey={conversationSnapshot?.sessionId}
-                        activity={conversationActivityTools.length > 0 ? (
-                          <ToolGroup
-                            tools={conversationActivityTools}
-                            registry={registry}
-                            streaming={conversationSnapshot?.isStreaming}
-                            waiting={conversationPrompts.length > 0}
-                            onRecover={() => void recoverThread()}
-                            onStop={() => void window.tau?.abort(snapshot?.sessionId)}
-                          />
-                        ) : undefined}
+                        activity={liveActivity}
                         activityAfterMessageId={visibleToolAnchorId}
-                        activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
+                        activities={historicalActivityRows.concat((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
                           id: entry.id,
                           afterMessageId: entry.anchorMessageId,
                           content: <TaskProgress progress={entry.progress} placement="transcript" />,
-                        })).concat(checkpointActivities)}
+                        }))).concat(checkpointActivities)}
                         onCopyMessage={(message) => void copyMessage(message)}
                         onForkMessage={(message) => void forkMessage(message)}
                       />

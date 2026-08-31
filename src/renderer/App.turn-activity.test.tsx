@@ -58,6 +58,24 @@ describe("last-turn activity", () => {
     expect(preferences.isSettled("session")).toBe(false);
   });
 
+  it("keeps a tool without a terminal frame visibly interrupted after settling", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+
+    act(() => {
+      publish({ type: "agent-status", sessionId: "session", running: true });
+      publish({
+        type: "tool-start",
+        sessionId: "session",
+        tool: { ...tool("stalled"), status: "running", endedAt: undefined },
+      });
+      publish({ type: "agent-status", sessionId: "session", running: false });
+    });
+
+    expect(await screen.findByText("1 tool call interrupted")).toBeTruthy();
+    expect(screen.getByText("interrupted")).toBeTruthy();
+  });
+
   it("prefers authoritative completed tools over stale running cache entries", async () => {
     writeCachedTurnActivity(localStorage, {
       sessionId: "session",
@@ -164,6 +182,9 @@ describe("last-turn activity", () => {
       expect.stringMatching(/Do the work.*Used 1 tool/u),
       expect.stringContaining("Finished"),
     ]);
+
+    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    expect(await screen.findByText("Completed")).toBeTruthy();
   });
 
   it("keeps changed files in the fixed dock outside the scrolling transcript", async () => {
@@ -259,5 +280,67 @@ describe("last-turn activity", () => {
     });
     await waitFor(() => expect(screen.queryByText(/Used 3 tools/u)).toBeNull());
     expect(screen.getByText(/Working · Used 1 tool/u)).toBeTruthy();
+  });
+
+  it("renders completed activity at each persisted turn anchor", async () => {
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          messages: [
+            { id: "user-one", role: "user" as const, text: "first request", timestamp: 1 },
+            { id: "reply-one", role: "assistant" as const, text: "first reply", timestamp: 2 },
+            { id: "user-two", role: "user" as const, text: "second request", timestamp: 3 },
+            { id: "reply-two", role: "assistant" as const, text: "second reply", timestamp: 4 },
+          ],
+          turnActivityHistory: [
+            { id: "turn-activity-user-one", anchorMessageId: "user-one", status: "completed" as const, tools: [tool("first-tool")] },
+            { id: "turn-activity-user-two", anchorMessageId: "user-two", status: "error" as const, tools: [{ ...tool("second-tool"), status: "error" as const }] },
+          ],
+        },
+      };
+    };
+
+    const view = render(<App />);
+    await screen.findByText("second reply");
+    const activityRows = view.container.querySelectorAll(".inline-transcript-activity");
+    expect(activityRows).toHaveLength(2);
+    expect(activityRows[0]?.textContent).toContain("Completed");
+    expect(activityRows[1]?.textContent).toContain("1 failed");
+    expect(activityRows[0]?.textContent).toContain("Used 1 tool");
+    expect(activityRows[1]?.textContent).toContain("Used 1 tool");
+  });
+
+  it("does not duplicate the live group when its anchor is an assistant message", async () => {
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      const currentTool = { ...tool("current"), status: "running" as const, endedAt: undefined };
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          isStreaming: true,
+          messages: [
+            { id: "user", role: "user" as const, text: "request", timestamp: 1 },
+            { id: "assistant", role: "assistant" as const, text: "I will inspect this", timestamp: 2 },
+          ],
+          turnActivity: { anchorMessageId: "assistant", tools: [currentTool] },
+          turnActivityHistory: [{
+            id: "turn-activity-user",
+            anchorMessageId: "assistant",
+            status: "running" as const,
+            tools: [currentTool],
+          }],
+        },
+      };
+    };
+
+    const view = render(<App />);
+    await screen.findByText("I will inspect this");
+    expect(view.container.querySelectorAll(".inline-transcript-activity")).toHaveLength(1);
   });
 });

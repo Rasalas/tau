@@ -1,4 +1,4 @@
-import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
+import type { HostSnapshot, ThreadIndexSnapshot, UiMessage, UiTurnActivityEntry } from "../shared/contracts";
 import { hostSnapshotFromThreadDetail, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
@@ -7,6 +7,7 @@ import {
   mergeTranscriptMessages,
   applyTranscriptBundleMerge,
   mergeTaskHistory,
+  mergeTurnActivityHistory,
   retainsLoadedHistory,
   restoreTranscriptScrollAnchor,
   TranscriptHistoryPageState,
@@ -40,6 +41,7 @@ export {
   captureTranscriptScrollAnchor,
   applyTranscriptBundleMerge,
   mergeTaskHistory,
+  mergeTurnActivityHistory,
   mergeTranscriptMessages,
   retainsLoadedHistory,
   restoreTranscriptScrollAnchor,
@@ -113,6 +115,15 @@ export class TranscriptHistoryController {
     return this.cache.getSnapshot();
   }
 
+  /** Keep renderer-derived completion state available to subsequent page merges. */
+  updateTurnActivityHistory(sessionId: string, history: readonly UiTurnActivityEntry[]): void {
+    const detail = this.cache.getDetail(sessionId);
+    if (detail) this.cache.setDetail({ ...detail, turnActivityHistory: [...history] });
+    const snapshot = this.cache.getSnapshot();
+    if (snapshot?.sessionId === sessionId) this.cache.setSnapshot({ ...snapshot, turnActivityHistory: [...history] });
+    this.cache.persist();
+  }
+
   persistCache(): void {
     this.cache.persist();
   }
@@ -160,11 +171,12 @@ export class TranscriptHistoryController {
       keepHistory && previous ? previous : undefined,
       detail,
     );
-    const { messages, taskHistory, cursorBoundaries, transcriptWindow } = mergedBundle;
+    const { messages, taskHistory, turnActivityHistory, cursorBoundaries, transcriptWindow } = mergedBundle;
     const renderedDetail: ThreadDetail = {
       ...detail,
       messages,
       taskHistory,
+      turnActivityHistory,
       olderCursor: keepHistory ? previous?.olderCursor : detail.olderCursor,
       cursorBeforeMessageId: keepHistory ? previous?.cursorBeforeMessageId : detail.cursorBeforeMessageId,
       cursorBoundaries: keepHistory ? cursorBoundaries : detail.cursorBoundaries,
@@ -262,11 +274,12 @@ export class TranscriptHistoryController {
       { messages: visibleMessages },
     );
     const mergedBundle = applyTranscriptBundleMerge(baseBundle, pageBundle, "prepend");
-    const { messages, taskHistory, cursorBoundaries, transcriptWindow } = mergedBundle;
+    const { messages, taskHistory, turnActivityHistory, cursorBoundaries, transcriptWindow } = mergedBundle;
     const detail = currentDetail ? applyTranscriptPageMetadata({
       ...currentDetail,
       messages,
       taskHistory,
+      turnActivityHistory,
     }, pageBundle, cursorBoundaries, transcriptWindow) : undefined;
     if (detail) this.cache.setDetail(detail);
     this.pageState.markAnchorMeasured(messages);
@@ -283,6 +296,7 @@ export class TranscriptHistoryController {
         ...(detail ?? threadDetailFromHostSnapshot(cachedSnapshot)),
         messages: snapshotBundle.messages,
         taskHistory: snapshotBundle.taskHistory,
+        turnActivityHistory: snapshotBundle.turnActivityHistory,
       }, pageBundle, snapshotBundle.cursorBoundaries, snapshotBundle.transcriptWindow);
       snapshot = hostSnapshotFromThreadDetail(cachedSnapshot, snapshotDetail);
       this.cache.setSnapshot(snapshot);

@@ -1,7 +1,7 @@
 import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts.js";
 import { isHostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { TranscriptCursorBoundary } from "../shared/transcript-contract.js";
-import { normalizeTranscriptCursorBoundaries } from "../shared/host-protocol.js";
+import { normalizeTranscriptCursorBoundaries, turnActivityHistoryForMessages } from "../shared/host-protocol.js";
 import { parseTranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../shared/transcript-pager.js";
 
@@ -48,6 +48,7 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
     ...snapshot,
     messages,
     taskHistory: snapshot.taskHistory?.filter((entry) => !entry.anchorMessageId || messages.some((message) => message.id === entry.anchorMessageId)),
+    turnActivityHistory: turnActivityHistoryForMessages(snapshot.turnActivityHistory, messages),
     historyCompleteness,
     ...(selectedBoundary ? {
       olderCursor: selectedBoundary.cursor,
