@@ -250,16 +250,6 @@ export function Composer({
   return (
     <footer className="composer-zone">
       {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
-      {prompt ? (
-        <ExtensionPrompt
-          prompt={prompt}
-          pending={promptsPending}
-          choices={promptChoices}
-          onAnswer={(value) => { onAnswerPrompt?.(value); updateDraft(""); }}
-          onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
-          onPreselect={onPreselectQuestion}
-        />
-      ) : null}
       {queue.length > 0 ? (
         <div className="composer-queue">
           {queue.map((entry, index) => (
@@ -272,6 +262,16 @@ export function Composer({
             </div>
           ))}
         </div>
+      ) : null}
+      {prompt ? (
+        <ExtensionPrompt
+          prompt={prompt}
+          pending={promptsPending}
+          choices={promptChoices}
+          onAnswer={(value) => { onAnswerPrompt?.(value); updateDraft(""); }}
+          onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
+          onPreselect={onPreselectQuestion}
+        />
       ) : null}
 
       <div

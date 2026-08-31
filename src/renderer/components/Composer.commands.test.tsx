@@ -98,6 +98,33 @@ describe("Composer command menu", () => {
     expect(onSubmit).toHaveBeenLastCalledWith("adjust now", [], "steer");
   });
 
+  it("keeps a blocking question attached to its answer field below the queue", () => {
+    const { container } = render(<Composer
+      snapshot={{ ...snapshot, isStreaming: true }}
+      queue={["after this turn"]}
+      accessLevel="full"
+      contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+      textareaRef={createRef<HTMLTextAreaElement>()}
+      onSubmit={() => {}}
+      onAbort={() => {}}
+      onCancelQueued={() => {}}
+      onSetModel={() => {}}
+      onSetThinking={() => {}}
+      onSetServiceTier={() => {}}
+      prompt={{ id: "question", sessionId: "session", kind: "input", title: "Choose the scope" }}
+      onSetAccess={() => {}}
+      onCompactContext={() => {}}
+      workspaceBusy={false}
+      onOpenWorktree={async () => true}
+      onCreateWorktree={async () => true}
+      onSwitchRef={async () => true}
+    />);
+
+    const stack = container.querySelector(".composer-zone");
+    expect(Array.from(stack?.children ?? []).slice(0, 3).map((element) => element.classList[0]))
+      .toEqual(["composer-queue", "extension-prompt", "composer-frame"]);
+  });
+
   it("offers prompt templates and extension commands under slash", () => {
     renderComposer();
     const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
