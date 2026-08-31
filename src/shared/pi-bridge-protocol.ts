@@ -1,4 +1,4 @@
-import type { ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
+import type { DiffLoadOptions, ExtensionUiPromptKind, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry, UiTurnCheckpoint } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -33,6 +33,8 @@ export interface PiBridgeSnapshot {
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
+  /** Optional because older Pi bridge extensions do not provide checkpoints. */
+  turnCheckpoints?: UiTurnCheckpoint[];
   /** Set while Pi blocks on an extension question in its own terminal. */
   awaitingInput?: PiBridgeAwaitingInput;
 }
@@ -48,6 +50,7 @@ export type PiBridgeCommand =
   | { command: "fork"; entryId: string }
   | { command: "new_session"; initialPrompt?: string }
   | { command: "export_markdown" }
+  | ({ command: "turn_file_diff"; checkpointId: string; path: string } & DiffLoadOptions)
   | { command: "snapshot" }
   | { command: "ping" };
 

@@ -5,7 +5,9 @@ message with an unknown version or type and continue using its last coherent
 state; it must not reinterpret it as a `HostSnapshot`.
 
 - `thread-index` and `thread-shell` contain navigation records only.
-- `thread-detail` contains the active session's messages, run state, tools, and usage.
+- `thread-detail` contains the active session's messages, run state, tools, usage,
+  and immutable turn-checkpoint summaries. Historical diff bytes are loaded by
+  the dedicated host API so transcript updates stay bounded.
 - `transcript-page` contains a bounded page plus a cursor for older records.
 - `catalog` contains models, thinking levels, tools, and extension count.
 - `project` contains workspace identity, branch, and optional project metadata.

@@ -15,6 +15,7 @@ import type {
   ServiceTier,
   ToolApprovalRequest,
   UiToolRun,
+  UiTurnCheckpoint,
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts";
@@ -99,6 +100,7 @@ export function optimisticThreadSnapshot(
     isStreaming: false,
     activeTools: detail.activeTools,
     turnActivity: detail.turnActivity,
+    turnCheckpoints: detail.turnCheckpoints,
     taskProgress: detail.taskProgress,
     taskHistory: detail.taskHistory,
     contextUsage: detail.contextUsage,
@@ -323,6 +325,9 @@ export default function App() {
   const [messages, setMessages] = useState<UiMessage[]>(cachedBootstrap?.snapshot.messages ?? []);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [tools, setTools] = useState<UiToolRun[]>([]);
+  const [turnCheckpoints, setTurnCheckpoints] = useState<UiTurnCheckpoint[]>(cachedBootstrap?.snapshot.turnCheckpoints ?? []);
+  const turnCheckpointsRef = useRef(turnCheckpoints);
+  turnCheckpointsRef.current = turnCheckpoints;
   const [toolAnchorId, setToolAnchorId] = useState<string>();
   const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -343,13 +348,21 @@ export default function App() {
   const questionnaireChoicesRef = useRef(questionnaireChoices);
   questionnaireChoicesRef.current = questionnaireChoices;
   const [runStartedAt, setRunStartedAt] = useState<number>();
+  // Legacy sessions may only have the old renderer cache. A settled run with
+  // no durable checkpoint must not leave that stale cache looking current.
+  const [turnSettledWithoutCheckpoint, setTurnSettledWithoutCheckpoint] = useState(false);
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
   const [settingsPage, setSettingsPage] = useState<string>();
-  const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
+  const [review, setReview] = useState<{
+    path?: string;
+    primaryPush: boolean;
+    checkpointId?: string;
+    sessionId?: string;
+  }>();
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -443,6 +456,7 @@ export default function App() {
       isStreaming: next.isStreaming,
       activeTools: next.activeTools,
       turnActivity: next.turnActivity,
+      turnCheckpoints: next.turnCheckpoints,
       taskProgress: next.taskProgress,
       taskHistory: next.taskHistory,
       contextUsage: next.contextUsage,
@@ -454,6 +468,9 @@ export default function App() {
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     setSnapshot(next);
     setMessages(next.messages);
+    turnCheckpointsRef.current = next.turnCheckpoints ?? [];
+    setTurnCheckpoints(turnCheckpointsRef.current);
+    setTurnSettledWithoutCheckpoint(false);
     const restoredActivity = next.turnActivity ?? cachedActivity;
     setTools(restoredActivity?.tools ?? []);
     setToolAnchorId(restoredActivity?.anchorMessageId);
@@ -489,6 +506,9 @@ export default function App() {
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
       setOlderCursor(detail.olderCursor);
       setMessages(detail.messages);
+      turnCheckpointsRef.current = detail.turnCheckpoints ?? [];
+      setTurnCheckpoints(turnCheckpointsRef.current);
+      setTurnSettledWithoutCheckpoint(false);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detail.sessionId);
       const restoredActivity = detail.turnActivity ?? cachedActivity;
       setTools(restoredActivity?.tools ?? []);
@@ -506,6 +526,7 @@ export default function App() {
           isStreaming: detail.isStreaming,
           activeTools: detail.activeTools,
           turnActivity: detail.turnActivity,
+          turnCheckpoints: detail.turnCheckpoints,
           taskProgress: detail.taskProgress,
           taskHistory: detail.taskHistory,
           contextUsage: detail.contextUsage,
@@ -596,7 +617,7 @@ export default function App() {
     if (
       (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
         || event.type === "assistant-end" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
-        || event.type === "tool-end" || event.type === "queue")
+        || event.type === "tool-end" || event.type === "queue" || event.type === "turn-checkpoint")
       && event.sessionId !== threadStore.getSnapshot().activeThreadId
     ) return;
     switch (event.type) {
@@ -615,6 +636,7 @@ export default function App() {
           setToolAnchorId(undefined);
           setTurnBaseline(changesRef.current);
           setTurnActivitySessionId(event.sessionId);
+          setTurnSettledWithoutCheckpoint(false);
         }
         threadStore.setStreaming(event.running);
         setSnapshot((current) => {
@@ -633,8 +655,24 @@ export default function App() {
           const viewed = threadStore.getSnapshot().activeThreadId;
           if (finished && (finished !== viewed || document.hidden)) threadStore.markUnread(finished);
           runningThreadRef.current = "";
+          setTurnSettledWithoutCheckpoint(true);
           void refreshChanges();
         }
+        break;
+      }
+      case "turn-checkpoint": {
+        const next = [...turnCheckpointsRef.current.filter((entry) => entry.id !== event.checkpoint.id), event.checkpoint]
+          .sort((left, right) => left.endedAt - right.endedAt);
+        turnCheckpointsRef.current = next;
+        setTurnCheckpoints(next);
+        setTurnSettledWithoutCheckpoint(false);
+        setSnapshot((current) => {
+          if (!current || current.sessionId !== event.sessionId) return current;
+          const updated = { ...current, turnCheckpoints: next };
+          cachedSnapshotRef.current = updated;
+          writeBootstrapCache(updated, cachedIndexRef.current);
+          return updated;
+        });
         break;
       }
       case "assistant-start":
@@ -769,6 +807,7 @@ export default function App() {
           isStreaming: bootstrap.detail.isStreaming,
           activeTools: bootstrap.detail.activeTools,
           turnActivity: bootstrap.detail.turnActivity,
+          turnCheckpoints: bootstrap.detail.turnCheckpoints,
           taskProgress: bootstrap.detail.taskProgress,
           taskHistory: bootstrap.detail.taskHistory,
           contextUsage: bootstrap.detail.contextUsage,
@@ -813,7 +852,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId);
+  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline, turnCheckpoints], snapshot?.sessionId);
 
   const loadOlder = useCallback(async () => {
     if (!olderCursor || loadingOlder || !snapshot || !window.tau) return;
@@ -894,6 +933,15 @@ export default function App() {
     void refreshChanges();
     setReview({ path, primaryPush });
   }, [refreshChanges, workspace?.upstream]);
+
+  const openCheckpointReview = useCallback((checkpointId: string, path?: string) => {
+    const checkpoint = turnCheckpoints.find((entry) => entry.id === checkpointId);
+    if (!checkpoint) {
+      setNotice("This turn checkpoint is no longer available.");
+      return;
+    }
+    setReview({ path, primaryPush: false, checkpointId, sessionId: checkpoint.sessionId });
+  }, [turnCheckpoints]);
 
   const acceptWorkspace = useCallback((result: HostActionResult) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
@@ -1506,6 +1554,22 @@ export default function App() {
     [changes, tools, turnBaseline],
   );
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
+  const checkpointActivities = useMemo(() => (pendingNewThread ? [] : turnCheckpoints)
+    .filter((checkpoint) => checkpoint.files.length > 0)
+    .map((checkpoint) => ({
+      id: `turn-checkpoint-${checkpoint.id}`,
+      afterMessageId: checkpoint.anchorMessageId,
+      fallbackToTail: true,
+      content: (
+        <div className="turn-checkpoint-card" data-checkpoint-id={checkpoint.id}>
+          <ChangedFiles
+            changes={checkpoint}
+            label="Turn changes"
+            onOpenDiff={(path) => openCheckpointReview(checkpoint.id, path)}
+          />
+        </div>
+      ),
+    })), [openCheckpointReview, pendingNewThread, turnCheckpoints]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -1533,6 +1597,9 @@ export default function App() {
   const filesContextValue = useMemo(() => ({ fileTree, snapshot: panelProject, refreshFiles, loadFiles }), [fileTree, panelProject, refreshFiles, loadFiles]);
   const changesContextValue = useMemo(() => ({ changes, snapshot: panelProject, refreshChanges, openReview }), [changes, panelProject, refreshChanges, openReview]);
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
+  const reviewChanges = review?.checkpointId
+    ? turnCheckpoints.find((checkpoint) => checkpoint.id === review.checkpointId) ?? NO_CHANGES
+    : changes;
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
@@ -1676,18 +1743,29 @@ export default function App() {
                   <LazyFeatureBoundary label="review">
                     <Suspense fallback={<LazyFeatureFallback label="review" />}>
                       <LazyReviewMode
-                        changes={changes}
-                        selectedPath={review.path ?? changes.files[0]?.path}
+                        changes={reviewChanges}
+                        selectedPath={review.path ?? reviewChanges.files[0]?.path}
                         editor={activeEditor}
                         busy={committing}
                         primaryPush={review.primaryPush}
-                        onSelect={(path) => setReview((current) => ({ path, primaryPush: current?.primaryPush ?? Boolean(workspace?.upstream) }))}
+                        onSelect={(path) => setReview((current) => current ? { ...current, path } : current)}
                         onBack={() => setReview(undefined)}
                         onCommit={(message, push) => void commit(message, push)}
                         onOpenInEditor={(path) => void openInEditor(path)}
-                        loadDiff={async (path) => window.tau
-                          ? window.tau.getFileDiff(path)
-                          : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }}
+                        readOnly={Boolean(review.checkpointId)}
+                        checkpointTitle={review.checkpointId ? "Turn changes" : undefined}
+                        loadDiff={async (path, options) => {
+                          if (!window.tau) return { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." };
+                          if (review.checkpointId) {
+                            return window.tau.getTurnFileDiff(
+                              review.sessionId ?? snapshot?.sessionId ?? "",
+                              review.checkpointId,
+                              path,
+                              options,
+                            );
+                          }
+                          return window.tau.getFileDiff(path, options);
+                        }}
                       />
                     </Suspense>
                   </LazyFeatureBoundary>
@@ -1796,7 +1874,7 @@ export default function App() {
                       id: entry.id,
                       afterMessageId: entry.anchorMessageId,
                       content: <TaskProgress progress={entry.progress} placement="transcript" />,
-                    }))}
+                    })).concat(checkpointActivities)}
                     onCopyMessage={(message) => void copyMessage(message)}
                     onForkMessage={(message) => void forkMessage(message)}
                   />
@@ -1808,7 +1886,11 @@ export default function App() {
                 </div>
               </div>
 
-              {!pendingNewThread && turnChanges.files.length > 0 ? (
+              {!pendingNewThread
+                && turnChanges.files.length > 0
+                && turnCheckpoints.length === 0
+                && !turnSettledWithoutCheckpoint
+                ? (
                 <div className="conversation-files-dock">
                   <ChangedFiles changes={turnChanges} onOpenDiff={openReview} />
                 </div>

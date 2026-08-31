@@ -9,9 +9,14 @@ export interface VirtualTranscriptProps {
   isStreaming: boolean;
   activity?: ReactNode;
   activityAfterMessageId?: string;
-  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
+  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode; fallbackToTail?: boolean }>;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
+}
+
+function resolveMessageId(messages: readonly UiMessage[], requestedId?: string): string | undefined {
+  if (!requestedId) return undefined;
+  return messages.find((message) => message.id === requestedId || message.sourceEntryId === requestedId)?.id;
 }
 
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
@@ -29,12 +34,12 @@ export function VirtualTranscript({
     ...activities,
     ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, content: activity }] : []),
   ];
-  const messageIds = new Set(messages.map((message) => message.id));
   const tailMessageId = messages.at(-1)?.id;
   const activitiesByMessage = new Map<string, typeof pendingActivities>();
   for (const entry of pendingActivities) {
+    const resolvedAnchor = resolveMessageId(messages, entry.afterMessageId);
     const anchor = entry.afterMessageId
-      ? (messageIds.has(entry.afterMessageId) ? entry.afterMessageId : entry.id === "turn-activity" ? tailMessageId : undefined)
+      ? (resolvedAnchor ?? ((entry.id === "turn-activity" || entry.fallbackToTail) ? tailMessageId : undefined))
       : tailMessageId;
     if (!anchor) continue;
     const anchored = activitiesByMessage.get(anchor) ?? [];

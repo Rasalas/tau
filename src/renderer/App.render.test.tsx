@@ -243,6 +243,57 @@ describe("App render isolation", () => {
     expect(screen.queryByText("Used 1 tool")).toBeNull();
   });
 
+  it("renders durable turn checkpoints inline and loads their historical diff", async () => {
+    const getTurnFileDiff = vi.fn(async () => ({
+      path: "src/old.ts",
+      added: 1,
+      removed: 0,
+      hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "added" as const, newLine: 1, text: "historical" }] }],
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "answer", sourceEntryId: "answer-entry", role: "assistant" as const, text: "Finished", timestamp: 2 },
+          ],
+          isStreaming: false,
+          activeTools: [],
+          turnCheckpoints: [{
+            id: "turn-1",
+            turnId: "turn-1",
+            sessionId: "session",
+            anchorMessageId: "answer-entry",
+            startedAt: 1,
+            endedAt: 3,
+            files: [{ path: "src/old.ts", name: "old.ts", directory: "src", status: "modified" as const, added: 1, removed: 0 }],
+            added: 1,
+            removed: 0,
+            branch: "main",
+          }],
+        },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        project: { cwd: "/project", branch: "main" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      getTurnFileDiff,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
+    expect(document.querySelector(".conversation-files-dock")).toBeNull();
+    fireEvent.click(screen.getByText("Open diff"));
+    await waitFor(() => expect(getTurnFileDiff).toHaveBeenCalledWith("session", "turn-1", "src/old.ts", { hunkLimit: 40 }));
+    expect(screen.getByText("Historical turn")).toBeTruthy();
+  });
+
   it("generates a title after the first prompt creates a thread", async () => {
     const shell = {
       id: "created",

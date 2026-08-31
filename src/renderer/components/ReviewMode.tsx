@@ -24,6 +24,8 @@ export function ReviewMode({
   onCommit,
   onOpenInEditor,
   loadDiff,
+  readOnly = false,
+  checkpointTitle,
 }: {
   changes: UiWorkspaceChanges;
   selectedPath?: string;
@@ -35,6 +37,9 @@ export function ReviewMode({
   onCommit(message: string, push: boolean): void;
   onOpenInEditor(path: string): void;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** Historical turn diffs are inspect-only and must not offer workspace commits. */
+  readOnly?: boolean;
+  checkpointTitle?: string;
 }) {
   const [diff, setDiff] = useState<UiFileDiff>();
   const [mode, setMode] = useState<"unified" | "split">("unified");
@@ -68,19 +73,19 @@ export function ReviewMode({
           <span>review · {changes.files.length} {changes.files.length === 1 ? "file" : "files"}</span>
         </div>
         <div className="title-spacer" />
-        <button
-          className="chrome-button accent"
-          disabled={busy || changes.files.length === 0 || message.trim().length === 0}
-          onClick={() => onCommit(message, primaryPush)}
-        >
-          <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
-        </button>
+        {!readOnly ? <button
+            className="chrome-button accent"
+            disabled={busy || changes.files.length === 0 || message.trim().length === 0}
+            onClick={() => onCommit(message, primaryPush)}
+          >
+            <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
+          </button> : <span className="review-read-only">Historical turn</span>}
       </header>
 
       <div className="review-body">
         <div className="review-list">
           <header>
-            <h2>Changes</h2>
+            <h2>{readOnly ? checkpointTitle ?? "Turn changes" : "Changes"}</h2>
             <small>{changes.branch ?? "detached"}</small>
             <span className="spacer" />
             <span className="stat-add">+{changes.added}</span>
@@ -104,7 +109,7 @@ export function ReviewMode({
             />
             {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : null}
 
-            {changes.files.length > 0 ? (
+            {changes.files.length > 0 && !readOnly ? (
               <div className="commit-proposal">
                 Commit message: {editingMessage ? null : <em>“{message || "none"}”</em>}
                 {editingMessage ? (

@@ -8,6 +8,7 @@ import type {
   UiModel,
   UiTaskProgress,
   UiTaskProgressEntry,
+  UiTurnCheckpoint,
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
@@ -34,6 +35,7 @@ export interface ThreadDetail {
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
+  turnCheckpoints?: UiTurnCheckpoint[];
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
   contextUsage?: UiContextUsage;
@@ -132,6 +134,7 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDe
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
     turnActivity: snapshot.turnActivity,
+    turnCheckpoints: snapshot.turnCheckpoints,
     taskProgress: snapshot.taskProgress,
     taskHistory: snapshot.taskHistory,
     contextUsage: snapshot.contextUsage,

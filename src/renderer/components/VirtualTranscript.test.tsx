@@ -9,7 +9,7 @@ function Fixture({ messages, activity, activityAfterMessageId, activities }: {
   messages: UiMessage[];
   activity?: ReactNode;
   activityAfterMessageId?: string;
-  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
+  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode; fallbackToTail?: boolean }>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   return <div ref={ref} style={{ height: 600, overflow: "auto" }}>
@@ -58,6 +58,23 @@ describe("virtual transcript", () => {
       expect.stringMatching(/First.*2\/2 tasks/u),
       expect.stringContaining("Finished first"),
       expect.stringMatching(/Second.*0\/1 tasks/u),
+    ]);
+  });
+
+  it("resolves persisted entry anchors after message ids are remapped", async () => {
+    const messages: UiMessage[] = [
+      { id: "rendered-user", sourceEntryId: "persisted-user", role: "user", text: "Persisted request", timestamp: 1 },
+      { id: "rendered-answer", sourceEntryId: "persisted-answer", role: "assistant", text: "Persisted answer", timestamp: 2 },
+      { id: "later", role: "user", text: "Later request", timestamp: 3 },
+    ];
+    const view = render(<Fixture messages={messages} activities={[
+      { id: "checkpoint", afterMessageId: "persisted-answer", content: <div>turn changes</div> },
+    ]} />);
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(3));
+    expect(Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Persisted request"),
+      expect.stringMatching(/Persisted answer.*turn changes/u),
+      expect.stringContaining("Later request"),
     ]);
   });
 

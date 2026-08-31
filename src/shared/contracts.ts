@@ -198,6 +198,20 @@ export interface UiWorkspaceChanges {
   proposedMessage?: string;
 }
 
+/**
+ * Immutable workspace summary captured when one agent run settles. The id is
+ * generated once for the run and is reused as the durable identity after reload.
+ */
+export interface UiTurnCheckpoint extends UiWorkspaceChanges {
+  id: string;
+  turnId: string;
+  sessionId: string;
+  /** Persisted message-entry id used to place the card below the answer. */
+  anchorMessageId: string;
+  startedAt: number;
+  endedAt: number;
+}
+
 export type DiffLineKind = "context" | "added" | "removed";
 
 export interface UiDiffLine {
@@ -305,6 +319,7 @@ export interface HostSnapshot {
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
+  turnCheckpoints?: UiTurnCheckpoint[];
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
   allTools: Array<{ name: string; description: string }>;
@@ -330,6 +345,7 @@ export interface HostBootstrap {
     isStreaming: boolean;
     activeTools: string[];
     turnActivity?: UiTurnActivity;
+    turnCheckpoints?: UiTurnCheckpoint[];
     taskProgress?: UiTaskProgress;
     taskHistory?: UiTaskProgressEntry[];
     contextUsage?: UiContextUsage;
@@ -353,6 +369,7 @@ export type HostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
   | { type: "agent-status"; sessionId: string; running: boolean }
+  | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
   // Every thread has its own runtime, so live events name the thread they belong
   // to; the renderer applies them only to the thread it is showing.
   | { type: "assistant-start"; sessionId: string; id: string; timestamp: number }
@@ -441,6 +458,8 @@ export interface TauDesktopApi {
   getFileTree(path?: string): Promise<FileNode[]>;
   getChanges(): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** Loads the immutable diff captured for one completed turn. */
+  getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;

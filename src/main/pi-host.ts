@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { readdir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -39,6 +40,7 @@ import type {
   UiPromptAttachment,
   UiSession,
   UiToolRun,
+  UiTurnCheckpoint,
   UiTurnActivity,
   UiWorkspaceChanges,
   WorkspaceInfo,
@@ -66,12 +68,21 @@ import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import {
+  changesSinceTurn,
+  TURN_CHECKPOINT_CUSTOM_TYPE,
+  summariesFromStoredTurnCheckpoints,
+  turnCheckpointsFromEntries,
+  type StoredTurnCheckpoint,
+} from "../shared/turn-checkpoints.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
 const SHUTDOWN_ABORT_MS = 3_000;
 /** How long a typed answer waits for the extension's follow-up input prompt. */
 const TYPED_ANSWER_TTL_MS = 10_000;
+/** Keep session entries bounded while retaining every file summary. */
+const MAX_CHECKPOINT_DIFF_FILES = 256;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
 
 type Emit = (event: HostEvent) => void;
@@ -437,9 +448,22 @@ interface LiveAssistant {
   timestamp: number;
 }
 
+interface LiveTurnCheckpointState {
+  /** Stable for the whole agent run, including automatic retries. */
+  id: string;
+  startedAt: number;
+  baseline: Promise<UiWorkspaceChanges | undefined>;
+  outcome?: "completed" | "aborted" | "error";
+  lastAssistant?: { stopReason?: string; timestamp?: number };
+}
+
 /** In-flight state of one thread's current turn, whichever process runs it. */
 interface LiveTurnState {
   readonly tools: Map<string, UiToolRun>;
+  currentTurn?: LiveTurnCheckpointState;
+  /** Historical capture is serialized so the next turn cannot overwrite it. */
+  checkpointWrite?: Promise<void>;
+  checkpointPending: number;
   currentAssistantId?: string;
   /** Assistant text still streaming, so a thread opened mid-turn shows it. */
   liveAssistant?: LiveAssistant;
@@ -452,6 +476,10 @@ interface LiveTurnState {
  */
 class ThreadRuntime implements LiveTurnState {
   readonly tools = new Map<string, UiToolRun>();
+  currentTurn?: LiveTurnCheckpointState;
+  checkpointWrite?: Promise<void>;
+  /** Number of settled-turn captures still waiting to be persisted. */
+  checkpointPending = 0;
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
@@ -467,6 +495,7 @@ class ThreadRuntime implements LiveTurnState {
 
   resetLiveState(): void {
     this.tools.clear();
+    this.currentTurn = undefined;
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
   }
@@ -474,6 +503,26 @@ class ThreadRuntime implements LiveTurnState {
 
 function samePath(left: string | undefined, right: string | undefined): boolean {
   return Boolean(left && right) && resolve(left!) === resolve(right!);
+}
+
+function pageStoredDiff(diff: UiFileDiff, options?: DiffLoadOptions): UiFileDiff {
+  const copy = (): UiFileDiff => ({
+    ...diff,
+    hunks: diff.hunks.map((hunk) => ({
+      ...hunk,
+      lines: hunk.lines.map((line) => ({ ...line })),
+    })),
+  });
+  const offset = Math.max(0, options?.hunkOffset ?? 0);
+  const limit = Math.min(workspaceGit.MAX_DIFF_HUNKS, Math.max(1, options?.hunkLimit ?? workspaceGit.MAX_DIFF_HUNKS));
+  if (!options || options.hunkOffset === undefined && options.hunkLimit === undefined) return copy();
+  const result = copy();
+  result.hunks = result.hunks.slice(offset, offset + limit);
+  const hasMore = offset + result.hunks.length < diff.hunks.length;
+  result.truncated = Boolean(diff.truncated || hasMore);
+  result.nextHunkOffset = hasMore ? offset + result.hunks.length : undefined;
+  if (hasMore) result.note = `Showing ${result.hunks.length} captured hunks. Load more to continue.`;
+  return result;
 }
 
 export class PiHost {
@@ -497,6 +546,7 @@ export class PiHost {
     // state that only its runtime holds; releasing it would lose that state.
     canEvict: (record) => record.runtime.session.isIdle
       && !this.hasOpenUiPrompts(record.sessionId)
+      && record.runtime.checkpointPending === 0
       && record.runtime.session.messages.length > 0,
     dispose: (record) => this.disposeThread(record.runtime),
   });
@@ -802,6 +852,9 @@ export class PiHost {
   }
 
   private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
+    // Do not switch the host's project while a just-settled turn is still
+    // freezing its historical files into the session branch.
+    await this.active?.checkpointWrite;
     await this.rememberProject(cwd);
     if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates();
     if (await this.attachAvailableBridge(cwd)) {
@@ -887,6 +940,7 @@ export class PiHost {
       if (!session.isIdle) await this.abortThread(thread);
       // Zero dangling calls is a success: the session is already consistent and
       // the caller only has stale activity to clear.
+      await thread.checkpointWrite;
       const dangling = findDanglingToolCalls(session.messages);
       for (const { toolCallId, toolName } of dangling) {
         session.sessionManager.appendMessage({
@@ -932,6 +986,7 @@ export class PiHost {
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
+      await this.active?.checkpointWrite;
       this.detachBridge();
       const spare = await this.takeSpareThread(targetCwd);
       const thread = spare ?? await this.openThread(
@@ -965,6 +1020,7 @@ export class PiHost {
         throw new Error("The selected thread changed before it could be forked.");
       }
       if (thread.session.isStreaming) throw new Error("Wait for the active run before forking this thread.");
+      await thread.checkpointWrite;
       const sourceFile = thread.sessionFile;
       if (!sourceFile || !existsSync(sourceFile)) {
         throw new Error("This thread has not been saved yet. Wait for the first assistant response before forking it.");
@@ -1060,6 +1116,10 @@ export class PiHost {
     }
     const thread = this.requireThread(sessionId);
     const session = thread.session;
+    // agent_settled is delivered synchronously, while historical diffs are
+    // captured asynchronously. Keep a follow-up prompt behind that capture so
+    // a later turn cannot edit a path before the earlier checkpoint is frozen.
+    await thread.checkpointWrite;
     const images = promptImages(attachments);
     this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
     try {
@@ -1087,6 +1147,7 @@ export class PiHost {
       return this.requireActive();
     });
     const session = thread.session;
+    await thread.checkpointWrite;
     if (session.isBashRunning) throw new Error("Another project action is already running.");
     const result = await session.executeBash(shellCommand, undefined, { excludeFromContext: !includeInContext });
     if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
@@ -1106,7 +1167,9 @@ export class PiHost {
       return;
     }
     try {
-      await this.requireThread(sessionId).session.steer(text, promptImages(attachments));
+      const thread = this.requireThread(sessionId);
+      await thread.checkpointWrite;
+      await thread.session.steer(text, promptImages(attachments));
     } catch (error) {
       this.fail(error);
       throw error;
@@ -1120,7 +1183,9 @@ export class PiHost {
       return;
     }
     try {
-      await this.requireThread(sessionId).session.followUp(text, promptImages(attachments));
+      const thread = this.requireThread(sessionId);
+      await thread.checkpointWrite;
+      await thread.session.followUp(text, promptImages(attachments));
     } catch (error) {
       this.fail(error);
       throw error;
@@ -1199,6 +1264,7 @@ export class PiHost {
     } else {
       const thread = this.requireThread(expectedSessionId);
       sessionId = thread.sessionId;
+      await thread.checkpointWrite;
       thread.session.setSessionName(title);
     }
     const now = Date.now();
@@ -1322,6 +1388,7 @@ export class PiHost {
       }
       const thread = this.requireActive();
       if (thread.session.isStreaming) throw new Error("Wait for the active run before reloading Pi.");
+      await thread.checkpointWrite;
       await thread.session.reload();
       this.modelCatalogCache.invalidate();
       this.resourceDiscoveryCache.invalidate();
@@ -1329,7 +1396,9 @@ export class PiHost {
       // rebuild on demand, so drop them rather than reload each one.
       this.discardSpare();
       for (const record of this.threads.list()) {
-        if (record.runtime !== thread && record.runtime.session.isIdle && !this.hasOpenUiPrompts(record.sessionId)) {
+        if (record.runtime !== thread && record.runtime.session.isIdle
+          && record.runtime.checkpointPending === 0
+          && !this.hasOpenUiPrompts(record.sessionId)) {
           await this.threads.release(record.sessionId);
         }
       }
@@ -1347,7 +1416,9 @@ export class PiHost {
       await this.bridge.command({ command: "compact" }, 120_000);
       await this.refreshBridgeSnapshot();
     } else {
-      await this.requireSession().compact();
+      const thread = this.requireActive();
+      await thread.checkpointWrite;
+      await thread.session.compact();
     }
     this.log("context.compacted");
     const snapshot = await this.snapshot();
@@ -1376,7 +1447,53 @@ export class PiHost {
     return workspaceGit.getFileDiff(this.cwd, path, options);
   }
 
+  /**
+   * Returns the immutable diff captured when a completed turn settled. This
+   * deliberately never falls back to the live workspace: an old card must not
+   * change when a later turn edits the same file or commits the work.
+   */
+  async getTurnFileDiff(
+    sessionId: string,
+    checkpointId: string,
+    path: string,
+    options?: DiffLoadOptions,
+  ): Promise<UiFileDiff> {
+    if (this.bridgeOwns(sessionId)) {
+      await assertWorkspacePath(this.cwd, path);
+      const result = await this.bridgeCommand({
+        command: "turn_file_diff",
+        checkpointId,
+        path,
+        ...(options ?? {}),
+      });
+      if (result && typeof result === "object" && Array.isArray((result as { hunks?: unknown }).hunks)) {
+        return result as UiFileDiff;
+      }
+      return { path, added: 0, removed: 0, hunks: [], note: "Pi did not return this historical diff." };
+    }
+    const thread = this.requireThread(sessionId);
+    await assertWorkspacePath(thread.cwd, path);
+    const checkpoint = turnCheckpointsFromEntries(thread.session.sessionManager.getBranch(), sessionId)
+      .find((entry) => entry.id === checkpointId);
+    const summary = checkpoint?.files.find((file) => file.path === path);
+    if (!checkpoint || !summary) {
+      return { path, added: 0, removed: 0, hunks: [], note: "This turn checkpoint is no longer available." };
+    }
+    const captured = checkpoint.diffs[path];
+    if (!captured) {
+      return {
+        path,
+        added: summary.added,
+        removed: summary.removed,
+        hunks: [],
+        note: "No historical textual diff was captured for this file.",
+      };
+    }
+    return pageStoredDiff(captured, options);
+  }
+
   async commit(message: string, push: boolean): Promise<CommitResult> {
+    await this.active?.checkpointWrite;
     const project = this.cwd;
     try {
       const result = await workspaceGit.commit(project, message, push, async (cwd) => {
@@ -1397,6 +1514,7 @@ export class PiHost {
   }
 
   async push(): Promise<PushResult> {
+    await this.active?.checkpointWrite;
     const project = this.cwd;
     try {
       const result = await workspaceGit.push(project);
@@ -1471,6 +1589,9 @@ export class PiHost {
       const opening = [...this.openingThreads.values()];
       this.openingThreads.clear();
       await Promise.allSettled(opening);
+      // Session custom entries are the source of truth for historical turns;
+      // let in-flight captures finish before their runtimes are torn down.
+      await Promise.all(this.threads.list().map((record) => record.runtime.checkpointWrite?.catch(() => undefined)));
       const results = await Promise.allSettled(this.threads.list().map((record) => this.threads.release(record.sessionId)));
       for (const result of results) if (result.status === "rejected") teardownErrors.push(result.reason);
       try {
@@ -1597,6 +1718,9 @@ export class PiHost {
   }
 
   private async disposeThread(thread: ThreadRuntime): Promise<void> {
+    // A runtime can also be explicitly replaced (bridge takeover, reload, or
+    // shutdown), bypassing the registry's normal eviction predicate.
+    await thread.checkpointWrite?.catch(() => undefined);
     this.settleApprovalsFor(thread.sessionId, { allowed: false, reason: "Blocked by Tau: the thread was closed." });
     this.cancelUiPromptsFor(thread.sessionId);
     thread.unsubscribe?.();
@@ -1906,6 +2030,7 @@ export class PiHost {
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,
       turnActivity: lastTurnActivityFromMessages(snapshot.messages),
+      turnCheckpoints: snapshot.turnCheckpoints ?? [],
       taskProgress: snapshot.taskProgress ?? taskProgressFromMessages(snapshot.messages),
       taskHistory,
       allTools: snapshot.allTools,
@@ -1928,21 +2053,152 @@ export class PiHost {
   private bridgeTurn?: LiveTurnState & { sessionId: string };
 
   private handleBridgeSessionEvent(event: any, sessionId: string): void {
-    if (this.bridgeTurn?.sessionId !== sessionId) this.bridgeTurn = { sessionId, tools: new Map() };
+    if (this.bridgeTurn?.sessionId !== sessionId) this.bridgeTurn = { sessionId, tools: new Map(), checkpointPending: 0 };
     this.handleSessionEvent(event, this.bridgeTurn, sessionId, this.cwd);
+  }
+
+  private beginTurnCheckpoint(thread: LiveTurnState, cwd: string): void {
+    if (thread.currentTurn) return;
+    // A turn starts from the latest observable Git state. Invalidating only the
+    // status/workspace slices leaves branch metadata and unrelated project
+    // caches intact while preventing a stale status scan from becoming the
+    // baseline.
+    this.gitCoordinator.invalidate(cwd, ["status", "workspace"]);
+    const baseline = this.captureTurnBaseline(cwd);
+    thread.currentTurn = { id: randomUUID(), startedAt: Date.now(), baseline };
+  }
+
+  private async captureTurnBaseline(cwd: string): Promise<UiWorkspaceChanges | undefined> {
+    // A very large status scan can still be in flight when Pi emits its first
+    // tool event. Tool hooks invalidate that scan, so retry once against the
+    // new generation instead of silently using a stale cached state.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const changes = await this.gitCoordinator.getChanges(cwd);
+        if (changes.refreshStatus?.state === "error") return undefined;
+        if (changes.refreshStatus?.state !== "refreshing" || attempt === 1) return changes;
+      } catch (error) {
+        if (attempt === 1) {
+          this.log("turn.checkpoint.baseline.failed", this.errorMessage(error));
+          return undefined;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private updateTurnCheckpointOutcome(thread: LiveTurnState, event: any): void {
+    const turn = thread.currentTurn;
+    if (!turn) return;
+    const messages = Array.isArray(event.messages) ? event.messages : [];
+    const assistant = [...messages].reverse().find((message) => message?.role === "assistant") as { stopReason?: string; timestamp?: number } | undefined;
+    if (assistant) {
+      turn.lastAssistant = assistant;
+      if (event.willRetry) {
+        // The failed provider response is an intermediate attempt. Keep the
+        // same turn identity and let its eventual response decide the outcome.
+        turn.outcome = undefined;
+      } else if (assistant.stopReason === "aborted") {
+        turn.outcome = "aborted";
+      } else if (assistant.stopReason === "error") {
+        turn.outcome = "error";
+      } else {
+        turn.outcome = "completed";
+      }
+    }
+  }
+
+  private async settleTurnCheckpoint(
+    thread: ThreadRuntime,
+    turn: LiveTurnCheckpointState,
+    sessionId: string,
+    cwd: string,
+  ): Promise<void> {
+    if (turn.outcome !== "completed") {
+      this.log("turn.checkpoint.skipped", turn.outcome ?? "no-final-assistant");
+      return;
+    }
+    const baseline = await turn.baseline;
+    if (!baseline) return;
+
+    // Tool hooks invalidate Git as mutations occur. The final invalidation also
+    // covers shell commands and external writers that do not look like an edit
+    // or write tool to Tau.
+    this.gitCoordinator.invalidate(cwd, ["status", "workspace"]);
+    const current = await this.gitCoordinator.getChanges(cwd);
+    if (current.refreshStatus?.state === "error") return;
+    const changes = changesSinceTurn(baseline, current);
+    const branch = thread.session.sessionManager.getBranch();
+    const anchorMessageId = [...branch].reverse().find((entry) =>
+      entry.type === "message" && entry.message.role === "assistant",
+    )?.id ?? `assistant-live-${turn.lastAssistant?.timestamp ?? turn.id}`;
+    const stored: StoredTurnCheckpoint = {
+      id: turn.id,
+      turnId: turn.id,
+      sessionId,
+      anchorMessageId,
+      startedAt: turn.startedAt,
+      endedAt: Date.now(),
+      branch: changes.branch,
+      files: changes.files.map((file) => ({ ...file })),
+      added: changes.added,
+      removed: changes.removed,
+      diffs: {},
+    };
+
+    // Capture the exact settled view once. Later turns may edit, rename or
+    // commit these paths; the session entry remains the historical source.
+    const files = current.files.filter((file) => changes.files.some((item) => item.path === file.path));
+    for (let index = 0; index < files.length && index < MAX_CHECKPOINT_DIFF_FILES; index += 4) {
+      const batch = files.slice(index, index + 4);
+      const captured = await Promise.all(batch.map(async (file) => [
+        file.path,
+        await workspaceGit.getFileDiff(cwd, file.path, { hunkLimit: workspaceGit.MAX_DIFF_HUNKS }),
+      ] as const));
+      for (const [path, diff] of captured) stored.diffs[path] = diff;
+    }
+
+    const existing = turnCheckpointsFromEntries(branch, sessionId).some((entry) => entry.id === stored.id);
+    if (existing) return;
+    thread.session.sessionManager.appendCustomEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
+    const checkpoint = summariesFromStoredTurnCheckpoints([stored])[0];
+    if (!checkpoint) return;
+    this.emit({ type: "turn-checkpoint", sessionId, checkpoint });
+    this.log("turn.checkpoint.saved", `${stored.files.length} ${stored.files.length === 1 ? "file" : "files"}`);
+  }
+
+  private finishTurnCheckpoint(thread: LiveTurnState, sessionId: string, cwd: string): void {
+    const turn = thread.currentTurn;
+    thread.currentTurn = undefined;
+    if (!turn || !(thread instanceof ThreadRuntime)) return;
+    thread.checkpointPending += 1;
+    const previous = thread.checkpointWrite ?? Promise.resolve();
+    const capture = previous
+      .catch(() => undefined)
+      .then(() => this.settleTurnCheckpoint(thread, turn, sessionId, cwd));
+    thread.checkpointWrite = capture.catch((error) => {
+      // Checkpoint capture is diagnostic/history work. It must never turn a
+      // successful Pi run into a failed run or block the next prompt.
+      this.log("turn.checkpoint.failed", this.errorMessage(error));
+    }).finally(() => {
+      thread.checkpointPending = Math.max(0, thread.checkpointPending - 1);
+    });
   }
 
   private handleSessionEvent(event: any, thread: LiveTurnState, sessionId: string, cwd: string): void {
       switch (event.type) {
         case "agent_start":
+          this.beginTurnCheckpoint(thread, cwd);
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
           this.emit({ type: "agent-status", sessionId, running: true });
           this.log("agent.started", sessionId.slice(0, 8));
           break;
         case "agent_end":
+          this.updateTurnCheckpointOutcome(thread, event);
           this.log("agent.ended", `${event.messages.length} messages`);
           break;
         case "agent_settled":
+          this.finishTurnCheckpoint(thread, sessionId, cwd);
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
           this.emit({ type: "agent-status", sessionId, running: false });
           this.log("agent.settled", sessionId.slice(0, 8));
@@ -1973,6 +2229,12 @@ export class PiHost {
         }
         case "message_end":
           if (event.message.role === "assistant") {
+            if (thread.currentTurn) {
+              thread.currentTurn.lastAssistant = {
+                stopReason: event.message.stopReason,
+                timestamp: event.message.timestamp,
+              };
+            }
             const message = mapMessage(event.message, 0);
             if (message) {
               message.id = thread.currentAssistantId ?? message.id;
@@ -2196,6 +2458,12 @@ export class PiHost {
     };
   }
 
+  private turnCheckpoints(thread: ThreadRuntime): UiTurnCheckpoint[] {
+    return summariesFromStoredTurnCheckpoints(
+      turnCheckpointsFromEntries(thread.session.sessionManager.getBranch(), thread.sessionId),
+    );
+  }
+
   private composerCommands(thread: ThreadRuntime): UiComposerCommand[] {
     const loader = thread.session.resourceLoader;
     const commands = new Map<string, UiComposerCommand>();
@@ -2251,6 +2519,7 @@ export class PiHost {
       isStreaming: session.isStreaming,
       activeTools: session.getActiveToolNames(),
       turnActivity: this.turnActivity(thread, branchMessages),
+      turnCheckpoints: this.turnCheckpoints(thread),
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
       allTools: session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),

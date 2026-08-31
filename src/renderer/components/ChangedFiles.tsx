@@ -7,9 +7,12 @@ import { FileKindIcon } from "./FileKindIcon";
 export function ChangedFiles({
   changes,
   onOpenDiff,
+  label,
 }: {
   changes: UiWorkspaceChanges;
   onOpenDiff(path?: string): void;
+  /** Optional context shown in a transcript checkpoint card. */
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   if (changes.files.length === 0) return null;
@@ -24,7 +27,7 @@ export function ChangedFiles({
         onClick={() => setOpen((value) => !value)}
       >
         {open ? <ChevronDown size={13} className="chev" /> : <ChevronRight size={13} className="chev" />}
-        <strong>{changes.files.length} changed {changes.files.length === 1 ? "file" : "files"}</strong>
+        <strong>{label ? `${label} · ` : ""}{changes.files.length} changed {changes.files.length === 1 ? "file" : "files"}</strong>
         <span className="stat-add">+{changes.added}</span>
         <span className="stat-del">−{changes.removed}</span>
         <span className="spacer" />
