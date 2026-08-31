@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate } from "./host-protocol.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, decodeHostUpdates, detailFromSnapshot, isHostUpdate } from "./host-protocol.js";
 import type { HostSnapshot } from "./contracts.js";
 
 const snapshot: HostSnapshot = {
@@ -9,12 +9,14 @@ const snapshot: HostSnapshot = {
     { id: "2", role: "assistant", text: "world", timestamp: 2 },
   ], isStreaming: false, activeTools: [], allTools: [], extensionCount: 0,
   serviceTier: "standard", serviceTierAvailable: false,
+  supportsImageInput: true,
 };
 
 describe("host protocol", () => {
   it("accepts only the current version and known focused messages", () => {
-    const update = { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 } };
+    const update = { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true } };
     expect(isHostUpdate(update)).toBe(true);
+    expect(isHostUpdate({ ...update, catalog: { ...update.catalog, supportsImageInput: undefined } })).toBe(false);
     expect(decodeHostUpdates([
       update,
       { version: 99, type: "snapshot" },
@@ -29,5 +31,9 @@ describe("host protocol", () => {
     expect(detail.messages).toHaveLength(40);
     expect(detail.olderCursor).toBe("1");
     expect(detail).not.toHaveProperty("models");
+  });
+
+  it("preserves the runtime image capability in the catalog", () => {
+    expect(catalogFromSnapshot(snapshot).supportsImageInput).toBe(true);
   });
 });

@@ -314,6 +314,8 @@ export interface HostSnapshot {
   serviceTier: ServiceTier;
   /** False when the active model's API has no priority tier to ask for. */
   serviceTierAvailable: boolean;
+  /** Whether the active host/runtime adapter accepts image prompt input. */
+  supportsImageInput: boolean;
 }
 
 export interface ThreadIndexSnapshot {
@@ -345,6 +347,7 @@ export interface HostBootstrap {
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;
+    supportsImageInput: boolean;
   };
   project: { cwd: string; branch?: string };
 }

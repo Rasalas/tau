@@ -7,6 +7,7 @@ const snapshot: HostSnapshot = {
   thinkingLevel: "off", thinkingLevels: ["off"], messages: Array.from({ length: 50 }, (_, index) => ({ id: String(index), role: "user", text: String(index), timestamp: index })),
   isStreaming: true, activeTools: ["bash"], allTools: [{ name: "bash", description: "shell" }], extensionCount: 1,
   serviceTier: "standard", serviceTierAvailable: false,
+  supportsImageInput: true,
 };
 
 describe("bootstrap cache", () => {

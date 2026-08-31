@@ -1913,6 +1913,7 @@ export class PiHost {
       extensionCount: 0,
       serviceTier: "standard",
       serviceTierAvailable: false,
+      supportsImageInput: false,
       contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
         ? { tokens: snapshot.contextUsage.tokens, contextWindow: snapshot.contextUsage.contextWindow, percent: snapshot.contextUsage.percent }
         : undefined,
@@ -2258,6 +2259,7 @@ export class PiHost {
       extensionCount: this.extensionCount,
       serviceTier: this.serviceTier,
       serviceTierAvailable: this.serviceTierAvailable(),
+      supportsImageInput: true,
       contextUsage: usage && usage.tokens !== null && usage.percent !== null
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined,

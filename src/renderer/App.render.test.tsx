@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HostEvent } from "../shared/contracts";
 
 const messageRenders = vi.hoisted(() => ({ count: 0 }));
 vi.mock("./components/Message", () => ({
@@ -63,6 +64,7 @@ describe("App render isolation", () => {
       activeTools: [],
       allTools: [],
       extensionCount: 0,
+      supportsImageInput: true,
     };
     const target = {
       id: "target",
@@ -81,6 +83,7 @@ describe("App render isolation", () => {
     });
     expect(next.sessionTitle).toBe("Target title");
     expect(next.messages[0]?.text).toBe("Cached content");
+    expect(next.supportsImageInput).toBe(false);
   });
 
   it("preserves opened panel state and skips unrelated parent renders while hidden", () => {
@@ -106,7 +109,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -128,7 +131,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -163,7 +166,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -208,6 +211,54 @@ describe("App render isolation", () => {
     expect(draft.value).toBe("keep this draft");
   });
 
+  it("updates the drop target when the active runtime changes image capability", async () => {
+    let emit: ((event: HostEvent) => void) | undefined;
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (handler: (event: HostEvent) => void) => { emit = handler; return () => {}; },
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
+    const attach = screen.getByRole("button", { name: "Attach files" });
+    expect(attach.hasAttribute("disabled")).toBe(false);
+    emit?.({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "catalog",
+        catalog: {
+          models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard",
+          serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: false,
+        },
+      },
+    });
+    await waitFor(() => expect(attach.hasAttribute("disabled")).toBe(true));
+
+    const column = heading.closest("main");
+    if (!column) throw new Error("conversation column not rendered");
+    fireEvent.dragEnter(column, {
+      dataTransfer: {
+        types: ["Files"],
+        items: [{ kind: "file", type: "image/png" }],
+        files: [new File([new Uint8Array([1])], "blocked.png", { type: "image/png" })],
+        dropEffect: "none",
+      },
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/unavailable/u);
+  });
+
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
     const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[] }));
     window.tau = {
@@ -218,7 +269,7 @@ describe("App render isolation", () => {
           { path: "/other", name: "other", lastOpenedAt: 1 },
         ], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -272,7 +323,7 @@ describe("App render isolation", () => {
             tools: [{ id: "tool", name: "read", args: {}, status: "done" as const, startedAt: 1, endedAt: 2 }],
           },
         },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -345,6 +396,7 @@ describe("App render isolation", () => {
           serviceTierAvailable: false,
           allTools: [],
           extensionCount: 0,
+          supportsImageInput: true,
         },
         project: { cwd: "/project" },
       }),
@@ -388,7 +440,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "main-thread", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd, branch: "main" },
       }),
       onHostEvent: () => () => {},
@@ -469,7 +521,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd },
       }),
       onHostEvent: () => () => {},

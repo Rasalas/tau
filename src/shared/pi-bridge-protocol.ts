@@ -28,6 +28,8 @@ export interface PiBridgeSnapshot {
   thinkingLevels: string[];
   activeTools: string[];
   allTools: Array<{ name: string; description: string }>;
+  /** Bridge-controlled Pi TUI currently cannot receive image prompt input. */
+  supportsImageInput: false;
   /** Optional for compatibility with Pi instances running an older bridge. */
   composerCommands?: UiComposerCommand[];
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };

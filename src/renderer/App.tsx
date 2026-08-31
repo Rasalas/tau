@@ -68,12 +68,7 @@ import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
-import {
-  IMAGE_MIME_TYPES,
-  MAX_ATTACHMENTS,
-  MAX_IMAGE_BYTES,
-  SUPPORTED_IMAGE_TYPES_LABEL,
-} from "../shared/prompt-attachment-limits";
+import { CHAT_DROP_FEEDBACK, classifyChatDrop, type ChatDropState } from "../shared/chat-drop";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -85,20 +80,6 @@ import {
 } from "./workbench-context";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
-
-type ChatDropState = "idle" | "valid" | "mixed" | "unsupported";
-
-function chatDropState(dataTransfer: DataTransfer): ChatDropState {
-  if (!Array.from(dataTransfer.types).includes("Files")) return "idle";
-  const itemTypes = Array.from(dataTransfer.items ?? [])
-    .map((item) => item.type.toLowerCase())
-    .filter(Boolean);
-  if (itemTypes.length === 0) return "valid";
-  const supported = itemTypes.some((type) => IMAGE_MIME_TYPES.has(type));
-  const unsupported = itemTypes.some((type) => !IMAGE_MIME_TYPES.has(type));
-  if (supported && unsupported) return "mixed";
-  return supported ? "valid" : "unsupported";
-}
 
 function questionKey(sessionId: string, index: number): string {
   return `${sessionId}:${index}`;
@@ -122,6 +103,9 @@ export function optimisticThreadSnapshot(
     taskProgress: detail.taskProgress,
     taskHistory: detail.taskHistory,
     contextUsage: detail.contextUsage,
+    // The target runtime's capability arrives with its catalog update. Do not
+    // carry the previous thread's image capability across the loading gap.
+    supportsImageInput: false,
   };
 }
 
@@ -145,6 +129,7 @@ const mockSnapshot: HostSnapshot = {
   activeTools: ["read", "bash", "edit", "write"],
   allTools: ["read", "bash", "edit", "write", "grep", "find", "ls"].map((name) => ({ name, description: `${name} tool` })),
   extensionCount: 2,
+  supportsImageInput: true,
   contextUsage: { tokens: 68000, contextWindow: 200000, percent: 34 },
 };
 
@@ -545,6 +530,7 @@ export default function App() {
           ...current,
           sessionId: detail.sessionId,
           sessionTitle: shell?.title ?? current.sessionTitle,
+          ...(current.sessionId === detail.sessionId ? {} : { supportsImageInput: false }),
           messages: detail.messages,
           isStreaming: detail.isStreaming,
           activeTools: detail.activeTools,
@@ -808,6 +794,7 @@ export default function App() {
           allTools: bootstrap.catalog.allTools,
           composerCommands: bootstrap.catalog.composerCommands ?? [],
           extensionCount: bootstrap.catalog.extensionCount,
+          supportsImageInput: bootstrap.catalog.supportsImageInput,
           messages: bootstrap.detail.messages,
           isStreaming: bootstrap.detail.isStreaming,
           activeTools: bootstrap.detail.activeTools,
@@ -1383,18 +1370,16 @@ export default function App() {
     delivery?: "followUp" | "steer",
   ) => {
     const text = value.trim();
-    if (!text && attachments.length === 0) return;
+    if (!text && attachments.length === 0) return false;
     if (text === "/reload" && attachments.length === 0) {
-      await reloadRuntime();
-      return;
+      return reloadRuntime();
     }
     if (text === "/rebuild" && attachments.length === 0) {
-      await rebuildWorkbench();
-      return;
+      return rebuildWorkbench();
     }
     if (text === "/restart" && attachments.length === 0) {
       restartWorkbench();
-      return;
+      return true;
     }
     const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
     const optimistic: UiMessage = {
@@ -1416,7 +1401,9 @@ export default function App() {
           writeComposerDraft(window.localStorage, activeDraftKey, text);
           setComposerSeed(text);
           setNotice(String(error));
+          return false;
         }
+        return true;
       } else {
         const queuedText = optimisticText;
         setQueue((current) => [...current, queuedText]);
@@ -1431,9 +1418,10 @@ export default function App() {
           writeComposerDraft(window.localStorage, activeDraftKey, text);
           setComposerSeed(text);
           setNotice(String(error));
+          return false;
         }
+        return true;
       }
-      return;
     }
     if (pendingNewThread) {
       const pending = pendingNewThread;
@@ -1454,7 +1442,7 @@ export default function App() {
           setPendingNewThread(undefined);
           acceptWorkspace(result);
           threadStore.markRead(sessionId);
-          await registry.notifyPromptSubmitted({
+          void registry.notifyPromptSubmitted({
             prompt: text,
             snapshot: snapshot ? {
               ...snapshot,
@@ -1469,20 +1457,23 @@ export default function App() {
               taskProgress: undefined,
               taskHistory: [],
             } : undefined,
-          }, actions);
+          }, actions).catch((error) => setNotice(String(error)));
+          writeComposerDraft(window.localStorage, pendingKey, "");
+          return true;
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
           // view stays until that report arrives.
           applyActionResult(result);
+          writeComposerDraft(window.localStorage, pendingKey, "");
+          return true;
         }
-        writeComposerDraft(window.localStorage, pendingKey, "");
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         writeComposerDraft(window.localStorage, pendingKey, text);
         setComposerSeed(text);
         setNotice(String(error));
+        return false;
       }
-      return;
     }
     if (snapshot) {
       threadStore.markRead(snapshot.sessionId);
@@ -1492,12 +1483,15 @@ export default function App() {
     if (window.tau) {
       try {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
-        await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
+        void registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions)
+          .catch((error) => setNotice(String(error)));
+        return true;
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         writeComposerDraft(window.localStorage, activeDraftKey, text);
         setComposerSeed(text);
         setNotice(String(error));
+        return false;
       }
     } else {
       setSnapshot((current) => current ? { ...current, isStreaming: true } : current);
@@ -1512,6 +1506,7 @@ export default function App() {
         setSnapshot((current) => current ? { ...current, isStreaming: false } : current);
         setRunStartedAt(undefined);
       }, 650);
+      return true;
     }
   }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
 
@@ -1615,32 +1610,38 @@ export default function App() {
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
 
+  const classifyDataTransfer = (dataTransfer: DataTransfer): ChatDropState => classifyChatDrop(
+    Array.from(dataTransfer.types).includes("Files"),
+    Array.from(dataTransfer.items ?? []).map((item) => ({ kind: item.kind, mimeType: item.type })),
+    conversationSnapshot?.supportsImageInput ?? false,
+  );
+
   const onChatDragEnter = (event: React.DragEvent<HTMLElement>) => {
-    if (chatDropState(event.dataTransfer) === "idle") return;
+    const state = classifyDataTransfer(event.dataTransfer);
+    if (state === "idle") return;
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     event.preventDefault();
     chatDropDepthRef.current += 1;
-    setChatDrop(chatDropState(event.dataTransfer));
+    setChatDrop(state);
   };
   const onChatDragOver = (event: React.DragEvent<HTMLElement>) => {
-    const state = chatDropState(event.dataTransfer);
+    const state = classifyDataTransfer(event.dataTransfer);
     if (state === "idle") return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = state === "unsupported" ? "none" : "copy";
+    event.dataTransfer.dropEffect = CHAT_DROP_FEEDBACK[state].dropEffect;
     setChatDrop(state);
   };
   const onChatDragLeave = (event: React.DragEvent<HTMLElement>) => {
-    if (chatDropState(event.dataTransfer) === "idle") return;
+    if (classifyDataTransfer(event.dataTransfer) === "idle") return;
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     chatDropDepthRef.current = Math.max(0, chatDropDepthRef.current - 1);
     if (chatDropDepthRef.current === 0) setChatDrop("idle");
   };
   const onChatDrop = (event: React.DragEvent<HTMLElement>) => {
-    if (event.dataTransfer.files.length === 0) return;
     event.preventDefault();
     chatDropDepthRef.current = 0;
     setChatDrop("idle");
-    composerAttachmentRef.current?.addFiles(event.dataTransfer.files);
+    if (event.dataTransfer.files.length > 0) composerAttachmentRef.current?.addFiles(event.dataTransfer.files);
   };
 
   const conversationComposer = (
@@ -1654,7 +1655,7 @@ export default function App() {
       contextBreakdown={contextBreakdown}
       textareaRef={composerRef}
       attachmentRef={composerAttachmentRef}
-      onSubmit={(text, attachments, delivery) => void submit(text ?? "", attachments, delivery)}
+      onSubmit={(text, attachments, delivery) => submit(text ?? "", attachments, delivery)}
       onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
       onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
       onSetModel={(provider, id) => void setModel(provider, id)}
@@ -1815,14 +1816,8 @@ export default function App() {
               {chatDrop !== "idle" ? (
                 <div className={`conversation-drop-overlay ${chatDrop}`} role="status" aria-live="polite">
                   <div className="conversation-drop-card">
-                    <strong>{chatDrop === "unsupported" ? "That file type is not supported" : "Drop images anywhere in chat"}</strong>
-                    <span>
-                      {chatDrop === "unsupported"
-                        ? `Use ${SUPPORTED_IMAGE_TYPES_LABEL} images.`
-                        : chatDrop === "mixed"
-                          ? "Supported images will be attached; other files will be skipped."
-                          : `${SUPPORTED_IMAGE_TYPES_LABEL} · up to ${MAX_ATTACHMENTS} images · ${MAX_IMAGE_BYTES / 1024 / 1024} MB each`}
-                    </span>
+                    <strong>{CHAT_DROP_FEEDBACK[chatDrop].title}</strong>
+                    <span>{CHAT_DROP_FEEDBACK[chatDrop].description}</span>
                   </div>
                 </div>
               ) : null}

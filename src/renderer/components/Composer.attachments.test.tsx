@@ -2,10 +2,20 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { HostSnapshot } from "../../shared/contracts";
 import { Composer } from "./Composer";
 import type { ComposerAttachmentHandle } from "./Composer";
 
-function renderComposer(onSubmit = vi.fn(), attachmentRef?: React.RefObject<ComposerAttachmentHandle | null>) {
+function renderComposer(
+  onSubmit = vi.fn(),
+  attachmentRef?: React.RefObject<ComposerAttachmentHandle | null>,
+  snapshot: HostSnapshot = {
+    cwd: "/project", sessionId: "session", sessionTitle: "Thread", models: [],
+    thinkingLevel: "off", thinkingLevels: ["off"], messages: [], isStreaming: false,
+    activeTools: [], allTools: [], extensionCount: 0, serviceTier: "standard",
+    serviceTierAvailable: false, supportsImageInput: true,
+  },
+) {
   render(
     <Composer
       queue={[]}
@@ -13,6 +23,7 @@ function renderComposer(onSubmit = vi.fn(), attachmentRef?: React.RefObject<Comp
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={createRef<HTMLTextAreaElement>()}
       attachmentRef={attachmentRef}
+      snapshot={snapshot}
       onSubmit={onSubmit}
       onAbort={() => {}}
       onCancelQueued={() => {}}
@@ -87,6 +98,21 @@ describe("Composer attachments", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/not a supported/u);
   });
 
+  it("does not attach files when the active runtime lacks image input", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    renderComposer(vi.fn(), attachmentRef, {
+      cwd: "/project", sessionId: "session", sessionTitle: "Thread", models: [],
+      thinkingLevel: "off", thinkingLevels: ["off"], messages: [], isStreaming: false,
+      activeTools: [], allTools: [], extensionCount: 0, serviceTier: "standard",
+      serviceTierAvailable: false, supportsImageInput: false,
+    });
+
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "blocked.png", { type: "image/png" })]);
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/unavailable/u);
+    expect(screen.queryByRole("button", { name: "Preview blocked.png" })).toBeNull();
+  });
+
   it("keeps existing attachments when a dropped file is unsupported", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     renderComposer(vi.fn(), attachmentRef);
@@ -133,5 +159,20 @@ describe("Composer attachments", () => {
     await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview (one|two|three)\.png/u })).toHaveLength(3));
     expect(screen.queryByRole("button", { name: "Preview four.png" })).toBeNull();
     expect(screen.getByRole("alert").textContent).toMatch(/24 MB/u);
+  });
+
+  it("keeps attachments when submission is rejected", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    const onSubmit = vi.fn(async () => false);
+    renderComposer(onSubmit, attachmentRef);
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "retain.png", { type: "image/png" })]);
+    expect(await screen.findByRole("button", { name: "Preview retain.png" })).toBeTruthy();
+    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(draft, { target: { value: "retain this prompt" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "Preview retain.png" })).toBeTruthy();
+    expect(draft.value).toBe("retain this prompt");
   });
 });

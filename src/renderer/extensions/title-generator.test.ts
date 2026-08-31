@@ -19,6 +19,7 @@ function snapshot(messages: HostSnapshot["messages"]): HostSnapshot {
     extensionCount: 0,
     serviceTier: "standard",
     serviceTierAvailable: false,
+    supportsImageInput: true,
   };
 }
 

@@ -26,6 +26,7 @@ const snapshot: HostSnapshot = {
   extensionCount: 0,
   serviceTier: "standard",
   serviceTierAvailable: false,
+  supportsImageInput: true,
 };
 
 function renderComposer(onSubmit = vi.fn(), streaming = false) {

@@ -58,6 +58,7 @@ export interface HostCatalog {
   allTools: Array<{ name: string; description: string }>;
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
+  supportsImageInput: boolean;
 }
 
 export interface ProjectMetadata {
@@ -110,7 +111,7 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
     case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean");
-    case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
+    case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number" && typeof payload.supportsImageInput === "boolean");
     case "project": return Boolean(payload && typeof payload.cwd === "string");
     case "run": return typeof candidate.sessionId === "string" && ["started", "settled", "aborted"].includes(String(candidate.event));
     case "error": return typeof candidate.message === "string";
@@ -150,5 +151,6 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     allTools: [...snapshot.allTools],
     composerCommands: snapshot.composerCommands?.map((command) => ({ ...command })),
     extensionCount: snapshot.extensionCount,
+    supportsImageInput: snapshot.supportsImageInput,
   };
 }

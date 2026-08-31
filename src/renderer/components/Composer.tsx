@@ -14,6 +14,7 @@ import {
   MAX_ATTACHMENTS,
   selectAttachmentCandidates,
 } from "../../shared/prompt-attachment-limits";
+import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/chat-drop";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -34,6 +35,7 @@ const THINKING_LABELS: Record<string, string> = {
 let nextAttachmentId = 0;
 
 type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+type ComposerSubmissionResult = void | boolean | Promise<void | boolean>;
 
 export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
@@ -136,7 +138,7 @@ export function Composer({
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
   onChange?(value: string): void;
-  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): void;
+  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): ComposerSubmissionResult;
   onAbort(): void;
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
@@ -172,6 +174,8 @@ export function Composer({
   const preserveDraftForWorkspaceRef = useRef(false);
   if (workspaceBusy) preserveDraftForWorkspaceRef.current = true;
   const text = value ?? draft;
+  const textRef = useRef(text);
+  textRef.current = text;
   const commands = snapshot?.composerCommands ?? [];
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
   const commandMatches = useMemo(() => {
@@ -209,6 +213,7 @@ export function Composer({
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const fastTier = snapshot?.serviceTier === "fast";
+  const supportsImageInput = snapshot?.supportsImageInput ?? false;
   const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
@@ -217,6 +222,10 @@ export function Composer({
   const processFiles = useCallback(async (files: FileList | readonly File[]) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
+    if (!supportsImageInput) {
+      setAttachmentError(IMAGE_INPUT_UNAVAILABLE_MESSAGE);
+      return;
+    }
     const current = attachmentsRef.current;
     const policy = selectAttachmentCandidates(
       incoming.map((file) => ({ item: file, name: file.name, mimeType: file.type, size: file.size })),
@@ -232,7 +241,7 @@ export function Composer({
       attachmentsRef.current = [...attachmentsRef.current, ...accepted].slice(0, MAX_ATTACHMENTS);
       setAttachments((latest) => [...latest, ...accepted].slice(0, MAX_ATTACHMENTS));
     }
-  }, []);
+  }, [supportsImageInput]);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
@@ -263,13 +272,39 @@ export function Composer({
     if (!text.trim() && attachments.length === 0) return;
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     const submittedText = normalizeSkillInvocation(text, commands);
-    if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
-    else onSubmit(submittedText, submittedAttachments);
-    updateDraft("");
-    setAttachments([]);
-    attachmentsRef.current = [];
-    setAttachmentError(undefined);
-    setPreviewId(undefined);
+    const previousAttachments = attachments;
+    const clearSubmitted = () => {
+      updateDraft("");
+      setAttachments([]);
+      attachmentsRef.current = [];
+      setAttachmentError(undefined);
+      setPreviewId(undefined);
+    };
+    const restoreSubmitted = (error?: unknown) => {
+      if (textRef.current.trim().length === 0) updateDraft(text);
+      const currentAttachments = attachmentsRef.current;
+      const submittedIds = new Set(previousAttachments.map((attachment) => attachment.id));
+      const restoredAttachments = [
+        ...previousAttachments,
+        ...currentAttachments.filter((attachment) => !submittedIds.has(attachment.id)),
+      ];
+      attachmentsRef.current = restoredAttachments;
+      setAttachments(restoredAttachments);
+      setAttachmentError(error === undefined ? undefined : error instanceof Error ? error.message : String(error));
+    };
+    const result = delivery ? onSubmit(submittedText, submittedAttachments, delivery) : onSubmit(submittedText, submittedAttachments);
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      // Clear optimistically so a successful send behaves synchronously in the
+      // UI, but retain a complete snapshot for transport failures.
+      clearSubmitted();
+      void Promise.resolve(result).then((accepted) => {
+        if (accepted === false) restoreSubmitted();
+      }).catch((error) => {
+        restoreSubmitted(error);
+      });
+    } else if (result !== false) {
+      clearSubmitted();
+    }
   };
 
   return (
@@ -508,7 +543,7 @@ export function Composer({
 
           <span className="spacer" />
 
-          <button className="attach-button" type="button" title="Attach files" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>
+          <button className="attach-button" type="button" title={supportsImageInput ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE} aria-label="Attach files" disabled={!supportsImageInput} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={17} />
           </button>
           <input
@@ -516,6 +551,7 @@ export function Composer({
             className="attachment-input"
             aria-label="Choose attachment files"
             type="file"
+            disabled={!supportsImageInput}
             accept="image/png,image/jpeg,image/gif,image/webp"
             multiple
             onChange={(event) => {
