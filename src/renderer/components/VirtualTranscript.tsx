@@ -1,13 +1,15 @@
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, type ReactNode, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptScrollAnchor } from "../transcript-history";
 import { Message } from "./Message";
+import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
 
 export interface VirtualTranscriptProps {
   messages: UiMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
   isStreaming: boolean;
+  sessionKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
@@ -17,11 +19,15 @@ export interface VirtualTranscriptProps {
   onForkMessage?: (message: UiMessage) => void;
 }
 
+const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
+const MAX_EXPANDED_MESSAGE_IDS = 64;
+
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
 export function VirtualTranscript({
   messages,
   scrollRef,
   isStreaming,
+  sessionKey = "default",
   activity,
   activityAfterMessageId,
   activities = [],
@@ -58,6 +64,28 @@ export function VirtualTranscript({
     }
     return [...indexes].sort((left, right) => left - right);
   }, [anchorRef, measureThrough, messages.length]);
+  const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
+  const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
+  const messageIndexes = useRef(new Map<string, number>());
+  messageIndexes.current = new Map(messages.map((message, index) => [message.id, index]));
+  useLayoutEffect(() => {
+    if (expandedState.sessionKey === sessionKey) return;
+    setExpandedState({ sessionKey, ids: new Set() });
+  }, [expandedState.sessionKey, sessionKey]);
+
+  const updateExpandedMessage = (messageId: string, expanded: boolean) => {
+    setExpandedState((current) => {
+      const next = new Set(current.sessionKey === sessionKey ? current.ids : EMPTY_MESSAGE_IDS);
+      if (expanded) {
+        // Re-inserting makes this a small LRU: frequently used expanded rows
+        // stay available while abandoned IDs cannot grow without bound.
+        next.delete(messageId);
+        next.add(messageId);
+      } else next.delete(messageId);
+      while (next.size > MAX_EXPANDED_MESSAGE_IDS) next.delete(next.values().next().value!);
+      return { sessionKey, ids: next };
+    });
+  };
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -70,6 +98,14 @@ export function VirtualTranscript({
     useAnimationFrameWithResizeObserver: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+  const onMessageToggleExpanded = useTranscriptViewportAnchor({
+    expandedMessageIds,
+    messageIndexes,
+    onExpandedChange: updateExpandedMessage,
+    scrollRef,
+    sessionKey,
+    virtualizer,
+  });
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0
@@ -108,6 +144,8 @@ export function VirtualTranscript({
           streaming={Boolean(isStreaming && message === messages.at(-1) && message.role === "assistant")}
           onCopy={onCopyMessage}
           onFork={onForkMessage}
+          onToggleExpanded={onMessageToggleExpanded}
+          expanded={expandedMessageIds.has(message.id)}
         />
         {anchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
       </div>;

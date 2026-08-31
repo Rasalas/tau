@@ -112,17 +112,68 @@ describe("performance report checks", () => {
       id: "regression",
       longTaskObserverSupported: true,
       frameIntervalsMs: { p95: 40 },
+      mountDurationsMs: { median: 998, p95: 999, maximum: 999 },
       longTasksMs: { maximum: 80 },
       commitDurationsMs: { p95: 30 },
       domNodes: 9_000,
     }] };
     const failures = evaluateRendererBudgets(report, {
       rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
       rendererLongTaskMs: 50,
       rendererCommitP95Ms: 24,
       rendererDomNodes: 5_000,
     });
-    expect(failures).toHaveLength(4);
+    expect(failures).toHaveLength(5);
+  });
+
+  it("keeps documented renderer budgets aligned with the release gate", async () => {
+    const [budgetText, documentation] = await Promise.all([
+      readFile(new URL("./performance-budgets.json", import.meta.url), "utf8"),
+      readFile(new URL("../docs/PERFORMANCE.md", import.meta.url), "utf8"),
+    ]);
+    const budgets = JSON.parse(budgetText);
+    expect(documentation).toContain(`${budgets.rendererFrameP95Ms} ms frame p95`);
+    expect(documentation).toContain(`${budgets.rendererMountP95Ms} ms mount p95`);
+    expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms`);
+    expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
+    expect(budgets.rendererScenarioBudgets["transcript-1000-turns"].mountP95Ms).toBe(40);
+    expect(budgets.rendererScenarioBudgets["transcript-1000-turns"].commitP95Ms).toBeUndefined();
+  });
+
+  it("keeps the documented renderer table generated from the checked-in report", async () => {
+    const [reportText, documentation] = await Promise.all([
+      readFile(new URL("../reports/renderer-report.json", import.meta.url), "utf8"),
+      readFile(new URL("../docs/PERFORMANCE.md", import.meta.url), "utf8"),
+    ]);
+    const report = JSON.parse(reportText);
+    const labels = new Map([
+      ["markdown-code-stream-150kb", "markdown code stream (150 KB)"],
+      ["markdown-plain-stream-150kb", "markdown plain stream (150 KB)"],
+      ["tool-output-1mb", "tool output (1 MB)"],
+      ["transcript-1000-turns", "transcript (1,000 turns)"],
+      ["diff-2mb", "diff (2 MB)"],
+      ["thread-shells-10000", "thread shells (10,000)"],
+      ["workspace-files-10000", "workspace files (10,000)"],
+      ["picker-catalog-10000", "picker catalog (10,000)"],
+      ["long-user-message", "long user message (12 KB)"],
+    ]);
+    const format = (value) => value.toFixed(1);
+    const number = new Intl.NumberFormat("en-US");
+    for (const scenario of report.scenarios) {
+      const row = [
+        labels.get(scenario.id),
+        ["frameIntervalsMs", "mountDurationsMs", "updateDurationsMs", "longTasksMs"].map((metric) => {
+          const values = scenario[metric];
+          return `${format(values.median)} / ${format(values.p95)} / ${format(values.maximum)}`;
+        }),
+        number.format(scenario.domNodes),
+      ];
+      expect(documentation).toContain(`| ${row[0]} | ${row[1][0]} | ${row[1][1]} | ${row[1][2]} | ${row[1][3]} | ${row[2]} |`);
+      for (const metric of ["frameIntervalsMs", "mountDurationsMs", "updateDurationsMs", "longTasksMs", "heapBytes"]) {
+        expect(scenario[metric].p95).toBeLessThanOrEqual(scenario[metric].maximum);
+      }
+    }
   });
 
   it("supports explicit scenario budgets for one-time transcript mounting", () => {
@@ -130,17 +181,59 @@ describe("performance report checks", () => {
       id: "transcript-1000-turns",
       longTaskObserverSupported: true,
       frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { median: 22, p95: 32, maximum: 32 },
       longTasksMs: { maximum: 0 },
       commitDurationsMs: { median: 22, p95: 32, maximum: 32 },
       domNodes: 100,
     }] };
     expect(evaluateRendererBudgets(report, {
       rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
       rendererLongTaskMs: 50,
       rendererCommitP95Ms: 24,
       rendererDomNodes: 5_000,
-      rendererScenarioBudgets: { "transcript-1000-turns": { commitP95Ms: 40 } },
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, commitP95Ms: 40 } },
     })).toEqual([]);
+  });
+
+  it("enforces the transcript mount budget independently from update work", () => {
+    const failures = evaluateRendererBudgets({ scenarios: [{
+      id: "transcript-1000-turns",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { median: 900, p95: 999, maximum: 999 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { median: 1, p95: 2, maximum: 2 },
+      domNodes: 100,
+    }] }, {
+      rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
+      rendererLongTaskMs: 50,
+      rendererCommitP95Ms: 24,
+      rendererDomNodes: 5_000,
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, longTaskMs: 60 } },
+    });
+    expect(failures.some((failure) => failure.includes("mount p95 999.0ms > 40ms"))).toBe(true);
+  });
+
+  it("keeps transcript updates on the strict global 24 ms budget", () => {
+    const failures = evaluateRendererBudgets({ scenarios: [{
+      id: "transcript-1000-turns",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { p95: 38 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { median: 25, p95: 32, maximum: 32 },
+      domNodes: 100,
+    }] }, {
+      rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
+      rendererLongTaskMs: 50,
+      rendererCommitP95Ms: 24,
+      rendererDomNodes: 5_000,
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, longTaskMs: 60 } },
+    });
+    expect(failures.some((failure) => failure.includes("commit p95 32.0ms > 24ms"))).toBe(true);
   });
 
   it("rejects missing renderer scenarios and measurements", () => {
@@ -151,6 +244,6 @@ describe("performance report checks", () => {
       rendererDomNodes: 5_000,
       rendererRequiredScenarios: ["required"],
     });
-    expect(failures).toHaveLength(6);
+    expect(failures).toHaveLength(7);
   });
 });

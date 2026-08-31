@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "status": "invalid",
+  "seriesId": "renderer-20260831210031850",
+  "order": [
+    "base",
+    "current"
+  ],
+  "subjectCommit": "6ddb4541b02410fa8c462dca4b9bb3b9969d5756",
+  "startConditions": {
+    "build": "npm run build",
+    "mode": "production renderer",
+    "viewport": "1440x900",
+    "throttle": "none",
+    "warmupRuns": 2,
+    "sampleRuns": 5
+  },
+  "scenarioIds": [
+    "markdown-code-stream-150kb",
+    "markdown-plain-stream-150kb",
+    "tool-output-1mb",
+    "transcript-1000-turns",
+    "diff-2mb",
+    "thread-shells-10000",
+    "workspace-files-10000",
+    "picker-catalog-10000",
+    "long-user-message"
+  ],
+  "loadPolicy": {
+    "maxLoadAverage1mFactor": 2,
+    "minimumMaxLoadAverage1m": 4,
+    "measuredBeforeEachSide": true,
+    "invalidatePairSymmetrically": true
+  },
+  "retryPolicy": "never",
+  "cherryPickPolicy": "never",
+  "archiveFile": "eports/renderer-20260831210031850.jsonl",
+  "reports": {
+    "base": "eports/renderer-20260831210031850-base.json",
+    "current": "eports/renderer-20260831210031850-current.json"
+  },
+  "failure": "Command failed: node scripts/verify-renderer-pair.mjs /path/to/tau-worktrees/thread-view-improvements/issue-07/reports/renderer-20260831210031850.json",
+  "archiveSha256": "f0012a4aa03abcf50e2ffc78db8e17f4a2596fc9a498a1cb3651f9e6268554ae"
+}

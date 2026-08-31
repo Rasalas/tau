@@ -68,6 +68,7 @@ import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
+import { visibleUserMessageText } from "./components/MessageText";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -1222,7 +1223,7 @@ export default function App() {
 
   const copyMessage = useCallback(async (message: UiMessage) => {
     try {
-      await window.tau?.copyText(message.text);
+      await window.tau?.copyText(message.role === "user" ? visibleUserMessageText(message.text) : message.text);
       setNotice("Message copied.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -1763,6 +1764,7 @@ export default function App() {
                         scrollRef={transcriptRef}
                         anchorRef={anchorRef}
                         isStreaming={Boolean(conversationSnapshot?.isStreaming)}
+                        sessionKey={conversationSnapshot?.sessionId}
                         activity={conversationActivityTools.length > 0 ? (
                           <ToolGroup
                             tools={conversationActivityTools}

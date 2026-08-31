@@ -9,13 +9,14 @@
     "sampleRuns": 5
   },
   "scenarios": [
-    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript" },
-    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600 },
-    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576 },
-    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000 },
-    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152 },
-    { "id": "thread-shells-10000", "kind": "list", "items": 10000 },
-    { "id": "workspace-files-10000", "kind": "list", "items": 10000 },
-    { "id": "picker-catalog-10000", "kind": "list", "items": 10000 }
+    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript", "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000, "sanity": { "minDomNodes": 50, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "thread-shells-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "workspace-files-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "picker-catalog-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "long-user-message", "kind": "message", "bytes": 12000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } }
   ]
 }

@@ -1,30 +1,64 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { localImagePaths, Message, withoutLocalImagePaths } from "./Message";
+import { Message } from "./Message";
+import { visibleUserMessageText } from "./MessageText";
 
 afterEach(cleanup);
 
-describe("Message images", () => {
-  it("finds shell-escaped local image paths", () => {
-    const text = "/Users/me/Application\\ Support/CleanShot/image.png please inspect";
-    expect(localImagePaths(text)).toEqual(["/Users/me/Application Support/CleanShot/image.png"]);
-    expect(withoutLocalImagePaths(text)).toBe("please inspect");
+describe("Long user messages", () => {
+  const message = (text: string) => ({ id: "long", role: "user" as const, text, timestamp: 0 });
+
+  it("starts long messages collapsed and toggles the complete content", () => {
+    const text = Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join("\n");
+    const view = render(<Message message={message(text)} />);
+
+    const content = view.container.querySelector(".message-text-content") as HTMLElement;
+    const toggle = screen.getByRole("button", { name: "Show more" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(content.getAttribute("data-collapsed")).toBe("true");
+    expect(content.className).toContain("collapsed");
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true");
+    expect(content.getAttribute("data-collapsed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.getByRole("button", { name: "Show more" }).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("renders image content persisted in the Pi message", () => {
-    render(<Message message={{
-      id: "user-image",
-      role: "user",
-      text: "please inspect",
-      images: [{ mimeType: "image/png", data: "iVBORw==" }],
-      timestamp: 0,
-    }} />);
+  it("keeps the transcript scroll position when toggled", () => {
+    const scrollContainer = document.createElement("div");
+    scrollContainer.style.overflow = "auto";
+    scrollContainer.scrollTop = 240;
+    document.body.append(scrollContainer);
+    render(<Message message={message("x".repeat(601))} />, { container: scrollContainer });
 
-    const image = screen.getByRole("img", { name: "Attached image" }) as HTMLImageElement;
-    expect(image.src).toBe("data:image/png;base64,iVBORw==");
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(scrollContainer.scrollTop).toBe(240);
+  });
+
+  it("passes the full message to copy while the preview is collapsed", () => {
+    const onCopy = vi.fn();
+    const longText = Array.from({ length: 9 }, (_, index) => `Line ${index + 1}`).join("\n");
+    const fullMessage = message(longText);
+    render(<Message message={fullMessage} onCopy={onCopy} />);
+
+    fireEvent.click(screen.getByTitle("Copy message"));
+    expect(onCopy).toHaveBeenCalledWith(fullMessage);
+  });
+
+  it("copies visible user text without local image path wrappers", () => {
+    const onCopy = vi.fn();
+    const fullMessage = message(`/tmp/CleanShot/image.png\n${Array.from({ length: 9 }, (_, index) => `Caption ${index + 1}`).join("\n")}`);
+    render(<Message message={fullMessage} onCopy={onCopy} />);
+
+    expect(visibleUserMessageText(fullMessage.text)).toContain("Caption 1");
+    fireEvent.click(screen.getByTitle("Copy message"));
+    expect(onCopy).toHaveBeenCalledWith({ ...fullMessage, text: Array.from({ length: 9 }, (_, index) => `Caption ${index + 1}`).join("\n") });
+    expect(onCopy.mock.calls[0][0].text).not.toContain("/tmp/CleanShot/image.png");
   });
 });
+
 
 describe("Message actions", () => {
   it("copies and forks a persisted message", () => {
