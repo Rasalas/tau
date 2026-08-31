@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { MessageSquare, X } from "lucide-react";
 import type { StageTab } from "../stage";
 import { FileKindIcon } from "./FileKindIcon";
 
@@ -6,18 +6,41 @@ function tabName(tab: StageTab): string {
   return tab.path.split(/[\\/]/u).filter(Boolean).at(-1) ?? tab.path;
 }
 
-export function StageTabs({ tabs, activeId, changedPaths, onActivate, onClose, onPin }: {
+export interface ChatTab {
+  active: boolean;
+  streaming: boolean;
+  onSelect(): void;
+}
+
+export function StageTabs({ tabs, activeId, changedPaths, chatTab, onActivate, onClose, onPin }: {
   tabs: StageTab[];
   activeId?: string;
   /** Absolute paths with uncommitted changes. */
   changedPaths: Set<string>;
+  chatTab?: ChatTab;
   onActivate(id: string): void;
   onClose(id: string): void;
   onPin(id: string): void;
 }) {
   return <div className="stage-tabs" role="tablist">
+    {chatTab ? (
+      <div
+        role="tab"
+        tabIndex={0}
+        aria-selected={chatTab.active}
+        className={`stage-tab chat ${chatTab.active ? "active" : ""}`}
+        onClick={chatTab.onSelect}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatTab.onSelect(); }
+        }}
+      >
+        <span className="stage-tab-icon"><MessageSquare size={13} /></span>
+        <span className="stage-tab-label">Chat</span>
+        {chatTab.streaming ? <span className="spinner small" aria-label="Agent is working" /> : null}
+      </div>
+    ) : null}
     {tabs.map((tab) => {
-      const active = tab.id === activeId;
+      const active = tab.id === activeId && !chatTab?.active;
       const name = tabName(tab);
       const changed = changedPaths.has(tab.path);
       // A diff tab whose file is clean again renders as source, so name it that way.

@@ -7,6 +7,7 @@ import { activateTab, closeTab, EMPTY_STAGE, openFileTab, pinTab, setFileView, t
 import { ChangesContext, FilesContext, type ChangesContextValue } from "../workbench-context";
 import { ChangesPanel, FilesPanel } from "../extensions/workspace-panels";
 import { Stage } from "./Stage";
+import type { ChatTab } from "./StageTabs";
 
 afterEach(cleanup);
 
@@ -17,12 +18,18 @@ const CHANGED: UiWorkspaceChanges = {
   added: 1, removed: 0, proposedMessage: "Update a",
 };
 
-function Harness({ initial, changes = NO_CHANGES, onClose }: { initial: StageState; changes?: UiWorkspaceChanges; onClose?: (id: string) => void }) {
+function Harness({ initial, changes = NO_CHANGES, chatTab, onClose }: {
+  initial: StageState;
+  changes?: UiWorkspaceChanges;
+  chatTab?: ChatTab;
+  onClose?: (id: string) => void;
+}) {
   const [stage, setStage] = useState(initial);
   return <Stage
     stage={stage}
     cwd={CWD}
     changes={changes}
+    chatTab={chatTab}
     loadFile={async (path): Promise<UiFileContent> => ({ path, name: "a.ts", size: 12, kind: "text", text: "const a = 1;\n", language: "typescript" })}
     loadDiff={async (path) => ({ path, added: 1, removed: 0, hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "added", newLine: 1, text: "const a = 1;" }] }] })}
     onActivate={(id) => setStage((current) => activateTab(current, id))}
@@ -58,6 +65,23 @@ describe("Stage", () => {
 
     expect(await screen.findByText("const a = 1;")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Diff" })).toBeNull();
+  });
+
+  it("lets the chat take the strip when the centre is too narrow for both", async () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} chatTab={{ active: false, streaming: true, onSelect }} />);
+    await screen.findByText("const a = 1;");
+
+    const chat = screen.getByRole("tab", { name: /Chat/u });
+    expect(chat.className).not.toContain("active");
+    expect(screen.getByLabelText("Agent is working")).toBeTruthy();
+    fireEvent.click(chat);
+    expect(onSelect).toHaveBeenCalled();
+
+    rerender(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} chatTab={{ active: true, streaming: false, onSelect }} />);
+    expect(screen.getByRole("tab", { name: /Chat/u }).className).toContain("active");
+    expect(screen.getByRole("tab", { name: /a\.ts/u }).className).not.toContain("active");
+    expect(screen.queryByText("const a = 1;")).toBeNull();
   });
 
   it("closes the focused tab on Escape without letting the key bubble", async () => {

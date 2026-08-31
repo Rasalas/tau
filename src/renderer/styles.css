@@ -96,18 +96,22 @@ button > svg { pointer-events: none; }
   --dock-width: 320px;
   width: 100vw; height: 100vh;
   display: grid;
-  grid-template: 46px minmax(0, 1fr) / var(--sidebar-width) minmax(420px, 1fr) 0 calc(var(--dock-width) + 46px);
+  grid-template: 46px minmax(0, 1fr) / var(--sidebar-width) minmax(480px, 1fr) calc(var(--dock-width) + 46px);
   background: var(--shell);
   color: var(--ink);
 }
-.app-shell.stage-open {
-  grid-template-columns: var(--sidebar-width) minmax(480px, 1fr) minmax(360px, 1.25fr) calc(var(--dock-width) + 46px);
+/* Conversation and stage share the centre cell; the split mirrors CENTER_SPLIT_MIN_WIDTH in App.tsx. */
+.workbench-center {
+  grid-area: 2 / 2 / 3 / 3;
+  display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0;
 }
-/* Below this width the four columns cannot coexist; threads yield to the open document. */
-@media (max-width: 1490px) {
-  .app-shell.stage-open { --sidebar-width: 0px; }
-  .app-shell.stage-open .session-rail { display: none; }
-}
+.workbench-center.stage-open { grid-template-columns: minmax(480px, 1fr) minmax(360px, 1.25fr); }
+/* Too narrow for both: the chat becomes the first tab of the stage. */
+.workbench-center.stage-open.compact { display: flex; flex-direction: column; }
+.workbench-center.stage-open.compact .stage { order: -1; flex: 1; min-height: 0; border-left: 0; }
+.workbench-center.stage-open.compact .conversation-column { flex: 1; min-height: 0; }
+.workbench-center.stage-open.compact.chat-focused .stage { flex: none; }
+.workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { display: none; }
 .app-shell.dock-closed { --dock-width: 0px; }
 .app-shell.no-sidebar { --sidebar-width: 0px; }
 .app-shell.no-dock { --dock-width: 0px; }
@@ -129,7 +133,7 @@ button > svg { pointer-events: none; }
 /* ------------------------------------------------------------- titlebar */
 
 .title-bar {
-  grid-area: 1 / 1 / 2 / 5;
+  grid-area: 1 / 1 / 2 / 4;
   -webkit-app-region: drag;
   display: flex; align-items: center; gap: 12px;
   height: 46px; padding: 0 14px;
@@ -461,7 +465,6 @@ button > svg { pointer-events: none; }
 /* --------------------------------------------------------- conversation */
 
 .conversation-column {
-  grid-area: 2 / 2 / 3 / 3;
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   background: var(--stage);
 }
@@ -1120,7 +1123,7 @@ button > svg { pointer-events: none; }
 /* ------------------------------------------------------------------ dock */
 
 .instrument-dock {
-  grid-area: 2 / 4 / 3 / 5;
+  grid-area: 2 / 3 / 3 / 4;
   display: flex; min-height: 0;
   border-left: 1px solid var(--line); background: var(--rail);
 }
@@ -1592,7 +1595,6 @@ button > svg { pointer-events: none; }
 /* ---------------------------------------------------------------- stage */
 
 .stage {
-  grid-area: 2 / 3 / 3 / 4;
   display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size;
   border-left: 1px solid var(--line); background: var(--stage);
 }
@@ -1612,6 +1614,9 @@ button > svg { pointer-events: none; }
 .stage-tab.active { background: var(--stage); color: var(--ink); }
 .stage-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--stage); }
 .stage-tab.preview .stage-tab-label { font-style: italic; }
+.stage-tab.chat { padding-right: 12px; color: var(--ink-2); }
+.stage-tab.chat .stage-tab-label { font-weight: 600; }
+.stage-tab.chat .stage-tab-icon { color: var(--acid); }
 .stage-tab-icon { display: grid; place-items: center; color: #77796f; }
 .stage-tab.active .stage-tab-icon { color: var(--ink-3); }
 .stage-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

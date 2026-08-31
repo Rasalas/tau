@@ -33,6 +33,8 @@ import {
   openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView,
 } from "./stage";
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
+/** Conversation minimum plus stage minimum, matching the grid tracks in styles.css. */
+const CENTER_SPLIT_MIN_WIDTH = 480 + 360;
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
 
@@ -356,6 +358,11 @@ export default function App() {
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
   const [settingsPage, setSettingsPage] = useState<string>();
   const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
+  // Below this many pixels the centre cannot hold chat and stage side by side;
+  // the chat then joins the stage's tab strip instead of losing the thread list.
+  const [centerCompact, setCenterCompact] = useState(false);
+  const [chatFocused, setChatFocused] = useState(false);
+  const centerRef = useRef<HTMLDivElement>(null);
   const [commitPushPrimary, setCommitPushPrimary] = useState(false);
   const [commitFocusToken, setCommitFocusToken] = useState(0);
   const [committing, setCommitting] = useState(false);
@@ -900,6 +907,7 @@ export default function App() {
   }, []);
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => {
     setStage((current) => openFileTab(current, path, options));
+    setChatFocused(false);
   }, []);
   const openDiff = useCallback((relativePath: string) => {
     if (snapshot?.cwd) openFile(`${snapshot.cwd}/${relativePath}`, { view: "diff" });
@@ -1599,12 +1607,27 @@ export default function App() {
     ?? projects.find((project) => project.path === startProjectPath)?.name
     ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
     ?? startProjectPath;
+  useEffect(() => {
+    const element = centerRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      setCenterCompact(entry.contentRect.width < CENTER_SPLIT_MIN_WIDTH);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const centerClassName = [
+    "workbench-center",
+    stage.tabs.length > 0 ? "stage-open" : "",
+    centerCompact ? "compact" : "",
+    centerCompact && chatFocused ? "chat-focused" : "",
+  ].filter(Boolean).join(" ");
   const shellClassName = [
     "app-shell",
     sidebarContributions.length === 0 ? "no-sidebar" : "",
     panels.length === 0 ? "no-dock" : "",
     dockOpen ? "" : "dock-closed",
-    stage.tabs.length > 0 ? "stage-open" : "",
   ].filter(Boolean).join(" ");
 
   const conversationComposer = (
@@ -1732,6 +1755,7 @@ export default function App() {
               </LazyFeatureBoundary>
             ))}
 
+            <div className={centerClassName} ref={centerRef}>
             <main className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}>
               {showStartScreen ? (
                 <section className="conversation-start-screen" aria-labelledby="start-screen-title">
@@ -1825,6 +1849,7 @@ export default function App() {
                     cwd={snapshot?.cwd}
                     changes={changes}
                     editor={activeEditor}
+                    chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: () => setChatFocused(true) } : undefined}
                     loadFile={loadFile}
                     loadDiff={loadDiff}
                     onActivate={(id) => setStage((current) => activateStageTab(current, id))}
@@ -1836,6 +1861,7 @@ export default function App() {
                 </Suspense>
               </LazyFeatureBoundary>
             ) : null}
+            </div>
 
             {panels.length > 0 ? (
               <aside className="instrument-dock">

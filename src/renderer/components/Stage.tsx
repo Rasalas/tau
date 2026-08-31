@@ -2,7 +2,7 @@ import { useMemo, type KeyboardEvent } from "react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/contracts";
 import { activeTab, type StageState, type StageView } from "../stage";
 import { FileViewer } from "./FileViewer";
-import { StageTabs } from "./StageTabs";
+import { StageTabs, type ChatTab } from "./StageTabs";
 
 function relativeTo(cwd: string | undefined, path: string): string {
   return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
@@ -13,7 +13,7 @@ function isEditable(target: EventTarget | null): boolean {
 }
 
 export function Stage({
-  stage, cwd, changes, editor,
+  stage, cwd, changes, editor, chatTab,
   loadFile, loadDiff,
   onActivate, onClose, onPin, onChangeView, onOpenInEditor,
 }: {
@@ -21,6 +21,8 @@ export function Stage({
   cwd?: string;
   changes: UiWorkspaceChanges;
   editor?: UiEditor;
+  /** Present while the chat shares the tab strip because the centre is too narrow for both. */
+  chatTab?: ChatTab;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   onActivate(id: string): void;
@@ -39,7 +41,7 @@ export function Stage({
   // Escape closes the tab under focus; it must not bubble to the window
   // listener that aborts a streaming run.
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Escape" || !current || isEditable(event.target)) return;
+    if (event.key !== "Escape" || !current || chatTab?.active || isEditable(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     onClose(current.id);
@@ -50,11 +52,12 @@ export function Stage({
       tabs={stage.tabs}
       activeId={stage.activeId}
       changedPaths={changedAbsolute}
+      chatTab={chatTab}
       onActivate={onActivate}
       onClose={onClose}
       onPin={onPin}
     />
-    {current ? (
+    {current && !chatTab?.active ? (
       <FileViewer
         key={current.id}
         tab={current}
