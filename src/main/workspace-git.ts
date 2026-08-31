@@ -560,14 +560,46 @@ function parseWorktrees(stdout: string, cwd: string): UiWorktree[] {
 }
 
 /** Defers to git's own rules rather than guessing at them. */
-async function assertValidBranchName(cwd: string, name: string): Promise<void> {
+async function assertValidBranchName(cwd: string, name: string, runGit: GitRunner = git): Promise<void> {
   const invalid = new Error(`"${name}" is not a valid branch name.`);
   if (name.startsWith("-") || /[\s~^:?*[\\]/u.test(name)) throw invalid;
   try {
-    await git(cwd, ["check-ref-format", "--branch", name]);
+    await runGit(cwd, ["check-ref-format", "--branch", name]);
   } catch {
     throw invalid;
   }
+}
+
+async function refExists(cwd: string, ref: string, runGit: GitRunner): Promise<boolean> {
+  try {
+    await runGit(cwd, ["show-ref", "--verify", "--quiet", ref]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fetches the preferred remote without touching a checked-out branch. New
+ * worktrees can therefore start from an up-to-date main even when the primary
+ * checkout is dirty or main is checked out in another worktree.
+ */
+async function freshWorktreeBase(cwd: string, runGit: GitRunner): Promise<string | undefined> {
+  const remotes = (await runGit(cwd, ["remote"]).catch(() => ""))
+    .split("\n")
+    .map((remote) => remote.trim())
+    .filter(Boolean);
+  const remote = remotes.includes("origin") ? "origin" : remotes[0];
+  if (remote) {
+    await runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
+    if (await refExists(cwd, `refs/remotes/${remote}/main`, runGit)) return `${remote}/main`;
+    const defaultRef = (await runGit(
+      cwd,
+      ["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`],
+    ).catch(() => "")).trim();
+    if (defaultRef && await refExists(cwd, `refs/remotes/${defaultRef}`, runGit)) return defaultRef;
+  }
+  return await refExists(cwd, "refs/heads/main", runGit) ? "main" : undefined;
 }
 
 /** Creates a branch and a worktree for it, and returns the new worktree path. */
@@ -575,10 +607,11 @@ export async function createWorktree(
   cwd: string,
   branch: string,
   readWorkspace: (cwd: string) => Promise<WorkspaceInfo> = async (path) => (await readProjectGitState(path)).workspace,
+  runGit: GitRunner = git,
 ): Promise<string> {
   const name = branch.trim();
   if (!name) throw new Error("A branch name is required.");
-  await assertValidBranchName(cwd, name);
+  await assertValidBranchName(cwd, name, runGit);
   const info = await readWorkspace(cwd);
   if (!info.isRepo) throw new Error("This workspace is not a Git repository.");
 
@@ -587,10 +620,12 @@ export async function createWorktree(
 
   const destination = join(info.worktreeParent, worktreeSlug(name));
   await mkdir(info.worktreeParent, { recursive: true });
-  // Reuse the branch when it already exists; otherwise create it here.
-  await git(cwd, existing
-    ? ["worktree", "add", destination, name]
-    : ["worktree", "add", "-b", name, destination]);
+  if (existing) {
+    await runGit(cwd, ["worktree", "add", destination, name]);
+  } else {
+    const base = await freshWorktreeBase(cwd, runGit);
+    await runGit(cwd, ["worktree", "add", "-b", name, destination, ...(base ? [base] : [])]);
+  }
   return destination;
 }
 

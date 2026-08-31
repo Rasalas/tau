@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getFileDiff, MAX_DIFF_BYTES, MAX_DIFF_HUNKS, parseUnifiedDiff, push, readProjectGitState } from "./workspace-git.js";
+import { createWorktree, getFileDiff, MAX_DIFF_BYTES, MAX_DIFF_HUNKS, parseUnifiedDiff, push, readProjectGitState } from "./workspace-git.js";
 
 describe("large diff bounds", () => {
   it("pages hunks and marks the bounded payload", () => {
@@ -45,6 +45,63 @@ describe("large diff bounds", () => {
       const second = await getFileDiff(cwd, "large.txt", { hunkOffset: first.nextHunkOffset, hunkLimit: 2 });
       expect(second.hunks).toHaveLength(2);
       expect(second.hunks[0]?.header).not.toBe(first.hunks[0]?.header);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("worktree creation", () => {
+  it("creates a new branch from freshly fetched origin/main", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
+    const calls: string[][] = [];
+    try {
+      const destination = await createWorktree(cwd, "feat/fresh-main", async () => ({
+        root: cwd,
+        isRepo: true,
+        isDirty: true,
+        branch: "feature/in-progress",
+        hasRemote: true,
+        worktrees: [],
+        refs: [],
+        worktreeParent: join(cwd, "worktrees"),
+      }), async (_path, args) => {
+        calls.push(args);
+        if (args[0] === "remote") return "origin\n";
+        if (args[0] === "show-ref" && args.at(-1) === "refs/remotes/origin/main") return "";
+        return "";
+      });
+
+      expect(destination).toBe(join(cwd, "worktrees", "feat-fresh-main"));
+      expect(calls).toContainEqual(["fetch", "--prune", "origin"]);
+      expect(calls.at(-1)).toEqual([
+        "worktree", "add", "-b", "feat/fresh-main", destination, "origin/main",
+      ]);
+      expect(calls.findIndex((args) => args[0] === "fetch"))
+        .toBeLessThan(calls.findIndex((args) => args[0] === "worktree"));
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not silently create from stale state when fetching fails", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
+    const calls: string[][] = [];
+    try {
+      await expect(createWorktree(cwd, "feat/offline", async () => ({
+        root: cwd,
+        isRepo: true,
+        isDirty: false,
+        worktrees: [],
+        refs: [],
+        worktreeParent: join(cwd, "worktrees"),
+      }), async (_path, args) => {
+        calls.push(args);
+        if (args[0] === "remote") return "origin\n";
+        if (args[0] === "fetch") throw new Error("network unavailable");
+        return "";
+      })).rejects.toThrow("network unavailable");
+      expect(calls.some((args) => args[0] === "worktree")).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

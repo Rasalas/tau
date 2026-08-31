@@ -571,6 +571,12 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!workspaceCwd || !window.tau) return;
+    void refreshChanges();
+    void refreshWorkspace();
+  }, [refreshChanges, refreshWorkspace, workspaceCwd]);
+
   const handleHostEvent = useCallback((event: HostEvent) => {
     // Every thread streams from its own runtime. Transcript and tool events for a
     // thread that is not on screen are dropped here; its persisted state is

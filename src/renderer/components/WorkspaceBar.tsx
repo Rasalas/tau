@@ -5,6 +5,10 @@ import { VirtualList } from "./VirtualList";
 
 type OpenPanel = "workspace" | "refs" | undefined;
 
+function pathName(path: string): string {
+  return path.replace(/[\\/]+$/u, "").split(/[\\/]/u).at(-1) ?? path;
+}
+
 function WorktreeForm({
   info,
   busy,
@@ -34,7 +38,7 @@ function WorktreeForm({
           disabled={busy}
         />
       </label>
-      <small>{info.worktreeParent}/{slug || "…"}</small>
+      <small>../{pathName(info.worktreeParent)}/{slug || "…"}</small>
       <div className="worktree-form-actions">
         <button type="button" onClick={onCancel} disabled={busy}>Cancel</button>
         <button type="submit" className="primary" disabled={busy || !branch.trim()}>

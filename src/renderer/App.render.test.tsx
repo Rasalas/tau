@@ -270,6 +270,63 @@ describe("App render isolation", () => {
     expect(await screen.findByText("Created thread title")).toBeTruthy();
   });
 
+  it("refreshes the bottom-left worktree name after changing workspaces", async () => {
+    let cwd = "/project";
+    const getWorkspaceInfo = vi.fn(async () => ({
+      root: cwd,
+      isRepo: true,
+      isDirty: false,
+      branch: cwd === "/project" ? "main" : "feat/worktree-label",
+      worktrees: [
+        {
+          path: "/project",
+          name: "project",
+          branch: "main",
+          isMain: true,
+          isCurrent: cwd === "/project",
+        },
+        {
+          path: "/project-worktrees/feat-worktree-label",
+          name: "feat-worktree-label",
+          branch: "feat/worktree-label",
+          isMain: false,
+          isCurrent: cwd !== "/project",
+        },
+      ],
+      refs: [],
+      worktreeParent: "/project-worktrees",
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
+        project: { cwd },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo,
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      openProject: async (path: string) => {
+        cwd = path;
+        return {
+          version: 1,
+          updates: [{ version: 1, type: "project", project: { cwd, branch: "feat/worktree-label" } }],
+        };
+      },
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
+    fireEvent.click(screen.getByRole("button", { name: "Worktree (feat/worktree-label)" }));
+
+    expect(await screen.findByRole("button", { name: "feat-worktree-label" })).toBeTruthy();
+    expect(getWorkspaceInfo).toHaveBeenLastCalledWith();
+  });
+
   it("does not rerender existing transcript messages for a composer keystroke", () => {
     render(<App />);
     const before = messageRenders.count;
