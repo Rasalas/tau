@@ -33,12 +33,44 @@ const THINKING_LABELS: Record<string, string> = {
 };
 
 let nextAttachmentId = 0;
+let nextSubmissionId = 0;
 
 type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+type ComposerScope = string;
+interface ComposerScopeState {
+  draft: string;
+  revision: number;
+  attachments: PendingAttachment[];
+  error?: string;
+  errorSubmissionId?: number;
+  queue: Promise<void>;
+  pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; revision: number }>;
+}
 type ComposerSubmissionResult = void | boolean | Promise<void | boolean>;
 
 export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
+}
+
+function createComposerScopeState(scope: ComposerScope): ComposerScopeState {
+  return {
+    draft: readComposerDraft(window.localStorage, scope),
+    revision: 0,
+    attachments: [],
+    queue: Promise.resolve(),
+    pendingSubmissions: new Map(),
+  };
+}
+
+function ensureComposerScopeState(
+  states: Map<ComposerScope, ComposerScopeState>,
+  scope: ComposerScope,
+): ComposerScopeState {
+  const existing = states.get(scope);
+  if (existing) return existing;
+  const created = createComposerScopeState(scope);
+  states.set(scope, created);
+  return created;
 }
 
 type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
@@ -156,28 +188,19 @@ export function Composer({
   onSwitchRef(ref: string): Promise<boolean>;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
-  const [draft, setDraft] = useState(() => readComposerDraft(window.localStorage, draftStorageKey));
-  const attachmentScope = draftStorageKey ?? "__default__";
-  const attachmentScopesRef = useRef(new Map<string, PendingAttachment[]>());
-  const attachmentErrorsRef = useRef(new Map<string, string | undefined>());
-  const attachmentQueuesRef = useRef(new Map<string, Promise<void>>());
-  const activeAttachmentScopeRef = useRef(attachmentScope);
-  const [attachments, setAttachments] = useState<PendingAttachment[]>(() => {
-    const initial = attachmentScopesRef.current.get(attachmentScope) ?? [];
-    attachmentScopesRef.current.set(attachmentScope, initial);
-    return initial;
-  });
-  const attachmentsRef = useRef<PendingAttachment[]>(attachments);
-  const [attachmentError, setAttachmentError] = useState<string>();
+  const attachmentScope: ComposerScope = draftStorageKey ?? "__default__";
+  const scopeStatesRef = useRef(new Map<ComposerScope, ComposerScopeState>());
+  const [, refreshScope] = useState(0);
+  const activeScopeState = ensureComposerScopeState(scopeStatesRef.current, attachmentScope);
+  const activeAttachmentScopeRef = useRef<ComposerScope>(attachmentScope);
+  const attachments = activeScopeState.attachments;
+  const attachmentError = activeScopeState.error;
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
-  const draftRevisionsRef = useRef(new Map<string, number>([[attachmentScope, 0]]));
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const preserveDraftForWorkspaceRef = useRef(false);
-  if (workspaceBusy) preserveDraftForWorkspaceRef.current = true;
-  const text = value ?? draft;
+  const text = value ?? activeScopeState.draft;
   const commands = snapshot?.composerCommands ?? [];
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
   const commandMatches = useMemo(() => {
@@ -192,26 +215,19 @@ export function Composer({
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (value !== undefined) return;
-    if (preserveDraftForWorkspaceRef.current && draft) {
-      writeComposerDraft(window.localStorage, draftStorageKey, draft);
-    } else {
-      setDraft(readComposerDraft(window.localStorage, draftStorageKey));
-    }
-    preserveDraftForWorkspaceRef.current = false;
-  }, [draftStorageKey, value]);
-  useEffect(() => {
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
       appliedSeed.current = seed;
-      setDraft(seed);
+      activeScopeState.draft = seed;
+      activeScopeState.revision += 1;
+      writeComposerDraft(window.localStorage, draftStorageKey, seed);
+      refreshScope((current) => current + 1);
     }
-  }, [seed, value]);
+  }, [activeScopeState, draftStorageKey, refreshScope, seed, value]);
   const updateDraft = (next: string) => {
-    draftRevisionsRef.current.set(attachmentScope, (draftRevisionsRef.current.get(attachmentScope) ?? 0) + 1);
-    if (value === undefined) {
-      setDraft(next);
-      writeComposerDraft(window.localStorage, draftStorageKey, next);
-    }
+    activeScopeState.draft = next;
+    activeScopeState.revision += 1;
+    if (value === undefined) writeComposerDraft(window.localStorage, draftStorageKey, next);
+    refreshScope((current) => current + 1);
     onChange?.(next);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -225,15 +241,11 @@ export function Composer({
   useEffect(() => {
     const previousScope = activeAttachmentScopeRef.current;
     if (previousScope === attachmentScope) return;
-    attachmentScopesRef.current.set(previousScope, attachmentsRef.current);
-    attachmentErrorsRef.current.set(previousScope, attachmentError);
     activeAttachmentScopeRef.current = attachmentScope;
-    const next = attachmentScopesRef.current.get(attachmentScope) ?? [];
-    attachmentsRef.current = next;
-    setAttachments(next);
-    setAttachmentError(attachmentErrorsRef.current.get(attachmentScope));
+    ensureComposerScopeState(scopeStatesRef.current, attachmentScope);
     setPreviewId(undefined);
-  }, [attachmentError, attachmentScope]);
+    refreshScope((current) => current + 1);
+  }, [attachmentScope, refreshScope]);
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
@@ -242,15 +254,16 @@ export function Composer({
   ) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
+    const state = ensureComposerScopeState(scopeStatesRef.current, scope);
     if (!capability) {
-      attachmentErrorsRef.current.set(scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE);
-      if (activeAttachmentScopeRef.current === scope) setAttachmentError(IMAGE_INPUT_UNAVAILABLE_MESSAGE);
+      state.error = IMAGE_INPUT_UNAVAILABLE_MESSAGE;
+      state.errorSubmissionId = undefined;
+      if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
       return;
     }
-    const current = attachmentScopesRef.current.get(scope) ?? [];
     const policy = selectAttachmentCandidates(
       incoming.map((file) => ({ item: file, name: file.name, mimeType: file.type, size: file.size })),
-      current,
+      state.attachments,
     );
     const validCandidates = policy.accepted.map((candidate) => candidate.item);
     const firstError = policy.rejected[0] ? attachmentPolicyMessage(policy.rejected[0]) : undefined;
@@ -258,26 +271,22 @@ export function Composer({
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     const error = firstError ?? (rejection ? rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason) : undefined);
-    attachmentErrorsRef.current.set(scope, error);
-    if (activeAttachmentScopeRef.current === scope) setAttachmentError(error);
+    state.error = error;
+    state.errorSubmissionId = undefined;
     if (accepted.length > 0) {
-      const latest = attachmentScopesRef.current.get(scope) ?? [];
-      const next = [...latest, ...accepted].slice(0, MAX_ATTACHMENTS);
-      attachmentScopesRef.current.set(scope, next);
-      if (activeAttachmentScopeRef.current === scope) {
-        attachmentsRef.current = next;
-        setAttachments(next);
-      }
+      state.attachments = [...state.attachments, ...accepted].slice(0, MAX_ATTACHMENTS);
     }
+    if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
   }, []);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
     const snapshot = Array.from(files);
     const scope = attachmentScope;
-    const previous = attachmentQueuesRef.current.get(scope) ?? Promise.resolve();
+    const state = ensureComposerScopeState(scopeStatesRef.current, scope);
+    const previous = state.queue;
     const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput));
-    attachmentQueuesRef.current.set(scope, operation.then(() => undefined, () => undefined));
+    state.queue = operation.then(() => undefined, () => undefined);
     return operation;
   }, [attachmentScope, processFiles, supportsImageInput]);
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
@@ -303,32 +312,47 @@ export function Composer({
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     const submittedText = normalizeSkillInvocation(text, commands);
     const submittedScope = attachmentScope;
-    const previousAttachments = attachments;
-    const submittedAttachmentIds = new Set(previousAttachments.map((attachment) => attachment.id));
-    const submittedRevision = draftRevisionsRef.current.get(submittedScope) ?? 0;
-    const clearSubmitted = () => {
-      const current = attachmentScopesRef.current.get(submittedScope) ?? [];
-      const next = current.filter((attachment) => !submittedAttachmentIds.has(attachment.id));
-      attachmentScopesRef.current.set(submittedScope, next);
-      if (activeAttachmentScopeRef.current === submittedScope) {
-        attachmentsRef.current = next;
-        setAttachments(next);
-        setAttachmentError(undefined);
-        setPreviewId(undefined);
+    const submittedState = ensureComposerScopeState(scopeStatesRef.current, submittedScope);
+    const submittedAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
+    const submittedRevision = submittedState.revision;
+    const submissionId = nextSubmissionId++;
+    submittedState.pendingSubmissions.set(submissionId, { attachmentIds: submittedAttachmentIds, revision: submittedRevision });
+    const settleSubmission = (accepted: boolean, error?: unknown) => {
+      const state = ensureComposerScopeState(scopeStatesRef.current, submittedScope);
+      if (!state.pendingSubmissions.delete(submissionId)) return;
+      if (accepted) {
+        state.attachments = state.attachments.filter((attachment) => !submittedAttachmentIds.has(attachment.id));
+        if (state.revision === submittedRevision) {
+          state.draft = "";
+          writeComposerDraft(window.localStorage, submittedScope, "");
+          if (activeAttachmentScopeRef.current === submittedScope) onChange?.("");
+        }
+        if (state.errorSubmissionId === undefined || state.errorSubmissionId === submissionId) {
+          state.error = undefined;
+          state.errorSubmissionId = undefined;
+        }
+      } else {
+        state.error = error instanceof Error ? error.message : String(error ?? "The prompt was rejected.");
+        state.errorSubmissionId = submissionId;
       }
-      if ((draftRevisionsRef.current.get(submittedScope) ?? 0) === submittedRevision) updateDraft("");
+      if (activeAttachmentScopeRef.current === submittedScope) {
+        if (accepted) setPreviewId(undefined);
+        refreshScope((current) => current + 1);
+      }
     };
-    const result = delivery ? onSubmit(submittedText, submittedAttachments, delivery) : onSubmit(submittedText, submittedAttachments);
+    let result: ComposerSubmissionResult;
+    try {
+      result = delivery ? onSubmit(submittedText, submittedAttachments, delivery) : onSubmit(submittedText, submittedAttachments);
+    } catch (error) {
+      settleSubmission(false, error);
+      return;
+    }
     if (result && typeof (result as Promise<unknown>).then === "function") {
       void Promise.resolve(result).then((accepted) => {
-        if (accepted !== false) clearSubmitted();
-      }).catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        attachmentErrorsRef.current.set(submittedScope, message);
-        if (activeAttachmentScopeRef.current === submittedScope) setAttachmentError(message);
-      });
-    } else if (result !== false) {
-      clearSubmitted();
+        settleSubmission(accepted !== false);
+      }).catch((error) => settleSubmission(false, error));
+    } else {
+      settleSubmission(result !== false);
     }
   };
 
@@ -381,12 +405,10 @@ export function Composer({
                 <button
                   className="attachment-remove"
                   aria-label={`Remove ${attachment.name}`}
-                  onClick={() => setAttachments((current) => {
-                    const next = current.filter((item) => item.id !== attachment.id);
-                    attachmentScopesRef.current.set(attachmentScope, next);
-                    attachmentsRef.current = next;
-                    return next;
-                  })}
+                  onClick={() => {
+                    activeScopeState.attachments = activeScopeState.attachments.filter((item) => item.id !== attachment.id);
+                    refreshScope((current) => current + 1);
+                  }}
                 >
                   <X size={13} />
                 </button>

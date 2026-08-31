@@ -318,6 +318,13 @@ export interface HostSnapshot {
   supportsImageInput: boolean;
 }
 
+/** Capability of the runtime prepared for a not-yet-created thread. */
+export interface NewSessionCapability {
+  cwd: string;
+  generation: number;
+  supportsImageInput: boolean;
+}
+
 export interface ThreadIndexSnapshot {
   projects: UiProject[];
   sessions: UiSession[];
@@ -418,6 +425,7 @@ export interface TauDesktopApi {
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  getNewSessionCapability(cwd?: string): Promise<NewSessionCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;

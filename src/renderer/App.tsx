@@ -4,6 +4,7 @@ import type {
   FileNode,
   HostEvent,
   HostSnapshot,
+  NewSessionCapability,
   ThreadIndexSnapshot,
   UiEditor,
   UiMessage,
@@ -353,6 +354,9 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
+  const [newThreadCapability, setNewThreadCapability] = useState<NewSessionCapability>();
+  const newThreadCapabilityRequestRef = useRef(0);
+  const newThreadCapabilityGenerationRef = useRef(0);
   const [settingsPage, setSettingsPage] = useState<string>();
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
@@ -385,6 +389,27 @@ export default function App() {
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
+  useEffect(() => {
+    const request = ++newThreadCapabilityRequestRef.current;
+    const projectPath = pendingNewThread?.projectPath;
+    const getCapability = window.tau?.getNewSessionCapability;
+    if (!projectPath || !getCapability) {
+      setNewThreadCapability(undefined);
+      return;
+    }
+    setNewThreadCapability(undefined);
+    void getCapability(projectPath).then((capability) => {
+      if (
+        request !== newThreadCapabilityRequestRef.current
+        || capability.cwd !== projectPath
+        || capability.generation < newThreadCapabilityGenerationRef.current
+      ) return;
+      newThreadCapabilityGenerationRef.current = capability.generation;
+      setNewThreadCapability(capability);
+    }).catch(() => {
+      if (request === newThreadCapabilityRequestRef.current) setNewThreadCapability(undefined);
+    });
+  }, [pendingNewThread?.projectPath]);
   useEffect(() => {
     if (threadDrop === "idle") return;
     const cancel = () => {
@@ -1401,7 +1426,6 @@ export default function App() {
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           writeComposerDraft(window.localStorage, activeDraftKey, text);
-          setComposerSeed(text);
           setNotice(String(error));
           return false;
         }
@@ -1418,7 +1442,6 @@ export default function App() {
             return index < 0 ? current : current.filter((_, at) => at !== index);
           });
           writeComposerDraft(window.localStorage, activeDraftKey, text);
-          setComposerSeed(text);
           setNotice(String(error));
           return false;
         }
@@ -1472,7 +1495,6 @@ export default function App() {
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         writeComposerDraft(window.localStorage, pendingKey, text);
-        setComposerSeed(text);
         setNotice(String(error));
         return false;
       }
@@ -1491,7 +1513,6 @@ export default function App() {
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         writeComposerDraft(window.localStorage, activeDraftKey, text);
-        setComposerSeed(text);
         setNotice(String(error));
         return false;
       }
@@ -1591,7 +1612,9 @@ export default function App() {
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
-    supportsImageInput: false,
+    supportsImageInput: newThreadCapability?.cwd === pendingNewThread.projectPath
+      ? newThreadCapability.supportsImageInput
+      : false,
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;

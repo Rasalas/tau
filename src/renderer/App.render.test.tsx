@@ -285,6 +285,7 @@ describe("App render isolation", () => {
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
     const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[] }));
+    const getNewSessionCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
     window.tau = {
       bootstrap: async () => ({
         version: 1,
@@ -303,6 +304,7 @@ describe("App render isolation", () => {
       getFileTree: async () => [],
       setAccessLevel: async () => {},
       newSession,
+      getNewSessionCapability,
     } as unknown as typeof window.tau;
     const view = render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
@@ -315,6 +317,8 @@ describe("App render isolation", () => {
     fireEvent.click(projectOption);
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     expect(newSession).not.toHaveBeenCalled();
+    await waitFor(() => expect(getNewSessionCapability).toHaveBeenCalledWith("/other"));
+    expect(screen.getByRole("button", { name: "Attach files" }).hasAttribute("disabled")).toBe(false);
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.change(composer, { target: { value: "persistent draft" } });
 

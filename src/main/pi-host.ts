@@ -27,6 +27,7 @@ import type {
   HostBootstrap,
   HostEvent,
   HostSnapshot,
+  NewSessionCapability,
   PushResult,
   ShellActionResult,
   ThreadIndexSnapshot,
@@ -76,6 +77,7 @@ const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-elect
 
 type Emit = (event: HostEvent) => void;
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
+type PromptAcceptance = (error?: unknown) => void;
 
 function processIsAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
@@ -514,6 +516,7 @@ export class PiHost {
   private readonly openingThreads = new Map<string, Promise<ThreadRuntime>>();
   /** A blank runtime for the current project, so a new thread is ready before it is asked for. */
   private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined> };
+  private newSessionCapabilityGeneration = 0;
   /** Session managers whose runtime is being built in the background, outside any measurement. */
   private readonly backgroundManagers = new WeakSet<SessionManager>();
   private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
@@ -955,11 +958,44 @@ export class PiHost {
       if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (initialPrompt || attachments.length > 0) {
-        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId).catch((error) => this.fail(error));
+        await this.startPrompt(initialPrompt ?? "", attachments, thread.sessionId);
       }
       this.scheduleSpareThread(targetCwd);
       return this.activeUpdates();
     });
+  }
+
+  async getNewSessionCapability(cwd?: string): Promise<NewSessionCapability> {
+    return this.runLifecycle(async () => {
+      const targetCwd = cwd ?? this.cwd;
+      const generation = ++this.newSessionCapabilityGeneration;
+      if (this.bridge && (!cwd || cwd === this.cwd)) {
+        return { cwd: targetCwd, generation, supportsImageInput: false };
+      }
+      if (!this.spare || this.spare.cwd !== targetCwd) this.scheduleSpareThread(targetCwd, true);
+      const spare = this.spare?.cwd === targetCwd ? this.spare : undefined;
+      const prepared = spare ? await spare.pending : undefined;
+      return {
+        cwd: targetCwd,
+        generation,
+        supportsImageInput: modelSupportsImageInput(prepared?.session.model),
+      };
+    });
+  }
+
+  /** Start a first prompt and wait only until Pi accepts it, not for the turn. */
+  private async startPrompt(text: string, attachments: UiPromptAttachment[], sessionId: string): Promise<void> {
+    let resolveAcceptance!: () => void;
+    let rejectAcceptance!: (error: unknown) => void;
+    const accepted = new Promise<void>((resolve, reject) => {
+      resolveAcceptance = resolve;
+      rejectAcceptance = reject;
+    });
+    void this.prompt(text, attachments, sessionId, (error) => {
+      if (error) rejectAcceptance(error);
+      else resolveAcceptance();
+    }).catch(() => undefined);
+    await accepted;
   }
 
   async forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult> {
@@ -1062,25 +1098,37 @@ export class PiHost {
     }
   }
 
-  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string, onAccepted?: PromptAcceptance): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
       await this.bridge!.command({ command: "prompt", text });
+      onAccepted?.();
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
     const session = thread.session;
-    assertImageInputCapability(session, attachments);
-    const images = promptImages(attachments);
-    this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
+    let acceptanceReported = false;
+    const reportAcceptance = (error?: unknown) => {
+      if (acceptanceReported || !onAccepted) return;
+      acceptanceReported = true;
+      if (error === undefined) onAccepted();
+      else onAccepted(error);
+    };
     try {
+      assertImageInputCapability(session, attachments);
+      const images = promptImages(attachments);
+      this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
       await session.prompt(text, {
         images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
+        preflightResult: (success) => {
+          if (success) reportAcceptance();
+        },
       });
       if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
     } catch (error) {
+      reportAcceptance(error);
       // A thread released mid-run reports nothing: its runtime is gone on purpose.
       if (this.threads.get(thread.sessionId)?.runtime !== thread) return;
       this.fail(error);
@@ -1650,8 +1698,8 @@ export class PiHost {
     return errors;
   }
 
-  private scheduleSpareThread(cwd: string): void {
-    if (!this.automaticPrewarm || this.safeMode || this.spare?.cwd === cwd) return;
+  private scheduleSpareThread(cwd: string, force = false): void {
+    if ((!this.automaticPrewarm && !force) || this.safeMode || this.spare?.cwd === cwd) return;
     void this.discardSpare().catch((error) => this.fail(error));
     const startedAt = performance.now();
     const pending = this.openThread(

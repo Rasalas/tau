@@ -230,4 +230,61 @@ describe("Composer attachments", () => {
     expect(screen.queryByRole("button", { name: "Preview five.png" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Preview six.png" })).toBeNull();
   });
+
+  it("keeps out-of-order submission results isolated by composer scope", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    const resolvers = new Map<string, (accepted: boolean) => void>();
+    const onSubmit = vi.fn((text: string) => new Promise<boolean>((resolve) => { resolvers.set(text, resolve); }));
+    const submission = renderComposer(onSubmit, attachmentRef, undefined, "thread:a");
+
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "a.png", { type: "image/png" })]);
+    await screen.findByRole("button", { name: "Preview a.png" });
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    submission.rerenderScope("thread:b");
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "b.png", { type: "image/png" })]);
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    resolvers.get("a")?.(false);
+    resolvers.get("b")?.(true);
+    await waitFor(() => expect((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value).toBe(""));
+    expect(screen.queryByRole("button", { name: "Preview b.png" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    submission.rerenderScope("thread:a");
+    expect(await screen.findByRole("button", { name: "Preview a.png" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/rejected/u);
+  });
+
+  it("does not let an older success clear a newer scope failure", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    const resolvers = new Map<string, (accepted: boolean) => void>();
+    const settled = new Map<string, Promise<void>>();
+    const onSubmit = vi.fn((text: string) => new Promise<boolean>((resolve) => {
+      let markSettled!: () => void;
+      settled.set(text, new Promise<void>((done) => { markSettled = done; }));
+      resolvers.set(text, (accepted) => { resolve(accepted); markSettled(); });
+    }));
+    const submission = renderComposer(onSubmit, attachmentRef, undefined, "thread:a");
+
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "a.png", { type: "image/png" })]);
+    await screen.findByRole("button", { name: "Preview a.png" });
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    submission.rerenderScope("thread:b");
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "b.png", { type: "image/png" })]);
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    resolvers.get("b")?.(false);
+    resolvers.get("a")?.(true);
+    await Promise.all([settled.get("a"), settled.get("b")]);
+    submission.rerenderScope("thread:a");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Preview a.png" })).toBeNull());
+    submission.rerenderScope("thread:b");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Preview b.png" })).toBeTruthy());
+    expect(screen.getByRole("alert").textContent).toMatch(/rejected/u);
+    expect((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value).toBe("b");
+  });
 });
