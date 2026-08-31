@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -17,6 +17,7 @@ const currentReport = join(ROOT, "reports", `${seriesId}-current.json`);
 const manifestFile = join(ROOT, "reports", `${seriesId}.json`);
 const sampleCount = fixture.scenarios.length * (fixture.startConditions.warmupRuns + fixture.startConditions.sampleRuns);
 const loadPolicy = { maxLoadAverage1mFactor: 2, minimumMaxLoadAverage1m: 4, measuredBeforeEachSide: true, invalidatePairSymmetrically: true };
+const repoRelative = (file) => relative(ROOT, file);
 
 function hashFile(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -59,8 +60,8 @@ const manifestBase = {
   loadPolicy,
   retryPolicy: "never",
   cherryPickPolicy: "never",
-  archiveFile: archiveFile.slice(ROOT.length + 1),
-  reports: { base: baseReport.slice(ROOT.length + 1), current: currentReport.slice(ROOT.length + 1) },
+  archiveFile: repoRelative(archiveFile),
+  reports: { base: repoRelative(baseReport), current: repoRelative(currentReport) },
 };
 
 try {
