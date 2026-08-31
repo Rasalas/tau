@@ -278,6 +278,93 @@ describe("App render isolation", () => {
     expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeTruthy();
   });
 
+  it("keeps the same focused composer mounted while the first prompt docks", async () => {
+    const sendPrompt = vi.fn(async () => undefined);
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    composer.focus();
+    fireEvent.change(composer, { target: { value: "dock this prompt\nwith a second line" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    expect(screen.getByPlaceholderText(/Direct the agent/u)).toBe(composer);
+    expect(document.activeElement).toBe(composer);
+    expect(composer.closest(".conversation-composer-host")?.classList.contains("docked")).toBe(true);
+  });
+
+  it("carries a draft and supported attachments across a pre-send project switch", async () => {
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
+    const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [
+          { path: "/project", name: "project", lastOpenedAt: 2 },
+          { path: "/other", name: "other", lastOpenedAt: 1 },
+        ], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      getPreparedThreadCapability,
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const firstDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(firstDialog).getByRole("option", { name: /project/u }));
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/project"));
+
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "carry this draft" } });
+    const attachment = new File([new Uint8Array([137, 80, 78, 71])], "carry.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [attachment] } });
+    await screen.findByRole("button", { name: "Preview carry.png" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const secondDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(secondDialog).getByRole("option", { name: /other/u }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy());
+    expect(composer.value).toBe("carry this draft");
+    expect(screen.getByRole("button", { name: "Preview carry.png" })).toBeTruthy();
+
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "carry this draft",
+      [expect.objectContaining({ name: "carry.png" })],
+      "/other",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
+  });
+
   it("keeps an in-flight history load when a same-thread action returns detail", async () => {
     let resolvePage!: (page: {
       sessionId: string;

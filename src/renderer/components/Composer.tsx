@@ -535,7 +535,7 @@ export function Composer({
             {modelSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
           </button>
 
-          <span className="menu-anchor">
+          <span className="menu-anchor composer-runtime-menu-anchor">
             <button
               className="runtime-chip"
               disabled={!thinkingSelectionAvailable && !tierAvailable}
@@ -596,7 +596,7 @@ export function Composer({
             ) : null}
           </span>
 
-          <span className="menu-anchor">
+          <span className="menu-anchor composer-runtime-menu-anchor">
             <button className="runtime-chip" onClick={() => setMenu(menu === "access" ? undefined : "access")}>
               {accessLevel === "full" ? <LockOpen size={13} /> : <Lock size={13} />}
               {accessLabel}
