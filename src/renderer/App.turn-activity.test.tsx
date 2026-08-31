@@ -58,6 +58,32 @@ describe("last-turn activity", () => {
     expect(preferences.isSettled("session")).toBe(false);
   });
 
+  it("keeps a settled thread settled when the host replays its existing user message", async () => {
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          messages: [{ id: "entry-existing-work", role: "user" as const, text: "existing work", timestamp: 1 }],
+        },
+      };
+    };
+    preferences.unsettle("session");
+    preferences.toggleSettled("session");
+    render(<App />);
+    await screen.findByText("existing work");
+
+    act(() => publish({
+      type: "user-message",
+      sessionId: "session",
+      message: { id: "user-1-0", role: "user", text: "existing work", timestamp: 1 },
+    }));
+
+    expect(preferences.isSettled("session")).toBe(true);
+  });
+
   it("prefers authoritative completed tools over stale running cache entries", async () => {
     writeCachedTurnActivity(localStorage, {
       sessionId: "session",

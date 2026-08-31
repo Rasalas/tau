@@ -190,6 +190,15 @@ export function reconcileOptimisticMessages(
   });
 }
 
+function isSameUserMessage(left: UiMessage, right: UiMessage): boolean {
+  if (left.role !== "user" || right.role !== "user") return false;
+  if (left.sourceEntryId && right.sourceEntryId) return left.sourceEntryId === right.sourceEntryId;
+  if (left.id === right.id) return true;
+  return left.timestamp === right.timestamp
+    && left.text === right.text
+    && JSON.stringify(left.images ?? []) === JSON.stringify(right.images ?? []);
+}
+
 function elapsedLabel(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
@@ -603,8 +612,18 @@ export default function App() {
 
   const handleHostEvent = useCallback((event: HostEvent) => {
     // A real user message starts new work even when its thread is off-screen.
-    // Recovered run status alone must not undo an explicit settled choice.
-    if (event.type === "user-message") preferences.unsettle(event.sessionId);
+    // The bridge can replay a persisted message under a transport-generated ID
+    // after reconnecting, so compare its stable content before changing the
+    // user's explicit settled choice.
+    if (event.type === "user-message") {
+      const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
+      const known = active
+        ? messagesRef.current
+        : detailStoreRef.current.get(event.sessionId)?.messages ?? [];
+      if (!known.some((message) => isSameUserMessage(message, event.message))) {
+        preferences.unsettle(event.sessionId);
+      }
+    }
     // Every thread streams from its own runtime. Transcript and tool events for a
     // thread that is not on screen are dropped here; its persisted state is
     // re-read when it is opened.
