@@ -34,6 +34,14 @@ A user-facing stream of agent work within a project. A thread contains conversat
 
 The persisted runtime record that backs a thread. Pi currently provides Tau sessions. Thread and session are not synonyms: thread is the product concept, while session is the runtime record.
 
+## Stage
+
+The document area of the workbench beside the conversation. It shows workspace files as tabs, each as source or as its working-tree diff, so a person can read what the agent touches without leaving the thread. The conversation is never a stage tab.
+
+## Stage tab
+
+One open document in the stage. A preview tab comes from a single click and is replaced by the next preview; a pinned tab stays until closed.
+
 ## Extension
 
 An installable module that contributes behavior through a declared interface and can be activated or deactivated without editing Tau core.

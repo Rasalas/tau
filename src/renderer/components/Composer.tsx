@@ -405,6 +405,7 @@ export function Composer({
         />
 
         <div className="composer-toolbar">
+          <div className="composer-chips">
           <button className="runtime-chip" onClick={() => setModelPickerOpen(true)}>
             <Sparkles size={13} className="accent" />
             {snapshot?.model?.name ?? "select model"}
@@ -483,6 +484,7 @@ export function Composer({
             ) : null}
           </span>
 
+          </div>
           <span className="spacer" />
 
           <button className="attach-button" type="button" title="Attach files" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>

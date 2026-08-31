@@ -161,6 +161,7 @@ function installIpc(): void {
   ipcMain.handle("tau:file-tree", async (_event, path?: string) => (await requireHostReady()).getFileTree(path));
   ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());
   ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));
+  ipcMain.handle("tau:read-file", async (_event, path: string) => (await requireHostReady()).readFile(path));
   ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => (await requireHostReady()).commit(message, push));
   ipcMain.handle("tau:push", async () => (await requireHostReady()).push());
   ipcMain.handle("tau:workspace-info", async () => (await requireHostReady()).getWorkspaceInfo());

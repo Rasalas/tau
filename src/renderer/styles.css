@@ -96,9 +96,17 @@ button > svg { pointer-events: none; }
   --dock-width: 320px;
   width: 100vw; height: 100vh;
   display: grid;
-  grid-template: 46px minmax(0, 1fr) / var(--sidebar-width) minmax(420px, 1fr) calc(var(--dock-width) + 46px);
+  grid-template: 46px minmax(0, 1fr) / var(--sidebar-width) minmax(420px, 1fr) 0 calc(var(--dock-width) + 46px);
   background: var(--shell);
   color: var(--ink);
+}
+.app-shell.stage-open {
+  grid-template-columns: var(--sidebar-width) minmax(480px, 1fr) minmax(360px, 1.25fr) calc(var(--dock-width) + 46px);
+}
+/* Below this width the four columns cannot coexist; threads yield to the open document. */
+@media (max-width: 1490px) {
+  .app-shell.stage-open { --sidebar-width: 0px; }
+  .app-shell.stage-open .session-rail { display: none; }
 }
 .app-shell.dock-closed { --dock-width: 0px; }
 .app-shell.no-sidebar { --sidebar-width: 0px; }
@@ -121,7 +129,7 @@ button > svg { pointer-events: none; }
 /* ------------------------------------------------------------- titlebar */
 
 .title-bar {
-  grid-area: 1 / 1 / 2 / 4;
+  grid-area: 1 / 1 / 2 / 5;
   -webkit-app-region: drag;
   display: flex; align-items: center; gap: 12px;
   height: 46px; padding: 0 14px;
@@ -967,8 +975,10 @@ button > svg { pointer-events: none; }
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
 .composer-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px 10px 12px; }
+/* Chips wrap among themselves; attach and send keep their place on the right. */
+.composer-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .runtime-chip {
-  display: flex; align-items: center; gap: 6px; border: 0; border-radius: 7px;
+  display: flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; white-space: nowrap;
   background: transparent; color: var(--ink-3);
   font: 500 12px var(--mono); padding: 5px 8px; cursor: pointer;
 }
@@ -1110,7 +1120,7 @@ button > svg { pointer-events: none; }
 /* ------------------------------------------------------------------ dock */
 
 .instrument-dock {
-  grid-area: 2 / 3 / 3 / 4;
+  grid-area: 2 / 4 / 3 / 5;
   display: flex; min-height: 0;
   border-left: 1px solid var(--line); background: var(--rail);
 }
@@ -1159,6 +1169,8 @@ button > svg { pointer-events: none; }
 .file-row.directory .file-kind-icon { color: #a59d68; }
 .file-row > span.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-row > em { color: var(--working); font-size: 10px; font-style: normal; }
+.file-row.active { background: var(--thread-active); color: var(--ink); }
+.file-row.active .file-kind-icon { color: var(--acid); }
 
 .live-marker { display: flex; align-items: center; gap: 6px; font: 10px var(--mono); color: var(--ready); }
 .live-marker i { width: 6px; height: 6px; border-radius: 50%; background: var(--ready); }
@@ -1577,24 +1589,84 @@ button > svg { pointer-events: none; }
   border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px;
 }
 
-/* ---------------------------------------------------------- review mode */
+/* ---------------------------------------------------------------- stage */
 
-.review-shell {
-  width: 100vw; height: 100vh; display: flex; flex-direction: column;
-  background: var(--shell); color: var(--ink);
+.stage {
+  grid-area: 2 / 3 / 3 / 4;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size;
+  border-left: 1px solid var(--line); background: var(--stage);
 }
-.review-body { display: flex; flex: 1; min-height: 0; }
-.review-list {
-  width: 300px; flex: none; display: flex; flex-direction: column;
-  border-right: 1px solid var(--line); background: var(--rail);
+.stage-tabs {
+  flex: none; display: flex; align-items: stretch; height: 40px;
+  border-bottom: 1px solid var(--line); background: var(--chrome);
+  overflow-x: auto; scrollbar-width: none;
 }
-.review-list > header {
-  flex: none; display: flex; align-items: center; gap: 9px;
-  height: 48px; padding: 0 16px; border-bottom: 1px solid var(--line);
+.stage-tabs::-webkit-scrollbar { display: none; }
+.stage-tab {
+  position: relative; display: flex; align-items: center; gap: 7px;
+  min-width: 0; max-width: 220px; padding: 0 6px 0 12px;
+  border-right: 1px solid var(--line); color: var(--muted);
+  font: 12px var(--sans); white-space: nowrap; cursor: pointer; user-select: none;
 }
-.review-list > header > h2 { margin: 0; font-size: 13.5px; font-weight: 700; }
-.review-list > header > small { font: 11px var(--mono); color: var(--muted); }
-.review-list > header .spacer { flex: 1; }
+.stage-tab:hover { background: var(--raised); color: var(--ink-2); }
+.stage-tab.active { background: var(--stage); color: var(--ink); }
+.stage-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--stage); }
+.stage-tab.preview .stage-tab-label { font-style: italic; }
+.stage-tab-icon { display: grid; place-items: center; color: #77796f; }
+.stage-tab.active .stage-tab-icon { color: var(--ink-3); }
+.stage-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.stage-tab > em { color: var(--working); font: 10px var(--mono); font-style: normal; }
+.stage-tab-close {
+  width: 18px; height: 18px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 5px; background: transparent; color: var(--faint);
+  cursor: pointer; opacity: 0;
+}
+.stage-tab:hover .stage-tab-close, .stage-tab.active .stage-tab-close, .stage-tab:focus-visible .stage-tab-close { opacity: 1; }
+.stage-tab-close:hover { background: var(--line-strong); color: var(--ink); }
+.stage-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; }
+.stage-pane-header {
+  flex: none; display: flex; align-items: center; gap: 10px; overflow: hidden;
+  height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line);
+}
+.stage-pane-header > :not(strong, small) { flex: none; }
+.stage-pane-header > strong {
+  flex: 1 1 auto; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 12.5px var(--mono); font-weight: 400; color: var(--ink);
+}
+.stage-pane-header > small { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 11px var(--mono); color: var(--faint); white-space: nowrap; }
+.stage-pane-header .spacer { flex: 1; }
+.stage-pane-header .text-button { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+/* Narrow panes keep the editor link as its glyph; the title still names the editor. */
+@container (max-width: 560px) { .stage-pane-header .text-button > span { display: none; } }
+.stage-empty { padding: 26px 20px; color: var(--faint); font: 12px var(--sans); }
+.stage-image { flex: 1; min-height: 0; display: grid; place-items: center; overflow: auto; padding: 24px; }
+.stage-image img { max-width: 100%; max-height: 100%; }
+.source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: 12px/1.75 var(--mono); }
+.source-grid { display: grid; grid-template-columns: max-content 1fr; min-width: max-content; flex: 1; }
+.source-gutter {
+  position: sticky; left: 0; margin: 0; padding: 12px 12px 12px 16px;
+  text-align: right; color: var(--fainter); user-select: none;
+  background: var(--stage); border-right: 1px solid var(--line-soft);
+}
+.source-code { margin: 0; padding: 12px 24px 12px 16px; color: var(--ink-2); white-space: pre; tab-size: 4; }
+.source-note { flex: none; padding: 7px 16px; background: var(--field); color: var(--muted); font: 11px var(--mono); border-top: 1px solid var(--line-soft); }
+
+/* -------------------------------------------------------- changes panel */
+
+.commit-box {
+  flex: none; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 10px 10px; border-bottom: 1px solid var(--line);
+}
+.commit-box textarea {
+  width: 100%; resize: vertical; min-height: 60px;
+  border: 1px solid var(--line-control); border-radius: 7px;
+  background: var(--sunken); color: var(--ink); padding: 8px 10px;
+  font: 12px/1.5 var(--sans); outline: none;
+}
+.commit-box textarea:focus { border-color: var(--line-float); }
+.commit-box textarea::placeholder { color: var(--faint); }
+.commit-box .commit-actions { margin-top: 0; align-items: center; }
+.commit-box .commit-actions > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
 .review-files { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
 .review-files-virtual { min-height: 0; overflow: auto; }
 .changed-files-list { max-height: 360px; overflow: auto; }
@@ -1619,18 +1691,6 @@ button > svg { pointer-events: none; }
 .review-file small { font: 10px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-file .stat-add, .review-file .stat-del { font-size: 10px; }
 
-.commit-proposal {
-  margin: 14px 4px 0; padding: 11px 12px;
-  border: 1px dashed var(--line-strong); border-radius: 9px;
-  color: var(--muted); font-size: 11.5px; line-height: 1.55;
-}
-.commit-proposal em { color: var(--ink-2); font-style: normal; font-weight: 600; }
-.commit-proposal textarea {
-  width: 100%; margin-top: 8px; resize: vertical; min-height: 56px;
-  border: 1px solid var(--line-control); border-radius: 7px;
-  background: var(--sunken); color: var(--ink); padding: 8px 10px;
-  font: 12px/1.5 var(--sans); outline: none;
-}
 .commit-actions { margin-top: 8px; display: flex; gap: 6px; }
 .commit-actions button {
   border: 1px solid var(--line-control); border-radius: 6px; background: transparent;
@@ -1641,17 +1701,10 @@ button > svg { pointer-events: none; }
 .commit-actions button.primary:hover:not(:disabled) { background: #d4ff63; }
 .commit-actions button:disabled { opacity: .5; cursor: default; }
 
-.review-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--stage); }
-.review-stage > header {
-  flex: none; display: flex; align-items: center; gap: 10px;
-  height: 48px; padding: 0 18px; border-bottom: 1px solid var(--line);
-}
-.review-stage > header > strong { font: 12.5px var(--mono); font-weight: 400; color: var(--ink); }
-.review-stage > header .spacer { flex: 1; }
 .toggle-group { display: flex; border: 1px solid var(--line-control); border-radius: 7px; overflow: hidden; }
 .toggle-group > button {
   border: 0; background: transparent; color: var(--faint);
-  font: 500 11px var(--sans); padding: 5px 10px; cursor: pointer;
+  font: 500 11px var(--sans); padding: 5px 10px; cursor: pointer; white-space: nowrap;
 }
 .toggle-group > button.active { background: var(--raised); color: var(--ink); }
 

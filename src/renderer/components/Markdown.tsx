@@ -29,6 +29,20 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 };
 const languagePromises = new Map<string, Promise<void>>();
 
+export function canonicalHighlightLanguage(language: string): string {
+  return LANGUAGE_ALIASES[language] ?? language;
+}
+
+/** Uncached: file bodies are large one-offs, unlike streamed code fences. */
+export function highlightSource(code: string, language: string): string | undefined {
+  if (!hljs.getLanguage(language)) return undefined;
+  try {
+    return hljs.highlight(code, { language, ignoreIllegals: true }).value;
+  } catch {
+    return undefined;
+  }
+}
+
 export function loadHighlightLanguage(language: string): Promise<void> {
   const canonical = LANGUAGE_ALIASES[language] ?? language;
   const existing = languagePromises.get(canonical);

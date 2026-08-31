@@ -21,6 +21,7 @@ export interface WorkbenchContextValue {
   loadFiles(path: string): Promise<FileNode[]>;
   refreshChanges(): Promise<void>;
   openReview(path?: string): void;
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
   applySnapshot(snapshot: HostSnapshot): void;
   handleHostEvent(event: HostEvent): void;
 }
@@ -36,15 +37,29 @@ export interface PanelProjectSnapshot { cwd: string }
 export interface FilesContextValue {
   fileTree: FileNode[];
   snapshot?: PanelProjectSnapshot;
+  /** Absolute path of the file shown in the active stage tab. */
+  activePath?: string;
   refreshFiles(): Promise<void>;
   loadFiles(path: string): Promise<FileNode[]>;
+  openFile(path: string, options?: { pin?: boolean }): void;
 }
 
 export interface ChangesContextValue {
   changes: UiWorkspaceChanges;
   snapshot?: PanelProjectSnapshot;
+  /** Absolute path of the file shown in the active stage tab. */
+  activePath?: string;
+  committing: boolean;
+  /** The title bar asked for "Commit & push", so that action leads. */
+  pushPrimary: boolean;
+  canPush: boolean;
+  /** Bumped when the review is requested; the panel moves focus to the message. */
+  commitFocusToken: number;
   refreshChanges(): Promise<void>;
   openReview(path?: string): void;
+  /** Repo-relative path → diff tab in the stage. */
+  openDiff(path: string): void;
+  commit(message: string, push: boolean): Promise<void>;
 }
 
 export interface ObservatoryContextValue {

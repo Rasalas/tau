@@ -228,6 +228,20 @@ export interface UiFileDiff {
   nextHunkOffset?: number;
 }
 
+export interface UiFileContent {
+  /** Absolute path inside the workspace. */
+  path: string;
+  name: string;
+  size: number;
+  kind: "text" | "image" | "binary";
+  /** text only; cut at the host's byte ceiling when `truncated`. */
+  text?: string;
+  language?: string;
+  truncated?: boolean;
+  /** image only. */
+  dataUrl?: string;
+}
+
 export interface UiWorktree {
   path: string;
   name: string;
@@ -441,6 +455,7 @@ export interface TauDesktopApi {
   getFileTree(path?: string): Promise<FileNode[]>;
   getChanges(): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  readFile(path: string): Promise<UiFileContent>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;

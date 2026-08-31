@@ -32,6 +32,7 @@ import type {
   ThreadIndexSnapshot,
   UiComposerCommand,
   UiEditor,
+  UiFileContent,
   UiFileDiff,
   UiMessage,
   UiMessageImage,
@@ -62,6 +63,7 @@ import { createQuestionnaireExtension } from "./questionnaire-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
+import { readBoundedFileContent } from "./file-content.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
@@ -1374,6 +1376,11 @@ export class PiHost {
   async getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff> {
     await assertWorkspacePath(this.cwd, path);
     return workspaceGit.getFileDiff(this.cwd, path, options);
+  }
+
+  async readFile(path: string): Promise<UiFileContent> {
+    await assertWorkspacePath(this.cwd, path);
+    return readBoundedFileContent(resolve(this.cwd, path));
   }
 
   async commit(message: string, push: boolean): Promise<CommitResult> {

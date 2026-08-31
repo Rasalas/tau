@@ -36,6 +36,7 @@ const api: TauDesktopApi = {
   getFileTree: (path) => ipcRenderer.invoke("tau:file-tree", path),
   getChanges: () => ipcRenderer.invoke("tau:changes"),
   getFileDiff: (path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:file-diff", path, options),
+  readFile: (path) => ipcRenderer.invoke("tau:read-file", path),
   commit: (message, push) => ipcRenderer.invoke("tau:commit", message, push),
   push: () => ipcRenderer.invoke("tau:push"),
   getWorkspaceInfo: () => ipcRenderer.invoke("tau:workspace-info"),

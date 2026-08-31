@@ -1,11 +1,13 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type RefObject } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
+  DiffLoadOptions,
   FileNode,
   HostEvent,
   HostSnapshot,
   ThreadIndexSnapshot,
   UiEditor,
+  UiFileContent,
   UiMessage,
   UiProject,
   UiPromptAttachment,
@@ -26,8 +28,12 @@ import { multiSelectValue, type QuestionnaireChoice } from "./components/Extensi
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
+import {
+  activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE,
+  openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView,
+} from "./stage";
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
-const LazyReviewMode = lazy(() => import("./components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
+const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
 
 
@@ -349,7 +355,9 @@ export default function App() {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
   const [settingsPage, setSettingsPage] = useState<string>();
-  const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
+  const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
+  const [commitPushPrimary, setCommitPushPrimary] = useState(false);
+  const [commitFocusToken, setCommitFocusToken] = useState(0);
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -890,10 +898,27 @@ export default function App() {
     setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
     setDockOpen(true);
   }, []);
-  const openReview = useCallback((path?: string, primaryPush = Boolean(workspace?.upstream)) => {
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => {
+    setStage((current) => openFileTab(current, path, options));
+  }, []);
+  const openDiff = useCallback((relativePath: string) => {
+    if (snapshot?.cwd) openFile(`${snapshot.cwd}/${relativePath}`, { view: "diff" });
+  }, [openFile, snapshot?.cwd]);
+  // Review = the Changes panel for the list and commit plus the diff as a stage tab.
+  const openReview = useCallback((path?: string, pushPrimary = Boolean(workspace?.upstream)) => {
     void refreshChanges();
-    setReview({ path, primaryPush });
-  }, [refreshChanges, workspace?.upstream]);
+    setCommitPushPrimary(pushPrimary);
+    setCommitFocusToken((token) => token + 1);
+    openPanel("changes");
+    const target = path ?? changes.files[0]?.path;
+    if (target) openDiff(target);
+  }, [changes.files, openDiff, openPanel, refreshChanges, workspace?.upstream]);
+  const loadFile = useCallback(async (path: string): Promise<UiFileContent> => window.tau
+    ? window.tau.readFile(path)
+    : { path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require the Electron host." }, []);
+  const loadDiff = useCallback(async (path: string, options?: DiffLoadOptions) => window.tau
+    ? window.tau.getFileDiff(path, options)
+    : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }, []);
 
   const acceptWorkspace = useCallback((result: HostActionResult) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
@@ -901,6 +926,7 @@ export default function App() {
     if (cwd && cwd !== snapshot?.cwd) {
       setFileTree([]);
       setChanges(NO_CHANGES);
+      setStage(EMPTY_STAGE);
     }
     void refreshChanges();
     void refreshWorkspace();
@@ -1100,7 +1126,6 @@ export default function App() {
       setNotice(result.detail);
       addEvent("git.commit", result.detail);
       void refreshWorkspace();
-      if (result.changes.files.length === 0) setReview(undefined);
     } catch (error) {
       setNotice(String(error));
     } finally {
@@ -1525,13 +1550,22 @@ export default function App() {
   }, [messages, snapshot?.contextUsage, tools]);
 
   const contextValue = useMemo(
-    () => ({ snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, applySnapshot, handleHostEvent }),
-    [snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, applySnapshot, handleHostEvent],
+    () => ({ snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, openFile, applySnapshot, handleHostEvent }),
+    [snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, openFile, applySnapshot, handleHostEvent],
   );
   const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
   const panelProject = useMemo(() => snapshot ? { cwd: snapshot.cwd } : undefined, [snapshot?.cwd]);
-  const filesContextValue = useMemo(() => ({ fileTree, snapshot: panelProject, refreshFiles, loadFiles }), [fileTree, panelProject, refreshFiles, loadFiles]);
-  const changesContextValue = useMemo(() => ({ changes, snapshot: panelProject, refreshChanges, openReview }), [changes, panelProject, refreshChanges, openReview]);
+  const stageTab = activeStageTab(stage);
+  const stageFilePath = stageTab?.path;
+  const filesContextValue = useMemo(
+    () => ({ fileTree, snapshot: panelProject, activePath: stageFilePath, refreshFiles, loadFiles, openFile }),
+    [fileTree, panelProject, stageFilePath, refreshFiles, loadFiles, openFile],
+  );
+  const canPush = Boolean(workspace?.upstream);
+  const changesContextValue = useMemo(
+    () => ({ changes, snapshot: panelProject, activePath: stageFilePath, committing, pushPrimary: commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, commit }),
+    [changes, panelProject, stageFilePath, committing, commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, commit],
+  );
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
@@ -1570,6 +1604,7 @@ export default function App() {
     sidebarContributions.length === 0 ? "no-sidebar" : "",
     panels.length === 0 ? "no-dock" : "",
     dockOpen ? "" : "dock-closed",
+    stage.tabs.length > 0 ? "stage-open" : "",
   ].filter(Boolean).join(" ");
 
   const conversationComposer = (
@@ -1664,42 +1699,6 @@ export default function App() {
       ) : null}
     </>
   );
-
-  if (review) {
-    return (
-      <ThreadStoreContext.Provider value={threadStore}>
-        <WorkbenchShellContext.Provider value={shellContextValue}>
-          <WorkbenchContext.Provider value={contextValue}>
-            <FilesContext.Provider value={filesContextValue}>
-              <ChangesContext.Provider value={changesContextValue}>
-                <ObservatoryContext.Provider value={observatoryContextValue}>
-                  <LazyFeatureBoundary label="review">
-                    <Suspense fallback={<LazyFeatureFallback label="review" />}>
-                      <LazyReviewMode
-                        changes={changes}
-                        selectedPath={review.path ?? changes.files[0]?.path}
-                        editor={activeEditor}
-                        busy={committing}
-                        primaryPush={review.primaryPush}
-                        onSelect={(path) => setReview((current) => ({ path, primaryPush: current?.primaryPush ?? Boolean(workspace?.upstream) }))}
-                        onBack={() => setReview(undefined)}
-                        onCommit={(message, push) => void commit(message, push)}
-                        onOpenInEditor={(path) => void openInEditor(path)}
-                        loadDiff={async (path) => window.tau
-                          ? window.tau.getFileDiff(path)
-                          : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }}
-                      />
-                    </Suspense>
-                  </LazyFeatureBoundary>
-            {overlays}
-              </ObservatoryContext.Provider>
-              </ChangesContext.Provider>
-            </FilesContext.Provider>
-          </WorkbenchContext.Provider>
-        </WorkbenchShellContext.Provider>
-      </ThreadStoreContext.Provider>
-    );
-  }
 
   return (
     <ThreadStoreContext.Provider value={threadStore}>
@@ -1817,6 +1816,26 @@ export default function App() {
                 </>
               )}
             </main>
+
+            {stage.tabs.length > 0 ? (
+              <LazyFeatureBoundary label="stage">
+                <Suspense fallback={<section className="stage"><LazyFeatureFallback label="stage" /></section>}>
+                  <LazyStage
+                    stage={stage}
+                    cwd={snapshot?.cwd}
+                    changes={changes}
+                    editor={activeEditor}
+                    loadFile={loadFile}
+                    loadDiff={loadDiff}
+                    onActivate={(id) => setStage((current) => activateStageTab(current, id))}
+                    onClose={(id) => setStage((current) => closeStageTab(current, id))}
+                    onPin={(id) => setStage((current) => pinStageTab(current, id))}
+                    onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
+                    onOpenInEditor={(path) => void openInEditor(path)}
+                  />
+                </Suspense>
+              </LazyFeatureBoundary>
+            ) : null}
 
             {panels.length > 0 ? (
               <aside className="instrument-dock">
