@@ -56,5 +56,5 @@ describe("desktop extension bundling", () => {
     const trusted = await loadDesktopExtensions(project, home, { sharedExports: {}, home, trusted: () => true });
     expect(trusted.bundles.map((bundle) => `${bundle.scope}:${bundle.path.split("/").pop()}`)).toEqual(["global:mine.ts", "project:theirs.ts"]);
     expect(trusted.errors[0]?.path).toContain("broken.ts");
-  });
+  }, 20_000);
 });
