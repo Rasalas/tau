@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,19 @@ function run(command, commandArgs) {
   const result = spawnSync(command, commandArgs, { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (result.status !== 0) throw new Error(result.stderr || result.stdout || `${command} failed`);
   return result.stdout;
+}
+
+function machineClass() {
+  if (process.platform !== "darwin") return { platform: process.platform, architecture: process.arch };
+  const sysctl = (name) => execFileSync("sysctl", ["-n", name], { encoding: "utf8" }).trim();
+  return {
+    platform: "darwin",
+    architecture: process.arch,
+    modelIdentifier: sysctl("hw.model"),
+    chip: sysctl("machdep.cpu.brand_string"),
+    memoryGiB: Math.round(Number(sysctl("hw.memsize")) / 1024 ** 3),
+    logicalCores: Number(sysctl("hw.ncpu")),
+  };
 }
 
 if (!skipBuild) run("npm", ["run", "build"]);
@@ -59,6 +72,7 @@ function sampleScenario(scenario) {
 const report = {
   schemaVersion: 2,
   generatedAt: new Date().toISOString(),
+  machine: machineClass(),
   startConditions: fixture.startConditions,
   scenarios: fixture.scenarios.map(sampleScenario),
 };

@@ -88,6 +88,8 @@ describe("Long user messages", () => {
       expect(isLongMessage("각".repeat(600) + "가")).toBe(true);
       expect(isLongMessage("가ᅡ".repeat(600))).toBe(false);
       expect(isLongMessage("각" + "\u200d\u0301".repeat(10_000))).toBe(false);
+      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
+      expect(isLongMessage("\u0301".repeat(10_000) + "a".repeat(601))).toBe(true);
     } finally {
       if (segmenter) Object.defineProperty(Intl, "Segmenter", segmenter);
     }
