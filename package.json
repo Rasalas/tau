@@ -17,6 +17,7 @@
     "start:report": "node scripts/start-report.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "typecheck:extension": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --esModuleInterop --types node .pi/extensions/tau-session-bridge.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark:renderer": "node scripts/renderer-benchmark.mjs",

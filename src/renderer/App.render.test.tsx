@@ -11,7 +11,8 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { latestActivityAnchor, mergeTranscriptMessages, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages, restoreTranscriptScrollPosition } from "./App";
+import App, { latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 
 afterEach(cleanup);
 
@@ -101,13 +102,21 @@ describe("App render isolation", () => {
     ]);
   });
 
-  it("restores the viewport offset after long, differently sized rows are prepended", () => {
-    let height = 1_200;
-    const node = { get scrollHeight() { return height; }, scrollTop: 340 };
-    const previousHeight = height;
-    const previousTop = node.scrollTop;
-    height += 2_680;
-    expect(restoreTranscriptScrollPosition(node, previousHeight, previousTop)).toBe(2_680);
+  it("restores the viewport offset from a stable row after long variable rows are prepended", () => {
+    let anchorTop = 280;
+    const row = {
+      dataset: { messageId: "stable" },
+      getBoundingClientRect: () => ({ top: anchorTop, bottom: anchorTop + 420 }),
+    };
+    const node = {
+      scrollTop: 340,
+      getBoundingClientRect: () => ({ top: 100, bottom: 700 }),
+      querySelectorAll: () => [row],
+    } as unknown as HTMLDivElement;
+    const anchor = { messageId: "stable", viewportOffset: 180 };
+    anchorTop += 2_680;
+    const result = restoreTranscriptScrollAnchor(node, anchor);
+    expect(result.delta).toBe(2_680);
     expect(node.scrollTop).toBe(3_020);
   });
 

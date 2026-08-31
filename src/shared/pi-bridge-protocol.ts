@@ -43,6 +43,8 @@ export interface PiBridgeSnapshot {
 export interface PiBridgeTranscriptPage {
   sessionId: string;
   messages: unknown[];
+  /** Raw branch index of the first entry in `messages`. */
+  messagesOffset?: number;
   olderCursor?: string;
   hasMore: boolean;
   taskHistory?: UiTaskProgressEntry[];

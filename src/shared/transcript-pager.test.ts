@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countUserTurns, INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "./transcript-pager.js";
+import { countUserTurns, INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds, TranscriptPager } from "./transcript-pager.js";
 import type { UiMessage } from "./contracts.js";
 
 const messages: UiMessage[] = Array.from({ length: 12 }, (_, i) => ({
@@ -52,5 +52,17 @@ describe("TranscriptPager", () => {
   it("rejects malformed cursors", () => {
     expect(() => new TranscriptPager(messages, 2).page("nope")).toThrow("Invalid transcript cursor");
     expect(() => new TranscriptPager(messages, 2).page("2x")).toThrow("Invalid transcript cursor");
+  });
+
+  it("shares the same user-boundary policy with Pi records that include tool roles", () => {
+    const rawRecords = Array.from({ length: 14 }, (_, index) => [
+      { role: "user" },
+      { role: "assistant" },
+      { role: "toolResult" },
+    ]).flat();
+    const bounds = transcriptPageBounds(rawRecords, 4);
+    expect(rawRecords.slice(bounds.start, bounds.end).filter((record) => record.role === "user")).toHaveLength(4);
+    expect(rawRecords[bounds.start]?.role).toBe("user");
+    expect(bounds.hasMore).toBe(true);
   });
 });

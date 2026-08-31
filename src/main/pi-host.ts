@@ -804,13 +804,22 @@ export class PiHost {
     if (page.sessionId !== sessionId || !Array.isArray(page.messages) || typeof page.hasMore !== "boolean") {
       throw new Error("Pi returned an invalid transcript page.");
     }
-    const messages = page.messages
-      .map((message, index) => mapMessage(message, index))
-      .filter((message): message is UiMessage => Boolean(message?.text));
+    const messagesOffset = Number.isSafeInteger(page.messagesOffset) && (page.messagesOffset ?? 0) >= 0
+      ? page.messagesOffset ?? 0
+      : undefined;
+    const messageIndexes: number[] = [];
+    const messages: UiMessage[] = [];
+    page.messages.forEach((message, index) => {
+      const mapped = mapMessage(message, index);
+      if (!mapped?.text) return;
+      messages.push(mapped);
+      if (messagesOffset !== undefined) messageIndexes.push(messagesOffset + index);
+    });
     const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
     return {
       sessionId,
       messages,
+      ...(messagesOffset !== undefined ? { transcriptMessageIndexes: messageIndexes } : {}),
       ...(taskHistory ? { taskHistory } : {}),
       ...(typeof page.olderCursor === "string" ? { olderCursor: page.olderCursor } : {}),
       hasMore: page.hasMore,
@@ -1936,12 +1945,12 @@ export class PiHost {
     const messages: UiMessage[] = [];
     const messagesOffset = Number.isSafeInteger(snapshot.messagesOffset) && snapshot.messagesOffset! >= 0
       ? snapshot.messagesOffset!
-      : 0;
+      : undefined;
     snapshot.messages.forEach((message, index) => {
       const mapped = mapMessage(message, index);
       if (!mapped?.text) return;
       messages.push(mapped);
-      messageIndexes.push(messagesOffset + index);
+      if (messagesOffset !== undefined) messageIndexes.push(messagesOffset + index);
     });
     const firstUserMessage = snapshot.messages.find((message) =>
       Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
@@ -1962,7 +1971,7 @@ export class PiHost {
       thinkingLevel: snapshot.thinkingLevel,
       thinkingLevels: snapshot.thinkingLevels,
       messages,
-      transcriptMessageIndexes: messageIndexes,
+      ...(messagesOffset !== undefined ? { transcriptMessageIndexes: messageIndexes } : {}),
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,
       turnActivity: lastTurnActivityFromMessages(snapshot.messages),

@@ -10,7 +10,6 @@ import type {
   UiProject,
   UiPromptAttachment,
   UiSession,
-  UiTaskProgressEntry,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
   ServiceTier,
@@ -61,14 +60,13 @@ import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
-import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
+import { readBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
 import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
-import { ThreadDetailStore } from "../shared/thread-detail-store";
-import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
+import type { HostActionResult, HostUpdate, ThreadDetail, TranscriptPage } from "../shared/host-protocol";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -78,8 +76,11 @@ import {
   ObservatoryContext,
   type TimelineEvent,
 } from "./workbench-context";
-import { TranscriptHistoryControl, type TranscriptHistoryStatus } from "./components/TranscriptHistoryControl";
-import { countUserTurns } from "../shared/transcript-pager";
+import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
+import {
+  TranscriptHistoryController,
+  type TranscriptHistoryRequest,
+} from "./transcript-history";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 
@@ -99,6 +100,7 @@ export function optimisticThreadSnapshot(
     sessionTitle: target.title,
     branch: target.branch,
     messages: detail.messages,
+    transcriptMessageIndexes: detail.transcriptMessageIndexes,
     olderCursor: detail.olderCursor,
     isStreaming: false,
     activeTools: detail.activeTools,
@@ -107,59 +109,6 @@ export function optimisticThreadSnapshot(
     taskHistory: detail.taskHistory,
     contextUsage: detail.contextUsage,
   };
-}
-
-/** Merge a page without allowing a repeated or late response to duplicate rows. */
-export function mergeTranscriptMessages(
-  current: readonly UiMessage[],
-  incoming: readonly UiMessage[],
-  position: "prepend" | "append" = "append",
-): UiMessage[] {
-  const incomingById = new Map(incoming.map((message) => [message.id, message] as const));
-  const retainedIds = new Set<string>();
-  const retained = current.flatMap((message) => {
-    if (retainedIds.has(message.id)) return [];
-    retainedIds.add(message.id);
-    return [incomingById.get(message.id) ?? message];
-  });
-  const additionIds = new Set<string>();
-  const additions = incoming.flatMap((message) => {
-    if (retainedIds.has(message.id) || additionIds.has(message.id)) return [];
-    additionIds.add(message.id);
-    return [incomingById.get(message.id) ?? message];
-  });
-  return position === "prepend" ? [...additions, ...retained] : [...retained, ...additions];
-}
-
-function mergeTaskHistory(
-  current: readonly UiTaskProgressEntry[] | undefined,
-  incoming: readonly UiTaskProgressEntry[] | undefined,
-): UiTaskProgressEntry[] | undefined {
-  if (!current && !incoming) return undefined;
-  const byId = new Map<string, UiTaskProgressEntry>();
-  for (const entry of current ?? []) byId.set(entry.id, entry);
-  for (const entry of incoming ?? []) byId.set(entry.id, entry);
-  return [...byId.values()];
-}
-
-function retainsLoadedHistory(
-  current: ThreadDetail | undefined,
-  incoming: ThreadDetail,
-): current is ThreadDetail {
-  if (!current || current.sessionId !== incoming.sessionId || current.messages.length <= incoming.messages.length || incoming.messages.length === 0) return false;
-  const currentIds = new Set(current.messages.map((message) => message.id));
-  return incoming.messages.some((message) => currentIds.has(message.id));
-}
-
-/** Keep the first visible transcript content at the same viewport offset after a prepend. */
-export function restoreTranscriptScrollPosition(
-  node: Pick<HTMLDivElement, "scrollHeight" | "scrollTop">,
-  previousHeight: number,
-  previousScrollTop: number,
-): number {
-  const delta = node.scrollHeight - previousHeight;
-  node.scrollTop = previousScrollTop + delta;
-  return delta;
 }
 
 const mockSnapshot: HostSnapshot = {
@@ -377,6 +326,10 @@ export default function App() {
     }
     return store;
   });
+  const [transcriptHistory] = useState(() => new TranscriptHistoryController(
+    cachedBootstrap?.snapshot,
+    cachedBootstrap?.threadIndex,
+  ));
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
@@ -420,29 +373,15 @@ export default function App() {
   const [composerSeed, setComposerSeed] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [dockOpen, setDockOpen] = useState(true);
-  const [olderCursor, setOlderCursor] = useState<string | undefined>(cachedBootstrap?.snapshot.olderCursor);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [historyStatus, setHistoryStatus] = useState<TranscriptHistoryStatus>();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const transcriptPrependRef = useRef<boolean | undefined>(undefined);
-  const detailStoreRef = useRef(new ThreadDetailStore(5));
-  const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
-  const snapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
-  const activeSessionRef = useRef(cachedBootstrap?.snapshot.sessionId ?? "");
-  const pendingSessionRef = useRef<{ switching: boolean; sessionId?: string }>({ switching: false });
-  const bootstrappedRef = useRef(false);
-  const transcriptLoadRef = useRef(0);
-  const loadingOlderRef = useRef(false);
   const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
   const changesRequestRef = useRef(0);
   const changesRef = useRef(changes);
   changesRef.current = changes;
   const workspaceRequestRef = useRef(0);
-  const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
-  snapshotRef.current = snapshot;
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
   const assistantStartsRef = useRef(new Map<string, number>());
@@ -505,12 +444,6 @@ export default function App() {
   }, [flushToolUpdates]);
 
   const applySnapshot = useCallback((next: HostSnapshot) => {
-    transcriptLoadRef.current += 1;
-    loadingOlderRef.current = false;
-    transcriptPrependRef.current = undefined;
-    pendingSessionRef.current = { switching: false };
-    activeSessionRef.current = next.sessionId;
-    bootstrappedRef.current = true;
     assistantStartsRef.current.clear();
     pendingDeltasRef.current.clear();
     pendingToolUpdatesRef.current.clear();
@@ -521,6 +454,7 @@ export default function App() {
     const detail: import("../shared/host-protocol").ThreadDetail = {
       sessionId: next.sessionId,
       messages: next.messages,
+      transcriptMessageIndexes: next.transcriptMessageIndexes,
       isStreaming: next.isStreaming,
       activeTools: next.activeTools,
       turnActivity: next.turnActivity,
@@ -530,10 +464,7 @@ export default function App() {
       olderCursor: next.olderCursor,
       hasMore: next.olderCursor !== undefined,
     };
-    detailStoreRef.current.set(detail);
-    setOlderCursor(detail.olderCursor);
-    setLoadingOlder(false);
-    setHistoryStatus(undefined);
+    transcriptHistory.syncSnapshot(next, detail);
     threadStore.applyHostSnapshot(next);
     threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
@@ -544,16 +475,21 @@ export default function App() {
     setToolAnchorId(restoredActivity?.anchorMessageId);
     setTurnBaseline(cachedActivity?.baseline);
     setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
-    cachedSnapshotRef.current = next;
     activeWorkspaceRef.current = next.cwd;
-    writeBootstrapCache(next, cachedIndexRef.current);
-  }, [threadStore]);
+  }, [threadStore, transcriptHistory]);
 
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
-    cachedIndexRef.current = threadIndex;
-    writeBootstrapCache(cachedSnapshotRef.current, threadIndex);
-  }, [threadStore]);
+    transcriptHistory.setThreadIndex(threadIndex);
+  }, [threadStore, transcriptHistory]);
+
+  const applyTranscriptPage = useCallback((page: TranscriptPage, request?: TranscriptHistoryRequest) => {
+    const application = transcriptHistory.applyPage(page, messagesRef.current, request);
+    if (!application) return false;
+    setMessages(application.messages);
+    if (application.snapshot) setSnapshot(application.snapshot);
+    return true;
+  }, [transcriptHistory]);
 
   const applyHostUpdate = useCallback((update: HostUpdate) => {
     if (update.version !== 1) return;
@@ -569,91 +505,31 @@ export default function App() {
     }
     if (update.type === "thread-detail") {
       const detail = update.detail;
-      const pending = pendingSessionRef.current;
-      if (bootstrappedRef.current && pending.switching && pending.sessionId && pending.sessionId !== detail.sessionId) return;
-      if (bootstrappedRef.current && !pending.switching && activeSessionRef.current && activeSessionRef.current !== detail.sessionId) return;
-      const previous = detailStoreRef.current.get(detail.sessionId);
-      const sessionChanged = previous?.sessionId !== detail.sessionId;
-      const keepHistory = retainsLoadedHistory(previous, detail);
-      const messagesForRender = keepHistory
-        ? mergeTranscriptMessages(previous.messages, detail.messages)
-        : detail.messages;
-      const taskHistoryForRender = keepHistory
-        ? mergeTaskHistory(previous.taskHistory, detail.taskHistory)
-        : detail.taskHistory;
-      const detailForRender: ThreadDetail = {
-        ...detail,
-        messages: messagesForRender,
-        taskHistory: taskHistoryForRender,
-        olderCursor: keepHistory ? previous.olderCursor : detail.olderCursor,
-        hasMore: keepHistory ? previous.hasMore : detail.hasMore,
-      };
-      transcriptLoadRef.current += 1;
-      loadingOlderRef.current = false;
-      transcriptPrependRef.current = undefined;
-      activeSessionRef.current = detail.sessionId;
-      pendingSessionRef.current = { switching: false };
-      bootstrappedRef.current = true;
-      detailStoreRef.current.set(detailForRender);
+      const currentSnapshot = transcriptHistory.getCurrentSnapshot();
+      const shell = threadStore.getThread(detail.sessionId);
+      const snapshotForDetail = currentSnapshot ? {
+        ...currentSnapshot,
+        sessionId: detail.sessionId,
+        sessionTitle: shell?.title ?? currentSnapshot.sessionTitle,
+      } : undefined;
+      const application = transcriptHistory.applyDetail(detail, snapshotForDetail);
+      if (!application) return;
+      const detailForRender = application.detail;
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
-      setOlderCursor(detailForRender.olderCursor);
-      setLoadingOlder(false);
-      if (!keepHistory && sessionChanged) setHistoryStatus(undefined);
-      setMessages(messagesForRender);
+      setMessages(detailForRender.messages);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detail.sessionId);
       const restoredActivity = detail.turnActivity ?? cachedActivity;
       setTools(restoredActivity?.tools ?? []);
       setToolAnchorId(restoredActivity?.anchorMessageId);
       setTurnBaseline(cachedActivity?.baseline);
       setTurnActivitySessionId(restoredActivity ? detail.sessionId : undefined);
-      setSnapshot((current) => {
-        if (!current) return current;
-        const shell = threadStore.getThread(detail.sessionId);
-        const next = {
-          ...current,
-          sessionId: detail.sessionId,
-          sessionTitle: shell?.title ?? current.sessionTitle,
-          messages: messagesForRender,
-          olderCursor: detailForRender.olderCursor,
-          isStreaming: detail.isStreaming,
-          activeTools: detail.activeTools,
-          turnActivity: detail.turnActivity,
-          taskProgress: detail.taskProgress,
-          taskHistory: taskHistoryForRender,
-          contextUsage: detail.contextUsage,
-        };
-        cachedSnapshotRef.current = next;
-        writeBootstrapCache(next, cachedIndexRef.current);
-        return next;
-      });
+      setSnapshot((current) => application.snapshot ?? current);
       return;
     }
     if (update.type === "transcript-page") {
       const page = update.page;
-      if (pendingSessionRef.current.switching || activeSessionRef.current !== page.sessionId) return;
-      const currentDetail = detailStoreRef.current.get(page.sessionId);
-      const currentMessages = mergeTranscriptMessages(currentDetail?.messages ?? [], messagesRef.current);
-      const messagesForRender = mergeTranscriptMessages(currentMessages, page.messages, "prepend");
-      const taskHistoryForRender = mergeTaskHistory(currentDetail?.taskHistory, page.taskHistory);
-      if (currentDetail) {
-        detailStoreRef.current.set({
-          ...currentDetail,
-          messages: messagesForRender,
-          taskHistory: taskHistoryForRender,
-          olderCursor: page.olderCursor,
-          hasMore: page.hasMore,
-        });
-      }
-      setOlderCursor(page.olderCursor);
-      setMessages(messagesForRender);
-      setSnapshot((current) => {
-        if (!current || current.sessionId !== page.sessionId) return current;
-        const next = { ...current, messages: messagesForRender, taskHistory: taskHistoryForRender, olderCursor: page.olderCursor };
-        cachedSnapshotRef.current = next;
-        writeBootstrapCache(next, cachedIndexRef.current);
-        return next;
-      });
+      applyTranscriptPage(page);
       return;
     }
     if (update.type === "catalog") {
@@ -669,15 +545,20 @@ export default function App() {
       threadStore.setStreaming(update.event === "started");
     }
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, threadStore]);
+  }, [applyThreadIndex, applyTranscriptPage, threadStore, transcriptHistory]);
 
-  const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult) => {
+  const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: number): boolean => {
+    if (expectedTransition !== undefined && !transcriptHistory.isCurrentTransition(expectedTransition)) return false;
     const detail = result.updates.find((update) => update.type === "thread-detail");
     if (detail?.type === "thread-detail") {
-      pendingSessionRef.current = { switching: true, sessionId: detail.detail.sessionId };
+      const prepared = expectedTransition === undefined
+        ? transcriptHistory.prepareActionDetail(detail.detail.sessionId)
+        : transcriptHistory.confirmTransition(expectedTransition, detail.detail.sessionId);
+      if (!prepared) return false;
     }
     result.updates.forEach((update) => applyHostUpdate(update));
-  }, [applyHostUpdate]);
+    return true;
+  }, [applyHostUpdate, transcriptHistory]);
 
   const addEvent = useCallback((label: string, detail?: string, timestamp = Date.now()) => {
     setEvents((current) => [...current.slice(-99), { id: `${timestamp}-${Math.random()}`, label, detail, timestamp }]);
@@ -901,6 +782,7 @@ export default function App() {
           composerCommands: bootstrap.catalog.composerCommands ?? [],
           extensionCount: bootstrap.catalog.extensionCount,
           messages: bootstrap.detail.messages,
+          transcriptMessageIndexes: bootstrap.detail.transcriptMessageIndexes,
           isStreaming: bootstrap.detail.isStreaming,
           activeTools: bootstrap.detail.activeTools,
           turnActivity: bootstrap.detail.turnActivity,
@@ -948,85 +830,12 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId, transcriptPrependRef);
+  const loadTranscriptPage = useCallback(async (sessionId: string, cursor: string) => {
+    if (!window.tau) throw new Error("Transcript history requires the Electron host.");
+    return window.tau.loadTranscript(sessionId, cursor);
+  }, []);
 
-  const loadOlder = useCallback(async () => {
-    const sessionId = snapshot?.sessionId;
-    const cursor = olderCursor;
-    if (!cursor || !sessionId || !window.tau || loadingOlderRef.current) return;
-    const transcript = transcriptRef.current;
-    if (!transcript) return;
-    const request = ++transcriptLoadRef.current;
-    loadingOlderRef.current = true;
-    transcriptPrependRef.current = true;
-    const previousScrollTop = transcript.scrollTop;
-    setLoadingOlder(true);
-    setHistoryStatus(undefined);
-    const previousHeight = transcript.scrollHeight;
-    let restoreScheduled = false;
-    const finishLoading = () => {
-      if (request !== transcriptLoadRef.current) return;
-      loadingOlderRef.current = false;
-      transcriptPrependRef.current = undefined;
-      setLoadingOlder(false);
-    };
-    try {
-      const page = await window.tau.loadTranscript(sessionId, cursor);
-      if (
-        request !== transcriptLoadRef.current
-        || pendingSessionRef.current.switching
-        || activeSessionRef.current !== sessionId
-        || snapshotRef.current?.sessionId !== sessionId
-        || page.sessionId !== sessionId
-      ) return;
-      const currentDetail = detailStoreRef.current.get(sessionId);
-      const currentMessages = mergeTranscriptMessages(currentDetail?.messages ?? [], messagesRef.current);
-      const messagesForRender = mergeTranscriptMessages(currentMessages, page.messages, "prepend");
-      const taskHistoryForRender = mergeTaskHistory(currentDetail?.taskHistory, page.taskHistory);
-      if (currentDetail) {
-        detailStoreRef.current.set({
-          ...currentDetail,
-          messages: messagesForRender,
-          taskHistory: taskHistoryForRender,
-          olderCursor: page.olderCursor,
-          hasMore: page.hasMore,
-        });
-      }
-      setMessages(messagesForRender);
-      setOlderCursor(page.olderCursor);
-      setSnapshot((current) => {
-        if (!current || current.sessionId !== sessionId) return current;
-        const next = { ...current, messages: messagesForRender, taskHistory: taskHistoryForRender, olderCursor: page.olderCursor };
-        cachedSnapshotRef.current = next;
-        writeBootstrapCache(next, cachedIndexRef.current);
-        return next;
-      });
-      const loadedTurns = countUserTurns(page.messages);
-      setHistoryStatus({ state: "success", loadedTurns });
-      restoreScheduled = true;
-      const restore = (framesRemaining: number) => {
-        if (request !== transcriptLoadRef.current || activeSessionRef.current !== sessionId || pendingSessionRef.current.switching) {
-          finishLoading();
-          return;
-        }
-        const current = transcriptRef.current;
-        if (current) restoreTranscriptScrollPosition(current, previousHeight, previousScrollTop);
-        if (framesRemaining > 0) {
-          window.requestAnimationFrame(() => restore(framesRemaining - 1));
-        } else {
-          finishLoading();
-        }
-      };
-      window.requestAnimationFrame(() => restore(2));
-    } catch (error) {
-      if (request === transcriptLoadRef.current && activeSessionRef.current === sessionId) {
-        const message = error instanceof Error ? error.message : String(error);
-        setHistoryStatus({ state: "error", message: `Could not load older turns: ${message}` });
-      }
-    } finally {
-      if (!restoreScheduled) finishLoading();
-    }
-  }, [olderCursor, snapshot]);
+  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId, transcriptHistory.preserveScrollRef);
 
   useEffect(() => {
     if (!notice) return;
@@ -1162,24 +971,20 @@ export default function App() {
     const startedAt = performance.now();
     const previous = snapshot;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
-    transcriptLoadRef.current += 1;
-    loadingOlderRef.current = false;
-    transcriptPrependRef.current = undefined;
-    pendingSessionRef.current = { switching: true, sessionId: target?.id };
-    setLoadingOlder(false);
-    setHistoryStatus(undefined);
-    const cached = target ? detailStoreRef.current.get(target.id) : undefined;
+    const cached = target ? transcriptHistory.getDetail(target.id) : undefined;
     if (cached && snapshot && target) {
       applySnapshot(optimisticThreadSnapshot(snapshot, target, cached));
       addEvent("thread.switch.cached", target?.title);
     }
+    const transition = transcriptHistory.beginSessionSwitch(target?.id);
     try {
       const next = await window.tau!.switchSession(path);
-      applyActionResult(next);
+      if (!applyActionResult(next, transition)) return false;
       threadStore.markRead(target?.id ?? "");
       addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
       return true;
     } catch (error) {
+      if (!transcriptHistory.isCurrentTransition(transition)) return false;
       if (previous) applySnapshot(previous);
       setNotice(String(error));
       return false;
@@ -1966,42 +1771,45 @@ export default function App() {
 
               <div className="transcript" ref={transcriptRef}>
                 <div className="transcript-inner">
-                  {!pendingNewThread && conversationMessages.length > 0 ? (
-                    <TranscriptHistoryControl
-                      olderCursor={olderCursor}
-                      loading={loadingOlder}
-                      status={historyStatus}
-                      onLoad={() => void loadOlder()}
-                    />
-                  ) : null}
-                  <VirtualTranscript
-                    messages={conversationMessages}
+                  <TranscriptHistoryBoundary
+                    controller={transcriptHistory}
                     scrollRef={transcriptRef}
-                    isStreaming={Boolean(conversationSnapshot?.isStreaming)}
-                    activity={conversationActivityTools.length > 0 ? (
-                      <ToolGroup
-                        tools={conversationActivityTools}
-                        registry={registry}
-                        streaming={conversationSnapshot?.isStreaming}
-                        waiting={conversationPrompts.length > 0}
-                        onRecover={() => void recoverThread()}
-                        onStop={() => void window.tau?.abort(snapshot?.sessionId)}
+                    showControl={!pendingNewThread && conversationMessages.length > 0}
+                    loadPage={loadTranscriptPage}
+                    applyPage={applyTranscriptPage}
+                  >
+                    {(anchorRef) => <>
+                      <VirtualTranscript
+                        messages={conversationMessages}
+                        scrollRef={transcriptRef}
+                        anchorRef={anchorRef}
+                        isStreaming={Boolean(conversationSnapshot?.isStreaming)}
+                        activity={conversationActivityTools.length > 0 ? (
+                          <ToolGroup
+                            tools={conversationActivityTools}
+                            registry={registry}
+                            streaming={conversationSnapshot?.isStreaming}
+                            waiting={conversationPrompts.length > 0}
+                            onRecover={() => void recoverThread()}
+                            onStop={() => void window.tau?.abort(snapshot?.sessionId)}
+                          />
+                        ) : undefined}
+                        activityAfterMessageId={visibleToolAnchorId}
+                        activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
+                          id: entry.id,
+                          afterMessageId: entry.anchorMessageId,
+                          content: <TaskProgress progress={entry.progress} placement="transcript" />,
+                        }))}
+                        onCopyMessage={(message) => void copyMessage(message)}
+                        onForkMessage={(message) => void forkMessage(message)}
                       />
-                    ) : undefined}
-                    activityAfterMessageId={visibleToolAnchorId}
-                    activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
-                      id: entry.id,
-                      afterMessageId: entry.anchorMessageId,
-                      content: <TaskProgress progress={entry.progress} placement="transcript" />,
-                    }))}
-                    onCopyMessage={(message) => void copyMessage(message)}
-                    onForkMessage={(message) => void forkMessage(message)}
-                  />
-                  {/* The tool block already says a run is in flight; two live rows
-                      both duplicate the signal and collide with the virtual list. */}
-                  {conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
-                    ? <LiveStatus startedAt={runStartedAt} />
-                    : null}
+                      {/* The tool block already says a run is in flight; two live rows
+                          both duplicate the signal and collide with the virtual list. */}
+                      {conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
+                        ? <LiveStatus startedAt={runStartedAt} />
+                        : null}
+                    </>}
+                  </TranscriptHistoryBoundary>
                 </div>
               </div>
 

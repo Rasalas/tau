@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -19,9 +20,6 @@ import {
 } from "../../src/shared/pi-bridge-protocol.js";
 
 interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
-
-const BRIDGE_TRANSCRIPT_WINDOW = 160;
-const BRIDGE_TRANSCRIPT_PAGE_TURNS = 20;
 
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
@@ -79,14 +77,15 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const usage = ctx.getContextUsage();
     const branchMessages = ctx.sessionManager.getBranch()
       .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
-    const messagesOffset = Math.max(0, branchMessages.length - BRIDGE_TRANSCRIPT_WINDOW);
+    const bounds = transcriptPageBounds(branchMessages, INITIAL_TRANSCRIPT_TURN_LIMIT);
+    const visibleMessages = branchMessages.slice(bounds.start, bounds.end);
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       cwd: ctx.cwd,
       sessionName: pi.getSessionName(),
-      messages: boundedBridgeValue(branchMessages.slice(messagesOffset)),
-      messagesOffset,
+      messages: boundedBridgeValue(visibleMessages),
+      messagesOffset: bounds.start,
       isStreaming: !ctx.isIdle(),
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, name: ctx.model.name } : undefined,
       models: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, id: model.id, name: model.name })),
@@ -103,7 +102,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         })),
       contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : undefined,
       taskProgress: taskProgressFromMessages(branchMessages),
-      taskHistory: taskProgressHistoryFromMessages(branchMessages),
+      taskHistory: taskProgressHistoryFromMessages(visibleMessages),
       awaitingInput,
     };
   };
@@ -111,23 +110,15 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   const transcriptPage = (ctx: ExtensionContext, cursor?: string): PiBridgeTranscriptPage => {
     const branchMessages = ctx.sessionManager.getBranch()
       .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
-    const end = cursor === undefined ? branchMessages.length : Number(cursor);
-    if (!Number.isSafeInteger(end) || end < 0 || end > branchMessages.length || (cursor !== undefined && !/^\d+$/u.test(cursor))) {
-      throw new Error("Invalid transcript cursor");
-    }
-    let start = end;
-    let turns = 0;
-    while (start > 0 && turns < BRIDGE_TRANSCRIPT_PAGE_TURNS) {
-      start -= 1;
-      const message = branchMessages[start];
-      if (message && typeof message === "object" && (message as { role?: string }).role === "user") turns += 1;
-    }
+    const bounds = transcriptPageBounds(branchMessages, OLDER_TRANSCRIPT_TURN_LIMIT, cursor);
+    const visibleMessages = branchMessages.slice(bounds.start, bounds.end);
     const page = {
       sessionId: ctx.sessionManager.getSessionId(),
-      messages: boundedBridgeValue(branchMessages.slice(start, end)),
-      ...(start > 0 ? { olderCursor: String(start) } : {}),
-      hasMore: start > 0,
-      taskHistory: taskProgressHistoryFromMessages(branchMessages),
+      messages: boundedBridgeValue(visibleMessages),
+      messagesOffset: bounds.start,
+      ...(bounds.olderCursor ? { olderCursor: bounds.olderCursor } : {}),
+      hasMore: bounds.hasMore,
+      taskHistory: taskProgressHistoryFromMessages(visibleMessages),
     } satisfies PiBridgeTranscriptPage;
     return page;
   };

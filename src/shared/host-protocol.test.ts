@@ -50,4 +50,16 @@ describe("host protocol", () => {
     expect(detail.olderCursor).toBe("12");
     expect(detail.hasMore).toBe(true);
   });
+
+  it("translates a bounded bridge window to the raw cursor before its first visible turn", () => {
+    const messages = Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index }));
+    const detail = detailFromSnapshot({
+      ...snapshot,
+      messages,
+      transcriptMessageIndexes: messages.map((_, index) => index + 100),
+    });
+    expect(detail.messages.map((message) => message.id)).toEqual(Array.from({ length: 10 }, (_, index) => String(index + 20)));
+    expect(detail.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
+    expect(detail.olderCursor).toBe("120");
+  });
 });

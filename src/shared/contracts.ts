@@ -331,6 +331,7 @@ export interface HostBootstrap {
   detail: {
     sessionId: string;
     messages: UiMessage[];
+    transcriptMessageIndexes?: number[];
     isStreaming: boolean;
     activeTools: string[];
     turnActivity?: UiTurnActivity;

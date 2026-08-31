@@ -1,8 +1,6 @@
-export interface TranscriptHistoryStatus {
-  state: "success" | "error";
-  message?: string;
-  loadedTurns?: number;
-}
+import type { TranscriptHistoryStatus } from "../transcript-history";
+
+export type { TranscriptHistoryStatus } from "../transcript-history";
 
 export interface TranscriptHistoryControlProps {
   olderCursor?: string;

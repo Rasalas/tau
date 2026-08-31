@@ -12,12 +12,29 @@ export interface CachedBootstrap {
 
 function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   const detail = detailFromSnapshot(snapshot, INITIAL_TRANSCRIPT_TURN_LIMIT);
+  const sourceIndexes = snapshot.transcriptMessageIndexes
+    ? new Map(snapshot.messages.map((message, index) => [message.id, snapshot.transcriptMessageIndexes?.[index]] as const))
+    : undefined;
+  const retainedIndexes = sourceIndexes
+    ? detail.messages.map((message) => sourceIndexes.get(message.id))
+    : undefined;
+  const firstRetainedIndex = detail.messages.length > 0
+    ? snapshot.messages.findIndex((message) => message.id === detail.messages[0]?.id)
+    : -1;
+  const mappedCursor = retainedIndexes?.[0];
+  const existingCursor = snapshot.olderCursor === undefined ? undefined : Number(snapshot.olderCursor);
+  const boundedCursor = mappedCursor !== undefined
+    ? mappedCursor > 0 ? String(mappedCursor) : undefined
+    : firstRetainedIndex >= 0 && existingCursor !== undefined && Number.isSafeInteger(existingCursor) && existingCursor >= 0
+      ? String(existingCursor + firstRetainedIndex)
+      : detail.olderCursor;
   return {
     ...snapshot,
     messages: detail.messages,
-    ...(snapshot.olderCursor || detail.olderCursor
-      ? { olderCursor: snapshot.olderCursor ?? detail.olderCursor }
-      : {}),
+    ...(boundedCursor ? { olderCursor: boundedCursor } : { olderCursor: undefined }),
+    ...(retainedIndexes?.every((index): index is number => index !== undefined)
+      ? { transcriptMessageIndexes: retainedIndexes }
+      : { transcriptMessageIndexes: undefined }),
     models: [],
     allTools: [],
     activeTools: [],

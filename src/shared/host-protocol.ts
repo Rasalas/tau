@@ -32,6 +32,8 @@ export interface ThreadIndexUpdate {
 export interface ThreadDetail {
   sessionId: string;
   messages: UiMessage[];
+  /** Raw message indexes corresponding to `messages` for bounded bridge details. */
+  transcriptMessageIndexes?: number[];
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
@@ -47,6 +49,8 @@ export interface ThreadDetail {
 export interface TranscriptPage {
   sessionId: string;
   messages: UiMessage[];
+  /** Raw message indexes corresponding to `messages` when a bridge owns paging. */
+  transcriptMessageIndexes?: number[];
   taskHistory?: UiTaskProgressEntry[];
   olderCursor?: string;
   hasMore: boolean;
@@ -98,6 +102,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
+function validIndexes(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every((index) => Number.isSafeInteger(index) && index >= 0));
+}
+
 export function isHostUpdate(value: unknown): value is HostUpdate {
   const candidate = record(value);
   if (!candidate || candidate.version !== HOST_PROTOCOL_VERSION || typeof candidate.type !== "string") return false;
@@ -115,9 +123,11 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
       && (payload.olderCursor === undefined || typeof payload.olderCursor === "string")
       && (payload.hasMore === undefined || typeof payload.hasMore === "boolean")
+      && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
       && (payload.olderCursor === undefined || typeof payload.olderCursor === "string")
+      && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
     case "project": return Boolean(payload && typeof payload.cwd === "string");
@@ -156,9 +166,18 @@ function cursorForPage(
 export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANSCRIPT_TURN_LIMIT): ThreadDetail {
   const page = TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, limit);
   const olderCursor = cursorForPage(page, snapshot);
+  const indexByMessageId = snapshot.transcriptMessageIndexes
+    ? new Map(snapshot.messages.map((message, index) => [message.id, snapshot.transcriptMessageIndexes?.[index]] as const))
+    : undefined;
+  const transcriptMessageIndexes = indexByMessageId
+    ? page.messages.map((message) => indexByMessageId.get(message.id)).every((index): index is number => index !== undefined)
+      ? page.messages.map((message) => indexByMessageId.get(message.id) as number)
+      : undefined
+    : undefined;
   return {
     sessionId: snapshot.sessionId,
     messages: page.messages,
+    ...(transcriptMessageIndexes ? { transcriptMessageIndexes } : {}),
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
     turnActivity: snapshot.turnActivity,
