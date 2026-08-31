@@ -108,6 +108,31 @@ export interface TurnRestoreBackup {
   createdAt: number;
 }
 
+export type TurnRestoreTransactionState = "prepared" | "applying" | "cleaned" | "workspace-applied"
+  | "rolling-back" | "committed" | "recovered";
+
+/**
+ * Append-only restore journal entry. The marker lives in the durable backup
+ * thread, so a process restart can finish or roll back a workspace mutation
+ * before exposing either conversation branch as active.
+ */
+export interface TurnRestoreTransaction {
+  version: 1;
+  transactionId: string;
+  state: TurnRestoreTransactionState;
+  sessionId: string;
+  backupSessionId: string;
+  backupTurnId: string;
+  sourceSessionId: string;
+  sourceTurnId: string;
+  sourceCheckpointId: string;
+  targetSessionId: string;
+  cwd: string;
+  targetAfterSnapshotId: string;
+  backupAfterSnapshotId: string;
+  createdAt: number;
+}
+
 /** Append-only journal marker for an all-or-nothing fork re-home. */
 export interface TurnCheckpointBatch {
   transactionId: string;

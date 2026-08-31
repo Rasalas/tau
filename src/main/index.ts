@@ -144,6 +144,8 @@ function installIpc(): void {
   ipcMain.handle("tau:prepared-thread-capability", async (_event, cwd?: string) =>
     (await requireHostReady()).getPreparedThreadCapability(cwd));
   ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));
+  ipcMain.handle("tau:can-restore-checkpoint", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).canRestoreCheckpoint(sessionId, checkpointId));
+  ipcMain.handle("tau:restore-preview", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).getRestorePreview(sessionId, checkpointId));
   ipcMain.handle("tau:restore-checkpoint", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).restoreCheckpoint(sessionId, checkpointId));
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));

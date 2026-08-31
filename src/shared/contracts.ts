@@ -594,6 +594,10 @@ export interface TauDesktopApi {
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  /** Ref and workspace integrity check used before showing Restore. */
+  canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
+  /** Exact live-workspace delta that restoring a checkpoint would replace. */
+  getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restoreCheckpoint(sessionId: string, checkpointId: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
-import type { UiTurnCheckpoint, UiWorkspaceChanges } from "../../shared/contracts";
+import type { ChangeStatus, UiTurnCheckpoint, UiWorkspaceChanges } from "../../shared/contracts";
 
 export interface RestoreCheckpointDialogProps {
   checkpoint: UiTurnCheckpoint;
@@ -9,6 +9,13 @@ export interface RestoreCheckpointDialogProps {
   busy?: boolean;
   onCancel(): void;
   onConfirm(): void;
+}
+
+function restoreAction(status: ChangeStatus): string {
+  if (status === "added" || status === "untracked") return "remove";
+  if (status === "deleted") return "restore";
+  if (status === "renamed") return "replace";
+  return "replace";
 }
 
 /** Explicit confirmation for the destructive workspace/conversation restore. */
@@ -50,22 +57,23 @@ export function RestoreCheckpointDialog({
         </header>
         <div className="restore-dialog-body">
           <p>This creates a recoverable backup thread first, then replaces the active conversation branch and workspace with this checkpoint.</p>
+          <p>The workspace list compares the live files with the selected checkpoint.</p>
           <dl>
             <div>
               <dt>Later turns removed from the active branch</dt>
               <dd>{laterTurns}</dd>
             </div>
             <div>
-              <dt>Unsaved workspace changes removed</dt>
+              <dt>Workspace paths changed by restore</dt>
               <dd>{fileCount}</dd>
             </div>
           </dl>
           {files.length > 0 ? (
-            <ul aria-label="Unsaved workspace changes">
-              {files.map((file) => <li key={file.path}><code>{file.path}</code><span>{file.status}</span></li>)}
+            <ul aria-label="Workspace paths changed by restore">
+              {files.map((file) => <li key={file.path}><code>{file.path}</code><span>{restoreAction(file.status)}</span></li>)}
               {fileCount > files.length ? <li className="restore-dialog-more">…and {fileCount - files.length} more</li> : null}
             </ul>
-          ) : <p className="restore-dialog-muted">No unsaved workspace changes detected.</p>}
+          ) : <p className="restore-dialog-muted">The live workspace already matches this checkpoint.</p>}
           <p className="restore-dialog-note">Use Fork instead if you want to explore this checkpoint without changing the current thread or workspace.</p>
         </div>
         <footer>

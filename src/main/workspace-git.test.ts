@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,6 +19,7 @@ import {
   MAX_DIFF_HUNKS,
   parseUnifiedDiff,
   push,
+  previewWorkspaceRestore,
   readProjectGitState,
   restoreWorkspaceSnapshot,
   repositoryDisplayName,
@@ -130,6 +131,7 @@ describe("immutable turn snapshots", () => {
       await writeFile(join(cwd, "tracked.txt"), "current\n");
       const backupBefore = await createWorkspaceSnapshot(cwd, { namespace: "backup/restore", phase: "before" });
       const backupAfter = await createWorkspaceSnapshot(cwd, { namespace: "backup/restore", phase: "after" });
+      const phases: string[] = [];
       const failingGit = async (path: string, args: string[], maxBuffer?: number, signal?: AbortSignal): Promise<string> => {
         if (args[0] === "read-tree" && args.at(-1) === targetAfter.treeId) throw new Error("simulated restore write failure");
         return runGitCommand(path, args, maxBuffer, signal);
@@ -139,11 +141,45 @@ describe("immutable turn snapshots", () => {
         target: { sessionId: "source", turnId: "turn" },
         rollback: { sessionId: "backup", turnId: "restore" },
         runGit: failingGit,
+        onPhase: (phase) => { phases.push(phase); },
       })).rejects.toThrow(/original workspace was restored/u);
+      expect(phases).toEqual(["apply-started", "cleaned", "rolling-back"]);
       expect(await readFile(join(cwd, "tracked.txt"), "utf8")).toBe("current\n");
       await expect(readFile(join(cwd, "missing.txt"), "utf8")).rejects.toBeDefined();
       expect(targetBefore.treeId).not.toBe(targetAfter.treeId);
       expect(backupBefore.treeId).toBe(backupAfter.treeId);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("previews the live workspace delta against the selected checkpoint", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-restore-preview-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "tracked.txt"), "base\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      const before = await createWorkspaceSnapshot(cwd, { namespace: "preview-source/turn", phase: "before" });
+      await writeFile(join(cwd, "tracked.txt"), "checkpoint\n");
+      await writeFile(join(cwd, "checkpoint.txt"), "kept\n");
+      const after = await createWorkspaceSnapshot(cwd, { namespace: "preview-source/turn", phase: "after" });
+      await writeFile(join(cwd, "tracked.txt"), "current\n");
+      await rm(join(cwd, "checkpoint.txt"), { force: true });
+      await writeFile(join(cwd, "current.txt"), "unsaved\n");
+
+      const preview = await previewWorkspaceRestore(
+        cwd,
+        before.id,
+        after.id,
+        { sessionId: "preview-source", turnId: "turn" },
+      );
+      expect(preview.files.map((file) => file.path)).toEqual(["checkpoint.txt", "current.txt", "tracked.txt"]);
+      expect(preview.files.find((file) => file.path === "checkpoint.txt")?.status).toBe("deleted");
+      expect(preview.files.find((file) => file.path === "current.txt")?.status).toBe("added");
+      expect(preview.files.find((file) => file.path === "tracked.txt")?.status).toBe("modified");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -176,6 +212,57 @@ describe("immutable turn snapshots", () => {
         rollback: { sessionId: "backup", turnId: "restore" },
       })).rejects.toThrow(/incomplete/u);
       expect(partial.treeId).not.toBe(partialAfter.treeId);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("preserves executable file modes and marks symlink snapshots incomplete", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-folder-metadata-"));
+    try {
+      const executable = join(cwd, "run.sh");
+      await writeFile(executable, "#!/bin/sh\necho ok\n");
+      await chmod(executable, 0o754);
+      const emptyDirectory = join(cwd, "empty");
+      await mkdir(emptyDirectory);
+      await chmod(emptyDirectory, 0o751);
+      const targetBefore = await createWorkspaceSnapshot(cwd, { namespace: "metadata-source/source", phase: "before" });
+      await chmod(executable, 0o600);
+      await chmod(emptyDirectory, 0o700);
+      const targetAfter = await createWorkspaceSnapshot(cwd, { namespace: "metadata-source/source", phase: "after" });
+      await chmod(executable, 0o644);
+      await chmod(emptyDirectory, 0o755);
+      const modeChanges = await diffWorkspaceSnapshots(cwd, targetBefore.id, targetAfter.id, {
+        expected: { sessionId: "metadata-source", turnId: "source" },
+      });
+      expect(modeChanges.files.find((file) => file.path === "run.sh")).toMatchObject({ status: "modified", added: 0, removed: 0 });
+      expect(modeChanges.files.find((file) => file.path === "empty")).toMatchObject({ status: "modified", added: 0, removed: 0 });
+      const rollbackBefore = await createWorkspaceSnapshot(cwd, { namespace: "metadata-rollback/rollback", phase: "before" });
+      const rollbackAfter = await createWorkspaceSnapshot(cwd, { namespace: "metadata-rollback/rollback", phase: "after" });
+
+      // Restoring must remain possible when the currently materialized tree
+      // itself made a directory read-only.
+      await chmod(emptyDirectory, 0o500);
+      await restoreWorkspaceSnapshot(cwd, targetAfter.id, {
+        target: { sessionId: "metadata-source", turnId: "source" },
+        rollback: { sessionId: "metadata-rollback", turnId: "rollback" },
+      });
+      expect((await lstat(executable)).mode & 0o7777).toBe(0o600);
+      expect((await stat(emptyDirectory)).mode & 0o7777).toBe(0o700);
+      expect(targetBefore.treeId).not.toBe(targetAfter.treeId);
+      expect(rollbackBefore.treeId).toBe(rollbackAfter.treeId);
+
+      await symlink("run.sh", join(cwd, "run-link"));
+      const symlinkBefore = await createWorkspaceSnapshot(cwd, { namespace: "metadata-symlink/symlink", phase: "before" });
+      await writeFile(join(cwd, "symlink-change.txt"), "not restorable\n");
+      const symlinkAfter = await createWorkspaceSnapshot(cwd, { namespace: "metadata-symlink/symlink", phase: "after" });
+      expect(symlinkBefore.complete).toBe(false);
+      expect(symlinkBefore.backend).toBe("filesystem");
+      expect(symlinkAfter.complete).toBe(false);
+      await expect(restoreWorkspaceSnapshot(cwd, symlinkAfter.id, {
+        target: { sessionId: "metadata-symlink", turnId: "symlink" },
+        rollback: { sessionId: "metadata-rollback", turnId: "rollback" },
+      })).rejects.toThrow(/incomplete/u);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

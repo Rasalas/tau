@@ -7,6 +7,8 @@ import type {
 import type {
   StoredTurnCheckpoint,
   TurnRestoreBackup,
+  TurnRestoreTransaction,
+  TurnRestoreTransactionState,
   TurnCaptureState,
   TurnCheckpointCaptureResult,
   TurnCheckpointBatch,
@@ -18,6 +20,8 @@ export const TURN_CHECKPOINT_CUSTOM_TYPE = "tau.turn-checkpoint.v1";
 export const TURN_CHECKPOINT_BATCH_CUSTOM_TYPE = "tau.turn-checkpoint-batch.v1";
 /** Durable marker retaining the workspace pair owned by a restore backup. */
 export const TURN_RESTORE_BACKUP_CUSTOM_TYPE = "tau.turn-restore-backup.v1";
+/** Append-only transaction state for crash-safe checkpoint restore. */
+export const TURN_RESTORE_TRANSACTION_CUSTOM_TYPE = "tau.turn-restore-transaction.v1";
 
 /** Keep the persisted checkpoint small even when a turn changes thousands of files. */
 export const MAX_TURN_CHECKPOINT_PREVIEW_FILES = 8;
@@ -290,6 +294,86 @@ export function turnRestoreBackupsFromEntries(
     result.push(backup);
   }
   return result;
+}
+
+function restoreTransactionState(value: unknown): value is TurnRestoreTransactionState {
+  return value === "prepared" || value === "applying" || value === "cleaned"
+    || value === "workspace-applied" || value === "rolling-back"
+    || value === "committed" || value === "recovered";
+}
+
+/** Parse a restore journal record and reject refs outside its declared owners. */
+export function parseTurnRestoreTransaction(
+  value: unknown,
+  expectedSessionId?: string,
+): TurnRestoreTransaction | undefined {
+  const item = record(value);
+  if (!item
+    || item.version !== 1
+    || typeof item.transactionId !== "string"
+    || item.transactionId.length === 0
+    || !restoreTransactionState(item.state)
+    || typeof item.sessionId !== "string"
+    || item.sessionId.length === 0
+    || (expectedSessionId !== undefined && item.sessionId !== expectedSessionId)
+    || typeof item.backupSessionId !== "string"
+    || item.backupSessionId !== item.sessionId
+    || typeof item.backupTurnId !== "string"
+    || item.backupTurnId.length === 0
+    || typeof item.sourceSessionId !== "string"
+    || item.sourceSessionId.length === 0
+    || typeof item.sourceTurnId !== "string"
+    || item.sourceTurnId.length === 0
+    || typeof item.sourceCheckpointId !== "string"
+    || item.sourceCheckpointId.length === 0
+    || typeof item.targetSessionId !== "string"
+    || item.targetSessionId.length === 0
+    || item.targetSessionId === item.backupSessionId
+    || typeof item.cwd !== "string"
+    || item.cwd.length === 0
+    || !isTurnSnapshotId(item.targetAfterSnapshotId)
+    || !isTurnSnapshotId(item.backupAfterSnapshotId)
+    || !finite(item.createdAt)) return undefined;
+  let expectedTargetAfter: string;
+  let expectedBackupAfter: string;
+  try {
+    expectedTargetAfter = turnSnapshotRef(item.sourceSessionId, item.sourceTurnId, "after");
+    expectedBackupAfter = turnSnapshotRef(item.backupSessionId, item.backupTurnId, "after");
+  } catch {
+    return undefined;
+  }
+  if (item.targetAfterSnapshotId !== expectedTargetAfter || item.backupAfterSnapshotId !== expectedBackupAfter) return undefined;
+  return {
+    version: 1,
+    transactionId: item.transactionId,
+    state: item.state,
+    sessionId: item.sessionId,
+    backupSessionId: item.backupSessionId,
+    backupTurnId: item.backupTurnId,
+    sourceSessionId: item.sourceSessionId,
+    sourceTurnId: item.sourceTurnId,
+    sourceCheckpointId: item.sourceCheckpointId,
+    targetSessionId: item.targetSessionId,
+    cwd: item.cwd,
+    targetAfterSnapshotId: item.targetAfterSnapshotId,
+    backupAfterSnapshotId: item.backupAfterSnapshotId,
+    createdAt: item.createdAt,
+  };
+}
+
+/** Return the latest durable state for each restore transaction. */
+export function turnRestoreTransactionsFromEntries(
+  entries: readonly unknown[],
+  expectedSessionId?: string,
+): TurnRestoreTransaction[] {
+  const latest = new Map<string, TurnRestoreTransaction>();
+  for (const entry of entries) {
+    const item = record(entry);
+    if (!item || item.type !== "custom" || item.customType !== TURN_RESTORE_TRANSACTION_CUSTOM_TYPE) continue;
+    const transaction = parseTurnRestoreTransaction(item.data, expectedSessionId);
+    if (transaction) latest.set(transaction.transactionId, transaction);
+  }
+  return [...latest.values()];
 }
 
 export function parseTurnCheckpointBatch(value: unknown, expectedSessionId?: string): TurnCheckpointBatch | undefined {

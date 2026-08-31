@@ -6,6 +6,8 @@ import {
   TURN_CHECKPOINT_CUSTOM_TYPE,
   TURN_CHECKPOINT_BATCH_CUSTOM_TYPE,
   TURN_RESTORE_BACKUP_CUSTOM_TYPE,
+  TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
+  turnRestoreTransactionsFromEntries,
   turnCheckpointsFromEntries,
   turnRestoreBackupsFromEntries,
   turnSnapshotRef,
@@ -112,6 +114,30 @@ describe("turn checkpoints", () => {
       { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: { ...backup, backupId: "foreign", sessionId: "other" } },
       { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: { ...backup, backupId: "swapped", afterSnapshotId: backup.beforeSnapshotId } },
     ], "backup-session")).toEqual([backup]);
+  });
+
+  it("keeps the latest valid restore journal state and rejects foreign refs", () => {
+    const transaction = {
+      version: 1,
+      transactionId: "restore-1",
+      state: "prepared" as const,
+      sessionId: "backup-session",
+      backupSessionId: "backup-session",
+      backupTurnId: "restore-backup-1",
+      sourceSessionId: "source-session",
+      sourceTurnId: "turn-1",
+      sourceCheckpointId: "turn-1",
+      targetSessionId: "target-session",
+      cwd: "/workspace",
+      targetAfterSnapshotId: turnSnapshotRef("source-session", "turn-1", "after"),
+      backupAfterSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "after"),
+      createdAt: 10,
+    };
+    expect(turnRestoreTransactionsFromEntries([
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: transaction },
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: { ...transaction, state: "committed" } },
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: { ...transaction, targetAfterSnapshotId: turnSnapshotRef("foreign", "turn-1", "after") } },
+    ], "backup-session")).toMatchObject([{ ...transaction, state: "committed" }]);
   });
 
   it("exposes fork records only after every record precedes its commit marker", () => {

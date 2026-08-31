@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -49,11 +49,18 @@ const FILESYSTEM_IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", 
 interface FilesystemSnapshotFile {
   hash: string;
   size: number;
+  /** Permission bits captured with the file; special type bits are excluded. */
+  mode?: number;
   /** Captured once so summary generation never rereads historical blobs. */
   lines?: number;
   /** Large files retain identity metadata but intentionally no historical bytes. */
   contentAvailable: boolean;
   unavailableReason?: string;
+}
+
+interface FilesystemSnapshotDirectory {
+  /** Permission bits captured with the directory; special type bits excluded. */
+  mode: number;
 }
 
 interface FilesystemSnapshotManifest {
@@ -62,6 +69,8 @@ interface FilesystemSnapshotManifest {
   cwd: string;
   treeId: string;
   files: Record<string, FilesystemSnapshotFile>;
+  /** Empty directories and directory permissions are part of the snapshot. */
+  directories: Record<string, FilesystemSnapshotDirectory>;
   /** A false value is explicit: the scan did not cover the complete folder. */
   complete: boolean;
   omittedFileCount: number;
@@ -92,22 +101,44 @@ async function readFilesystemSnapshot(cwd: string, id: string): Promise<Filesyst
     if (value.version !== 1 || value.id !== id || typeof value.cwd !== "string" || typeof value.treeId !== "string"
       || !value.files || typeof value.files !== "object") return undefined;
     const files: Record<string, FilesystemSnapshotFile> = {};
+    const directories: Record<string, FilesystemSnapshotDirectory> = {};
+    let missingModeMetadata = false;
     for (const [path, candidate] of Object.entries(value.files)) {
       if (!candidate || typeof candidate !== "object") return undefined;
       const file = candidate as Partial<FilesystemSnapshotFile>;
       if (typeof file.hash !== "string" || !/^[0-9a-f]{64}$/iu.test(file.hash)
         || typeof file.size !== "number" || !Number.isSafeInteger(file.size) || file.size < 0) return undefined;
       if (file.lines !== undefined && (!Number.isSafeInteger(file.lines) || file.lines < 0)) return undefined;
+      if (file.mode !== undefined && (!Number.isSafeInteger(file.mode) || file.mode < 0 || file.mode > 0o7777)) return undefined;
+      if (file.mode === undefined) missingModeMetadata = true;
       const unavailableReason = typeof file.unavailableReason === "string"
         ? file.unavailableReason.slice(0, 240)
         : undefined;
       files[path] = {
         hash: file.hash,
         size: file.size,
+        ...(file.mode === undefined ? {} : { mode: file.mode }),
         ...(file.lines === undefined ? {} : { lines: file.lines }),
         contentAvailable: file.contentAvailable !== false,
         ...(unavailableReason ? { unavailableReason } : {}),
       };
+    }
+    if (value.directories !== undefined) {
+      if (!value.directories || typeof value.directories !== "object") return undefined;
+      for (const [path, candidate] of Object.entries(value.directories)) {
+        if (!candidate || typeof candidate !== "object") return undefined;
+        const directory = candidate as Partial<FilesystemSnapshotDirectory>;
+        if (directory.mode === undefined) {
+          missingModeMetadata = true;
+          continue;
+        }
+        if (!Number.isSafeInteger(directory.mode) || directory.mode < 0 || directory.mode > 0o7777) return undefined;
+        directories[path] = { mode: directory.mode };
+      }
+    } else {
+      // Older manifests did not retain empty directories or directory modes.
+      // They remain readable for historical diffs but are not restorable.
+      missingModeMetadata = true;
     }
     const omissionReasons = Array.isArray(value.omissionReasons)
       ? value.omissionReasons.filter((reason): reason is string => typeof reason === "string").map((reason) => reason.slice(0, 240)).slice(0, 8)
@@ -122,13 +153,17 @@ async function readFilesystemSnapshot(cwd: string, id: string): Promise<Filesyst
     // partial. Replaying one cannot silently turn previously skipped files
     // into an apparently complete workspace state.
     const hasCoverageMetadata = typeof value.complete === "boolean";
-    const complete = value.complete === true;
+    const complete = value.complete === true && !missingModeMetadata;
+    if (missingModeMetadata && !omissionReasons.includes("file mode metadata is unavailable")) {
+      omissionReasons.push("file mode metadata is unavailable");
+    }
     return {
       version: 1,
       id,
       cwd: value.cwd,
       treeId: value.treeId,
       files,
+      directories,
       complete,
       omittedFileCount: hasCoverageMetadata ? omittedFileCount : Math.max(1, omittedFileCount),
       omittedBytes,
@@ -157,6 +192,7 @@ async function writeFilesystemBlob(cwd: string, bytes: Buffer, hash: string): Pr
 
 interface FilesystemCollection {
   files: Record<string, FilesystemSnapshotFile>;
+  directories: Record<string, FilesystemSnapshotDirectory>;
   complete: boolean;
   omittedFileCount: number;
   omittedBytes: number;
@@ -199,6 +235,7 @@ async function streamFilesystemFileMetadata(path: string): Promise<FilesystemFil
 
 async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection> {
   const files: Record<string, FilesystemSnapshotFile> = {};
+  const directories: Record<string, FilesystemSnapshotDirectory> = {};
   let fileCount = 0;
   let totalBytes = 0;
   let complete = true;
@@ -242,11 +279,26 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
       const path = join(directory, entry.name);
       const child = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
+        const info = await lstat(path).catch(() => undefined);
+        if (!info) {
+          recordOmission("directory metadata could not be read");
+        } else {
+          directories[child.replaceAll("\\", "/")] = { mode: info.mode & 0o7777 };
+        }
         await walk(path, child);
         continue;
       }
-      if (!entry.isFile()) continue;
-      const info = await stat(path).catch(() => undefined);
+      if (entry.isSymbolicLink()) {
+        const info = await lstat(path).catch(() => undefined);
+        recordOmission("symbolic links are not captured safely", info?.size ?? 0);
+        continue;
+      }
+      if (!entry.isFile()) {
+        const info = await lstat(path).catch(() => undefined);
+        recordOmission("special filesystem entries are not captured safely", info?.size ?? 0);
+        continue;
+      }
+      const info = await lstat(path).catch(() => undefined);
       if (!info) {
         recordOmission("file metadata could not be read");
         continue;
@@ -269,6 +321,7 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
         files[child.replaceAll("\\", "/")] = {
           hash: metadata.hash,
           size: info.size,
+          mode: info.mode & 0o7777,
           ...(metadata.lines === undefined ? {} : { lines: metadata.lines }),
           contentAvailable: false,
           unavailableReason: "Historical content was not stored because this file exceeds the 8 MiB content limit.",
@@ -297,6 +350,7 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
       files[child.replaceAll("\\", "/")] = {
         hash,
         size: bytes.length,
+        mode: info.mode & 0o7777,
         ...(lines === undefined ? {} : { lines }),
         contentAvailable: true,
       };
@@ -305,7 +359,7 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
     }
   };
   await walk(await realpath(cwd).catch(() => resolve(cwd)), "");
-  return { files, complete, omittedFileCount, omittedBytes, omissionReasons };
+  return { files, directories, complete, omittedFileCount, omittedBytes, omissionReasons };
 }
 
 async function createFilesystemSnapshot(cwd: string, options: WorkspaceSnapshotOptions, ref: string): Promise<WorkspaceSnapshot> {
@@ -328,13 +382,21 @@ async function createFilesystemSnapshot(cwd: string, options: WorkspaceSnapshotO
     if (previous?.treeId !== treeId && previous?.treeId !== legacyTreeId) {
       throw new Error(`Snapshot ref ${ref} already points to another tree.`);
     }
+    const previousHasModes = previous?.files && typeof previous.files === "object"
+      ? Object.values(previous.files).every((file) => Boolean(file && typeof file === "object"
+        && typeof (file as Partial<FilesystemSnapshotFile>).mode === "number"))
+      : false;
+    const previousHasDirectoryModes = previous?.directories && typeof previous.directories === "object"
+      ? Object.values(previous.directories).every((directory) => Boolean(directory && typeof directory === "object"
+        && typeof (directory as Partial<FilesystemSnapshotDirectory>).mode === "number"))
+      : false;
     return {
       id: ref,
       ref,
       treeId,
       cwd: canonicalCwd,
       backend: "filesystem",
-      complete: collection.complete,
+      complete: collection.complete && previous?.complete === true && previousHasModes && previousHasDirectoryModes,
       sessionId: options.namespace.split("/")[0],
       turnId: options.namespace.split("/")[1],
       phase: options.phase,
@@ -389,18 +451,47 @@ async function assertFilesystemRestoreable(
     throw new Error(`${label} workspace snapshot is incomplete and cannot be restored safely.`);
   }
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
-  const files = Object.entries(pair.after.files);
-  for (const [path, file] of files) {
-    await assertWorkspacePath(canonicalCwd, path);
-    if (!file.contentAvailable) {
-      throw new Error(`${label} workspace snapshot has no content for ${path}.`);
+  for (const [phase, manifest] of [["before", pair.before], ["after", pair.after]] as const) {
+    const directoryPaths = new Set(Object.keys(manifest.directories));
+    const assertSnapshotPath = (path: string, kind: "file" | "directory"): void => {
+      const components = path.split("/");
+      if (!path || path.startsWith("/") || path.includes("\\")
+        || components.some((component) => component.length === 0 || component === "." || component === "..")) {
+        throw new Error(`${label} ${phase} snapshot has an invalid ${kind} path ${path}.`);
+      }
+      if (kind === "file" && directoryPaths.has(path)) {
+        throw new Error(`${label} ${phase} snapshot has both a file and directory at ${path}.`);
+      }
+      for (let index = 1; index < components.length; index += 1) {
+        const parent = components.slice(0, index).join("/");
+        if (!directoryPaths.has(parent)) {
+          throw new Error(`${label} ${phase} snapshot is missing directory metadata for ${parent}.`);
+        }
+      }
+    };
+    for (const [path, file] of Object.entries(manifest.files)) {
+      assertSnapshotPath(path, "file");
+      await assertWorkspacePath(canonicalCwd, path);
+      if (file.mode === undefined) {
+        throw new Error(`${label} ${phase} snapshot has no file mode metadata for ${path}.`);
+      }
+      if (!file.contentAvailable) {
+        throw new Error(`${label} ${phase} snapshot has no content for ${path}.`);
+      }
+      const blob = await readFile(filesystemBlobPath(canonicalCwd, file.hash)).catch(() => undefined);
+      if (!blob) {
+        throw new Error(`${label} ${phase} snapshot content for ${path} is unavailable.`);
+      }
+      if (blob.length !== file.size || createHash("sha256").update(blob).digest("hex") !== file.hash) {
+        throw new Error(`${label} ${phase} snapshot content for ${path} failed integrity verification.`);
+      }
     }
-    const blob = await readFile(filesystemBlobPath(canonicalCwd, file.hash)).catch(() => undefined);
-    if (!blob) {
-      throw new Error(`${label} workspace snapshot content for ${path} is unavailable.`);
-    }
-    if (blob.length !== file.size || createHash("sha256").update(blob).digest("hex") !== file.hash) {
-      throw new Error(`${label} workspace snapshot content for ${path} failed integrity verification.`);
+    for (const [path, directory] of Object.entries(manifest.directories)) {
+      assertSnapshotPath(path, "directory");
+      await assertWorkspacePath(canonicalCwd, path);
+      if (!Number.isSafeInteger(directory.mode) || directory.mode < 0 || directory.mode > 0o7777) {
+        throw new Error(`${label} ${phase} snapshot has invalid directory mode metadata for ${path}.`);
+      }
     }
   }
   for (const path of Object.keys(pair.before.files)) await assertWorkspacePath(canonicalCwd, path);
@@ -435,11 +526,23 @@ async function applyFilesystemSnapshot(
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
   const current = await filesystemPaths(canonicalCwd);
   const targetFiles = new Set(Object.keys(manifest.files));
-  const targetDirectories = new Set<string>();
+  const targetDirectories = new Set<string>(Object.keys(manifest.directories));
   for (const path of targetFiles) {
     const components = path.split("/");
     for (let index = 1; index < components.length; index += 1) {
       targetDirectories.add(components.slice(0, index).join("/"));
+    }
+  }
+
+  // A previous snapshot may have made a directory read-only. Temporarily
+  // grant the owner access while materializing/removing paths; exact target
+  // modes are applied after the tree is complete.
+  for (const path of [...current.directories].sort((left, right) => left.length - right.length)) {
+    await assertWorkspacePath(canonicalCwd, path);
+    const destination = join(canonicalCwd, path);
+    const info = await lstat(destination).catch(() => undefined);
+    if (info?.isDirectory() && !info.isSymbolicLink()) {
+      await chmod(destination, (info.mode & 0o7777) | 0o700);
     }
   }
 
@@ -463,6 +566,8 @@ async function applyFilesystemSnapshot(
       const bytes = await readFile(filesystemBlobPath(canonicalCwd, file.hash));
       await writeFile(temporary, bytes, { flag: "wx", mode: 0o600 });
       await rename(temporary, destination);
+      if (file.mode === undefined) throw new Error(`Workspace snapshot has no file mode for ${path}.`);
+      await chmod(destination, file.mode);
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined);
     }
@@ -481,6 +586,21 @@ async function applyFilesystemSnapshot(
     if (targetDirectories.has(path)) continue;
     await assertWorkspacePath(canonicalCwd, path);
     await rm(join(canonicalCwd, path), { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  // Apply directory modes only after all paths have been materialized and
+  // removed. A target directory may be empty, so it cannot be inferred only
+  // from file parents.
+  for (const [path, directory] of Object.entries(manifest.directories)
+    .sort(([left], [right]) => right.length - left.length)) {
+    await assertWorkspacePath(canonicalCwd, path);
+    const destination = join(canonicalCwd, path);
+    const info = await lstat(destination).catch(() => undefined);
+    if (info && (!info.isDirectory() || info.isSymbolicLink())) {
+      await rm(destination, { recursive: true, force: true });
+    }
+    await mkdir(destination, { recursive: true });
+    await chmod(destination, directory.mode);
   }
 }
 
@@ -539,20 +659,42 @@ async function diffFilesystemSnapshots(
   pair: { before: FilesystemSnapshotManifest; after: FilesystemSnapshotManifest },
   branch?: string,
 ): Promise<UiWorkspaceChanges> {
-  const paths = [...new Set([...Object.keys(pair.before.files), ...Object.keys(pair.after.files)])].sort((left, right) => left.localeCompare(right));
+  const paths = [...new Set([
+    ...Object.keys(pair.before.files),
+    ...Object.keys(pair.after.files),
+    ...Object.keys(pair.before.directories),
+    ...Object.keys(pair.after.directories),
+  ])].sort((left, right) => left.localeCompare(right));
   const files: UiChangedFile[] = [];
   for (const path of paths) {
     const before = pair.before.files[path];
     const after = pair.after.files[path];
-    if (before && after && before.hash === after.hash) continue;
+    if (!before && !after) {
+      const beforeDirectory = pair.before.directories[path];
+      const afterDirectory = pair.after.directories[path];
+      if (!beforeDirectory && !afterDirectory) continue;
+      if (beforeDirectory && afterDirectory && beforeDirectory.mode === afterDirectory.mode) continue;
+      const status: ChangeStatus = !beforeDirectory ? "added" : !afterDirectory ? "deleted" : "modified";
+      files.push({
+        path,
+        ...describe(path),
+        status,
+        added: 0,
+        removed: 0,
+        note: "Directory metadata changed; no textual content is available.",
+      });
+      continue;
+    }
+    if (before && after && before.hash === after.hash && before.mode === after.mode) continue;
     const status: ChangeStatus = !before ? "added" : !after ? "deleted" : "modified";
+    const contentChanged = !before || !after || before.hash !== after.hash;
     const unavailableReason = after?.unavailableReason ?? before?.unavailableReason;
     files.push({
       path,
       ...describe(path),
       status,
-      added: status === "deleted" ? 0 : await filesystemLineCount(pair.after.cwd, after),
-      removed: status === "added" ? 0 : await filesystemLineCount(pair.before.cwd, before),
+      added: status === "deleted" || !contentChanged ? 0 : await filesystemLineCount(pair.after.cwd, after),
+      removed: status === "added" || !contentChanged ? 0 : await filesystemLineCount(pair.before.cwd, before),
       ...(unavailableReason ? { note: unavailableReason } : {}),
     });
   }
@@ -990,12 +1132,32 @@ export async function validateWorkspaceSnapshotRefs(
   return { beforeTreeId, afterTreeId };
 }
 
+/**
+ * Restore/offer trust boundary. Unlike the structural validator used by
+ * historical diff and GC paths, this also verifies every plain-folder blob
+ * and rejects incomplete coverage or missing mode metadata.
+ */
+export async function validateRestorableWorkspaceSnapshotRefs(
+  cwd: string,
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+  expected: SnapshotRefExpectation,
+  runGit: GitRunner = git,
+): Promise<{ beforeTreeId: string; afterTreeId: string }> {
+  const trees = await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, expected, runGit);
+  const filesystem = await filesystemSnapshotPair(cwd, beforeSnapshotId, afterSnapshotId);
+  if (filesystem) await assertFilesystemRestoreable(cwd, filesystem, "Selected checkpoint");
+  return trees;
+}
+
 export interface WorkspaceRestoreOptions {
   /** The checkpoint whose `after` tree becomes the live workspace. */
   target: SnapshotRefExpectation;
   /** A complete pair captured immediately before restore, used for rollback. */
   rollback: SnapshotRefExpectation;
   runGit?: GitRunner;
+  /** Durable phase hook; called before/inside/after the destructive apply. */
+  onPhase?: (phase: "apply-started" | "cleaned" | "applied" | "rolling-back") => void | Promise<void>;
 }
 
 /**
@@ -1033,11 +1195,12 @@ export async function restoreWorkspaceSnapshot(
     await assertFilesystemRestoreable(cwd, rollbackFilesystem, "Restore backup");
   }
 
-  const applyGit = async (treeId: string): Promise<void> => {
+  const applyGit = async (treeId: string, notify = true): Promise<void> => {
     // `clean -fd` removes only non-ignored untracked files, matching the
     // capture boundary. Ignored folders (for example node_modules) are never
     // removed by a restore operation.
     await runGit(cwd, ["clean", "-fd", "--"], SNAPSHOT_GIT_BUFFER);
+    if (notify) await options.onPhase?.("cleaned");
     await runGit(cwd, ["read-tree", "--reset", "-u", treeId], SNAPSHOT_GIT_BUFFER);
   };
   const apply = targetFilesystem && rollbackFilesystem
@@ -1045,10 +1208,13 @@ export async function restoreWorkspaceSnapshot(
     : () => applyGit(targetTrees.afterTreeId);
   const rollback = targetFilesystem && rollbackFilesystem
     ? () => applyFilesystemSnapshot(cwd, rollbackFilesystem.after)
-    : () => applyGit(rollbackTrees.afterTreeId);
+    : () => applyGit(rollbackTrees.afterTreeId, false);
   try {
+    await options.onPhase?.("apply-started");
     await apply();
+    await options.onPhase?.("applied");
   } catch (error) {
+    await Promise.resolve(options.onPhase?.("rolling-back")).catch(() => undefined);
     try {
       await rollback();
     } catch (rollbackError) {
@@ -1491,6 +1657,41 @@ function parseSnapshotNameStatus(stdout: string): Map<string, ChangeStatus> {
   return statuses;
 }
 
+async function diffGitTrees(
+  cwd: string,
+  beforeTreeId: string,
+  afterTreeId: string,
+  branch: string | undefined,
+  runGit: GitRunner,
+): Promise<UiWorkspaceChanges> {
+  const args = ["diff", "--no-ext-diff", "--find-renames", "--numstat", "-z", beforeTreeId, afterTreeId, "--"];
+  const statusArgs = ["diff", "--no-ext-diff", "--find-renames", "--name-status", "-z", beforeTreeId, afterTreeId, "--"];
+  const [numstat, nameStatus] = await Promise.all([
+    runGit(cwd, args, SNAPSHOT_GIT_BUFFER),
+    runGit(cwd, statusArgs, SNAPSHOT_GIT_BUFFER),
+  ]);
+  const counts = parseNumstat(numstat);
+  const statuses = parseSnapshotNameStatus(nameStatus);
+  const paths = new Set([...counts.keys(), ...statuses.keys()]);
+  const files: UiChangedFile[] = [...paths].filter(Boolean).map((path) => {
+    const counted = counts.get(path) ?? { added: 0, removed: 0 };
+    return {
+      path,
+      ...describe(path),
+      status: statuses.get(path) ?? "modified",
+      added: counted.added,
+      removed: counted.removed,
+    };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    ...(branch ? { branch } : {}),
+    files,
+    added: files.reduce((total, file) => total + file.added, 0),
+    removed: files.reduce((total, file) => total + file.removed, 0),
+    proposedMessage: proposeMessage(files),
+  };
+}
+
 /**
  * Produces one checkpoint summary from the two immutable trees. It performs a
  * numstat and a name-status scan, but never opens a per-file patch; the latter
@@ -1515,32 +1716,51 @@ export async function diffWorkspaceSnapshots(
     return diffFilesystemSnapshots(filesystem, options.branch);
   }
   if (options.expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, options.expected, runGit);
-  const args = ["diff", "--no-ext-diff", "--find-renames", "--numstat", "-z", beforeSnapshotId, afterSnapshotId, "--"];
-  const statusArgs = ["diff", "--no-ext-diff", "--find-renames", "--name-status", "-z", beforeSnapshotId, afterSnapshotId, "--"];
-  const [numstat, nameStatus] = await Promise.all([
-    runGit(cwd, args, SNAPSHOT_GIT_BUFFER),
-    runGit(cwd, statusArgs, SNAPSHOT_GIT_BUFFER),
-  ]);
-  const counts = parseNumstat(numstat);
-  const statuses = parseSnapshotNameStatus(nameStatus);
-  const paths = new Set([...counts.keys(), ...statuses.keys()]);
-  const files: UiChangedFile[] = [...paths].filter(Boolean).map((path) => {
-    const counted = counts.get(path) ?? { added: 0, removed: 0 };
-    return {
-      path,
-      ...describe(path),
-      status: statuses.get(path) ?? "modified",
-      added: counted.added,
-      removed: counted.removed,
-    };
-  }).sort((left, right) => left.path.localeCompare(right.path));
-  return {
-    ...(options.branch ? { branch: options.branch } : {}),
-    files,
-    added: files.reduce((total, file) => total + file.added, 0),
-    removed: files.reduce((total, file) => total + file.removed, 0),
-    proposedMessage: proposeMessage(files),
-  };
+  return diffGitTrees(cwd, beforeSnapshotId, afterSnapshotId, options.branch, runGit);
+}
+
+/**
+ * Compares the live workspace with a verified checkpoint target. The result is
+ * intentionally target-to-current (rather than current-to-HEAD): it describes
+ * exactly which paths the restore will replace, add, or remove.
+ */
+export async function previewWorkspaceRestore(
+  cwd: string,
+  targetBeforeSnapshotId: string,
+  targetAfterSnapshotId: string,
+  expected: SnapshotRefExpectation,
+  options: { branch?: string; runGit?: GitRunner } = {},
+): Promise<UiWorkspaceChanges> {
+  const runGit = options.runGit ?? git;
+  const targetTrees = await validateRestorableWorkspaceSnapshotRefs(
+    cwd,
+    targetBeforeSnapshotId,
+    targetAfterSnapshotId,
+    expected,
+    runGit,
+  );
+  const targetFilesystem = await filesystemSnapshotPair(cwd, targetBeforeSnapshotId, targetAfterSnapshotId);
+  const previewTurnId = `restore-preview-${randomUUID()}`;
+  const current = await createWorkspaceSnapshot(cwd, {
+    namespace: `${sanitizeTurnSnapshotComponent(expected.sessionId)}/${sanitizeTurnSnapshotComponent(previewTurnId)}`,
+    phase: "after",
+  });
+  try {
+    if (targetFilesystem) {
+      const currentFilesystem = await readFilesystemSnapshot(cwd, current.id);
+      if (!currentFilesystem) throw new Error("The live workspace snapshot could not be verified.");
+      return diffFilesystemSnapshots({ before: targetFilesystem.after, after: currentFilesystem }, options.branch);
+    }
+    if (current.backend !== "git") throw new Error("The checkpoint and live workspace use different snapshot backends.");
+    return diffGitTrees(cwd, targetTrees.afterTreeId, current.treeId, options.branch, runGit);
+  } finally {
+    await deleteWorkspaceSnapshot(cwd, current.id, {
+      sessionId: expected.sessionId,
+      turnId: previewTurnId,
+      phase: "after",
+      treeId: current.treeId,
+    }, runGit).catch(() => undefined);
+  }
 }
 
 const MAX_SNAPSHOT_FILE_PAGE = 40;
@@ -1900,7 +2120,9 @@ export async function getSnapshotFileDiff(
     if (filesystem) {
       const beforeFile = filesystem.before.files[path];
       const afterFile = filesystem.after.files[path];
-      if (beforeFile?.hash === afterFile?.hash) return empty("No textual changes.");
+      if (beforeFile?.hash === afterFile?.hash) {
+        return empty(beforeFile?.mode === afterFile?.mode ? "No textual changes." : "File mode changed; no textual changes.");
+      }
       const unavailableReason = afterFile?.unavailableReason ?? beforeFile?.unavailableReason;
       if (beforeFile?.contentAvailable === false || afterFile?.contentAvailable === false) {
         return empty(unavailableReason ?? "Historical content was not stored for this file.");
