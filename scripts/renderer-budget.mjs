@@ -16,7 +16,7 @@ export function evaluateRendererBudgets(report, budgets) {
     }
     const measurements = [
       ["frame p95", scenario.frameIntervalsMs?.p95, budgets.rendererFrameP95Ms, "ms", scenario.frameIntervalsMs],
-      ["long task", scenario.longTasksMs?.maximum, budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
+      ["long task", scenario.longTasksMs?.maximum, scenarioBudget.longTaskMs ?? budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
       ["commit p95", scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.commitDurationsMs],
       ["DOM nodes", scenario.domNodes, budgets.rendererDomNodes, "", undefined],
     ];

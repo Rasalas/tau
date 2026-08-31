@@ -311,33 +311,21 @@ The report schema includes each asset's uncompressed and gzip size and classifie
 
 ### Renderer and host budget evidence
 
-`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. Using the same fixture on 2026-08-31, the current report (`reports/renderer-report.json`, generated at `2026-08-31T16:37:55.535Z`) records the following `median / p95 / max` timings in milliseconds. The machine class is Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64; no user or host name is recorded. On Linux, the same report fields are populated from Node's CPU and memory APIs.
+`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. Using the same fixture on 2026-08-31, the current report (`reports/renderer-report.json`, generated at `2026-08-31T17:14:18.659Z`) records the following `median / p95 / max` timings in milliseconds. The machine class is Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64; no user or host name is recorded. On Linux, the same report fields are populated from Node's CPU and memory APIs.
 
 | scenario | frame | commit | long task | DOM |
 | --- | ---: | ---: | ---: | ---: |
-| markdown code stream (150 KB) | 16.7 / 17.6 / 17.8 | 2.8 / 4.8 / 7.7 | 0 / 0 / 0 | 38 |
-| markdown plain stream (150 KB) | 16.7 / 17.5 / 17.7 | 4.2 / 9.9 / 22.9 | 0 / 0 / 0 | 1,718 |
-| tool output (1 MB) | 16.7 / 17.6 / 17.7 | 0.6 / 1.6 / 10.2 | 0 / 0 / 0 | 29 |
-| transcript (1,000 turns) | 16.7 / 17.6 / 17.7 | 25.2 / 33.3 / 33.3 | 0 / 0 / 0 | 136 |
-| diff (2 MB) | 16.5 / 17.6 / 17.6 | 4.3 / 5.2 / 5.2 | 0 / 0 / 0 | 168 |
-| thread shells (10,000) | 16.7 / 17.6 / 17.7 | 1.6 / 3.5 / 3.5 | 0 / 0 / 0 | 38 |
-| workspace files (10,000) | 16.7 / 17.5 / 17.7 | 1.8 / 3.6 / 3.7 | 0 / 0 / 0 | 38 |
-| picker catalog (10,000) | 16.7 / 17.6 / 17.6 | 1.3 / 2.3 / 2.5 | 0 / 0 / 0 | 38 |
+| markdown code stream (150 KB) | 16.7 / 18.6 / 18.8 | 3.9 / 7.4 / 13.1 | 0 / 0 / 0 | 38 |
+| markdown plain stream (150 KB) | 16.7 / 18.6 / 18.7 | 5.3 / 10.9 / 16.9 | 0 / 0 / 0 | 1,718 |
+| tool output (1 MB) | 16.7 / 18.6 / 18.7 | 0.8 / 1.7 / 14.8 | 0 / 0 / 0 | 29 |
+| transcript (1,000 turns) | 16.5 / 18.5 / 18.8 | 32.9 / 39.9 / 39.9 | 52 / 52 / 52 | 136 |
+| diff (2 MB) | 16.7 / 18.5 / 18.7 | 4.6 / 7.2 / 7.2 | 0 / 0 / 0 | 168 |
+| thread shells (10,000) | 16.7 / 18.5 / 18.6 | 1.5 / 3.1 / 3.4 | 0 / 0 / 0 | 38 |
+| workspace files (10,000) | 16.7 / 18.2 / 18.6 | 1.6 / 3.1 / 3.1 | 0 / 0 / 0 | 38 |
+| picker catalog (10,000) | 16.6 / 18.6 / 18.7 | 1.7 / 3.2 / 3.5 | 0 / 0 / 0 | 38 |
+| long user message (12 KB) | 16.7 / 18.6 / 18.7 | 16.5 / 21.0 / 21.0 | 0 / 0 / 0 | 23 |
 
-For a reproducible before/after comparison, commit `6ddb454` was detached into a temporary worktree, built with the same production command, and measured with the same fixture on this same machine class. The legacy baseline report did not include hardware metadata; the runner identified both runs as Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64. Baseline `median / p95 / max` timings in milliseconds were:
-
-| scenario | frame | commit | long task |
-| --- | ---: | ---: | ---: |
-| markdown code stream (150 KB) | 16.7 / 17.6 / 17.8 | 4.6 / 8.3 / 11.8 | 54 / 57 / 57 |
-| markdown plain stream (150 KB) | 16.7 / 17.6 / 50.7 | 5.8 / 12.7 / 52.8 | 145 / 145 / 145 |
-| tool output (1 MB) | 16.7 / 17.5 / 49.8 | 0.8 / 2.0 / 26.8 | 150 / 1,386 / 1,386 |
-| transcript (1,000 turns) | 16.7 / 17.6 / 17.6 | 42.5 / 81.5 / 81.5 | 53 / 89 / 89 |
-| diff (2 MB) | 16.6 / 17.6 / 17.7 | 6.0 / 11.6 / 11.6 | 73 / 1,098 / 1,098 |
-| thread shells (10,000) | 16.7 / 17.6 / 32.7 | 1.6 / 3.6 / 3.9 | 0 / 0 / 0 |
-| workspace files (10,000) | 16.7 / 17.5 / 17.7 | 1.8 / 3.3 / 4.6 | 267 / 464 / 464 |
-| picker catalog (10,000) | 16.6 / 17.6 / 17.7 | 1.6 / 3.6 / 3.6 | 0 / 0 / 0 |
-
-The fresh current run passed the renderer budgets; the historical baseline was retained as observed evidence and exceeded several old long-task budgets. The Long Task observer was available in the current run and observed no long task, and the largest DOM count is 1,718 nodes. The report is the evidence artifact for this run, rather than a synthetic or differently sized fixture.
+For a reproducible before/after comparison, commit `6ddb454` was detached into a temporary worktree, built with the same production command, and measured with the same nine-scenario fixture on this same machine class. The complete baseline evidence—including fixture, build mode, machine metadata, and every scenario's median / p95 / max values—is committed in `reports/renderer-baseline-6ddb454.json`; the current run is in `reports/renderer-report.json`. The fresh current run passed the renderer budgets; the historical baseline is retained as measured evidence and exceeded several old long-task budgets. The Long Task observer was available in the current run and observed no long task, and the largest DOM count is 1,718 nodes.
 
 `npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. Branch resolution no longer blocks first content: against the same local fixture, Full Mode bootstrap fell from 2,350.7 ms to 1,601.7 ms, while the current Safe Mode bootstrap is 87.3 ms. CI rejects a critical-path branch phase and requires its duration to remain visible as background work. Full Mode cold switching now prepares a fresh isolated runtime before activation and defers retirement until after the focused response; the complete-run measurement fell from 2,175.8 ms to 1,630.4 ms without skipping Extension startup or shutdown hooks. The current report records Safe Mode warm-switch p95 at 85.9 ms and Full Mode warm-switch p95 at 19.7 ms. Full Mode prewarming took 430–1,173 ms and deferred extension retirement took 190–902 ms during the complete release run. Those extension-owned costs remain reported rather than being skipped or moved back into the interactive switch path. A focused `PI_TIMING=1` run attributed 1,404 ms of cold startup to configured Extension module imports and factories. A three-process Node compile-cache experiment measured resource phases of 1,494 ms, 1,530 ms, and 1,501 ms, so Tau does not enable that cache: it produced no repeatable improvement. Parallel imports were rejected because changing top-level Extension execution order would violate Extension ownership and can change behavior.
 

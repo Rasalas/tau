@@ -16,6 +16,7 @@
     { "id": "diff-2mb", "kind": "diff", "bytes": 2097152 },
     { "id": "thread-shells-10000", "kind": "list", "items": 10000 },
     { "id": "workspace-files-10000", "kind": "list", "items": 10000 },
-    { "id": "picker-catalog-10000", "kind": "list", "items": 10000 }
+    { "id": "picker-catalog-10000", "kind": "list", "items": 10000 },
+    { "id": "long-user-message", "kind": "message", "bytes": 12000 }
   ]
 }

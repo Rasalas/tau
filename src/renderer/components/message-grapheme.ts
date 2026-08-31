@@ -1,12 +1,18 @@
 const MARK = /\p{Mark}/u;
+const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
 export const LONG_MESSAGE_LINE_LIMIT = 8;
-const FALLBACK_CODEPOINT_BUDGET_MULTIPLIER = 4;
+export const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
+// Sixteen code points covers the largest normal emoji sequence in the product
+// (including ZWJ components), with room for variation/modifier extenders.
+// Preflight uses this fixed bound before any newline or Segmenter traversal.
+export const GRAPHEME_CODEPOINT_BUDGET = LONG_MESSAGE_GRAPHEME_LIMIT * 16 + 64;
 
 type HangulJamo = "L" | "V" | "T" | "LV" | "LVT" | undefined;
 export interface GraphemeCount {
   count: number;
   exhausted: boolean;
   examinedCodePoints: number;
+  lineCount: number;
 }
 
 function hangulJamoType(codePoint: number): HangulJamo {
@@ -17,32 +23,46 @@ function hangulJamoType(codePoint: number): HangulJamo {
   return undefined;
 }
 
+function graphemeBudgetFor(limit: number): number {
+  return limit <= LONG_MESSAGE_GRAPHEME_LIMIT ? GRAPHEME_CODEPOINT_BUDGET : (limit + 1) * 16 + 64;
+}
+
 export function fallbackGraphemeCount(text: string, limit: number): GraphemeCount {
   let count = 0;
+  let lineCount = 1;
   let joined = false;
+  let hasBase = false;
+  let leadingExtenderCluster = false;
+  let previousExtendedPictographic = false;
   let regionalIndicators = 0;
   let previousHangul: HangulJamo;
-  let hasBase = false;
   let scannedCodePoints = 0;
-  const codePointBudget = (limit + 1) * FALLBACK_CODEPOINT_BUDGET_MULTIPLIER;
+  const codePointBudget = graphemeBudgetFor(limit);
+
   for (const character of text) {
-    // Check before reading the next code point so every path, including
-    // combining marks and ZWJ extenders, is covered by the same hard bound.
-    if (scannedCodePoints >= codePointBudget) return { count: limit + 1, exhausted: true, examinedCodePoints: scannedCodePoints };
+    if (scannedCodePoints >= codePointBudget) return { count: limit + 1, exhausted: true, examinedCodePoints: scannedCodePoints, lineCount };
     scannedCodePoints += 1;
     const codePoint = character.codePointAt(0)!;
+    if (character === "\n") {
+      lineCount += 1;
+      if (lineCount > LONG_MESSAGE_LINE_LIMIT) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
+    }
     if (character === "\u200d") {
-      // A leading ZWJ has no base to join to and therefore starts its own
-      // grapheme. ZWJs following a base keep the next base in that cluster.
-      if (hasBase) joined = true;
-      else count += 1;
+      if (hasBase && previousExtendedPictographic) joined = true;
+      else if (!hasBase && !leadingExtenderCluster) {
+        count += 1;
+        leadingExtenderCluster = true;
+      }
+      if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
       continue;
     }
     const isExtender = MARK.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff);
     if (isExtender) {
-      // UAX #29 keeps extenders with a preceding base. At the beginning of
-      // text there is no base, so an extender is itself the initial cluster.
-      if (!hasBase) count += 1;
+      if (!hasBase && !leadingExtenderCluster) {
+        count += 1;
+        leadingExtenderCluster = true;
+      }
+      if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
       continue;
     }
     const hangul = hangulJamoType(codePoint);
@@ -50,6 +70,8 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
       joined = false;
       previousHangul = hangul;
       hasBase = true;
+      leadingExtenderCluster = false;
+      previousExtendedPictographic = EXTENDED_PICTOGRAPHIC.test(character);
       continue;
     }
     if (codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff) {
@@ -57,8 +79,6 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
       if (regionalIndicators % 2 === 1) count += 1;
     } else {
       regionalIndicators = 0;
-      // UAX #29 GB6–GB8. Keep these explicit: precomposed LV/LVT syllables
-      // participate in the same chains as their decomposed L/V/T forms.
       const continuesHangul = (previousHangul === "L" && (hangul === "L" || hangul === "V" || hangul === "LV" || hangul === "LVT"))
         || ((previousHangul === "LV" || previousHangul === "V") && (hangul === "V" || hangul === "T"))
         || ((previousHangul === "LVT" || previousHangul === "T") && hangul === "T");
@@ -66,41 +86,44 @@ export function fallbackGraphemeCount(text: string, limit: number): GraphemeCoun
     }
     previousHangul = hangul;
     hasBase = true;
-    if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints };
+    leadingExtenderCluster = false;
+    previousExtendedPictographic = EXTENDED_PICTOGRAPHIC.test(character);
+    if (count > limit) return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
   }
-  return { count, exhausted: false, examinedCodePoints: scannedCodePoints };
+  return { count, exhausted: false, examinedCodePoints: scannedCodePoints, lineCount };
 }
 
-function visibleGraphemeCount(text: string, limit: number): number {
-  const Segmenter = typeof Intl !== "undefined" && "Segmenter" in Intl
-    ? (Intl as typeof Intl & {
-      Segmenter: new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<unknown> };
-    }).Segmenter
-    : undefined;
-  if (Segmenter) {
-    let count = 0;
-    for (const _segment of new Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
-      count += 1;
-      if (count > limit) return count;
-    }
-    return count;
+function withinGraphemeBudget(text: string): boolean {
+  let examinedCodePoints = 0;
+  for (const _character of text) {
+    examinedCodePoints += 1;
+    if (examinedCodePoints > GRAPHEME_CODEPOINT_BUDGET) return false;
   }
-  const result = fallbackGraphemeCount(text, limit);
-  // An exhausted scan is intentionally conservative. Returning the partial
-  // count would make a pathological long cluster appear short and bypass
-  // the compact-message threshold.
-  return result.exhausted ? limit + 1 : result.count;
+  return true;
 }
 
-export const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
+function segmenterFor(): (new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<{ segment: string }> }) | undefined {
+  if (typeof Intl === "undefined" || !("Segmenter" in Intl)) return undefined;
+  return (Intl as typeof Intl & {
+    Segmenter: new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<{ segment: string }> };
+  }).Segmenter;
+}
+
+function segmentWithIntl(text: string, limit: number): GraphemeCount {
+  const Segmenter = segmenterFor();
+  if (!Segmenter) return fallbackGraphemeCount(text, limit);
+  let count = 0;
+  let lineCount = 1;
+  for (const part of new Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
+    count += 1;
+    for (const character of part.segment) if (character === "\n") lineCount += 1;
+    if (count > limit || lineCount > LONG_MESSAGE_LINE_LIMIT) return { count, exhausted: false, examinedCodePoints: 0, lineCount };
+  }
+  return { count, exhausted: false, examinedCodePoints: 0, lineCount };
+}
 
 export function isLongMessage(text: string): boolean {
-  let lines = 1;
-  for (const character of text) {
-    if (character === "\n") {
-      lines += 1;
-      if (lines > LONG_MESSAGE_LINE_LIMIT) return true;
-    }
-  }
-  return visibleGraphemeCount(text, LONG_MESSAGE_GRAPHEME_LIMIT) > LONG_MESSAGE_GRAPHEME_LIMIT;
+  if (!withinGraphemeBudget(text)) return true;
+  const result = segmentWithIntl(text, LONG_MESSAGE_GRAPHEME_LIMIT);
+  return result.exhausted || result.count > LONG_MESSAGE_GRAPHEME_LIMIT || result.lineCount > LONG_MESSAGE_LINE_LIMIT;
 }

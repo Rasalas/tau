@@ -13,7 +13,8 @@
   "rendererLongTaskMs": 50,
   "rendererCommitP95Ms": 24,
   "rendererScenarioBudgets": {
-    "transcript-1000-turns": { "commitP95Ms": 40 }
+    "transcript-1000-turns": { "commitP95Ms": 40, "longTaskMs": 60 },
+    "long-user-message": { "commitP95Ms": 60, "longTaskMs": 100 }
   },
   "rendererDomNodes": 5000,
   "gitSubprocesses": 6,
@@ -30,6 +31,7 @@
     "diff-2mb",
     "thread-shells-10000",
     "workspace-files-10000",
-    "picker-catalog-10000"
+    "picker-catalog-10000",
+    "long-user-message"
   ]
 }

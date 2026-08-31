@@ -1,22 +1,10 @@
 import { useEffect, useState } from "react";
 import type { UiImagePreview, UiMessageImage } from "../../shared/contracts";
 import { AttachmentImageDialog, type AttachmentImage } from "./AttachmentImageDialog";
+import { localImagePaths } from "./MessageText";
 
-const LOCAL_IMAGE_PATH = /(\/(?:(?:\\ )|[^\s'"<>])+?\.(?:png|jpe?g|gif|webp))(?=\s|$|[),;])/giu;
-
-export function localImagePaths(text: string): string[] {
-  const paths: string[] = [];
-  for (const match of text.matchAll(LOCAL_IMAGE_PATH)) {
-    const path = match[1].replaceAll("\\ ", " ");
-    if (!paths.includes(path)) paths.push(path);
-    if (paths.length === 4) break;
-  }
-  return paths;
-}
-
-export function withoutLocalImagePaths(text: string): string {
-  return text.replace(LOCAL_IMAGE_PATH, "").replace(/^[ \t]+|[ \t]+$/gmu, "").trim();
-}
+export { copyableMessage, localImagePaths, visibleUserMessageText } from "./MessageText";
+export { visibleUserMessageText as withoutLocalImagePaths } from "./MessageText";
 
 const imagePreviewCache = new Map<string, Promise<UiImagePreview | undefined>>();
 

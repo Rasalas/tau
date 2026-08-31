@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
-import { MessageImages, PersistedMessageImages, localImagePaths, withoutLocalImagePaths } from "./MessageImages";
+import { MessageImages, PersistedMessageImages } from "./MessageImages";
+import { copyableMessage, localImagePaths, visibleUserMessageText } from "./MessageText";
 import { isLongMessage } from "./message-grapheme";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
@@ -21,7 +22,7 @@ export function UserMessage({
   onToggleExpanded,
   expanded: controlledExpanded,
 }: UserMessageProps) {
-  const visibleText = withoutLocalImagePaths(message.text);
+  const visibleText = visibleUserMessageText(message.text);
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
   const long = isLongMessage(visibleText);
@@ -69,7 +70,7 @@ export function UserMessage({
             {compactTimestamp(message.timestamp)}
           </time>
           {onCopy ? <MessageActions
-            onCopy={() => onCopy(message)}
+            onCopy={() => onCopy(copyableMessage(message))}
             onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
           /> : null}
         </div>

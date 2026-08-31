@@ -48,6 +48,10 @@ function makeDiff(): UiFileDiff {
   return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
 }
 
+function makeLongUserMessage(): UiMessage {
+  return { id: "benchmark-long-user-message", role: "user", text: "x".repeat(12_000), timestamp: 0 };
+}
+
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
@@ -67,6 +71,7 @@ export default function RendererBenchmark() {
   );
   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
   const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
+  const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage() : undefined, [scenario]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
   // Fixture construction is setup, not renderer commit work. Start timing only
   // after the scenario-specific input exists, matching production data flow.
@@ -177,6 +182,8 @@ export default function RendererBenchmark() {
       className="benchmark-large-list"
       renderItem={(item) => <div key={item} className="benchmark-list-row">{item}</div>}
     />;
+  } else if (scenario === "long-user-message") {
+    content = <Message message={longUserMessage!} />;
   } else {
     content = <DiffView diff={diff!} mode="unified" />;
   }

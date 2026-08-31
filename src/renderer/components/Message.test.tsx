@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { compactTimestamp, fullTimestamp, isLongMessage, localImagePaths, Message, withoutLocalImagePaths } from "./Message";
-import { fallbackGraphemeCount } from "./message-grapheme";
+import { compactTimestamp, fullTimestamp, isLongMessage, localImagePaths, Message, visibleUserMessageText, withoutLocalImagePaths } from "./Message";
+import { fallbackGraphemeCount, GRAPHEME_CODEPOINT_BUDGET } from "./message-grapheme";
 
 afterEach(cleanup);
 
@@ -79,8 +79,8 @@ describe("Long user messages", () => {
     expect(isLongMessage("😀".repeat(600) + "a")).toBe(true);
     expect(isLongMessage("e\u0301".repeat(600))).toBe(false);
     expect(isLongMessage("e\u0301".repeat(600) + "e\u0301")).toBe(true);
-    expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
-    expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600) + "👨‍👩‍👧‍👦")).toBe(true);
+      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
+      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600) + "👨‍👩‍👧‍👦")).toBe(true);
   });
 
   it("keeps the grapheme fallback bounded for Hangul Jamo clusters", () => {
@@ -88,6 +88,11 @@ describe("Long user messages", () => {
     Object.defineProperty(Intl, "Segmenter", { configurable: true, value: undefined });
     try {
       expect(isLongMessage("각".repeat(201))).toBe(false);
+      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
+      expect(isLongMessage("👨‍👩‍👧‍👦".repeat(601))).toBe(true);
+      expect(isLongMessage("a\u200db".repeat(301))).toBe(true);
+      expect(isLongMessage("\u0301\u0302" + "a".repeat(599))).toBe(false);
+      expect(isLongMessage("\u0301\u0302" + "a".repeat(600))).toBe(true);
       expect(isLongMessage("각".repeat(600) + "ᄀ")).toBe(true);
       expect(isLongMessage("각".repeat(600))).toBe(false);
       expect(isLongMessage("각".repeat(600) + "가")).toBe(true);
@@ -106,7 +111,7 @@ describe("Long user messages", () => {
       expect(isLongMessage("e\u0301".repeat(301))).toBe(false);
       const bounded = fallbackGraphemeCount("\u0301".repeat(10_000_000), 600);
       expect(bounded.exhausted).toBe(true);
-      expect(bounded.examinedCodePoints).toBeLessThanOrEqual(2_404);
+      expect(bounded.examinedCodePoints).toBeLessThanOrEqual(GRAPHEME_CODEPOINT_BUDGET);
     } finally {
       if (segmenter) Object.defineProperty(Intl, "Segmenter", segmenter);
     }
@@ -148,6 +153,17 @@ describe("Long user messages", () => {
 
     fireEvent.click(screen.getByTitle("Copy message"));
     expect(onCopy).toHaveBeenCalledWith(fullMessage);
+  });
+
+  it("copies visible user text without local image path wrappers", () => {
+    const onCopy = vi.fn();
+    const fullMessage = message(`/tmp/CleanShot/image.png\n${Array.from({ length: 9 }, (_, index) => `Caption ${index + 1}`).join("\n")}`);
+    render(<Message message={fullMessage} onCopy={onCopy} />);
+
+    expect(visibleUserMessageText(fullMessage.text)).toContain("Caption 1");
+    fireEvent.click(screen.getByTitle("Copy message"));
+    expect(onCopy).toHaveBeenCalledWith({ ...fullMessage, text: Array.from({ length: 9 }, (_, index) => `Caption ${index + 1}`).join("\n") });
+    expect(onCopy.mock.calls[0][0].text).not.toContain("/tmp/CleanShot/image.png");
   });
 });
 

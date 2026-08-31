@@ -68,6 +68,7 @@ import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
+import { visibleUserMessageText } from "./components/MessageText";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -1249,7 +1250,7 @@ export default function App() {
 
   const copyMessage = useCallback(async (message: UiMessage) => {
     try {
-      await window.tau?.copyText(message.text);
+      await window.tau?.copyText(message.role === "user" ? visibleUserMessageText(message.text) : message.text);
       setNotice("Message copied.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
