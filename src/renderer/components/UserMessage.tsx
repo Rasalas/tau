@@ -1,3 +1,4 @@
+import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
@@ -13,6 +14,20 @@ interface UserMessageProps {
   onFork?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
+}
+
+function SkillChip({ name }: { name: string }) {
+  return <span
+    className="skill-chip"
+    role="img"
+    aria-label={`Skill ${name}`}
+    title={`Skill: ${name}`}
+    data-skill-name={name}
+  >
+    <Sparkles size={13} strokeWidth={2} aria-hidden="true" />
+    <strong>{name}</strong>
+    <span>Skill</span>
+  </span>;
 }
 
 export function UserMessage({
@@ -45,10 +60,11 @@ export function UserMessage({
             className={`message-text-content${long && !expanded ? " collapsed" : ""}`}
             data-collapsed={long && !expanded ? "true" : "false"}
           >
+            {message.skill ? <SkillChip name={message.skill.name} /> : null}
             {visibleText
               ? long && !expanded
                 ? <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
-                : <Markdown>{visibleText}</Markdown>
+                : <Markdown inlineStart={Boolean(message.skill)}>{visibleText}</Markdown>
               : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
           </div>
           <PersistedMessageImages images={persistedImages} />

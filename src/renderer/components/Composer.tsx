@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -23,6 +23,7 @@ import {
   type PendingAttachment,
 } from "../composer-scope-store";
 import { errorMessage } from "../error-message";
+import { readComposerDraft, writeComposerDraft } from "../draft-store";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -47,11 +48,19 @@ export interface ComposerAttachmentHandle {
 }
 
 type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
+interface SelectedSkill {
+  name: string;
+  invocation: string;
+  command: string;
+  start: number;
+  end: number;
+}
 
 function skillName(command: UiComposerCommand): string {
   return command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
 }
 
+/** Editor-only autocomplete trigger; submitted text is never classified or rewritten here. */
 export function composerTrigger(text: string, caret: number): ComposerTrigger | undefined {
   const before = text.slice(0, caret);
   const match = /^\s*([/$])([^\s]*)$/u.exec(before);
@@ -60,6 +69,8 @@ export function composerTrigger(text: string, caret: number): ComposerTrigger | 
   return { kind: match[1] as "/" | "$", query: match[2], start, end: caret };
 }
 
+/** Legacy helper retained for extension consumers; submission itself keeps
+ * user text unchanged and uses selected skill metadata instead. */
 export function normalizeSkillInvocation(text: string, commands: readonly UiComposerCommand[]): string {
   const match = /^(\s*)([$/])([^\s]+)(?=\s|$)/u.exec(text);
   if (!match) return text;
@@ -68,6 +79,21 @@ export function normalizeSkillInvocation(text: string, commands: readonly UiComp
   if (!skill) return text;
   if (match[2] === "/" && commands.some((command) => command.source !== "skill" && command.name === requested)) return text;
   return `${match[1]}/skill:${requested}${text.slice(match[0].length)}`;
+}
+
+/** Turns an editor selection into typed metadata without parsing runtime text. */
+export function selectedSkillDraft(text: string, selection?: SelectedSkill): UiSkillDraft | undefined {
+  if (!selection || text.slice(selection.start, selection.end) !== selection.invocation) return undefined;
+  if (text.slice(0, selection.start).trim()) return undefined;
+  const suffix = text.slice(selection.end);
+  return {
+    source: "skill",
+    name: selection.name,
+    // The autocomplete separator is not part of the user's instruction. Only
+    // that one separator is removed; all remaining whitespace is meaningful.
+    visibleText: /^[ \t]/u.test(suffix) ? suffix.slice(1) : suffix,
+    command: selection.command,
+  };
 }
 
 function readImage(file: File): Promise<PendingAttachment> {
@@ -140,7 +166,7 @@ export function Composer({
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
   onChange?(value: string): void;
-  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer"): Promise<SubmitResult>;
+  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: UiSkillDraft): Promise<SubmitResult>;
   onAbort(): void;
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
@@ -174,6 +200,7 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
+  const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const text = value ?? activeScopeSnapshot.draft;
   const commands = snapshot?.composerCommands ?? [];
@@ -190,6 +217,16 @@ export function Composer({
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (value !== undefined || draftStorageKey === undefined) return;
+    if (activeScopeSnapshot.draft === "") {
+      const persisted = readComposerDraft(window.localStorage, draftStorageKey);
+      if (persisted) scopeStore.setDraft(attachmentScope, persisted);
+    }
+  // The scope key is the lifecycle boundary; draft changes must not reload
+  // persisted text after the user intentionally clears the field.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachmentScope, draftStorageKey, scopeStore, value]);
+  useEffect(() => {
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
       appliedSeed.current = seed;
       scopeStore.setDraft(attachmentScope, seed);
@@ -197,13 +234,18 @@ export function Composer({
   }, [attachmentScope, scopeStore, seed, value]);
   const updateDraft = (next: string) => {
     scopeStore.setDraft(attachmentScope, next);
+    writeComposerDraft(window.localStorage, draftStorageKey, next);
     onChange?.(next);
+    setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const fastTier = snapshot?.serviceTier === "fast";
   const supportsImageInput = snapshot?.supportsImageInput ?? false;
   const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
+  const claudeCode = snapshot?.backendKind === "claude-code";
+  const modelSelectionAvailable = !claudeCode && (snapshot?.models.length ?? 0) > 0;
+  const thinkingSelectionAvailable = !claudeCode && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
@@ -284,12 +326,17 @@ export function Composer({
         handle.cancel();
         return;
       }
-      const submittedText = normalizeSkillInvocation(handle.text, commands);
+      // The selected skill is typed metadata. Keep the editor's text intact;
+      // the host/runtime adapter resolves provider syntax at the boundary.
+      const submittedText = handle.text;
+      const skillDraft = selectedSkillDraft(submittedText, selectedSkill);
       let result: SubmitResult;
       try {
-        result = delivery
-          ? await onSubmit(submittedText, [...handle.attachments], delivery)
-          : await onSubmit(submittedText, [...handle.attachments]);
+        result = skillDraft
+          ? await onSubmit(submittedText, [...handle.attachments], delivery, skillDraft)
+          : delivery
+            ? await onSubmit(submittedText, [...handle.attachments], delivery)
+            : await onSubmit(submittedText, [...handle.attachments]);
       } catch (error) {
         result = { accepted: false, message: errorMessage(error) };
       }
@@ -379,6 +426,11 @@ export function Composer({
                 const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
                 const nextCaret = trigger.start + invocation.length + 1;
                 updateDraft(next);
+                if (command.source === "skill" && command.skillCommand) {
+                  setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
+                } else {
+                  setSelectedSkill(undefined);
+                }
                 setCaret(nextCaret);
                 setCommandMenuDismissed(true);
                 requestAnimationFrame(() => {
@@ -436,6 +488,11 @@ export function Composer({
                 const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
                 const nextCaret = trigger.start + invocation.length + 1;
                 updateDraft(next);
+                if (command.source === "skill" && command.skillCommand) {
+                  setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
+                } else {
+                  setSelectedSkill(undefined);
+                }
                 setCaret(nextCaret);
                 setCommandMenuDismissed(true);
                 requestAnimationFrame(() => textareaRef.current?.setSelectionRange(nextCaret, nextCaret));
@@ -464,18 +521,34 @@ export function Composer({
         />
 
         <div className="composer-toolbar">
-          <button className="runtime-chip" onClick={() => setModelPickerOpen(true)}>
+          <button
+            className="runtime-chip"
+            disabled={!modelSelectionAvailable}
+            title={modelSelectionAvailable ? "Select model" : claudeCode ? "Claude Code selects its model in the Claude runtime." : "No models are available for this runtime."}
+            aria-label={modelSelectionAvailable
+              ? `Select model: ${snapshot?.model?.name ?? "current model"}`
+              : "Model selection unavailable"}
+            onClick={() => { if (modelSelectionAvailable) setModelPickerOpen(true); }}
+          >
             <Sparkles size={13} className="accent" />
-            {snapshot?.model?.name ?? "select model"}
-            <ChevronDown size={12} className="chev" />
+            {snapshot?.model?.name ?? (claudeCode ? "Claude Code model" : "select model")}
+            {modelSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
           </button>
 
           <span className="menu-anchor">
-            <button className="runtime-chip" onClick={() => setMenu(menu === "thinking" ? undefined : "thinking")}>
+            <button
+              className="runtime-chip"
+              disabled={!thinkingSelectionAvailable && !tierAvailable}
+              title={thinkingSelectionAvailable || tierAvailable ? "Reasoning and service tier" : claudeCode ? "Claude Code does not expose Pi thinking levels or service tiers." : "Reasoning controls are unavailable."}
+              aria-label={thinkingSelectionAvailable || tierAvailable ? "Reasoning and service tier" : "Reasoning controls unavailable"}
+              onClick={() => {
+                if (thinkingSelectionAvailable || tierAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
+              }}
+            >
               <Zap size={13} />
               {snapshot?.thinkingLevel ?? "—"}
               {fastTier ? <i className="tier-mark">fast</i> : null}
-              <ChevronDown size={12} className="chev" />
+              {thinkingSelectionAvailable || tierAvailable ? <ChevronDown size={12} className="chev" /> : null}
             </button>
             {menu === "thinking" ? (
               <Menu
@@ -488,6 +561,8 @@ export function Composer({
                       label: THINKING_LABELS[level] ?? level,
                       badge: level === DEFAULT_THINKING ? "Default" : undefined,
                       selected: level === snapshot?.thinkingLevel,
+                      disabled: !thinkingSelectionAvailable,
+                      description: !thinkingSelectionAvailable && claudeCode ? "Claude Code controls reasoning in its own runtime." : undefined,
                     })),
                   },
                   {
@@ -535,6 +610,10 @@ export function Composer({
                   id: level.id,
                   label: level.label,
                   selected: level.id === accessLevel,
+                  disabled: claudeCode && level.id === "ask",
+                  description: claudeCode && level.id === "ask"
+                    ? "Claude Code print mode cannot surface interactive approvals; choose read-only or full access."
+                    : undefined,
                 }))}
                 onSelect={(id) => onSetAccess(id as AccessLevel)}
                 onClose={() => setMenu(undefined)}

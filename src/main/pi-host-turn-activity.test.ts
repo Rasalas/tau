@@ -3,7 +3,9 @@ import type { HostSnapshot } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
+import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost } from "./pi-host.js";
+import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
 
@@ -23,6 +25,57 @@ describe("modelSupportsImageInput", () => {
   });
 });
 
+function piPromptThread(session: {
+  model: { input?: readonly string[] };
+  isStreaming: boolean;
+  prompt(text: string, options?: { preflightResult?: (success: boolean) => void }): Promise<unknown>;
+}) {
+  const backend = {
+    kind: "pi" as const,
+    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
+    threadId: "session",
+    providerSessionId: "session",
+    sessionId: "session",
+    cwd: "/repo",
+    preparePrompt: async (text: string) => ({
+      tauThreadId: "session",
+      providerSessionId: "session",
+      sessionId: "session",
+      backendKind: "pi" as const,
+      runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+      visibleText: text,
+      runtimeText: text,
+      sourceFingerprint: clientMessageFingerprint(text, []),
+    }),
+    composerCommands: () => [],
+    prompt: async (input: { text: string; promptOptions?: unknown }) => {
+      await session.prompt(input.text, input.promptOptions as { preflightResult?: (success: boolean) => void });
+      return {};
+    },
+    isStreaming: () => session.isStreaming,
+    isIdle: () => !session.isStreaming,
+    branchEntries: () => [],
+    appendCustomEntry: () => undefined,
+  };
+  return {
+    threadId: "session",
+    sessionId: "session",
+    cwd: "/repo",
+    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
+    backend,
+    runtime: { session },
+    pendingClientMessageIds: [],
+    pendingClientMessageFingerprints: new Map<string, string>(),
+    inFlightClientMessageIds: new Set<string>(),
+    deferError: () => false,
+  };
+}
+
+async function adoptPiPromptThread(host: PiHost, session: Parameters<typeof piPromptThread>[0]): Promise<void> {
+  const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
+  await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: piPromptThread(session), isolation: "in-process" });
+}
+
 describe("PiHost prompt preflight", () => {
   it("resolves after SDK preflight acceptance and reports later run errors", async () => {
     let rejectRun!: (error: Error) => void;
@@ -38,10 +91,7 @@ describe("PiHost prompt preflight", () => {
     };
     const emit = vi.fn();
     const host = new PiHost("/repo", emit, {} as never, true, false);
-    const internals = host as unknown as {
-      threads: { adopt(record: unknown): Promise<void> };
-    };
-    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    await adoptPiPromptThread(host, session);
     const accepted = vi.fn();
     const prompt = host.prompt("hello", [], "session", accepted);
 
@@ -66,10 +116,7 @@ describe("PiHost prompt preflight", () => {
     };
     const emit = vi.fn();
     const host = new PiHost("/repo", emit, {} as never, true, false);
-    const internals = host as unknown as {
-      threads: { adopt(record: unknown): Promise<void> };
-    };
-    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    await adoptPiPromptThread(host, session);
     const preflight = vi.fn();
 
     await expect(host.prompt("hello", [], "session", preflight)).rejects.toThrow("prompt was rejected before it started");
@@ -87,10 +134,7 @@ describe("PiHost prompt preflight", () => {
       prompt: vi.fn(),
     };
     const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
-    const internals = host as unknown as {
-      threads: { adopt(record: unknown): Promise<void> };
-    };
-    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: { session, sessionId: "session", cwd: "/repo" }, isolation: "in-process" });
+    await adoptPiPromptThread(host, session);
     const unhandled = vi.fn();
     process.on("unhandledRejection", unhandled);
     try {
@@ -130,13 +174,32 @@ describe("PiHost.generateThreadTitle", () => {
       sessionManager: { getBranch: () => [] },
       setSessionName: (title: string) => { session.sessionName = title; },
     };
-    const thread = { session, sessionId: "session", cwd: "/repo" };
+    const backend = {
+      kind: "pi" as const,
+      runtimeAdapter: { id: "pi" as const, capabilities: { skillInvocationDialect: "pi" as const } },
+      threadId: "session",
+      providerSessionId: "session",
+      sessionId: "session",
+      cwd: "/repo",
+      isStreaming: () => session.isStreaming,
+      isIdle: () => !session.isStreaming,
+      waitForIdle: session.waitForIdle,
+      sessionName: () => session.sessionName,
+      transcript: async () => [{ id: "user", role: "user" as const, text: "Fix automatic titles", timestamp: 1 }],
+      completeTitle: async () => session.modelRuntime.completeSimple().then((result) => result.content[0].text),
+      setTitle: async (title: string) => { session.setSessionName(title); },
+      // The title path does not use the remaining backend operations; these
+      // stubs keep this test's runtime-owner seam explicit and typed enough for
+      // the host's registry fixture.
+      detail: async () => ({ title: session.sessionName }),
+    };
+    const thread = { backend, runtime: { session }, threadId: "session", sessionId: "session", cwd: "/repo" };
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as {
       threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
       sessions: Array<Record<string, unknown>>;
     };
-    await internals.threads.adopt({ sessionId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
     internals.threads.setActive("session");
     internals.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 1 }];
 

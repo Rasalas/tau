@@ -7,7 +7,7 @@ import { Composer, normalizeSkillInvocation } from "./Composer";
 import { ComposerScopeStore } from "../composer-scope-store";
 
 const composerCommands = [
-  { name: "skill:tdd", description: "Build features test-first", source: "skill" as const },
+  { name: "skill:tdd", description: "Build features test-first", source: "skill" as const, skillCommand: "/skill:tdd" },
   { name: "review", description: "Review staged changes", argumentHint: "[scope]", source: "prompt" as const },
   { name: "reload", description: "Reload resources", source: "extension" as const },
 ];
@@ -30,11 +30,11 @@ const snapshot: HostSnapshot = {
   supportsImageInput: true,
 };
 
-function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const })), streaming = false) {
+function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const })), streaming = false, snapshotOverride: HostSnapshot = snapshot) {
   const scopeStore = new ComposerScopeStore();
   render(<Composer
     scopeStore={scopeStore}
-    snapshot={{ ...snapshot, isStreaming: streaming }}
+    snapshot={{ ...snapshotOverride, isStreaming: streaming }}
     queue={[]}
     accessLevel="full"
     contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
@@ -58,7 +58,7 @@ function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const 
 afterEach(cleanup);
 
 describe("Composer command menu", () => {
-  it("shows Pi skills with the $ syntax and sends Pi's canonical /skill: command", () => {
+  it("shows skills with the $ syntax and sends the user's shorthand unchanged", () => {
     const onSubmit = renderComposer();
     const textarea = screen.getByPlaceholderText(/\$ skills/u) as HTMLTextAreaElement;
 
@@ -72,7 +72,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "$tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("/skill:tdd fix the parser", []);
+    expect(onSubmit).toHaveBeenCalledWith("$tdd fix the parser", [], undefined, { source: "skill", name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
   });
 
   it("finds and executes skills directly from slash", () => {
@@ -86,7 +86,7 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "/tdd fix the parser", selectionStart: 19 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("/skill:tdd fix the parser", []);
+    expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", [], undefined, { source: "skill", name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
   });
 
   it("queues Enter and steers with Command-Enter while streaming", async () => {
@@ -117,11 +117,50 @@ describe("Composer command menu", () => {
     expect(textarea.value).toBe("/review ");
   });
 
-  it("leaves unknown and colliding shorthand untouched", () => {
-    expect(normalizeSkillInvocation("$missing do this", composerCommands)).toBe("$missing do this");
-    expect(normalizeSkillInvocation("/review this", [
-      ...composerCommands,
-      { name: "skill:review", source: "skill", description: "Review skill" },
-    ])).toBe("/review this");
+  it("passes indented command-looking Markdown to the host unchanged", () => {
+    const onSubmit = renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "    /tdd keep this code", selectionStart: 23 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith("    /tdd keep this code", []);
+  });
+
+  it("passes selected skill metadata while preserving instruction indentation", () => {
+    const onSubmit = renderComposer();
+    const textarea = screen.getByPlaceholderText(/\$ skills/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "$td", selectionStart: 3 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.change(textarea, { target: { value: "$tdd  keep this:\n    code", selectionStart: 25 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "$tdd  keep this:\n    code",
+      [],
+      undefined,
+      { source: "skill", name: "tdd", visibleText: " keep this:\n    code", command: "/skill:tdd" },
+    );
+  });
+
+  it("makes unsupported Claude controls unavailable before invocation", () => {
+    renderComposer(vi.fn(), false, {
+      ...snapshot,
+      backendKind: "claude-code",
+      runtimeCapabilities: { skillInvocationDialect: "claude-code" },
+      models: [],
+      model: undefined,
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      serviceTierAvailable: false,
+    });
+
+    expect(screen.getByRole("button", { name: "Model selection unavailable" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Reasoning controls unavailable" })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByRole("button", { name: /full access/u }));
+    const ask = screen.getByRole("menuitem", { name: /ask before edits/u });
+    expect(ask).toHaveProperty("disabled", true);
+    expect(ask.getAttribute("title")).toContain("interactive approvals");
   });
 });

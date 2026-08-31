@@ -1,5 +1,6 @@
 import type { ExtensionUiPromptKind, NewThreadRequestId, UiComposerCommand, UiTaskProgress } from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
+import type { RuntimeCapabilities, UiSkillInvocation } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -20,6 +21,11 @@ export function transcriptPagingNegotiated(capabilities?: PiBridgeCapabilities):
 export interface PiBridgeDescriptor {
   protocolVersion: 1;
   epoch: string;
+  /** Canonical Tau owner id; sessionId is retained for the v1 bridge wire. */
+  threadId?: string;
+  /** Pi's provider session id (equal to its Tau thread id for this adapter). */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
   sessionFile: string;
   cwd: string;
@@ -31,6 +37,11 @@ export interface PiBridgeDescriptor {
 
 /** Wire payload: the bridge cursor remains an opaque JSON string at this seam. */
 export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
+  /** Canonical Tau owner id; sessionId is retained for old bridges. */
+  threadId?: string;
+  /** Provider session id owned by Pi. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
   sessionFile: string;
   cwd: string;
@@ -41,6 +52,10 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
   capabilities?: PiBridgeCapabilities;
   isStreaming: boolean;
   model?: { provider: string; id: string; name?: string };
+  /** Syntax supported by the attached runtime adapter; absent only for older bridges. */
+  runtimeCapabilities?: RuntimeCapabilities;
+  /** Request ids canceled while the bridge was restarted; consumed by the host during attach. */
+  failedClientMessageIds?: string[];
   models: Array<{ provider: string; id: string; name?: string }>;
   thinkingLevel: string;
   thinkingLevels: string[];
@@ -65,8 +80,22 @@ export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, st
   messagesOffset?: number;
 }
 
+/**
+ * Runtime-owned prompt data returned by the Pi bridge preflight. Keeping this
+ * shape in the bridge protocol lets the extension perform normalization once
+ * against its live command registry; the host only transports the result.
+ */
+export interface PiBridgePreparedPrompt {
+  visibleText: string;
+  runtimeText: string;
+  runtimeCapabilities: RuntimeCapabilities;
+  skill?: UiSkillInvocation;
+  sourceFingerprint: string;
+}
+
 export type PiBridgeCommand =
-  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp" }
+  | { command: "prepare_prompt"; text: string; skill?: import("./contracts.js").UiSkillDraft }
+  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp"; clientMessageId?: string; prepared?: PiBridgePreparedPrompt }
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
   | { command: "set_model"; provider: string; id: string }
@@ -74,7 +103,7 @@ export type PiBridgeCommand =
   | { command: "reload" }
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
-  | { command: "new_session"; initialPrompt?: string; requestId?: NewThreadRequestId }
+  | { command: "new_session"; initialPrompt?: string; requestId?: NewThreadRequestId; clientMessageId?: string; prepared?: PiBridgePreparedPrompt }
   | { command: "new_session_ack"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "new_session_abort"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "transcript_page"; cursor?: string }
@@ -108,6 +137,8 @@ export function isPiBridgeDescriptor(value: unknown): value is PiBridgeDescripto
   const item = value as Record<string, unknown>;
   return item.protocolVersion === PI_BRIDGE_PROTOCOL_VERSION
     && typeof item.epoch === "string"
+    && (item.threadId === undefined || typeof item.threadId === "string")
+    && (item.providerSessionId === undefined || typeof item.providerSessionId === "string")
     && typeof item.sessionId === "string"
     && typeof item.sessionFile === "string"
     && typeof item.cwd === "string"

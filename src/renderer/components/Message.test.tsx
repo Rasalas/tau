@@ -124,3 +124,140 @@ describe("Message async activity", () => {
     expect(screen.queryByText(/tool grep open/)).toBeNull();
   });
 });
+
+describe("Message skill invocations", () => {
+  it("renders host-provided skill metadata and only the user's Markdown instruction", () => {
+    const view = render(<Message
+      message={{
+        id: "skill",
+        role: "user",
+        text: "Please fix **the parser** and keep the examples.",
+        skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Please fix **the parser** and keep the examples." },
+        timestamp: 0,
+      }}
+    />);
+
+    expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
+    expect(screen.getByText("Skill")).toBeTruthy();
+    expect(view.container.querySelector(".skill-chip + .markdown.markdown-inline")).toBeTruthy();
+    expect(view.container.querySelector(".skill-chip + .markdown")?.tagName).toBe("SPAN");
+    expect(view.container.textContent).toContain("Please fix the parser and keep the examples.");
+    expect(view.container.querySelector(".markdown strong")?.textContent).toBe("the parser");
+    expect(view.container.textContent).not.toContain("Injected skill content");
+    expect(view.container.textContent).not.toContain("References are relative");
+    expect(view.container.textContent).not.toContain("/Users/me/.pi/skills");
+  });
+
+  it("keeps typed skill metadata authoritative over activity text heuristics", () => {
+    render(<Message message={{
+      id: "skill-activity-shaped",
+      role: "user",
+      text: "Background task completed: inspect the parser",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Background task completed: inspect the parser" },
+      timestamp: 0,
+    }} />);
+
+    expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
+    expect(screen.getByText("Background task completed: inspect the parser")).toBeTruthy();
+  });
+
+  it("preserves indentation and fenced Markdown in the host-provided text", () => {
+    const instruction = "Review this:\n    keep this indentation\n\n```md\n  keep this fence\n```";
+    expect(visibleUserMessageText(instruction)).toBe(instruction);
+    const view = render(<Message
+      message={{
+        id: "skill-markdown",
+        role: "user",
+        text: instruction,
+        skill: { name: "tdd", command: "/skill:tdd", copyText: `/skill:tdd ${instruction}` },
+        timestamp: 0,
+      }}
+    />);
+    expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
+    expect(view.container.textContent).toContain("keep this indentation");
+    expect(view.container.textContent).toContain("keep this fence");
+    expect(view.container.querySelector("pre")).toBeTruthy();
+    expect(view.container.querySelector(".markdown-inline")).toBeNull();
+  });
+
+  it("keeps a one-column GFM table outside the inline chip span", () => {
+    const view = render(<Message
+      message={{
+        id: "skill-table",
+        role: "user",
+        text: "| skill |\n| --- |\n| tdd |",
+        skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd | skill |\n| --- |\n| tdd |" },
+        timestamp: 0,
+      }}
+    />);
+
+    const table = view.container.querySelector("table");
+    expect(table).toBeTruthy();
+    expect(table?.closest("span")).toBeNull();
+    expect(view.container.querySelector(".markdown-inline")).toBeNull();
+  });
+
+  it.each(["dark", "light"])("keeps the icon and text label available in the %s theme", (theme) => {
+    document.documentElement.dataset.theme = theme;
+    render(<Message message={{
+      id: `skill-${theme}`,
+      role: "user",
+      text: "Continue the implementation",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Continue the implementation" },
+      timestamp: 0,
+    }} />);
+
+    expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
+    expect(screen.getByText("Skill")).toBeTruthy();
+    expect(screen.getByText("tdd")).toBeTruthy();
+    cleanup();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("keeps skill copy keyboard-accessible while exposing a non-color label", () => {
+    const onCopy = vi.fn();
+    render(<Message message={{
+      id: "skill-copy",
+      role: "user",
+      text: "Fix the parser",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Fix the parser" },
+      timestamp: 0,
+    }} onCopy={onCopy} />);
+
+    const chip = screen.getByRole("img", { name: "Skill tdd" });
+    expect(chip.textContent).toContain("Skill");
+    const copy = screen.getByRole("button", { name: "Copy" });
+    copy.focus();
+    expect(document.activeElement).toBe(copy);
+    fireEvent.keyDown(copy, { key: "Enter" });
+    fireEvent.click(copy);
+    expect(onCopy).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves malformed and fenced lookalikes visible as ordinary Markdown", () => {
+    const unknown = `<skill name="missing" location="/Users/me/.pi/skills/missing/SKILL.md">\nInjected skill content\n</skill>\n\nPlease keep this raw.`;
+    const unknownView = render(<Message
+      message={{ id: "unknown", role: "user", text: unknown, timestamp: 0 }}
+    />);
+    expect(unknownView.container.querySelector(".skill-chip")).toBeNull();
+    expect(unknownView.container.textContent).toContain("<skill");
+    expect(unknownView.container.textContent).toContain("Injected skill content");
+    cleanup();
+
+    const malformed = unknown.replace("</skill>", "</skill");
+    const malformedView = render(<Message
+      message={{ id: "malformed", role: "user", text: malformed, timestamp: 0 }}
+    />);
+    expect(malformedView.container.querySelector(".skill-chip")).toBeNull();
+    expect(malformedView.container.textContent).toContain("<skill");
+    expect(malformedView.container.textContent).toContain("Injected skill content");
+    cleanup();
+
+    const fenced = `\`\`\`xml\n${unknown}\n\`\`\``;
+    const fencedView = render(<Message
+      message={{ id: "fenced", role: "user", text: fenced, timestamp: 0 }}
+    />);
+    expect(fencedView.container.querySelector(".skill-chip")).toBeNull();
+    expect(fencedView.container.textContent).toContain("Injected skill content");
+  });
+});

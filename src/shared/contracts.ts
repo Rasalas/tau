@@ -17,12 +17,36 @@ export interface UiMessageImage {
   data: string;
 }
 
+/** Skill dialect selected by the runtime adapter, never inferred from a model id. */
+export type SkillInvocationDialect = "pi" | "claude-code";
+
+/** The owner of a thread's lifecycle and transcript. This is not a model provider. */
+export type ThreadBackendKind = "pi" | "claude-code";
+
+/** Capabilities supplied by the runtime owner at the host/adapter boundary. */
+export interface RuntimeCapabilities {
+  skillInvocationDialect: SkillInvocationDialect;
+}
+
+/** Host-resolved metadata for a user skill invocation. */
+export interface UiSkillInvocation {
+  name: string;
+  /** Runtime-adapter-supported command spelling, without the user instruction. */
+  command: string;
+  /** Compact text safe to copy back into this runtime. */
+  copyText: string;
+}
+
 export interface UiMessage {
   id: string;
   /** Persisted Pi session entry used for exact branch/fork operations. */
   sourceEntryId?: string;
+  /** Stable renderer-to-runtime correlation id for this user turn. */
+  clientMessageId?: string;
   role: UiRole;
   text: string;
+  /** Present only when the host recognized a known skill invocation. */
+  skill?: UiSkillInvocation;
   thinking?: string;
   images?: readonly UiMessageImage[];
   timestamp: number;
@@ -84,6 +108,37 @@ export interface UiComposerCommand {
   description?: string;
   argumentHint?: string;
   source: "extension" | "prompt" | "skill";
+  /** Host/runtime-resolved command spelling for a selectable skill. */
+  skillCommand?: string;
+}
+
+/** Structured renderer-to-host skill selection; no runtime wrapper crosses IPC. */
+export interface UiSkillDraft {
+  /** The composer can submit only a catalogued skill, never an extension/prompt command. */
+  source: "skill";
+  name: string;
+  visibleText: string;
+  /** Already resolved by the selected runtime adapter; the renderer never derives it. */
+  command: string;
+}
+
+/** Opaque host-prepared prompt data returned before an optimistic render. */
+export interface PreparedPrompt {
+  /** Canonical Tau thread owner. Undefined means a new thread. */
+  tauThreadId?: string;
+  /** Provider-owned session id, when the selected backend has one. */
+  providerSessionId?: string;
+  /** @deprecated v1 wire alias for the Tau thread id; never a provider id. */
+  sessionId?: string;
+  backendKind: ThreadBackendKind;
+  runtimeCapabilities: RuntimeCapabilities;
+  /** Text safe to render in the timeline; line whitespace is preserved. */
+  visibleText: string;
+  /** Runtime-owned text. Renderer passes this back as an opaque value. */
+  runtimeText: string;
+  skill?: UiSkillInvocation;
+  /** Prevents a prepared result from being replayed for another input. */
+  sourceFingerprint: string;
 }
 
 export interface UiSession {
@@ -95,6 +150,8 @@ export interface UiSession {
   projectName: string;
   branch?: string;
   messageCount: number;
+  /** Lifecycle owner; older index entries default to Pi. */
+  backendKind?: ThreadBackendKind;
 }
 
 export interface UiProject {
@@ -302,11 +359,19 @@ export interface UiTurnActivity {
 
 export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   cwd: string;
-  branch?: string;
+  /** Canonical Tau thread owner. `sessionId` remains for v1 renderer clients. */
+  threadId?: string;
+  /** Provider-owned runtime session id; it is not used for Tau indexing. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
+  branch?: string;
   sessionName?: string;
   sessionTitle: string;
   model?: UiModel;
+  /** Dialect supplied by the selected runtime adapter, never by model.provider. */
+  runtimeCapabilities?: RuntimeCapabilities;
+  backendKind?: ThreadBackendKind;
   models: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
@@ -341,7 +406,13 @@ export interface ThreadIndexSnapshot {
 }
 
 export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
+  /** Canonical Tau thread owner; sessionId remains the v1 wire alias. */
+  threadId?: string;
+  /** Provider-owned runtime session id, when available. */
+  providerSessionId?: string;
   sessionId: string;
+  /** Runtime lifecycle owner; omitted by older peers. */
+  backendKind?: ThreadBackendKind;
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
@@ -357,8 +428,11 @@ export interface HostBootstrap {
   detail: HostBootstrapDetail;
   catalog: {
     sessionId?: string;
+    /** Lifecycle owner for the active thread; old bootstrap payloads omit it. */
+    backendKind?: ThreadBackendKind;
     models: UiModel[];
     model?: UiModel;
+    runtimeCapabilities?: RuntimeCapabilities;
     thinkingLevel: string;
     thinkingLevels: string[];
     serviceTier: ServiceTier;
@@ -388,6 +462,7 @@ export type ThreadHostEvent =
   | { type: "assistant-thinking"; sessionId: string; id: string; delta: string }
   | { type: "assistant-end"; sessionId: string; message: UiMessage }
   | { type: "user-message"; sessionId: string; message: UiMessage }
+  | { type: "user-message-failed"; sessionId: string; clientMessageId: string; message: string }
   | { type: "tool-start"; sessionId: string; tool: UiToolRun }
   | { type: "tool-update"; sessionId: string; id: string; output: string }
   | { type: "tool-end"; sessionId: string; tool: UiToolRun }
@@ -441,14 +516,15 @@ export interface TauDesktopApi {
   readonly platform: string;
   bootstrap(): Promise<HostBootstrap>;
   loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<import("./host-protocol.js").TranscriptPage>;
+  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt>;
   /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
-  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: PreparedPrompt): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
-  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
-  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: PreparedPrompt): Promise<void>;
+  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: PreparedPrompt): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, requestId?: NewThreadRequestId): Promise<import("./host-protocol.js").NewThreadResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;

@@ -53,7 +53,9 @@ export const Message = memo(function Message({
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
 }) {
-  const activity = parseAsyncActivity(message.text);
+  // Host-resolved skill metadata is authoritative; do not let the generic
+  // activity heuristic replace a typed skill message.
+  const activity = message.skill ? undefined : parseAsyncActivity(message.text);
 
   if (activity) return <ActivityDisclosure activity={activity} />;
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;

@@ -13,6 +13,7 @@ import type {
   UiWorkspaceChanges,
   SubmissionResult,
   NewThreadRequestId,
+  ThreadBackendKind,
 } from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle, TranscriptCursorBoundary } from "./transcript-contract.js";
 import { isTranscriptHistoryMetadataConsistent, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
@@ -35,9 +36,16 @@ export interface ThreadIndexUpdate {
 }
 
 export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
+  /** Canonical Tau thread owner; sessionId is retained for v1 clients. */
+  threadId?: string;
+  /** Provider-owned runtime session id, when the backend has one. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
   /** Present only when this detail completes a correlated bridge handoff. */
   requestId?: NewThreadRequestId;
+  /** Runtime lifecycle owner for this thread; absent for old clients. */
+  backendKind?: ThreadBackendKind;
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
@@ -52,8 +60,11 @@ export type TranscriptPage = ThreadTranscriptPage<UiMessage, HostTranscriptCurso
 export interface HostCatalog {
   /** Absent in legacy v1 catalogs; clients must not apply capability without it. */
   sessionId?: string;
+  /** Runtime lifecycle owner for the active thread; absent for old clients. */
+  backendKind?: ThreadBackendKind;
   models: UiModel[];
   model?: UiModel;
+  runtimeCapabilities?: import("./contracts.js").RuntimeCapabilities;
   thinkingLevel: string;
   thinkingLevels: string[];
   serviceTier: ServiceTier;
@@ -216,8 +227,11 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     snapshot.olderCursor,
   );
   return {
+    threadId: snapshot.threadId ?? snapshot.sessionId,
+    ...(snapshot.providerSessionId ? { providerSessionId: snapshot.providerSessionId } : {}),
     sessionId: snapshot.sessionId,
     messages: snapshot.messages,
+    ...(snapshot.backendKind ? { backendKind: snapshot.backendKind } : {}),
     isStreaming: snapshot.isStreaming,
     activeTools: snapshot.activeTools,
     turnActivity: snapshot.turnActivity,
@@ -314,8 +328,10 @@ export function detailFromSnapshot(
 export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
   return {
     sessionId: snapshot.sessionId,
+    ...(snapshot.backendKind ? { backendKind: snapshot.backendKind } : {}),
     models: [...snapshot.models],
     model: snapshot.model,
+    runtimeCapabilities: snapshot.runtimeCapabilities,
     thinkingLevel: snapshot.thinkingLevel,
     thinkingLevels: [...snapshot.thinkingLevels],
     serviceTier: snapshot.serviceTier,

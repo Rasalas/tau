@@ -9,7 +9,9 @@ import type {
   UiMessage,
   UiProject,
   UiPromptAttachment,
+  UiSkillDraft,
   UiSession,
+  PreparedPrompt,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
   ServiceTier,
@@ -65,9 +67,9 @@ import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
-import { readBootstrapCache } from "./bootstrap-cache";
+import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
-import { draftKey, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
@@ -114,6 +116,9 @@ export function optimisticThreadSnapshot(
       // Capability is thread-scoped; the target's catalog update will restore
       // it after the switch rather than leaking the previous thread's value.
       supportsImageInput: false,
+      ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
+      ...(detail.threadId ? { threadId: detail.threadId } : {}),
+      ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
     },
     { ...detail, isStreaming: false },
   );
@@ -179,22 +184,35 @@ interface OptimisticUserMessage {
   message: UiMessage;
 }
 
+export function skillPresentationForDraft(
+  draft: UiSkillDraft,
+): UiMessage["skill"] {
+  return {
+    name: draft.name,
+    command: draft.command,
+    copyText: draft.visibleText ? `${draft.command} ${draft.visibleText}` : draft.command,
+  };
+}
+
+let fallbackClientMessageCounter = 0;
+
+export function createClientMessageId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (randomUUID) return randomUUID.call(globalThis.crypto);
+  fallbackClientMessageCounter += 1;
+  return `client-${Date.now()}-${fallbackClientMessageCounter}`;
+}
+
 export function reconcileOptimisticMessages(
   pending: readonly OptimisticUserMessage[],
   authoritative: readonly UiMessage[],
 ): OptimisticUserMessage[] {
-  const confirmed = authoritative.filter((message) => message.role === "user");
-  const used = new Set<number>();
-  return pending.filter((entry) => {
-    const index = confirmed.findIndex((message, at) =>
-      !used.has(at)
-      && message.text === entry.message.text
-      && message.timestamp >= entry.message.timestamp - 30_000,
-    );
-    if (index < 0) return true;
-    used.add(index);
-    return false;
-  });
+  const confirmed = new Set(authoritative
+    .filter((message) => message.role === "user" && message.clientMessageId)
+    .map((message) => message.clientMessageId));
+  // Correlation is deliberately id-only. Timestamps and visible text are not
+  // identities: equal prompts and delayed/out-of-order events are valid.
+  return pending.filter((entry) => !entry.message.clientMessageId || !confirmed.has(entry.message.clientMessageId));
 }
 
 function elapsedLabel(ms: number): string {
@@ -354,6 +372,8 @@ export default function App() {
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
   const [snapshot, setSnapshot] = useState<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
   // Run state lives in the thread store, fed by the host's per-thread status
   // events. Deriving it here keeps the composer, the live row and the rail from
   // ever disagreeing about whether the visible thread is working.
@@ -493,6 +513,8 @@ export default function App() {
     setToolAnchorId(restoredActivity?.anchorMessageId);
     setTurnBaseline(cachedActivity?.baseline);
     setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
+    cachedSnapshotRef.current = next;
+    writeBootstrapCache(next, cachedIndexRef.current);
     activeWorkspaceRef.current = next.cwd;
     return true;
   }, [threadStore, transcriptHistory]);
@@ -500,6 +522,8 @@ export default function App() {
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
     transcriptHistory.setThreadIndex(threadIndex);
+    cachedIndexRef.current = threadIndex;
+    writeBootstrapCache(cachedSnapshotRef.current, threadIndex);
   }, [threadStore, transcriptHistory]);
 
   const applyTranscriptPage = useCallback((page: TranscriptPage, request?: TranscriptHistoryRequest) => {
@@ -565,7 +589,19 @@ export default function App() {
       setToolAnchorId(restoredActivity?.anchorMessageId);
       setTurnBaseline(cachedActivity?.baseline);
       setTurnActivitySessionId(restoredActivity ? detailForRender.sessionId : undefined);
-      setSnapshot((current) => application.snapshot ?? current);
+      setSnapshot((current) => {
+        const next = application.snapshot ?? current;
+        if (!next) return current;
+        const enriched = {
+          ...next,
+          ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
+          ...(detail.threadId ? { threadId: detail.threadId } : {}),
+          ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
+        };
+        cachedSnapshotRef.current = enriched;
+        writeBootstrapCache(enriched, cachedIndexRef.current);
+        return enriched;
+      });
       return;
     }
     if (update.type === "transcript-page") {
@@ -657,6 +693,14 @@ export default function App() {
     // A real user message starts new work even when its thread is off-screen.
     // Recovered run status alone must not undo an explicit settled choice.
     if (event.type === "user-message") preferences.unsettle(event.sessionId);
+    if (event.type === "user-message-failed") {
+      // Bridge commands acknowledge dispatch before the runtime completes. A
+      // later failure still reconciles by the same request id, even if the
+      // user switched threads in the meantime.
+      setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
+      if (event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
+      return;
+    }
     // Every thread streams from its own runtime. Transcript and tool events for a
     // thread that is not on screen are dropped here; its persisted state is
     // re-read when it is opened.
@@ -833,8 +877,10 @@ export default function App() {
           branch: bootstrap.project.branch,
           sessionId: bootstrap.detail.sessionId,
           sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
+          backendKind: bootstrap.detail.backendKind ?? bootstrap.catalog.backendKind,
           models: bootstrap.catalog.models,
           model: bootstrap.catalog.model,
+          runtimeCapabilities: bootstrap.catalog.runtimeCapabilities,
           thinkingLevel: bootstrap.catalog.thinkingLevel,
           thinkingLevels: bootstrap.catalog.thinkingLevels,
           serviceTier: bootstrap.catalog.serviceTier,
@@ -1300,7 +1346,10 @@ export default function App() {
 
   const copyMessage = useCallback(async (message: UiMessage) => {
     try {
-      await window.tau?.copyText(message.role === "user" ? visibleUserMessageText(message.text) : message.text);
+      const copyText = message.role === "user"
+        ? message.skill?.copyText ?? visibleUserMessageText(message.text)
+        : message.text;
+      await window.tau?.copyText(copyText);
       setNotice("Message copied.");
     } catch (error) {
       setNotice(errorMessage(error));
@@ -1420,24 +1469,53 @@ export default function App() {
     value: string,
     attachments: UiPromptAttachment[] = [],
     delivery?: "followUp" | "steer",
+    skillDraft?: UiSkillDraft,
   ): Promise<SubmitResult> => {
-    const text = value.trim();
-    if (!text && attachments.length === 0) return { accepted: false, message: "Enter a message or attach an image." };
-    if (text === "/reload" && attachments.length === 0) {
+    const text = skillDraft ? value : value.trim();
+    const commandText = text.trim();
+    if (!commandText && attachments.length === 0) return { accepted: false, message: "Enter a message or attach an image." };
+    if (commandText === "/reload" && attachments.length === 0) {
       return (await reloadRuntime()) ? { accepted: true } : { accepted: false, message: "Runtime reload failed." };
     }
-    if (text === "/rebuild" && attachments.length === 0) {
+    if (commandText === "/rebuild" && attachments.length === 0) {
       return (await rebuildWorkbench()) ? { accepted: true } : { accepted: false, message: "Workbench rebuild failed." };
     }
-    if (text === "/restart" && attachments.length === 0) {
+    if (commandText === "/restart" && attachments.length === 0) {
       restartWorkbench();
       return { accepted: true };
     }
-    const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
+    let prepared: PreparedPrompt | undefined;
+    if (window.tau?.preparePrompt) {
+      try {
+        prepared = await window.tau.preparePrompt(
+          text,
+          pendingNewThread ? undefined : snapshot?.sessionId,
+          skillDraft,
+        );
+      } catch (error) {
+        const draftKeyForFailure = pendingNewThread
+          ? draftKey(undefined, pendingNewThread)
+          : activeDraftKey;
+        writeComposerDraft(window.localStorage, draftKeyForFailure, text);
+        setComposerSeed(text);
+        setNotice(String(error));
+        return { accepted: false, message: errorMessage(error) };
+      }
+    }
+    const optimisticText = prepared?.visibleText
+      ?? skillDraft?.visibleText
+      ?? (text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`);
+    const visiblePrompt = prepared?.visibleText ?? skillDraft?.visibleText ?? text;
+    const optimisticSkill = prepared
+      ? prepared.skill
+      : skillDraft ? skillPresentationForDraft(skillDraft) : undefined;
+    const clientMessageId = createClientMessageId();
     const optimistic: UiMessage = {
-      id: `local-${Date.now()}`,
+      id: `local-${clientMessageId}`,
+      clientMessageId,
       role: "user",
       text: optimisticText,
+      ...(optimisticSkill ? { skill: optimisticSkill } : {}),
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       timestamp: Date.now(),
     };
@@ -1445,11 +1523,12 @@ export default function App() {
     const newThreadRequestId = newThreadRequestRef.current;
     const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
+      setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       if (delivery === "steer") {
-        setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
         try {
           if (!window.tau) throw new Error("Steering requires the Electron host.");
-          await window.tau.steer(text, attachments, snapshot?.sessionId);
+          if (prepared) await window.tau.steer(text, attachments, snapshot?.sessionId, clientMessageId, prepared);
+          else await window.tau.steer(text, attachments, snapshot?.sessionId, clientMessageId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           return { accepted: false, message: errorMessage(error) };
@@ -1460,8 +1539,10 @@ export default function App() {
         setQueue((current) => [...current, queuedText]);
         try {
           if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
-          await window.tau.followUp(text, attachments, snapshot?.sessionId);
+          if (prepared) await window.tau.followUp(text, attachments, snapshot?.sessionId, clientMessageId, prepared);
+          else await window.tau.followUp(text, attachments, snapshot?.sessionId, clientMessageId);
         } catch (error) {
+          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           setQueue((current) => {
             const index = current.lastIndexOf(queuedText);
             return index < 0 ? current : current.filter((_, at) => at !== index);
@@ -1477,11 +1558,14 @@ export default function App() {
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
-          await window.tau.sendPrompt(text, attachments, pending.sessionId);
-          completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId });
+          if (prepared) await window.tau.sendPrompt(text, attachments, pending.sessionId, clientMessageId, prepared);
+          else await window.tau.sendPrompt(text, attachments, pending.sessionId, clientMessageId);
+          completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId });
           return { accepted: true };
         }
-        const result = await window.tau.newSession(text, attachments, pending.projectPath, newThreadRequestId);
+        const result = prepared
+          ? await window.tau.newSession(text, attachments, pending.projectPath, clientMessageId, prepared)
+          : await window.tau.newSession(text, attachments, pending.projectPath, clientMessageId);
         if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) return result.submission;
         const created = result.updates.find((update) => update.type === "thread-detail");
         if (result.submission.accepted
@@ -1506,7 +1590,7 @@ export default function App() {
         if (sessionId) {
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
-          completeNewThreadSubmission({ pending, sessionId, optimisticId: optimistic.id, prompt: text, scope: submittedDraftKey, requestId: newThreadRequestId, result });
+          completeNewThreadSubmission({ pending, sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId, result });
           return { accepted: true };
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
@@ -1525,8 +1609,9 @@ export default function App() {
     setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
     if (window.tau) {
       try {
-        await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
-        void registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions)
+        if (prepared) await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientMessageId, prepared);
+        else await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientMessageId);
+        void registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions)
           .catch((error) => setNotice(errorMessage(error)));
         return { accepted: true };
       } catch (error) {
@@ -1688,7 +1773,7 @@ export default function App() {
       contextBreakdown={contextBreakdown}
       textareaRef={composerRef}
       attachmentRef={composerAttachmentRef}
-      onSubmit={(text, attachments, delivery) => submit(text ?? "", attachments, delivery)}
+      onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
       onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
       onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
       onSetModel={(provider, id) => void setModel(provider, id)}

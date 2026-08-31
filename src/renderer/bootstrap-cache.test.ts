@@ -162,4 +162,13 @@ describe("bootstrap cache", () => {
     }, { projects: [], sessions: [] }, storage);
     expect(readBootstrapCache(storage)?.snapshot.olderCursor).toBeUndefined();
   });
+
+  it("does not hydrate legacy snapshots that may contain raw skill envelopes", () => {
+    const storage = {
+      getItem: (key: string) => key === "tau.bootstrap-cache.v1"
+        ? JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } })
+        : null,
+    };
+    expect(readBootstrapCache(storage)).toBeUndefined();
+  });
 });

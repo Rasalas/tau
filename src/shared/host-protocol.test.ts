@@ -6,7 +6,7 @@ import { asHostTranscriptCursor, type HostTranscriptCursor } from "./transcript-
 import type { TranscriptCursorPolicy } from "./transcript-pager.js";
 
 const snapshot: HostSnapshot = {
-  cwd: "/tmp/project", sessionId: "session", sessionTitle: "title", models: [],
+  cwd: "/tmp/project", threadId: "thread", providerSessionId: "provider", sessionId: "session", sessionTitle: "title", models: [],
   thinkingLevel: "off", thinkingLevels: ["off"], messages: [
     { id: "1", role: "user", text: "hello", timestamp: 1 },
     { id: "2", role: "assistant", text: "world", timestamp: 2 },

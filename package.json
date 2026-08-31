@@ -16,8 +16,8 @@
     "start:safe": "TAU_NO_EXTENSIONS=1 npm start",
     "start:report": "node scripts/start-report.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "typecheck:extension": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --esModuleInterop --types node .pi/extensions/tau-session-bridge.ts",
+    "typecheck": "npm run typecheck:extension && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "typecheck:extension": "tsc -p tsconfig.extension.json --noEmit",
     "typecheck:extensions": "tsc -p tsconfig.pi-extensions.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -41,7 +41,9 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "remark-breaks": "^4.0.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
