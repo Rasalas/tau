@@ -171,6 +171,8 @@ report.execution.gpu = {
   featureStatus: report.scenarios[0]?.environment.gpuFeatureStatus ?? {},
   info: report.scenarios[0]?.environment.gpuInfo ?? null,
 };
+report.execution.electronVersion = report.scenarios[0]?.environment.electronVersion ?? "unknown";
+for (const scenario of report.scenarios) delete scenario.environment;
 for (const scenario of report.scenarios) {
   for (const metric of ["frameIntervalsMs", "longTasksMs", "startupLongTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
     const distribution = scenario[metric];
