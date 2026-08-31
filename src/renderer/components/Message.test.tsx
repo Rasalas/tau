@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { localImagePaths, Message, withoutLocalImagePaths } from "./Message";
+import { compactTimestamp, fullTimestamp, isLongMessage, localImagePaths, Message, withoutLocalImagePaths } from "./Message";
 
 afterEach(cleanup);
 
@@ -23,6 +23,86 @@ describe("Message images", () => {
 
     const image = screen.getByRole("img", { name: "Attached image" }) as HTMLImageElement;
     expect(image.src).toBe("data:image/png;base64,iVBORw==");
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+  });
+
+  it("opens and closes persisted images in an accessible lightbox", () => {
+    render(<Message message={{
+      id: "user-image",
+      role: "user",
+      text: "please inspect",
+      images: [{ mimeType: "image/png", data: "iVBORw==" }],
+      timestamp: 0,
+    }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open image 1" }));
+    expect(screen.getByRole("dialog", { name: "Image preview" })).toBeTruthy();
+    expect(screen.getByRole("dialog").querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull();
+  });
+});
+
+describe("Long user messages", () => {
+  const message = (text: string) => ({ id: "long", role: "user" as const, text, timestamp: 0 });
+
+  it("uses both the line and character thresholds", () => {
+    expect(isLongMessage(Array.from({ length: 8 }, () => "line").join("\n"))).toBe(false);
+    expect(isLongMessage(Array.from({ length: 9 }, () => "line").join("\n"))).toBe(true);
+    expect(isLongMessage("x".repeat(600))).toBe(false);
+    expect(isLongMessage("x".repeat(601))).toBe(true);
+  });
+
+  it("starts long messages collapsed and toggles the complete content", () => {
+    const text = Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join("\n");
+    const view = render(<Message message={message(text)} />);
+
+    const content = view.container.querySelector(".message-text-content") as HTMLElement;
+    const toggle = screen.getByRole("button", { name: "Show more" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(content.getAttribute("data-collapsed")).toBe("true");
+    expect(content.className).toContain("collapsed");
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true");
+    expect(content.getAttribute("data-collapsed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.getByRole("button", { name: "Show more" }).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps the transcript scroll position when toggled", () => {
+    const scrollContainer = document.createElement("div");
+    scrollContainer.style.overflow = "auto";
+    scrollContainer.scrollTop = 240;
+    document.body.append(scrollContainer);
+    render(<Message message={message("x".repeat(601))} />, { container: scrollContainer });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(scrollContainer.scrollTop).toBe(240);
+  });
+
+  it("passes the full message to copy while the preview is collapsed", () => {
+    const onCopy = vi.fn();
+    const longText = Array.from({ length: 9 }, (_, index) => `Line ${index + 1}`).join("\n");
+    const fullMessage = message(longText);
+    render(<Message message={fullMessage} onCopy={onCopy} />);
+
+    fireEvent.click(screen.getByTitle("Copy message"));
+    expect(onCopy).toHaveBeenCalledWith(fullMessage);
+  });
+});
+
+describe("Message timestamps", () => {
+  it("exposes a compact local date/time and the full local value accessibly", () => {
+    const timestamp = Date.UTC(2024, 0, 2, 3, 4, 5);
+    render(<Message message={{ id: "timestamp", role: "user", text: "hello", timestamp }} />);
+
+    const time = screen.getByRole("time");
+    expect(time.textContent).toContain(compactTimestamp(timestamp));
+    expect(time.getAttribute("dateTime")).toBe(new Date(timestamp).toISOString());
+    expect(time.getAttribute("title")).toBe(fullTimestamp(timestamp));
+    expect(time.getAttribute("aria-label")).toBe(`Sent ${fullTimestamp(timestamp)}`);
   });
 });
 
