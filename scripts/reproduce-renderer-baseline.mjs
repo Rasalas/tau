@@ -22,7 +22,7 @@ const harnessCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, en
 const harnessPatchSha256 = createHash("sha256").update(await readFile(patchFile)).digest("hex");
 run("git", ["worktree", "add", "--detach", worktree, subject]);
 try {
-  run("git", ["apply", patchFile], worktree);
+  run("git", ["apply", "--unidiff-zero", patchFile], worktree);
   const dependencies = join(worktree, "node_modules");
   if (!existsSync(dependencies)) symlinkSync(nodeModules, dependencies, "dir");
   run("npm", ["run", "build"], worktree);
