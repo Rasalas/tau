@@ -81,6 +81,11 @@ export class TranscriptHistoryCoordinator {
       && !this.switching;
   }
 
+  /** Cancel a page whose same-thread refresh no longer has a continuous window. */
+  cancelPagingRequest(): void {
+    if (!this.switching) this.generation += 1;
+  }
+
   /** Commit a visible thread after bootstrap or a same-thread detail refresh. */
   activateSession(sessionId: string): void {
     if (this.bootstrapped && !this.switching && this.activeSessionId === sessionId) return;

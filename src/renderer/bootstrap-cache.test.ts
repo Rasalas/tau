@@ -70,22 +70,24 @@ describe("bootstrap cache", () => {
     expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe(asHostTranscriptCursor("opaque:bridge-cursor"));
   });
 
-  it("migrates a v4 cache without interpreting its legacy coordinate object", () => {
+  it.each(["tau.bootstrap-cache.v3", "tau.bootstrap-cache.v4"])("migrates %s without interpreting its legacy coordinate object", (cacheKey) => {
     const legacy = JSON.stringify({
       snapshot: {
         ...snapshot,
         messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user", text: String(index), timestamp: index })),
         olderCursor: { kind: "bridge", value: "20" },
+        historyCompleteness: "complete",
       },
       threadIndex: { projects: [], sessions: [] },
     });
     const storage = {
-      getItem: (key: string) => key === "tau.bootstrap-cache.v3" ? legacy : null,
+      getItem: (key: string) => key === cacheKey ? legacy : null,
       setItem: () => undefined,
       removeItem: () => undefined,
     };
     const cached = readBootstrapCache(storage);
     expect(cached?.snapshot.olderCursor).toBeUndefined();
+    expect(cached?.snapshot.historyCompleteness).toBe("unknown");
   });
 
   it("keeps a legacy-truncated cache limited without retaining a discarded cursor", () => {
@@ -115,6 +117,8 @@ describe("bootstrap cache", () => {
     expect(cached?.snapshot.messages).toHaveLength(10);
     expect(cached?.snapshot.messages[0]?.id).toBe("40");
     expect(cached?.snapshot.olderCursor).toBeUndefined();
+    expect(cached?.snapshot.historyCompleteness).toBe("unknown");
+    expect(detailFromSnapshot(cached!.snapshot).historyCompleteness).toBe("unknown");
 
     const oldOnly = {
       getItem: (key: string) => key === "tau.bootstrap-cache.v2" || key === "tau.bootstrap-cache.v1" ? stale : null,

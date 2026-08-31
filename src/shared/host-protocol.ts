@@ -111,6 +111,22 @@ function validCursorBoundaries(value: unknown): boolean {
   }));
 }
 
+function validTranscriptBundlePayload(payload: Record<string, unknown>, requireHasMore: boolean): boolean {
+  return !hasProviderCoordinates(payload)
+    && typeof payload.sessionId === "string"
+    && Array.isArray(payload.messages)
+    && validCursor(payload.olderCursor)
+    && validCursorBoundaries(payload.cursorBoundaries)
+    && validTranscriptWindow(payload.transcriptWindow)
+    && isTranscriptHistoryMetadataConsistent({
+      hasMore: payload.hasMore,
+      hasCursor: payload.olderCursor !== undefined,
+      historyCompleteness: payload.historyCompleteness,
+      requireHasMore,
+    })
+    && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory));
+}
+
 export function isHostUpdate(value: unknown): value is HostUpdate {
   const candidate = record(value);
   if (!candidate || candidate.version !== HOST_PROTOCOL_VERSION || typeof candidate.type !== "string") return false;
@@ -125,28 +141,10 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
   switch (candidate.type) {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
-    case "thread-detail": return Boolean(payload && !hasProviderCoordinates(payload) && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
-      && validCursor(payload.olderCursor)
-      && validCursorBoundaries(payload.cursorBoundaries)
-      && validTranscriptWindow(payload.transcriptWindow)
-      && isTranscriptHistoryMetadataConsistent({
-        hasMore: payload.hasMore,
-        hasCursor: payload.olderCursor !== undefined,
-        historyCompleteness: payload.historyCompleteness,
-        requireHasMore: false,
-      })
-      && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
-    case "transcript-page": return Boolean(payload && !hasProviderCoordinates(payload) && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
-      && validCursor(payload.olderCursor)
-      && validCursorBoundaries(payload.cursorBoundaries)
-      && validTranscriptWindow(payload.transcriptWindow)
-      && isTranscriptHistoryMetadataConsistent({
-        hasMore: payload.hasMore,
-        hasCursor: payload.olderCursor !== undefined,
-        historyCompleteness: payload.historyCompleteness,
-        requireHasMore: true,
-      })
-      && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
+    case "thread-detail": return Boolean(payload && validTranscriptBundlePayload(payload, false)
+      && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
+    case "transcript-page": return Boolean(payload && validTranscriptBundlePayload(payload, true)
+      && typeof payload.hasMore === "boolean");
     case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
     case "project": return Boolean(payload && typeof payload.cwd === "string");
     case "run": return typeof candidate.sessionId === "string" && ["started", "settled", "aborted"].includes(String(candidate.event));

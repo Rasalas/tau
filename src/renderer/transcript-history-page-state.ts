@@ -102,17 +102,37 @@ export function retainsLoadedHistory(
 ): current is ThreadDetail {
   if (!current || current.sessionId !== incoming.sessionId || current.messages.length === 0 || incoming.messages.length === 0) return false;
   const currentPositions = new Map(current.messages.map((message, index) => [message.id, index] as const));
-  let previousPosition = -1;
-  let overlap = false;
-  for (const message of incoming.messages) {
-    const position = currentPositions.get(message.id);
-    if (position === undefined) continue;
-    overlap = true;
-    if (position < previousPosition) return false;
-    previousPosition = position;
+  let incomingStart = -1;
+  let currentStart = -1;
+  let overlapLength = 0;
+  let gapAfterOverlap = false;
+  for (let incomingIndex = 0; incomingIndex < incoming.messages.length; incomingIndex += 1) {
+    const message = incoming.messages[incomingIndex];
+    const currentIndex = currentPositions.get(message?.id);
+    if (currentIndex === undefined) {
+      // Unknown records before an overlap are acceptable only when no
+      // overlap is ultimately found (the final prefix check rejects that
+      // case). Once the contiguous overlap has started, an unknown record
+      // marks the incoming newer tail; another old id after that tail would
+      // make the two windows non-contiguous.
+      if (overlapLength > 0) gapAfterOverlap = true;
+      continue;
+    }
+    if (gapAfterOverlap) return false;
+    if (overlapLength === 0) {
+      incomingStart = incomingIndex;
+      currentStart = currentIndex;
+    } else if (
+      incomingIndex !== incomingStart + overlapLength
+      || currentIndex !== currentStart + overlapLength
+    ) {
+      return false;
+    }
+    overlapLength += 1;
   }
-  if (overlap) return true;
-  return false;
+  return overlapLength > 0
+    && incomingStart === 0
+    && currentStart + overlapLength === current.messages.length;
 }
 
 function messageRows(node: HTMLDivElement): HTMLElement[] {

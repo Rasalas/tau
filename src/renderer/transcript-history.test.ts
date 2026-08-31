@@ -100,6 +100,24 @@ describe("TranscriptHistoryController", () => {
     expect(controller.acceptsDetail("thread-a")).toBe(false);
   });
 
+  it("replaces and cancels an in-flight page after a divergent same-thread refresh", () => {
+    const controller = new TranscriptHistoryController();
+    const currentIds = ["old", "tail-0", "tail-1"];
+    controller.syncSnapshot(snapshot("thread-a", currentIds, "older"), detail("thread-a", currentIds, "older"));
+    const request = controller.beginLoad({ messageId: "tail-0", viewportOffset: 80 });
+    expect(request).toBeDefined();
+
+    const applied = controller.applyDetail(
+      detail("thread-a", ["tail-0", "different-tail"], "newer"),
+      snapshot("thread-a", ["tail-0", "different-tail"], "newer"),
+    );
+
+    expect(applied?.detail.messages.map((item) => item.id)).toEqual(["tail-0", "different-tail"]);
+    expect(controller.isCurrent(request!)).toBe(false);
+    expect(controller.getSnapshot()).toMatchObject({ loading: false });
+    expect(controller.applyPage(page("thread-a", ["older-page"], "oldest"), [], request)).toBeUndefined();
+  });
+
   it("rejects a bootstrap result that loses a thread transition race", () => {
     const controller = new TranscriptHistoryController(snapshot("thread-a", ["a"], "1"));
     const bootstrap = controller.beginBootstrap();
@@ -253,9 +271,25 @@ describe("TranscriptHistoryController", () => {
     ]);
   });
 
-  it("retains loaded history only when opaque windows overlap by message id", () => {
+  it("retains loaded history only for a contiguous current-suffix/incoming-prefix overlap", () => {
     const current = detail("thread-a", ["current-0", "current-1"]);
     expect(retainsLoadedHistory(current, detail("thread-a", ["incoming-0"]))).toBe(false);
     expect(retainsLoadedHistory(current, detail("thread-a", ["current-1", "incoming-0"]))).toBe(true);
+    expect(retainsLoadedHistory(
+      detail("thread-a", ["old", "tail-0", "tail-1", "tail-2"]),
+      detail("thread-a", ["tail-0", "divergent", "tail-2"]),
+    )).toBe(false);
+    expect(retainsLoadedHistory(
+      detail("thread-a", ["old", "tail-0", "tail-1"]),
+      detail("thread-a", ["unrelated", "tail-0", "tail-1"]),
+    )).toBe(false);
+    expect(retainsLoadedHistory(
+      detail("thread-a", ["old", "tail-0", "tail-1"]),
+      detail("thread-a", ["tail-0", "different-tail"]),
+    )).toBe(false);
+    expect(retainsLoadedHistory(
+      detail("thread-a", ["old", "tail-0", "tail-1"]),
+      detail("thread-a", ["tail-0", "tail-1", "new-tail"]),
+    )).toBe(true);
   });
 });

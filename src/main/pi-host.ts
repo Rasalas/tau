@@ -193,10 +193,6 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
   return undefined;
 }
 
-export interface BridgeMessageMapping {
-  messages: UiMessage[];
-}
-
 function bridgeMessagesOffset(value: unknown): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
@@ -226,7 +222,7 @@ export function historyCompletenessForBridgeSnapshot(
 }
 
 /** Validate and map one bridge-owned raw page without exposing provider coordinates. */
-export function mapBridgeMessages(value: unknown, messagesOffsetValue?: unknown): BridgeMessageMapping {
+export function mapBridgeMessages(value: unknown, messagesOffsetValue?: unknown): UiMessage[] {
   if (!Array.isArray(value)) throw new Error("Pi returned an invalid transcript message list.");
   const rawMessageOffset = bridgeMessagesOffset(messagesOffsetValue);
   const messages = value.flatMap((raw, index) => {
@@ -235,7 +231,7 @@ export function mapBridgeMessages(value: unknown, messagesOffsetValue?: unknown)
     const mapped = mapMessage(raw, rawMessageOffset === undefined ? index : rawMessageOffset + index);
     return mapped?.text ? [mapped] : [];
   });
-  return { messages };
+  return messages;
 }
 
 type ValidatedBridgeTranscriptPage = Omit<PiBridgeTranscriptPage, "olderCursor"> & {
@@ -282,9 +278,9 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
 /** Validate and map one bridge-owned transcript page at the host seam. */
 export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown): TranscriptPage {
   const page = bridgeTranscriptPage(value, sessionId);
-  const mapped = mapBridgeMessages(page.messages, page.messagesOffset);
-  const taskHistory = taskHistoryForMessages(page.taskHistory, mapped.messages);
-  const firstUserMessage = mapped.messages.find((message) => message.role === "user");
+  const messages = mapBridgeMessages(page.messages, page.messagesOffset);
+  const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
+  const firstUserMessage = messages.find((message) => message.role === "user");
   const olderCursor = page.olderCursor === undefined
     ? undefined
     : hostCursorAtBridgeValue(page.olderCursor);
@@ -295,7 +291,7 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
   );
   return {
     sessionId,
-    messages: mapped.messages,
+    messages,
     transcriptWindow: "bounded",
     ...(taskHistory ? { taskHistory } : {}),
     ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
@@ -2058,7 +2054,7 @@ export class PiHost {
   private bridgeHostSnapshot(): HostSnapshot {
     const snapshot = this.bridgeSnapshot;
     if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
-    const mapped = mapBridgeMessages(snapshot.messages, snapshot.messagesOffset);
+    const messages = mapBridgeMessages(snapshot.messages, snapshot.messagesOffset);
     const firstUserMessage = snapshot.messages.find((message) =>
       Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
     );
@@ -2070,7 +2066,7 @@ export class PiHost {
     const olderCursor = !transcriptPagingNegotiated(snapshot.capabilities) || snapshot.olderCursor === undefined
       ? undefined
       : hostCursorAtBridgeValue(snapshot.olderCursor);
-    const firstVisibleUser = mapped.messages.find((message) => message.role === "user");
+    const firstVisibleUser = messages.find((message) => message.role === "user");
     const cursorBoundaries = normalizeTranscriptCursorBoundaries(
       undefined,
       firstVisibleUser?.id,
@@ -2087,7 +2083,7 @@ export class PiHost {
       models: snapshot.models.map(mapModel),
       thinkingLevel: snapshot.thinkingLevel,
       thinkingLevels: snapshot.thinkingLevels,
-      messages: mapped.messages,
+      messages,
       ...(transcriptPagingNegotiated(snapshot.capabilities) ? { transcriptWindow: "bounded" as const } : {}),
       ...(olderCursor ? { olderCursor } : {}),
       ...(firstVisibleUser ? { cursorBeforeMessageId: firstVisibleUser.id } : {}),

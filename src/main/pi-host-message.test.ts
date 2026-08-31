@@ -24,7 +24,7 @@ describe("Pi message mapping", () => {
       { role: "user", content: "hello", tauEntryId: "entry-user" },
       { role: "assistant", content: "world", tauEntryId: "entry-assistant" },
     ], 40);
-    expect(mapped.messages.map((message) => message.id)).toEqual(["entry-user", "entry-assistant"]);
+    expect(mapped.map((message) => message.id)).toEqual(["entry-user", "entry-assistant"]);
     expect(mapped).not.toHaveProperty("transcriptMessageIndexes");
   });
 

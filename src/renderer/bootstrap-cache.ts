@@ -16,6 +16,7 @@ export interface CachedBootstrap {
 function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   const bounds = transcriptPageBounds(snapshot.messages, INITIAL_TRANSCRIPT_TURN_LIMIT);
   const messages = snapshot.messages.slice(bounds.start, bounds.end);
+  const wasTrimmed = messages.length < snapshot.messages.length;
   const firstUserMessage = messages.find((message) => message.role === "user");
   const firstRetainedMessageId = firstUserMessage?.id ?? messages[0]?.id;
   const boundaries = normalizeTranscriptCursorBoundaries(
@@ -26,11 +27,17 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   );
   const selectedBoundary = boundaries?.find((boundary) => boundary.messageId === firstRetainedMessageId)
     ?? undefined;
-  const historyCompleteness = selectedBoundary || snapshot.historyCompleteness === "legacy-truncated" || snapshot.historyCompleteness === "unknown"
+  // Legacy v3/v4 records did not persist a completeness state. Once a
+  // window is trimmed, missing provenance must stay visibly ambiguous; an
+  // absent cursor is not evidence that the retained ten turns are history's
+  // beginning. A retained boundary is enough to advertise another page.
+  const historyCompleteness = snapshot.historyCompleteness === "legacy-truncated" || snapshot.historyCompleteness === "unknown"
     ? snapshot.historyCompleteness
-    : snapshot.olderCursor === undefined
-      ? snapshot.historyCompleteness
-      : "unknown";
+    : selectedBoundary
+      ? "has-more"
+      : wasTrimmed
+        ? "unknown"
+        : snapshot.historyCompleteness ?? "complete";
   return {
     ...snapshot,
     messages,

@@ -45,6 +45,23 @@ export {
   restoreTranscriptScrollAnchor,
 } from "./transcript-history-page-state";
 
+function applyTranscriptPageMetadata(
+  base: ThreadDetail,
+  page: TranscriptPage,
+  cursorBoundaries: ThreadDetail["cursorBoundaries"] | undefined,
+  transcriptWindow: ThreadDetail["transcriptWindow"] | undefined,
+): ThreadDetail {
+  return {
+    ...base,
+    olderCursor: page.olderCursor,
+    cursorBeforeMessageId: page.cursorBeforeMessageId,
+    cursorBoundaries,
+    hasMore: page.hasMore,
+    historyCompleteness: page.historyCompleteness,
+    ...(transcriptWindow ? { transcriptWindow } : {}),
+  };
+}
+
 export class TranscriptHistoryController {
   readonly preserveScrollRef: TranscriptHistoryPageState["preserveScrollRef"];
   readonly anchorRef: TranscriptHistoryPageState["anchorRef"];
@@ -137,7 +154,8 @@ export class TranscriptHistoryController {
     const sameThreadPaging = this.state.loading
       && this.coordinator.isActiveSession(detail.sessionId)
       && previous?.sessionId === detail.sessionId;
-    const keepHistory = sameThreadPaging || retainsLoadedHistory(previous, detail);
+    const keepHistory = retainsLoadedHistory(previous, detail);
+    if (sameThreadPaging && !keepHistory) this.coordinator.cancelPagingRequest();
     const mergedBundle = applyTranscriptBundleMerge(
       keepHistory && previous ? previous : undefined,
       detail,
@@ -157,7 +175,7 @@ export class TranscriptHistoryController {
     const renderedSnapshot = snapshot
       ? hostSnapshotFromThreadDetail(snapshot, renderedDetail)
       : undefined;
-    const preservePagingRequest = sameThreadPaging;
+    const preservePagingRequest = sameThreadPaging && keepHistory;
     const preserveAnchor = !preservePagingRequest
       && keepHistory
       && this.coordinator.isActiveSession(renderedDetail.sessionId)
@@ -245,17 +263,11 @@ export class TranscriptHistoryController {
     );
     const mergedBundle = applyTranscriptBundleMerge(baseBundle, pageBundle, "prepend");
     const { messages, taskHistory, cursorBoundaries, transcriptWindow } = mergedBundle;
-    const detail = currentDetail ? {
+    const detail = currentDetail ? applyTranscriptPageMetadata({
       ...currentDetail,
       messages,
       taskHistory,
-      olderCursor: page.olderCursor,
-      cursorBeforeMessageId: page.cursorBeforeMessageId,
-      cursorBoundaries,
-      hasMore: page.hasMore,
-      historyCompleteness: page.historyCompleteness,
-      ...(transcriptWindow ? { transcriptWindow } : {}),
-    } : undefined;
+    }, pageBundle, cursorBoundaries, transcriptWindow) : undefined;
     if (detail) this.cache.setDetail(detail);
     this.pageState.markAnchorMeasured(messages);
 
@@ -267,17 +279,11 @@ export class TranscriptHistoryController {
         currentDetail ?? { messages: visibleMessages },
       );
       const snapshotBundle = applyTranscriptBundleMerge(snapshotBase, pageBundle, "prepend");
-      const snapshotDetail: ThreadDetail = {
+      const snapshotDetail = applyTranscriptPageMetadata({
         ...(detail ?? threadDetailFromHostSnapshot(cachedSnapshot)),
         messages: snapshotBundle.messages,
         taskHistory: snapshotBundle.taskHistory,
-        olderCursor: page.olderCursor,
-        cursorBeforeMessageId: page.cursorBeforeMessageId,
-        cursorBoundaries: snapshotBundle.cursorBoundaries,
-        historyCompleteness: page.historyCompleteness,
-        hasMore: page.hasMore,
-        ...(snapshotBundle.transcriptWindow ? { transcriptWindow: snapshotBundle.transcriptWindow } : {}),
-      };
+      }, pageBundle, snapshotBundle.cursorBoundaries, snapshotBundle.transcriptWindow);
       snapshot = hostSnapshotFromThreadDetail(cachedSnapshot, snapshotDetail);
       this.cache.setSnapshot(snapshot);
       this.persistCache();
