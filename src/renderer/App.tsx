@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type RefObject } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
   FileNode,
@@ -55,7 +55,7 @@ import { TitleBar } from "./components/TitleBar";
 import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
-import { VirtualTranscript } from "./components/VirtualTranscript";
+import { TranscriptViewport, latestTranscriptUser } from "./components/TranscriptViewport";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
@@ -198,285 +198,6 @@ function LiveStatus({ startedAt }: { startedAt?: number }) {
   return <div className="live-status"><span className="spinner" /><span>Pi is working{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
 }
 
-export function useTailScroll(
-  ref: RefObject<HTMLDivElement | null>,
-  updates: readonly unknown[],
-  resetKey?: unknown,
-  anchorId?: string,
-  mountKey?: unknown,
-): {
-  isFollowing: boolean;
-  canJumpToLatest: boolean;
-  jumpToLatest: () => void;
-} {
-  const followingRef = useRef(true);
-  const [isFollowing, setIsFollowing] = useState(true);
-  const [canJumpToLatest, setCanJumpToLatest] = useState(false);
-  const frameRef = useRef<number | undefined>(undefined);
-  const sessionRef = useRef(resetKey);
-  const anchorRef = useRef(anchorId);
-  const requestedAnchorRef = useRef(anchorId);
-  const attachedNodeRef = useRef<HTMLDivElement | null>(null);
-  const anchorPendingRef = useRef(false);
-  const anchorLockedRef = useRef(false);
-
-  const scrollMetrics = (node: HTMLDivElement) => ({
-    maxScrollTop: Math.max(0, node.scrollHeight - node.clientHeight),
-    hasOverflow: node.scrollHeight > node.clientHeight + 1,
-  });
-
-  const updateJumpAvailability = (node: HTMLDivElement) => {
-    const { hasOverflow } = scrollMetrics(node);
-    const canJump = !followingRef.current && hasOverflow;
-    setCanJumpToLatest((current) => current === canJump ? current : canJump);
-  };
-
-  const findAnchor = (node: HTMLDivElement): HTMLElement | undefined => {
-    const id = anchorRef.current;
-    if (!id) return undefined;
-    return [...node.querySelectorAll<HTMLElement>("[data-message-id]")]
-      .find((element) => element.dataset.messageId === id);
-  };
-
-  const paddingTop = (node: HTMLDivElement): number => {
-    const value = Number.parseFloat(window.getComputedStyle(node).paddingTop);
-    return Number.isFinite(value) ? value : 0;
-  };
-
-  const contentTop = (node: HTMLDivElement, element: HTMLElement): number => {
-    const nodeRect = node.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    // Real layout has useful rects, including the virtual row's transform. The
-    // offset fallback keeps this deterministic in jsdom and during first paint.
-    if (elementRect.height > 0 || elementRect.top !== 0 || nodeRect.top !== 0) {
-      return node.scrollTop + elementRect.top - nodeRect.top;
-    }
-    const explicitOffset = Number(element.dataset.transcriptOffset);
-    if (Number.isFinite(explicitOffset)) return explicitOffset;
-    let top = 0;
-    let current: HTMLElement | null = element;
-    while (current && current !== node) {
-      top += current.offsetTop;
-      current = current.offsetParent as HTMLElement | null;
-    }
-    return top;
-  };
-
-  const viewportTop = (node: HTMLDivElement, element: HTMLElement): number | undefined => {
-    const nodeRect = node.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    if (elementRect.height > 0 || elementRect.top !== 0 || nodeRect.top !== 0) {
-      return elementRect.top - nodeRect.top;
-    }
-    return undefined;
-  };
-
-  const placeAtTail = (node: HTMLDivElement) => {
-    // Assigning scrollHeight intentionally mirrors the browser's clamping
-    // behavior while keeping the lightweight preview/test DOM predictable.
-    node.scrollTop = node.scrollHeight;
-  };
-
-  const placeAnchor = (node: HTMLDivElement): boolean => {
-    const anchor = findAnchor(node);
-    if (!anchor) {
-      placeAtTail(node);
-      return false;
-    }
-    const top = contentTop(node, anchor);
-    const target = top - paddingTop(node);
-    const { maxScrollTop } = scrollMetrics(node);
-    // A short thread cannot put its newest prompt at the top without inventing
-    // blank scroll space. Keep it at the natural tail until the answer grows.
-    if (target < 0 || target > maxScrollTop) {
-      placeAtTail(node);
-      return false;
-    }
-    node.scrollTop = target;
-    anchorLockedRef.current = true;
-    return true;
-  };
-
-  const preserveAnchor = (node: HTMLDivElement) => {
-    const anchor = findAnchor(node);
-    if (!anchor) return;
-    const currentTop = viewportTop(node, anchor);
-    if (currentTop === undefined) return;
-    const desiredTop = paddingTop(node);
-    const delta = currentTop - desiredTop;
-    if (Math.abs(delta) < 0.5) return;
-    const { maxScrollTop } = scrollMetrics(node);
-    node.scrollTop = Math.max(0, Math.min(maxScrollTop, node.scrollTop + delta));
-  };
-
-  const scheduleTail = () => {
-    if (!followingRef.current || frameRef.current !== undefined) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = undefined;
-      const node = ref.current;
-      if (!node || !followingRef.current) return;
-      if (anchorPendingRef.current) {
-        if (placeAnchor(node)) anchorPendingRef.current = false;
-      } else if (anchorLockedRef.current) {
-        preserveAnchor(node);
-      } else {
-        placeAtTail(node);
-      }
-      updateJumpAvailability(node);
-    });
-  };
-
-  const scheduleRef = useRef(scheduleTail);
-  scheduleRef.current = scheduleTail;
-
-  const jumpToLatest = useCallback(() => {
-    const node = ref.current;
-    if (!node) return;
-    followingRef.current = true;
-    anchorPendingRef.current = false;
-    anchorLockedRef.current = false;
-    anchorRef.current = undefined;
-    setIsFollowing(true);
-    setCanJumpToLatest(false);
-    if (typeof node.scrollTo === "function") {
-      node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
-    } else {
-      placeAtTail(node);
-      scheduleRef.current();
-    }
-  }, [ref]);
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    // A fresh transcript starts at scrollTop 0 even when it is several screens
-    // tall. Treat it as following until the first tail placement completes.
-    if (sessionRef.current !== resetKey) {
-      followingRef.current = true;
-      setIsFollowing(true);
-      setCanJumpToLatest(false);
-      sessionRef.current = resetKey;
-      anchorRef.current = anchorId;
-      requestedAnchorRef.current = anchorId;
-      anchorPendingRef.current = false;
-      anchorLockedRef.current = false;
-    }
-    attachedNodeRef.current = node;
-    let pointerDown = false;
-    let touchY: number | undefined;
-    let lastTouchScrollTop: number | undefined;
-    let downwardIntent = false;
-    const nearTail = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
-    const stopFollowing = () => {
-      followingRef.current = false;
-      setIsFollowing(false);
-      updateJumpAvailability(node);
-    };
-    const onScroll = () => {
-      if (nearTail() && (pointerDown || downwardIntent)) {
-        followingRef.current = true;
-        setIsFollowing(true);
-        anchorPendingRef.current = false;
-        anchorLockedRef.current = false;
-        anchorRef.current = undefined;
-      } else if (pointerDown && !nearTail()) {
-        stopFollowing();
-      }
-      updateJumpAvailability(node);
-    };
-    const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) stopFollowing();
-      else if (event.deltaY > 0) downwardIntent = true;
-    };
-    const onPointerDown = () => { pointerDown = true; };
-    const onPointerUp = () => { pointerDown = false; downwardIntent = false; };
-    const onTouchStart = (event: TouchEvent) => {
-      touchY = event.touches[0]?.clientY;
-      lastTouchScrollTop = node.scrollTop;
-    };
-    const onTouchMove = (event: TouchEvent) => {
-      const nextY = event.touches[0]?.clientY;
-      const scrollingUp = lastTouchScrollTop !== undefined && node.scrollTop < lastTouchScrollTop;
-      if (touchY !== undefined && nextY !== undefined && (nextY > touchY || scrollingUp)) stopFollowing();
-      if (touchY !== undefined && nextY !== undefined && nextY < touchY) downwardIntent = true;
-      touchY = nextY;
-      lastTouchScrollTop = node.scrollTop;
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) stopFollowing();
-      if (["ArrowDown", "PageDown"].includes(event.key)) downwardIntent = true;
-      if (event.key === "End") {
-        followingRef.current = true;
-        setIsFollowing(true);
-        anchorPendingRef.current = false;
-        anchorLockedRef.current = false;
-        anchorRef.current = undefined;
-        scheduleTail();
-      }
-    };
-    node.addEventListener("scroll", onScroll, { passive: true });
-    node.addEventListener("wheel", onWheel, { passive: true });
-    node.addEventListener("pointerdown", onPointerDown, { passive: true });
-    window.addEventListener("pointerup", onPointerUp, { passive: true });
-    node.addEventListener("touchstart", onTouchStart, { passive: true });
-    node.addEventListener("touchmove", onTouchMove, { passive: true });
-    node.addEventListener("keydown", onKeyDown);
-    const content = node.firstElementChild ?? node;
-    const observer = typeof ResizeObserver === "undefined"
-      ? undefined
-      : new ResizeObserver(() => scheduleTail());
-    observer?.observe(node);
-    observer?.observe(content);
-    scheduleTail();
-    return () => {
-      if (attachedNodeRef.current === node) attachedNodeRef.current = null;
-      node.removeEventListener("scroll", onScroll);
-      node.removeEventListener("wheel", onWheel);
-      node.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointerup", onPointerUp);
-      node.removeEventListener("touchstart", onTouchStart);
-      node.removeEventListener("touchmove", onTouchMove);
-      node.removeEventListener("keydown", onKeyDown);
-      observer?.disconnect();
-      if (frameRef.current !== undefined) cancelAnimationFrame(frameRef.current);
-      frameRef.current = undefined;
-    };
-  }, [mountKey, ref, resetKey]);
-
-  useEffect(() => {
-    if (sessionRef.current !== resetKey) {
-      sessionRef.current = resetKey;
-      anchorRef.current = anchorId;
-      requestedAnchorRef.current = anchorId;
-      anchorPendingRef.current = false;
-      anchorLockedRef.current = false;
-      followingRef.current = true;
-      setIsFollowing(true);
-      setCanJumpToLatest(false);
-      scheduleRef.current();
-      return;
-    }
-    if (requestedAnchorRef.current === anchorId) return;
-    requestedAnchorRef.current = anchorId;
-    sessionRef.current = resetKey;
-    anchorRef.current = anchorId;
-    anchorPendingRef.current = Boolean(anchorId);
-    anchorLockedRef.current = false;
-    followingRef.current = true;
-    setIsFollowing(true);
-    setCanJumpToLatest(false);
-    scheduleRef.current();
-  }, [anchorId, resetKey]);
-
-  useEffect(() => {
-    scheduleTail();
-  // The array identity is intentionally controlled by the caller's visible records.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, updates);
-
-  return { isFollowing, canJumpToLatest, jumpToLatest };
-}
-
 export default function App() {
   const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
   const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
@@ -559,6 +280,7 @@ export default function App() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const wasStartScreenRef = useRef<boolean | undefined>(undefined);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
   const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
@@ -1035,14 +757,6 @@ export default function App() {
       setLoadingOlder(false);
     }
   }, [loadingOlder, olderCursor, snapshot]);
-
-  useEffect(() => {
-    const transcript = transcriptRef.current;
-    if (!transcript) return;
-    const onScroll = () => { if (transcript.scrollTop < 120) void loadOlder(); };
-    transcript.addEventListener("scroll", onScroll, { passive: true });
-    return () => transcript.removeEventListener("scroll", onScroll);
-  }, [loadOlder]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1759,17 +1473,11 @@ export default function App() {
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
     && conversationPrompts.length === 0;
-  const latestConversationUserMessageId = [...conversationMessages]
-    .reverse()
-    .find((message) => message.role === "user")
-    ?.id;
-  const transcriptScroll = useTailScroll(
-    transcriptRef,
-    [conversationMessages, conversationActivityTools, conversationSnapshot?.taskHistory, turnChanges],
-    snapshot?.sessionId,
-    latestConversationUserMessageId,
-    showStartScreen,
-  );
+  const initialTurnIsNew = !showStartScreen && wasStartScreenRef.current === true;
+  useEffect(() => {
+    wasStartScreenRef.current = showStartScreen;
+  }, [showStartScreen]);
+  const latestConversationUserMessage = latestTranscriptUser(conversationMessages);
   const startProjectPath = conversationSnapshot?.cwd ?? "";
   const startProjectName = pendingNewThread?.projectName
     ?? projects.find((project) => project.path === startProjectPath)?.name
@@ -1985,56 +1693,36 @@ export default function App() {
                 <span className="title-spacer" />
               </header>
 
-              <div
-                className="transcript"
-                ref={transcriptRef}
-                tabIndex={0}
-                role="log"
-                aria-label="Thread transcript"
-              >
-                <div className="transcript-inner">
-                  <VirtualTranscript
-                    messages={conversationMessages}
-                    scrollRef={transcriptRef}
-                    isStreaming={Boolean(conversationSnapshot?.isStreaming)}
-                    activity={conversationActivityTools.length > 0 ? (
-                      <ToolGroup
-                        tools={conversationActivityTools}
-                        registry={registry}
-                        streaming={conversationSnapshot?.isStreaming}
-                        waiting={conversationPrompts.length > 0}
-                        onRecover={() => void recoverThread()}
-                        onStop={() => void window.tau?.abort(snapshot?.sessionId)}
-                      />
-                    ) : undefined}
-                    activityAfterMessageId={visibleToolAnchorId}
-                    activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
-                      id: entry.id,
-                      afterMessageId: entry.anchorMessageId,
-                      content: <TaskProgress progress={entry.progress} placement="transcript" />,
-                    }))}
-                    onCopyMessage={(message) => void copyMessage(message)}
-                    onForkMessage={(message) => void forkMessage(message)}
+              <TranscriptViewport
+                messages={conversationMessages}
+                scrollRef={transcriptRef}
+                sessionId={conversationSnapshot?.sessionId}
+                latestUserMessage={latestConversationUserMessage}
+                initialTurnIsNew={initialTurnIsNew}
+                isStreaming={Boolean(conversationSnapshot?.isStreaming)}
+                activity={conversationActivityTools.length > 0 ? (
+                  <ToolGroup
+                    tools={conversationActivityTools}
+                    registry={registry}
+                    streaming={conversationSnapshot?.isStreaming}
+                    waiting={conversationPrompts.length > 0}
+                    onRecover={() => void recoverThread()}
+                    onStop={() => void window.tau?.abort(snapshot?.sessionId)}
                   />
-                  {/* The tool block already says a run is in flight; two live rows
-                      both duplicate the signal and collide with the virtual list. */}
-                  {conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
-                    ? <LiveStatus startedAt={runStartedAt} />
-                    : null}
-                </div>
-                {transcriptScroll.canJumpToLatest ? (
-                  <button
-                    type="button"
-                    className="transcript-jump"
-                    aria-label="Jump to latest"
-                    title="Jump to latest"
-                    onClick={transcriptScroll.jumpToLatest}
-                  >
-                    <ChevronDown size={14} />
-                    <span>Jump to latest</span>
-                  </button>
-                ) : null}
-              </div>
+                ) : undefined}
+                activityAfterMessageId={visibleToolAnchorId}
+                activities={(conversationSnapshot?.taskHistory ?? []).map((entry) => ({
+                  id: entry.id,
+                  afterMessageId: entry.anchorMessageId,
+                  content: <TaskProgress progress={entry.progress} placement="transcript" />,
+                }))}
+                liveStatus={conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
+                  ? <LiveStatus startedAt={runStartedAt} />
+                  : undefined}
+                onCopyMessage={(message) => void copyMessage(message)}
+                onForkMessage={(message) => void forkMessage(message)}
+                onReachStart={() => void loadOlder()}
+              />
 
               {!pendingNewThread && turnChanges.files.length > 0 ? (
                 <div className="conversation-files-dock">

@@ -541,14 +541,24 @@ button > svg { pointer-events: none; }
 }
 .thread-title-rename input:focus { border-color: var(--line-strong); }
 
+.transcript-viewport {
+  position: relative; display: flex; flex: 1; min-width: 0; min-height: 0;
+  flex-direction: column; isolation: isolate;
+}
 .transcript {
   position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none;
   padding: 26px 32px 12px; outline: none;
 }
+.transcript-overlay {
+  position: absolute; z-index: 4; inset: 0; pointer-events: none;
+}
+.transcript-overlay .transcript-jump { pointer-events: auto; }
 .transcript:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
 .virtual-transcript { width: 100%; flex: none; }
 .virtual-transcript-row { padding-bottom: 22px; box-sizing: border-box; }
+.transcript-current-turn { width: 100%; flex: none; }
+.transcript-current-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }
 .transcript-jump {
   position: absolute; z-index: 4; left: 50%; bottom: 12px;

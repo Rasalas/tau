@@ -154,7 +154,9 @@ describe("App render isolation", () => {
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Build the first screen", [], "session"));
     expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
-    expect(screen.getByText("Build the first screen")).toBeTruthy();
+    const prompt = screen.getByText("Build the first screen");
+    expect(prompt.closest(".transcript-current-turn")).toBeTruthy();
+    expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeNull();
   });
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {

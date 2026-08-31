@@ -80,7 +80,6 @@ export function VirtualTranscript({
         ref={virtualizer.measureElement}
         data-index={row.index}
         data-message-id={message.id}
-        data-transcript-offset={row.start}
         className="virtual-transcript-row"
         style={{
           position: "absolute",
