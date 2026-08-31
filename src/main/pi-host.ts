@@ -243,6 +243,16 @@ function mapModel(model: { provider: string; id: string; name?: string }): UiMod
   return { provider: model.provider, id: model.id, name: model.name ?? model.id };
 }
 
+export function modelSupportsImageInput(model: { input?: readonly string[] } | undefined): boolean {
+  return model?.input?.includes("image") === true;
+}
+
+function assertImageInputCapability(session: AgentSession, attachments: readonly UiPromptAttachment[]): void {
+  if (attachments.length > 0 && !modelSupportsImageInput(session.model)) {
+    throw new Error("The active model does not support image input.");
+  }
+}
+
 function firstSentence(value: string): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   if (!normalized) return "Untitled thread";
@@ -939,6 +949,7 @@ export class PiHost {
         { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
       );
       await this.activateThread(thread, true);
+      assertImageInputCapability(thread.session, attachments);
       // The first prompt names the thread right away; the run that follows
       // would otherwise leave it "Untitled" until it finishes.
       if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
@@ -1060,6 +1071,7 @@ export class PiHost {
     }
     const thread = this.requireThread(sessionId);
     const session = thread.session;
+    assertImageInputCapability(session, attachments);
     const images = promptImages(attachments);
     this.log("prompt.accepted", `${text.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
     try {
@@ -1106,7 +1118,9 @@ export class PiHost {
       return;
     }
     try {
-      await this.requireThread(sessionId).session.steer(text, promptImages(attachments));
+      const thread = this.requireThread(sessionId);
+      assertImageInputCapability(thread.session, attachments);
+      await thread.session.steer(text, promptImages(attachments));
     } catch (error) {
       this.fail(error);
       throw error;
@@ -1120,7 +1134,9 @@ export class PiHost {
       return;
     }
     try {
-      await this.requireThread(sessionId).session.followUp(text, promptImages(attachments));
+      const thread = this.requireThread(sessionId);
+      assertImageInputCapability(thread.session, attachments);
+      await thread.session.followUp(text, promptImages(attachments));
     } catch (error) {
       this.fail(error);
       throw error;
@@ -2259,7 +2275,7 @@ export class PiHost {
       extensionCount: this.extensionCount,
       serviceTier: this.serviceTier,
       serviceTierAvailable: this.serviceTierAvailable(),
-      supportsImageInput: true,
+      supportsImageInput: modelSupportsImageInput(session.model),
       contextUsage: usage && usage.tokens !== null && usage.percent !== null
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined,

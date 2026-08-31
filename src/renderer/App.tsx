@@ -68,7 +68,7 @@ import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
-import { CHAT_DROP_FEEDBACK, classifyChatDrop, type ChatDropState } from "../shared/chat-drop";
+import { THREAD_DROP_FEEDBACK, classifyThreadDrop, type ThreadDropState } from "../shared/thread-drop";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -363,8 +363,8 @@ export default function App() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
-  const [chatDrop, setChatDrop] = useState<ChatDropState>("idle");
-  const chatDropDepthRef = useRef(0);
+  const [threadDrop, setThreadDrop] = useState<ThreadDropState>("idle");
+  const threadDropDepthRef = useRef(0);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
@@ -386,10 +386,10 @@ export default function App() {
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
   useEffect(() => {
-    if (chatDrop === "idle") return;
+    if (threadDrop === "idle") return;
     const cancel = () => {
-      chatDropDepthRef.current = 0;
-      setChatDrop("idle");
+      threadDropDepthRef.current = 0;
+      setThreadDrop("idle");
     };
     const cancelKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") cancel();
@@ -404,7 +404,7 @@ export default function App() {
       window.removeEventListener("blur", cancel);
       window.removeEventListener("keydown", cancelKey);
     };
-  }, [chatDrop]);
+  }, [threadDrop]);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -555,7 +555,9 @@ export default function App() {
       return;
     }
     if (update.type === "catalog") {
-      setSnapshot((current) => current ? { ...current, ...update.catalog } : current);
+      setSnapshot((current) => current && current.sessionId === update.catalog.sessionId
+        ? { ...current, ...update.catalog }
+        : current);
       return;
     }
     if (update.type === "project") {
@@ -1589,6 +1591,7 @@ export default function App() {
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
+    supportsImageInput: false,
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
@@ -1610,37 +1613,38 @@ export default function App() {
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
 
-  const classifyDataTransfer = (dataTransfer: DataTransfer): ChatDropState => classifyChatDrop(
+  const classifyDataTransfer = (dataTransfer: DataTransfer): ThreadDropState => classifyThreadDrop(
     Array.from(dataTransfer.types).includes("Files"),
     Array.from(dataTransfer.items ?? []).map((item) => ({ kind: item.kind, mimeType: item.type })),
     conversationSnapshot?.supportsImageInput ?? false,
   );
 
-  const onChatDragEnter = (event: React.DragEvent<HTMLElement>) => {
+  const onThreadDragEnter = (event: React.DragEvent<HTMLElement>) => {
     const state = classifyDataTransfer(event.dataTransfer);
     if (state === "idle") return;
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     event.preventDefault();
-    chatDropDepthRef.current += 1;
-    setChatDrop(state);
+    threadDropDepthRef.current += 1;
+    setThreadDrop(state);
   };
-  const onChatDragOver = (event: React.DragEvent<HTMLElement>) => {
+  const onThreadDragOver = (event: React.DragEvent<HTMLElement>) => {
     const state = classifyDataTransfer(event.dataTransfer);
     if (state === "idle") return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = CHAT_DROP_FEEDBACK[state].dropEffect;
-    setChatDrop(state);
+    event.dataTransfer.dropEffect = THREAD_DROP_FEEDBACK[state].dropEffect;
+    setThreadDrop(state);
   };
-  const onChatDragLeave = (event: React.DragEvent<HTMLElement>) => {
+  const onThreadDragLeave = (event: React.DragEvent<HTMLElement>) => {
     if (classifyDataTransfer(event.dataTransfer) === "idle") return;
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-    chatDropDepthRef.current = Math.max(0, chatDropDepthRef.current - 1);
-    if (chatDropDepthRef.current === 0) setChatDrop("idle");
+    threadDropDepthRef.current = Math.max(0, threadDropDepthRef.current - 1);
+    if (threadDropDepthRef.current === 0) setThreadDrop("idle");
   };
-  const onChatDrop = (event: React.DragEvent<HTMLElement>) => {
+  const onThreadDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (classifyDataTransfer(event.dataTransfer) === "idle" || event.dataTransfer.files.length === 0) return;
     event.preventDefault();
-    chatDropDepthRef.current = 0;
-    setChatDrop("idle");
+    threadDropDepthRef.current = 0;
+    setThreadDrop("idle");
     if (event.dataTransfer.files.length > 0) composerAttachmentRef.current?.addFiles(event.dataTransfer.files);
   };
 
@@ -1808,16 +1812,16 @@ export default function App() {
 
             <main
               className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
-              onDragEnter={onChatDragEnter}
-              onDragOver={onChatDragOver}
-              onDragLeave={onChatDragLeave}
-              onDrop={onChatDrop}
+              onDragEnter={onThreadDragEnter}
+              onDragOver={onThreadDragOver}
+              onDragLeave={onThreadDragLeave}
+              onDrop={onThreadDrop}
             >
-              {chatDrop !== "idle" ? (
-                <div className={`conversation-drop-overlay ${chatDrop}`} role="status" aria-live="polite">
+              {threadDrop !== "idle" ? (
+                <div className={`conversation-drop-overlay ${threadDrop}`} role="status" aria-live="polite">
                   <div className="conversation-drop-card">
-                    <strong>{CHAT_DROP_FEEDBACK[chatDrop].title}</strong>
-                    <span>{CHAT_DROP_FEEDBACK[chatDrop].description}</span>
+                    <strong>{THREAD_DROP_FEEDBACK[threadDrop].title}</strong>
+                    <span>{THREAD_DROP_FEEDBACK[threadDrop].description}</span>
                   </div>
                 </div>
               ) : null}

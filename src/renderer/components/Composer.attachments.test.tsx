@@ -15,9 +15,11 @@ function renderComposer(
     activeTools: [], allTools: [], extensionCount: 0, serviceTier: "standard",
     serviceTierAvailable: false, supportsImageInput: true,
   },
+  draftStorageKey = "thread:session",
 ) {
-  render(
+  const element = (scope: string) => (
     <Composer
+      draftStorageKey={scope}
       queue={[]}
       accessLevel="full"
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
@@ -36,9 +38,10 @@ function renderComposer(
       onOpenWorktree={async () => true}
       onCreateWorktree={async () => true}
       onSwitchRef={async () => true}
-    />,
+    />
   );
-  return onSubmit;
+  const view = render(element(draftStorageKey));
+  return Object.assign(onSubmit, { view, rerenderScope: (scope: string) => view.rerender(element(scope)) });
 }
 
 function sizedImageFile(name: string, size: number): File {
@@ -174,5 +177,57 @@ describe("Composer attachments", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(screen.getByRole("button", { name: "Preview retain.png" })).toBeTruthy();
     expect(draft.value).toBe("retain this prompt");
+  });
+
+  it("keeps queued drops with their originating thread scope", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    const submission = renderComposer(vi.fn(), attachmentRef, undefined, "thread:a");
+    const pending = attachmentRef.current!.addFiles([new File([new Uint8Array([1])], "thread-a.png", { type: "image/png" })]);
+    submission.rerenderScope("thread:b");
+    await pending;
+    expect(screen.queryByRole("button", { name: "Preview thread-a.png" })).toBeNull();
+    submission.rerenderScope("thread:a");
+    expect(await screen.findByRole("button", { name: "Preview thread-a.png" })).toBeTruthy();
+  });
+
+  it("preserves edits and new attachments when a pending submission succeeds", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    let resolve!: (accepted: boolean) => void;
+    const onSubmit = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
+    renderComposer(onSubmit, attachmentRef);
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "sent.png", { type: "image/png" })]);
+    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(draft, { target: { value: "first prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    fireEvent.change(draft, { target: { value: "new prompt" } });
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "new.png", { type: "image/png" })]);
+    resolve(true);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Preview new.png" })).toBeTruthy());
+    expect(draft.value).toBe("new prompt");
+    expect(screen.queryByRole("button", { name: "Preview sent.png" })).toBeNull();
+  });
+
+  it("does not bypass attachment limits while restoring a rejected submission", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    let resolve!: (accepted: boolean) => void;
+    const onSubmit = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
+    renderComposer(onSubmit, attachmentRef);
+    await attachmentRef.current?.addFiles([
+      new File([new Uint8Array([1])], "one.png", { type: "image/png" }),
+      new File([new Uint8Array([1])], "two.png", { type: "image/png" }),
+      new File([new Uint8Array([1])], "three.png", { type: "image/png" }),
+      new File([new Uint8Array([1])], "four.png", { type: "image/png" }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    await attachmentRef.current?.addFiles([
+      new File([new Uint8Array([1])], "five.png", { type: "image/png" }),
+      new File([new Uint8Array([1])], "six.png", { type: "image/png" }),
+    ]);
+    resolve(false);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview/u })).toHaveLength(4));
+    expect(screen.queryByRole("button", { name: "Preview five.png" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview six.png" })).toBeNull();
   });
 });

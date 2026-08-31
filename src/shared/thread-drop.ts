@@ -5,18 +5,18 @@ import {
   SUPPORTED_IMAGE_TYPES_LABEL,
 } from "./prompt-attachment-limits.js";
 
-export type ChatDropState = "idle" | "valid" | "mixed" | "unsupported" | "unavailable";
+export type ThreadDropState = "idle" | "valid" | "mixed" | "unsupported" | "unavailable";
 
-export interface ChatDropFeedback {
+export interface ThreadDropFeedback {
   title: string;
   description: string;
   dropEffect: "copy" | "none";
 }
 
-export const CHAT_DROP_FEEDBACK: Readonly<Record<ChatDropState, ChatDropFeedback>> = {
+export const THREAD_DROP_FEEDBACK: Readonly<Record<ThreadDropState, ThreadDropFeedback>> = {
   idle: { title: "", description: "", dropEffect: "none" },
   valid: {
-    title: "Drop images anywhere in chat",
+    title: "Drop images anywhere in the thread",
     description: `${SUPPORTED_IMAGE_TYPES_LABEL} · up to ${MAX_ATTACHMENTS} images · ${MAX_IMAGE_BYTES / 1024 / 1024} MB each`,
     dropEffect: "copy",
   },
@@ -37,17 +37,17 @@ export const CHAT_DROP_FEEDBACK: Readonly<Record<ChatDropState, ChatDropFeedback
   },
 };
 
-export interface ChatDropItem {
+export interface ThreadDropItem {
   kind: string;
   mimeType: string;
 }
 
 /** Classify only file drag items; string items must not make a file drag invalid. */
-export function classifyChatDrop(
+export function classifyThreadDrop(
   hasFilesSignal: boolean,
-  items: readonly ChatDropItem[],
+  items: readonly ThreadDropItem[],
   supportsImageInput: boolean,
-): ChatDropState {
+): ThreadDropState {
   if (!hasFilesSignal) return "idle";
   if (!supportsImageInput) return "unavailable";
   const fileItems = items.filter((item) => item.kind === "file");

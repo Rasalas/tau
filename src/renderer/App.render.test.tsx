@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent } from "../shared/contracts";
@@ -109,7 +109,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -131,7 +131,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -157,7 +157,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Build the first screen", [], "session"));
     expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
-    expect(screen.getByText("Build the first screen")).toBeTruthy();
+    expect(screen.getAllByText("Build the first screen").find((element) => element.tagName === "DIV")).toBeTruthy();
   });
 
   it("shows a whole-column drop target and clears it on leave and drop", async () => {
@@ -166,7 +166,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -209,6 +209,17 @@ describe("App render isolation", () => {
     expect(screen.queryByRole("status")).toBeNull();
     expect(await screen.findByRole("button", { name: "Preview dropped.png" })).toBeTruthy();
     expect(draft.value).toBe("keep this draft");
+
+    const linkEvent = createEvent.drop(column, {
+      dataTransfer: {
+        types: ["text/uri-list"],
+        items: [{ kind: "string", type: "text/uri-list" }],
+        files: [],
+        dropEffect: "none",
+      },
+    });
+    fireEvent(column, linkEvent);
+    expect(linkEvent.defaultPrevented).toBe(false);
   });
 
   it("updates the drop target when the active runtime changes image capability", async () => {
@@ -218,7 +229,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: (handler: (event: HostEvent) => void) => { emit = handler; return () => {}; },
@@ -239,6 +250,19 @@ describe("App render isolation", () => {
         version: 1,
         type: "catalog",
         catalog: {
+          sessionId: "stale-thread", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard",
+          serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: false,
+        },
+      },
+    });
+    expect(attach.hasAttribute("disabled")).toBe(false);
+    emit?.({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "catalog",
+        catalog: {
+          sessionId: "session",
           models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard",
           serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: false,
         },
@@ -269,7 +293,7 @@ describe("App render isolation", () => {
           { path: "/other", name: "other", lastOpenedAt: 1 },
         ], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -303,7 +327,7 @@ describe("App render isolation", () => {
     });
     fireEvent.keyDown(restored, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalledWith("persistent draft", [], "/other"));
-    expect(screen.getByText("persistent draft")).toBeTruthy();
+    expect(screen.getAllByText("persistent draft").find((element) => element.tagName === "DIV")).toBeTruthy();
   });
 
   it("shows the start screen for a new thread even when the previous thread has activity", async () => {
@@ -323,7 +347,7 @@ describe("App render isolation", () => {
             tools: [{ id: "tool", name: "read", args: {}, status: "done" as const, startedAt: 1, endedAt: 2 }],
           },
         },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: () => () => {},
@@ -388,6 +412,7 @@ describe("App render isolation", () => {
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
         catalog: {
+          sessionId: "session",
           models: [{ provider: "provider", id: "model", name: "Model" }],
           model: { provider: "provider", id: "model", name: "Model" },
           thinkingLevel: "off",
@@ -440,7 +465,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "main-thread", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "main-thread", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd, branch: "main" },
       }),
       onHostEvent: () => () => {},
@@ -521,7 +546,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd },
       }),
       onHostEvent: () => () => {},

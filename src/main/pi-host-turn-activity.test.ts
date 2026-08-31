@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { cleanThreadTitle, lastTurnActivityFromMessages, PiHost } from "./pi-host.js";
+import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost } from "./pi-host.js";
 
 describe("cleanThreadTitle", () => {
   it("removes Markdown and title-model framing", () => {
     expect(cleanThreadTitle("## **Thread title: `Persist Turn Activity`**\nExtra explanation")).toBe("Persist Turn Activity");
     expect(cleanThreadTitle("Titel: [Sidebar-Namen](https://example.test)."))
       .toBe("Sidebar-Namen");
+  });
+});
+
+describe("modelSupportsImageInput", () => {
+  it("follows the active model input declaration", () => {
+    expect(modelSupportsImageInput({ input: ["text", "image"] })).toBe(true);
+    expect(modelSupportsImageInput({ input: ["text"] })).toBe(false);
+    expect(modelSupportsImageInput(undefined)).toBe(false);
   });
 });
 

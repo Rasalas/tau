@@ -338,6 +338,7 @@ export interface HostBootstrap {
     olderCursor?: string;
   };
   catalog: {
+    sessionId: string;
     models: UiModel[];
     model?: UiModel;
     thinkingLevel: string;

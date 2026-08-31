@@ -14,7 +14,7 @@ import {
   MAX_ATTACHMENTS,
   selectAttachmentCandidates,
 } from "../../shared/prompt-attachment-limits";
-import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/chat-drop";
+import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -67,11 +67,6 @@ export function normalizeSkillInvocation(text: string, commands: readonly UiComp
 
 function readImage(file: File): Promise<PendingAttachment> {
   return new Promise((resolve, reject) => {
-    const policyRejection = selectAttachmentCandidates([{ item: file, name: file.name, mimeType: file.type, size: file.size }]).rejected[0];
-    if (policyRejection) {
-      reject(new Error(attachmentPolicyMessage(policyRejection)));
-      return;
-    }
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`${file.name} could not be read.`));
     reader.onload = () => {
@@ -162,20 +157,27 @@ export function Composer({
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const [draft, setDraft] = useState(() => readComposerDraft(window.localStorage, draftStorageKey));
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const attachmentsRef = useRef<PendingAttachment[]>([]);
+  const attachmentScope = draftStorageKey ?? "__default__";
+  const attachmentScopesRef = useRef(new Map<string, PendingAttachment[]>());
+  const attachmentErrorsRef = useRef(new Map<string, string | undefined>());
+  const attachmentQueuesRef = useRef(new Map<string, Promise<void>>());
+  const activeAttachmentScopeRef = useRef(attachmentScope);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>(() => {
+    const initial = attachmentScopesRef.current.get(attachmentScope) ?? [];
+    attachmentScopesRef.current.set(attachmentScope, initial);
+    return initial;
+  });
+  const attachmentsRef = useRef<PendingAttachment[]>(attachments);
   const [attachmentError, setAttachmentError] = useState<string>();
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
+  const draftRevisionsRef = useRef(new Map<string, number>([[attachmentScope, 0]]));
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const attachmentQueueRef = useRef(Promise.resolve());
   const preserveDraftForWorkspaceRef = useRef(false);
   if (workspaceBusy) preserveDraftForWorkspaceRef.current = true;
   const text = value ?? draft;
-  const textRef = useRef(text);
-  textRef.current = text;
   const commands = snapshot?.composerCommands ?? [];
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
   const commandMatches = useMemo(() => {
@@ -205,6 +207,7 @@ export function Composer({
     }
   }, [seed, value]);
   const updateDraft = (next: string) => {
+    draftRevisionsRef.current.set(attachmentScope, (draftRevisionsRef.current.get(attachmentScope) ?? 0) + 1);
     if (value === undefined) {
       setDraft(next);
       writeComposerDraft(window.localStorage, draftStorageKey, next);
@@ -219,14 +222,32 @@ export function Composer({
   const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
-  const processFiles = useCallback(async (files: FileList | readonly File[]) => {
+  useEffect(() => {
+    const previousScope = activeAttachmentScopeRef.current;
+    if (previousScope === attachmentScope) return;
+    attachmentScopesRef.current.set(previousScope, attachmentsRef.current);
+    attachmentErrorsRef.current.set(previousScope, attachmentError);
+    activeAttachmentScopeRef.current = attachmentScope;
+    const next = attachmentScopesRef.current.get(attachmentScope) ?? [];
+    attachmentsRef.current = next;
+    setAttachments(next);
+    setAttachmentError(attachmentErrorsRef.current.get(attachmentScope));
+    setPreviewId(undefined);
+  }, [attachmentError, attachmentScope]);
+
+  const processFiles = useCallback(async (
+    files: FileList | readonly File[],
+    scope: string,
+    capability: boolean,
+  ) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
-    if (!supportsImageInput) {
-      setAttachmentError(IMAGE_INPUT_UNAVAILABLE_MESSAGE);
+    if (!capability) {
+      attachmentErrorsRef.current.set(scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE);
+      if (activeAttachmentScopeRef.current === scope) setAttachmentError(IMAGE_INPUT_UNAVAILABLE_MESSAGE);
       return;
     }
-    const current = attachmentsRef.current;
+    const current = attachmentScopesRef.current.get(scope) ?? [];
     const policy = selectAttachmentCandidates(
       incoming.map((file) => ({ item: file, name: file.name, mimeType: file.type, size: file.size })),
       current,
@@ -236,20 +257,29 @@ export function Composer({
     const results = await Promise.allSettled(validCandidates.map(readImage));
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    setAttachmentError(firstError ?? (rejection ? rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason) : undefined));
+    const error = firstError ?? (rejection ? rejection.reason instanceof Error ? rejection.reason.message : String(rejection.reason) : undefined);
+    attachmentErrorsRef.current.set(scope, error);
+    if (activeAttachmentScopeRef.current === scope) setAttachmentError(error);
     if (accepted.length > 0) {
-      attachmentsRef.current = [...attachmentsRef.current, ...accepted].slice(0, MAX_ATTACHMENTS);
-      setAttachments((latest) => [...latest, ...accepted].slice(0, MAX_ATTACHMENTS));
+      const latest = attachmentScopesRef.current.get(scope) ?? [];
+      const next = [...latest, ...accepted].slice(0, MAX_ATTACHMENTS);
+      attachmentScopesRef.current.set(scope, next);
+      if (activeAttachmentScopeRef.current === scope) {
+        attachmentsRef.current = next;
+        setAttachments(next);
+      }
     }
-  }, [supportsImageInput]);
+  }, []);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
     const snapshot = Array.from(files);
-    const operation = attachmentQueueRef.current.then(() => processFiles(snapshot));
-    attachmentQueueRef.current = operation.then(() => undefined, () => undefined);
+    const scope = attachmentScope;
+    const previous = attachmentQueuesRef.current.get(scope) ?? Promise.resolve();
+    const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput));
+    attachmentQueuesRef.current.set(scope, operation.then(() => undefined, () => undefined));
     return operation;
-  }, [processFiles]);
+  }, [attachmentScope, processFiles, supportsImageInput]);
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
 
   // An editor prompt arrives with text to edit; seed the field once.
@@ -272,35 +302,30 @@ export function Composer({
     if (!text.trim() && attachments.length === 0) return;
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     const submittedText = normalizeSkillInvocation(text, commands);
+    const submittedScope = attachmentScope;
     const previousAttachments = attachments;
+    const submittedAttachmentIds = new Set(previousAttachments.map((attachment) => attachment.id));
+    const submittedRevision = draftRevisionsRef.current.get(submittedScope) ?? 0;
     const clearSubmitted = () => {
-      updateDraft("");
-      setAttachments([]);
-      attachmentsRef.current = [];
-      setAttachmentError(undefined);
-      setPreviewId(undefined);
-    };
-    const restoreSubmitted = (error?: unknown) => {
-      if (textRef.current.trim().length === 0) updateDraft(text);
-      const currentAttachments = attachmentsRef.current;
-      const submittedIds = new Set(previousAttachments.map((attachment) => attachment.id));
-      const restoredAttachments = [
-        ...previousAttachments,
-        ...currentAttachments.filter((attachment) => !submittedIds.has(attachment.id)),
-      ];
-      attachmentsRef.current = restoredAttachments;
-      setAttachments(restoredAttachments);
-      setAttachmentError(error === undefined ? undefined : error instanceof Error ? error.message : String(error));
+      const current = attachmentScopesRef.current.get(submittedScope) ?? [];
+      const next = current.filter((attachment) => !submittedAttachmentIds.has(attachment.id));
+      attachmentScopesRef.current.set(submittedScope, next);
+      if (activeAttachmentScopeRef.current === submittedScope) {
+        attachmentsRef.current = next;
+        setAttachments(next);
+        setAttachmentError(undefined);
+        setPreviewId(undefined);
+      }
+      if ((draftRevisionsRef.current.get(submittedScope) ?? 0) === submittedRevision) updateDraft("");
     };
     const result = delivery ? onSubmit(submittedText, submittedAttachments, delivery) : onSubmit(submittedText, submittedAttachments);
     if (result && typeof (result as Promise<unknown>).then === "function") {
-      // Clear optimistically so a successful send behaves synchronously in the
-      // UI, but retain a complete snapshot for transport failures.
-      clearSubmitted();
       void Promise.resolve(result).then((accepted) => {
-        if (accepted === false) restoreSubmitted();
+        if (accepted !== false) clearSubmitted();
       }).catch((error) => {
-        restoreSubmitted(error);
+        const message = error instanceof Error ? error.message : String(error);
+        attachmentErrorsRef.current.set(submittedScope, message);
+        if (activeAttachmentScopeRef.current === submittedScope) setAttachmentError(message);
       });
     } else if (result !== false) {
       clearSubmitted();
@@ -358,6 +383,7 @@ export function Composer({
                   aria-label={`Remove ${attachment.name}`}
                   onClick={() => setAttachments((current) => {
                     const next = current.filter((item) => item.id !== attachment.id);
+                    attachmentScopesRef.current.set(attachmentScope, next);
                     attachmentsRef.current = next;
                     return next;
                   })}

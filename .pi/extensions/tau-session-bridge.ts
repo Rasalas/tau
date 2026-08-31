@@ -19,6 +19,9 @@ import {
 
 interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
 
+/** The Pi TUI bridge deliberately rejects image prompt payloads. */
+export const PI_BRIDGE_SUPPORTS_IMAGE_INPUT = false as const;
+
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
     if (typeof item !== "string") return item;
@@ -88,6 +91,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
       activeTools: pi.getActiveTools(),
       allTools: pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+      supportsImageInput: PI_BRIDGE_SUPPORTS_IMAGE_INPUT,
       composerCommands: pi.getCommands()
         .filter((command) => !command.name.startsWith("tau-bridge-"))
         .map((command) => ({
