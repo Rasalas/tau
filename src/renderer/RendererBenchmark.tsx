@@ -63,7 +63,6 @@ function makeTranscript(turns: number): UiMessage[] {
 
 function makeDiff(targetBytes: number): UiFileDiff {
   const lines: UiFileDiff["hunks"][number]["lines"] = [];
-  const encoder = new TextEncoder();
   const payload = () => ({
     path: "benchmark.ts",
     added: lines.filter((line) => line.kind === "added").length,
@@ -72,16 +71,15 @@ function makeDiff(targetBytes: number): UiFileDiff {
     truncated: true,
     nextHunkOffset: 1,
   });
-  let bytes = 0;
-  while (bytes < targetBytes) {
-    const index = lines.length;
+  const lineBytes = Math.max(180, Math.ceil(targetBytes / 1_000));
+  for (let index = 0; index < 1_000; index += 1) {
+    const text = `benchmark diff line ${index} ${"x".repeat(lineBytes)}`;
     lines.push({
       kind: index % 3 === 0 ? "added" : index % 3 === 1 ? "removed" : "context",
       oldLine: index % 3 === 0 ? undefined : index + 1,
       newLine: index % 3 === 1 ? undefined : index + 1,
-      text: `benchmark diff line ${index} ${"x".repeat(180)}`,
+      text,
     });
-    if (index % 256 === 0) bytes = encoder.encode(JSON.stringify(payload())).byteLength;
   }
   return payload();
 }
