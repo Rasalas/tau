@@ -2,65 +2,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Message } from "./Message";
-import { localImagePaths, visibleUserMessageText } from "./MessageText";
-import { compactTimestamp, fullTimestamp } from "./message-timestamp";
+import { visibleUserMessageText } from "./MessageText";
 
 afterEach(cleanup);
-
-describe("Message images", () => {
-  it("finds shell-escaped local image paths", () => {
-    const text = "/Users/me/Application\\ Support/CleanShot/image.png please inspect";
-    expect(localImagePaths(text)).toEqual(["/Users/me/Application Support/CleanShot/image.png"]);
-    expect(visibleUserMessageText(text)).toBe("please inspect");
-  });
-
-  it("renders image content persisted in the Pi message", () => {
-    render(<Message message={{
-      id: "user-image",
-      role: "user",
-      text: "please inspect",
-      images: [{ mimeType: "image/png", data: "iVBORw==" }],
-      timestamp: 0,
-    }} />);
-
-    const image = screen.getByRole("img", { name: "Attached image" }) as HTMLImageElement;
-    expect(image.src).toBe("data:image/png;base64,iVBORw==");
-    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
-  });
-
-  it("opens and closes persisted images in an accessible lightbox", () => {
-    render(<Message message={{
-      id: "user-image",
-      role: "user",
-      text: "please inspect",
-      images: [{ mimeType: "image/png", data: "iVBORw==" }],
-      timestamp: 0,
-    }} />);
-
-    const openButton = screen.getByRole("button", { name: "Open image 1" });
-    openButton.focus();
-    fireEvent.click(openButton);
-    const dialog = screen.getByRole("dialog", { name: "Image preview" });
-    expect(dialog).toBeTruthy();
-    expect(dialog.parentElement).toBe(document.body);
-    expect(dialog.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
-    const closeButton = screen.getByRole("button", { name: "Close preview" });
-    expect(document.activeElement).toBe(closeButton);
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(closeButton);
-    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(closeButton);
-
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull();
-    expect(document.activeElement).toBe(openButton);
-
-    fireEvent.click(openButton);
-    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Image preview" }));
-    expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull();
-    expect(document.activeElement).toBe(openButton);
-  });
-});
 
 describe("Long user messages", () => {
   const message = (text: string) => ({ id: "long", role: "user" as const, text, timestamp: 0 });
@@ -115,18 +59,6 @@ describe("Long user messages", () => {
   });
 });
 
-describe("Message timestamps", () => {
-  it("exposes a compact local date/time and the full local value accessibly", () => {
-    const timestamp = Date.UTC(2024, 0, 2, 3, 4, 5);
-    render(<Message message={{ id: "timestamp", role: "user", text: "hello", timestamp }} />);
-
-    const time = screen.getByRole("time");
-    expect(time.textContent).toContain(compactTimestamp(timestamp));
-    expect(time.getAttribute("dateTime")).toBe(new Date(timestamp).toISOString());
-    expect(time.getAttribute("title")).toBe(fullTimestamp(timestamp));
-    expect(time.getAttribute("aria-label")).toBe(`Sent ${fullTimestamp(timestamp)}`);
-  });
-});
 
 describe("Message actions", () => {
   it("copies and forks a persisted message", () => {

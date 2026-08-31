@@ -125,6 +125,17 @@ describe("performance report checks", () => {
     expect(failures).toHaveLength(4);
   });
 
+  it("keeps documented renderer budgets aligned with the release gate", async () => {
+    const [budgetText, documentation] = await Promise.all([
+      readFile(new URL("./performance-budgets.json", import.meta.url), "utf8"),
+      readFile(new URL("../docs/PERFORMANCE.md", import.meta.url), "utf8"),
+    ]);
+    const budgets = JSON.parse(budgetText);
+    expect(documentation).toContain(`${budgets.rendererCommitP95Ms} ms commit-p95`);
+    expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms long-task`);
+    expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
+  });
+
   it("supports explicit scenario budgets for one-time transcript mounting", () => {
     const report = { scenarios: [{
       id: "transcript-1000-turns",
