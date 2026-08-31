@@ -137,6 +137,7 @@ describe("performance report checks", () => {
     expect(documentation).toContain(`${budgets.rendererMountP95Ms} ms mount p95`);
     expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms`);
     expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
+    expect(budgets.rendererScenarioBudgets["transcript-1000-turns"].mountP95Ms).toBe(40);
   });
 
   it("keeps the documented renderer table generated from the checked-in report", async () => {
