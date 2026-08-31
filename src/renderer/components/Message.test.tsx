@@ -35,12 +35,23 @@ describe("Message images", () => {
       timestamp: 0,
     }} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open image 1" }));
-    expect(screen.getByRole("dialog", { name: "Image preview" })).toBeTruthy();
-    expect(screen.getByRole("dialog").querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
+    const openButton = screen.getByRole("button", { name: "Open image 1" });
+    openButton.focus();
+    fireEvent.click(openButton);
+    const dialog = screen.getByRole("dialog", { name: "Image preview" });
+    expect(dialog).toBeTruthy();
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close preview" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull();
+    expect(document.activeElement).toBe(openButton);
+
+    fireEvent.click(openButton);
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Image preview" }));
+    expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull();
+    expect(document.activeElement).toBe(openButton);
   });
 });
 
@@ -56,6 +67,10 @@ describe("Long user messages", () => {
     expect(isLongMessage("😀".repeat(301))).toBe(false);
     expect(isLongMessage("😀".repeat(600))).toBe(false);
     expect(isLongMessage("😀".repeat(600) + "a")).toBe(true);
+    expect(isLongMessage("e\u0301".repeat(600))).toBe(false);
+    expect(isLongMessage("e\u0301".repeat(600) + "e\u0301")).toBe(true);
+    expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600))).toBe(false);
+    expect(isLongMessage("👨‍👩‍👧‍👦".repeat(600) + "👨‍👩‍👧‍👦")).toBe(true);
   });
 
   it("starts long messages collapsed and toggles the complete content", () => {

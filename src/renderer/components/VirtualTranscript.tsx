@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { Message } from "./Message";
 
@@ -16,11 +16,19 @@ export interface VirtualTranscriptProps {
 
 interface ViewportPosition {
   container: HTMLElement;
+  scrollTop: number;
   anchor?: HTMLElement;
   anchorTop?: number;
   tracked: HTMLElement;
   trackedHeight: number;
   trackedTop: number;
+}
+
+interface PendingToggle {
+  token: number;
+  messageId: string;
+  row: HTMLElement;
+  position: ViewportPosition;
 }
 
 function captureViewportPosition(container: HTMLElement, messageIndex: number): ViewportPosition | undefined {
@@ -37,6 +45,7 @@ function captureViewportPosition(container: HTMLElement, messageIndex: number): 
   const anchorRect = anchor?.getBoundingClientRect();
   return {
     container,
+    scrollTop: container.scrollTop,
     anchor,
     anchorTop: anchorRect?.top,
     tracked,
@@ -90,18 +99,39 @@ export function VirtualTranscript({
     ? pendingActivities.filter((entry) => entry.id === "turn-activity")
     : [];
 
-  const pendingPosition = useRef<ViewportPosition | undefined>(undefined);
-  const restoreFrames = useRef<[number, number] | undefined>(undefined);
+  const [expandedMessageIds, setExpandedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+  const messageIndexes = useRef(new Map<string, number>());
+  messageIndexes.current = new Map(messages.map((message, index) => [message.id, index]));
+  const scrollRefValue = useRef(scrollRef);
+  scrollRefValue.current = scrollRef;
+  const nextToggleToken = useRef(0);
+  const pendingToggle = useRef<PendingToggle | undefined>(undefined);
+  const targetObserver = useRef<ResizeObserver | undefined>(undefined);
+  const restoreFrames = useRef<[number, number?] | undefined>(undefined);
 
-  const queueViewportRestore = () => {
-    if (!pendingPosition.current || restoreFrames.current) return;
+  const cancelRestore = () => {
+    if (!restoreFrames.current) return;
+    window.cancelAnimationFrame(restoreFrames.current[0]);
+    if (restoreFrames.current[1] !== undefined) window.cancelAnimationFrame(restoreFrames.current[1]);
+    restoreFrames.current = undefined;
+  };
+
+  const clearPendingToggle = (token: number) => {
+    if (pendingToggle.current?.token !== token) return;
+    targetObserver.current?.disconnect();
+    targetObserver.current = undefined;
+    pendingToggle.current = undefined;
+  };
+
+  const queueViewportRestore = (toggle: PendingToggle) => {
+    if (pendingToggle.current?.token !== toggle.token || restoreFrames.current) return;
     let first = 0;
     first = window.requestAnimationFrame(() => {
       const second = window.requestAnimationFrame(() => {
         restoreFrames.current = undefined;
-        const position = pendingPosition.current;
-        pendingPosition.current = undefined;
-        if (position) restoreViewportPosition(position);
+        if (pendingToggle.current?.token !== toggle.token) return;
+        clearPendingToggle(toggle.token);
+        restoreViewportPosition(toggle.position);
       });
       restoreFrames.current = [first, second];
     });
@@ -109,18 +139,32 @@ export function VirtualTranscript({
   };
 
   useEffect(() => () => {
-    if (!restoreFrames.current) return;
-    window.cancelAnimationFrame(restoreFrames.current[0]);
-    if (restoreFrames.current[1]) window.cancelAnimationFrame(restoreFrames.current[1]);
+    cancelRestore();
+    targetObserver.current?.disconnect();
   }, []);
 
-  const onMessageToggleExpanded = useCallback((messageId: string) => {
-    const container = scrollRef.current;
-    if (!container) return;
-    const messageIndex = messages.findIndex((message) => message.id === messageId);
-    if (messageIndex < 0) return;
-    pendingPosition.current = captureViewportPosition(container, messageIndex);
-  }, [messages, scrollRef]);
+  const onMessageToggleExpanded = useCallback((messageId: string, expanded: boolean) => {
+    const token = ++nextToggleToken.current;
+    const container = scrollRefValue.current.current;
+    cancelRestore();
+    targetObserver.current?.disconnect();
+    targetObserver.current = undefined;
+    const messageIndex = messageIndexes.current.get(messageId);
+    const capturedPosition = container && messageIndex !== undefined
+      ? captureViewportPosition(container, messageIndex)
+      : undefined;
+    const previous = pendingToggle.current;
+    const position = capturedPosition && previous?.messageId === messageId && previous.position.container === container && previous.position.scrollTop === container.scrollTop
+      ? previous.position
+      : capturedPosition;
+    pendingToggle.current = position ? { token, messageId, row: position.tracked, position } : undefined;
+    setExpandedMessageIds((current) => {
+      const next = new Set(current);
+      if (expanded) next.add(messageId);
+      else next.delete(messageId);
+      return next;
+    });
+  }, []);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -130,14 +174,43 @@ export function VirtualTranscript({
     initialRect: { width: 780, height: 600 },
     overscan: 6,
     useAnimationFrameWithResizeObserver: true,
-    onChange: (_instance, sync) => {
-      // resizeItem() notifies with sync=false after ResizeObserver has measured
-      // the changed row. The queued frames then run after React applies the new
-      // virtual row offsets, unlike a timer started by Message itself.
-      if (!sync) queueViewportRestore();
-    },
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+
+  useLayoutEffect(() => {
+    const toggle = pendingToggle.current;
+    if (!toggle || !toggle.row.isConnected) {
+      if (toggle) clearPendingToggle(toggle.token);
+      return;
+    }
+
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === toggle.row);
+      if (!entry || pendingToggle.current?.token !== toggle.token) return;
+      const box = entry.borderBoxSize[0];
+      const measuredHeight = box?.blockSize ?? toggle.row.offsetHeight;
+      if (measuredHeight === toggle.position.trackedHeight) {
+        clearPendingToggle(toggle.token);
+      } else {
+        queueViewportRestore(toggle);
+      }
+    });
+
+    targetObserver.current?.disconnect();
+    targetObserver.current = observer;
+    if (observer) {
+      observer.observe(toggle.row, { box: "border-box" });
+    } else {
+      virtualizer.measureElement(toggle.row);
+      if (toggle.row.offsetHeight === toggle.position.trackedHeight) clearPendingToggle(toggle.token);
+      else queueViewportRestore(toggle);
+    }
+
+    return () => {
+      observer?.disconnect();
+      if (targetObserver.current === observer) targetObserver.current = undefined;
+    };
+  }, [expandedMessageIds, virtualizer]);
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0
@@ -176,6 +249,7 @@ export function VirtualTranscript({
           onCopy={onCopyMessage}
           onFork={onForkMessage}
           onToggleExpanded={onMessageToggleExpanded}
+          expanded={expandedMessageIds.has(message.id)}
         />
         {anchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
       </div>;

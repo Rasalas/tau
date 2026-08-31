@@ -1,13 +1,68 @@
 import { Bot, ChevronRight, Copy, GitFork, X } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { memo, useEffect, useRef, useState } from "react";
 import type { UiImagePreview, UiMessage, UiMessageImage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
 
 export const LONG_MESSAGE_LINE_LIMIT = 8;
-export const LONG_MESSAGE_CHARACTER_LIMIT = 600;
+export const LONG_MESSAGE_GRAPHEME_LIMIT = 600;
+
+const MARK = /\p{Mark}/u;
+
+function fallbackGraphemeCount(text: string, limit: number): number {
+  let count = 0;
+  let joined = false;
+  let regionalIndicators = 0;
+  for (const character of text) {
+    const codePoint = character.codePointAt(0)!;
+    if (character === "\u200d") {
+      joined = true;
+      continue;
+    }
+    if (MARK.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff)) continue;
+    if (joined) {
+      joined = false;
+      continue;
+    }
+    if (codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff) {
+      regionalIndicators += 1;
+      if (regionalIndicators % 2 === 1) count += 1;
+    } else {
+      regionalIndicators = 0;
+      count += 1;
+    }
+    if (count > limit) return count;
+  }
+  return count;
+}
+
+function visibleCharacterCount(text: string, limit: number): number {
+  const Segmenter = typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? (Intl as typeof Intl & {
+      Segmenter: new (locales?: string | string[], options?: { granularity: "grapheme" }) => { segment(value: string): Iterable<unknown> };
+    }).Segmenter
+    : undefined;
+  if (Segmenter) {
+    let count = 0;
+    for (const _segment of new Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
+      count += 1;
+      if (count > limit) return count;
+    }
+    return count;
+  }
+
+  return fallbackGraphemeCount(text, limit);
+}
 
 export function isLongMessage(text: string): boolean {
-  return text.split(/\r?\n/u).length > LONG_MESSAGE_LINE_LIMIT || [...text].length > LONG_MESSAGE_CHARACTER_LIMIT;
+  let lines = 1;
+  for (const character of text) {
+    if (character === "\n") {
+      lines += 1;
+      if (lines > LONG_MESSAGE_LINE_LIMIT) return true;
+    }
+  }
+  return visibleCharacterCount(text, LONG_MESSAGE_GRAPHEME_LIMIT) > LONG_MESSAGE_GRAPHEME_LIMIT;
 }
 
 export function compactTimestamp(timestamp: number): string {
@@ -60,8 +115,13 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
 const LOCAL_IMAGE_PATH = /(\/(?:(?:\\ )|[^\s'"<>])+?\.(?:png|jpe?g|gif|webp))(?=\s|$|[),;])/giu;
 
 export function localImagePaths(text: string): string[] {
-  const matches = text.matchAll(LOCAL_IMAGE_PATH);
-  return [...new Set([...matches].map((match) => match[1].replaceAll("\\ ", " ")))].slice(0, 4);
+  const paths: string[] = [];
+  for (const match of text.matchAll(LOCAL_IMAGE_PATH)) {
+    const path = match[1].replaceAll("\\ ", " ");
+    if (!paths.includes(path)) paths.push(path);
+    if (paths.length === 4) break;
+  }
+  return paths;
 }
 
 export function withoutLocalImagePaths(text: string): string {
@@ -91,15 +151,23 @@ interface MessageImage {
 function MessageImageGallery({ images }: { images: readonly MessageImage[] }) {
   const [previewIndex, setPreviewIndex] = useState<number>();
   const preview = previewIndex === undefined ? undefined : images[previewIndex];
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!preview) return;
+    previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setPreviewIndex(undefined);
     };
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [preview]);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      previouslyFocused.current?.focus();
+      previouslyFocused.current = null;
+    };
+  }, [previewIndex]);
 
   if (images.length === 0) return null;
   return <>
@@ -116,7 +184,7 @@ function MessageImageGallery({ images }: { images: readonly MessageImage[] }) {
         </button>
       ))}
     </div>
-    {preview ? (
+    {preview ? createPortal(
       <div
         className="attachment-lightbox"
         role="dialog"
@@ -126,10 +194,11 @@ function MessageImageGallery({ images }: { images: readonly MessageImage[] }) {
         onClick={(event) => { if (event.target === event.currentTarget) setPreviewIndex(undefined); }}
       >
         <figure onClick={(event) => event.stopPropagation()}>
-          <button type="button" aria-label="Close preview" onClick={() => setPreviewIndex(undefined)}><X size={18} /></button>
+          <button ref={closeButtonRef} type="button" aria-label="Close preview" onClick={() => setPreviewIndex(undefined)}><X size={18} /></button>
           <img src={preview.src} alt={preview.alt} />
         </figure>
-      </div>
+      </div>,
+      document.body,
     ) : null}
   </>;
 }
@@ -172,22 +241,26 @@ function UserMessage({
   onCopy,
   onFork,
   onToggleExpanded,
+  expanded: controlledExpanded,
 }: {
   message: UiMessage;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
-  onToggleExpanded?: (messageId: string) => void;
+  onToggleExpanded?: (messageId: string, expanded: boolean) => void;
+  expanded?: boolean;
 }) {
   const visibleText = withoutLocalImagePaths(message.text);
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
   const long = isLongMessage(visibleText);
-  const [expanded, setExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const expanded = controlledExpanded ?? localExpanded;
   const contentId = `message-content-${message.id}`;
 
   const toggleExpanded = () => {
-    onToggleExpanded?.(message.id);
-    setExpanded((value) => !value);
+    const nextExpanded = !expanded;
+    onToggleExpanded?.(message.id, nextExpanded);
+    if (controlledExpanded === undefined) setLocalExpanded(nextExpanded);
   };
 
   return (
@@ -239,12 +312,14 @@ export const Message = memo(function Message({
   onCopy,
   onFork,
   onToggleExpanded,
+  expanded,
 }: {
   message: UiMessage;
   streaming?: boolean;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
-  onToggleExpanded?: (messageId: string) => void;
+  onToggleExpanded?: (messageId: string, expanded: boolean) => void;
+  expanded?: boolean;
 }) {
   const activity = parseAsyncActivity(message.text);
 
@@ -252,7 +327,7 @@ export const Message = memo(function Message({
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
-    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onToggleExpanded={onToggleExpanded} />;
+    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
   }
 
   if (!message.text) return null;

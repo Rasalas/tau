@@ -129,6 +129,7 @@ describe("virtual transcript", () => {
     const previousClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
     const previousOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
     const previousOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    let naturalHeightSame = false;
     Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 780 });
     Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
     Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 780 });
@@ -138,6 +139,7 @@ describe("virtual transcript", () => {
         const node = this as unknown as HTMLElement;
         if (!node.classList.contains("virtual-transcript-row")) return 600;
         const content = node.querySelector<HTMLElement>(".message-text-content");
+        if (naturalHeightSame) return 300;
         return content?.classList.contains("collapsed") ? 300 : 500;
       },
     });
@@ -156,27 +158,65 @@ describe("virtual transcript", () => {
       const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
       const content = rows[0].querySelector<HTMLElement>(".message-text-content")!;
       container.getBoundingClientRect = () => ({ top: 0, bottom: 600, height: 600, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
-      rows[0].getBoundingClientRect = () => ({ top: -200, bottom: content.classList.contains("collapsed") ? 100 : 300, height: content.classList.contains("collapsed") ? 300 : 500, left: 0, right: 780, width: 780, x: 0, y: -200, toJSON: () => ({}) });
-      rows[1].getBoundingClientRect = () => ({ top: content.classList.contains("collapsed") ? 300 : 500, bottom: 340, height: 40, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
+      rows[0].getBoundingClientRect = () => {
+        const height = naturalHeightSame ? 300 : content.classList.contains("collapsed") ? 300 : 500;
+        return { top: -200, bottom: -200 + height, height, left: 0, right: 780, width: 780, x: 0, y: -200, toJSON: () => ({}) };
+      };
+      rows[1].getBoundingClientRect = () => ({ top: naturalHeightSame ? 300 : content.classList.contains("collapsed") ? 300 : 500, bottom: 340, height: 40, left: 0, right: 780, width: 780, x: 0, y: 0, toJSON: () => ({}) });
 
+      const observersBeforeExpand = DelayedResizeObserver.instances.length;
       fireEvent.click(screen.getByRole("button", { name: "Show more" }));
-      const observer = DelayedResizeObserver.instances.find((instance) => instance.targets.has(rows[0]));
-      expect(observer).toBeTruthy();
-      observer!.trigger(rows[0], 500);
+      const expandObservers = DelayedResizeObserver.instances.slice(observersBeforeExpand).filter((instance) => instance.targets.has(rows[0]));
+      expect(expandObservers).toHaveLength(1);
+      const unrelatedObservers = DelayedResizeObserver.instances.filter((instance) => instance.targets.has(rows[1]));
+      unrelatedObservers.forEach((observer) => observer.trigger(rows[1], 40));
+      expect(container.scrollTop).toBe(scrollTop);
+      expandObservers.forEach((observer) => observer.trigger(rows[0], 500));
+      // A scroll-end notification must not consume the pending target toggle.
+      container.dispatchEvent(new Event("scroll"));
       expect(container.scrollTop).toBe(scrollTop);
 
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       expect(container.scrollTop).toBe(scrollTop);
-      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      expect(container.scrollTop).toBe(scrollTop);
+
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       expect(container.scrollTop).toBe(440);
 
+      const observersBeforeCollapse = DelayedResizeObserver.instances.length;
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
-      observer!.trigger(rows[0], 300);
+      const collapseObservers = DelayedResizeObserver.instances.slice(observersBeforeCollapse).filter((instance) => instance.targets.has(rows[0]));
+      expect(collapseObservers).toHaveLength(1);
+      collapseObservers.forEach((observer) => observer.trigger(rows[0], 300));
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      expect(container.scrollTop).toBe(scrollTop);
+
+      // A rapid reversal must cancel the first toggle's pending restore.
+      const observersBeforeRapidExpand = DelayedResizeObserver.instances.length;
+      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      const rapidExpandObservers = DelayedResizeObserver.instances.slice(observersBeforeRapidExpand).filter((instance) => instance.targets.has(rows[0]));
+      expect(rapidExpandObservers).toHaveLength(1);
+      rapidExpandObservers.forEach((observer) => observer.trigger(rows[0], 500));
+      const observersBeforeRapidCollapse = DelayedResizeObserver.instances.length;
+      fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+      const rapidCollapseObservers = DelayedResizeObserver.instances.slice(observersBeforeRapidCollapse).filter((instance) => instance.targets.has(rows[0]));
+      expect(rapidCollapseObservers).toHaveLength(1);
+      rapidCollapseObservers.forEach((observer) => observer.trigger(rows[0], 300));
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      expect(container.scrollTop).toBe(scrollTop);
+
+      // ResizeObserver also delivers an initial observation when the natural
+      // row size is unchanged. It must settle the target without a stale jump.
+      naturalHeightSame = true;
+      const observersBeforeUnchanged = DelayedResizeObserver.instances.length;
+      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      const unchangedObservers = DelayedResizeObserver.instances.slice(observersBeforeUnchanged).filter((instance) => instance.targets.has(rows[0]));
+      expect(unchangedObservers).toHaveLength(1);
+      unchangedObservers.forEach((observer) => observer.trigger(rows[0], 300));
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      container.dispatchEvent(new Event("scroll"));
       expect(container.scrollTop).toBe(scrollTop);
     } finally {
       if (previousClientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", previousClientWidth);
