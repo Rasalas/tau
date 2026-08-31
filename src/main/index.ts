@@ -130,15 +130,16 @@ function installIpc(): void {
     return host.bootstrap();
   });
   ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
-  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string) => (await requireHostReady()).prompt(text, attachments, sessionId, clientMessageId));
+  ipcMain.handle("tau:prepare-prompt", async (_event, text: string, sessionId?: string, skillName?: string) => (await requireHostReady()).preparePrompt(text, sessionId, skillName));
+  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: import("../shared/contracts.js").PreparedPrompt) => (await requireHostReady()).prompt(text, attachments, sessionId, clientMessageId, prepared));
   ipcMain.handle("tau:run-shell-action", async (_event, command: string, includeInContext?: boolean, expectedCwd?: string) => (await requireHostReady()).runShellAction(command, includeInContext, expectedCwd));
-  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string) => (await requireHostReady()).steer(text, attachments, sessionId, clientMessageId));
-  ipcMain.handle("tau:follow-up", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string) => (await requireHostReady()).followUp(text, attachments, sessionId, clientMessageId));
+  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: import("../shared/contracts.js").PreparedPrompt) => (await requireHostReady()).steer(text, attachments, sessionId, clientMessageId, prepared));
+  ipcMain.handle("tau:follow-up", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: import("../shared/contracts.js").PreparedPrompt) => (await requireHostReady()).followUp(text, attachments, sessionId, clientMessageId, prepared));
   // Stopping must not queue behind host readiness: a thread stuck on a question
   // is exactly what the user is trying to get out of.
   ipcMain.handle("tau:abort", async (_event, sessionId?: string) => host?.abort(sessionId));
-  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageId?: string) =>
-    (await requireHostReady()).newSession(initialPrompt, attachments, cwd, clientMessageId));
+  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageId?: string, prepared?: import("../shared/contracts.js").PreparedPrompt) =>
+    (await requireHostReady()).newSession(initialPrompt, attachments, cwd, clientMessageId, prepared));
   ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));

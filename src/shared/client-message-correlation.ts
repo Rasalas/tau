@@ -1,3 +1,5 @@
+import { parseKnownSkillName, parseSkillEnvelope } from "./skill-envelope.js";
+
 /**
  * Correlates a renderer request with the user message written by the runtime.
  *
@@ -64,23 +66,22 @@ function messageText(value: unknown): string {
  * This intentionally recognizes a complete shape without exposing any of its
  * attributes or body to the renderer.
  */
-function visibleFingerprintText(value: string): string {
-  const match = /^(?:\uFEFF)?(?:[ \t]{0,3}\r?\n)*[ \t]{0,3}<skill\b[^>]*>[ \t]*\r?\n[\s\S]*?\r?\n[ \t]{0,3}<\/skill>[ \t]*(?:\r?\n){1,2}([\s\S]*)$/u.exec(value);
-  if (match) return match[1] ?? "";
-  // Pi's expanded event can still expose the normalized command before it
-  // has been replaced by the persisted skill envelope. Compare its visible
-  // suffix without exporting or retaining the command spelling.
-  const command = /^(?:\uFEFF)?[ \t]{0,3}\/skill:[A-Za-z0-9][A-Za-z0-9_-]*(?=[ \t\r\n]|$)([\s\S]*)$/u.exec(value);
-  if (command) {
-    const suffix = command[1] ?? "";
-    return /^[ \t]/u.test(suffix) ? suffix.slice(1) : suffix;
-  }
+function visibleFingerprintText(value: string, knownSkillNames: Iterable<string> = []): string {
+  // A wrapper is only runtime syntax when its skill is present in the live
+  // command registry. Without that proof it is ordinary user text: treating
+  // an unknown wrapper's suffix as canonical would let it collide with a
+  // different, genuinely typed message.
+  const known = new Set(knownSkillNames);
+  const envelope = parseSkillEnvelope(value);
+  if (envelope && known.has(envelope.name)) return envelope.userMessage;
+  const shorthand = parseKnownSkillName(value, known);
+  if (shorthand) return shorthand.userMessage;
   return value;
 }
 
 /** Stable, non-reversible fingerprint used only for request correlation. */
-export function clientMessageFingerprint(value: unknown): string {
-  const text = visibleFingerprintText(messageText(value));
+export function clientMessageFingerprint(value: unknown, knownSkillNames: Iterable<string> = []): string {
+  const text = visibleFingerprintText(messageText(value), knownSkillNames);
   let hash = 2_166_136_261;
   for (let index = 0; index < text.length; index += 1) {
     hash ^= text.charCodeAt(index);
@@ -111,13 +112,14 @@ export function matchClientMessageId(
   pendingClientMessageIds: readonly string[],
   fingerprints: ReadonlyMap<string, string>,
   message: unknown,
+  knownSkillNames: Iterable<string> = [],
 ): string | undefined {
-  const fingerprint = clientMessageFingerprint(message);
+  const fingerprint = clientMessageFingerprint(message, knownSkillNames);
   return pendingClientMessageIds.find((clientMessageId) => fingerprints.get(clientMessageId) === fingerprint);
 }
 
 /** Projects branch entries without mutating the append-only source records. */
-export function branchMessagesWithClientMessageIds(entries: readonly unknown[]): unknown[] {
+export function branchMessagesWithClientMessageIds(entries: readonly unknown[], knownSkillNames: Iterable<string> = []): unknown[] {
   const pending: PendingMarker[] = [];
   const cancelledIds = cancelledClientMessageIds(entries);
   const messages: unknown[] = [];
@@ -138,7 +140,7 @@ export function branchMessagesWithClientMessageIds(entries: readonly unknown[]):
     const persistedId = value.role === "user" ? messageClientMessageId(value) : undefined;
     if (persistedId) removePending(pending, persistedId);
     const clientMessageId = value.role === "user"
-      ? persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(value))?.clientMessageId
+      ? persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(value, knownSkillNames))?.clientMessageId
       : undefined;
     if (clientMessageId) removePending(pending, clientMessageId);
     messages.push(clientMessageId ? { ...value, clientMessageId } : { ...value });
@@ -147,7 +149,7 @@ export function branchMessagesWithClientMessageIds(entries: readonly unknown[]):
 }
 
 /** Returns marker ids that have no matching persisted user message. */
-export function unclaimedClientMessageIds(entries: readonly unknown[]): string[] {
+export function unclaimedClientMessageIds(entries: readonly unknown[], knownSkillNames: Iterable<string> = []): string[] {
   const pending: PendingMarker[] = [];
   const cancelledIds = cancelledClientMessageIds(entries);
   for (const entry of entries) {
@@ -164,7 +166,7 @@ export function unclaimedClientMessageIds(entries: readonly unknown[]): string[]
     const message = messageEntry(entry);
     if (!message || message.message.role !== "user") continue;
     const persistedId = messageClientMessageId(message.message);
-    const matchedId = persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(message.message))?.clientMessageId;
+    const matchedId = persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(message.message, knownSkillNames))?.clientMessageId;
     if (matchedId) removePending(pending, matchedId);
   }
   return pending.map((marker) => marker.clientMessageId);
@@ -175,7 +177,7 @@ export function unclaimedClientMessageIds(entries: readonly unknown[]): string[]
  * fingerprinted marker.  A copied object with equal text has no identity and
  * is intentionally left uncorrelated.
  */
-export function clientMessageIdForMessage(entries: readonly unknown[], target: unknown): string | undefined {
+export function clientMessageIdForMessage(entries: readonly unknown[], target: unknown, knownSkillNames: Iterable<string> = []): string | undefined {
   if (!target || typeof target !== "object") return undefined;
   const targetRecord = target as Record<string, unknown>;
   const directId = targetRecord.role === "user" ? messageClientMessageId(targetRecord) : undefined;
@@ -199,7 +201,7 @@ export function clientMessageIdForMessage(entries: readonly unknown[], target: u
     const value = message.message;
     const persistedId = value.role === "user" ? messageClientMessageId(value) : undefined;
     const id = value.role === "user"
-      ? persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(value))?.clientMessageId
+      ? persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(value, knownSkillNames))?.clientMessageId
       : undefined;
     if (id) removePending(pending, id);
     if (value === target) return id;

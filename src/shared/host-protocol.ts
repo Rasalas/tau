@@ -11,6 +11,7 @@ import type {
   UiToolRun,
   UiTurnActivity,
   UiWorkspaceChanges,
+  ThreadBackendKind,
 } from "./contracts.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
@@ -30,6 +31,8 @@ export interface ThreadIndexUpdate {
 
 export interface ThreadDetail {
   sessionId: string;
+  /** Runtime lifecycle owner for this thread; absent for old clients. */
+  backendKind?: ThreadBackendKind;
   messages: UiMessage[];
   isStreaming: boolean;
   activeTools: string[];
@@ -49,6 +52,8 @@ export interface TranscriptPage {
 }
 
 export interface HostCatalog {
+  /** Runtime lifecycle owner for the active thread; absent for old clients. */
+  backendKind?: ThreadBackendKind;
   models: UiModel[];
   model?: UiModel;
   runtimeCapabilities?: import("./contracts.js").RuntimeCapabilities;
@@ -129,6 +134,7 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDe
   const messages = snapshot.messages.length > limit ? snapshot.messages.slice(-limit) : snapshot.messages;
   return {
     sessionId: snapshot.sessionId,
+    ...(snapshot.backendKind ? { backendKind: snapshot.backendKind } : {}),
     messages,
     isStreaming: snapshot.isStreaming,
     activeTools: [...snapshot.activeTools],
@@ -142,6 +148,7 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = 40): ThreadDe
 
 export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
   return {
+    ...(snapshot.backendKind ? { backendKind: snapshot.backendKind } : {}),
     models: [...snapshot.models],
     model: snapshot.model,
     runtimeCapabilities: snapshot.runtimeCapabilities,

@@ -8,11 +8,11 @@ import {
   unclaimedClientMessageIds,
 } from "../shared/client-message-correlation.js";
 
-function marker(customType: string, clientMessageId: string, text?: string) {
+function marker(customType: string, clientMessageId: string, text?: string, knownSkillNames: Iterable<string> = []) {
   return {
     type: "custom",
     customType,
-    data: { clientMessageId, ...(text !== undefined ? { fingerprint: clientMessageFingerprint(text) } : {}) },
+    data: { clientMessageId, ...(text !== undefined ? { fingerprint: clientMessageFingerprint(text, knownSkillNames) } : {}) },
   };
 }
 
@@ -120,6 +120,27 @@ describe("client message correlation", () => {
       timestamp: 7,
     };
     const entries = [marker(CLIENT_MESSAGE_MARKER, "request-skill", "Keep this visible"), { type: "message", id: "entry", message: wrapper }];
-    expect(branchMessagesWithClientMessageIds(entries)).toEqual([{ ...wrapper, clientMessageId: "request-skill" }]);
+    expect(branchMessagesWithClientMessageIds(entries, ["tdd"])).toEqual([{ ...wrapper, clientMessageId: "request-skill" }]);
+  });
+
+  it("correlates a known plain slash skill after Pi expands it", () => {
+    const expanded = {
+      role: "user",
+      content: [{ type: "text", text: `<skill name="tdd" location="/private/SKILL.md">\nInjected body\n</skill>\n\nKeep this visible` }],
+      timestamp: 7,
+    };
+    const entries = [marker(CLIENT_MESSAGE_MARKER, "request-slash", "/tdd Keep this visible", ["tdd"]), { type: "message", id: "entry", message: expanded }];
+    expect(branchMessagesWithClientMessageIds(entries, ["tdd"])).toEqual([{ ...expanded, clientMessageId: "request-slash" }]);
+  });
+
+  it("does not fingerprint an unknown wrapper as its visible suffix", () => {
+    const wrapper = {
+      role: "user",
+      content: [{ type: "text", text: `<skill name="missing" location="/private/SKILL.md">\nInjected body\n</skill>\n\nKeep this visible` }],
+      timestamp: 8,
+    };
+    const entries = [marker(CLIENT_MESSAGE_MARKER, "request-unknown", "Keep this visible"), { type: "message", id: "entry", message: wrapper }];
+    expect(branchMessagesWithClientMessageIds(entries, ["tdd"])).toEqual([wrapper]);
+    expect(unclaimedClientMessageIds(entries, ["tdd"])).toEqual(["request-unknown"]);
   });
 });

@@ -38,7 +38,7 @@ function localHost(adapter: AgentRuntimeAdapter) {
     followUp,
     abort: vi.fn(async () => undefined),
   };
-  const thread = {
+  const thread: any = {
     session,
     sessionId: "session",
     cwd: "/repo",
@@ -49,6 +49,29 @@ function localHost(adapter: AgentRuntimeAdapter) {
     adapterQueue: Promise.resolve(),
     adapterMessages: [],
     adapterStreaming: false,
+  };
+  thread.runtime = { session };
+  thread.backend = {
+    kind: adapter.id,
+    runtimeAdapter: adapter,
+    sessionId: "session",
+    cwd: "/repo",
+    isStreaming: () => false,
+    isIdle: () => true,
+    transcript: async () => thread.adapterMessages,
+    detail: async () => ({ title: undefined }),
+    prompt: async (input: { text: string; delivery: "prompt" | "steer" | "followUp"; prepared?: { runtimeText: string } }) => {
+      if (adapter.id !== "claude-code") return;
+      await adapter.transport.sendPrompt({
+        cwd: "/repo",
+        sessionId: "session",
+        text: input.prepared?.runtimeText
+          ?? (input.text.startsWith("$tdd ") ? `/tdd ${input.text.slice("$tdd ".length)}` : input.text),
+        delivery: input.delivery,
+        permissionPolicy: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
+      });
+    },
+    abort: async () => { if (adapter.id === "claude-code") await adapter.transport.abort?.("session"); },
   };
   const host = new PiHost("/repo", (event) => emitted.push(event), {} as never, false, false, { runtimeAdapter: adapter });
   const internals = host as unknown as {
@@ -159,7 +182,7 @@ describe("PiHost skill delivery", () => {
     expect(transport.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
       text: "/tdd fix it",
       sessionId: "session",
-      permissionPolicy: { permissionMode: "auto", tools: ["default"] },
+      permissionPolicy: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
     }));
   });
 

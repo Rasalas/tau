@@ -104,4 +104,33 @@ describe("Claude runtime session store", () => {
     expect(restored?.messages[0]?.skill?.copyText).toBe("/tdd Please inspect location=/repo");
     expect(JSON.stringify(restored)).not.toContain("SECRET");
   });
+
+  it("keeps the complete append-only history and durable launch attempt state", async () => {
+    const { filePath } = await temporaryStore();
+    const store = new ClaudeRuntimeSessionStore({ filePath, now: () => 20 });
+    const messages: UiMessage[] = Array.from({ length: 520 }, (_, index) => ({
+      id: `message-${index}`,
+      role: index % 2 === 0 ? "user" as const : "assistant" as const,
+      text: `message ${index}`,
+      timestamp: index,
+    }));
+    await store.appendExchange("tau-session", "/repo", messages);
+    await store.markAttempted("tau-session", "/repo");
+    const attempted = await store.get("tau-session");
+    expect(attempted?.messages).toHaveLength(520);
+    expect(attempted).toMatchObject({ attempted: true, attemptCount: 1, lastAttemptOutcome: "pending", createFallbackUsed: false });
+
+    await store.markCreateFallbackUsed("tau-session", "/repo");
+    await store.markAttemptOutcome("tau-session", "/repo", "missing");
+    const restored = await new ClaudeRuntimeSessionStore({ filePath }).get("tau-session");
+    expect(restored).toMatchObject({ attempted: true, attemptCount: 1, lastAttemptOutcome: "missing", createFallbackUsed: true });
+    expect(restored?.messages.at(-1)?.text).toBe("message 519");
+  });
+
+  it("does not let a session id cross workspace boundaries", async () => {
+    const { filePath } = await temporaryStore();
+    const store = new ClaudeRuntimeSessionStore({ filePath });
+    await store.ensure("tau-session", "/repo-a");
+    await expect(store.ensure("tau-session", "/repo-b")).rejects.toThrow("another workspace");
+  });
 });

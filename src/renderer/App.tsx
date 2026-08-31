@@ -11,6 +11,7 @@ import type {
   UiPromptAttachment,
   UiSkillDraft,
   UiSession,
+  PreparedPrompt,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
   ServiceTier,
@@ -96,6 +97,7 @@ export function optimisticThreadSnapshot(
     sessionName: undefined,
     sessionTitle: target.title,
     branch: target.branch,
+    ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
     messages: detail.messages,
     isStreaming: false,
     activeTools: detail.activeTools,
@@ -515,6 +517,7 @@ export default function App() {
         const next = {
           ...current,
           sessionId: detail.sessionId,
+          ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
           sessionTitle: shell?.title ?? current.sessionTitle,
           messages: detail.messages,
           isStreaming: detail.isStreaming,
@@ -778,6 +781,7 @@ export default function App() {
           branch: bootstrap.project.branch,
           sessionId: bootstrap.detail.sessionId,
           sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
+          backendKind: bootstrap.detail.backendKind ?? bootstrap.catalog.backendKind,
           models: bootstrap.catalog.models,
           model: bootstrap.catalog.model,
           runtimeCapabilities: bootstrap.catalog.runtimeCapabilities,
@@ -1379,15 +1383,38 @@ export default function App() {
       restartWorkbench();
       return;
     }
-    const optimisticText = skillDraft?.visibleText ?? (text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`);
-    const visiblePrompt = skillDraft?.visibleText ?? text;
+    let prepared: PreparedPrompt | undefined;
+    if (window.tau?.preparePrompt) {
+      try {
+        prepared = await window.tau.preparePrompt(
+          text,
+          pendingNewThread ? undefined : snapshot?.sessionId,
+          skillDraft?.name,
+        );
+      } catch (error) {
+        const draftKeyForFailure = pendingNewThread
+          ? draftKey(undefined, pendingNewThread)
+          : activeDraftKey;
+        writeComposerDraft(window.localStorage, draftKeyForFailure, text);
+        setComposerSeed(text);
+        setNotice(String(error));
+        return;
+      }
+    }
+    const optimisticText = prepared?.visibleText
+      ?? skillDraft?.visibleText
+      ?? (text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`);
+    const visiblePrompt = prepared?.visibleText ?? skillDraft?.visibleText ?? text;
+    const optimisticSkill = prepared
+      ? prepared.skill
+      : skillDraft ? skillPresentationForDraft(skillDraft) : undefined;
     const clientMessageId = createClientMessageId();
     const optimistic: UiMessage = {
       id: `local-${clientMessageId}`,
       clientMessageId,
       role: "user",
       text: optimisticText,
-      ...(skillDraft ? { skill: skillPresentationForDraft(skillDraft) } : {}),
+      ...(optimisticSkill ? { skill: optimisticSkill } : {}),
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       timestamp: Date.now(),
     };
@@ -1397,7 +1424,8 @@ export default function App() {
       if (delivery === "steer") {
         try {
           if (!window.tau) throw new Error("Steering requires the Electron host.");
-          await window.tau.steer(text, attachments, snapshot?.sessionId, clientMessageId);
+          if (prepared) await window.tau.steer(text, attachments, snapshot?.sessionId, clientMessageId, prepared);
+          else await window.tau.steer(text, attachments, snapshot?.sessionId, clientMessageId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           writeComposerDraft(window.localStorage, activeDraftKey, text);
@@ -1409,7 +1437,8 @@ export default function App() {
         setQueue((current) => [...current, queuedText]);
         try {
           if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
-          await window.tau.followUp(text, attachments, snapshot?.sessionId, clientMessageId);
+          if (prepared) await window.tau.followUp(text, attachments, snapshot?.sessionId, clientMessageId, prepared);
+          else await window.tau.followUp(text, attachments, snapshot?.sessionId, clientMessageId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           setQueue((current) => {
@@ -1429,7 +1458,9 @@ export default function App() {
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
-        const result = await window.tau.newSession(text, attachments, pending.projectPath, clientMessageId);
+        const result = prepared
+          ? await window.tau.newSession(text, attachments, pending.projectPath, clientMessageId, prepared)
+          : await window.tau.newSession(text, attachments, pending.projectPath, clientMessageId);
         const created = result.updates.find((update) => update.type === "thread-detail");
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
         if (sessionId) {
@@ -1479,7 +1510,8 @@ export default function App() {
     setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
     if (window.tau) {
       try {
-        await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientMessageId);
+        if (prepared) await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientMessageId, prepared);
+        else await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientMessageId);
         await registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions);
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));

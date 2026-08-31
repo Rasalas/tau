@@ -4,8 +4,6 @@ import { dirname, join } from "node:path";
 import type { UiMessage, UiSkillInvocation } from "../shared/contracts.js";
 import { visibleSkillEnvelopeText } from "./skill-invocation.js";
 
-const MAX_SESSIONS = 64;
-const MAX_MESSAGES_PER_SESSION = 512;
 const MAX_TEXT_LENGTH = 512 * 1024;
 const MAX_TITLE_LENGTH = 120;
 const MAX_ID_LENGTH = 200;
@@ -23,10 +21,18 @@ export interface ClaudeStoredMessage {
 }
 
 export interface ClaudeRuntimeSessionRecord {
+  backendKind: "claude-code";
   tauSessionId: string;
   claudeSessionId: string;
   cwd: string;
   started: boolean;
+  /** A launch attempt is durable before the child process is spawned. */
+  attempted: boolean;
+  attemptCount: number;
+  /** A missing resumed session gets at most one fresh-session recovery. */
+  createFallbackUsed: boolean;
+  lastAttemptAt?: number;
+  lastAttemptOutcome?: "pending" | "started" | "missing" | "failed" | "aborted";
   messages: ClaudeStoredMessage[];
   title?: string;
   titleSource?: ClaudeTitleSource;
@@ -103,7 +109,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ? item.messages.flatMap((message) => {
       const parsed = storedMessage(message);
       return parsed ? [parsed] : [];
-    }).slice(-MAX_MESSAGES_PER_SESSION)
+    })
     : [];
   const rawTitle = typeof item.title === "string" && item.title.length <= MAX_TITLE_LENGTH && item.title.trim()
     ? item.title
@@ -113,10 +119,20 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ? item.titleSource
     : undefined;
   return {
+    backendKind: "claude-code",
     tauSessionId,
     claudeSessionId,
     cwd,
     started: item.started === true,
+    attempted: item.attempted === true || item.started === true,
+    attemptCount: typeof item.attemptCount === "number" && Number.isInteger(item.attemptCount) && item.attemptCount >= 0
+      ? item.attemptCount
+      : item.started === true ? 1 : 0,
+    createFallbackUsed: item.createFallbackUsed === true,
+    ...(typeof item.lastAttemptAt === "number" && Number.isFinite(item.lastAttemptAt) ? { lastAttemptAt: item.lastAttemptAt } : {}),
+    ...(item.lastAttemptOutcome === "pending" || item.lastAttemptOutcome === "started" || item.lastAttemptOutcome === "missing" || item.lastAttemptOutcome === "failed" || item.lastAttemptOutcome === "aborted"
+      ? { lastAttemptOutcome: item.lastAttemptOutcome }
+      : {}),
     messages,
     ...(title ? { title } : {}),
     ...(titleSource ? { titleSource } : {}),
@@ -167,9 +183,6 @@ export class ClaudeRuntimeSessionStore {
         const record = storedRecord(value);
         if (record) this.records.set(record.tauSessionId, record);
       }
-      const records = [...this.records.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_SESSIONS);
-      this.records.clear();
-      for (const record of records) this.records.set(record.tauSessionId, record);
       await chmod(this.options.filePath, 0o600).catch(() => undefined);
     } catch {
       // Missing or corrupt app state must not prevent the workbench from opening.
@@ -198,18 +211,20 @@ export class ClaudeRuntimeSessionStore {
     await this.load();
     const existing = this.records.get(tauSessionId);
     if (existing && existing.cwd === cwd) return cloneRecord(existing);
+    if (existing) throw new Error("Claude runtime session belongs to another workspace.");
     const record: ClaudeRuntimeSessionRecord = {
+      backendKind: "claude-code",
       tauSessionId,
       claudeSessionId: randomUUID(),
       cwd,
       started: false,
+      attempted: false,
+      attemptCount: 0,
+      createFallbackUsed: false,
       messages: [],
       updatedAt: this.now(),
     };
     this.records.set(tauSessionId, record);
-    const records = [...this.records.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_SESSIONS);
-    this.records.clear();
-    for (const item of records) this.records.set(item.tauSessionId, item);
     await this.persist();
     return cloneRecord(record);
   }
@@ -219,7 +234,46 @@ export class ClaudeRuntimeSessionStore {
     const current = this.records.get(tauSessionId);
     if (!current || current.claudeSessionId !== record.claudeSessionId || current.started) return;
     current.started = true;
+    current.attempted = true;
+    current.lastAttemptOutcome = "started";
     current.updatedAt = this.now();
+    await this.persist();
+  }
+
+  /** Records the attempt before a child process is created. */
+  async markAttempted(tauSessionId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
+    await this.ensure(tauSessionId, cwd);
+    const record = this.records.get(tauSessionId);
+    if (!record) throw new Error("Claude runtime session could not be persisted.");
+    record.attempted = true;
+    record.attemptCount += 1;
+    record.lastAttemptAt = this.now();
+    record.lastAttemptOutcome = "pending";
+    record.updatedAt = this.now();
+    await this.persist();
+    return cloneRecord(record);
+  }
+
+  async markAttemptOutcome(
+    tauSessionId: string,
+    cwd: string,
+    outcome: "started" | "missing" | "failed" | "aborted",
+  ): Promise<void> {
+    await this.ensure(tauSessionId, cwd);
+    const record = this.records.get(tauSessionId);
+    if (!record) return;
+    record.attempted = true;
+    record.lastAttemptOutcome = outcome;
+    record.updatedAt = this.now();
+    await this.persist();
+  }
+
+  async markCreateFallbackUsed(tauSessionId: string, cwd: string): Promise<void> {
+    await this.ensure(tauSessionId, cwd);
+    const record = this.records.get(tauSessionId);
+    if (!record || record.createFallbackUsed) return;
+    record.createFallbackUsed = true;
+    record.updatedAt = this.now();
     await this.persist();
   }
 
@@ -244,12 +298,15 @@ export class ClaudeRuntimeSessionStore {
         ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
         ...(parsedSkill ? { skill: { ...parsedSkill, copyText: skillCopyText(parsedSkill, visibleText) } } : {}),
       };
-      const existing = record.messages.findIndex((item) => item.role === stored.role
-        && ((stored.clientMessageId && item.clientMessageId === stored.clientMessageId) || item.text === stored.text && item.timestamp === stored.timestamp));
+      // Only a stable client id makes a user turn idempotent. Timestamp/text
+      // pairs are not identities: two identical assistant replies can be
+      // legitimate turns and must remain in the append-only history.
+      const existing = stored.clientMessageId
+        ? record.messages.findIndex((item) => item.role === stored.role && item.clientMessageId === stored.clientMessageId)
+        : -1;
       if (existing >= 0) record.messages[existing] = stored;
       else record.messages.push(stored);
     }
-    record.messages = record.messages.slice(-MAX_MESSAGES_PER_SESSION);
     record.updatedAt = this.now();
     await this.persist();
   }

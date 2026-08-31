@@ -13,7 +13,8 @@ import {
   matchClientMessageId,
   unclaimedClientMessageIds,
 } from "../../src/shared/client-message-correlation.js";
-import { normalizePiBridgePrompt, PI_RUNTIME_ADAPTER, skillInvocationCommand, skillMessagePresentation, visibleSkillEnvelopeText } from "../../src/main/skill-invocation.js";
+import { knownSkillNames } from "../../src/shared/skill-envelope.js";
+import { canonicalSkillName, PI_RUNTIME_ADAPTER, prepareSkillPrompt, skillInvocationCommand, skillMessagePresentation, visibleSkillEnvelopeText } from "../../src/main/skill-invocation.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import {
   encodePiBridgeFrame,
@@ -21,6 +22,7 @@ import {
   PI_BRIDGE_PROTOCOL_VERSION,
   type PiBridgeClientFrame,
   type PiBridgeDescriptor,
+  type PiBridgePreparedPrompt,
   type PiBridgeServerFrame,
   type PiBridgeAwaitingInput,
   type PiBridgeSnapshot,
@@ -50,7 +52,59 @@ function textFromContent(content: unknown): string {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
-  const normalizePrompt = (text: string): string => normalizePiBridgePrompt(text, pi.getCommands());
+  const correlationSkillNames = (): Set<string> => knownSkillNames(pi.getCommands());
+  const preparedPrompt = (text: string, skillName?: string): PiBridgePreparedPrompt => {
+    const commands = pi.getCommands();
+    const effectiveCommands = commands;
+    if (skillName && !correlationSkillNames().has(canonicalSkillName(skillName))) {
+      throw new Error(`The selected skill '${skillName}' is no longer available in Pi.`);
+    }
+    const prepared = prepareSkillPrompt(text, PI_RUNTIME_ADAPTER, effectiveCommands);
+    return {
+      visibleText: prepared.text,
+      runtimeText: prepared.runtimeText,
+      runtimeCapabilities: PI_RUNTIME_ADAPTER.capabilities,
+      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      sourceFingerprint: clientMessageFingerprint(text, knownSkillNames(effectiveCommands)),
+    };
+  };
+  /**
+   * Prepared data comes back over the authenticated socket, so validate its
+   * owner and correlation proof before handing its runtime text to Pi. This
+   * deliberately does not run the skill parser again: the bridge already did
+   * that in preparedPrompt(), and the fingerprint/typed metadata are the
+   * stable hand-off contract for the send operation.
+   */
+  const resolvePreparedPrompt = (text: string, candidate: unknown): PiBridgePreparedPrompt => {
+    if (candidate === undefined) return preparedPrompt(text);
+    if (!candidate || typeof candidate !== "object") throw new Error("Pi bridge received an invalid prepared prompt.");
+    const value = candidate as Partial<PiBridgePreparedPrompt>;
+    if (typeof value.visibleText !== "string"
+      || typeof value.runtimeText !== "string"
+      || typeof value.sourceFingerprint !== "string"
+      || value.runtimeCapabilities?.skillInvocationDialect !== "pi") {
+      throw new Error("Pi bridge received a prepared prompt for another runtime.");
+    }
+    const known = correlationSkillNames();
+    if (value.skill) {
+      const skill = value.skill;
+      if (typeof skill !== "object"
+        || typeof skill.name !== "string"
+        || typeof skill.copyText !== "string"
+        || !known.has(canonicalSkillName(skill.name))
+        || skill.command !== skillInvocationCommand(canonicalSkillName(skill.name), PI_RUNTIME_ADAPTER)
+        || skill.copyText !== (value.visibleText ? `${skill.command} ${value.visibleText}` : skill.command)
+        || value.runtimeText !== skill.copyText) {
+        throw new Error("Pi bridge received an unavailable skill.");
+      }
+    } else if (value.visibleText !== text || value.runtimeText !== text) {
+      throw new Error("Pi bridge received a prepared prompt for different text.");
+    }
+    if (value.sourceFingerprint !== clientMessageFingerprint(text, known)) {
+      throw new Error("Pi bridge received a prepared prompt for different text.");
+    }
+    return value as PiBridgePreparedPrompt;
+  };
   const pendingClientMessageIds: string[] = [];
   const pendingClientMessageFingerprints = new Map<string, string>();
   /** Markers already assigned to a message_start but not finalized at message_end. */
@@ -58,10 +112,15 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   /** One-shot restart failures for a host that reconnects after an orphaned request. */
   const failedClientMessageIds = new Set<string>();
 
-  const appendClientMessageMarker = (ctx: ExtensionContext, clientMessageId: string | undefined, correlationText?: string): boolean => {
+  const appendClientMessageMarker = (
+    ctx: ExtensionContext,
+    clientMessageId: string | undefined,
+    correlationText?: string,
+    preparedFingerprint?: string,
+  ): boolean => {
     if (!clientMessageId) return false;
     pendingClientMessageIds.push(clientMessageId);
-    const fingerprint = correlationText === undefined ? undefined : clientMessageFingerprint(correlationText);
+    const fingerprint = preparedFingerprint ?? (correlationText === undefined ? undefined : clientMessageFingerprint(correlationText, correlationSkillNames()));
     if (fingerprint) pendingClientMessageFingerprints.set(clientMessageId, fingerprint);
     ctx.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, { clientMessageId, ...(fingerprint ? { fingerprint } : {}) });
     return true;
@@ -94,7 +153,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   /** Only an id on a persisted user entry proves that the request was recorded. */
   const persistedClientMessageIds = (ctx: ExtensionContext): Set<string> => new Set(
-    branchMessagesWithClientMessageIds(ctx.sessionManager.getBranch()).flatMap((message) => {
+    branchMessagesWithClientMessageIds(ctx.sessionManager.getBranch(), correlationSkillNames()).flatMap((message) => {
       if (!message || typeof message !== "object") return [];
       const value = message as { role?: unknown; clientMessageId?: unknown };
       return value.role === "user" && typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
@@ -145,6 +204,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       pendingClientMessageIds,
       pendingClientMessageFingerprints,
       message,
+      correlationSkillNames(),
     );
     if (clientMessageId) {
       const pending = pendingClientMessageIds.indexOf(clientMessageId);
@@ -156,7 +216,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   const branchMessagesWithEntryIds = (ctx: ExtensionContext): unknown[] => {
     const entries = ctx.sessionManager.getBranch();
-    const messages = branchMessagesWithClientMessageIds(entries);
+    const messages = branchMessagesWithClientMessageIds(entries, correlationSkillNames());
     let messageIndex = 0;
     return entries.flatMap((entry) => entry.type === "message"
       ? [{ ...(messages[messageIndex++] as Record<string, unknown>), tauEntryId: entry.id }]
@@ -195,16 +255,16 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     description: "Create a new Pi session for an attached Tau client",
     handler: async (args, ctx) => {
       const decoded = args ? JSON.parse(Buffer.from(args, "base64url").toString("utf8")) as unknown : undefined;
-      const payload = typeof decoded === "string" ? { initialPrompt: decoded } : decoded && typeof decoded === "object" ? decoded as { initialPrompt?: unknown; clientMessageId?: unknown } : {};
+      const payload = typeof decoded === "string" ? { initialPrompt: decoded } : decoded && typeof decoded === "object" ? decoded as { initialPrompt?: unknown; clientMessageId?: unknown; prepared?: unknown } : {};
       const initialPrompt = typeof payload.initialPrompt === "string" ? payload.initialPrompt : undefined;
       const clientMessageId = typeof payload.clientMessageId === "string" ? payload.clientMessageId : undefined;
+      const prepared = payload.prepared && typeof payload.prepared === "object" ? payload.prepared as PiBridgePreparedPrompt : undefined;
       await ctx.newSession({
         ...(initialPrompt ? { withSession: async (fresh) => {
-          const normalizedText = normalizePrompt(initialPrompt);
-          const correlationText = skillMessagePresentation(initialPrompt, PI_RUNTIME_ADAPTER, pi.getCommands())?.text ?? normalizedText;
-          const marker = appendClientMessageMarker(fresh, clientMessageId, correlationText);
+          const resolved = resolvePreparedPrompt(initialPrompt, prepared);
+          const marker = appendClientMessageMarker(fresh, clientMessageId, initialPrompt, resolved.sourceFingerprint);
           try {
-            await fresh.sendUserMessage(normalizedText, { expandPromptTemplates: true });
+            await fresh.sendUserMessage(resolved.runtimeText, { expandPromptTemplates: true });
             if (marker) failClientMessageIfUnpersisted(fresh, clientMessageId);
           } catch (error) {
             if (marker) failClientMessageIfUnpersisted(fresh, clientMessageId);
@@ -285,8 +345,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (!value.message || typeof value.message !== "object" || (value.message as { role?: unknown }).role !== "user") return event;
     const existing = value.message as { clientMessageId?: unknown };
     if (typeof existing.clientMessageId === "string") return event;
-    const clientMessageId = clientMessageIdForMessage(ctx.sessionManager.getBranch(), value.message)
-      ?? matchClientMessageId(pendingClientMessageIds, pendingClientMessageFingerprints, value.message);
+    const clientMessageId = clientMessageIdForMessage(ctx.sessionManager.getBranch(), value.message, correlationSkillNames())
+      ?? matchClientMessageId(pendingClientMessageIds, pendingClientMessageFingerprints, value.message, correlationSkillNames());
     return clientMessageId ? { ...value, message: { ...existing, clientMessageId } } : event;
   };
 
@@ -295,8 +355,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const value = message as { clientMessageId?: unknown };
     const clientMessageId = typeof value.clientMessageId === "string"
       ? value.clientMessageId
-      : clientMessageIdForMessage(ctx.sessionManager.getBranch(), message)
-        ?? matchClientMessageId(pendingClientMessageIds, pendingClientMessageFingerprints, message);
+      : clientMessageIdForMessage(ctx.sessionManager.getBranch(), message, correlationSkillNames())
+        ?? matchClientMessageId(pendingClientMessageIds, pendingClientMessageFingerprints, message, correlationSkillNames());
     if (clientMessageId) forgetClientMessageId(clientMessageId);
   };
 
@@ -379,17 +439,20 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       switch (frame.command) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
         case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
+        case "prepare_prompt": {
+          respond(client, frame.id, true, preparedPrompt(frame.text, frame.skillName));
+          break;
+        }
         case "prompt": {
-          const normalizedText = normalizePrompt(frame.text);
-          const correlationText = skillMessagePresentation(frame.text, PI_RUNTIME_ADAPTER, pi.getCommands())?.text ?? normalizedText;
-          const marker = appendClientMessageMarker(ctx, frame.clientMessageId, correlationText);
+          const resolved = resolvePreparedPrompt(frame.text, frame.prepared);
+          const marker = appendClientMessageMarker(ctx, frame.clientMessageId, frame.text, resolved.sourceFingerprint);
           try {
             const wasIdle = ctx.isIdle();
-            const commandName = normalizedText.startsWith("/")
-              ? normalizedText.slice(1).split(/[ \t\r\n]/u, 1)[0]
+            const commandName = resolved.runtimeText.startsWith("/")
+              ? resolved.runtimeText.slice(1).split(/[ \t\r\n]/u, 1)[0]
               : "";
             const isExtensionCommand = pi.getCommands().some((command) => command.source === "extension" && command.name === commandName);
-            const send = pi.sendUserMessage(normalizedText, {
+            const send = pi.sendUserMessage(resolved.runtimeText, {
               ...(wasIdle ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
               expandPromptTemplates: true,
             });
@@ -442,7 +505,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           respond(client, frame.id, true, { accepted: true });
           setTimeout(() => {
             const encodedPrompt = frame.initialPrompt
-              ? ` ${Buffer.from(JSON.stringify({ initialPrompt: frame.initialPrompt, clientMessageId: frame.clientMessageId }), "utf8").toString("base64url")}`
+              ? ` ${Buffer.from(JSON.stringify({ initialPrompt: frame.initialPrompt, clientMessageId: frame.clientMessageId, prepared: frame.prepared }), "utf8").toString("base64url")}`
               : "";
             pi.sendUserMessage(`/tau-bridge-new${encodedPrompt}`, { expandPromptTemplates: true });
           }, 0);
@@ -487,7 +550,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     await stop();
-    for (const clientMessageId of unclaimedClientMessageIds(ctx.sessionManager.getBranch())) {
+    for (const clientMessageId of unclaimedClientMessageIds(ctx.sessionManager.getBranch(), correlationSkillNames())) {
       ctx.sessionManager.appendCustomEntry(CLIENT_MESSAGE_CANCEL_MARKER, { clientMessageId });
       failedClientMessageIds.add(clientMessageId);
     }

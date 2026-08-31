@@ -1,4 +1,4 @@
-import type { ExtensionUiPromptKind, RuntimeCapabilities, UiComposerCommand, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
+import type { ExtensionUiPromptKind, RuntimeCapabilities, UiComposerCommand, UiSkillInvocation, UiTaskProgress, UiTaskProgressEntry } from "./contracts.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
 export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -41,8 +41,22 @@ export interface PiBridgeSnapshot {
   awaitingInput?: PiBridgeAwaitingInput;
 }
 
+/**
+ * Runtime-owned prompt data returned by the Pi bridge preflight. Keeping this
+ * shape in the bridge protocol lets the extension perform normalization once
+ * against its live command registry; the host only transports the result.
+ */
+export interface PiBridgePreparedPrompt {
+  visibleText: string;
+  runtimeText: string;
+  runtimeCapabilities: RuntimeCapabilities;
+  skill?: UiSkillInvocation;
+  sourceFingerprint: string;
+}
+
 export type PiBridgeCommand =
-  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp"; clientMessageId?: string }
+  | { command: "prepare_prompt"; text: string; skillName?: string }
+  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp"; clientMessageId?: string; prepared?: PiBridgePreparedPrompt }
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
   | { command: "set_model"; provider: string; id: string }
@@ -50,7 +64,7 @@ export type PiBridgeCommand =
   | { command: "reload" }
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
-  | { command: "new_session"; initialPrompt?: string; clientMessageId?: string }
+  | { command: "new_session"; initialPrompt?: string; clientMessageId?: string; prepared?: PiBridgePreparedPrompt }
   | { command: "export_markdown" }
   | { command: "snapshot" }
   | { command: "ping" };

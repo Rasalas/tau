@@ -99,6 +99,34 @@ describe("Tau session bridge handler", () => {
     }));
   });
 
+  it("prepares against the live Pi registry and reuses that result for delivery", async () => {
+    const bridge = fakeBridge();
+    await bridge.events.get("session_start")?.({}, bridge.context);
+    const descriptor = await findPiBridge(bridge.context.cwd);
+    const client = new PiBridgeClient(descriptor as PiBridgeDescriptor);
+    cleanups.push(async () => {
+      await bridge.events.get("session_shutdown")?.({}, bridge.context);
+      client.close();
+    });
+    await client.open();
+
+    const prepared = await client.command({ command: "prepare_prompt", text: "$tdd --help" }) as {
+      visibleText: string;
+      runtimeText: string;
+      runtimeCapabilities: { skillInvocationDialect: "pi" };
+      sourceFingerprint: string;
+      skill?: { name: string; command: string; copyText: string };
+    };
+    expect(prepared).toMatchObject({
+      visibleText: "--help",
+      runtimeText: "/skill:tdd --help",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd --help" },
+    });
+
+    await expect(client.command({ command: "prompt", text: "$tdd --help", prepared, clientMessageId: "prepared-request" })).resolves.toMatchObject({ accepted: true });
+    expect(bridge.pi.sendUserMessage).toHaveBeenCalledWith("/skill:tdd --help", expect.objectContaining({ expandPromptTemplates: true }));
+  });
+
   it("returns normalized full-export messages without the expanded wrapper", async () => {
     const bridge = fakeBridge();
     bridge.context.sessionManager.getBranch = () => [
@@ -216,6 +244,10 @@ describe("Tau session bridge handler", () => {
       customType: "tau-client-message-cancel",
       data: { clientMessageId: "started-request" },
     });
+    for (let attempt = 0; attempt < 20 && !frames.some((frame) => (
+      frame && typeof frame === "object" && (frame as { type?: unknown }).type === "event"
+      && (frame as { event?: { type?: unknown } }).event?.type === "user_message_failed"
+    )); attempt += 1) await new Promise<void>((resolve) => setTimeout(resolve, 5));
     expect(frames).toContainEqual(expect.objectContaining({
       type: "event",
       event: expect.objectContaining({ type: "user_message_failed", clientMessageId: "started-request" }),

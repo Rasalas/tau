@@ -184,8 +184,15 @@ function StreamingTail({ children }: { children: string }) {
 
 /** Block Markdown must keep its block DOM; only a simple inline instruction can sit beside a chip. */
 export function isInlineMarkdown(text: string): boolean {
-  return !/(^|\n)(?:[ \t]{4}|```|~~~| {0,3}(?:#{1,6}\s|[-+*]\s|\d+\.\s|>|\*\*\*+\s*$|---+\s*$))/mu.test(text)
-    && !/\n\s*\n/u.test(text);
+  const lines = text.split(/\r?\n/u);
+  const hasTable = lines.some((line, index) => {
+    const separator = /^ {0,3}\|?\s*:?-{1,}:?\s*(?:\|\s*:?-{1,}:?\s*)+\|?\s*$/u.test(line);
+    const header = lines[index - 1] ?? "";
+    return separator && header.includes("|") && header.trim().length > 0;
+  });
+  const hasBlockLine = /^(?:[ \t]{4}| {0,3}(?:`{3,}|~{3,}|#{1,6}\s|[-+*]\s|\d+\.\s|>|\*\*\*+\s*$|---+\s*$))/mu.test(text);
+  const hasHtmlBlock = /^ {0,3}<(?:address|article|aside|blockquote|details|dialog|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|summary|table|ul)\b/imu.test(text);
+  return !hasBlockLine && !hasTable && !hasHtmlBlock && !/\n\s*\n/u.test(text);
 }
 
 /** Keep the mutable tail cheap and parse each completed block only once. */

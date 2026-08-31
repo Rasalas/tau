@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { readdir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -10,6 +11,7 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
+  loadSkills,
   type AgentSession,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
@@ -42,6 +44,8 @@ import type {
   UiTurnActivity,
   UiWorkspaceChanges,
   WorkspaceInfo,
+  ThreadBackendKind,
+  PreparedPrompt,
 } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
 import { formatChatTranscript } from "../shared/chat-transcript.js";
@@ -65,7 +69,7 @@ import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
-import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import type { PiBridgePreparedPrompt, PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import {
   branchMessagesWithClientMessageIds,
   clientMessageFingerprint,
@@ -78,13 +82,17 @@ import {
   unclaimedClientMessageIds,
 } from "../shared/client-message-correlation.js";
 import {
+  canonicalSkillName,
   normalizeSkillInvocationForRuntime,
+  prepareSkillPrompt,
   skillInvocationCommand,
   skillMessagePresentation,
   visibleSkillEnvelopeText,
 } from "./skill-invocation.js";
-import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter } from "./runtime-adapters.js";
-import { ClaudeRuntimeSessionStore, type ClaudeRuntimeSessionRecord, type ClaudeTitleSource } from "./claude-runtime-store.js";
+import { knownSkillNames } from "../shared/skill-envelope.js";
+import { assertClaudePermissionPolicySupported, assertRuntimeAdapter, createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { ClaudeRuntimeSessionStore, type ClaudeTitleSource } from "./claude-runtime-store.js";
+import { ClaudeThreadRuntimeBackend, PiThreadRuntimeBackend, type ThreadRuntimeBackend } from "./thread-runtime-backend.js";
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
@@ -166,8 +174,14 @@ export interface MessageMappingOptions {
 }
 
 export interface PiHostOptions {
-  /** Concrete agent runtime selected at startup; Pi is used by default. */
+  /** Legacy default adapter. Existing Pi sessions are still always opened by Pi. */
   runtimeAdapter?: AgentRuntimeAdapter;
+  /** Explicit adapters available to per-thread backend selection. */
+  runtimeAdapters?: Partial<Record<ThreadBackendKind, AgentRuntimeAdapter>>;
+  /** Backend for a newly created thread when no existing session metadata applies. */
+  defaultBackendKind?: ThreadBackendKind;
+  /** Commands available to the non-Pi backend; Pi discovers its own resources. */
+  runtimeCommands?: readonly UiComposerCommand[];
 }
 
 export function mapMessage(message: unknown, index: number, options: MessageMappingOptions = {}): UiMessage | undefined {
@@ -411,6 +425,7 @@ async function mapSessions(
       projectName: resolveProjectName(projectPath),
       branch: branches.get(projectPath),
       messageCount: session.messageCount,
+      backendKind: "pi",
     };
   });
 }
@@ -419,7 +434,7 @@ function sessionShellEqual(left: UiSession, right: UiSession): boolean {
   return left.id === right.id && left.path === right.path && left.title === right.title &&
     left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
     left.projectName === right.projectName && left.branch === right.branch &&
-    left.messageCount === right.messageCount;
+    left.messageCount === right.messageCount && left.backendKind === right.backendKind;
 }
 
 export function sessionIndexUpdates(previous: UiSession[], next: UiSession[]): HostUpdate[] {
@@ -450,6 +465,7 @@ export interface ActiveThreadShellInput {
   projectName: string;
   branch?: string;
   messageCount: number;
+  backendKind?: ThreadBackendKind;
 }
 
 export function reconcileActiveThreadShell(
@@ -466,6 +482,7 @@ export function reconcileActiveThreadShell(
     projectName: input.projectName,
     branch: input.branch,
     messageCount: input.messageCount,
+    ...(input.backendKind ? { backendKind: input.backendKind } : {}),
   };
 }
 
@@ -569,15 +586,21 @@ class ThreadRuntime implements LiveTurnState {
   unsubscribe?: () => void;
 
   constructor(
-    readonly runtime: AgentSessionRuntime,
-    readonly runtimeAdapter: AgentRuntimeAdapter,
+    readonly backend: ThreadRuntimeBackend,
+    readonly runtime?: AgentSessionRuntime,
   ) {}
 
-  get session(): AgentSession { return this.runtime.session; }
-  get sessionId(): string { return this.runtime.session.sessionId; }
-  get cwd(): string { return this.runtime.cwd; }
+  get runtimeAdapter(): AgentRuntimeAdapter { return this.backend.runtimeAdapter; }
+  get session(): AgentSession {
+    if (!this.runtime) throw new Error("This thread is owned by a non-Pi runtime.");
+    return this.runtime.session;
+  }
+  get sessionId(): string { return this.backend.sessionId; }
+  get cwd(): string { return this.backend.cwd; }
   get sessionFile(): string | undefined {
-    return this.session.sessionFile ?? this.session.sessionManager.getSessionFile();
+    return this.backend.kind === "pi" && this.runtime
+      ? this.session.sessionFile ?? this.session.sessionManager.getSessionFile()
+      : undefined;
   }
 
   resetLiveState(): void {
@@ -592,9 +615,21 @@ class ThreadRuntime implements LiveTurnState {
 }
 
 function isThreadRuntime(thread: LiveTurnState | undefined): thread is ThreadRuntime {
-  // Keep event handling usable with a runtime carrier from a test or an
-  // adapter boundary. `instanceof` is not stable across duplicated bundles.
-  return Boolean(thread && "runtimeAdapter" in thread && "session" in thread);
+  // The bridge has a deliberately smaller live-state carrier. Only an owned
+  // Pi backend has a Session/AgentSessionRuntime whose events can be handled
+  // here; external runtimes publish their own normalized messages.
+  if (!thread || !("backend" in thread)) return false;
+  const candidate = thread as ThreadRuntime;
+  return candidate.backend.kind === "pi" && Boolean(candidate.runtime);
+}
+
+function threadBackendKind(thread: ThreadRuntime | LiveTurnState | undefined): ThreadBackendKind {
+  if (thread && "backend" in thread && thread.backend) return thread.backend.kind;
+  return thread && "runtimeAdapter" in thread && thread.runtimeAdapter.id === "claude-code" ? "claude-code" : "pi";
+}
+
+function isPiBackend(thread: ThreadRuntime | LiveTurnState | undefined): boolean {
+  return threadBackendKind(thread) === "pi";
 }
 
 function samePath(left: string | undefined, right: string | undefined): boolean {
@@ -603,7 +638,11 @@ function samePath(left: string | undefined, right: string | undefined): boolean 
 
 export class PiHost {
   private cwd: string;
-  private readonly runtimeAdapter: AgentRuntimeAdapter;
+  /** Adapters are selected once, then each thread permanently owns one backend. */
+  private readonly runtimeAdapters: Record<ThreadBackendKind, AgentRuntimeAdapter>;
+  private readonly defaultBackendKind: ThreadBackendKind;
+  private readonly runtimeCommands: readonly UiComposerCommand[];
+  private readonly claudeStore: ClaudeRuntimeSessionStore;
   private emit: Emit;
   private bridge?: PiBridgeClient;
   private bridgeSnapshot?: PiBridgeSnapshot;
@@ -621,14 +660,14 @@ export class PiHost {
     maxLive: MAX_LIVE_THREADS,
     // A thread with work in flight, an open question, or nothing saved yet has
     // state that only its runtime holds; releasing it would lose that state.
-    canEvict: (record) => record.runtime.session.isIdle
+    canEvict: (record) => (record.runtime.backend?.isIdle?.() ?? true)
       && !this.hasOpenUiPrompts(record.sessionId)
       && record.runtime.adapterPending === 0
       && !record.runtime.adapterStreaming
       // An external runtime owns its transcript in the app-data store rather
       // than in Pi's message array. It is therefore safe to release once its
       // own visible projection has been persisted.
-      && (record.runtime.session.messages.length > 0 || (record.runtime.adapterMessages?.length ?? 0) > 0),
+      && ((record.runtime.runtime?.session.messages.length ?? 0) > 0 || (record.runtime.adapterMessages?.length ?? 0) > 0),
     dispose: (record) => this.disposeThread(record.runtime),
   });
   /** Runtimes being opened, keyed by session file, so a prewarm and a switch share one. */
@@ -765,7 +804,23 @@ export class PiHost {
   ) {
     this.cwd = cwd;
     const selectedAdapter = this.safeMode ? PI_AGENT_RUNTIME_ADAPTER : options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER;
-    this.runtimeAdapter = assertRuntimeAdapter(selectedAdapter);
+    const configured = assertRuntimeAdapter(selectedAdapter);
+    const configuredAdapters = options.runtimeAdapters ?? {};
+    const piAdapter = assertRuntimeAdapter(configuredAdapters.pi ?? PI_AGENT_RUNTIME_ADAPTER);
+    const configuredClaude = configuredAdapters["claude-code"]
+      ? assertRuntimeAdapter(configuredAdapters["claude-code"])
+      : configured.id === "claude-code" ? configured : undefined;
+    if (configuredClaude && configuredClaude.id !== "claude-code") throw new Error("Claude backend requires the Claude Code runtime adapter.");
+    this.runtimeAdapters = {
+      pi: piAdapter,
+      "claude-code": configuredClaude ?? createClaudeCodeRuntimeAdapter(),
+    };
+    const claude = this.runtimeAdapters["claude-code"];
+    this.claudeStore = claude.id === "claude-code" && claude.sessionStore
+      ? claude.sessionStore
+      : new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(this.agentDir) });
+    this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? configured.id;
+    this.runtimeCommands = options.runtimeCommands ?? [];
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
       emit(event);
@@ -775,6 +830,10 @@ export class PiHost {
         this.emit({ type: "tool-update", sessionId: this.toolOwners.get(id) ?? "", id, output });
       }
     });
+  }
+
+  private adapterFor(kind: ThreadBackendKind): AgentRuntimeAdapter {
+    return this.runtimeAdapters[kind];
   }
 
   // ---------------------------------------------------------------------------
@@ -797,7 +856,9 @@ export class PiHost {
   }
 
   private requireRuntime(): AgentSessionRuntime {
-    return this.requireActive().runtime;
+    const runtime = this.requireActive().runtime;
+    if (!runtime) throw new Error("This thread is owned by a non-Pi runtime.");
+    return runtime;
   }
 
   private requireSession(): AgentSession {
@@ -821,13 +882,15 @@ export class PiHost {
 
   /** Whether a command for `sessionId` belongs to the thread Pi's TUI owns. */
   private bridgeOwns(sessionId: string | undefined): boolean {
-    return this.runtimeAdapter.id === "pi" && Boolean(this.bridge) && (!sessionId || sessionId === this.bridgeSnapshot?.sessionId);
+    return this.adapterFor("pi").id === "pi" && Boolean(this.bridge) && (!sessionId || sessionId === this.bridgeSnapshot?.sessionId);
   }
 
   private liveThreadForPath(path: string | undefined): ThreadRuntime | undefined {
     if (!path) return undefined;
     const storedSessionId = claudeSessionIdFromPath(path);
     if (storedSessionId) return this.threads.get(storedSessionId)?.runtime;
+    const indexed = this.sessions.find((session) => session.path === path);
+    if (indexed?.backendKind === "claude-code") return this.threads.get(indexed.id)?.runtime;
     return this.threads.list().find((record) => samePath(record.runtime.sessionFile, path))?.runtime;
   }
 
@@ -836,19 +899,19 @@ export class PiHost {
   }
 
   private claudeSessionStore(): ClaudeRuntimeSessionStore | undefined {
-    return this.runtimeAdapter.id === "claude-code" ? this.runtimeAdapter.sessionStore : undefined;
-  }
-
-  private managerForClaudeRecord(record: ClaudeRuntimeSessionRecord): SessionManager {
-    // The Pi manager is only a host lifecycle carrier for this adapter. The
-    // durable transcript and Claude session id live in ClaudeRuntimeSessionStore.
-    return SessionManager.create(record.cwd, undefined, { id: record.tauSessionId });
+    return this.claudeStore;
   }
 
   private async initialSessionManager(cwd: string): Promise<SessionManager> {
-    const store = this.claudeSessionStore();
-    const latest = store ? (await store.list(cwd))[0] : undefined;
-    return latest ? this.managerForClaudeRecord(latest) : SessionManager.continueRecent(cwd);
+    return SessionManager.continueRecent(cwd);
+  }
+
+  private async openInitialThread(cwd: string): Promise<ThreadRuntime> {
+    if (this.defaultBackendKind === "claude-code") {
+      const latest = (await this.claudeStore.list(cwd))[0];
+      return this.openClaudeThread(latest?.tauSessionId ?? randomUUID(), cwd, { resume: Boolean(latest) });
+    }
+    return this.openThread(await this.initialSessionManager(cwd), undefined);
   }
 
   async start(): Promise<HostBootstrap> {
@@ -860,8 +923,8 @@ export class PiHost {
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
           throw new Error("Pi already owns this session. Close Pi before opening the project in Tau safe mode.");
         }
-        if (this.runtimeAdapter.id !== "pi" || !(await this.attachAvailableBridge(this.cwd))) {
-          const thread = await this.openThread(await this.initialSessionManager(this.cwd), undefined);
+        if (this.defaultBackendKind !== "pi" || !(await this.attachAvailableBridge(this.cwd))) {
+          const thread = await this.openInitialThread(this.cwd);
           await this.activateThread(thread, false);
         }
         this.branchFor(this.cwd);
@@ -956,16 +1019,20 @@ export class PiHost {
   private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
     await this.rememberProject(cwd);
     if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates();
-    if (this.runtimeAdapter.id === "pi" && await this.attachAvailableBridge(cwd)) {
+    if (this.defaultBackendKind === "pi" && await this.attachAvailableBridge(cwd)) {
       await this.rememberProject(this.cwd);
       await this.refreshActiveThreadIndex(false);
       return this.activeUpdates();
     }
     this.detachBridge();
     const startedAt = performance.now();
-    const manager = await this.initialSessionManager(cwd);
-    const thread = this.liveThreadForPath(manager.getSessionFile())
-      ?? await this.openThread(manager, { type: "session_start", reason: "resume", previousSessionFile: this.active?.sessionFile });
+    const thread = this.defaultBackendKind === "claude-code"
+      ? await this.openInitialThread(cwd)
+      : await (async () => {
+        const manager = await this.initialSessionManager(cwd);
+        return this.liveThreadForPath(manager.getSessionFile())
+          ?? await this.openThread(manager, { type: "session_start", reason: "resume", previousSessionFile: this.active?.sessionFile });
+      })();
     await this.activateThread(thread, false);
     this.logReplacement("workspace", startedAt);
     return this.activeUpdates();
@@ -1033,6 +1100,14 @@ export class PiHost {
 
     const thread = this.requireActive();
     return this.threads.run(thread.sessionId, async () => {
+      if (!isPiBackend(thread)) {
+        if (thread.adapterPending > 0 || thread.backend.isStreaming()) await this.abortThread(thread);
+        thread.adapterMessages = await thread.backend.transcript();
+        const snapshot = await this.snapshot();
+        const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
+        this.emitUpdate(update);
+        return this.actionResult([update]);
+      }
       const session = thread.session;
       // A run that is still in flight owns its tool calls; closing them from
       // outside would race the runtime. Stop it first, then repair.
@@ -1066,11 +1141,19 @@ export class PiHost {
     attachments: UiPromptAttachment[] = [],
     cwd?: string,
     clientMessageId?: string,
+    prepared?: PreparedPrompt,
   ): Promise<HostActionResult> {
-    if (this.runtimeAdapter.id === "pi" && this.bridge && (!cwd || cwd === this.cwd)) {
+    const backendKind = prepared?.backendKind ?? this.defaultBackendKind;
+    if (backendKind === "pi" && this.bridge && (!cwd || cwd === this.cwd)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      if (prepared) this.assertBridgePreparedPrompt(initialPrompt ?? "", prepared);
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt, ...(clientMessageId ? { clientMessageId } : {}) });
+        await this.bridgeCommand({
+          command: "new_session",
+          initialPrompt,
+          ...(clientMessageId ? { clientMessageId } : {}),
+          ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
+        });
         return this.actionResult([]);
       } catch (error) {
         // A new thread is a different session, so Pi has no standing to veto it.
@@ -1090,24 +1173,30 @@ export class PiHost {
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       this.detachBridge();
-      const spare = await this.takeSpareThread(targetCwd);
-      const thread = spare ?? await this.openThread(
-        SessionManager.create(targetCwd),
-        { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
-      );
+      const spare = backendKind === "pi" ? await this.takeSpareThread(targetCwd) : undefined;
+      const thread = spare
+        ?? (backendKind === "claude-code"
+          ? await this.openClaudeThread(randomUUID(), targetCwd, { resume: false })
+          : await this.openThread(
+            SessionManager.create(targetCwd),
+            { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
+          ));
       await this.activateThread(thread, true);
       // The first prompt names the thread right away; the run that follows
       // would otherwise leave it "Untitled" until it finishes.
       if (initialPrompt?.trim()) {
-        const presentation = skillMessagePresentation(initialPrompt, thread.runtimeAdapter, this.composerCommands(thread));
-        const visiblePrompt = presentation?.text ?? visibleTitleText(initialPrompt);
+        const presentation = prepared?.skill ?? skillMessagePresentation(initialPrompt, thread.runtimeAdapter, this.composerCommands(thread));
+        const visiblePrompt = prepared?.visibleText ?? (presentation && "text" in presentation ? presentation.text : visibleTitleText(initialPrompt));
         this.retitleShell(thread.sessionId, firstSentence(visiblePrompt));
       }
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (initialPrompt || attachments.length > 0) {
-        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId, clientMessageId).catch((error) => this.fail(error));
+        const deliveryPrepared = prepared?.sessionId && prepared.sessionId !== thread.sessionId
+          ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared.skill?.name)
+          : prepared;
+        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId, clientMessageId, deliveryPrepared).catch((error) => this.fail(error));
       }
-      this.scheduleSpareThread(targetCwd);
+      if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
       return this.activeUpdates();
     });
   }
@@ -1125,6 +1214,7 @@ export class PiHost {
       if (expectedSessionId && thread.sessionId !== expectedSessionId) {
         throw new Error("The selected thread changed before it could be forked.");
       }
+      if (!isPiBackend(thread)) throw new Error("Claude Code threads cannot be forked by the Pi session manager.");
       if (thread.session.isStreaming) throw new Error("Wait for the active run before forking this thread.");
       const sourceFile = thread.sessionFile;
       if (!sourceFile || !existsSync(sourceFile)) {
@@ -1173,6 +1263,15 @@ export class PiHost {
       });
     }
     const thread = this.requireThread(expectedSessionId);
+    if (!isPiBackend(thread)) {
+      const visibleMessages = await thread.backend.transcript();
+      return formatChatTranscript({
+        title: safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(visibleMessages.find((message) => message.role === "user")?.text ?? "")),
+        cwd: thread.cwd,
+        sessionId: thread.sessionId,
+        messages: visibleMessages.map((message) => ({ role: message.role, content: [{ type: "text", text: message.text }] })),
+      });
+    }
     const session = thread.session;
     const mapping = this.messageMappingOptions(thread);
     const persistedMessages = session.sessionManager.getBranch()
@@ -1196,6 +1295,7 @@ export class PiHost {
     attachments: UiPromptAttachment[],
     delivery: "prompt" | "steer" | "followUp",
     clientMessageId?: string,
+    prepared?: PreparedPrompt,
   ): Promise<void> {
     thread.adapterPending ??= 0;
     thread.adapterAbortGeneration ??= 0;
@@ -1218,7 +1318,7 @@ export class PiHost {
         error.name = "AbortError";
         throw error;
       }
-      return this.sendThroughRuntimeAdapterNow(thread, text, attachments, delivery, clientMessageId);
+      return this.sendThroughRuntimeAdapterNow(thread, text, attachments, delivery, clientMessageId, prepared);
     });
     const settled = operation.finally(() => {
       thread.adapterPending = Math.max(0, thread.adapterPending - 1);
@@ -1237,69 +1337,25 @@ export class PiHost {
     attachments: UiPromptAttachment[],
     delivery: "prompt" | "steer" | "followUp",
     clientMessageId?: string,
+    prepared?: PreparedPrompt,
   ): Promise<void> {
     const commands = this.composerCommands(thread);
-    const normalizedText = normalizeSkillInvocationForRuntime(text, this.runtimeAdapter, commands);
-    const now = Date.now();
+    if (prepared) this.assertPreparedPrompt(thread, text, prepared, commands);
     const abortController = new AbortController();
     thread.adapterAbortControllers ??= new Set<AbortController>();
     thread.adapterAbortControllers.add(abortController);
     try {
       if (attachments.length > 0) throw new Error("Image attachments are not supported by the selected runtime adapter.");
-      const transport = this.runtimeAdapter.transport;
-      if (!transport) throw new Error(`Runtime adapter '${this.runtimeAdapter.id}' has no configured transport.`);
-      const result = await transport.sendPrompt({
-        cwd: thread.cwd,
-        sessionId: thread.sessionId,
-        text: normalizedText,
-        delivery,
-        ...(clientMessageId ? { clientMessageId } : {}),
-        permissionPolicy: runtimePermissionPolicy(this.accessLevel),
-        signal: abortController.signal,
-      });
-      const presentation = skillMessagePresentation(text, this.runtimeAdapter, commands);
-      const user: UiMessage = {
-        id: `adapter-user-${clientMessageId ?? now}`,
-        ...(clientMessageId ? { clientMessageId } : {}),
-        role: "user",
-        text: presentation?.text ?? text,
-        ...(presentation ? { skill: presentation.skill } : {}),
-        timestamp: now,
-      };
-      (thread.adapterMessages ??= []).push(user);
-      this.emit({ type: "user-message", sessionId: thread.sessionId, message: user });
-      const assistant = result.assistantText && result.assistantText.length > 0
-        ? {
-          id: `adapter-assistant-${clientMessageId ?? now}`,
-          role: "assistant" as const,
-          text: result.assistantText,
-          timestamp: Date.now(),
-        }
-        : undefined;
-      if (assistant) {
-        (thread.adapterMessages ??= []).push(assistant);
-        this.emit({ type: "assistant-end", sessionId: thread.sessionId, message: assistant });
+      if (!isPiBackend(thread)) {
+        await thread.backend.prompt({ text, delivery, ...(clientMessageId ? { clientMessageId } : {}), ...(prepared ? { prepared } : {}), signal: abortController.signal });
+        thread.adapterMessages = await thread.backend.transcript();
+        const backendDetail = await thread.backend.detail();
+        thread.adapterTitle = backendDetail.title;
+        thread.adapterTitleSource = backendDetail.titleSource;
+        await this.refreshThreadShell(thread, true);
+        return;
       }
-      const store = thread.runtimeAdapter.id === "claude-code" ? thread.runtimeAdapter.sessionStore : undefined;
-      if (store) {
-        try {
-          await store.appendExchange(thread.sessionId, thread.cwd, assistant ? [user, assistant] : [user]);
-          if (!thread.adapterTitle && user.text.trim()) {
-            const title = firstSentence(visibleTitleText(user.text));
-            if (title !== "Untitled thread") {
-              thread.adapterTitle = title;
-              thread.adapterTitleSource = "derived";
-              thread.session.setSessionName(title);
-              await store.setTitle(thread.sessionId, thread.cwd, title, "derived");
-            }
-          }
-        } catch (error) {
-          // The runtime result is still authoritative if app-data persistence
-          // is temporarily unavailable; the next request can retry the write.
-          this.log("runtime.adapter.persist-failed", this.errorMessage(error));
-        }
-      }
-      await this.refreshThreadShell(thread, true);
+      throw new Error("Pi prompts must use the Pi session backend.");
     } catch (error) {
       const aborted = error instanceof Error && error.name === "AbortError";
       if (clientMessageId) {
@@ -1317,7 +1373,153 @@ export class PiHost {
     }
   }
 
+  /**
+   * Prepared prompt data is an opaque host result, but IPC callers can still
+   * replay or forge it. Bind it to the exact visible input and runtime owner
+   * before allowing the backend to execute the runtime spelling.
+   */
+  private assertPreparedPrompt(
+    thread: ThreadRuntime,
+    text: string,
+    prepared: PreparedPrompt,
+    commands: readonly UiComposerCommand[],
+  ): void {
+    this.assertPreparedPromptData(
+      text,
+      prepared,
+      threadBackendKind(thread),
+      thread.sessionId,
+      thread.runtimeAdapter,
+      commands,
+    );
+  }
+
+  private assertPreparedPromptData(
+    text: string,
+    prepared: PreparedPrompt,
+    backendKind: ThreadBackendKind,
+    sessionId: string | undefined,
+    adapter: AgentRuntimeAdapter,
+    commands: readonly UiComposerCommand[],
+  ): void {
+    if (prepared.backendKind !== backendKind
+      || (prepared.sessionId !== undefined && prepared.sessionId !== sessionId)
+      || prepared.runtimeCapabilities.skillInvocationDialect !== adapter.capabilities.skillInvocationDialect) {
+      throw new Error("Prepared prompt belongs to another runtime.");
+    }
+    const skillNamesSet = knownSkillNames(commands);
+    if (prepared.skill) {
+      const name = canonicalSkillName(prepared.skill.name);
+      if (!skillNamesSet.has(name)
+        || prepared.skill.command !== skillInvocationCommand(name, adapter)
+        || prepared.skill.copyText !== (prepared.visibleText ? `${prepared.skill.command} ${prepared.visibleText}` : prepared.skill.command)
+        || prepared.runtimeText !== prepared.skill.copyText) {
+        throw new Error(`The selected skill '${prepared.skill.name}' is no longer available in this runtime.`);
+      }
+    } else if (prepared.visibleText !== text || prepared.runtimeText !== text) {
+      throw new Error("Prepared prompt no longer matches the message being sent.");
+    }
+    const skillNames = [...skillNamesSet];
+    if (prepared.sourceFingerprint !== clientMessageFingerprint(text, skillNames)) {
+      throw new Error("Prepared prompt no longer matches the message being sent.");
+    }
+  }
+
+  /** Resolves a prompt before the renderer creates its optimistic message. */
+  async preparePrompt(text: string, sessionId?: string, skillName?: string): Promise<PreparedPrompt> {
+    if (this.bridgeOwns(sessionId)) {
+      const result = await this.bridgeCommand({ command: "prepare_prompt", text, ...(skillName ? { skillName } : {}) });
+      if (!result || typeof result !== "object") throw new Error("Pi bridge returned an invalid prepared prompt.");
+      const prepared = result as Partial<PiBridgePreparedPrompt>;
+      if (typeof prepared.visibleText !== "string" || typeof prepared.runtimeText !== "string" || typeof prepared.sourceFingerprint !== "string") {
+        throw new Error("Pi bridge returned an invalid prepared prompt.");
+      }
+      return {
+        sessionId: this.bridgeSnapshot?.sessionId,
+        backendKind: "pi",
+        runtimeCapabilities: prepared.runtimeCapabilities ?? PI_AGENT_RUNTIME_ADAPTER.capabilities,
+        visibleText: prepared.visibleText,
+        runtimeText: prepared.runtimeText,
+        ...(prepared.skill ? { skill: prepared.skill } : {}),
+        sourceFingerprint: prepared.sourceFingerprint,
+      };
+    }
+    const target = sessionId
+      ? this.requireThread(sessionId)
+      : (this.active && threadBackendKind(this.active) === this.defaultBackendKind ? this.active : undefined);
+    if (target?.backend) return target.backend.preparePrompt(text, skillName);
+    if (target) {
+      return this.preparePromptForAdapter(
+        text,
+        skillName,
+        target.runtimeAdapter,
+        this.composerCommands(target),
+        target.sessionId,
+        threadBackendKind(target),
+      );
+    }
+    const adapter = this.adapterFor(this.defaultBackendKind);
+    const commands = adapter.id === "claude-code"
+      ? this.claudeComposerCommands(this.cwd)
+      : this.runtimeCommands;
+    return this.preparePromptForAdapter(text, skillName, adapter, commands, undefined, this.defaultBackendKind);
+  }
+
+  private preparePromptForAdapter(
+    text: string,
+    skillName: string | undefined,
+    adapter: AgentRuntimeAdapter,
+    commands: readonly UiComposerCommand[],
+    sessionId: string | undefined,
+    backendKind: ThreadBackendKind,
+  ): PreparedPrompt {
+    if (adapter.id === "claude-code") assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.accessLevel));
+    const effectiveCommands = commands;
+    if (skillName && !knownSkillNames(commands).has(canonicalSkillName(skillName))) {
+      throw new Error(`The selected skill '${skillName}' is no longer available in this runtime.`);
+    }
+    const prepared = prepareSkillPrompt(text, adapter, effectiveCommands);
+    const skillNames = [...knownSkillNames(effectiveCommands)];
+    return {
+      ...(sessionId ? { sessionId } : {}),
+      backendKind,
+      runtimeCapabilities: adapter.capabilities,
+      visibleText: prepared.text,
+      runtimeText: prepared.runtimeText,
+      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      sourceFingerprint: clientMessageFingerprint(text, skillNames),
+    };
+  }
+
+  private piBridgePreparedPrompt(prepared: PreparedPrompt): PiBridgePreparedPrompt {
+    if (prepared.backendKind !== "pi") throw new Error("Prepared prompt belongs to another runtime.");
+    return {
+      visibleText: prepared.visibleText,
+      runtimeText: prepared.runtimeText,
+      runtimeCapabilities: prepared.runtimeCapabilities,
+      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      sourceFingerprint: prepared.sourceFingerprint,
+    };
+  }
+
+  private assertBridgePreparedPrompt(text: string, prepared: PreparedPrompt, sessionId?: string): void {
+    this.assertPreparedPromptData(
+      text,
+      prepared,
+      "pi",
+      sessionId,
+      PI_AGENT_RUNTIME_ADAPTER,
+      this.composerCommandsForAdapter(this.bridgeSnapshot?.composerCommands ?? [], PI_AGENT_RUNTIME_ADAPTER),
+    );
+  }
+
   async switchSession(path: string): Promise<HostActionResult> {
+    // The index carries the lifecycle owner. The virtual Claude path remains
+    // a compatibility fallback for older indexes, but a real entry wins so a
+    // future backend can use a non-file path without being mistaken for Pi.
+    const indexedSession = this.sessions.find((session) => session.path === path);
+    const backendKind = indexedSession?.backendKind
+      ?? (claudeSessionIdFromPath(path) ? "claude-code" : undefined);
     // A thread whose runtime is already live switches immediately and outside
     // the lifecycle queue: nothing is created, aborted or replaced.
     const live = this.bridge ? undefined : this.liveThreadForPath(path);
@@ -1329,7 +1531,7 @@ export class PiHost {
     }
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
-      if (this.runtimeAdapter.id === "pi" && await this.attachAvailableBridge(dirname(path), path)) {
+      if (backendKind !== "claude-code" && this.defaultBackendKind === "pi" && await this.attachAvailableBridge(dirname(path), path)) {
         this.cwd = this.bridgeSnapshot!.cwd;
         await this.rememberProject(this.cwd);
         await this.refreshActiveThreadIndex(false);
@@ -1339,7 +1541,7 @@ export class PiHost {
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
-        const thread = alreadyLive ?? await this.openThreadForPath(path, "resume");
+        const thread = alreadyLive ?? await this.openThreadForPath(path, "resume", false, backendKind);
         await this.activateThread(thread, false);
         this.logReplacement("resume", startedAt);
         return this.activeUpdates();
@@ -1352,9 +1554,11 @@ export class PiHost {
   /** Opens a thread's runtime ahead of time so switching to it is immediate. */
   async prewarmSession(path: string): Promise<void> {
     if (this.bridge || this.safeMode || this.liveThreadForPath(path)) return;
+    const backendKind = this.sessions.find((session) => session.path === path)?.backendKind
+      ?? (claudeSessionIdFromPath(path) ? "claude-code" : undefined);
     const startedAt = performance.now();
     try {
-      await this.openThreadForPath(path, "resume", true);
+      await this.openThreadForPath(path, "resume", true, backendKind);
       this.log("runtime.prewarm.ready", basename(path));
     } catch (error) {
       this.log("runtime.prewarm.failed", this.errorMessage(error));
@@ -1368,24 +1572,28 @@ export class PiHost {
     attachments: UiPromptAttachment[] = [],
     sessionId?: string,
     clientMessageId?: string,
+    prepared?: PreparedPrompt,
   ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      if (prepared) this.assertBridgePreparedPrompt(text, prepared, this.bridgeSnapshot?.sessionId);
       // Pi's bridge extension is the runtime owner and performs this
       // normalization against its current command registry exactly once.
-      await this.bridge!.command({ command: "prompt", text, ...(clientMessageId ? { clientMessageId } : {}) });
+      await this.bridge!.command({ command: "prompt", text, ...(clientMessageId ? { clientMessageId } : {}), ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}) });
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
-    if (this.runtimeAdapter.id !== "pi") {
-      await this.sendThroughRuntimeAdapter(thread, text, attachments, "prompt", clientMessageId);
+    if (!isPiBackend(thread)) {
+      await this.sendThroughRuntimeAdapter(thread, text, attachments, "prompt", clientMessageId, prepared);
       return;
     }
     const session = thread.session;
-    const prompt = this.normalizeThreadPrompt(thread, text);
+    const prompt = prepared
+      ? (this.assertPreparedPrompt(thread, text, prepared, this.composerCommands(thread)), prepared.runtimeText)
+      : this.normalizeThreadPrompt(thread, text);
     const isExtensionCommand = this.isExtensionCommand(thread, prompt);
-    let markerActive = this.appendClientMessageMarker(thread, clientMessageId, this.clientMessageCorrelationText(thread, text));
+    let markerActive = this.appendClientMessageMarker(thread, clientMessageId, text, prepared?.sourceFingerprint);
     const wasStreaming = session.isStreaming;
     const failUnpersistedMarker = () => {
       if (!markerActive) return;
@@ -1428,6 +1636,7 @@ export class PiHost {
       }
       return this.requireActive();
     });
+    if (!isPiBackend(thread)) throw new Error("Project actions are unavailable for Claude Code threads; run them through the Claude runtime.");
     const session = thread.session;
     if (session.isBashRunning) throw new Error("Another project action is already running.");
     const result = await session.executeBash(shellCommand, undefined, { excludeFromContext: !includeInContext });
@@ -1446,21 +1655,26 @@ export class PiHost {
     attachments: UiPromptAttachment[] = [],
     sessionId?: string,
     clientMessageId?: string,
+    prepared?: PreparedPrompt,
   ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer", ...(clientMessageId ? { clientMessageId } : {}) });
+      if (prepared) this.assertBridgePreparedPrompt(text, prepared, this.bridgeSnapshot?.sessionId);
+      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer", ...(clientMessageId ? { clientMessageId } : {}), ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}) });
       return;
     }
     try {
       const thread = this.requireThread(sessionId);
-      if (this.runtimeAdapter.id !== "pi") {
-        await this.sendThroughRuntimeAdapter(thread, text, attachments, "steer", clientMessageId);
+      if (!isPiBackend(thread)) {
+        await this.sendThroughRuntimeAdapter(thread, text, attachments, "steer", clientMessageId, prepared);
         return;
       }
-      let markerActive = this.appendClientMessageMarker(thread, clientMessageId, this.clientMessageCorrelationText(thread, text));
+      let markerActive = this.appendClientMessageMarker(thread, clientMessageId, text, prepared?.sourceFingerprint);
       try {
-        await thread.session.steer(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
+        const prompt = prepared
+          ? (this.assertPreparedPrompt(thread, text, prepared, this.composerCommands(thread)), prepared.runtimeText)
+          : this.normalizeThreadPrompt(thread, text);
+        await thread.session.steer(prompt, promptImages(attachments));
       } catch (error) {
         if (markerActive) {
           this.failClientMessageIfUnpersisted(thread, clientMessageId);
@@ -1479,21 +1693,26 @@ export class PiHost {
     attachments: UiPromptAttachment[] = [],
     sessionId?: string,
     clientMessageId?: string,
+    prepared?: PreparedPrompt,
   ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp", ...(clientMessageId ? { clientMessageId } : {}) });
+      if (prepared) this.assertBridgePreparedPrompt(text, prepared, this.bridgeSnapshot?.sessionId);
+      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp", ...(clientMessageId ? { clientMessageId } : {}), ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}) });
       return;
     }
     try {
       const thread = this.requireThread(sessionId);
-      if (this.runtimeAdapter.id !== "pi") {
-        await this.sendThroughRuntimeAdapter(thread, text, attachments, "followUp", clientMessageId);
+      if (!isPiBackend(thread)) {
+        await this.sendThroughRuntimeAdapter(thread, text, attachments, "followUp", clientMessageId, prepared);
         return;
       }
-      let markerActive = this.appendClientMessageMarker(thread, clientMessageId, this.clientMessageCorrelationText(thread, text));
+      let markerActive = this.appendClientMessageMarker(thread, clientMessageId, text, prepared?.sourceFingerprint);
       try {
-        await thread.session.followUp(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
+        const prompt = prepared
+          ? (this.assertPreparedPrompt(thread, text, prepared, this.composerCommands(thread)), prepared.runtimeText)
+          : this.normalizeThreadPrompt(thread, text);
+        await thread.session.followUp(prompt, promptImages(attachments));
       } catch (error) {
         if (markerActive) {
           this.failClientMessageIfUnpersisted(thread, clientMessageId);
@@ -1525,11 +1744,11 @@ export class PiHost {
   private async abortThread(thread: ThreadRuntime): Promise<void> {
     this.settleApprovalsFor(thread.sessionId, { allowed: false, reason: "Blocked by Tau: the run was stopped." });
     this.cancelUiPromptsFor(thread.sessionId);
-    if (thread.runtimeAdapter.id !== "pi") {
+    if (!isPiBackend(thread)) {
       thread.adapterAbortGeneration ??= 0;
       thread.adapterAbortGeneration += 1;
       for (const controller of thread.adapterAbortControllers ?? []) controller.abort();
-      await thread.runtimeAdapter.transport.abort?.(thread.sessionId);
+      await thread.backend.abort();
       return;
     }
     await thread.session.abort();
@@ -1541,7 +1760,12 @@ export class PiHost {
       await this.refreshBridgeSnapshot();
       return this.catalogResult();
     }
-    const session = this.requireSession();
+    const thread = this.requireActive();
+    if (!isPiBackend(thread)) {
+      await thread.backend.setModel(provider, id);
+      return this.catalogResult();
+    }
+    const session = thread.session;
     const model = session.modelRuntime.getModel(provider, id);
     if (!model) throw new Error(`Unknown model: ${provider}/${id}`);
     await session.setModel(model);
@@ -1555,7 +1779,12 @@ export class PiHost {
       await this.refreshBridgeSnapshot();
       return this.catalogResult();
     }
-    const session = this.requireSession();
+    const thread = this.requireActive();
+    if (!isPiBackend(thread)) {
+      await thread.backend.setThinkingLevel(level);
+      return this.catalogResult();
+    }
+    const session = thread.session;
     if (!session.getAvailableThinkingLevels().includes(level as never)) {
       throw new Error(`Thinking level is not available: ${level}`);
     }
@@ -1576,6 +1805,7 @@ export class PiHost {
     if (!title) throw new Error("Thread titles cannot be empty.");
     if (title.length > 120) throw new Error("Thread titles must be 120 characters or fewer.");
     let sessionId: string;
+    let displayedTitle = title;
     if (this.bridge) {
       sessionId = this.bridgeSnapshot?.sessionId ?? "";
       if (expectedSessionId && sessionId !== expectedSessionId) {
@@ -1586,20 +1816,23 @@ export class PiHost {
     } else {
       const thread = this.requireThread(expectedSessionId);
       sessionId = thread.sessionId;
-      thread.session.setSessionName(title);
-    if (thread.runtimeAdapter?.id === "claude-code" && thread.runtimeAdapter.sessionStore) {
-      thread.adapterTitle = title;
-      thread.adapterTitleSource = "renamed";
-      await thread.runtimeAdapter.sessionStore.setTitle(thread.sessionId, thread.cwd, title, "renamed");
+      if (isPiBackend(thread)) {
+        thread.session.setSessionName(title);
+      } else {
+        await thread.backend.setTitle(title, "renamed");
+        const detail = await thread.backend.detail();
+        thread.adapterTitle = detail.title;
+        thread.adapterTitleSource = detail.titleSource;
+        displayedTitle = detail.title ?? "Skill invocation";
       }
     }
     const now = Date.now();
     this.sessions = this.sessions.map((thread) =>
-      thread.id === sessionId ? { ...thread, title, modifiedAt: now } : thread,
+      thread.id === sessionId ? { ...thread, title: displayedTitle, modifiedAt: now } : thread,
     );
     const shell = this.sessions.find((thread) => thread.id === sessionId);
     if (!shell) throw new Error("The active thread is missing from the session index.");
-    this.log("title.renamed", title);
+    this.log("title.renamed", displayedTitle);
     const update: HostUpdate = {
       version: HOST_PROTOCOL_VERSION,
       type: "thread-shell",
@@ -1615,6 +1848,7 @@ export class PiHost {
       throw new Error("Generate the thread title in Pi while Tau is attached to its runtime.");
     }
     const thread = this.requireThread(expectedSessionId);
+    if (!isPiBackend(thread)) throw new Error("Claude Code thread titles are generated by the Claude backend and cannot use Pi's model runtime.");
     const session = thread.session;
     if (session.isStreaming) {
       if (force) throw new Error("Wait for the active agent run before generating a title.");
@@ -1666,11 +1900,8 @@ export class PiHost {
     const title = cleanThreadTitle(textFromContent(response.content));
     if (this.threads.get(thread.sessionId)?.runtime !== thread) return { version: HOST_PROTOCOL_VERSION, updates: [] };
     session.setSessionName(title);
-    if (thread.runtimeAdapter?.id === "claude-code" && thread.runtimeAdapter.sessionStore) {
-      thread.adapterTitle = title;
-      thread.adapterTitleSource = "generated";
-      await thread.runtimeAdapter.sessionStore.setTitle(thread.sessionId, thread.cwd, title, "generated");
-    }
+    thread.adapterTitle = title;
+    thread.adapterTitleSource = "generated";
     this.sessions = this.sessions.map((entry) =>
       entry.id === session.sessionId ? { ...entry, title, modifiedAt: Date.now() } : entry,
     );
@@ -1729,6 +1960,7 @@ export class PiHost {
         return;
       }
       const thread = this.requireActive();
+      if (!isPiBackend(thread)) throw new Error("Claude Code runtime resources are managed by the Claude backend and cannot be reloaded as Pi extensions.");
       if (thread.session.isStreaming) throw new Error("Wait for the active run before reloading Pi.");
       await thread.session.reload();
       this.modelCatalogCache.invalidate();
@@ -1737,7 +1969,8 @@ export class PiHost {
       // rebuild on demand, so drop them rather than reload each one.
       this.discardSpare();
       for (const record of this.threads.list()) {
-        if (record.runtime !== thread && record.runtime.session.isIdle && !this.hasOpenUiPrompts(record.sessionId)) {
+        if (record.runtime !== thread && isPiBackend(record.runtime)
+          && record.runtime.session.isIdle && !this.hasOpenUiPrompts(record.sessionId)) {
           await this.threads.release(record.sessionId);
         }
       }
@@ -1755,7 +1988,7 @@ export class PiHost {
       await this.bridge.command({ command: "compact" }, 120_000);
       await this.refreshBridgeSnapshot();
     } else {
-      await this.requireSession().compact();
+      await this.requireActive().backend.compact();
     }
     this.log("context.compacted");
     const snapshot = await this.snapshot();
@@ -1896,6 +2129,44 @@ export class PiHost {
   // Thread runtime lifecycle
   // ---------------------------------------------------------------------------
 
+  /** Opens a Claude-owned thread without allocating a Pi AgentSession carrier. */
+  private async openClaudeThread(
+    sessionId: string,
+    cwd: string,
+    options: { background?: boolean; adopt?: boolean; resume?: boolean } = {},
+  ): Promise<ThreadRuntime> {
+    if (this.safeMode) throw new Error("Claude Code threads are disabled in Tau safe mode; choose the Pi runtime.");
+    const adapter = this.adapterFor("claude-code");
+    if (adapter.id !== "claude-code") throw new Error("Claude Code is not configured for this host.");
+    const store = this.claudeSessionStore();
+    if (!store) throw new Error("Claude Code backend has no durable session store.");
+    const backend = new ClaudeThreadRuntimeBackend(sessionId, cwd, {
+      adapter,
+      store,
+      commands: () => this.claudeComposerCommands(cwd),
+      projectName: this.projectNameFor(cwd),
+      branch: this.knownBranches.get(cwd),
+      permissionPolicy: () => runtimePermissionPolicy(this.accessLevel),
+      onMessage: (message) => {
+        const thread = this.threads.get(sessionId)?.runtime;
+        if (thread) {
+          thread.adapterMessages = [...thread.adapterMessages, message];
+          this.emit(message.role === "user"
+            ? { type: "user-message", sessionId, message }
+            : { type: "assistant-end", sessionId, message });
+        }
+      },
+    });
+    if (options.resume === false) await backend.create();
+    else await backend.resume();
+    const thread = new ThreadRuntime(backend);
+    thread.adapterMessages = await backend.transcript();
+    thread.adapterTitle = (await store.get(sessionId))?.title;
+    thread.adapterTitleSource = (await store.get(sessionId))?.titleSource;
+    if (options.adopt !== false) await this.adoptThread(thread);
+    return thread;
+  }
+
   /**
    * Builds a runtime for one session, binds Tau's UI to it, and hands it to the
    * registry. The thread is live afterwards but not yet on screen.
@@ -1909,21 +2180,41 @@ export class PiHost {
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
     try {
-      runtime = await createAgentSessionRuntime(this.createRuntime, {
+      const createdRuntime = await createAgentSessionRuntime(this.createRuntime, {
         cwd,
         agentDir: this.agentDir,
         sessionManager: manager,
         sessionStartEvent,
       });
-      const thread = new ThreadRuntime(runtime, this.runtimeAdapter);
-      await this.restoreAdapterThread(thread);
+      let thread!: ThreadRuntime;
+      runtime = createdRuntime;
+      const backend = new PiThreadRuntimeBackend(createdRuntime, this.adapterFor("pi"), {
+        commands: () => this.composerCommands(thread),
+        mapMessages: (messages) => messages
+          .map((message, index) => mapMessage(message, index, this.messageMappingOptions(thread)))
+          .filter((message): message is UiMessage => Boolean(message?.text || message?.skill)),
+        index: async () => this.sessions.find((entry) => entry.id === createdRuntime.session.sessionId) ?? {
+          id: createdRuntime.session.sessionId,
+          path: createdRuntime.session.sessionFile ?? createdRuntime.session.sessionId,
+          title: cleanThreadTitle(safeSessionTitle(createdRuntime.session.sessionName) || firstSentence(visibleTitleText(textFromContent((createdRuntime.session.messages[0] as { content?: unknown } | undefined)?.content)))),
+          modifiedAt: Date.now(),
+          projectPath: createdRuntime.cwd,
+          projectName: this.projectNameFor(createdRuntime.cwd),
+          branch: this.branchFor(createdRuntime.cwd),
+          messageCount: createdRuntime.session.messages.length,
+          backendKind: "pi",
+        },
+      });
+      thread = new ThreadRuntime(backend, createdRuntime);
+      if (sessionStartEvent?.reason === "resume") await backend.resume();
+      else await backend.create();
       await this.bindThread(thread, thread.session);
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
       return thread;
     } catch (error) {
       if (runtime) {
-        const cleanupErrors = await this.teardownRuntime(runtime, this.runtimeAdapter.id === "pi");
+        const cleanupErrors = await this.teardownRuntime(runtime, true);
         if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed");
       }
       throw error;
@@ -1936,41 +2227,32 @@ export class PiHost {
     await this.threads.adopt({ sessionId: thread.sessionId, cwd: thread.cwd, runtime: thread, isolation: "in-process" });
   }
 
-  /** Rehydrates only the visible projection owned by an external adapter. */
-  private async restoreAdapterThread(thread: ThreadRuntime): Promise<void> {
-    const store = thread.runtimeAdapter.id === "claude-code" ? thread.runtimeAdapter.sessionStore : undefined;
-    if (!store) return;
-    const record = await store.get(thread.sessionId);
-    if (!record) return;
-    thread.adapterMessages = record.messages.map((message, index) => ({
-      id: `adapter-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
-      ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
-      role: message.role,
-      text: message.text,
-      ...(message.skill ? { skill: { ...message.skill } } : {}),
-      timestamp: message.timestamp,
-    }));
-    thread.adapterTitle = record.title;
-    thread.adapterTitleSource = record.titleSource;
-    if (record.title && !thread.session.sessionName) thread.session.setSessionName(record.title);
-  }
-
   /** One runtime per session file: concurrent opens for the same path share it. */
-  private openThreadForPath(path: string, reason: "resume", background = false): Promise<ThreadRuntime> {
+  private openThreadForPath(
+    path: string,
+    reason: "resume",
+    background = false,
+    backendKind?: ThreadBackendKind,
+  ): Promise<ThreadRuntime> {
     const live = this.liveThreadForPath(path);
     if (live) return Promise.resolve(live);
     let pending = this.openingThreads.get(path);
     if (!pending) {
       pending = (async () => {
         const storedSessionId = claudeSessionIdFromPath(path);
-        let manager: SessionManager;
-        if (storedSessionId) {
-          const record = await this.claudeSessionStore()?.get(storedSessionId);
+        const indexedSession = this.sessions.find((session) => session.path === path);
+        const owner = backendKind ?? indexedSession?.backendKind ?? (storedSessionId ? "claude-code" : "pi");
+        if (owner === "claude-code") {
+          if (this.safeMode) throw new Error("Claude Code threads are disabled in Tau safe mode; choose the Pi runtime.");
+          const sessionId = storedSessionId ?? indexedSession?.id;
+          if (!sessionId) throw new Error("The Claude Code session has no durable session id.");
+          const record = await this.claudeSessionStore()?.get(sessionId);
           if (!record) throw new Error("The selected Claude Code session is no longer available.");
-          manager = this.managerForClaudeRecord(record);
-        } else {
-          manager = SessionManager.open(path);
+          return this.openClaudeThread(record.tauSessionId, record.cwd, { background });
         }
+        if (storedSessionId) throw new Error("The selected Claude Code session is owned by another runtime backend.");
+        let manager: SessionManager;
+        manager = SessionManager.open(path);
         return this.openThread(
           manager,
           { type: "session_start", reason, previousSessionFile: this.active?.sessionFile },
@@ -1985,7 +2267,7 @@ export class PiHost {
   }
 
   private async bindThread(thread: ThreadRuntime, session: AgentSession): Promise<void> {
-    if (thread.runtime.session !== session) throw new Error("Cannot bind a stale Pi session");
+    if (thread.runtime?.session !== session) throw new Error("Cannot bind a stale Pi session");
     const bindStartedAt = performance.now();
     await session.bindExtensions({
       uiContext: createExtensionUiContext({
@@ -2012,7 +2294,7 @@ export class PiHost {
    */
   private recoverOrphanedClientMessageMarkers(thread: ThreadRuntime): void {
     const manager = thread.session.sessionManager;
-    const staleIds = unclaimedClientMessageIds(manager.getBranch());
+    const staleIds = unclaimedClientMessageIds(manager.getBranch(), knownSkillNames(this.composerCommands(thread)));
     for (const clientMessageId of staleIds) {
       manager.appendCustomEntry(CLIENT_MESSAGE_CANCEL_MARKER, clientMessageCancelMarker(clientMessageId).data);
       this.forgetClientMessageId(thread, clientMessageId);
@@ -2021,6 +2303,7 @@ export class PiHost {
 
   private installThreadHooks(thread: ThreadRuntime): void {
     const runtime = thread.runtime;
+    if (!runtime) return;
     runtime.setBeforeSessionInvalidate(() => {
       thread.unsubscribe?.();
       thread.unsubscribe = undefined;
@@ -2037,13 +2320,13 @@ export class PiHost {
     if (!this.threads.has(thread.sessionId)) await this.adoptThread(thread);
     this.threads.setActive(thread.sessionId);
     this.cwd = thread.cwd;
-    this.extensionCount = thread.session.resourceLoader.getExtensions().extensions.length;
+    this.extensionCount = isPiBackend(thread) ? thread.session.resourceLoader.getExtensions().extensions.length : 0;
     await this.rememberProject(this.cwd);
     await this.refreshThreadShell(thread, touch);
     this.log("session.opened", thread.sessionId.slice(0, 8));
     this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
     this.scheduleRuntimePrewarm();
-    this.scheduleSpareThread(thread.cwd);
+    if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
   }
 
   private async publishActiveCatalog(): Promise<void> {
@@ -2056,10 +2339,10 @@ export class PiHost {
     this.cancelUiPromptsFor(thread.sessionId);
     thread.adapterAbortGeneration ??= 0;
     thread.adapterAbortGeneration += 1;
-    if (thread.runtimeAdapter.id !== "pi") {
+    if (!isPiBackend(thread)) {
       try {
         for (const controller of thread.adapterAbortControllers ?? []) controller.abort();
-        await thread.runtimeAdapter.transport.abort?.(thread.sessionId);
+        await thread.backend.abort();
       } catch (error) {
         this.log("runtime.adapter.abort-failed", this.errorMessage(error));
       }
@@ -2067,7 +2350,9 @@ export class PiHost {
     thread.unsubscribe?.();
     thread.unsubscribe = undefined;
     for (const id of thread.tools.keys()) this.toolOwners.delete(id);
-    const errors = await this.teardownRuntime(thread.runtime, thread.runtimeAdapter.id === "pi");
+    const errors = thread.backend && !isPiBackend(thread)
+      ? await (async () => { try { await thread.backend.dispose(); return []; } catch (error) { return [error]; } })()
+      : thread.runtime ? await this.teardownRuntime(thread.runtime, true) : [];
     if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");
   }
 
@@ -2381,6 +2666,7 @@ export class PiHost {
       sessionTitle: cleanThreadTitle(safeSessionTitle(snapshot.sessionName) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
       model: snapshot.model ? mapModel(snapshot.model) : undefined,
       runtimeCapabilities: snapshot.runtimeCapabilities ?? PI_AGENT_RUNTIME_ADAPTER.capabilities,
+      backendKind: "pi",
       models: snapshot.models.map(mapModel),
       thinkingLevel: snapshot.thinkingLevel,
       thinkingLevels: snapshot.thinkingLevels,
@@ -2544,6 +2830,7 @@ export class PiHost {
 
   private async ensureModels(): Promise<UiModel[]> {
     if (this.bridgeSnapshot) return this.bridgeSnapshot.models.map(mapModel);
+    if (this.active && !isPiBackend(this.active)) return [];
     const key = this.resourceFingerprint(this.cwd);
     const cached = this.modelCatalogCache.get(key);
     if (cached) return cached;
@@ -2564,6 +2851,7 @@ export class PiHost {
   }
 
   private async externalSessionShells(): Promise<UiSession[]> {
+    if (this.safeMode) return [];
     const store = this.claudeSessionStore();
     if (!store) return [];
     const records = await store.list();
@@ -2578,6 +2866,7 @@ export class PiHost {
         projectName: this.projectNameFor(record.cwd),
         branch: this.branchFor(record.cwd),
         messageCount: record.messages.length,
+        backendKind: "claude-code",
       };
     });
   }
@@ -2641,14 +2930,33 @@ export class PiHost {
   }
 
   private sessionShellPath(thread: ThreadRuntime): string {
-    return thread.runtimeAdapter?.id === "claude-code"
+    return threadBackendKind(thread) === "claude-code"
       ? claudeSessionPath(thread.sessionId)
       : thread.sessionFile ?? thread.sessionId;
   }
 
   private async refreshThreadShell(thread: ThreadRuntime, touch: boolean): Promise<void> {
-    const session = thread.session;
     const projectPath = thread.cwd;
+    if (!isPiBackend(thread)) {
+      const existing = this.sessions.find((entry) => entry.id === thread.sessionId);
+      const visibleMessages = this.messageSnapshot(thread);
+      const shell = reconcileActiveThreadShell({
+        id: thread.sessionId,
+        path: this.sessionShellPath(thread),
+        explicitTitle: safeSessionTitle(thread.adapterTitle),
+        derivedTitle: firstSentence(visibleTitleText(visibleMessages.find((message) => message.role === "user")?.text ?? "")),
+        now: Date.now(),
+        projectPath,
+        projectName: this.projectNameFor(projectPath),
+        branch: this.branchFor(projectPath),
+        messageCount: visibleMessages.length,
+        backendKind: threadBackendKind(thread),
+      }, existing, touch);
+      this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
+      this.publishThreadShellSoon(shell);
+      return;
+    }
+    const session = thread.session;
     const existing = this.sessions.find((entry) => entry.id === session.sessionId);
     const shell = reconcileActiveThreadShell({
       id: session.sessionId,
@@ -2660,6 +2968,7 @@ export class PiHost {
       projectName: this.projectNameFor(projectPath),
       branch: this.branchFor(projectPath),
       messageCount: session.messages.length + (thread.adapterMessages?.length ?? 0),
+      backendKind: threadBackendKind(thread),
     }, existing, touch);
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishThreadShellSoon(shell);
@@ -2711,18 +3020,25 @@ export class PiHost {
     const manager = thread.session.sessionManager;
     if (!manager?.getBranch) return thread.session.messages;
     const entries = manager.getBranch();
-    const messages = branchMessagesWithClientMessageIds(entries);
+    const messages = branchMessagesWithClientMessageIds(entries, knownSkillNames(this.composerCommands(thread)));
     let messageIndex = 0;
     return entries.flatMap((entry) => entry.type === "message"
       ? [{ ...(messages[messageIndex++] as Record<string, unknown>), tauEntryId: entry.id }]
       : []);
   }
 
-  private appendClientMessageMarker(thread: ThreadRuntime, clientMessageId: string | undefined, correlationText?: string): boolean {
+  private appendClientMessageMarker(
+    thread: ThreadRuntime,
+    clientMessageId: string | undefined,
+    correlationText?: string,
+    preparedFingerprint?: string,
+  ): boolean {
     if (!clientMessageId) return false;
     thread.pendingClientMessageFingerprints ??= new Map<string, string>();
     thread.pendingClientMessageIds.push(clientMessageId);
-    const fingerprint = correlationText === undefined ? undefined : clientMessageFingerprint(correlationText);
+    const fingerprint = preparedFingerprint ?? (correlationText === undefined
+      ? undefined
+      : clientMessageFingerprint(correlationText, knownSkillNames(this.composerCommands(thread))));
     if (fingerprint) thread.pendingClientMessageFingerprints.set(clientMessageId, fingerprint);
     thread.session.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId, fingerprint).data);
     return true;
@@ -2737,7 +3053,7 @@ export class PiHost {
 
   /** Only a runtime-persisted id proves that a marker's request was recorded. */
   private persistedClientMessageIds(thread: ThreadRuntime): Set<string> {
-    return new Set(branchMessagesWithClientMessageIds(thread.session.sessionManager.getBranch()).flatMap((message) => {
+    return new Set(branchMessagesWithClientMessageIds(thread.session.sessionManager.getBranch(), knownSkillNames(this.composerCommands(thread))).flatMap((message) => {
       if (!message || typeof message !== "object") return [];
       const value = message as { role?: unknown; clientMessageId?: unknown };
       return value.role === "user" && typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
@@ -2801,6 +3117,7 @@ export class PiHost {
       thread.pendingClientMessageIds,
       thread.pendingClientMessageFingerprints,
       message,
+      knownSkillNames(this.composerCommands(thread)),
     );
     if (clientMessageId) {
       const pending = thread.pendingClientMessageIds.indexOf(clientMessageId);
@@ -2819,21 +3136,19 @@ export class PiHost {
       : undefined;
     const manager = thread.session.sessionManager;
     const fingerprintId = thread.pendingClientMessageFingerprints
-      ? matchClientMessageId(thread.pendingClientMessageIds, thread.pendingClientMessageFingerprints, message)
+      ? matchClientMessageId(thread.pendingClientMessageIds, thread.pendingClientMessageFingerprints, message, knownSkillNames(this.composerCommands(thread)))
       : undefined;
     const clientMessageId = directId
-      ?? (manager?.getBranch ? clientMessageIdForMessage(manager.getBranch(), message) : undefined);
+      ?? (manager?.getBranch ? clientMessageIdForMessage(manager.getBranch(), message, knownSkillNames(this.composerCommands(thread))) : undefined);
     const resolvedClientMessageId = clientMessageId ?? fingerprintId;
     if (resolvedClientMessageId) this.forgetClientMessageId(thread, resolvedClientMessageId);
     return directId || !resolvedClientMessageId ? message : { ...value, clientMessageId: resolvedClientMessageId };
   }
 
-  private clientMessageCorrelationText(thread: ThreadRuntime, text: string): string {
-    const presentation = skillMessagePresentation(text, thread.runtimeAdapter, this.composerCommands(thread));
-    return presentation?.text ?? text;
-  }
-
   private messageSnapshot(thread: ThreadRuntime): UiMessage[] {
+    if (!isPiBackend(thread)) {
+      return [...thread.adapterMessages];
+    }
     const mapping = this.messageMappingOptions(thread);
     const messages = this.branchMessagesWithEntryIds(thread)
       .map((message, index) => mapMessage(message, index, mapping))
@@ -2859,6 +3174,7 @@ export class PiHost {
   }
 
   private composerCommands(thread: ThreadRuntime): UiComposerCommand[] {
+    if (!isPiBackend(thread) && thread.backend) return this.claudeComposerCommands(thread.cwd);
     const loader = thread.session.resourceLoader;
     const commands = new Map<string, UiComposerCommand>();
     for (const extension of loader.getExtensions().extensions) {
@@ -2892,6 +3208,22 @@ export class PiHost {
       }
     }
     return [...commands.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  /** Claude gets only skill metadata from the shared skill directories. It
+   * never creates a Pi resource loader or imports Pi transcript/context state. */
+  private claudeComposerCommands(cwd: string): UiComposerCommand[] {
+    if (this.runtimeCommands.length > 0) return this.runtimeCommands.map((command) => ({ ...command }));
+    const result = loadSkills({ cwd, agentDir: this.agentDir, skillPaths: [], includeDefaults: true });
+    return result.skills
+      .filter((skill) => /^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(skill.name))
+      .map((skill) => ({
+        name: `skill:${skill.name}`,
+        description: skill.description,
+        source: "skill" as const,
+        skillCommand: skillInvocationCommand(skill.name, this.adapterFor("claude-code")),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   }
 
   private normalizeThreadPrompt(thread: ThreadRuntime, text: string): string {
@@ -2942,6 +3274,31 @@ export class PiHost {
   private snapshotSync(models: UiModel[]): HostSnapshot {
     if (this.bridgeSnapshot) return { ...this.bridgeHostSnapshot(), models };
     const thread = this.requireActive();
+    if (!isPiBackend(thread)) {
+      const messages = this.messageSnapshot(thread);
+      const firstUserMessage = messages.find((message) => message.role === "user");
+      return {
+        cwd: thread.cwd,
+        sessionId: thread.sessionId,
+        sessionName: safeSessionTitle(thread.adapterTitle),
+        sessionTitle: cleanThreadTitle(safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
+        runtimeCapabilities: thread.runtimeAdapter.capabilities,
+        backendKind: thread.backend.kind,
+        models: [],
+        thinkingLevel: "off",
+        thinkingLevels: ["off"],
+        messages,
+        isStreaming: thread.adapterStreaming || thread.backend.isStreaming(),
+        activeTools: [],
+        taskProgress: undefined,
+        taskHistory: [],
+        allTools: [],
+        composerCommands: this.composerCommands(thread),
+        extensionCount: 0,
+        serviceTier: "standard",
+        serviceTierAvailable: false,
+      };
+    }
     const session = thread.session;
     const branchMessages = this.branchMessagesWithEntryIds(thread);
     const messages = this.messageSnapshot(thread);
@@ -2954,6 +3311,7 @@ export class PiHost {
       sessionTitle: cleanThreadTitle(safeSessionTitle(session.sessionName) || safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
       model: session.model ? mapModel(session.model) : undefined,
       runtimeCapabilities: thread.runtimeAdapter.capabilities,
+      backendKind: thread.backend.kind,
       models,
       thinkingLevel: session.thinkingLevel,
       thinkingLevels: session.getAvailableThinkingLevels(),

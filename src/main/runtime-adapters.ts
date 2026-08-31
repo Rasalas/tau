@@ -7,15 +7,37 @@ import { ClaudeRuntimeSessionStore } from "./claude-runtime-store.js";
 export interface RuntimePermissionPolicy {
   /** Claude's supported mode corresponding to Tau's access setting. */
   permissionMode: "plan" | "manual" | "auto";
-  /** Explicit Claude tool allow-list. `default` delegates the normal set. */
+  /** Explicit Claude tool allow-list; installation defaults are never used. */
   tools: readonly string[];
 }
 
 const CLAUDE_POLICIES: Record<AccessLevel, RuntimePermissionPolicy> = {
   "read-only": { permissionMode: "plan", tools: ["Read", "Glob", "Grep"] },
-  ask: { permissionMode: "manual", tools: ["default"] },
-  full: { permissionMode: "auto", tools: ["default"] },
+  // Keep the CLI's tool surface explicit. `default` would make the adapter's
+  // behavior depend on a user's Claude installation and can expose tools that
+  // Tau did not make available.
+  ask: { permissionMode: "manual", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
+  full: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
 };
+
+/**
+ * Claude's `manual` permission mode needs an interactive TTY approval prompt.
+ * Tau invokes Claude through `--print`, so accepting that mode would leave a
+ * child waiting forever with no way for the user to answer it.
+ */
+export function assertClaudePermissionPolicySupported(policy: RuntimePermissionPolicy): void {
+  if (!policy || !["plan", "manual", "auto"].includes(policy.permissionMode)) {
+    throw new Error("Claude Code received an unsupported Tau permission policy.");
+  }
+  if (policy.permissionMode === "manual") {
+    throw new Error("Claude Code manual approvals are unsupported in non-interactive --print mode; choose read-only or full access before launching Claude.");
+  }
+  if (!Array.isArray(policy.tools)) throw new Error("Claude Code received an unsupported Tau tool policy.");
+  const expected = CLAUDE_POLICIES[policy.permissionMode === "plan" ? "read-only" : "full"];
+  if (policy.tools.length !== expected.tools.length || policy.tools.some((tool, index) => tool !== expected.tools[index])) {
+    throw new Error("Claude Code received an unsupported Tau tool policy.");
+  }
+}
 
 export function runtimePermissionPolicy(level: AccessLevel): RuntimePermissionPolicy {
   const policy = CLAUDE_POLICIES[level];
@@ -144,6 +166,7 @@ export function claudeCodeArgs(
   prompt: string,
   policy: RuntimePermissionPolicy,
 ): string[] {
+  assertClaudePermissionPolicySupported(policy);
   return [
     "--print",
     "--output-format",
@@ -151,6 +174,8 @@ export function claudeCodeArgs(
     "--permission-mode",
     policy.permissionMode,
     "--tools",
+    policy.tools.join(","),
+    "--allowed-tools",
     policy.tools.join(","),
     ...(started ? ["--resume", claudeSessionId] : ["--session-id", claudeSessionId]),
     "--",
@@ -182,7 +207,9 @@ function runClaudeProcess(
   let terminating: Error | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let stdout = "";
+  let stdoutTruncated = false;
   let stderr = "";
+  let stderrTruncated = false;
   let terminateProcess: (reason: Error) => Promise<void> = async () => undefined;
   let resolveResult!: (value: string) => void;
   let rejectResult!: (reason: unknown) => void;
@@ -220,17 +247,47 @@ function runClaudeProcess(
   };
   const onAbort = () => { void terminateProcess(abortError("Claude Code request aborted.")); };
 
+  const appendStderr = (chunk: string): void => {
+    if (stderrTruncated) return;
+    const next = `${stderr}${chunk}`;
+    if (Buffer.byteLength(next, "utf8") <= maxBuffer) {
+      stderr = next;
+      return;
+    }
+    const marker = "\n[Claude Code stderr truncated]\n";
+    const budget = Math.max(0, maxBuffer - Buffer.byteLength(marker, "utf8"));
+    stderr = `${Buffer.from(next, "utf8").subarray(0, budget).toString("utf8")}${marker}`;
+    stderrTruncated = true;
+  };
+
+  const appendStdout = (chunk: string): void => {
+    if (stdoutTruncated) return;
+    const next = `${stdout}${chunk}`;
+    if (Buffer.byteLength(next, "utf8") <= maxBuffer) {
+      stdout = next;
+      return;
+    }
+    const marker = "\n[Claude Code stdout truncated]\n";
+    const budget = Math.max(0, maxBuffer - Buffer.byteLength(marker, "utf8"));
+    stdout = `${Buffer.from(next, "utf8").subarray(0, budget).toString("utf8")}${marker}`;
+    stdoutTruncated = true;
+  };
+
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
   child.stdout?.on("data", (chunk: string) => {
     if (settled || terminating) return;
-    stdout += chunk;
-    if (Buffer.byteLength(stdout, "utf8") > maxBuffer) {
-      void terminateProcess(new Error(`Claude Code output exceeded the ${maxBuffer}-byte limit.`));
+    appendStdout(chunk);
+    if (stdoutTruncated) {
+      void terminateProcess(new Error(`Claude Code stdout exceeded the ${maxBuffer}-byte limit.\n[Claude Code stdout truncated]`));
     }
   });
   child.stderr?.on("data", (chunk: string) => {
-    if (!settled) stderr += chunk;
+    if (settled || terminating) return;
+    appendStderr(chunk);
+    if (stderrTruncated) {
+      void terminateProcess(new Error(`Claude Code stderr exceeded the ${maxBuffer}-byte limit.\n[Claude Code stderr truncated]`));
+    }
   });
   child.once("error", (error) => {
     if (terminating) settle(terminating);
@@ -279,6 +336,10 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     sessionStore,
     transport: {
       async sendPrompt(input) {
+        const policy = input.permissionPolicy ?? runtimePermissionPolicy("full");
+        // Reject an unsupported Tau access mode before joining a queue or
+        // spawning anything, so a queued request cannot turn into a hang.
+        assertClaudePermissionPolicySupported(policy);
         const generation = abortGenerations.get(input.sessionId) ?? 0;
         const previous = requestQueues.get(input.sessionId) ?? Promise.resolve();
         const operation = previous.then(async () => {
@@ -289,17 +350,66 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
           if (generation !== (abortGenerations.get(input.sessionId) ?? 0) || input.signal?.aborted) {
             throw abortError("Claude Code request aborted.");
           }
-          const policy = input.permissionPolicy ?? runtimePermissionPolicy("full");
-          const args = claudeCodeArgs(record.claudeSessionId, record.started, input.text, policy);
-          const assistantText = await runClaudeProcess(
-            command,
-            args,
-            input,
-            maxBuffer,
-            timeoutMs,
-            killGraceMs,
-            activeProcesses,
-          );
+          // `attempted` is persisted before spawning. On the next request a
+          // previously attempted-but-unconfirmed id is resumed first; only a
+          // clear "missing session" response permits one create fallback.
+          const resumeFirst = record.started || record.attempted;
+          const run = async (started: boolean): Promise<string> => {
+            await sessionStore.markAttempted(input.sessionId, input.cwd);
+            if (generation !== (abortGenerations.get(input.sessionId) ?? 0) || input.signal?.aborted) {
+              throw abortError("Claude Code request aborted.");
+            }
+            return runClaudeProcess(
+              command,
+              claudeCodeArgs(record.claudeSessionId, started, input.text, policy),
+              input,
+              maxBuffer,
+              timeoutMs,
+              killGraceMs,
+              activeProcesses,
+            );
+          };
+          let assistantText: string;
+          try {
+            assistantText = await run(resumeFirst);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const aborted = error instanceof Error && error.name === "AbortError";
+            if (aborted) {
+              await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "aborted");
+              throw error;
+            }
+            // A first create can race an already-created Claude session. A
+            // later resume is the safe recovery; a failed resume can likewise
+            // fall back to create exactly once when Claude says the id is gone.
+            const missing = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid)|(?:no|cannot|could not)\s+(?:find\s+)?(?:the\s+)?(?:session|conversation)/iu.test(message);
+            const conflict = /(?:session|conversation)[^\n]*(?:already exists|already in use|conflict)/iu.test(message);
+            if (resumeFirst && !record.createFallbackUsed && missing) {
+              await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "missing");
+              await sessionStore.markCreateFallbackUsed(input.sessionId, input.cwd);
+              try {
+                assistantText = await run(false);
+              } catch (fallbackError) {
+                await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "failed");
+                throw fallbackError;
+              }
+            } else if (!resumeFirst && conflict) {
+              await sessionStore.markCreateFallbackUsed(input.sessionId, input.cwd);
+              try {
+                assistantText = await run(true);
+              } catch (fallbackError) {
+                await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "failed");
+                throw fallbackError;
+              }
+            } else {
+              await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "failed");
+              throw error;
+            }
+          }
+          if (generation !== (abortGenerations.get(input.sessionId) ?? 0) || input.signal?.aborted) {
+            await sessionStore.markAttemptOutcome(input.sessionId, input.cwd, "aborted");
+            throw abortError("Claude Code request aborted.");
+          }
           await sessionStore.markStarted(input.sessionId, input.cwd);
           return { assistantText };
         });

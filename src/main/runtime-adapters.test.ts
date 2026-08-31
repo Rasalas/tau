@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -25,13 +25,13 @@ describe("runtime adapter selection", () => {
 
   it("builds an explicit Tau permission policy and terminates options before prompt text", () => {
     expect(runtimePermissionPolicy("read-only")).toEqual({ permissionMode: "plan", tools: ["Read", "Glob", "Grep"] });
-    expect(runtimePermissionPolicy("ask")).toEqual({ permissionMode: "manual", tools: ["default"] });
-    expect(runtimePermissionPolicy("full")).toEqual({ permissionMode: "auto", tools: ["default"] });
+    expect(runtimePermissionPolicy("ask")).toEqual({ permissionMode: "manual", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] });
+    expect(runtimePermissionPolicy("full")).toEqual({ permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] });
     const args = claudeCodeArgs("123e4567-e89b-12d3-a456-426614174000", false, "--help", runtimePermissionPolicy("full"));
     expect(args.at(-2)).toBe("--");
     expect(args.at(-1)).toBe("--help");
     expect(args).toContain("--tools");
-    expect(args).toContain("default");
+    expect(args).toContain("Read,Glob,Grep,Edit,Write,Bash");
     expect(args).not.toContain("--dangerously-skip-permissions");
     expect(args).not.toContain("--allow-dangerously-skip-permissions");
   });
@@ -80,6 +80,41 @@ describe("runtime adapter selection", () => {
     }
   });
 
+  it.skipIf(process.platform === "win32")("recovers create/resume conflicts and one missing resumed session", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-claude-recovery-"));
+    try {
+      const command = join(directory, "claude-recovery-stub.mjs");
+      await writeFile(command, "#!/usr/bin/env node\nconst args = process.argv.slice(2);\nconst prompt = args.at(-1);\nif (prompt === 'conflict' && !args.includes('--resume')) { process.stderr.write('session already exists'); process.exit(2); }\nif (prompt === 'missing' && args.includes('--resume')) { process.stderr.write('session not found'); process.exit(2); }\nprocess.stdout.write(args.includes('--resume') ? 'resumed' : 'created');\n", { encoding: "utf8", mode: 0o700 });
+      await chmod(command, 0o700);
+      const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json") });
+
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "conflict-session", text: "conflict" })).resolves.toEqual({ assistantText: "resumed" });
+      const conflictRecord = await adapter.sessionStore?.get("conflict-session");
+      expect(conflictRecord).toMatchObject({ started: true, attempted: true, createFallbackUsed: true, attemptCount: 2 });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "conflict-session", text: "next" })).resolves.toEqual({ assistantText: "resumed" });
+
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "missing-session", text: "first" })).resolves.toEqual({ assistantText: "created" });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "missing-session", text: "missing" })).resolves.toEqual({ assistantText: "created" });
+      const missingRecord = await adapter.sessionStore?.get("missing-session");
+      expect(missingRecord).toMatchObject({ started: true, createFallbackUsed: true, attemptCount: 3 });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("bounds stderr and reports its truncation marker", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-claude-stderr-"));
+    try {
+      const command = join(directory, "claude-stderr-stub.mjs");
+      await writeFile(command, "#!/usr/bin/env node\nprocess.stderr.write('e'.repeat(200)); process.exit(2);\n", { encoding: "utf8", mode: 0o700 });
+      await chmod(command, 0o700);
+      const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json"), maxBuffer: 64, killGraceMs: 20 });
+      await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), sessionId: "stderr-session", text: "fail" })).rejects.toThrow("Claude Code stderr truncated");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("rejects an accidental provider-shaped adapter selection", () => {
     expect(() => selectRuntimeAdapter("anthropic")).toThrow("TAU_RUNTIME_ADAPTER");
   });
@@ -88,5 +123,25 @@ describe("runtime adapter selection", () => {
     expect(() => assertRuntimeAdapter({ id: "pi", capabilities: { skillInvocationDialect: "claude-code" } })).toThrow("must declare");
     expect(() => assertRuntimeAdapter({ id: "claude-code", capabilities: { skillInvocationDialect: "claude-code" } })).toThrow("requires");
     expect(() => assertRuntimeAdapter({ id: "anthropic" as never, capabilities: { skillInvocationDialect: "pi" } })).toThrow("Unsupported runtime adapter");
+  });
+
+  it.skipIf(process.platform === "win32")("rejects unsupported manual policy before spawning Claude", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-claude-policy-"));
+    try {
+      const marker = join(directory, "spawned");
+      const command = join(directory, "claude-policy-stub.mjs");
+      await writeFile(command, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'spawned');\n`, { encoding: "utf8", mode: 0o700 });
+      await chmod(command, 0o700);
+      const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json") });
+      await expect(adapter.transport.sendPrompt({
+        cwd: process.cwd(),
+        sessionId: "manual-session",
+        text: "must reject",
+        permissionPolicy: runtimePermissionPolicy("ask"),
+      })).rejects.toThrow("manual approvals are unsupported");
+      await expect(access(marker)).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
