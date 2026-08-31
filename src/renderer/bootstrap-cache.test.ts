@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HostSnapshot } from "../shared/contracts";
 import { detailFromSnapshot } from "../shared/host-protocol";
+import { parseLocalTranscriptCursor } from "../shared/transcript-cursor";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 
 const snapshot: HostSnapshot = {
@@ -28,7 +29,7 @@ describe("bootstrap cache", () => {
     const paged = {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
-      olderCursor: "11",
+      olderCursor: parseLocalTranscriptCursor("11"),
     };
     writeBootstrapCache(paged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
@@ -43,7 +44,7 @@ describe("bootstrap cache", () => {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
       transcriptMessageIndexes: Array.from({ length: 30 }, (_, index) => index + 100),
-      olderCursor: "100",
+      olderCursor: parseLocalTranscriptCursor("100"),
     };
     writeBootstrapCache(bridged, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
@@ -52,10 +53,26 @@ describe("bootstrap cache", () => {
     expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe("120");
   });
 
-  it("normalizes a stale v2 payload before first paint and ignores the old cache key", () => {
+  it("keeps a legacy-truncated cache limited without retaining a discarded cursor", () => {
+    let value: string | null = null;
+    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    writeBootstrapCache({
+      ...snapshot,
+      messages: Array.from({ length: 160 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
+      olderCursor: parseLocalTranscriptCursor("0"),
+      historyCompleteness: "legacy-truncated",
+    }, { projects: [], sessions: [] }, storage);
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.messages).toHaveLength(10);
+    expect(cached?.snapshot.olderCursor).toBeUndefined();
+    expect(cached?.snapshot.historyCompleteness).toBe("legacy-truncated");
+    expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBeUndefined();
+  });
+
+  it("normalizes a stale v3 payload before first paint and ignores older cache keys", () => {
     const stale = JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } });
     const storage = {
-      getItem: (key: string) => key === "tau.bootstrap-cache.v2" ? stale : null,
+      getItem: (key: string) => key === "tau.bootstrap-cache.v3" ? stale : null,
       setItem: () => undefined,
       removeItem: () => undefined,
     };
@@ -65,7 +82,7 @@ describe("bootstrap cache", () => {
     expect(cached?.snapshot.olderCursor).toBe("40");
 
     const oldOnly = {
-      getItem: (key: string) => key === "tau.bootstrap-cache.v1" ? stale : null,
+      getItem: (key: string) => key === "tau.bootstrap-cache.v2" || key === "tau.bootstrap-cache.v1" ? stale : null,
       setItem: () => undefined,
       removeItem: () => undefined,
     };

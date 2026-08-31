@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiMessage } from "../../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../../shared/host-protocol";
+import { parseLocalTranscriptCursor } from "../../shared/transcript-cursor";
 import { TranscriptHistoryBoundary } from "./TranscriptHistoryBoundary";
 import { VirtualTranscript } from "./VirtualTranscript";
 import { TranscriptHistoryController } from "../transcript-history";
@@ -59,7 +60,7 @@ function snapshot(sessionId: string, messages: UiMessage[]): HostSnapshot {
     sessionId,
     sessionTitle: sessionId,
     messages,
-    olderCursor: "0",
+    olderCursor: parseLocalTranscriptCursor("0"),
     isStreaming: false,
     activeTools: [],
     allTools: [],
@@ -73,7 +74,7 @@ function snapshot(sessionId: string, messages: UiMessage[]): HostSnapshot {
 }
 
 function detail(sessionId: string, messages: UiMessage[]): ThreadDetail {
-  return { sessionId, messages, olderCursor: "0", hasMore: true, isStreaming: false, activeTools: [] };
+  return { sessionId, messages, olderCursor: parseLocalTranscriptCursor("0"), hasMore: true, isStreaming: false, activeTools: [] };
 }
 
 function Fixture({

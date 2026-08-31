@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL_VERSION, decodeHostUpdates, detailFromSnapshot, isHostUpdate } from "./host-protocol.js";
 import type { HostSnapshot } from "./contracts.js";
+import { parseLocalTranscriptCursor } from "./transcript-cursor.js";
 
 const snapshot: HostSnapshot = {
   cwd: "/tmp/project", sessionId: "session", sessionTitle: "title", models: [],
@@ -46,7 +47,7 @@ describe("host protocol", () => {
   });
 
   it("preserves a cursor when a cached snapshot is already bounded", () => {
-    const detail = detailFromSnapshot({ ...snapshot, messages: snapshot.messages, olderCursor: "12" });
+    const detail = detailFromSnapshot({ ...snapshot, messages: snapshot.messages, olderCursor: parseLocalTranscriptCursor("12") });
     expect(detail.olderCursor).toBe("12");
     expect(detail.hasMore).toBe(true);
   });
@@ -76,5 +77,27 @@ describe("host protocol", () => {
     expect(detail.messages.map((message) => message.id)).toEqual(["user", "answer"]);
     expect(detail.olderCursor).toBeUndefined();
     expect(detail.hasMore).toBe(false);
+  });
+
+  it("keeps a legacy-truncated window limited instead of inventing a local end cursor", () => {
+    const detail = detailFromSnapshot({
+      ...snapshot,
+      messages: Array.from({ length: 160 }, (_, index) => ({
+        id: `message-${index}`,
+        role: "user" as const,
+        text: String(index),
+        timestamp: index,
+      })),
+      historyCompleteness: "legacy-truncated",
+    });
+    expect(detail.messages).toHaveLength(10);
+    expect(detail.olderCursor).toBeUndefined();
+    expect(detail.hasMore).toBe(false);
+    expect(detail.historyCompleteness).toBe("legacy-truncated");
+  });
+
+  it("does not turn a cursor-less has-more claim into a false end", () => {
+    const detail = detailFromSnapshot({ ...snapshot, historyCompleteness: "has-more" });
+    expect(detail.historyCompleteness).toBe("unknown");
   });
 });

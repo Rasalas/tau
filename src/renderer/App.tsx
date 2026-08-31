@@ -109,6 +109,7 @@ export function optimisticThreadSnapshot(
     taskProgress: detail.taskProgress,
     taskHistory: detail.taskHistory,
     contextUsage: detail.contextUsage,
+    historyCompleteness: detail.historyCompleteness,
   };
 }
 
@@ -465,6 +466,7 @@ export default function App() {
       contextUsage: next.contextUsage,
       olderCursor: next.olderCursor,
       hasMore: next.olderCursor !== undefined,
+      historyCompleteness: next.historyCompleteness,
     };
     if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
     threadStore.applyHostSnapshot(next);
@@ -795,6 +797,7 @@ export default function App() {
           taskHistory: bootstrap.detail.taskHistory,
           contextUsage: bootstrap.detail.contextUsage,
           olderCursor: bootstrap.detail.olderCursor,
+          historyCompleteness: bootstrap.detail.historyCompleteness,
         };
         if (!applySnapshot(current, bootstrapRequest)) return;
         void refreshChanges();

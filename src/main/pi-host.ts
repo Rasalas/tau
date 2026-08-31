@@ -67,6 +67,9 @@ import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import { transcriptPagingNegotiated, type PiBridgeServerFrame, type PiBridgeSnapshot, type PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
+import { inferLegacyBridgeCompleteness, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
+import { parseLocalTranscriptCursor, parseRawBridgeTranscriptCursor, transcriptCursorValue, type RawBridgeTranscriptCursor } from "../shared/transcript-cursor.js";
+import { mergeProjectedRawIndexes, messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -188,12 +191,24 @@ function bridgeMessagesOffset(value: unknown): number | undefined {
   return value as number;
 }
 
-function bridgeTranscriptCursor(value: unknown): string | undefined {
+function bridgeTranscriptCursor(value: unknown): RawBridgeTranscriptCursor | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || !/^\d+$/u.test(value)) {
+  try {
+    return parseRawBridgeTranscriptCursor(value);
+  } catch {
     throw new Error("Pi returned an invalid transcript page cursor.");
   }
-  return value;
+}
+
+export function historyCompletenessForBridgeSnapshot(
+  snapshot: Pick<PiBridgeSnapshot, "messages" | "capabilities" | "historyCompleteness" | "olderCursor">,
+): TranscriptHistoryCompleteness {
+  return inferLegacyBridgeCompleteness(
+    snapshot.messages.length,
+    transcriptPagingNegotiated(snapshot.capabilities),
+    snapshot.historyCompleteness,
+    snapshot.olderCursor !== undefined,
+  );
 }
 
 /** Validate and map one bridge-owned raw page, preserving its raw indexes. */
@@ -203,7 +218,9 @@ export function mapBridgeMessages(value: unknown, offsetValue?: unknown): Bridge
   const messages: UiMessage[] = [];
   const transcriptMessageIndexes: number[] = [];
   value.forEach((raw, index) => {
-    const mapped = mapMessage(raw, index);
+    // When the bridge gives us a raw offset, use it for fallback IDs too. A
+    // bridge record without tauEntryId must still deduplicate across pages.
+    const mapped = mapMessage(raw, offset === undefined ? index : offset + index);
     if (!mapped?.text) return;
     messages.push(mapped);
     if (offset !== undefined) transcriptMessageIndexes.push(offset + index);
@@ -217,13 +234,24 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): PiBrid
   if (page.sessionId !== expectedSessionId || !Array.isArray(page.messages) || typeof page.hasMore !== "boolean") {
     throw new Error("Pi returned an invalid transcript page.");
   }
-  bridgeMessagesOffset(page.messagesOffset);
+  const messagesOffset = bridgeMessagesOffset(page.messagesOffset);
   const olderCursor = bridgeTranscriptCursor(page.olderCursor);
   if (page.hasMore !== (olderCursor !== undefined)) throw new Error("Pi returned an invalid transcript page.");
+  const historyCompleteness = page.historyCompleteness === undefined
+    ? undefined
+    : parseTranscriptHistoryCompleteness(page.historyCompleteness);
+  if (page.historyCompleteness !== undefined && historyCompleteness === undefined) {
+    throw new Error("Pi returned an invalid transcript history completeness.");
+  }
   if (page.taskHistory !== undefined && !Array.isArray(page.taskHistory)) {
     throw new Error("Pi returned an invalid transcript activity history.");
   }
-  return page as PiBridgeTranscriptPage;
+  return {
+    ...page,
+    ...(messagesOffset !== undefined ? { messagesOffset } : {}),
+    ...(olderCursor !== undefined ? { olderCursor } : {}),
+    ...(historyCompleteness !== undefined ? { historyCompleteness } : {}),
+  } as PiBridgeTranscriptPage;
 }
 
 /** Validate and map one bridge-owned transcript page at the host seam. */
@@ -231,12 +259,14 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
   const page = bridgeTranscriptPage(value, sessionId);
   const mapped = mapBridgeMessages(page.messages, page.messagesOffset);
   const taskHistory = taskHistoryForMessages(page.taskHistory, mapped.messages);
+  const olderCursor = page.olderCursor;
   return {
     sessionId,
     messages: mapped.messages,
     ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
     ...(taskHistory ? { taskHistory } : {}),
-    ...(typeof page.olderCursor === "string" ? { olderCursor: page.olderCursor } : {}),
+    ...(olderCursor !== undefined ? { olderCursor: parseLocalTranscriptCursor(transcriptCursorValue(olderCursor)) } : {}),
+    historyCompleteness: resolveTranscriptHistoryCompleteness(page.historyCompleteness, page.hasMore),
     hasMore: page.hasMore,
   };
 }
@@ -827,10 +857,10 @@ export class PiHost {
   async loadTranscript(sessionId: string, cursor?: string): Promise<TranscriptPage> {
     let result: TranscriptPage;
     if (this.bridgeOwns(sessionId) && transcriptPagingNegotiated(this.bridgeSnapshot?.capabilities)) {
-      const raw = await this.bridgeCommand(cursor === undefined
-        ? { command: "transcript_page" }
-        : { command: "transcript_page", cursor }) as unknown;
-      result = this.mapBridgeTranscriptPage(sessionId, raw);
+      const raw = cursor === undefined
+        ? await this.bridgeCommand({ command: "transcript_page" }) as unknown
+        : await this.bridgeCommand({ command: "transcript_page", cursor: transcriptCursorValue(parseRawBridgeTranscriptCursor(cursor)) }) as unknown;
+      result = mapBridgeTranscriptPageValue(sessionId, raw);
     } else if (this.bridgeOwns(sessionId)) {
       // Older Pi bridge extensions expose a bounded snapshot but no paging
       // command. Keep that compatibility path local to the retained window.
@@ -862,10 +892,6 @@ export class PiHost {
       ...page,
       ...(visibleHistory ? { taskHistory: visibleHistory } : {}),
     };
-  }
-
-  private mapBridgeTranscriptPage(sessionId: string, value: unknown): TranscriptPage {
-    return mapBridgeTranscriptPageValue(sessionId, value);
   }
 
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
@@ -1991,6 +2017,10 @@ export class PiHost {
       snapshot.taskHistory,
       taskProgressHistoryFromMessages(snapshot.messages),
     );
+    const historyCompleteness = historyCompletenessForBridgeSnapshot(snapshot);
+    const olderCursor = snapshot.olderCursor === undefined
+      ? undefined
+      : parseRawBridgeTranscriptCursor(snapshot.olderCursor);
     return {
       cwd: snapshot.cwd,
       sessionId: snapshot.sessionId,
@@ -2004,7 +2034,8 @@ export class PiHost {
       thinkingLevels: snapshot.thinkingLevels,
       messages: mapped.messages,
       ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
-      ...(snapshot.olderCursor ? { olderCursor: snapshot.olderCursor } : {}),
+      ...(olderCursor ? { olderCursor: parseLocalTranscriptCursor(transcriptCursorValue(olderCursor)) } : {}),
+      historyCompleteness,
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,
       turnActivity: lastTurnActivityFromMessages(snapshot.messages),
@@ -2360,6 +2391,7 @@ export class PiHost {
       extensionCount: this.extensionCount,
       serviceTier: this.serviceTier,
       serviceTierAvailable: this.serviceTierAvailable(),
+      historyCompleteness: "complete",
       contextUsage: usage && usage.tokens !== null && usage.percent !== null
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined,

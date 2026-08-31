@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { HostSnapshot, UiMessage } from "../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
+import { parseLocalTranscriptCursor } from "../shared/transcript-cursor";
 import {
   mergeTranscriptMessages,
   TranscriptHistoryController,
@@ -15,7 +16,7 @@ function detail(sessionId: string, ids: string[], olderCursor?: string): ThreadD
   return {
     sessionId,
     messages: ids.map((id) => message(id)),
-    olderCursor,
+    olderCursor: olderCursor === undefined ? undefined : parseLocalTranscriptCursor(olderCursor),
     hasMore: olderCursor !== undefined,
     isStreaming: false,
     activeTools: [],
@@ -29,7 +30,7 @@ function snapshot(sessionId: string, ids: string[], olderCursor?: string): HostS
     sessionId,
     sessionTitle: sessionId,
     messages: ids.map((id) => message(id)),
-    olderCursor,
+    olderCursor: olderCursor === undefined ? undefined : parseLocalTranscriptCursor(olderCursor),
     isStreaming: false,
     activeTools: [],
     allTools: [],
@@ -46,7 +47,7 @@ function page(sessionId: string, ids: string[], olderCursor?: string): Transcrip
   return {
     sessionId,
     messages: ids.map((id) => message(id)),
-    olderCursor,
+    olderCursor: olderCursor === undefined ? undefined : parseLocalTranscriptCursor(olderCursor),
     hasMore: olderCursor !== undefined,
   };
 }
@@ -67,7 +68,7 @@ describe("TranscriptHistoryController", () => {
     expect(controller.getSnapshot()).toMatchObject({ loading: false, status: { state: "success", loadedTurns: 1 } });
   });
 
-  it("invalidates a page when a newer thread transition wins", () => {
+  it("rejects a page when a newer thread transition wins", () => {
     const controller = new TranscriptHistoryController();
     controller.syncSnapshot(snapshot("thread-a", ["a"], "1"), detail("thread-a", ["a"], "1"));
     const request = controller.beginLoad({ messageId: "a", viewportOffset: 0 });

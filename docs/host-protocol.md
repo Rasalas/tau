@@ -6,7 +6,8 @@ state; it must not reinterpret it as a `HostSnapshot`.
 
 - `thread-index` and `thread-shell` contain navigation records only.
 - `thread-detail` contains the active session's messages, run state, tools, and usage.
-- `transcript-page` contains a bounded page plus a cursor for older records.
+- `transcript-page` contains a bounded page plus a cursor for older records and
+  an optional `historyCompleteness` value.
 - `catalog` contains models, thinking levels, tools, and extension count.
 - `project` contains workspace identity, branch, and optional project metadata.
 - `run` contains lifecycle state for the active session.
@@ -26,6 +27,9 @@ history, and the `transcript_page` command.
 If `hello.capabilities` is absent or does not enable `transcriptPaging`, the
 bridge serves the legacy v1 snapshot shape and window, omits paging metadata,
 and rejects `transcript_page`. This is the compatibility path for an older host;
-the host only sends paging commands after the capability has been echoed. Unknown
-commands are rejected explicitly so a client cannot mistake an unsupported
-extension for an empty page.
+the host only sends paging commands after the capability has been echoed. A new
+host marks a legacy window at the bridge's record cap as `legacy-truncated` (and
+shorter metadata-free windows as `unknown`), so the workbench never presents
+that bounded view as the beginning of history; it explains that a bridge upgrade
+is required. Unknown commands are rejected explicitly so a client cannot mistake
+an unsupported extension for an empty page.

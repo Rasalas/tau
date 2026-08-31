@@ -1,8 +1,10 @@
 import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
 import { detailFromSnapshot } from "../shared/host-protocol";
+import { localTranscriptCursorAt, parseLocalTranscriptCursor } from "../shared/transcript-cursor";
+import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "../shared/transcript-indexes";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT } from "../shared/transcript-pager";
 
-const CACHE_KEY = "tau.bootstrap-cache.v2";
+const CACHE_KEY = "tau.bootstrap-cache.v3";
 const MAX_BYTES = 512 * 1024;
 
 export interface CachedBootstrap {
@@ -12,28 +14,27 @@ export interface CachedBootstrap {
 
 function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   const detail = detailFromSnapshot(snapshot, INITIAL_TRANSCRIPT_TURN_LIMIT);
-  const sourceIndexes = snapshot.transcriptMessageIndexes
-    ? new Map(snapshot.messages.map((message, index) => [message.id, snapshot.transcriptMessageIndexes?.[index]] as const))
-    : undefined;
-  const retainedIndexes = sourceIndexes
-    ? detail.messages.map((message) => sourceIndexes.get(message.id))
-    : undefined;
+  const sourceIndexes = messageIdToRawIndexProjection(snapshot.messages, snapshot.transcriptMessageIndexes);
+  const retainedIndexes = projectRawIndexesByMessageId(detail.messages, sourceIndexes);
   const firstRetainedIndex = detail.messages.length > 0
     ? snapshot.messages.findIndex((message) => message.id === detail.messages[0]?.id)
     : -1;
   const mappedCursor = retainedIndexes?.[0];
-  const existingCursor = snapshot.olderCursor === undefined ? undefined : Number(snapshot.olderCursor);
+  const existingCursor = snapshot.olderCursor === undefined
+    ? undefined
+    : Number(parseLocalTranscriptCursor(snapshot.olderCursor));
   const boundedCursor = mappedCursor !== undefined
-    ? detail.olderCursor !== undefined && mappedCursor > 0 ? String(mappedCursor) : undefined
+    ? detail.olderCursor !== undefined && mappedCursor > 0 ? localTranscriptCursorAt(mappedCursor) : undefined
     : firstRetainedIndex >= 0 && existingCursor !== undefined && Number.isSafeInteger(existingCursor) && existingCursor >= 0
-      && detail.olderCursor !== undefined ? String(existingCursor + firstRetainedIndex)
+      && detail.olderCursor !== undefined ? localTranscriptCursorAt(existingCursor + firstRetainedIndex)
       : detail.olderCursor;
   return {
     ...snapshot,
     messages: detail.messages,
     taskHistory: detail.taskHistory,
+    historyCompleteness: detail.historyCompleteness,
     ...(boundedCursor ? { olderCursor: boundedCursor } : { olderCursor: undefined }),
-    ...(retainedIndexes?.every((index): index is number => index !== undefined)
+    ...(retainedIndexes
       ? { transcriptMessageIndexes: retainedIndexes }
       : { transcriptMessageIndexes: undefined }),
     models: [],
@@ -50,7 +51,7 @@ export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStor
     const value = JSON.parse(raw) as CachedBootstrap;
     if (!value?.snapshot?.sessionId || !Array.isArray(value.snapshot.messages) || !Array.isArray(value.threadIndex?.sessions)) return undefined;
     // Normalize records written by an older renderer before exposing them to
-    // the first paint. The v2 key prevents normal reads of the old shape, while
+    // the first paint. The v3 key prevents normal reads of the old shape, while
     // this guard also protects tests/imported caches with stale contents.
     return { snapshot: boundedSnapshot(value.snapshot), threadIndex: value.threadIndex };
   } catch {

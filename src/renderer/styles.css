@@ -557,6 +557,7 @@ button > svg { pointer-events: none; }
 .transcript-history-control > button:disabled { opacity: .6; cursor: wait; }
 .transcript-history-control.loading > span { color: var(--working); }
 .transcript-history-control.error > span { color: var(--removed); }
+.transcript-history-control.limited > span { color: var(--working); }
 .virtual-transcript { width: 100%; flex: none; }
 .virtual-transcript-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }

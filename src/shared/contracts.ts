@@ -1,5 +1,6 @@
 import type { HostActionResult } from "./host-protocol.js";
 import type { TranscriptBundle } from "./transcript-contract.js";
+import type { LocalTranscriptCursor } from "./transcript-cursor.js";
 
 export type UiRole = "user" | "assistant" | "notice";
 
@@ -292,7 +293,7 @@ export interface UiTurnActivity {
   anchorMessageId?: string;
 }
 
-export interface HostSnapshot extends TranscriptBundle<UiMessage> {
+export interface HostSnapshot extends TranscriptBundle<UiMessage, number[], LocalTranscriptCursor> {
   cwd: string;
   branch?: string;
   sessionId: string;
@@ -321,7 +322,7 @@ export interface ThreadIndexSnapshot {
   sessions: UiSession[];
 }
 
-export interface HostBootstrapDetail extends TranscriptBundle<UiMessage> {
+export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, number[], LocalTranscriptCursor> {
   sessionId: string;
   isStreaming: boolean;
   activeTools: string[];

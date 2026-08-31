@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./pi-host.js";
+import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./pi-host.js";
+import { parseRawBridgeTranscriptCursor } from "../shared/transcript-cursor.js";
 
 describe("Pi message mapping", () => {
   it("keeps user image content for the renderer", () => {
@@ -55,5 +56,46 @@ describe("Pi message mapping", () => {
     expect(() => mapBridgeTranscriptPageValue("thread", {
       sessionId: "thread", messages: [], hasMore: true,
     })).toThrow("invalid transcript page");
+  });
+
+  it("marks a capped legacy bridge snapshot as truncated rather than complete", () => {
+    const sourceBranch = Array.from({ length: 161 }, (_, index) => ({ role: "user", index }));
+    const messages = sourceBranch.slice(-160);
+    expect(historyCompletenessForBridgeSnapshot({
+      messages,
+      capabilities: undefined,
+    })).toBe("legacy-truncated");
+    expect(historyCompletenessForBridgeSnapshot({
+      messages: messages.slice(0, 159),
+      capabilities: undefined,
+    })).toBe("unknown");
+  });
+
+  it("uses negotiated paging metadata instead of the legacy cap", () => {
+    expect(historyCompletenessForBridgeSnapshot({
+      messages: Array.from({ length: 160 }, () => ({ role: "user" })),
+      capabilities: { transcriptPaging: true },
+      olderCursor: parseRawBridgeTranscriptCursor("80"),
+    })).toBe("has-more");
+    expect(historyCompletenessForBridgeSnapshot({
+      messages: [],
+      capabilities: { transcriptPaging: true },
+    })).toBe("complete");
+  });
+
+  it("keeps contradictory has-more metadata limited when no cursor is available", () => {
+    expect(historyCompletenessForBridgeSnapshot({
+      messages: [],
+      capabilities: { transcriptPaging: true },
+      historyCompleteness: "has-more",
+    })).toBe("unknown");
+  });
+
+  it("does not trust a legacy complete claim over the bounded record cap", () => {
+    expect(historyCompletenessForBridgeSnapshot({
+      messages: Array.from({ length: 160 }, () => ({ role: "user" })),
+      capabilities: undefined,
+      historyCompleteness: "complete",
+    })).toBe("legacy-truncated");
   });
 });

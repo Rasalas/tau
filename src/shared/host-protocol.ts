@@ -13,6 +13,9 @@ import type {
   UiWorkspaceChanges,
 } from "./contracts.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
+import { parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
+import { messageIdToRawIndexProjection, projectRawIndexesByMessageId } from "./transcript-indexes.js";
+import { localTranscriptCursorAt, parseLocalTranscriptCursor, type LocalTranscriptCursor } from "./transcript-cursor.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "./transcript-pager.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
@@ -30,7 +33,7 @@ export interface ThreadIndexUpdate {
   sessions: ThreadIndexSnapshot["sessions"];
 }
 
-export interface ThreadDetail extends TranscriptBundle<UiMessage> {
+export interface ThreadDetail extends TranscriptBundle<UiMessage, number[], LocalTranscriptCursor> {
   sessionId: string;
   isStreaming: boolean;
   activeTools: string[];
@@ -41,7 +44,7 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage> {
   hasMore?: boolean;
 }
 
-export type TranscriptPage = ThreadTranscriptPage<UiMessage>;
+export type TranscriptPage = ThreadTranscriptPage<UiMessage, number[], LocalTranscriptCursor>;
 
 export interface HostCatalog {
   models: UiModel[];
@@ -93,6 +96,12 @@ function validIndexes(value: unknown): boolean {
   return value === undefined || (Array.isArray(value) && value.every((index) => Number.isSafeInteger(index) && index >= 0));
 }
 
+function validCursor(value: unknown): boolean {
+  if (value === undefined) return true;
+  try { parseLocalTranscriptCursor(value); return true; }
+  catch { return false; }
+}
+
 export function isHostUpdate(value: unknown): value is HostUpdate {
   const candidate = record(value);
   if (!candidate || candidate.version !== HOST_PROTOCOL_VERSION || typeof candidate.type !== "string") return false;
@@ -108,12 +117,14 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-index": return Boolean(payload && Array.isArray(payload.projects) && Array.isArray(payload.sessions));
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
     case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools)
-      && (payload.olderCursor === undefined || typeof payload.olderCursor === "string")
+      && validCursor(payload.olderCursor)
       && (payload.hasMore === undefined || typeof payload.hasMore === "boolean")
+      && (payload.historyCompleteness === undefined || parseTranscriptHistoryCompleteness(payload.historyCompleteness) !== undefined)
       && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean"
-      && (payload.olderCursor === undefined || typeof payload.olderCursor === "string")
+      && validCursor(payload.olderCursor)
+      && (payload.historyCompleteness === undefined || parseTranscriptHistoryCompleteness(payload.historyCompleteness) !== undefined)
       && validIndexes(payload.transcriptMessageIndexes)
       && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory)));
     case "catalog": return Boolean(payload && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number");
@@ -142,26 +153,24 @@ export function taskHistoryForMessages(
 function cursorForPage(
   page: TranscriptPage,
   snapshot: HostSnapshot,
-): string | undefined {
+): LocalTranscriptCursor | undefined {
   const offset = snapshot.transcriptMessageIndexes;
   if (!offset) return page.olderCursor ?? snapshot.olderCursor;
   if (page.olderCursor === undefined) return snapshot.olderCursor;
-  const localStart = Number(page.olderCursor);
+  const localStart = Number(parseLocalTranscriptCursor(page.olderCursor, snapshot.messages.length));
   const index = offset[localStart];
-  return index === undefined || index <= 0 ? snapshot.olderCursor : String(index);
+  return index === undefined || index <= 0 ? snapshot.olderCursor : localTranscriptCursorAt(index);
 }
 
 export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANSCRIPT_TURN_LIMIT): ThreadDetail {
   const page = TranscriptPager.pageFor(snapshot.sessionId, snapshot.messages, limit);
-  const olderCursor = cursorForPage(page, snapshot);
-  const indexByMessageId = snapshot.transcriptMessageIndexes
-    ? new Map(snapshot.messages.map((message, index) => [message.id, snapshot.transcriptMessageIndexes?.[index]] as const))
-    : undefined;
-  const transcriptMessageIndexes = indexByMessageId
-    ? page.messages.map((message) => indexByMessageId.get(message.id)).every((index): index is number => index !== undefined)
-      ? page.messages.map((message) => indexByMessageId.get(message.id) as number)
-      : undefined
-    : undefined;
+  const boundedWithoutPaging = snapshot.historyCompleteness === "legacy-truncated"
+    || snapshot.historyCompleteness === "unknown";
+  const olderCursor = boundedWithoutPaging ? undefined : cursorForPage(page, snapshot);
+  const transcriptMessageIndexes = projectRawIndexesByMessageId(
+    page.messages,
+    messageIdToRawIndexProjection(snapshot.messages, snapshot.transcriptMessageIndexes),
+  );
   return {
     sessionId: snapshot.sessionId,
     messages: page.messages,
@@ -174,6 +183,10 @@ export function detailFromSnapshot(snapshot: HostSnapshot, limit = INITIAL_TRANS
     contextUsage: snapshot.contextUsage,
     ...(olderCursor ? { olderCursor } : {}),
     hasMore: Boolean(olderCursor),
+    historyCompleteness: resolveTranscriptHistoryCompleteness(
+      snapshot.historyCompleteness,
+      Boolean(olderCursor),
+    ),
   };
 }
 

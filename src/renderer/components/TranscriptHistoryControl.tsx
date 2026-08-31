@@ -1,9 +1,12 @@
 import type { TranscriptHistoryStatus } from "../transcript-history";
+import type { TranscriptHistoryCompleteness } from "../../shared/transcript-completeness";
+import type { LocalTranscriptCursor } from "../../shared/transcript-cursor";
 
 export type { TranscriptHistoryStatus } from "../transcript-history";
 
 export interface TranscriptHistoryControlProps {
-  olderCursor?: string;
+  olderCursor?: LocalTranscriptCursor;
+  historyCompleteness?: TranscriptHistoryCompleteness;
   loading: boolean;
   status?: TranscriptHistoryStatus;
   onLoad: () => void;
@@ -17,15 +20,21 @@ function loadedLabel(count: number | undefined): string {
 /** The explicit boundary control for bounded transcript history. */
 export function TranscriptHistoryControl({
   olderCursor,
+  historyCompleteness,
   loading,
   status,
   onLoad,
 }: TranscriptHistoryControlProps) {
   const hasOlder = Boolean(olderCursor);
+  const limited = historyCompleteness === "legacy-truncated" || historyCompleteness === "unknown";
   const message = loading
     ? "Loading older turns…"
     : status?.state === "error"
       ? status.message ?? "Could not load older turns."
+      : limited
+        ? historyCompleteness === "legacy-truncated"
+          ? "Older history cannot be loaded with this Pi bridge. Upgrade the bridge to load it."
+          : "Older history availability is unknown. Upgrade the bridge to load it."
       : status?.state === "success"
         ? `${loadedLabel(status.loadedTurns)}${hasOlder ? "" : " Beginning of history."}`
         : hasOlder
@@ -33,12 +42,12 @@ export function TranscriptHistoryControl({
           : "Beginning of history.";
 
   return <section
-    className={`transcript-history-control${loading ? " loading" : ""}${status?.state === "error" ? " error" : ""}`}
+    className={`transcript-history-control${loading ? " loading" : ""}${status?.state === "error" ? " error" : ""}${limited ? " limited" : ""}`}
     aria-label="Transcript history"
     aria-busy={loading}
   >
     <span role="status" aria-live="polite" aria-atomic="true">{message}</span>
-    {hasOlder ? (
+    {hasOlder && !limited ? (
       <button
         type="button"
         onClick={onLoad}

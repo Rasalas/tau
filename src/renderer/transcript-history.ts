@@ -1,171 +1,72 @@
-import type { HostSnapshot, ThreadIndexSnapshot, UiMessage, UiTaskProgressEntry } from "../shared/contracts";
+import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
-import { ThreadDetailStore } from "../shared/thread-detail-store";
-import { writeBootstrapCache } from "./bootstrap-cache";
+import { parseLocalTranscriptCursor, type LocalTranscriptCursor } from "../shared/transcript-cursor";
+import { TranscriptHistoryCache } from "./transcript-history-cache";
+import {
+  captureTranscriptScrollAnchor,
+  mergeTaskHistory,
+  mergeTranscriptMessages,
+  mergeTranscriptMessageIndexes,
+  retainsLoadedHistory,
+  restoreTranscriptScrollAnchor,
+  TranscriptHistoryPageState,
+} from "./transcript-history-page-state";
+import { TranscriptHistoryCoordinator } from "./transcript-history-coordinator";
+import type {
+  TranscriptAnchorRestoreResult,
+  TranscriptBootstrapRequest,
+  TranscriptDetailApplication,
+  TranscriptHistoryRequest,
+  TranscriptHistoryState,
+  TranscriptHistoryStatus,
+  TranscriptPageApplication,
+  TranscriptScrollAnchor,
+} from "./transcript-history-types";
+import type { TranscriptHistoryCompleteness } from "../shared/transcript-completeness";
 
-export interface TranscriptHistoryStatus {
-  state: "success" | "error";
-  message?: string;
-  loadedTurns?: number;
-}
+export type {
+  TranscriptAnchorRestoreResult,
+  TranscriptBootstrapRequest,
+  TranscriptDetailApplication,
+  TranscriptHistoryRequest,
+  TranscriptHistoryState,
+  TranscriptHistoryStatus,
+  TranscriptPageApplication,
+  TranscriptScrollAnchor,
+} from "./transcript-history-types";
+export {
+  captureTranscriptScrollAnchor,
+  mergeTaskHistory,
+  mergeTranscriptMessages,
+  mergeTranscriptMessageIndexes,
+  retainsLoadedHistory,
+  restoreTranscriptScrollAnchor,
+} from "./transcript-history-page-state";
 
-export interface TranscriptHistoryState {
-  sessionId?: string;
-  olderCursor?: string;
-  loading: boolean;
-  status?: TranscriptHistoryStatus;
-}
-
-export interface TranscriptHistoryRequest {
-  generation: number;
-  sessionId: string;
-  cursor: string;
-}
-
-export interface TranscriptBootstrapRequest {
-  generation: number;
-}
-
-export interface TranscriptScrollAnchor {
-  messageId: string;
-  viewportOffset: number;
-  /** Number of leading rows to keep mounted until their real heights are measured. */
-  measureThrough?: number;
-}
-
-export interface TranscriptPageApplication {
-  messages: UiMessage[];
-  detail?: ThreadDetail;
-  snapshot?: HostSnapshot;
-}
-
-export interface TranscriptDetailApplication {
-  detail: ThreadDetail;
-  snapshot?: HostSnapshot;
-}
-
-export interface TranscriptAnchorRestoreResult {
-  found: boolean;
-  delta: number;
-}
-
-export function mergeTranscriptMessages(
-  current: readonly UiMessage[],
-  incoming: readonly UiMessage[],
-  position: "prepend" | "append" = "append",
-): UiMessage[] {
-  const incomingById = new Map(incoming.map((message) => [message.id, message] as const));
-  const retainedIds = new Set<string>();
-  const retained = current.flatMap((message) => {
-    if (retainedIds.has(message.id)) return [];
-    retainedIds.add(message.id);
-    return [incomingById.get(message.id) ?? message];
-  });
-  const additionIds = new Set<string>();
-  const additions = incoming.flatMap((message) => {
-    if (retainedIds.has(message.id) || additionIds.has(message.id)) return [];
-    additionIds.add(message.id);
-    return [incomingById.get(message.id) ?? message];
-  });
-  return position === "prepend" ? [...additions, ...retained] : [...retained, ...additions];
-}
-
-export function mergeTaskHistory(
-  current: readonly UiTaskProgressEntry[] | undefined,
-  incoming: readonly UiTaskProgressEntry[] | undefined,
-): UiTaskProgressEntry[] | undefined {
-  if (!current && !incoming) return undefined;
-  const byId = new Map<string, UiTaskProgressEntry>();
-  for (const entry of current ?? []) byId.set(entry.id, entry);
-  for (const entry of incoming ?? []) byId.set(entry.id, entry);
-  return [...byId.values()];
-}
-
-export function retainsLoadedHistory(
-  current: ThreadDetail | undefined,
-  incoming: ThreadDetail,
-): current is ThreadDetail {
-  if (!current || current.sessionId !== incoming.sessionId || current.messages.length <= incoming.messages.length || incoming.messages.length === 0) return false;
-  const currentIds = new Set(current.messages.map((message) => message.id));
-  return incoming.messages.some((message) => currentIds.has(message.id));
-}
-
-export function mergeTranscriptMessageIndexes(
-  currentMessages: readonly UiMessage[] | undefined,
-  currentIndexes: readonly number[] | undefined,
-  incomingMessages: readonly UiMessage[] | undefined,
-  incomingIndexes: readonly number[] | undefined,
-  mergedMessages: readonly UiMessage[],
-): number[] | undefined {
-  if (!currentIndexes && !incomingIndexes) return undefined;
-  const indexesById = new Map<string, number>();
-  currentMessages?.forEach((message, index) => {
-    const rawIndex = currentIndexes?.[index];
-    if (rawIndex !== undefined) indexesById.set(message.id, rawIndex);
-  });
-  incomingMessages?.forEach((message, index) => {
-    const rawIndex = incomingIndexes?.[index];
-    if (rawIndex !== undefined) indexesById.set(message.id, rawIndex);
-  });
-  const mergedIndexes = mergedMessages.map((message) => indexesById.get(message.id));
-  return mergedIndexes.every((index): index is number => index !== undefined) ? mergedIndexes : undefined;
-}
-
-function messageRows(node: HTMLDivElement): HTMLElement[] {
-  return Array.from(node.querySelectorAll<HTMLElement>("[data-message-id]"));
-}
-
-export function captureTranscriptScrollAnchor(node: HTMLDivElement): TranscriptScrollAnchor | undefined {
-  const rows = messageRows(node);
-  if (rows.length === 0) return undefined;
-  const viewport = node.getBoundingClientRect();
-  const visible = rows.find((row) => {
-    const rowRect = row.getBoundingClientRect();
-    return rowRect.bottom > viewport.top && rowRect.top < viewport.bottom;
-  })
-    ?? rows[0];
-  const rect = visible.getBoundingClientRect();
-  return {
-    messageId: visible.dataset.messageId ?? "",
-    viewportOffset: rect.top - viewport.top,
-  };
-}
-
-export function restoreTranscriptScrollAnchor(
-  node: Pick<HTMLDivElement, "scrollTop" | "getBoundingClientRect" | "querySelectorAll">,
-  anchor: TranscriptScrollAnchor,
-): TranscriptAnchorRestoreResult {
-  const row = Array.from(node.querySelectorAll<HTMLElement>("[data-message-id]"))
-    .find((candidate) => candidate.dataset.messageId === anchor.messageId);
-  if (!row) return { found: false, delta: 0 };
-  const viewport = node.getBoundingClientRect();
-  const delta = row.getBoundingClientRect().top - viewport.top - anchor.viewportOffset;
-  if (Math.abs(delta) > 0.5) node.scrollTop += delta;
-  return { found: true, delta };
+function localCursor(value: string | undefined): LocalTranscriptCursor | undefined {
+  if (value === undefined) return undefined;
+  try { return parseLocalTranscriptCursor(value); }
+  catch { return undefined; }
 }
 
 export class TranscriptHistoryController {
-  readonly preserveScrollRef: { current: boolean | undefined } = { current: undefined };
-  readonly anchorRef: { current: TranscriptScrollAnchor | undefined } = { current: undefined };
+  readonly preserveScrollRef: TranscriptHistoryPageState["preserveScrollRef"];
+  readonly anchorRef: TranscriptHistoryPageState["anchorRef"];
 
   private state: TranscriptHistoryState;
   private readonly listeners = new Set<() => void>();
-  private readonly details = new ThreadDetailStore(5);
-  private cachedSnapshot?: HostSnapshot;
-  private cachedIndex?: ThreadIndexSnapshot;
-  private generation = 0;
-  private activeThreadId = "";
-  private pendingThreadId?: string;
-  private switching = false;
-  private bootstrapped = false;
+  private readonly cache: TranscriptHistoryCache;
+  private readonly coordinator: TranscriptHistoryCoordinator;
+  private readonly pageState: TranscriptHistoryPageState;
 
   constructor(initialSnapshot?: HostSnapshot, initialIndex?: ThreadIndexSnapshot) {
-    this.cachedSnapshot = initialSnapshot;
-    this.cachedIndex = initialIndex;
-    this.activeThreadId = initialSnapshot?.sessionId ?? "";
-    this.bootstrapped = false;
+    this.cache = new TranscriptHistoryCache(initialSnapshot, initialIndex);
+    this.coordinator = new TranscriptHistoryCoordinator(initialSnapshot?.sessionId);
+    this.pageState = new TranscriptHistoryPageState();
+    this.preserveScrollRef = this.pageState.preserveScrollRef;
+    this.anchorRef = this.pageState.anchorRef;
     if (initialSnapshot) {
-      this.details.set({
+      this.cache.setDetail({
         sessionId: initialSnapshot.sessionId,
         messages: initialSnapshot.messages,
         transcriptMessageIndexes: initialSnapshot.transcriptMessageIndexes,
@@ -177,11 +78,13 @@ export class TranscriptHistoryController {
         contextUsage: initialSnapshot.contextUsage,
         olderCursor: initialSnapshot.olderCursor,
         hasMore: initialSnapshot.olderCursor !== undefined,
+        historyCompleteness: initialSnapshot.historyCompleteness,
       });
     }
     this.state = {
       sessionId: initialSnapshot?.sessionId,
-      olderCursor: initialSnapshot?.olderCursor,
+      olderCursor: localCursor(initialSnapshot?.olderCursor),
+      historyCompleteness: initialSnapshot?.historyCompleteness,
       loading: false,
     };
   }
@@ -194,29 +97,27 @@ export class TranscriptHistoryController {
   };
 
   getDetail(sessionId: string): ThreadDetail | undefined {
-    return this.details.get(sessionId);
+    return this.cache.getDetail(sessionId);
   }
 
   setThreadIndex(index: ThreadIndexSnapshot): void {
-    this.cachedIndex = index;
-    this.persistCache();
+    this.cache.setThreadIndex(index);
   }
 
   getCurrentSnapshot(): HostSnapshot | undefined {
-    return this.cachedSnapshot;
+    return this.cache.getSnapshot();
   }
 
   persistCache(): void {
-    writeBootstrapCache(this.cachedSnapshot, this.cachedIndex);
+    this.cache.persist();
   }
 
   beginBootstrap(): TranscriptBootstrapRequest {
-    this.generation += 1;
-    return { generation: this.generation };
+    return this.coordinator.beginBootstrap();
   }
 
   isCurrentBootstrap(request: TranscriptBootstrapRequest): boolean {
-    return request.generation === this.generation && !this.switching;
+    return this.coordinator.isCurrentBootstrap(request);
   }
 
   syncSnapshot(
@@ -225,17 +126,22 @@ export class TranscriptHistoryController {
     request?: TranscriptBootstrapRequest,
   ): boolean {
     if (request && !this.isCurrentBootstrap(request)) return false;
-    this.invalidate(snapshot.sessionId, snapshot.olderCursor);
-    this.details.set(detail);
-    this.cachedSnapshot = snapshot;
-    this.publish({ sessionId: snapshot.sessionId, olderCursor: snapshot.olderCursor, loading: false });
+    this.applyThreadState(snapshot.sessionId, snapshot.olderCursor, snapshot.historyCompleteness);
+    this.cache.setDetail(detail);
+    this.cache.setSnapshot(snapshot);
+    this.publish({
+      sessionId: snapshot.sessionId,
+      olderCursor: localCursor(snapshot.olderCursor),
+      historyCompleteness: detail.historyCompleteness ?? snapshot.historyCompleteness,
+      loading: false,
+    });
     this.persistCache();
     return true;
   }
 
   applyDetail(detail: ThreadDetail, snapshot?: HostSnapshot): TranscriptDetailApplication | undefined {
     if (!this.acceptsDetail(detail.sessionId)) return undefined;
-    const previous = this.details.get(detail.sessionId);
+    const previous = this.cache.getDetail(detail.sessionId);
     const keepHistory = retainsLoadedHistory(previous, detail);
     const messages = keepHistory
       ? mergeTranscriptMessages(previous.messages, detail.messages)
@@ -257,6 +163,7 @@ export class TranscriptHistoryController {
       taskHistory,
       olderCursor: keepHistory ? previous.olderCursor : detail.olderCursor,
       hasMore: keepHistory ? previous.hasMore : detail.hasMore,
+      historyCompleteness: keepHistory ? previous.historyCompleteness : detail.historyCompleteness,
     };
     const renderedSnapshot = snapshot ? {
       ...snapshot,
@@ -264,6 +171,7 @@ export class TranscriptHistoryController {
       messages,
       ...(transcriptMessageIndexes ? { transcriptMessageIndexes } : { transcriptMessageIndexes: undefined }),
       olderCursor: renderedDetail.olderCursor,
+      historyCompleteness: renderedDetail.historyCompleteness,
       isStreaming: renderedDetail.isStreaming,
       activeTools: renderedDetail.activeTools,
       turnActivity: renderedDetail.turnActivity,
@@ -274,72 +182,64 @@ export class TranscriptHistoryController {
     const preservePagingRequest = this.state.loading && keepHistory;
     const preserveAnchor = !preservePagingRequest
       && keepHistory
-      && this.activeThreadId === renderedDetail.sessionId
+      && this.coordinator.isActiveThread(renderedDetail.sessionId)
       && this.anchorRef.current !== undefined;
-    if (!preservePagingRequest) this.invalidate(renderedDetail.sessionId, renderedDetail.olderCursor, preserveAnchor);
-    this.details.set(renderedDetail);
-    if (renderedSnapshot) this.cachedSnapshot = renderedSnapshot;
+    if (!preservePagingRequest) this.applyThreadState(
+      renderedDetail.sessionId,
+      renderedDetail.olderCursor,
+      renderedDetail.historyCompleteness,
+      preserveAnchor,
+    );
+    this.cache.setDetail(renderedDetail);
+    if (renderedSnapshot) this.cache.setSnapshot(renderedSnapshot);
     this.publish(preservePagingRequest
-      ? { ...this.state, sessionId: renderedDetail.sessionId, olderCursor: renderedDetail.olderCursor }
-      : { sessionId: renderedDetail.sessionId, olderCursor: renderedDetail.olderCursor, loading: false });
+      ? { ...this.state, sessionId: renderedDetail.sessionId, olderCursor: localCursor(renderedDetail.olderCursor), historyCompleteness: renderedDetail.historyCompleteness }
+      : { sessionId: renderedDetail.sessionId, olderCursor: localCursor(renderedDetail.olderCursor), historyCompleteness: renderedDetail.historyCompleteness, loading: false });
     this.persistCache();
     return { detail: renderedDetail, snapshot: renderedSnapshot };
   }
 
   beginThreadSwitch(threadId?: string): number {
-    this.generation += 1;
-    this.switching = true;
-    this.pendingThreadId = threadId;
-    this.anchorRef.current = undefined;
-    this.preserveScrollRef.current = undefined;
+    const generation = this.coordinator.beginThreadSwitch(threadId);
+    this.pageState.clear();
     this.publish({ ...this.state, loading: false, status: undefined });
-    return this.generation;
+    return generation;
   }
 
   isCurrentThreadTransition(generation: number): boolean {
-    return generation === this.generation && this.switching;
+    return this.coordinator.isCurrentThreadTransition(generation);
   }
 
   confirmThreadTransition(generation: number, threadId: string): boolean {
-    if (!this.isCurrentThreadTransition(generation)) return false;
-    if (this.pendingThreadId && this.pendingThreadId !== threadId) return false;
-    this.pendingThreadId = threadId;
-    return true;
+    return this.coordinator.confirmThreadTransition(generation, threadId);
   }
 
   prepareActionDetail(threadId: string): boolean {
-    if (this.switching) return this.pendingThreadId === threadId;
-    this.beginThreadSwitch(threadId);
-    return true;
+    if (!this.coordinator.isSwitching) this.pageState.clear();
+    const prepared = this.coordinator.prepareActionDetail(threadId);
+    return prepared;
   }
 
   acceptsDetail(threadId: string): boolean {
-    if (!this.bootstrapped) return true;
-    if (this.switching) return this.pendingThreadId === threadId;
-    if (!this.switching && this.activeThreadId && this.activeThreadId !== threadId) return false;
-    return true;
+    return this.coordinator.acceptsDetail(threadId);
   }
 
   acceptsExternalPage(threadId: string): boolean {
-    return !this.switching && this.activeThreadId === threadId;
+    return this.coordinator.acceptsExternalPage(threadId);
   }
 
   beginLoad(anchor?: TranscriptScrollAnchor): TranscriptHistoryRequest | undefined {
-    const sessionId = this.state.sessionId ?? this.activeThreadId;
+    const sessionId = this.state.sessionId;
     const cursor = this.state.olderCursor;
-    if (!sessionId || !cursor || this.state.loading || this.switching) return undefined;
-    this.generation += 1;
-    const request = { generation: this.generation, sessionId, cursor };
-    this.anchorRef.current = anchor;
-    this.preserveScrollRef.current = true;
+    const request = this.coordinator.beginLoad(sessionId, cursor, this.state.loading);
+    if (!request) return undefined;
+    this.pageState.beginPaging(anchor);
     this.publish({ ...this.state, sessionId, loading: true, status: undefined });
     return request;
   }
 
   isCurrent(request: TranscriptHistoryRequest, sessionId?: string): boolean {
-    return request.generation === this.generation
-      && request.sessionId === (sessionId ?? this.state.sessionId)
-      && !this.switching;
+    return this.coordinator.isCurrent(request, sessionId ?? this.state.sessionId);
   }
 
   applyPage(
@@ -352,7 +252,7 @@ export class TranscriptHistoryController {
       : this.acceptsExternalPage(page.sessionId);
     if (!accepted) return undefined;
 
-    const currentDetail = this.details.get(page.sessionId);
+    const currentDetail = this.cache.getDetail(page.sessionId);
     const currentMessages = mergeTranscriptMessages(currentDetail?.messages ?? [], visibleMessages);
     const messages = mergeTranscriptMessages(currentMessages, page.messages, "prepend");
     const taskHistory = mergeTaskHistory(currentDetail?.taskHistory, page.taskHistory);
@@ -370,41 +270,44 @@ export class TranscriptHistoryController {
       taskHistory,
       olderCursor: page.olderCursor,
       hasMore: page.hasMore,
+      historyCompleteness: page.historyCompleteness,
     } : undefined;
-    if (detail) this.details.set(detail);
-
-    const anchor = this.anchorRef.current;
-    if (anchor && anchor.measureThrough === undefined) {
-      const anchorIndex = messages.findIndex((message) => message.id === anchor.messageId);
-      if (anchorIndex >= 0) this.anchorRef.current = { ...anchor, measureThrough: anchorIndex + 1 };
-    }
+    if (detail) this.cache.setDetail(detail);
+    this.pageState.markAnchorMeasured(messages);
 
     let snapshot: HostSnapshot | undefined;
-    if (this.cachedSnapshot?.sessionId === page.sessionId) {
+    const cachedSnapshot = this.cache.getSnapshot();
+    if (cachedSnapshot?.sessionId === page.sessionId) {
       const snapshotIndexes = mergeTranscriptMessageIndexes(
-        this.cachedSnapshot.messages,
-        this.cachedSnapshot.transcriptMessageIndexes,
+        cachedSnapshot.messages,
+        cachedSnapshot.transcriptMessageIndexes,
         page.messages,
         page.transcriptMessageIndexes,
         messages,
       );
       snapshot = {
-        ...this.cachedSnapshot,
+        ...cachedSnapshot,
         messages,
         ...(snapshotIndexes ? { transcriptMessageIndexes: snapshotIndexes } : { transcriptMessageIndexes: undefined }),
         taskHistory,
         olderCursor: page.olderCursor,
+        historyCompleteness: page.historyCompleteness,
       };
-      this.cachedSnapshot = snapshot;
+      this.cache.setSnapshot(snapshot);
       this.persistCache();
     }
-    this.publish({ ...this.state, sessionId: page.sessionId, olderCursor: page.olderCursor });
+    this.publish({
+      ...this.state,
+      sessionId: page.sessionId,
+      olderCursor: localCursor(page.olderCursor),
+      historyCompleteness: page.historyCompleteness,
+    });
     return { messages, detail, snapshot };
   }
 
   completeSuccess(request: TranscriptHistoryRequest, loadedTurns: number): boolean {
     if (!this.isCurrent(request)) return false;
-    if (!this.anchorRef.current) this.preserveScrollRef.current = undefined;
+    this.pageState.finishPaging();
     this.publish({
       ...this.state,
       loading: false,
@@ -415,40 +318,40 @@ export class TranscriptHistoryController {
 
   /** Release a paging anchor after an explicit user interaction. */
   releaseAnchor(): boolean {
-    if (!this.anchorRef.current && this.preserveScrollRef.current === undefined) return false;
-    this.anchorRef.current = undefined;
-    this.preserveScrollRef.current = undefined;
+    if (!this.pageState.release()) return false;
     this.publish({ ...this.state });
     return true;
   }
 
   completeError(request: TranscriptHistoryRequest, message: string): boolean {
     if (!this.isCurrent(request)) return false;
-    this.anchorRef.current = undefined;
-    this.preserveScrollRef.current = undefined;
+    this.pageState.clear();
     this.publish({ ...this.state, loading: false, status: { state: "error", message } });
     return true;
   }
 
   abortRequest(request: TranscriptHistoryRequest): boolean {
     if (!this.isCurrent(request)) return false;
-    this.anchorRef.current = undefined;
-    this.preserveScrollRef.current = undefined;
+    this.pageState.clear();
     this.publish({ ...this.state, loading: false });
     return true;
   }
 
-  private invalidate(sessionId: string, olderCursor?: string, preserveAnchor = false): void {
-    const anchor = preserveAnchor ? this.anchorRef.current : undefined;
-    const preserveScroll = preserveAnchor ? this.preserveScrollRef.current : undefined;
-    this.generation += 1;
-    this.activeThreadId = sessionId;
-    this.pendingThreadId = undefined;
-    this.switching = false;
-    this.bootstrapped = true;
-    this.anchorRef.current = anchor;
-    this.preserveScrollRef.current = preserveScroll;
-    this.state = { sessionId, olderCursor, loading: false };
+  private applyThreadState(
+    sessionId: string,
+    olderCursor?: string,
+    historyCompleteness?: TranscriptHistoryCompleteness,
+    preserveAnchor = false,
+  ): void {
+    const lease = this.pageState.leaseForThreadState(preserveAnchor);
+    this.coordinator.activateThread(sessionId);
+    this.pageState.restoreLease(lease);
+    this.state = {
+      sessionId,
+      olderCursor: localCursor(olderCursor),
+      historyCompleteness,
+      loading: false,
+    };
   }
 
   private publish(next: TranscriptHistoryState): void {

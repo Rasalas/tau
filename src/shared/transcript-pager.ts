@@ -1,4 +1,5 @@
 import type { UiMessage } from "./contracts.js";
+import { localTranscriptCursorAt, parseLocalTranscriptCursor, type LocalTranscriptCursor, type RawBridgeTranscriptCursor } from "./transcript-cursor.js";
 import type { ThreadTranscriptPage, TranscriptPageBundle } from "./transcript-contract.js";
 
 /** The number of user turns needed for the first useful transcript paint. */
@@ -10,7 +11,7 @@ export const OLDER_TRANSCRIPT_TURN_LIMIT = 20 as const;
 export interface TranscriptPageBounds {
   start: number;
   end: number;
-  olderCursor?: string;
+  olderCursor?: LocalTranscriptCursor;
   hasMore: boolean;
 }
 
@@ -18,10 +19,10 @@ export interface TranscriptPageBounds {
 export function transcriptPageBounds(
   messages: readonly { role?: string }[],
   turnLimit: number = INITIAL_TRANSCRIPT_TURN_LIMIT,
-  cursor?: string,
+  cursor?: string | LocalTranscriptCursor | RawBridgeTranscriptCursor,
 ): TranscriptPageBounds {
   if (!Number.isInteger(turnLimit) || turnLimit < 1) throw new Error("turnLimit must be positive");
-  const end = cursor === undefined ? messages.length : parseTranscriptCursor(cursor, messages.length);
+  const end = cursor === undefined ? messages.length : Number(parseLocalTranscriptCursor(cursor, messages.length));
   if (end <= 0) return { start: 0, end, hasMore: false };
   const firstUser = messages.findIndex((message, index) => index < end && message.role === "user");
   // Records before the first user turn are orphan activities. They cannot be
@@ -39,16 +40,9 @@ export function transcriptPageBounds(
   return {
     start,
     end,
-    ...(hasOlderTurn ? { olderCursor: String(start) } : {}),
+    ...(hasOlderTurn ? { olderCursor: localTranscriptCursorAt(start) } : {}),
     hasMore: hasOlderTurn,
   };
-}
-
-function parseTranscriptCursor(cursor: string, messageCount: number): number {
-  if (!/^\d+$/u.test(cursor)) throw new Error("Invalid transcript cursor");
-  const value = Number(cursor);
-  if (!Number.isSafeInteger(value) || value < 0 || value > messageCount) throw new Error("Invalid transcript cursor");
-  return value;
 }
 
 /** Pages the message stream by user turns while retaining message boundaries. */
@@ -59,8 +53,10 @@ export class TranscriptPager {
     this.messages = [...messages];
   }
 
-  page(cursor?: string): TranscriptPageBundle<UiMessage> {
-    const bounds = transcriptPageBounds(this.messages, this.turnLimit, cursor);
+  page(cursor?: string | LocalTranscriptCursor | RawBridgeTranscriptCursor): TranscriptPageBundle<UiMessage, number[], LocalTranscriptCursor> {
+    const bounds = transcriptPageBounds(this.messages, this.turnLimit, cursor === undefined
+      ? undefined
+      : parseLocalTranscriptCursor(cursor, this.messages.length));
     // A page always starts at a user message and includes every record after it
     // up to the cursor. This avoids splitting a visible conversation turn while
     // retaining notices and other records adjacent to that turn.
@@ -68,10 +64,11 @@ export class TranscriptPager {
       messages: this.messages.slice(bounds.start, bounds.end),
       ...(bounds.olderCursor ? { olderCursor: bounds.olderCursor } : {}),
       hasMore: bounds.hasMore,
+      historyCompleteness: bounds.hasMore ? "has-more" : "complete",
     };
   }
 
-  static pageFor(sessionId: string, messages: readonly UiMessage[], turnLimit: number = INITIAL_TRANSCRIPT_TURN_LIMIT, cursor?: string): ThreadTranscriptPage<UiMessage> {
+  static pageFor(sessionId: string, messages: readonly UiMessage[], turnLimit: number = INITIAL_TRANSCRIPT_TURN_LIMIT, cursor?: string | LocalTranscriptCursor | RawBridgeTranscriptCursor): ThreadTranscriptPage<UiMessage, number[], LocalTranscriptCursor> {
     const page = new TranscriptPager(messages, turnLimit).page(cursor);
     return { ...page, sessionId };
   }
