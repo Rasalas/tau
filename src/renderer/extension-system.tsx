@@ -5,6 +5,7 @@ import type {
   UiEditor,
   UiFileDiff,
   UiToolRun,
+  UiTurnCheckpoint,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
 } from "../shared/contracts";
@@ -124,6 +125,19 @@ export interface ChangesContribution {
   Component: ComponentType<ChangesContributionProps>;
 }
 
+/** Props for a turn checkpoint card rendered at its assistant anchor. */
+export interface TurnCheckpointContributionProps {
+  checkpoint: UiTurnCheckpoint;
+  onOpenDiff(path?: string): void;
+  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+}
+
+export interface TurnCheckpointContribution {
+  id: string;
+  order?: number;
+  Component: ComponentType<TurnCheckpointContributionProps>;
+}
+
 export type ReviewContributionKind = "workspace" | "historical";
 
 /** Complete review slot owned by an extension; App only supplies generic data/actions. */
@@ -171,6 +185,7 @@ export interface DesktopExtensionContext {
   registerCommand(command: CommandContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
   registerChanges(contribution: ChangesContribution): () => void;
+  registerTurnCheckpoint(contribution: TurnCheckpointContribution): () => void;
   registerReview(contribution: ReviewContribution): () => void;
   registerOptions(options: ExtensionOption[]): () => void;
   registerToolRenderer(
@@ -210,6 +225,7 @@ export class ExtensionRegistry {
   private commands = new Map<string, Owned<CommandContribution>>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private changesContributions = new Map<string, Owned<ChangesContribution>>();
+  private turnCheckpointContributions = new Map<string, Owned<TurnCheckpointContribution>>();
   private reviewContributions = new Map<string, Owned<ReviewContribution>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
   private options = new Map<string, ExtensionOption[]>();
@@ -255,6 +271,10 @@ export class ExtensionRegistry {
       registerChanges: (contribution) => {
         note("changes");
         return this.register(this.changesContributions, contribution.id, { ...contribution, ...owner }, disposers);
+      },
+      registerTurnCheckpoint: (contribution) => {
+        note("turn checkpoints");
+        return this.register(this.turnCheckpointContributions, contribution.id, { ...contribution, ...owner }, disposers);
       },
       registerReview: (contribution) => {
         note(contribution.kind === "historical" ? "historical review" : "review");
@@ -337,6 +357,10 @@ export class ExtensionRegistry {
 
   getChangesContributions(): Array<Owned<ChangesContribution>> {
     return this.sorted("changes", this.changesContributions);
+  }
+
+  getTurnCheckpointContributions(): Array<Owned<TurnCheckpointContribution>> {
+    return this.sorted("turn-checkpoints", this.turnCheckpointContributions);
   }
 
   getReviewContributions(kind?: ReviewContributionKind): Array<Owned<ReviewContribution>> {

@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
+import { link, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -31,6 +32,277 @@ import { normalizeDiffLoadOptions } from "../shared/turn-checkpoint-diff.js";
 const execFileAsync = promisify(execFile);
 
 const EMPTY_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+
+/**
+ * Plain folders do not have Git objects to anchor a turn. Keep their bounded,
+ * content-addressed snapshots outside user data while retaining the same
+ * namespaced IDs and lazy diff API as the Git backend.
+ */
+const FILESYSTEM_SNAPSHOT_ROOT = join(tmpdir(), "tau-workspace-snapshots");
+const FILESYSTEM_MAX_FILES = 20_000;
+const FILESYSTEM_MAX_BYTES = 128 * 1024 * 1024;
+const FILESYSTEM_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const FILESYSTEM_IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
+
+interface FilesystemSnapshotFile {
+  hash: string;
+  size: number;
+  /** Captured once so summary generation never rereads historical blobs. */
+  lines?: number;
+}
+
+interface FilesystemSnapshotManifest {
+  version: 1;
+  id: string;
+  cwd: string;
+  treeId: string;
+  files: Record<string, FilesystemSnapshotFile>;
+}
+
+function filesystemWorkspaceKey(cwd: string): string {
+  return createHash("sha256").update(cwd).digest("hex").slice(0, 32);
+}
+
+function filesystemManifestPath(cwd: string, id: string): string {
+  const components = id.split("/").slice(3);
+  return join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(cwd), "checkpoints", ...components) + ".json";
+}
+
+function filesystemBlobPath(cwd: string, hash: string): string {
+  // Blobs are namespaced with the canonical workspace. A GC sweep protected
+  // by workspace A's lease can therefore never delete a blob that workspace
+  // B is publishing before its manifest becomes visible.
+  return join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(cwd), "blobs", hash);
+}
+
+async function readFilesystemSnapshot(cwd: string, id: string): Promise<FilesystemSnapshotManifest | undefined> {
+  if (!isTurnSnapshotId(id)) return undefined;
+  try {
+    const value = JSON.parse(await readFile(filesystemManifestPath(await realpath(cwd).catch(() => resolve(cwd)), id), "utf8")) as Partial<FilesystemSnapshotManifest>;
+    if (value.version !== 1 || value.id !== id || typeof value.cwd !== "string" || typeof value.treeId !== "string"
+      || !value.files || typeof value.files !== "object") return undefined;
+    return value as FilesystemSnapshotManifest;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeFilesystemBlob(cwd: string, bytes: Buffer, hash: string): Promise<void> {
+  const path = filesystemBlobPath(cwd, hash);
+  if (await stat(path).then(() => true).catch(() => false)) return;
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+  try {
+    await writeFile(temporary, bytes, { flag: "wx", mode: 0o600 });
+    await rename(temporary, path).catch(async (error) => {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await rm(temporary, { force: true });
+    });
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+async function collectFilesystemFiles(cwd: string): Promise<Record<string, FilesystemSnapshotFile>> {
+  const files: Record<string, FilesystemSnapshotFile> = {};
+  let fileCount = 0;
+  let totalBytes = 0;
+  const walk = async (directory: string, relative: string): Promise<void> => {
+    if (fileCount >= FILESYSTEM_MAX_FILES || totalBytes >= FILESYSTEM_MAX_BYTES) return;
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (fileCount >= FILESYSTEM_MAX_FILES || totalBytes >= FILESYSTEM_MAX_BYTES) break;
+      if (entry.name === "." || entry.name === ".." || (relative === "" && FILESYSTEM_IGNORED_DIRECTORIES.has(entry.name))) continue;
+      const path = join(directory, entry.name);
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        await walk(path, child);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const info = await stat(path).catch(() => undefined);
+      if (!info || info.size > FILESYSTEM_MAX_FILE_BYTES || totalBytes + info.size > FILESYSTEM_MAX_BYTES) continue;
+      const bytes = await readFile(path).catch(() => undefined);
+      if (!bytes) continue;
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      let lines: number | undefined;
+      if (bytes.length > 0 && !bytes.includes(0)) {
+        lines = 0;
+        for (const byte of bytes) if (byte === 10) lines += 1;
+        if (bytes.at(-1) !== 10) lines += 1;
+      }
+      await writeFilesystemBlob(cwd, bytes, hash);
+      files[child.replaceAll("\\", "/")] = { hash, size: bytes.length, ...(lines === undefined ? {} : { lines }) };
+      fileCount += 1;
+      totalBytes += bytes.length;
+    }
+  };
+  await walk(await realpath(cwd).catch(() => resolve(cwd)), "");
+  return files;
+}
+
+async function createFilesystemSnapshot(cwd: string, options: WorkspaceSnapshotOptions, ref: string): Promise<WorkspaceSnapshot> {
+  const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+  const files = await collectFilesystemFiles(canonicalCwd);
+  const treeId = createHash("sha256").update(JSON.stringify(files)).digest("hex");
+  const manifest: FilesystemSnapshotManifest = { version: 1, id: ref, cwd: canonicalCwd, treeId, files };
+  const path = filesystemManifestPath(canonicalCwd, ref);
+  const existing = await readFile(path, "utf8").catch(() => undefined);
+  if (existing) {
+    let previous: Partial<FilesystemSnapshotManifest> | undefined;
+    try { previous = JSON.parse(existing) as Partial<FilesystemSnapshotManifest>; } catch { /* overwritten below only if invalid */ }
+    if (previous?.treeId !== treeId) throw new Error(`Snapshot ref ${ref} already points to another tree.`);
+    return { id: ref, ref, treeId, cwd: canonicalCwd, backend: "filesystem", sessionId: options.namespace.split("/")[0], turnId: options.namespace.split("/")[1], phase: options.phase };
+  }
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(manifest)}\n`, { flag: "wx", mode: 0o600 });
+    await rename(temporary, path).catch(async (error) => {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const raced = await readFilesystemSnapshot(canonicalCwd, ref);
+      if (!raced || raced.treeId !== treeId) throw new Error(`Snapshot ref ${ref} already points to another tree.`);
+    });
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
+  return { id: ref, ref, treeId, cwd: canonicalCwd, backend: "filesystem", sessionId: options.namespace.split("/")[0], turnId: options.namespace.split("/")[1], phase: options.phase };
+}
+
+async function filesystemSnapshotPair(
+  cwd: string,
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+): Promise<{ before: FilesystemSnapshotManifest; after: FilesystemSnapshotManifest } | undefined> {
+  const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+  const [before, after] = await Promise.all([
+    readFilesystemSnapshot(canonicalCwd, beforeSnapshotId),
+    readFilesystemSnapshot(canonicalCwd, afterSnapshotId),
+  ]);
+  if (!before || !after || before.cwd !== canonicalCwd || after.cwd !== canonicalCwd) return undefined;
+  return { before, after };
+}
+
+/** Publishes one plain-folder manifest under a new session namespace. */
+async function cloneFilesystemSnapshot(
+  cwd: string,
+  sourceId: string,
+  targetId: string,
+  expectedTreeId: string,
+): Promise<boolean> {
+  const source = await readFilesystemSnapshot(cwd, sourceId);
+  if (!source || source.treeId !== expectedTreeId) {
+    throw new Error(`Filesystem snapshot ${sourceId} is unavailable or changed.`);
+  }
+  const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+  const targetPath = filesystemManifestPath(canonicalCwd, targetId);
+  const existing = await readFilesystemSnapshot(canonicalCwd, targetId);
+  if (existing) {
+    if (existing.treeId !== expectedTreeId || existing.cwd !== canonicalCwd) {
+      throw new Error(`Fork snapshot ref ${targetId} already points to another tree.`);
+    }
+    return false;
+  }
+  await mkdir(dirname(targetPath), { recursive: true });
+  const temporary = `${targetPath}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify({ ...source, id: targetId, cwd: canonicalCwd })}\n`, { flag: "wx", mode: 0o600 });
+    // A hard-link publication is create-if-absent, unlike rename which could
+    // overwrite a concurrent target generation and violate immutability.
+    await link(temporary, targetPath).catch(async (error) => {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const raced = await readFilesystemSnapshot(canonicalCwd, targetId);
+      if (!raced || raced.treeId !== expectedTreeId || raced.cwd !== canonicalCwd) {
+        throw new Error(`Fork snapshot ref ${targetId} already points to another tree.`);
+      }
+    });
+    return true;
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+async function filesystemLineCount(cwd: string, file: FilesystemSnapshotFile | undefined): Promise<number> {
+  if (!file) return 0;
+  if (file.lines !== undefined) return file.lines;
+  const bytes = await readFile(filesystemBlobPath(cwd, file.hash)).catch(() => undefined);
+  if (!bytes || bytes.includes(0)) return 0;
+  if (bytes.length === 0) return 0;
+  let lines = 0;
+  for (const byte of bytes) if (byte === 10) lines += 1;
+  return lines + (bytes.at(-1) === 10 ? 0 : 1);
+}
+
+async function diffFilesystemSnapshots(
+  pair: { before: FilesystemSnapshotManifest; after: FilesystemSnapshotManifest },
+  branch?: string,
+): Promise<UiWorkspaceChanges> {
+  const paths = [...new Set([...Object.keys(pair.before.files), ...Object.keys(pair.after.files)])].sort((left, right) => left.localeCompare(right));
+  const files: UiChangedFile[] = [];
+  for (const path of paths) {
+    const before = pair.before.files[path];
+    const after = pair.after.files[path];
+    if (before && after && before.hash === after.hash) continue;
+    const status: ChangeStatus = !before ? "added" : !after ? "deleted" : "modified";
+    files.push({
+      path,
+      ...describe(path),
+      status,
+      added: status === "deleted" ? 0 : await filesystemLineCount(pair.after.cwd, after),
+      removed: status === "added" ? 0 : await filesystemLineCount(pair.before.cwd, before),
+    });
+  }
+  return {
+    ...(branch ? { branch } : {}),
+    files,
+    fileCount: files.length,
+    added: files.reduce((total, file) => total + file.added, 0),
+    removed: files.reduce((total, file) => total + file.removed, 0),
+    proposedMessage: proposeMessage(files),
+  };
+}
+
+async function filesystemManifests(root: string): Promise<string[]> {
+  const result: string[] = [];
+  const walk = async (directory: string): Promise<void> => {
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.isFile() && entry.name.endsWith(".json")) result.push(path);
+    }
+  };
+  await walk(root);
+  return result;
+}
+
+/** Reclaims blobs left by a crashed plain-folder snapshot publication. */
+export async function gcFilesystemSnapshotBlobs(cwd?: string): Promise<void> {
+  const workspaceRoots = cwd
+    ? [join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(await realpath(cwd).catch(() => resolve(cwd))))]
+    // A process-wide maintenance hook may be used during startup before a
+    // workspace is selected. Enumerate each namespaced workspace independently
+    // so one workspace's manifest set cannot hide another workspace's blobs.
+    : (await readdir(FILESYSTEM_SNAPSHOT_ROOT, { withFileTypes: true }).catch(() => []))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(FILESYSTEM_SNAPSHOT_ROOT, entry.name));
+  await Promise.all(workspaceRoots.map(async (workspaceRoot) => {
+    const referenced = new Set<string>();
+    for (const path of await filesystemManifests(join(workspaceRoot, "checkpoints"))) {
+      const manifest = await readFile(path, "utf8").then((value) => JSON.parse(value) as Partial<FilesystemSnapshotManifest>).catch(() => undefined);
+      if (!manifest?.files || typeof manifest.files !== "object") continue;
+      for (const file of Object.values(manifest.files)) {
+        if (file && typeof file === "object" && typeof (file as FilesystemSnapshotFile).hash === "string") referenced.add((file as FilesystemSnapshotFile).hash);
+      }
+    }
+    const blobRoot = join(workspaceRoot, "blobs");
+    const blobs = await readdir(blobRoot, { withFileTypes: true }).catch(() => []);
+    await Promise.all(blobs
+      .filter((entry) => entry.isFile() && !referenced.has(entry.name))
+      .map((entry) => rm(join(blobRoot, entry.name), { force: true })));
+  }));
+}
 
 function within(root: string, target: string): boolean {
   return target === root || target.startsWith(`${root}${sep}`);
@@ -251,6 +523,8 @@ export interface WorkspaceSnapshot {
   sessionId?: string;
   turnId?: string;
   phase?: "before" | "after";
+  /** Plain folders use the bounded filesystem content-addressed backend. */
+  backend?: "git" | "filesystem";
 }
 
 export interface WorkspaceSnapshotOptions {
@@ -306,8 +580,11 @@ export async function createWorkspaceSnapshot(
   };
   const run = (args: string[], maxBuffer = SNAPSHOT_GIT_BUFFER): Promise<string> =>
     runGit(cwd, args, maxBuffer, undefined, env);
+  let isGitWorkspace = false;
   try {
-    await run(["rev-parse", "--is-inside-work-tree"]);
+    const inside = (await run(["rev-parse", "--is-inside-work-tree"])).trim();
+    isGitWorkspace = true;
+    if (inside !== "true") throw new Error("Git workspace snapshots are unavailable for bare repositories.");
     const head = await run(["rev-parse", "--verify", "HEAD"]).catch(() => "");
     await run(head.trim() ? ["read-tree", head.trim()] : ["read-tree", "--empty"]);
     await run(["add", "-A"]);
@@ -331,6 +608,13 @@ export async function createWorkspaceSnapshot(
       }
     }
     return { id: ref, ref, treeId, cwd };
+  } catch (error) {
+    // A regular folder is a supported Workspace Kit workspace too. Only fall
+    // back before Git has identified a worktree; errors after that boundary
+    // must remain visible and must never produce a misleading filesystem
+    // checkpoint.
+    if (isGitWorkspace) throw error;
+    return createFilesystemSnapshot(cwd, options, ref);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -374,6 +658,8 @@ export async function validateWorkspaceSnapshotRefs(
   if (beforeSnapshotId !== expectedBefore || afterSnapshotId !== expectedAfter) {
     throw new Error("Turn checkpoint snapshot refs do not match their session and turn.");
   }
+  const filesystem = await filesystemSnapshotPair(cwd, beforeSnapshotId, afterSnapshotId);
+  if (filesystem) return { beforeTreeId: filesystem.before.treeId, afterTreeId: filesystem.after.treeId };
   const [beforeTree, afterTree, beforeType, afterType] = await Promise.all([
     runGit(cwd, ["rev-parse", "--verify", `${expectedBefore}^{tree}`]),
     runGit(cwd, ["rev-parse", "--verify", `${expectedAfter}^{tree}`]),
@@ -431,8 +717,22 @@ export async function cloneTurnCheckpointRefs(
         { sessionId: sourceSessionId, turnId: checkpoint.turnId },
         runGit,
       );
+      const sourceFilesystem = await filesystemSnapshotPair(
+        cwd,
+        checkpoint.beforeSnapshotId,
+        checkpoint.afterSnapshotId,
+      );
       for (const [phase, treeId] of [["before", trees.beforeTreeId], ["after", trees.afterTreeId]] as const) {
         const id = turnSnapshotRef(targetSessionId, checkpoint.turnId, phase);
+        if (sourceFilesystem) {
+          if (await cloneFilesystemSnapshot(
+            cwd,
+            turnSnapshotRef(sourceSessionId, checkpoint.turnId, phase),
+            id,
+            treeId,
+          )) created.push({ id, treeId });
+          continue;
+        }
         const existing = (await runGit(cwd, ["rev-parse", "--verify", id]).catch(() => "")).trim();
         if (existing && existing !== treeId) throw new Error(`Fork snapshot ref ${id} already points to another tree.`);
         if (existing) {
@@ -470,7 +770,10 @@ export async function cleanupClonedTurnCheckpointRefs(
   targetSessionId: string,
   checkpoints: readonly StoredTurnCheckpoint[],
   runGit: GitRunner = git,
+  /** Already committed target entries survive a failed/retried fork. */
+  preserve: readonly StoredTurnCheckpoint[] = [],
 ): Promise<void> {
+  const preserved = new Set(preserve.flatMap((checkpoint) => [checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId]));
   await Promise.all(checkpoints.map(async (checkpoint) => {
     if (checkpoint.sessionId !== sourceSessionId) return;
     const source = await validateWorkspaceSnapshotRefs(
@@ -480,19 +783,34 @@ export async function cleanupClonedTurnCheckpointRefs(
       { sessionId: sourceSessionId, turnId: checkpoint.turnId },
       runGit,
     ).catch(() => undefined);
-    if (!source) return;
-    await deleteWorkspaceSnapshot(
-      cwd,
-      turnSnapshotRef(targetSessionId, checkpoint.turnId, "before"),
-      { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "before", treeId: source.beforeTreeId },
-      runGit,
-    );
-    await deleteWorkspaceSnapshot(
-      cwd,
-      turnSnapshotRef(targetSessionId, checkpoint.turnId, "after"),
-      { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "after", treeId: source.afterTreeId },
-      runGit,
-    );
+    const before = turnSnapshotRef(targetSessionId, checkpoint.turnId, "before");
+    const after = turnSnapshotRef(targetSessionId, checkpoint.turnId, "after");
+    // Normally the source pair supplies tree IDs for compare-and-delete. If a
+    // source session was removed during failure recovery, the target refs are
+    // still uncommitted by definition; remove only the exact target namespace
+    // while preserving every durable target entry supplied by `preserve`.
+    // This avoids leaving orphaned fork refs merely because the source cleanup
+    // raced the recovery path.
+    if (!preserved.has(before)) {
+      await deleteWorkspaceSnapshot(
+        cwd,
+        before,
+        source
+          ? { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "before", treeId: source.beforeTreeId }
+          : { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "before" },
+        runGit,
+      );
+    }
+    if (!preserved.has(after)) {
+      await deleteWorkspaceSnapshot(
+        cwd,
+        after,
+        source
+          ? { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "after", treeId: source.afterTreeId }
+          : { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "after" },
+        runGit,
+      );
+    }
   }));
 }
 
@@ -511,6 +829,12 @@ export async function deleteWorkspaceSnapshot(
       const current = (await runGit(cwd, ["rev-parse", "--verify", snapshotId]).catch(() => "")).trim();
       if (current && current !== expected.treeId) return;
     }
+  }
+  const filesystem = await readFilesystemSnapshot(cwd, snapshotId);
+  if (filesystem) {
+    if (expected?.treeId && filesystem.treeId !== expected.treeId) return;
+    await rm(filesystemManifestPath(filesystem.cwd, snapshotId), { force: true });
+    return;
   }
   await runGit(cwd, ["update-ref", "-d", snapshotId]).catch(() => undefined);
 }
@@ -539,6 +863,12 @@ export async function cleanupTurnCheckpointSessionRefs(
     .map((ref) => ref.trim())
     .filter((ref) => isTurnSnapshotId(ref));
   await Promise.all(refs.map((ref) => runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
+  const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+  await rm(join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints", sanitizeTurnSnapshotComponent(sessionId)), {
+    recursive: true,
+    force: true,
+  });
+  await gcFilesystemSnapshotBlobs(cwd);
 }
 
 /**
@@ -578,6 +908,109 @@ export async function cleanupOrphanTurnCheckpointRefs(
     }
   }
   await Promise.all(refs.filter((ref) => !valid.has(ref)).map((ref) => runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
+  const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+  const sessionDirectory = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints", sanitizeTurnSnapshotComponent(sessionId));
+  const filesystemRefs = await filesystemManifests(sessionDirectory);
+  const validFilesystem = new Set<string>();
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.sessionId !== sessionId) continue;
+    const before = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(sessionId, checkpoint.turnId, "before"));
+    const after = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(sessionId, checkpoint.turnId, "after"));
+    if (before && after) {
+      validFilesystem.add(filesystemManifestPath(canonicalCwd, before.id));
+      validFilesystem.add(filesystemManifestPath(canonicalCwd, after.id));
+    }
+  }
+  await Promise.all(filesystemRefs.filter((path) => !validFilesystem.has(path)).map((path) => rm(path, { force: true })));
+  await gcFilesystemSnapshotBlobs(cwd);
+}
+
+export interface LiveCheckpointSession {
+  sessionId: string;
+  checkpoints: readonly StoredTurnCheckpoint[];
+  /** Canonical workspace used to scope GC when linked worktrees share refs. */
+  cwd?: string;
+}
+
+/**
+ * Startup/pruning sweep for one checkout. The caller holds the workspace lease
+ * for the complete scan. All persisted sessions are considered before a ref is
+ * removed, including sessions which are not currently loaded in memory.
+ */
+export async function cleanupCheckpointRefsForLiveSessions(
+  cwd: string,
+  sessions: readonly LiveCheckpointSession[],
+  runGit: GitRunner = git,
+): Promise<void> {
+  const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+  // Git linked worktrees share one ref namespace but intentionally do not
+  // share a mutation lease. Restrict this sweep to sessions belonging to the
+  // current canonical checkout; otherwise a quiet worktree could delete a
+  // live writer's provisional ref in its sibling. Older callers without cwd
+  // retain the legacy all-session behavior for compatibility.
+  const scopedSessions = await Promise.all(sessions.map(async (session) => {
+    if (!session.cwd) return session;
+    const sessionCwd = await realpath(session.cwd).catch(() => resolve(session.cwd!));
+    return sessionCwd === canonicalCwd ? session : undefined;
+  })).then((items) => items.filter((session): session is LiveCheckpointSession => Boolean(session)));
+  const scopedSessionIds = new Set(scopedSessions.flatMap((session) => {
+    try { return [sanitizeTurnSnapshotComponent(session.sessionId)]; } catch { return []; }
+  }));
+  const knownSessionIds = new Set(sessions.flatMap((session) => {
+    try { return [sanitizeTurnSnapshotComponent(session.sessionId)]; } catch { return []; }
+  }));
+  const prefix = "refs/tau/checkpoints/";
+  const refs = (await runGit(cwd, ["for-each-ref", "--format=%(refname)", prefix]).catch(() => ""))
+    .split("\n")
+    .map((ref) => ref.trim())
+    .filter((ref) => isTurnSnapshotId(ref));
+  const refsForWorkspace = refs.filter((ref) => {
+    const sessionId = ref.split("/")[3];
+    // If every caller supplied a workspace identity, retain known sessions in
+    // sibling linked worktrees but reclaim refs for sessions absent from the
+    // persisted index. The latter is the startup/pruning path for an offline
+    // deletion; leaving them forever would leak immutable trees. A missing cwd
+    // in any legacy record falls back to the conservative all-session behavior.
+    return sessions.some((session) => !session.cwd) || scopedSessionIds.has(sessionId) || !knownSessionIds.has(sessionId);
+  });
+  const refSet = new Set(refsForWorkspace);
+  const valid = new Set<string>();
+  for (const session of scopedSessions) {
+    for (const checkpoint of session.checkpoints) {
+      if (checkpoint.sessionId !== session.sessionId) continue;
+      try {
+        const before = turnSnapshotRef(session.sessionId, checkpoint.turnId, "before");
+        const after = turnSnapshotRef(session.sessionId, checkpoint.turnId, "after");
+        if (!refSet.has(before) || !refSet.has(after)) continue;
+        await validateWorkspaceSnapshotRefs(cwd, before, after, {
+          sessionId: session.sessionId,
+          turnId: checkpoint.turnId,
+        }, runGit);
+        valid.add(before);
+        valid.add(after);
+      } catch {
+        // Invalid entries are deliberately not roots for the GC sweep.
+      }
+    }
+  }
+  await Promise.all(refsForWorkspace.filter((ref) => !valid.has(ref)).map((ref) =>
+    runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
+  const checkpointRoot = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints");
+  const filesystemRefs = await filesystemManifests(checkpointRoot);
+  const validFilesystem = new Set<string>();
+  for (const session of scopedSessions) {
+    for (const checkpoint of session.checkpoints) {
+      if (checkpoint.sessionId !== session.sessionId) continue;
+      const before = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(session.sessionId, checkpoint.turnId, "before"));
+      const after = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(session.sessionId, checkpoint.turnId, "after"));
+      if (before && after) {
+        validFilesystem.add(filesystemManifestPath(canonicalCwd, before.id));
+        validFilesystem.add(filesystemManifestPath(canonicalCwd, after.id));
+      }
+    }
+  }
+  await Promise.all(filesystemRefs.filter((path) => !validFilesystem.has(path)).map((path) => rm(path, { force: true })));
+  await gcFilesystemSnapshotBlobs(cwd);
 }
 
 function snapshotStatus(value: string): ChangeStatus {
@@ -620,6 +1053,11 @@ export async function diffWorkspaceSnapshots(
     throw new Error("Turn checkpoint snapshot refs must be an ordered before/after pair in one namespace.");
   }
   const runGit = options.runGit ?? git;
+  const filesystem = await filesystemSnapshotPair(cwd, beforeSnapshotId, afterSnapshotId);
+  if (filesystem) {
+    if (options.expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, options.expected, runGit);
+    return diffFilesystemSnapshots(filesystem, options.branch);
+  }
   if (options.expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, options.expected, runGit);
   const args = ["diff", "--no-ext-diff", "--find-renames", "--numstat", "-z", beforeSnapshotId, afterSnapshotId, "--"];
   const statusArgs = ["diff", "--no-ext-diff", "--find-renames", "--name-status", "-z", beforeSnapshotId, afterSnapshotId, "--"];
@@ -998,6 +1436,33 @@ export async function getSnapshotFileDiff(
     return empty("This turn checkpoint is no longer available.");
   }
   try {
+    await assertWorkspacePath(cwd, path);
+    const filesystem = await filesystemSnapshotPair(cwd, beforeSnapshotId, afterSnapshotId);
+    if (filesystem) {
+      const beforeFile = filesystem.before.files[path];
+      const afterFile = filesystem.after.files[path];
+      if (beforeFile?.hash === afterFile?.hash) return empty("No textual changes.");
+      const [beforeBytes, afterBytes] = await Promise.all([
+        beforeFile ? readFile(filesystemBlobPath(filesystem.before.cwd, beforeFile.hash)) : Promise.resolve(Buffer.alloc(0)),
+        afterFile ? readFile(filesystemBlobPath(filesystem.after.cwd, afterFile.hash)) : Promise.resolve(Buffer.alloc(0)),
+      ]);
+      if (beforeBytes.includes(0) || afterBytes.includes(0)) return empty("Binary file — no line diff.");
+      const beforeText = beforeBytes.toString("utf8");
+      const afterText = afterBytes.toString("utf8");
+      const beforeLines = beforeText ? beforeText.split("\n") : [];
+      const afterLines = afterText ? afterText.split("\n") : [];
+      if (beforeLines.at(-1) === "") beforeLines.pop();
+      if (afterLines.at(-1) === "") afterLines.pop();
+      const patch = [
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        `@@ -${beforeLines.length ? 1 : 0},${beforeLines.length} +${afterLines.length ? 1 : 0},${afterLines.length} @@`,
+        ...beforeLines.map((line) => `-${line}`),
+        ...afterLines.map((line) => `+${line}`),
+        "",
+      ].join("\n");
+      return parseUnifiedDiff(path, patch, options);
+    }
     if (expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, expected);
     const streamed = await streamFilePatch(
       cwd,

@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { UiTurnCheckpoint } from "./contracts.js";
 import {
   boundedTurnCheckpointSummary,
+  createTurnCheckpointBatch,
+  TURN_CHECKPOINT_CUSTOM_TYPE,
+  TURN_CHECKPOINT_BATCH_CUSTOM_TYPE,
+  turnCheckpointsFromEntries,
+  turnSnapshotRef,
+} from "./turn-checkpoint-codec.js";
+import {
   recordTurnAssistant,
   recordTurnOutcome,
   shouldPersistTurnCapture,
   startTurnCapture,
-  TURN_CHECKPOINT_CUSTOM_TYPE,
-  turnCheckpointsFromEntries,
-  turnSnapshotRef,
   TurnCheckpointLifecycle,
   type TurnCaptureState,
-} from "./turn-checkpoints.js";
+} from "./turn-checkpoint-lifecycle.js";
 import { normalizeDiffLoadOptions } from "./turn-checkpoint-diff.js";
 
 const file = (path: string, added: number, removed: number) => ({
@@ -86,6 +90,32 @@ describe("turn checkpoints", () => {
       { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: swapped },
       { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: foreign },
     ], "session")).toEqual([]);
+  });
+
+  it("exposes fork records only after every record precedes its commit marker", () => {
+    const checkpoint = {
+      id: "turn",
+      turnId: "turn",
+      sessionId: "fork",
+      anchorMessageId: "assistant",
+      beforeSnapshotId: turnSnapshotRef("fork", "turn", "before"),
+      afterSnapshotId: turnSnapshotRef("fork", "turn", "after"),
+      startedAt: 1,
+      endedAt: 2,
+      files: [],
+      added: 0,
+      removed: 0,
+      transactionId: "tx",
+    };
+    const marker = createTurnCheckpointBatch("tx", "fork", ["turn"]);
+    expect(turnCheckpointsFromEntries([
+      { type: "custom", customType: TURN_CHECKPOINT_BATCH_CUSTOM_TYPE, data: marker },
+      { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: checkpoint },
+    ], "fork")).toEqual([]);
+    expect(turnCheckpointsFromEntries([
+      { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: checkpoint },
+      { type: "custom", customType: TURN_CHECKPOINT_BATCH_CUSTOM_TYPE, data: marker },
+    ], "fork")).toMatchObject([checkpoint]);
   });
 
   it("shares retry, abort, and lazy paging semantics without retaining patch bytes", () => {

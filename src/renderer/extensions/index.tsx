@@ -6,6 +6,7 @@ import type { DesktopExtension } from "../extension-system";
 // actually rendered.
 const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ ChangesPanel }) => ({ default: ChangesPanel })));
 const LazyChangedFiles = lazy(() => import("../components/ChangedFiles").then(({ ChangedFiles }) => ({ default: ChangedFiles })));
+const LazyWorkspaceCheckpointCard = lazy(() => import("./workspace-checkpoint-card").then(({ WorkspaceCheckpointCard }) => ({ default: WorkspaceCheckpointCard })));
 const LazyHistoricalReview = lazy(() => import("../components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
 const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
@@ -41,6 +42,7 @@ export const workspaceExtension: DesktopExtension = {
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.
     plugin.registerChanges({ id: "workspace.changed-files", order: 10, Component: LazyChangedFiles });
+    plugin.registerTurnCheckpoint({ id: "workspace.turn-checkpoint", order: 10, Component: LazyWorkspaceCheckpointCard });
     plugin.registerReview({ id: "workspace.historical-review", kind: "historical", order: 10, Component: LazyHistoricalReview });
     plugin.registerOptions([
       { id: "group-by-project", kind: "toggle", label: "Group threads by project instead of recency", defaultValue: false },

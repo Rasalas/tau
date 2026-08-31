@@ -7,19 +7,18 @@ import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionContext }
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import type { DiffLoadOptions, UiFileDiff } from "../../src/shared/contracts.js";
-import * as workspaceGit from "../../src/main/workspace-git.js";
 import { WorkspaceCheckpointLeaseManager } from "../../src/main/workspace-checkpoint-lease.js";
-import { assistantAnchorForMessage, createPiTurnCheckpointExtension } from "../../src/main/pi-turn-checkpoint-extension.js";
+import { assistantAnchorForMessage } from "../../src/main/pi-turn-checkpoint-extension.js";
 import {
   checkpointsForBranch,
   cloneTurnCheckpoint,
-  rehomeStoredTurnCheckpoint,
   TURN_CHECKPOINT_CUSTOM_TYPE,
   turnCheckpointsFromEntries,
-  turnSnapshotRef,
 } from "../../src/shared/turn-checkpoint-codec.js";
-import { TurnCheckpointLifecycle } from "../../src/shared/turn-checkpoint-lifecycle.js";
-import { createTurnCheckpointAdapter } from "../../src/shared/turn-checkpoint-adapter.js";
+import {
+  createWorkspaceKitCheckpointFeature,
+  createWorkspaceKitCheckpointMaintenance,
+} from "../../src/main/workspace-kit-checkpoints.js";
 import { bridgeTranscriptPage, boundedBridgePayload, boundedBridgeValue } from "../../src/shared/bridge-transcript-pager.js";
 import {
   encodePiBridgeFrame,
@@ -81,6 +80,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   const sessionContexts = new Map<string, ExtensionContext>();
   const turnContexts = new Map<string, ExtensionContext>();
   const checkpointLeaseManager = new WorkspaceCheckpointLeaseManager();
+  const checkpointMaintenance = createWorkspaceKitCheckpointMaintenance(checkpointLeaseManager);
   let previousSessionForFork: {
     context: ExtensionContext;
     sessionId: string;
@@ -118,79 +118,30 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   };
   const currentContext = (ctx: ExtensionContext): boolean => Boolean(descriptor
     && descriptor.sessionId === ctx.sessionManager.getSessionId());
-  const checkpointAdapter = createTurnCheckpointAdapter<workspaceGit.WorkspaceSnapshot>({
-    sessionIdForTurn: (turnId) => contextForTurn(turnId)?.sessionManager.getSessionId(),
-    createBefore: (turnId) => {
-      const ctx = contextForNewTurn(turnId);
-      if (!ctx) return Promise.resolve(undefined);
-      const sessionId = ctx.sessionManager.getSessionId();
-      sessionContexts.set(sessionId, ctx);
-      turnContexts.set(turnId, ctx);
-      return workspaceGit.createTurnWorkspaceSnapshot(ctx.cwd, sessionId, turnId, "before");
-    },
-    createAfter: (turnId) => {
+  const checkpointFeature = createWorkspaceKitCheckpointFeature({
+    contextForTurn: (turnId) => {
       const ctx = contextForTurn(turnId);
-      if (!ctx) return Promise.resolve(undefined);
-      const sessionId = ctx.sessionManager.getSessionId();
-      sessionContexts.set(sessionId, ctx);
-      turnContexts.set(turnId, ctx);
-      return workspaceGit.createTurnWorkspaceSnapshot(ctx.cwd, sessionId, turnId, "after");
-    },
-    acquireLease: async (turnId, signal) => {
-      const ctx = contextForNewTurn(turnId);
       if (!ctx) return undefined;
-      return checkpointLeaseManager.acquire(ctx.cwd, {
-        sessionId: ctx.sessionManager.getSessionId(),
-        turnId,
-        signal,
-      });
-    },
-    summarize: (before, after, turnId) => {
-      const sessionId = before.sessionId;
-      const ctx = sessionId ? sessionContexts.get(sessionId) : undefined;
-      if (!ctx || before.cwd !== after.cwd || before.sessionId !== after.sessionId
-        || before.turnId !== turnId || after.turnId !== turnId) {
-        return Promise.reject(new Error("Pi session snapshot ownership changed."));
-      }
-      return workspaceGit.diffWorkspaceSnapshots(ctx.cwd, before.id, after.id, {
-        expected: { sessionId, turnId },
-      });
-    },
-    discardSnapshot: (snapshot) => {
-      const ctx = latestContext;
-      const snapshotCwd = snapshot.cwd ?? ctx?.cwd;
-      if (!snapshotCwd) return;
-      return workspaceGit.deleteWorkspaceSnapshot(
-        snapshotCwd,
-        snapshot.id,
-        snapshot.sessionId && snapshot.turnId && snapshot.phase
-          ? { sessionId: snapshot.sessionId, turnId: snapshot.turnId, phase: snapshot.phase, treeId: snapshot.treeId }
-          : undefined,
-      );
-    },
-    discardTurnSnapshot: (turnId, phase) => {
-      const ctx = contextForTurn(turnId);
-      if (!ctx) return;
       const sessionId = ctx.sessionManager.getSessionId();
-      return workspaceGit.deleteWorkspaceSnapshot(
-        ctx.cwd,
-        turnSnapshotRef(sessionId, turnId, phase),
-        { sessionId, turnId, phase },
-      );
+      sessionContexts.set(sessionId, ctx);
+      turnContexts.set(turnId, ctx);
+      return { cwd: ctx.cwd, sessionId };
     },
+    leaseManager: checkpointLeaseManager,
+    maintenance: checkpointMaintenance,
     appendCheckpoint: async (stored, result, capture) => {
       const sessionId = result.beforeSnapshot.sessionId;
       const ctx = sessionId ? sessionContexts.get(sessionId) : undefined;
-      if (!ctx) throw new Error("Pi session is unavailable.");
-      if (result.afterSnapshot.sessionId !== sessionId || result.beforeSnapshot.turnId !== capture.id
+      if (!ctx || result.afterSnapshot.sessionId !== sessionId || result.beforeSnapshot.turnId !== capture.id
         || result.afterSnapshot.turnId !== capture.id) {
         throw new Error("Pi session snapshot ownership changed.");
       }
       if (turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), sessionId).some((entry) => entry.id === stored.id)) return;
-      // The lease is held until this synchronous append succeeds. Propagating
-      // a write error lets the shared lifecycle remove the provisional refs
-      // instead of releasing a checkpoint that exists only in memory.
-      ctx.sessionManager.appendCustomEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
+      // ExtensionContext deliberately exposes a read-only SessionManager. The
+      // Pi action is the supported durable write seam and is synchronous: once
+      // it returns the session entry has been appended to disk.
+      if (!currentContext(ctx)) throw new Error("Pi session is no longer active.");
+      pi.appendEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
       if (!currentContext(ctx)) return;
       try {
         broadcast({ type: "turn-checkpoint", checkpoint: cloneTurnCheckpoint(stored) }, ctx);
@@ -213,34 +164,20 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     },
     onReleased: (capture) => releaseTurnContext(capture.id),
   });
-  const checkpointLifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>(checkpointAdapter);
+  const checkpointRuntime = checkpointFeature.runtime;
 
   const historicalDiff = async (ctx: ExtensionContext, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff> => {
     const checkpoint = turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId())
       .find((entry) => entry.id === checkpointId);
     if (!checkpoint) return { path, added: 0, removed: 0, hunks: [], note: "This turn checkpoint is no longer available." };
-    await workspaceGit.assertWorkspacePath(ctx.cwd, path);
-    const diff = await workspaceGit.getSnapshotFileDiff(
-      ctx.cwd,
-      checkpoint.beforeSnapshotId,
-      checkpoint.afterSnapshotId,
-      path,
-      options,
-      { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId },
-    );
-    return diff;
+    return checkpointFeature.historicalDiff(ctx.cwd, checkpoint, path, options);
   };
 
   const historicalFiles = async (ctx: ExtensionContext, checkpointId: string, cursor?: string, limit?: number): Promise<PiBridgeTurnFilesPage> => {
     const checkpoint = turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId())
       .find((entry) => entry.id === checkpointId);
     if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
-    const page = await workspaceGit.diffWorkspaceSnapshotPage(ctx.cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, {
-      sessionId: checkpoint.sessionId,
-      turnId: checkpoint.turnId,
-      cursor,
-      limit,
-    });
+    const page = await checkpointFeature.historicalFiles(ctx.cwd, checkpoint, cursor, limit);
     return boundedBridgeValue({ ...page, sessionId: checkpoint.sessionId, checkpointId });
   };
 
@@ -336,10 +273,12 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   const broadcastSnapshot = (ctx: ExtensionContext) => {
     if (!currentContext(ctx)) return;
+    const currentDescriptor = descriptor;
+    if (!currentDescriptor) return;
     const frame: PiBridgeServerFrame = {
       protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
       type: "snapshot",
-      epoch: descriptor.epoch,
+      epoch: currentDescriptor.epoch,
       seq: ++sequence,
       snapshot: snapshot(ctx),
     };
@@ -403,21 +342,22 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
             // run. A session switch between queueing and delivery must not move
             // its before snapshot onto the new session's workspace.
             turnContexts.set(frame.clientTurnId, ctx);
-            checkpointLifecycle.acceptUserTurn(frame.clientTurnId, { deferBefore: true });
+            checkpointRuntime.acceptUserTurn(frame.clientTurnId, { deferBefore: true });
           }
-          void pi.sendUserMessage(frame.text, {
-            ...(queued ? { deliverAs: frame.deliverAs ?? "followUp" } : {}),
-            expandPromptTemplates: true,
-          }).then(async () => {
-            // Extension commands are handled before Pi emits `input`; they are
-            // accepted by the bridge command but are not user turns.
-            if (handledCommand || (!queued && checkpointLifecycle.get(frame.clientTurnId)?.started !== true)) {
-              await checkpointLifecycle.reject(frame.clientTurnId);
-            }
-          }).catch(async (error) => {
-            await checkpointLifecycle.reject(frame.clientTurnId);
+          try {
+            // ExtensionAPI.sendUserMessage is intentionally fire-and-forget
+            // (`void`). Acceptance/rejection is observed through Pi's input and
+            // agent lifecycle events; attaching a Promise handler here couples
+            // the bridge to an implementation-only async return type.
+            pi.sendUserMessage(frame.text, {
+              ...(queued ? { deliverAs: frame.deliverAs ?? "followUp" } : {}),
+              expandPromptTemplates: true,
+            });
+          } catch (error) {
+            void checkpointRuntime.reject(frame.clientTurnId);
             if (latestContext) broadcast({ type: "turn-checkpoint-error", turnId: frame.clientTurnId, message: String(error) }, latestContext);
-          });
+            throw error;
+          }
           respond(client, frame.id, true, { accepted: true });
           break;
         case "abort": ctx.abort(); respond(client, frame.id, true); break;
@@ -518,8 +458,14 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     // Settlement starts the old session's snapshot/summary writes but does not
     // hold Pi's session-switch lifecycle open. The adapter keeps the owning
     // session context, so those writes cannot drift onto the new session.
-    await checkpointLifecycle.settle();
+    const disposedContexts = [...new Set(sessionContexts.values())];
+    await checkpointRuntime.close();
     await stop();
+    // A normal session switch has no fork carrier, but it still disposes every
+    // context retained by a completed/rejected turn. This keeps the maps
+    // bounded when Pi replaces a session repeatedly without shutting down the
+    // process.
+    for (const disposed of disposedContexts) disposeSessionContext(disposed);
     let inherited = event.reason === "fork" ? previousSessionForFork : undefined;
     // A fork rebuilds the Pi extension runtime, so closure state from the
     // source extension is not guaranteed to survive the session replacement.
@@ -547,37 +493,29 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (!sessionFile) return;
     latestContext = ctx;
     sequence = 0;
-    await workspaceGit.cleanupOrphanTurnCheckpointRefs(
+    const sourceFork = inherited;
+    const inheritedCheckpoints = sourceFork
+      ? checkpointsForBranch(ctx.sessionManager.getBranch(), sourceFork.checkpoints)
+      : [];
+    await checkpointMaintenance.cleanupOrphanRefs(
       ctx.cwd,
       ctx.sessionManager.getSessionId(),
       turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId()),
     );
-    const inheritedCheckpoints = inherited
-      ? checkpointsForBranch(ctx.sessionManager.getBranch(), inherited.checkpoints)
-      : [];
-    if (inheritedCheckpoints.length > 0) {
+    if (sourceFork && inheritedCheckpoints.length > 0) {
       try {
-        await workspaceGit.cloneTurnCheckpointRefs(
-          ctx.cwd,
-          inherited.sessionId,
-          ctx.sessionManager.getSessionId(),
-          inheritedCheckpoints,
-        );
-        const existing = new Set(turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId()).map((checkpoint) => checkpoint.id));
-        for (const checkpoint of inheritedCheckpoints) {
-          if (existing.has(checkpoint.id)) continue;
-          ctx.sessionManager.appendCustomEntry(
-            TURN_CHECKPOINT_CUSTOM_TYPE,
-            rehomeStoredTurnCheckpoint(checkpoint, ctx.sessionManager.getSessionId()),
-          );
-        }
+        await checkpointMaintenance.rehomeFork({
+          cwd: ctx.cwd,
+          sourceSessionId: sourceFork.sessionId,
+          targetSessionId: ctx.sessionManager.getSessionId(),
+          checkpoints: inheritedCheckpoints,
+          appendEntry: (customType, data) => { pi.appendEntry(customType, data); },
+          committedCheckpoints: () => turnCheckpointsFromEntries(
+            ctx.sessionManager.getBranch(),
+            ctx.sessionManager.getSessionId(),
+          ),
+        });
       } catch (error) {
-        await workspaceGit.cleanupClonedTurnCheckpointRefs(
-          ctx.cwd,
-          inherited.sessionId,
-          ctx.sessionManager.getSessionId(),
-          inheritedCheckpoints,
-        );
         ctx.ui.notify(`Turn checkpoint history could not be carried into the fork: ${String(error)}`, "error");
       }
     }
@@ -637,8 +575,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     eventName: string,
     handler: (event: Record<string, unknown>, ctx: ExtensionContext) => void | Promise<void>,
   ) => void;
-  createPiTurnCheckpointExtension({
-    lifecycle: checkpointLifecycle,
+  checkpointFeature.createPiExtension({
     nextTurnId: randomUUID,
     findAssistantAnchor: assistantAnchorForMessage,
     bindTurnContext: (turnId, ctx) => {
@@ -681,7 +618,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    await checkpointLifecycle.close();
+    await checkpointRuntime.close();
     // Read the branch after the awaited settle: a checkpoint that was in the
     // final persistence phase must be part of a subsequent fork as well.
     previousSessionForFork = {

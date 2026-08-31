@@ -288,12 +288,19 @@ export class TurnCheckpointLifecycle<Snapshot> {
   }
 
   /**
-   * Detaches current captures and finalizes them on this thread's queue. The
-   * returned promise is for callers closing a session; the Pi event adapter can
-   * start it without awaiting, so another thread/workspace stays interactive.
+   * Finalizes captures on this thread's queue. A runtime's `agent_settled`
+   * event is not necessarily session shutdown: Pi can still have accepted
+   * follow-ups waiting for their own turn boundary. The non-final mode drains
+   * only captures that reached a terminal assistant outcome and leaves those
+   * queued client turns addressable by their original IDs.
    */
-  async settle(): Promise<void> {
-    const captures = [...this.captures.values()].filter((capture) => !this.finishing.has(capture.id));
+  async settle(options: { final?: boolean } = {}): Promise<void> {
+    const final = options.final !== false;
+    const captures = [...this.captures.values()]
+      .filter((capture) => !this.finishing.has(capture.id))
+      .filter((capture) => final || capture.started === true || capture.outcome !== undefined
+        || capture.terminalStopReason === "error" || capture.terminalStopReason === "aborted"
+        || capture.terminalStopReason === "length");
     for (const capture of captures) removeId(this.queuedIds, capture.id);
     if (this.activeId && captures.some((capture) => capture.id === this.activeId)) this.activeId = undefined;
     this.activeTurnFreshCapture = false;

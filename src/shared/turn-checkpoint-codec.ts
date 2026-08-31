@@ -8,10 +8,13 @@ import type {
   StoredTurnCheckpoint,
   TurnCaptureState,
   TurnCheckpointCaptureResult,
+  TurnCheckpointBatch,
 } from "./turn-checkpoint-types.js";
 
 /** Custom entries are part of the Pi session tree and therefore survive reloads and forks. */
 export const TURN_CHECKPOINT_CUSTOM_TYPE = "tau.turn-checkpoint.v1";
+/** Journal commit marker for forked checkpoint ref/entry batches. */
+export const TURN_CHECKPOINT_BATCH_CUSTOM_TYPE = "tau.turn-checkpoint-batch.v1";
 
 /** Keep the persisted checkpoint small even when a turn changes thousands of files. */
 export const MAX_TURN_CHECKPOINT_PREVIEW_FILES = 8;
@@ -105,6 +108,7 @@ export function cloneStoredTurnCheckpoint(checkpoint: StoredTurnCheckpoint): Sto
     ...cloneTurnCheckpoint(checkpoint),
     beforeSnapshotId: checkpoint.beforeSnapshotId,
     afterSnapshotId: checkpoint.afterSnapshotId,
+    ...(checkpoint.transactionId ? { transactionId: checkpoint.transactionId } : {}),
   };
 }
 
@@ -119,12 +123,16 @@ export function summariesFromStoredTurnCheckpoints(
 export function rehomeStoredTurnCheckpoint(
   checkpoint: StoredTurnCheckpoint,
   sessionId: string,
+  transactionId?: string,
 ): StoredTurnCheckpoint {
+  const cloned = cloneStoredTurnCheckpoint(checkpoint);
+  delete cloned.transactionId;
   return {
-    ...cloneStoredTurnCheckpoint(checkpoint),
+    ...cloned,
     sessionId,
     beforeSnapshotId: turnSnapshotRef(sessionId, checkpoint.turnId, "before"),
     afterSnapshotId: turnSnapshotRef(sessionId, checkpoint.turnId, "after"),
+    ...(transactionId ? { transactionId } : {}),
   };
 }
 
@@ -177,6 +185,9 @@ export function parseStoredTurnCheckpoint(value: unknown, expectedSessionId?: st
     added: Math.max(0, item.added),
     removed: Math.max(0, item.removed),
     ...(typeof item.branch === "string" ? { branch: item.branch } : {}),
+    ...(typeof item.transactionId === "string" && item.transactionId.length > 0
+      ? { transactionId: item.transactionId }
+      : {}),
   };
   return cloneStoredTurnCheckpoint(checkpoint);
 }
@@ -186,17 +197,101 @@ export function turnCheckpointsFromEntries(
   entries: readonly unknown[],
   sessionId?: string,
 ): StoredTurnCheckpoint[] {
+  const committedTransactions = committedTurnCheckpointTransactions(entries, sessionId);
   const seen = new Set<string>();
   const result: StoredTurnCheckpoint[] = [];
   for (const entry of entries) {
     const item = record(entry);
     if (!item || item.type !== "custom" || item.customType !== TURN_CHECKPOINT_CUSTOM_TYPE) continue;
     const checkpoint = parseStoredTurnCheckpoint(item.data, sessionId);
+    if (checkpoint?.transactionId && !committedTransactions.has(checkpoint.transactionId)) continue;
     if (!checkpoint || seen.has(checkpoint.id)) continue;
     seen.add(checkpoint.id);
     result.push(checkpoint);
   }
   return result;
+}
+
+export function parseTurnCheckpointBatch(value: unknown, expectedSessionId?: string): TurnCheckpointBatch | undefined {
+  const item = record(value);
+  if (!item
+    || typeof item.transactionId !== "string"
+    || item.transactionId.length === 0
+    || typeof item.sessionId !== "string"
+    || (expectedSessionId !== undefined && item.sessionId !== expectedSessionId)
+    || item.state !== "committed"
+    || !Array.isArray(item.checkpointIds)
+    || item.checkpointIds.length === 0
+    || !item.checkpointIds.every((id): id is string => typeof id === "string" && id.length > 0)
+    || new Set(item.checkpointIds).size !== item.checkpointIds.length) return undefined;
+  return {
+    transactionId: item.transactionId,
+    sessionId: item.sessionId,
+    checkpointIds: [...item.checkpointIds],
+    state: "committed",
+  };
+}
+
+/**
+ * Returns only transactions whose commit marker names every transaction-bound
+ * checkpoint record exactly once. A marker by itself is not a commit: this
+ * makes a crash between two append operations invisible after restart.
+ */
+export function committedTurnCheckpointTransactions(
+  entries: readonly unknown[],
+  sessionId?: string,
+): ReadonlySet<string> {
+  const records = new Map<string, Array<{ checkpoint: StoredTurnCheckpoint; index: number }>>();
+  const batches: Array<{ batch: TurnCheckpointBatch; index: number }> = [];
+  for (const [index, entry] of entries.entries()) {
+    const item = record(entry);
+    if (!item) continue;
+    if (item.type === "custom" && item.customType === TURN_CHECKPOINT_CUSTOM_TYPE) {
+      const checkpoint = parseStoredTurnCheckpoint(item.data, sessionId);
+      if (checkpoint?.transactionId) {
+        const transactionRecords = records.get(checkpoint.transactionId) ?? [];
+        transactionRecords.push({ checkpoint, index });
+        records.set(checkpoint.transactionId, transactionRecords);
+      }
+    } else if (item.type === "custom" && item.customType === TURN_CHECKPOINT_BATCH_CUSTOM_TYPE) {
+      const batch = parseTurnCheckpointBatch(item.data, sessionId);
+      if (batch) batches.push({ batch, index });
+    }
+  }
+  const committed = new Set<string>();
+  for (const { batch, index } of batches) {
+    const recordsForTransaction = records.get(batch.transactionId);
+    if (!recordsForTransaction || recordsForTransaction.length !== batch.checkpointIds.length) continue;
+    const checkpointIds = new Set(batch.checkpointIds);
+    // The marker is an append-only commit point, not merely a set-membership
+    // hint. Records written after it belong to a later/recovered attempt and
+    // must not make an earlier partial batch appear committed.
+    if (recordsForTransaction.every(({ checkpoint, index: recordIndex }) => checkpointIds.has(checkpoint.id)
+      && checkpoint.sessionId === batch.sessionId
+      && recordIndex < index)
+      && new Set(recordsForTransaction.map(({ checkpoint }) => checkpoint.id)).size === checkpointIds.size) {
+      committed.add(batch.transactionId);
+    }
+  }
+  return committed;
+}
+
+/** Creates the final journal record after every cloned entry has been appended. */
+export function createTurnCheckpointBatch(
+  transactionId: string,
+  sessionId: string,
+  checkpointIds: readonly string[],
+): TurnCheckpointBatch {
+  if (!transactionId || !sessionId || checkpointIds.length === 0 || checkpointIds.some((id) => !id)
+    || new Set(checkpointIds).size !== checkpointIds.length) {
+    throw new Error("Invalid turn checkpoint fork transaction.");
+  }
+  return {
+    transactionId,
+    sessionId,
+    checkpointIds: [...checkpointIds],
+    state: "committed",
+  };
 }
 
 /** Keep inherited cards only when their assistant anchor is on the fork branch. */

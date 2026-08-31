@@ -1686,6 +1686,8 @@ export default function App() {
   );
   const changesContributions = registry.getChangesContributions();
   const ChangesComponent = changesContributions[0]?.Component;
+  const checkpointContributions = registry.getTurnCheckpointContributions();
+  const CheckpointComponent = checkpointContributions[0]?.Component;
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
   const loadedMessageIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1695,7 +1697,7 @@ export default function App() {
     }
     return ids;
   }, [messages]);
-  const checkpointActivities = useMemo(() => (!ChangesComponent || pendingNewThread ? [] : turnCheckpoints)
+  const checkpointActivities = useMemo(() => (!CheckpointComponent || pendingNewThread ? [] : turnCheckpoints)
     // A persisted checkpoint may belong to a page that is not loaded yet. Do
     // not send it to the transcript with a tail fallback; it becomes visible at
     // its original position as soon as that page is fetched.
@@ -1704,18 +1706,15 @@ export default function App() {
       id: `turn-checkpoint-${checkpoint.id}`,
       afterMessageId: checkpoint.anchorMessageId,
       content: (
-        <div className="turn-checkpoint-card" data-checkpoint-id={checkpoint.id}>
-          <ChangesComponent
-            changes={checkpoint}
-            label="Turn changes"
+        <CheckpointComponent
+            checkpoint={checkpoint}
             onOpenDiff={(path) => openCheckpointReview(checkpoint.id, path)}
             loadFiles={window.tau
               ? (cursor, limit) => window.tau!.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit)
               : undefined}
           />
-        </div>
       ),
-    })), [ChangesComponent, loadedMessageIds, openCheckpointReview, pendingNewThread, turnCheckpoints]);
+    })), [CheckpointComponent, loadedMessageIds, openCheckpointReview, pendingNewThread, turnCheckpoints]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;

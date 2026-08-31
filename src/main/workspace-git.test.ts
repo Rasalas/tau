@@ -7,6 +7,7 @@ import {
   createWorktree,
   createWorkspaceSnapshot,
   cleanupClonedTurnCheckpointRefs,
+  cleanupCheckpointRefsForLiveSessions,
   cleanupOrphanTurnCheckpointRefs,
   cleanupTurnCheckpointRefs,
   cloneTurnCheckpointRefs,
@@ -203,6 +204,17 @@ describe("immutable turn snapshots", () => {
       await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
         .rejects.toThrow();
 
+      // A startup sweep must reclaim refs for a session that was deleted while
+      // the host was offline, but it must leave a known sibling session alone.
+      await cloneTurnCheckpointRefs(cwd, "source", "fork", [checkpoint]);
+      await cleanupCheckpointRefsForLiveSessions(cwd, [{
+        sessionId: "source",
+        cwd,
+        checkpoints: [checkpoint],
+      }]);
+      await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
+        .rejects.toThrow();
+
       // A checkpoint entry does not make a half-written ref pair valid. If a
       // process dies after publishing only one phase, the next session open
       // must remove that dangling phase as well.
@@ -220,6 +232,69 @@ describe("immutable turn snapshots", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it("provides immutable snapshots and fork history for a plain folder", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-folder-snapshots-"));
+    try {
+      await writeFile(join(cwd, "existing.txt"), "base\n");
+      const before = await createWorkspaceSnapshot(cwd, { namespace: "folder-session/turn", phase: "before" });
+      await writeFile(join(cwd, "existing.txt"), "turn\n");
+      await writeFile(join(cwd, "added.txt"), "new\n");
+      const after = await createWorkspaceSnapshot(cwd, { namespace: "folder-session/turn", phase: "after" });
+      expect(before.backend).toBe("filesystem");
+      expect(after.backend).toBe("filesystem");
+
+      const summary = await diffWorkspaceSnapshots(cwd, before.id, after.id, {
+        expected: { sessionId: "folder-session", turnId: "turn" },
+      });
+      expect(summary.files.map((file) => file.path)).toEqual(["added.txt", "existing.txt"]);
+      expect(summary.files.find((file) => file.path === "existing.txt")).toMatchObject({ added: 1, removed: 1 });
+      const historical = await getSnapshotFileDiff(cwd, before.id, after.id, "existing.txt", {}, {
+        sessionId: "folder-session",
+        turnId: "turn",
+      });
+      expect(historical.hunks.flatMap((hunk) => hunk.lines).map((line) => `${line.kind}:${line.text}`))
+        .toEqual(expect.arrayContaining(["removed:base", "added:turn"]));
+      const page = await diffWorkspaceSnapshotPage(cwd, before.id, after.id, {
+        sessionId: "folder-session",
+        turnId: "turn",
+        limit: 1,
+      });
+      expect(page.fileCount).toBe(2);
+      expect(page.files).toHaveLength(1);
+      expect(page.hasMore).toBe(true);
+
+      const checkpoint: StoredTurnCheckpoint = {
+        id: "turn",
+        turnId: "turn",
+        sessionId: "folder-session",
+        anchorMessageId: "assistant",
+        beforeSnapshotId: before.id,
+        afterSnapshotId: after.id,
+        startedAt: 1,
+        endedAt: 2,
+        files: [],
+        added: 2,
+        removed: 1,
+      };
+      await cloneTurnCheckpointRefs(cwd, "folder-session", "folder-fork", [checkpoint]);
+      await expect(validateWorkspaceSnapshotRefs(
+        cwd,
+        turnSnapshotRef("folder-fork", "turn", "before"),
+        turnSnapshotRef("folder-fork", "turn", "after"),
+        { sessionId: "folder-fork", turnId: "turn" },
+      )).resolves.toMatchObject({ beforeTreeId: before.treeId, afterTreeId: after.treeId });
+      await cleanupClonedTurnCheckpointRefs(cwd, "folder-session", "folder-fork", [checkpoint]);
+      await expect(validateWorkspaceSnapshotRefs(
+        cwd,
+        turnSnapshotRef("folder-fork", "turn", "before"),
+        turnSnapshotRef("folder-fork", "turn", "after"),
+        { sessionId: "folder-fork", turnId: "turn" },
+      )).rejects.toThrow();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("worktree creation", () => {

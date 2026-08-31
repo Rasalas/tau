@@ -60,6 +60,37 @@ describe("workspace checkpoint leases", () => {
     }
   });
 
+  it("does not serialize linked worktrees that share a Git common directory", async () => {
+    const cwd = await repository("tau-lease-linked-root-");
+    const linked = await mkdtemp(join(tmpdir(), "tau-lease-linked-child-"));
+    try {
+      execFileSync("git", ["config", "user.email", "tau-tests@example.invalid"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau tests"], { cwd });
+      await writeFile(join(cwd, "README.md"), "base\n");
+      execFileSync("git", ["add", "README.md"], { cwd });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd });
+      execFileSync("git", ["worktree", "add", "-q", "-b", "linked", linked, "HEAD"], { cwd });
+
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const [rootKey, linkedKey] = await Promise.all([
+        manager.canonicalKey(cwd),
+        manager.canonicalKey(linked),
+      ]);
+      expect(rootKey).not.toBe(linkedKey);
+      const [rootLease, linkedLease] = await Promise.all([
+        manager.acquire(cwd, { sessionId: "root", turnId: "turn" }),
+        manager.acquire(linked, { sessionId: "linked", turnId: "turn" }),
+      ]);
+      await Promise.all([rootLease.release(), linkedLease.release()]);
+    } finally {
+      execFileSync("git", ["worktree", "remove", "--force", linked], { cwd, stdio: "ignore" });
+      await Promise.all([
+        rm(linked, { recursive: true, force: true }),
+        rm(cwd, { recursive: true, force: true }),
+      ]);
+    }
+  });
+
   it("keeps plain workspaces out of their user data", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-lease-folder-"));
     try {
@@ -101,6 +132,28 @@ describe("workspace checkpoint leases", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("never lets a stale owner's late release remove a recovered generation", async () => {
+    const cwd = await repository("tau-lease-stale-generation-");
+    try {
+      const staleAfterMs = 100;
+      const oldManager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs });
+      const oldLease = await oldManager.acquire(cwd, { sessionId: "old", turnId: "turn" });
+      const recoveryNow = Date.now() + staleAfterMs + 100;
+      const newManager = new WorkspaceCheckpointLeaseManager({
+        pollMs: 5,
+        staleAfterMs,
+        now: () => recoveryNow,
+        processAlive: () => false,
+      });
+      const newLease = await newManager.acquire(cwd, { sessionId: "new", turnId: "turn" });
+      await oldLease.release();
+      expect(JSON.parse(await readFile(newLease.lockPath, "utf8"))).toMatchObject({ ownerId: newLease.ownerId });
+      await newLease.release();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it("cancels an aborted waiter without letting later turns bypass the owner", async () => {
     const cwd = await repository("tau-lease-abort-");

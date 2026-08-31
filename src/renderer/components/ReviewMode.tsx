@@ -4,6 +4,7 @@ import { ArrowLeft, ExternalLink, GitCommitHorizontal } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/contracts";
 import { DiffView } from "./DiffView";
 import { VirtualList } from "./VirtualList";
+import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
 
 const STATUS_GLYPH: Record<string, string> = {
   modified: "M",
@@ -48,39 +49,7 @@ export function ReviewMode({
   const [mode, setMode] = useState<"unified" | "split">("unified");
   const [message, setMessage] = useState(changes.proposedMessage ?? "");
   const [editingMessage, setEditingMessage] = useState(false);
-  const [files, setFiles] = useState(changes.files);
-  const fileCount = changes.fileCount ?? changes.files.length;
-  const previewCursor = fileCount > changes.files.length ? String(changes.files.length) : undefined;
-  const [nextFileCursor, setNextFileCursor] = useState<string | undefined>(previewCursor);
-  const [hasMoreFiles, setHasMoreFiles] = useState(() => Boolean(previewCursor));
-  const [loadingFiles, setLoadingFiles] = useState(false);
-  const [fileLoadError, setFileLoadError] = useState<string>();
-
-  useEffect(() => {
-    setFiles(changes.files);
-    setNextFileCursor(previewCursor);
-    setHasMoreFiles(Boolean(previewCursor));
-    setFileLoadError(undefined);
-  }, [changes.files, fileCount, previewCursor]);
-
-  const loadNextFiles = async () => {
-    if (!loadFiles || loadingFiles || !hasMoreFiles) return;
-    setLoadingFiles(true);
-    setFileLoadError(undefined);
-    try {
-      const page = await loadFiles(nextFileCursor, 40);
-      setFiles((current) => {
-        const known = new Set(current.map((file) => file.path));
-        return [...current, ...page.files.filter((file) => !known.has(file.path))];
-      });
-      setNextFileCursor(page.nextCursor);
-      setHasMoreFiles(page.hasMore);
-    } catch (error) {
-      setFileLoadError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingFiles(false);
-    }
-  };
+  const { files, fileCount, hasMore: hasMoreFiles, loading: loadingFiles, error: fileLoadError, loadNextPage: loadNextFiles } = usePagedWorkspaceFiles(changes, loadFiles);
 
   useEffect(() => {
     if (!selectedPath) { setDiff(undefined); return; }

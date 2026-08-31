@@ -94,7 +94,9 @@ export function createPiTurnCheckpointExtension<Snapshot>(
     pi.on("agent_settled", () => {
       // Persistence remains awaited by the lifecycle itself, but Pi's global
       // settled signal must not hold another workspace/thread behind Git I/O.
-      void options.lifecycle.settle().catch(() => undefined);
+      // A queued follow-up is deliberately left in the state machine until its
+      // own input/turn boundary; session shutdown calls the final mode.
+      void options.lifecycle.settle({ final: false }).catch(() => undefined);
     });
   };
 }

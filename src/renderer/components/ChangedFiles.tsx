@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/contracts";
 import { VirtualList } from "./VirtualList";
 import { FileKindIcon } from "./FileKindIcon";
+import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
 
 export function ChangedFiles({
   changes,
@@ -18,39 +19,7 @@ export function ChangedFiles({
   loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
 }) {
   const [open, setOpen] = useState(false);
-  const [loadedFiles, setLoadedFiles] = useState(changes.files);
-  const fileCount = changes.fileCount ?? changes.files.length;
-  const previewCursor = fileCount > changes.files.length ? String(changes.files.length) : undefined;
-  const [nextCursor, setNextCursor] = useState<string | undefined>(previewCursor);
-  const [hasMore, setHasMore] = useState(() => Boolean(previewCursor));
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string>();
-
-  useEffect(() => {
-    setLoadedFiles(changes.files);
-    setNextCursor(previewCursor);
-    setHasMore(Boolean(previewCursor));
-    setLoadError(undefined);
-  }, [changes.files, fileCount, previewCursor]);
-
-  const loadNextPage = async () => {
-    if (!loadFiles || loading || !hasMore) return;
-    setLoading(true);
-    setLoadError(undefined);
-    try {
-      const page = await loadFiles(nextCursor, 40);
-      setLoadedFiles((current) => {
-        const known = new Set(current.map((file) => file.path));
-        return [...current, ...page.files.filter((file) => !known.has(file.path))];
-      });
-      setNextCursor(page.nextCursor);
-      setHasMore(page.hasMore);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { files: loadedFiles, fileCount, hasMore, loading, error: loadError, loadNextPage } = usePagedWorkspaceFiles(changes, loadFiles);
 
   if (fileCount === 0) return null;
   const previewFiles = loadedFiles.slice(0, 3);

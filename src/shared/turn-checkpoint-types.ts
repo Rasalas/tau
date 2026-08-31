@@ -90,6 +90,16 @@ export interface AcceptTurnOptions {
 export interface StoredTurnCheckpoint extends UiTurnCheckpoint {
   beforeSnapshotId: string;
   afterSnapshotId: string;
+  /** Present only for fork batches until their commit journal entry is durable. */
+  transactionId?: string;
+}
+
+/** Append-only journal marker for an all-or-nothing fork re-home. */
+export interface TurnCheckpointBatch {
+  transactionId: string;
+  sessionId: string;
+  checkpointIds: string[];
+  state: "committed";
 }
 
 export type CheckpointPreviewFile = UiChangedFile;
