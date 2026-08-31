@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T12:42:25.249Z",
-  "buildTimeMs": 3810,
+  "generatedAt": "2026-08-31T08:32:56.500Z",
+  "buildTimeMs": 3221,
   "sourcemaps": false,
   "initial": {
     "javascript": {
-      "bytes": 485228,
-      "gzipBytes": 150992,
+      "bytes": 523835,
+      "gzipBytes": 162364,
       "files": 1
     },
     "css": {
-      "bytes": 60089,
-      "gzipBytes": 10674,
+      "bytes": 75794,
+      "gzipBytes": 13181,
       "files": 1
     },
     "sourcemaps": {
@@ -22,9 +22,9 @@
   },
   "lazy": {
     "javascript": {
-      "bytes": 93160,
-      "gzipBytes": 36493,
-      "files": 22
+      "bytes": 95675,
+      "gzipBytes": 37323,
+      "files": 23
     },
     "css": {
       "bytes": 0,
@@ -39,6 +39,13 @@
   },
   "assets": [
     {
+      "file": "assets/arrow-left-DDBHblzR.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 337,
+      "gzipBytes": 266
+    },
+    {
       "file": "assets/bash-I8pq0VWm.js",
       "kind": "javascript",
       "phase": "lazy",
@@ -46,7 +53,7 @@
       "gzipBytes": 1573
     },
     {
-      "file": "assets/CommandPalette-e9DUmX2K.js",
+      "file": "assets/CommandPalette-CvN46NYS.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 2465,
@@ -67,11 +74,11 @@
       "gzipBytes": 312
     },
     {
-      "file": "assets/DiffView-Ck1NDJ0k.js",
+      "file": "assets/DiffView-BsDMm92-.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1736,
-      "gzipBytes": 707
+      "gzipBytes": 706
     },
     {
       "file": "assets/go-4VmnRw3R.js",
@@ -81,18 +88,18 @@
       "gzipBytes": 708
     },
     {
-      "file": "assets/index-BP8xeh4O.css",
+      "file": "assets/index-Cil6O12x.css",
       "kind": "css",
       "phase": "initial",
-      "bytes": 60089,
-      "gzipBytes": 10674
+      "bytes": 75794,
+      "gzipBytes": 13181
     },
     {
-      "file": "assets/index-DvVHBM5j.js",
+      "file": "assets/index-DyV_3Ufm.js",
       "kind": "javascript",
       "phase": "initial",
-      "bytes": 485228,
-      "gzipBytes": 150992
+      "bytes": 523835,
+      "gzipBytes": 162364
     },
     {
       "file": "assets/javascript-DUNaicwC.js",
@@ -116,18 +123,18 @@
       "gzipBytes": 895
     },
     {
-      "file": "assets/observatory-panel-BQDpFVm9.js",
+      "file": "assets/observatory-panel-BI6IOyke.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1361,
       "gzipBytes": 590
     },
     {
-      "file": "assets/project-navigation-CX52mYaM.js",
+      "file": "assets/project-navigation-CZx_WdOw.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 15258,
-      "gzipBytes": 5262
+      "bytes": 17515,
+      "gzipBytes": 5828
     },
     {
       "file": "assets/python-CXf-_D6G.js",
@@ -137,18 +144,18 @@
       "gzipBytes": 1505
     },
     {
-      "file": "assets/RendererBenchmark-BPEIExTa.js",
+      "file": "assets/RendererBenchmark-6f4T8u9s.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 3996,
-      "gzipBytes": 1820
+      "bytes": 3984,
+      "gzipBytes": 1809
     },
     {
-      "file": "assets/ReviewMode-BxaOvDfZ.js",
+      "file": "assets/ReviewMode-BiVanCGB.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 4642,
-      "gzipBytes": 1773
+      "bytes": 4406,
+      "gzipBytes": 1736
     },
     {
       "file": "assets/rust-DsMvwcVK.js",
@@ -158,7 +165,7 @@
       "gzipBytes": 1436
     },
     {
-      "file": "assets/SettingsModal-CTYZD6yo.js",
+      "file": "assets/SettingsModal-C772ue0r.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 7573,
@@ -186,11 +193,11 @@
       "gzipBytes": 3079
     },
     {
-      "file": "assets/workspace-panels-TFieEeEn.js",
+      "file": "assets/workspace-panels-v1R5hSDi.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 3593,
-      "gzipBytes": 1365
+      "bytes": 3762,
+      "gzipBytes": 1412
     },
     {
       "file": "assets/xml-FcirFJJ2.js",
