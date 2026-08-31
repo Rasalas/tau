@@ -14,8 +14,8 @@ export class TranscriptHistoryCache {
     this.index = index;
   }
 
-  getDetail(threadId: string): ThreadDetail | undefined {
-    return this.details.get(threadId);
+  getDetail(sessionId: string): ThreadDetail | undefined {
+    return this.details.get(sessionId);
   }
 
   setDetail(detail: ThreadDetail): void {

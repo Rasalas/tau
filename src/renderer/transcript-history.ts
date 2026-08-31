@@ -67,35 +67,25 @@ export class TranscriptHistoryController {
   private readonly pageState: TranscriptHistoryPageState;
 
   constructor(initialSnapshot?: HostSnapshot, initialIndex?: ThreadIndexSnapshot) {
+    const initialDetail = initialSnapshot
+      ? threadDetailFromHostSnapshot(initialSnapshot)
+      : undefined;
     this.cache = new TranscriptHistoryCache(initialSnapshot, initialIndex);
     this.coordinator = new TranscriptHistoryCoordinator(initialSnapshot?.sessionId);
     this.pageState = new TranscriptHistoryPageState();
     this.preserveScrollRef = this.pageState.preserveScrollRef;
     this.anchorRef = this.pageState.anchorRef;
-    if (initialSnapshot) {
+    if (initialDetail) {
       this.cache.setDetail({
-        sessionId: initialSnapshot.sessionId,
-        messages: initialSnapshot.messages,
-        transcriptMessageIndexes: initialSnapshot.transcriptMessageIndexes,
-        isStreaming: initialSnapshot.isStreaming,
-        activeTools: initialSnapshot.activeTools,
-        turnActivity: initialSnapshot.turnActivity,
-        taskProgress: initialSnapshot.taskProgress,
-        taskHistory: initialSnapshot.taskHistory,
-        contextUsage: initialSnapshot.contextUsage,
-        coordinateSpace: initialSnapshot.coordinateSpace
-          ?? (initialSnapshot.olderCursor?.kind === "bridge" ? "bridge" : "local"),
-        olderCursor: normalizeCursor(initialSnapshot.olderCursor, initialSnapshot.coordinateSpace),
-        hasMore: initialSnapshot.olderCursor !== undefined,
-        historyCompleteness: initialSnapshot.historyCompleteness,
+        ...initialDetail,
+        olderCursor: normalizeCursor(initialDetail.olderCursor, initialDetail.coordinateSpace),
       });
     }
     this.state = {
-      sessionId: initialSnapshot?.sessionId,
-      coordinateSpace: initialSnapshot?.coordinateSpace
-        ?? (initialSnapshot?.olderCursor?.kind === "bridge" ? "bridge" : "local"),
-      olderCursor: normalizeCursor(initialSnapshot?.olderCursor, initialSnapshot?.coordinateSpace),
-      historyCompleteness: initialSnapshot?.historyCompleteness,
+      sessionId: initialDetail?.sessionId,
+      coordinateSpace: initialDetail?.coordinateSpace,
+      olderCursor: normalizeCursor(initialDetail?.olderCursor, initialDetail?.coordinateSpace),
+      historyCompleteness: initialDetail?.historyCompleteness,
       loading: false,
     };
   }
@@ -137,7 +127,7 @@ export class TranscriptHistoryController {
     request?: TranscriptBootstrapRequest,
   ): boolean {
     if (request && !this.isCurrentBootstrap(request)) return false;
-    if (!request && this.state.loading && this.coordinator.isActiveThread(snapshot.sessionId)) {
+    if (!request && this.state.loading && this.coordinator.isActiveSession(snapshot.sessionId)) {
       const applied = this.applyDetail(detail, snapshot);
       return applied !== undefined;
     }
@@ -165,7 +155,7 @@ export class TranscriptHistoryController {
     const incomingCoordinateSpace = detail.coordinateSpace
       ?? (detail.olderCursor?.kind === "bridge" ? "bridge" : "local");
     const sameThreadPaging = this.state.loading
-      && this.coordinator.isActiveThread(detail.sessionId)
+      && this.coordinator.isActiveSession(detail.sessionId)
       && previous?.sessionId === detail.sessionId;
     const keepHistory = sameThreadPaging || retainsLoadedHistory(previous, detail);
     const coordinateSpace = keepHistory && previous?.coordinateSpace
@@ -205,7 +195,7 @@ export class TranscriptHistoryController {
     const preservePagingRequest = sameThreadPaging;
     const preserveAnchor = !preservePagingRequest
       && keepHistory
-      && this.coordinator.isActiveThread(renderedDetail.sessionId)
+      && this.coordinator.isActiveSession(renderedDetail.sessionId)
       && this.anchorRef.current !== undefined;
     if (!preservePagingRequest) this.applyThreadState(
       renderedDetail.sessionId,
@@ -223,8 +213,8 @@ export class TranscriptHistoryController {
     return { detail: renderedDetail, snapshot: renderedSnapshot };
   }
 
-  beginThreadSwitch(threadId?: string): TransitionToken {
-    const generation = this.coordinator.beginThreadSwitch(threadId);
+  beginThreadSwitch(sessionId?: string): TransitionToken {
+    const generation = this.coordinator.beginThreadSwitch(sessionId);
     this.pageState.clear();
     this.publish({ ...this.state, loading: false, status: undefined });
     return generation;
@@ -234,22 +224,22 @@ export class TranscriptHistoryController {
     return this.coordinator.isCurrentThreadTransition(generation);
   }
 
-  confirmThreadTransition(generation: TransitionToken, threadId: string): boolean {
-    return this.coordinator.confirmThreadTransition(generation, threadId);
+  confirmThreadTransition(generation: TransitionToken, sessionId: string): boolean {
+    return this.coordinator.confirmThreadTransition(generation, sessionId);
   }
 
-  prepareActionDetail(threadId: string): boolean {
-    if (!this.coordinator.isSwitching && !this.coordinator.isActiveThread(threadId)) this.pageState.clear();
-    const prepared = this.coordinator.prepareActionDetail(threadId);
+  prepareActionDetail(sessionId: string): boolean {
+    if (!this.coordinator.isSwitching && !this.coordinator.isActiveSession(sessionId)) this.pageState.clear();
+    const prepared = this.coordinator.prepareActionDetail(sessionId);
     return prepared;
   }
 
-  acceptsDetail(threadId: string): boolean {
-    return this.coordinator.acceptsDetail(threadId);
+  acceptsDetail(sessionId: string): boolean {
+    return this.coordinator.acceptsDetail(sessionId);
   }
 
-  acceptsExternalPage(threadId: string): boolean {
-    return this.coordinator.acceptsExternalPage(threadId);
+  acceptsExternalPage(sessionId: string): boolean {
+    return this.coordinator.acceptsExternalPage(sessionId);
   }
 
   beginLoad(anchor?: TranscriptScrollAnchor): TranscriptHistoryRequest | undefined {
@@ -370,7 +360,7 @@ export class TranscriptHistoryController {
       ?? (typeof olderCursor === "object" && olderCursor?.kind === "bridge" ? "bridge" : "local"),
   ): void {
     const lease = this.pageState.leaseForThreadState(preserveAnchor);
-    this.coordinator.activateThread(sessionId);
+    this.coordinator.activateSession(sessionId);
     this.pageState.restoreLease(lease);
     this.state = {
       sessionId,

@@ -35,7 +35,7 @@ type BridgeTranscriptRecord = Record<string, unknown> & { role?: string };
 type TranscriptViewPolicy =
   | { kind: "legacy-snapshot"; maxRecords: number }
   | { kind: "initial-page"; turnLimit: number }
-  | { kind: "older-page"; turnLimit: number; cursor?: RawBridgeTranscriptCursor };
+  | { kind: "older-page"; turnLimit: number; cursor?: RawBridgeTranscriptCursor | string };
 
 interface TranscriptView {
   branchMessages: BridgeTranscriptRecord[];
@@ -47,7 +47,32 @@ interface TranscriptView {
   taskHistoryMessages: readonly BridgeTranscriptRecord[];
 }
 
-function buildTranscriptView(
+/** Stable host-facing error for a stale or malformed bridge page cursor. */
+export class InvalidBridgeTranscriptCursorError extends Error {
+  readonly code = "INVALID_BRIDGE_TRANSCRIPT_CURSOR" as const;
+
+  constructor() {
+    super("Pi returned an invalid or stale transcript page cursor.");
+    this.name = "InvalidBridgeTranscriptCursorError";
+  }
+}
+
+function validateBridgeCursor(
+  value: RawBridgeTranscriptCursor | string | undefined,
+  branchLength: number,
+): RawBridgeTranscriptCursor | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return parseRawBridgeTranscriptCursor(
+      typeof value === "string" ? value : value.value,
+      branchLength,
+    );
+  } catch {
+    throw new InvalidBridgeTranscriptCursorError();
+  }
+}
+
+export function buildTranscriptView(
   branchMessages: BridgeTranscriptRecord[],
   policy: TranscriptViewPolicy,
 ): TranscriptView {
@@ -63,7 +88,9 @@ function buildTranscriptView(
     };
   }
 
-  const cursor = policy.kind === "older-page" ? policy.cursor : undefined;
+  const cursor = policy.kind === "older-page"
+    ? validateBridgeCursor(policy.cursor, branchMessages.length)
+    : undefined;
   const bounds = transcriptPageBounds(branchMessages, policy.turnLimit, cursor, rawBridgeTranscriptCursorAt);
   const olderCursor = bounds.olderCursor;
   const visibleMessages = branchMessages.slice(bounds.start, bounds.end);
@@ -178,8 +205,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   };
 
   const transcriptPage = (ctx: ExtensionContext, cursor?: string): PiBridgeTranscriptPage => {
-    const rawCursor = cursor === undefined ? undefined : parseRawBridgeTranscriptCursor(cursor);
-    const view = transcriptView(ctx, { kind: "older-page", turnLimit: OLDER_TRANSCRIPT_TURN_LIMIT, cursor: rawCursor });
+    const view = transcriptView(ctx, { kind: "older-page", turnLimit: OLDER_TRANSCRIPT_TURN_LIMIT, cursor });
     const page = {
       sessionId: ctx.sessionManager.getSessionId(),
       messages: boundedBridgeValue(view.visibleMessages),
