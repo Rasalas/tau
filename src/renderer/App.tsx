@@ -65,6 +65,7 @@ import { ToolGroup } from "./components/ToolGroup";
 import { VirtualTranscript } from "./components/VirtualTranscript";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
+import { RestoreCheckpointDialog } from "./components/RestoreCheckpointDialog";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
@@ -117,6 +118,7 @@ export function optimisticThreadSnapshot(
       // Capability is thread-scoped; the target's catalog update will restore
       // it after the switch rather than leaking the previous thread's value.
       supportsImageInput: false,
+      supportsCheckpointRestore: false,
       ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
       ...(detail.threadId ? { threadId: detail.threadId } : {}),
       ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
@@ -462,6 +464,12 @@ export default function App() {
     checkpointId?: string;
     sessionId?: string;
   }>();
+  const [restoreRequest, setRestoreRequest] = useState<{
+    checkpoint: UiTurnCheckpoint;
+    laterTurns: number;
+    workspaceChanges: UiWorkspaceChanges;
+  }>();
+  const [restoreBusy, setRestoreBusy] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
@@ -614,7 +622,10 @@ export default function App() {
         ...currentSnapshot,
         sessionId: detail.sessionId,
         sessionTitle: shell?.title ?? currentSnapshot.sessionTitle,
-        ...(currentSnapshot.sessionId === detail.sessionId ? {} : { supportsImageInput: false }),
+        ...(currentSnapshot.sessionId === detail.sessionId ? {} : {
+          supportsImageInput: false,
+          supportsCheckpointRestore: false,
+        }),
       } : undefined;
       const application = transcriptHistory.applyDetail(detail, snapshotForDetail);
       if (!application) return;
@@ -650,6 +661,7 @@ export default function App() {
           ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
           ...(detail.threadId ? { threadId: detail.threadId } : {}),
           ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
+          ...(detail.supportsCheckpointRestore !== undefined ? { supportsCheckpointRestore: detail.supportsCheckpointRestore } : {}),
           turnCheckpoints: detailForRender.turnCheckpoints,
         };
         cachedSnapshotRef.current = enriched;
@@ -1150,6 +1162,34 @@ export default function App() {
     setReview({ path, primaryPush: false, checkpointId, sessionId: checkpoint.sessionId });
   }, [turnCheckpoints]);
 
+  const requestRestoreCheckpoint = useCallback((checkpointId: string) => {
+    const checkpoint = turnCheckpoints.find((entry) => entry.id === checkpointId);
+    if (!checkpoint) {
+      setNotice("This turn checkpoint is no longer available.");
+      return;
+    }
+    if (checkpoint.completeness === "partial") {
+      setNotice("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
+      return;
+    }
+    if (visibleStreaming) {
+      setNotice("Wait for the active turn to finish before restoring a checkpoint.");
+      return;
+    }
+    if (snapshot?.supportsCheckpointRestore !== true) {
+      setNotice("Restore is unavailable for this runtime. Use Fork to keep the current workspace unchanged.");
+      return;
+    }
+    setRestoreRequest({
+      checkpoint,
+      laterTurns: turnCheckpoints.filter((entry) => entry.endedAt > checkpoint.endedAt).length,
+      workspaceChanges: {
+        ...changes,
+        files: changes.files.map((file) => ({ ...file })),
+      },
+    });
+  }, [changes, snapshot?.supportsCheckpointRestore, turnCheckpoints, visibleStreaming]);
+
   const acceptWorkspace = useCallback((result: HostActionResult) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
     applyActionResult(result);
@@ -1166,6 +1206,27 @@ export default function App() {
     setNotice(`${what} requires the Electron host`);
     return false;
   }, []);
+
+  const confirmRestoreCheckpoint = useCallback(async () => {
+    if (!restoreRequest || !snapshot?.sessionId || !requireHost("Checkpoint restore")) return;
+    if (visibleStreaming) {
+      setRestoreRequest(undefined);
+      setNotice("The turn started before restore was confirmed. No changes were made.");
+      return;
+    }
+    setRestoreBusy(true);
+    setNotice("Creating a restore backup…");
+    try {
+      const result = await window.tau!.restoreCheckpoint(snapshot.sessionId, restoreRequest.checkpoint.id);
+      acceptWorkspace(result);
+      setRestoreRequest(undefined);
+      setNotice("Restored checkpoint. The previous conversation and workspace are available in the backup thread.");
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setRestoreBusy(false);
+    }
+  }, [acceptWorkspace, requireHost, restoreRequest, snapshot?.sessionId, visibleStreaming]);
 
   const chooseWorkspace = useCallback(async (): Promise<boolean> => {
     if (!requireHost("Project selection")) return false;
@@ -1845,7 +1906,8 @@ export default function App() {
     // not send it to the transcript with a tail fallback; it becomes visible at
     // its original position as soon as that page is fetched.
     .filter((checkpoint) => (checkpoint.completeness === "partial"
-      || (checkpoint.fileCount ?? checkpoint.files.length) > 0) && loadedMessageIds.has(checkpoint.anchorMessageId))
+      || (checkpoint.fileCount ?? checkpoint.files.length) > 0
+      || snapshot?.supportsCheckpointRestore === true) && loadedMessageIds.has(checkpoint.anchorMessageId))
     .map((checkpoint) => ({
       id: `turn-checkpoint-${checkpoint.id}`,
       afterMessageId: checkpoint.anchorMessageId,
@@ -1853,12 +1915,15 @@ export default function App() {
         <CheckpointComponent
             checkpoint={checkpoint}
             onOpenDiff={(path) => openCheckpointReview(checkpoint.id, path)}
+            onRestore={snapshot?.supportsCheckpointRestore === true && checkpoint.completeness !== "partial" && !visibleStreaming
+              ? () => requestRestoreCheckpoint(checkpoint.id)
+              : undefined}
             loadFiles={window.tau
               ? (cursor, limit) => window.tau!.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit)
               : undefined}
           />
       ),
-    })), [CheckpointComponent, loadedMessageIds, openCheckpointReview, pendingNewThread, turnCheckpoints]);
+      })), [CheckpointComponent, loadedMessageIds, openCheckpointReview, pendingNewThread, requestRestoreCheckpoint, snapshot?.supportsCheckpointRestore, turnCheckpoints, visibleStreaming]);
 
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -2001,6 +2066,16 @@ export default function App() {
 
   const overlays = (
     <>
+      {restoreRequest ? (
+        <RestoreCheckpointDialog
+          checkpoint={restoreRequest.checkpoint}
+          laterTurns={restoreRequest.laterTurns}
+          workspaceChanges={restoreRequest.workspaceChanges}
+          busy={restoreBusy}
+          onCancel={() => { if (!restoreBusy) setRestoreRequest(undefined); }}
+          onConfirm={() => void confirmRestoreCheckpoint()}
+        />
+      ) : null}
       {approvals[0] ? (
         <ToolApproval
           request={approvals[0]}

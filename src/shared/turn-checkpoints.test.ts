@@ -5,7 +5,9 @@ import {
   createTurnCheckpointBatch,
   TURN_CHECKPOINT_CUSTOM_TYPE,
   TURN_CHECKPOINT_BATCH_CUSTOM_TYPE,
+  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
   turnCheckpointsFromEntries,
+  turnRestoreBackupsFromEntries,
   turnSnapshotRef,
 } from "./turn-checkpoint-codec.js";
 import {
@@ -90,6 +92,26 @@ describe("turn checkpoints", () => {
       { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: swapped },
       { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: foreign },
     ], "session")).toEqual([]);
+  });
+
+  it("keeps only session-bound restore backup markers", () => {
+    const backup = {
+      version: 1,
+      backupId: "backup-1",
+      sessionId: "backup-session",
+      turnId: "restore-backup-1",
+      sourceSessionId: "source-session",
+      sourceCheckpointId: "turn-1",
+      cwd: "/workspace",
+      beforeSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "before"),
+      afterSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "after"),
+      createdAt: 10,
+    };
+    expect(turnRestoreBackupsFromEntries([
+      { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: backup },
+      { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: { ...backup, backupId: "foreign", sessionId: "other" } },
+      { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: { ...backup, backupId: "swapped", afterSnapshotId: backup.beforeSnapshotId } },
+    ], "backup-session")).toEqual([backup]);
   });
 
   it("exposes fork records only after every record precedes its commit marker", () => {

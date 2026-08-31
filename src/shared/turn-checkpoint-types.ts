@@ -94,6 +94,20 @@ export interface StoredTurnCheckpoint extends UiTurnCheckpoint {
   transactionId?: string;
 }
 
+/** Durable metadata for a pre-restore backup session and its workspace pair. */
+export interface TurnRestoreBackup {
+  version: 1;
+  backupId: string;
+  sessionId: string;
+  turnId: string;
+  sourceSessionId: string;
+  sourceCheckpointId: string;
+  cwd: string;
+  beforeSnapshotId: string;
+  afterSnapshotId: string;
+  createdAt: number;
+}
+
 /** Append-only journal marker for an all-or-nothing fork re-home. */
 export interface TurnCheckpointBatch {
   transactionId: string;

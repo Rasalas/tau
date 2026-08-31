@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
@@ -144,7 +144,10 @@ import {
   cloneTurnCheckpoint,
   checkpointsForBranch,
   TURN_CHECKPOINT_CUSTOM_TYPE,
+  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
+  turnRestoreBackupsFromEntries,
   turnCheckpointsFromEntries,
+  turnSnapshotRef,
 } from "../shared/turn-checkpoint-codec.js";
 import {
   createWorkspaceKitCheckpointFeature,
@@ -1786,6 +1789,228 @@ export class PiHost {
     });
   }
 
+  /**
+   * Restores a completed local Pi turn through a new active branch. The source
+   * session is never truncated: a separately named backup preserves its
+   * current branch and workspace snapshot before the target workspace is
+   * changed. Fork therefore remains the non-destructive explicit alternative.
+   */
+  async restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult> {
+    if (this.bridge) {
+      throw new Error("Restore is unavailable while Pi owns this thread. Use Fork to keep the current workspace unchanged.");
+    }
+    return this.runLifecycle(async () => {
+      const sourceThread = this.requireActive();
+      if (sourceThread.threadId !== sessionId) throw new Error("The selected thread changed before it could be restored.");
+      if (!isPiBackend(sourceThread)) throw new Error("Only local Pi threads with workspace checkpoints can be restored.");
+      if (sourceThread.backend.isStreaming()
+        || !sourceThread.backend.isIdle()
+        || sourceThread.adapterStreaming
+        || sourceThread.adapterPending > 0
+        || (sourceThread.checkpointRuntime?.pendingCount ?? 0) > 0
+        || this.hasOpenUiPrompts(sourceThread.threadId)) {
+        throw new Error("Wait for the active turn and its checkpoint to finish before restoring it.");
+      }
+      const sourceFile = sourceThread.sessionFile;
+      if (!sourceFile || !existsSync(sourceFile)) {
+        throw new Error("This thread has no durable session to restore.");
+      }
+
+      const sourceManager = SessionManager.open(sourceFile);
+      const sourceBranch = sourceManager.getBranch();
+      const sourceCheckpoints = turnCheckpointsFromEntries(sourceBranch, sourceThread.sessionId);
+      const checkpoint = sourceCheckpoints.find((entry) => entry.id === checkpointId);
+      if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
+      if (checkpoint.completeness === "partial") {
+        throw new Error("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
+      }
+      const anchor = sourceBranch.find((entry) => {
+        if (!entry || typeof entry !== "object") return false;
+        const item = entry as { id?: unknown; type?: unknown; message?: unknown };
+        return item.id === checkpoint.anchorMessageId
+          && item.type === "message"
+          && Boolean(item.message && typeof item.message === "object"
+            && (item.message as { role?: unknown }).role === "assistant");
+      });
+      if (!anchor || typeof (anchor as { id?: unknown }).id !== "string") {
+        throw new Error("This checkpoint has no completed assistant anchor and cannot be restored.");
+      }
+      await workspaceGit.validateWorkspaceSnapshotRefs(
+        sourceThread.cwd,
+        checkpoint.beforeSnapshotId,
+        checkpoint.afterSnapshotId,
+        { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
+      );
+
+      // Build and open the candidate target before taking the destructive
+      // workspace step. It is not adopted until the workspace transaction has
+      // succeeded, so a runtime-construction failure leaves the source active.
+      const targetSourceManager = SessionManager.open(sourceFile);
+      const targetPath = targetSourceManager.createBranchedSession(checkpoint.anchorMessageId);
+      if (!targetPath) throw new Error("Failed to create the restored thread.");
+      const targetManager = SessionManager.open(targetPath);
+      const targetThreadId = targetManager.getSessionId();
+      let targetRuntime: ThreadRuntime | undefined;
+      let backupPath: string | undefined;
+      let backupSessionId: string | undefined;
+      let backupTurnId: string | undefined;
+      let backupDurable = false;
+      let restoreAttempted = false;
+      const startedAt = performance.now();
+      let lease: Awaited<ReturnType<WorkspaceCheckpointLeaseManager["acquire"]>> | undefined;
+      const cleanupTarget = async (): Promise<void> => {
+        if (targetRuntime) {
+          if (this.threads.get(targetRuntime.threadId)?.runtime === targetRuntime) {
+            await this.threads.release(targetRuntime.threadId).catch(() => undefined);
+          } else {
+            await this.disposeThread(targetRuntime).catch(() => undefined);
+          }
+          targetRuntime = undefined;
+        }
+        await workspaceGit.cleanupTurnCheckpointSessionRefs(sourceThread.cwd, targetThreadId).catch(() => undefined);
+        await rm(targetPath, { force: true }).catch(() => undefined);
+      };
+      const cleanupUncommittedBackup = async (): Promise<void> => {
+        if (!backupSessionId || backupDurable) return;
+        await workspaceGit.cleanupTurnCheckpointSessionRefs(sourceThread.cwd, backupSessionId).catch(() => undefined);
+        if (backupPath) await rm(backupPath, { force: true }).catch(() => undefined);
+      };
+
+      try {
+        targetRuntime = await this.openThread(
+          targetManager,
+          { type: "session_start", reason: "resume", previousSessionFile: sourceFile },
+          { adopt: false, prepared: true },
+        );
+        lease = await this.checkpointLeaseManager.acquire(sourceThread.cwd, {
+          sessionId: sourceThread.sessionId,
+          turnId: `restore-${randomUUID()}`,
+        });
+
+        // Create the backup from the source branch's current leaf. This is the
+        // first durable artifact and is complete before any workspace restore.
+        const backupSourceManager = SessionManager.open(sourceFile);
+        const sourceLeaf = backupSourceManager.getLeafId();
+        if (!sourceLeaf) throw new Error("This thread has no current conversation branch to back up.");
+        backupPath = backupSourceManager.createBranchedSession(sourceLeaf);
+        if (!backupPath) throw new Error("Failed to create the restore backup thread.");
+        const backupManager = SessionManager.open(backupPath);
+        backupSessionId = backupManager.getSessionId();
+        backupTurnId = `restore-backup-${randomUUID()}`;
+        await this.checkpointMaintenance.rehomeFork({
+          cwd: sourceThread.cwd,
+          sourceSessionId: sourceThread.sessionId,
+          targetSessionId: backupSessionId,
+          checkpoints: sourceCheckpoints,
+          lease,
+          appendEntry: (customType, data) => { backupManager.appendCustomEntry(customType, data); },
+          committedCheckpoints: () => turnCheckpointsFromEntries(backupManager.getBranch(), backupSessionId!),
+        });
+        const backupBefore = await workspaceGit.createTurnWorkspaceSnapshot(
+          sourceThread.cwd,
+          backupSessionId,
+          backupTurnId,
+          "before",
+        );
+        const backupAfter = await workspaceGit.createTurnWorkspaceSnapshot(
+          sourceThread.cwd,
+          backupSessionId,
+          backupTurnId,
+          "after",
+        );
+        if (backupBefore.complete === false || backupAfter.complete === false) {
+          throw new Error("The current workspace is only partially captured, so Tau cannot create a recoverable restore backup.");
+        }
+        await backupManager.appendSessionInfo(`Backup before restore to turn ${checkpoint.turnId.slice(0, 12)}`);
+        backupManager.appendCustomEntry(TURN_RESTORE_BACKUP_CUSTOM_TYPE, {
+          version: 1,
+          backupId: randomUUID(),
+          sessionId: backupSessionId,
+          turnId: backupTurnId,
+          sourceSessionId: sourceThread.sessionId,
+          sourceCheckpointId: checkpoint.id,
+          cwd: sourceThread.cwd,
+          beforeSnapshotId: backupBefore.id,
+          afterSnapshotId: backupAfter.id,
+          createdAt: Date.now(),
+        });
+        backupDurable = true;
+
+        const targetCheckpoints = checkpointsForBranch(targetManager.getBranch(), sourceCheckpoints);
+        await this.checkpointMaintenance.rehomeFork({
+          cwd: sourceThread.cwd,
+          sourceSessionId: sourceThread.sessionId,
+          targetSessionId: targetThreadId,
+          checkpoints: targetCheckpoints,
+          lease,
+          appendEntry: (customType, data) => { targetManager.appendCustomEntry(customType, data); },
+          committedCheckpoints: () => turnCheckpointsFromEntries(targetManager.getBranch(), targetThreadId),
+        });
+
+        restoreAttempted = true;
+        await workspaceGit.restoreWorkspaceSnapshot(
+          sourceThread.cwd,
+          checkpoint.afterSnapshotId,
+          {
+            target: { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
+            rollback: { sessionId: backupSessionId, turnId: backupTurnId },
+          },
+        );
+        this.gitCoordinator.invalidate(sourceThread.cwd);
+
+        await this.adoptThread(targetRuntime);
+        await this.activateThread(targetRuntime, true);
+        targetRuntime.releaseEventBarrier((event, runtime, eventSessionId, eventCwd, error) => {
+          if (error) this.fail(error, eventSessionId);
+          else this.handleSessionEvent(event, runtime, eventSessionId, eventCwd);
+        }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
+        this.logReplacement("restore", startedAt);
+        targetRuntime = undefined;
+      } catch (error) {
+        const recoveryErrors: unknown[] = [];
+        if (restoreAttempted && backupSessionId && backupTurnId) {
+          try {
+            await workspaceGit.restoreWorkspaceSnapshot(
+              sourceThread.cwd,
+              turnSnapshotRef(backupSessionId, backupTurnId, "after"),
+              {
+                target: { sessionId: backupSessionId, turnId: backupTurnId },
+                rollback: { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
+              },
+            );
+            this.gitCoordinator.invalidate(sourceThread.cwd);
+          } catch (recoveryError) {
+            recoveryErrors.push(recoveryError);
+          }
+        }
+        if (targetRuntime && this.threads.active?.runtime === targetRuntime) {
+          this.threads.setActive(sourceThread.threadId);
+          this.cwd = sourceThread.cwd;
+          this.extensionCount = sourceThread.backend.extensionCount();
+        }
+        await cleanupTarget();
+        await cleanupUncommittedBackup();
+        const message = this.errorMessage(error);
+        if (recoveryErrors.length > 0) {
+          throw new AggregateError([error, ...recoveryErrors], `Restore failed and workspace rollback needs attention: ${message}`);
+        }
+        throw new Error(`Restore failed; the original thread and workspace were kept unchanged. ${message}`);
+      } finally {
+        await lease?.release();
+      }
+
+      // The backup must remain indexed as its own thread after the successful
+      // transaction. Refreshing after releasing the writer lease prevents a
+      // nested acquisition in the startup/pruning sweep.
+      const index = await this.refreshThreadIndex(false).catch(() => this.threadIndexSnapshot());
+      const active = await this.snapshot();
+      return this.actionResult([
+        { version: HOST_PROTOCOL_VERSION, type: "thread-index", index },
+        ...this.lifecycleUpdates(active),
+      ]);
+    });
+  }
+
   async exportThreadMarkdown(expectedSessionId?: string): Promise<string> {
     if (this.bridge) {
       if (expectedSessionId && this.bridgeSnapshot?.sessionId !== expectedSessionId) {
@@ -2867,6 +3092,7 @@ export class PiHost {
         cwd,
         manager.getSessionId(),
         turnCheckpointsFromEntries(manager.getBranch(), manager.getSessionId()),
+        turnRestoreBackupsFromEntries(manager.getBranch(), manager.getSessionId()),
       );
     }
     if (options.background) this.backgroundManagers.add(manager);
@@ -3561,6 +3787,7 @@ export class PiHost {
       extensionCount: 0,
       serviceTier: "standard",
       serviceTierAvailable: false,
+      supportsCheckpointRestore: false,
       supportsImageInput: false,
       contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
         ? { tokens: snapshot.contextUsage.tokens, contextWindow: snapshot.contextUsage.contextWindow, percent: snapshot.contextUsage.percent }
@@ -3881,7 +4108,12 @@ export class PiHost {
     for (const info of sessionInfos) {
       try {
         const manager = SessionManager.open(info.path);
-        live.push({ sessionId: info.id, cwd: info.cwd, checkpoints: turnCheckpointsFromEntries(manager.getBranch(), info.id) });
+        live.push({
+          sessionId: info.id,
+          cwd: info.cwd,
+          checkpoints: turnCheckpointsFromEntries(manager.getBranch(), info.id),
+          backups: turnRestoreBackupsFromEntries(manager.getBranch(), info.id),
+        });
       } catch {
         // A session can disappear between listAll and open; its refs are
         // intentionally eligible for the same sweep.
@@ -3895,6 +4127,7 @@ export class PiHost {
         sessionId: record.threadId,
         cwd: record.cwd,
         checkpoints: turnCheckpointsFromEntries(branch, record.threadId),
+        backups: turnRestoreBackupsFromEntries(branch, record.threadId),
       });
     }
     const workspaces = new Map<string, string>();
@@ -4247,6 +4480,7 @@ export class PiHost {
         extensionCount: 0,
         serviceTier: "standard",
         serviceTierAvailable: false,
+        supportsCheckpointRestore: false,
       };
     }
     const branchMessages = this.branchMessagesWithEntryIds(thread);
@@ -4278,6 +4512,7 @@ export class PiHost {
       extensionCount: this.extensionCount,
       serviceTier: this.serviceTier,
       serviceTierAvailable: this.serviceTierAvailable(),
+      supportsCheckpointRestore: true,
       historyCompleteness: "complete",
       supportsImageInput: modelSupportsImageInput(thread.runtime?.session.model),
       contextUsage: usage && usage.tokens !== null && usage.percent !== null

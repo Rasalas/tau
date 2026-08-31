@@ -129,6 +129,8 @@ export interface ChangesContribution {
 export interface TurnCheckpointContributionProps {
   checkpoint: UiTurnCheckpoint;
   onOpenDiff(path?: string): void;
+  /** Starts the explicit confirmation flow for destructive restore. */
+  onRestore?(): void;
   loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
 }
 

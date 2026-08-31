@@ -15,6 +15,7 @@ const api: TauDesktopApi = {
   newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared) => ipcRenderer.invoke("tau:new-session", initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared),
   getPreparedThreadCapability: (cwd) => ipcRenderer.invoke("tau:prepared-thread-capability", cwd),
   forkThread: (entryId, expectedSessionId) => ipcRenderer.invoke("tau:fork-thread", entryId, expectedSessionId),
+  restoreCheckpoint: (sessionId, checkpointId) => ipcRenderer.invoke("tau:restore-checkpoint", sessionId, checkpointId),
   switchSession: (path) => ipcRenderer.invoke("tau:switch-session", path),
   setModel: (provider, id) => ipcRenderer.invoke("tau:set-model", provider, id),
   setThinkingLevel: (level) => ipcRenderer.invoke("tau:set-thinking", level),

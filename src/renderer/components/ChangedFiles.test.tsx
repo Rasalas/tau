@@ -56,4 +56,16 @@ describe("ChangedFiles", () => {
     expect(view.getByText(/file-count limit/)).toBeTruthy();
     expect(view.getByText(/4 files omitted/)).toBeTruthy();
   });
+
+  it("keeps a verified no-change checkpoint actionable for restore", () => {
+    const onRestore = vi.fn();
+    const view = render(<ChangedFiles
+      changes={{ files: [], fileCount: 0, added: 0, removed: 0 }}
+      onOpenDiff={vi.fn()}
+      onRestore={onRestore}
+    />);
+
+    fireEvent.click(view.getByText("Restore"));
+    expect(onRestore).toHaveBeenCalledOnce();
+  });
 });

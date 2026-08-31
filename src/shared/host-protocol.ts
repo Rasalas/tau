@@ -55,6 +55,8 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscript
   contextUsage?: UiContextUsage;
   /** Whether another page exists; omitted by older protocol peers. */
   hasMore?: boolean;
+  /** Whether completed turn checkpoints can safely restore this thread; missing means unsupported. */
+  supportsCheckpointRestore?: boolean;
 }
 
 /** A bounded page carrying only checkpoints anchored in the visible messages. */
@@ -268,6 +270,7 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     cursorBoundaries,
     hasMore: snapshot.olderCursor !== undefined,
     historyCompleteness: snapshot.historyCompleteness,
+    supportsCheckpointRestore: snapshot.supportsCheckpointRestore,
     ...(snapshot.transcriptWindow ? { transcriptWindow: snapshot.transcriptWindow } : {}),
   };
 }
@@ -296,6 +299,7 @@ export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: Thr
     turnCheckpoints: detail.turnCheckpoints,
     taskProgress: detail.taskProgress,
     contextUsage: detail.contextUsage,
+    supportsCheckpointRestore: detail.supportsCheckpointRestore,
   };
 }
 
@@ -350,6 +354,7 @@ export function detailFromSnapshot(
     ),
     transcriptWindow: "bounded",
     turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, page.messages),
+    supportsCheckpointRestore: snapshot.supportsCheckpointRestore,
   };
 }
 

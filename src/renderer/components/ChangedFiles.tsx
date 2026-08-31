@@ -8,11 +8,13 @@ import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
 export function ChangedFiles({
   changes,
   onOpenDiff,
+  onRestore,
   label,
   loadFiles,
 }: {
   changes: UiWorkspaceChanges;
   onOpenDiff(path?: string): void;
+  onRestore?(): void;
   /** Optional context shown in a transcript checkpoint card. */
   label?: string;
   /** Optional lazy file-list source for immutable checkpoint summaries. */
@@ -22,7 +24,7 @@ export function ChangedFiles({
   const { files: loadedFiles, fileCount, hasMore, loading, error: loadError, loadNextPage } = usePagedWorkspaceFiles(changes, loadFiles);
 
   const isPartial = changes.completeness === "partial";
-  if (fileCount === 0 && !isPartial) return null;
+  if (fileCount === 0 && !isPartial && !onRestore) return null;
   const previewFiles = loadedFiles.slice(0, 3);
   const remainingFiles = Math.max(0, fileCount - previewFiles.length);
 
@@ -46,6 +48,21 @@ export function ChangedFiles({
             onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); onOpenDiff(); } }}
           >
             Open diff
+          </span> : null}
+        {onRestore ? <span
+            className="mini-button restore-mini-button"
+            role="button"
+            tabIndex={0}
+            onClick={(event) => { event.stopPropagation(); onRestore(); }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                onRestore();
+              }
+            }}
+          >
+            Restore
           </span> : null}
       </button>
       {isPartial ? <p className="file-tree-error changed-files-warning">
