@@ -12,6 +12,7 @@ interface BenchmarkResult {
   scenario: string;
   frameIntervalsMs: number[];
   longTasksMs: number[];
+  startupLongTasksMs: number[];
   longTaskObserverSupported: boolean;
   profilerMountCaptured: boolean;
   mountDurationsMs: number[];
@@ -26,18 +27,18 @@ declare global {
 }
 
 const longTaskCapture = (() => {
-  const durations: number[] = [];
-  if (typeof PerformanceObserver === "undefined") return { durations, supported: false, observer: undefined };
+  const entries: Array<{ startTime: number; duration: number }> = [];
+  if (typeof PerformanceObserver === "undefined") return { entries, supported: false, observer: undefined };
   try {
-    const observer = new PerformanceObserver((entries) => {
-      entries.getEntries().forEach((entry) => durations.push(entry.duration));
+    const observer = new PerformanceObserver((entryList) => {
+      entryList.getEntries().forEach((entry) => entries.push({ startTime: entry.startTime, duration: entry.duration }));
     });
     // This module is loaded before the benchmark component mounts, so mount
     // work is observed consistently instead of being lost in useEffect setup.
     observer.observe({ type: "longtask", buffered: true });
-    return { durations, supported: true, observer };
+    return { entries, supported: true, observer };
   } catch {
-    return { durations, supported: false, observer: undefined };
+    return { entries, supported: false, observer: undefined };
   }
 })();
 
@@ -84,6 +85,7 @@ export default function RendererBenchmark() {
   const updateDurations = useRef<number[]>([]);
   const mountStartedAt = useRef(performance.now());
   const updateStartedAt = useRef<number | undefined>(undefined);
+  const interactionStartedAt = useRef<number | undefined>(undefined);
   const profilerReportedMount = useRef(false);
   const profilerReportedUpdate = useRef(false);
   const frames = useRef<number[]>([]);
@@ -145,7 +147,12 @@ export default function RendererBenchmark() {
           ready: true,
           scenario,
           frameIntervalsMs: frames.current.slice(2),
-          longTasksMs: longTaskCapture.durations,
+        longTasksMs: longTaskCapture.entries
+          .filter((entry) => interactionStartedAt.current !== undefined && entry.startTime >= interactionStartedAt.current)
+          .map((entry) => entry.duration),
+        startupLongTasksMs: longTaskCapture.entries
+          .filter((entry) => interactionStartedAt.current === undefined || entry.startTime < interactionStartedAt.current)
+          .map((entry) => entry.duration),
           longTaskObserverSupported: longTaskCapture.supported,
           profilerMountCaptured: mountDurations.current.length > 0,
           mountDurationsMs: mountDurations.current,
@@ -163,6 +170,7 @@ export default function RendererBenchmark() {
         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
         frame += 1;
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setText((current) => {
           const remaining = targetBytes - current.length;
           return remaining > 0 ? current + chunk.slice(0, remaining) : current;
@@ -175,6 +183,7 @@ export default function RendererBenchmark() {
       const chunk = "tool output benchmark line\n".repeat(640);
       const append = () => {
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setToolOutput((current) => current + chunk.slice(0, targetBytes - current.length));
         frame += 1;
         if (frame * chunk.length < targetBytes) requestAnimationFrame(append);
@@ -187,6 +196,7 @@ export default function RendererBenchmark() {
         const query = queries.shift();
         if (query === undefined) { finish(); return; }
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setListQuery(query);
         requestAnimationFrame(update);
       };
@@ -194,12 +204,14 @@ export default function RendererBenchmark() {
     } else if (scenario === "long-user-message") {
       requestAnimationFrame(() => {
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setLongUserRevision((revision) => revision + 1);
         finish();
       });
     } else {
       requestAnimationFrame(() => {
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setBenchmarkPulse((pulse) => pulse + 1);
         finish();
       });

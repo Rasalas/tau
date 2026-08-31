@@ -22,9 +22,10 @@ try {
   const dependencies = join(worktree, "node_modules");
   if (!existsSync(dependencies)) symlinkSync(nodeModules, dependencies, "dir");
   run("npm", ["run", "build"], worktree);
+  const subjectCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktree, encoding: "utf8" }).trim();
   run("node", ["scripts/renderer-benchmark.mjs", "--no-build", outputFile], worktree, {
     ...process.env,
-    TAU_BENCHMARK_SUBJECT_COMMIT: run("git", ["rev-parse", "HEAD"], worktree).trim(),
+    TAU_BENCHMARK_SUBJECT_COMMIT: subjectCommit,
     TAU_BENCHMARK_HARNESS_COMMIT: process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? "unknown",
     TAU_BENCHMARK_HARNESS_PATCH_FILE: "reports/renderer-baseline-6ddb454-harness.patch",
     TAU_BENCHMARK_HARNESS_PATCH_SHA256: process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256 ?? "unknown",

@@ -82,6 +82,9 @@ function sampleScenario(scenario) {
     if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
       throw new Error(`renderer fixture returned invalid Long Task measurements for ${scenario.id}`);
     }
+    if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
+      throw new Error(`renderer fixture returned invalid startup Long Task measurements for ${scenario.id}`);
+    }
     if (!Number.isFinite(result.heapBytes) || result.heapBytes <= 0) {
       throw new Error(`renderer fixture returned invalid heap measurement for ${scenario.id}`);
     }
@@ -95,6 +98,7 @@ function sampleScenario(scenario) {
   }
   const frames = samples.flatMap((sample) => sample.frameIntervalsMs);
   const longTasks = samples.flatMap((sample) => sample.longTasksMs);
+  const startupLongTasks = samples.flatMap((sample) => sample.startupLongTasksMs);
   const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
   const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
   const heaps = samples.map((sample) => sample.heapBytes ?? 0);
@@ -108,6 +112,7 @@ function sampleScenario(scenario) {
     longTaskObserverSupported: samples.every((sample) => sample.longTaskObserverSupported === true),
     frameIntervalsMs: { median: percentile(frames, 0.5), p95: percentile(frames, 0.95), maximum: Math.max(0, ...frames) },
     longTasksMs: { count: longTasks.length, median: percentile(longTasks, 0.5), p95: percentile(longTasks, 0.95), maximum: Math.max(0, ...longTasks) },
+    startupLongTasksMs: { count: startupLongTasks.length, median: percentile(startupLongTasks, 0.5), p95: percentile(startupLongTasks, 0.95), maximum: Math.max(0, ...startupLongTasks) },
     mountDurationsMs: { median: percentile(mountDurations, 0.5), p95: percentile(mountDurations, 0.95), maximum: Math.max(0, ...mountDurations) },
     updateDurationsMs: { median: percentile(updateDurations, 0.5), p95: percentile(updateDurations, 0.95), maximum: Math.max(0, ...updateDurations) },
     commits: Math.max(...samples.map((sample) => sample.commits)),
@@ -138,7 +143,7 @@ const report = {
   scenarios: fixture.scenarios.map(sampleScenario),
 };
 for (const scenario of report.scenarios) {
-  for (const metric of ["frameIntervalsMs", "longTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
+  for (const metric of ["frameIntervalsMs", "longTasksMs", "startupLongTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
     const distribution = scenario[metric];
     if (distribution && distribution.p95 > distribution.maximum) throw new Error(`${scenario.id} ${metric} p95 exceeds maximum`);
   }
