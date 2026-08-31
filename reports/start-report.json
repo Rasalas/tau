@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-30T12:44:00.258Z",
-  "firstPaintMs": 88,
+  "generatedAt": "2026-08-31T20:43:02.313Z",
+  "firstPaintMs": 208,
   "firstContentfulPaintMs": null,
   "loadedResourceCount": 2,
   "resources": [
     {
-      "name": "file:///path/to/tau/dist/assets/index-DvVHBM5j.js",
+      "name": "file:///path/to/tau-worktrees/thread-view-improvements/issue-01/dist/assets/index-CI4YITNB.js",
       "durationMs": 0,
       "transferSize": 0
     },
     {
-      "name": "file:///path/to/tau/dist/assets/index-BP8xeh4O.css",
+      "name": "file:///path/to/tau-worktrees/thread-view-improvements/issue-01/dist/assets/index-SS-F6Qfd.css",
       "durationMs": 0,
       "transferSize": 0
     }
@@ -20,7 +20,7 @@
   "paints": [
     {
       "name": "first-paint",
-      "startTimeMs": 88
+      "startTimeMs": 208
     }
   ],
   "overlayComposition": {

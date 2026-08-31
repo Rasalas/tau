@@ -12,7 +12,7 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App, { isCurrentTranscriptSubmission, latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 
@@ -25,15 +25,44 @@ describe("App render isolation", () => {
     delete window.tau;
   });
 
+  it("rejects a late old-draft failure before it can restore current composer UI", () => {
+    const oldSubmission = {
+      turnId: "old-turn",
+      scopeKey: "project:/project\u0000thread:draft-old",
+      scope: { kind: "draft" as const, projectPath: "/project", draftId: "draft-old" },
+      draftId: "draft-old",
+    };
+    const currentSubmission = {
+      turnId: "current-turn",
+      scopeKey: "project:/project\u0000thread:draft-current",
+      scope: { kind: "draft" as const, projectPath: "/project", draftId: "draft-current" },
+      draftId: "draft-current",
+    };
+
+    expect(isCurrentTranscriptSubmission(
+      { ...currentSubmission, text: "current" },
+      currentSubmission.scopeKey,
+      currentSubmission.draftId,
+      oldSubmission,
+    )).toBe(false);
+    expect(isCurrentTranscriptSubmission(
+      { ...oldSubmission, text: "old" },
+      oldSubmission.scopeKey,
+      oldSubmission.draftId,
+      oldSubmission,
+    )).toBe(true);
+  });
+
   it("keeps optimistic user messages until a matching Pi message arrives", () => {
-    const pending = [{ scope: "session", message: { id: "local", clientMessageId: "request-1", role: "user" as const, text: "hello", timestamp: 100_000 } }];
+    const pending = [{ scope: "session", message: { id: "local", role: "user" as const, text: "hello", timestamp: 100_000 } }];
     expect(reconcileOptimisticMessages(pending, [{ id: "old", role: "user", text: "hello", timestamp: 1 }])).toEqual(pending);
     expect(reconcileOptimisticMessages(pending, [{ id: "wrong", clientMessageId: "request-2", role: "user", text: "hello", timestamp: 100_001 }])).toEqual(pending);
-    expect(reconcileOptimisticMessages(pending, [{ id: "saved", clientMessageId: "request-1", role: "user", text: "hello", timestamp: 100_001 }])).toEqual([]);
+    expect(reconcileOptimisticMessages(pending, [{ id: "saved", role: "user", text: "hello", timestamp: 100_001 }])).toEqual([]);
 
-    const pendingSkill = [{ scope: "session", message: { id: "local-skill", clientMessageId: "skill-request", role: "user" as const, text: "$tdd hello", timestamp: 100_000 } }];
+    const pendingSkill = [{ scope: "session", message: { id: "local-skill", clientTurnId: "turn-skill", clientMessageId: "skill-request", role: "user" as const, text: "$tdd hello", timestamp: 100_000 } }];
     expect(reconcileOptimisticMessages(pendingSkill, [{
       id: "saved-skill",
+      clientTurnId: "turn-skill",
       clientMessageId: "skill-request",
       role: "user",
       text: "hello",
@@ -42,16 +71,35 @@ describe("App render isolation", () => {
     }])).toEqual([]);
 
     const twoPending = [
-      { scope: "session", message: { id: "local-a", clientMessageId: "request-a", role: "user" as const, text: "same", timestamp: 1 } },
-      { scope: "session", message: { id: "local-b", clientMessageId: "request-b", role: "user" as const, text: "same", timestamp: 2 } },
+      { scope: "session", message: { id: "local-a", clientTurnId: "turn-a", clientMessageId: "request-a", role: "user" as const, text: "same", timestamp: 1 } },
+      { scope: "session", message: { id: "local-b", clientTurnId: "turn-b", clientMessageId: "request-b", role: "user" as const, text: "same", timestamp: 2 } },
     ];
     expect(reconcileOptimisticMessages(twoPending, [
-      { id: "saved-b", clientMessageId: "request-b", role: "user", text: "same", timestamp: 2 },
+      { id: "saved-b", clientTurnId: "turn-b", clientMessageId: "request-b", role: "user", text: "same", timestamp: 2 },
     ])).toEqual([twoPending[0]]);
     expect(reconcileOptimisticMessages(twoPending, [
-      { id: "saved-b", clientMessageId: "request-b", role: "user", text: "same", timestamp: 2 },
-      { id: "saved-a", clientMessageId: "request-a", role: "user", text: "same", timestamp: 1 },
+      { id: "saved-b", clientTurnId: "turn-b", clientMessageId: "request-b", role: "user", text: "same", timestamp: 2 },
+      { id: "saved-a", clientTurnId: "turn-a", clientMessageId: "request-a", role: "user", text: "same", timestamp: 1 },
     ])).toEqual([]);
+  });
+
+  it("does not reconcile through text when Pi supplies a mismatched explicit identity", () => {
+    const pending = [{ scope: "session", message: {
+      id: "local",
+      clientTurnId: "turn-local",
+      clientMessageId: "message-local",
+      role: "user" as const,
+      text: "hello",
+      timestamp: 100_000,
+    } }];
+    expect(reconcileOptimisticMessages(pending, [{
+      id: "saved",
+      clientTurnId: "turn-other",
+      clientMessageId: "message-other",
+      role: "user",
+      text: "hello",
+      timestamp: 100_001,
+    }])).toEqual(pending);
   });
 
   it("anchors aggregate tool activity after the latest visible message in the turn", () => {
@@ -215,10 +263,19 @@ describe("App render isolation", () => {
     fireEvent.change(composer, { target: { value: "Build the first screen" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Build the first screen", [], "session", expect.any(String)));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
+      "Build the first screen",
+      [],
+      "session",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
     expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
     expect(screen.getAllByText("Build the first screen").find((element) => element.tagName === "DIV")).toBeTruthy();
+    const prompt = screen.getByText("Build the first screen");
+    expect(prompt.closest(".transcript-current-row")).toBeTruthy();
+    expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeTruthy();
   });
 
   it("keeps an in-flight history load when a same-thread action returns detail", async () => {
@@ -337,13 +394,18 @@ describe("App render isolation", () => {
     await screen.findByRole("button", { name: "Preview draft.png" });
     fireEvent.change(composer, { target: { value: "submitted text" } });
     fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("submitted text", [expect.objectContaining({ name: "draft.png" })], "/project", expect.any(String)));
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "submitted text",
+      [expect.objectContaining({ name: "draft.png" })],
+      "/project",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
 
     fireEvent.change(composer, { target: { value: "newer draft" } });
     rejectNewSession(new Error("prompt rejected"));
-    await waitFor(() => expect(screen.getByText(/prompt rejected/u)).toBeTruthy());
-    expect(screen.getAllByText(/prompt rejected/u)).toHaveLength(1);
-    expect(screen.queryByText("NOTICE")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("prompt rejected"));
+    expect(screen.getByText("Error: prompt rejected")).toBeTruthy();
     expect(composer.value).toBe("newer draft");
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
   });
@@ -377,7 +439,13 @@ describe("App render isolation", () => {
     const composer = await screen.findByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "bridge prompt" } });
     fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("bridge prompt", [], "/project", expect.any(String)));
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "bridge prompt",
+      [],
+      "/project",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
 
     emitHostEvent?.({
       type: "host-update",
@@ -615,6 +683,21 @@ describe("App render isolation", () => {
 
     expect(localStorage.getItem("tau.composer-drafts.v1")).toBeNull();
     view.unmount();
+    render(<App />);
+    const restored = await waitFor(() => {
+      const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+      expect(textarea.value).toBe("persistent draft");
+      return textarea;
+    });
+    fireEvent.keyDown(restored, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "persistent draft",
+      [],
+      "/other",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
+    expect(screen.getByText("persistent draft")).toBeTruthy();
   });
 
   it("shows the start screen for a new thread even when the previous thread has activity", async () => {
@@ -670,6 +753,7 @@ describe("App render isolation", () => {
         detail: {
           sessionId: "session",
           messages: [
+            { id: "prompt", role: "user" as const, text: "Change the historical files", timestamp: 1 },
             { id: "answer", sourceEntryId: "answer-entry", role: "assistant" as const, text: "Finished", timestamp: 2 },
           ],
           isStreaming: false,
@@ -747,6 +831,7 @@ describe("App render isolation", () => {
         update: { sessionId: "created", shell: { ...shell, title: "Created thread title" } },
       }],
     }));
+    const getWorkspaceInfo = vi.fn(async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }));
     window.tau = {
       bootstrap: async () => ({
         version: 1,
@@ -769,7 +854,7 @@ describe("App render isolation", () => {
       onHostEvent: () => () => {},
       listEditors: async () => [],
       getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getWorkspaceInfo,
       getFileTree: async () => [],
       setAccessLevel: async () => {},
       newSession,
@@ -778,7 +863,8 @@ describe("App render isolation", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
@@ -787,6 +873,7 @@ describe("App render isolation", () => {
 
     await waitFor(() => expect(generateThreadTitle).toHaveBeenCalledWith("provider", "model", false, "created"));
     expect(await screen.findByText("Created thread title")).toBeTruthy();
+    expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
   });
 
   it("does not send a prompt to the previous thread while a worktree is opening", async () => {
@@ -853,7 +940,13 @@ describe("App render isolation", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "feat-race" })).toBeTruthy());
     fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Must run in the worktree", [], "worktree-thread", expect.any(String)));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
+      "Must run in the worktree",
+      [],
+      "worktree-thread",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
   });
 
   it("refreshes the bottom-left worktree name after changing workspaces", async () => {
@@ -922,8 +1015,14 @@ describe("App render isolation", () => {
 
   it("removes a pending bridge prompt by id when its runtime later fails", async () => {
     let sentClientMessageId: string | undefined;
-    const sendPrompt = vi.fn(async (_text: string, _attachments: unknown[] | undefined, _sessionId: string | undefined, clientMessageId?: string) => {
-      sentClientMessageId = clientMessageId;
+    const sendPrompt = vi.fn(async (
+      _text: string,
+      _attachments: unknown[] | undefined,
+      _sessionId: string | undefined,
+      identity?: { clientMessageId?: string },
+      _prepared?: unknown,
+    ) => {
+      sentClientMessageId = identity?.clientMessageId;
     });
     let publish: ((event: HostEvent) => void) | undefined;
     window.tau = {
@@ -1045,7 +1144,13 @@ describe("App render isolation", () => {
       return textarea;
     });
     fireEvent.keyDown(restored, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("persistent draft", [], "/other", expect.any(String)));
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "persistent draft",
+      [],
+      "/other",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
     expect(screen.getByText("persistent draft")).toBeTruthy();
   });
 });

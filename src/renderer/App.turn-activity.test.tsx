@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HostEvent, TauDesktopApi, UiToolRun } from "../shared/contracts";
+import type { ClientTurnIdentity, HostEvent, TauDesktopApi, UiToolRun } from "../shared/contracts";
 import App from "./App";
 import { preferences } from "./preferences";
 import { writeCachedTurnActivity } from "./turn-activity";
@@ -210,7 +210,13 @@ describe("last-turn activity", () => {
     fireEvent.change(composer, { target: { value: "after this turn" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(followUp).toHaveBeenCalledWith("after this turn", [], "session", expect.any(String)));
+    await waitFor(() => expect(followUp).toHaveBeenCalledWith(
+      "after this turn",
+      [],
+      "session",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
     expect(steer).not.toHaveBeenCalled();
     expect(screen.getByTitle("after this turn")).toBeTruthy();
   });
@@ -227,7 +233,13 @@ describe("last-turn activity", () => {
     fireEvent.change(composer, { target: { value: "use this now" } });
     fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
 
-    await waitFor(() => expect(steer).toHaveBeenCalledWith("use this now", [], "session", expect.any(String)));
+    await waitFor(() => expect(steer).toHaveBeenCalledWith(
+      "use this now",
+      [],
+      "session",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
     expect(screen.getByText("use this now")).toBeTruthy();
   });
 

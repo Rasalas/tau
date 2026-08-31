@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
-import { useRef, type ReactNode } from "react";
+import { createRef, useRef, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
+import { afterEach, vi } from "vitest";
 import { testDomRect } from "./test-dom-geometry";
+import { TranscriptViewport } from "./TranscriptViewport";
 import { VirtualTranscript } from "./VirtualTranscript";
+import type { TranscriptActivity } from "./transcript-activity";
 
 afterEach(cleanup);
 
@@ -13,18 +16,25 @@ function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMess
   sessionKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
-  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
+  activities?: TranscriptActivity[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const allActivities: TranscriptActivity[] = [
+    ...(activities ?? []),
+    ...(activity ? [{
+      id: "turn-activity",
+      afterMessageId: activityAfterMessageId,
+      fallbackToTail: true,
+      content: activity,
+    }] : []),
+  ];
   return <div ref={ref} style={{ height: 600, overflow: "auto" }}>
     <VirtualTranscript
       messages={messages}
       scrollRef={ref}
       isStreaming={false}
       sessionKey={sessionKey}
-      activity={activity}
-      activityAfterMessageId={activityAfterMessageId}
-      activities={activities}
+      activities={allActivities}
     />
   </div>;
 }
@@ -403,5 +413,39 @@ describe("virtual transcript", () => {
       view?.unmount();
       harness.restore();
     }
+  });
+
+  it("keeps the anchored current turn bounded with thousands of records and activities", async () => {
+    const messages: UiMessage[] = Array.from({ length: 3_000 }, (_, index) => ({
+      id: `current-${index}`,
+      role: index % 3 === 0 ? "user" : index % 3 === 1 ? "assistant" : "notice",
+      text: `Current turn record ${index}`,
+      timestamp: index,
+    }));
+    const activities = messages.map((message, index) => ({
+      id: `activity-${index}`,
+      afterMessageId: message.id,
+      content: <span>Activity {index}</span>,
+    }));
+    const scrollRef = createRef<HTMLDivElement>();
+    const view = render(<TranscriptViewport
+      messages={messages}
+      scrollRef={scrollRef}
+      sessionId="long-turn"
+      turnStart={{
+        turnId: "long-turn-start",
+        sessionId: "long-turn",
+        messageId: messages[0].id,
+        text: messages[0].text,
+        timestamp: messages[0].timestamp,
+      }}
+      isStreaming
+      activities={activities}
+      liveStatus={<span>Live</span>}
+    />);
+
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeGreaterThan(0));
+    expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeLessThan(40);
+    expect(view.container.querySelectorAll(".inline-transcript-activity").length).toBeLessThan(40);
   });
 });

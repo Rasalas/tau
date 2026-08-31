@@ -569,7 +569,19 @@ button > svg { pointer-events: none; }
 }
 .thread-title-rename input:focus { border-color: var(--line-strong); }
 
-.transcript { flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; padding: 26px 32px 12px; }
+.transcript-viewport {
+  position: relative; display: flex; flex: 1; min-width: 0; min-height: 0;
+  flex-direction: column; isolation: isolate;
+}
+.transcript {
+  position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none;
+  padding: 26px 32px 12px; outline: none;
+}
+.transcript-overlay {
+  position: absolute; z-index: 4; inset: 0; pointer-events: none;
+}
+.transcript-overlay .transcript-jump { pointer-events: auto; }
+.transcript:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
 .transcript-history-control {
   min-height: 34px; margin: 0 0 16px; display: flex; align-items: center; gap: 10px;
@@ -588,10 +600,33 @@ button > svg { pointer-events: none; }
 .transcript-history-control.limited > span { color: var(--working); }
 .virtual-transcript { width: 100%; flex: none; }
 .virtual-transcript-row { padding-bottom: 22px; box-sizing: border-box; }
+.transcript-current-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }
 .turn-checkpoint-card { width: 100%; }
 .turn-checkpoint-card .transcript-card { width: 100%; }
+.transcript-jump {
+  position: absolute; z-index: 4; left: 50%; bottom: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+  transform: translateX(-50%);
+  border: 1px solid var(--line-control); border-radius: 999px;
+  background: var(--raised);
+  color: var(--ink-2); padding: 6px 11px;
+  box-shadow: 0 5px 18px #0008;
+  font: 600 11px var(--sans); cursor: pointer;
+  animation: transcript-jump-in 160ms ease-out;
+}
+.transcript-jump:hover { border-color: var(--line-strong); background: var(--raised); color: var(--ink); }
+.transcript-jump:focus-visible { outline: 2px solid var(--acid); outline-offset: 2px; }
+.transcript-jump > svg { color: var(--acid); }
+@keyframes transcript-jump-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-jump { animation: none; }
+}
 .renderer-benchmark { width: 100%; height: 100%; overflow: auto; padding: 24px; display: flex; flex-direction: column; }
+.renderer-benchmark .transcript-viewport { flex: none; height: 800px; }
 .benchmark-transcript { height: 800px; }
 .benchmark-large-list { height: 720px; overflow: auto; }
 .benchmark-list-row { height: 48px; padding: 12px; border-bottom: 1px solid var(--line); }

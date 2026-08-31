@@ -1,0 +1,44 @@
+diff --git a/benchmarks/renderer-fixtures.json b/benchmarks/renderer-fixtures.json
+index 1154c4f..3c97b8e 100644
+--- a/benchmarks/renderer-fixtures.json
++++ b/benchmarks/renderer-fixtures.json
+@@ -13,6 +13,7 @@
+     { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600 },
+     { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576 },
+     { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000 },
++    { "id": "transcript-legacy-comparison-1000-turns", "kind": "transcript", "turns": 1000, "anchorTurn": 8, "activities": 128, "component": "VirtualTranscript" },
+     { "id": "diff-2mb", "kind": "diff", "bytes": 2097152 },
+     { "id": "thread-shells-10000", "kind": "list", "items": 10000 },
+     { "id": "workspace-files-10000", "kind": "list", "items": 10000 },
+diff --git a/src/renderer/RendererBenchmark.tsx b/src/renderer/RendererBenchmark.tsx
+index 5e0a161..ea6230a 100644
+--- a/src/renderer/RendererBenchmark.tsx
++++ b/src/renderer/RendererBenchmark.tsx
+@@ -60,7 +60,15 @@ export default function RendererBenchmark() {
+   const longTasks = useRef<number[]>([]);
+   const scrollRef = useRef<HTMLDivElement>(null);
+   const registry = useMemo(() => new ExtensionRegistry(), []);
+-  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
++  const transcript = useMemo(() => scenario === "transcript-1000-turns"
++    || scenario === "transcript-legacy-comparison-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
++  const transcriptActivities = useMemo(() => scenario === "transcript-legacy-comparison-1000-turns"
++    ? transcript.slice(0, 128).map((message, index) => ({
++      id: `benchmark-activity-${index}`,
++      afterMessageId: message.id,
++      content: <span>Activity {index}</span>,
++    }))
++    : [], [scenario, transcript]);
+   const listItems = useMemo(
+     () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
+     [scenario],
+@@ -169,6 +177,10 @@ export default function RendererBenchmark() {
+     content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
+       <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />
+     </div></div>;
++  } else if (scenario === "transcript-legacy-comparison-1000-turns") {
++    content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
++      <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} activities={transcriptActivities} />
++    </div></div>;
+   } else if (scenario.endsWith("-10000")) {
+     content = <VirtualList
+       items={filteredListItems}

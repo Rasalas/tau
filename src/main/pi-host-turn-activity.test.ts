@@ -76,6 +76,52 @@ async function adoptPiPromptThread(host: PiHost, session: Parameters<typeof piPr
   await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: piPromptThread(session), isolation: "in-process" });
 }
 
+/** Minimal current ThreadRuntime owner used by activation-race tests. */
+function makeActivationThread(threadId: string, sessionFile = `/${threadId}.jsonl`) {
+  const session = {
+    sessionId: threadId,
+    sessionFile,
+    resourceLoader: { getExtensions: () => ({ extensions: [] }) },
+  };
+  const backend = {
+    kind: "pi" as const,
+    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
+    threadId,
+    providerSessionId: threadId,
+    sessionId: threadId,
+    cwd: "/repo",
+    sessionFile: () => sessionFile,
+    extensionCount: () => 0,
+    composerCommands: () => [],
+    branchEntries: () => [],
+    hasMessages: () => true,
+    isStreaming: () => false,
+    isIdle: () => true,
+    unbind: () => {},
+    abort: async () => {},
+    dispose: async () => {},
+    preparePrompt: async () => undefined,
+  };
+  return {
+    threadId,
+    sessionId: threadId,
+    cwd: "/repo",
+    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
+    backend,
+    runtime: { session },
+    pendingClientMessageIds: [],
+    pendingClientMessageFingerprints: new Map<string, string>(),
+    inFlightClientMessageIds: new Set<string>(),
+    adapterPending: 0,
+    adapterStreaming: false,
+    adapterMessages: [],
+    adapterAbortControllers: new Set<AbortController>(),
+    releaseEventBarrier: () => {},
+    cancelEventBarrier: () => {},
+    deferError: () => false,
+  } as any;
+}
+
 describe("PiHost prompt preflight", () => {
   it("resolves after SDK preflight acceptance and reports later run errors", async () => {
     let rejectRun!: (error: Error) => void;
@@ -212,6 +258,115 @@ describe("PiHost.generateThreadTitle", () => {
       updates: [{ type: "thread-shell", update: { sessionId: "session", shell: { title: "Automatic Thread Titles" } } }],
     });
     expect(callOrder).toEqual(["wait", "complete"]);
+  });
+
+  it("does not let a stale new-thread activation replace a newer live switch", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as {
+      beginActivation(): number;
+      activateThread(thread: unknown, touch: boolean, epoch: number): Promise<boolean>;
+      threads: { adopt(record: unknown): Promise<void>; active?: { runtime: unknown; threadId: string }; setActive(threadId: string): void };
+      rememberProject(cwd: string): Promise<void>;
+      refreshThreadShell(thread: unknown, touch: boolean): Promise<void>;
+      scheduleRuntimePrewarm(): void;
+      scheduleSpareThread(cwd: string): void;
+    };
+    const makeThread = (threadId: string) => makeActivationThread(threadId);
+    const staleThread = makeThread("new-thread");
+    const liveThread = makeThread("live-thread");
+    await internals.threads.adopt({ threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
+    await internals.threads.adopt({ threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+
+    let releaseStale!: () => void;
+    let staleEntered!: () => void;
+    const staleStarted = new Promise<void>((resolve) => { staleEntered = resolve; });
+    const staleGate = new Promise<void>((resolve) => { releaseStale = resolve; });
+    internals.rememberProject = async () => {
+      if (internals.threads.active?.runtime === staleThread) {
+        staleEntered();
+        await staleGate;
+      }
+    };
+    internals.refreshThreadShell = async () => {};
+    internals.scheduleRuntimePrewarm = () => {};
+    internals.scheduleSpareThread = () => {};
+
+    const staleEpoch = internals.beginActivation();
+    const staleActivation = internals.activateThread(staleThread, true, staleEpoch);
+    await staleStarted;
+    const liveEpoch = internals.beginActivation();
+    await expect(internals.activateThread(liveThread, false, liveEpoch)).resolves.toBe(true);
+    releaseStale();
+
+    await expect(staleActivation).resolves.toBe(false);
+    expect(internals.threads.active?.threadId).toBe("live-thread");
+  });
+
+  it("guards the real newSession result when a newer live switch wins", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const staleThread = makeActivationThread("new-thread", "/new.jsonl");
+    const liveThread = makeActivationThread("live-thread", "/live.jsonl");
+    await internals.threads.adopt({ threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
+    await internals.threads.adopt({ threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+
+    let releaseStale!: () => void;
+    let staleEntered!: () => void;
+    const staleStarted = new Promise<void>((resolve) => { staleEntered = resolve; });
+    const staleGate = new Promise<void>((resolve) => { releaseStale = resolve; });
+    internals.rememberProject = async () => {
+      if (internals.threads.active?.runtime === staleThread) {
+        staleEntered();
+        await staleGate;
+      }
+    };
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takeSpareThread = async () => undefined;
+    internals.openThread = async () => staleThread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.threads.release = async () => {};
+
+    const staleNewSession = host.newSession("stale prompt", [], "/repo");
+    await staleStarted;
+    await expect(host.switchSession("/live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
+    releaseStale();
+
+    await expect(staleNewSession).resolves.toEqual({ version: 1, updates: [] });
+    expect(internals.threads.active?.threadId).toBe("live-thread");
+  });
+
+  it("admits newSession before the lifecycle queue so a later live switch wins", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const staleThread = makeActivationThread("queued-new-thread", "/queued-new.jsonl");
+    const liveThread = makeActivationThread("warm-live-thread", "/warm-live.jsonl");
+    await internals.threads.adopt({ threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
+    await internals.threads.adopt({ threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+
+    let releaseLifecycle!: () => void;
+    internals.lifecycleQueue = new Promise<void>((resolve) => { releaseLifecycle = resolve; });
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takeSpareThread = async () => undefined;
+    internals.openThread = async () => staleThread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.threads.release = async () => {};
+    const prompts: string[] = [];
+    internals.prompt = async (text: string) => { prompts.push(text); };
+
+    const queuedNewSession = host.newSession("must not be sent", [], "/repo");
+    await expect(host.switchSession("/warm-live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
+    releaseLifecycle();
+
+    await expect(queuedNewSession).resolves.toEqual({ version: 1, updates: [] });
+    expect(prompts).toEqual([]);
+    expect(internals.threads.active?.threadId).toBe("warm-live-thread");
   });
 });
 

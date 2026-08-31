@@ -1,4 +1,5 @@
 import type {
+  ClientTurnIdentity,
   DiffLoadOptions,
   ExtensionUiPromptKind,
   NewThreadRequestId,
@@ -126,6 +127,7 @@ export type PiBridgeCommand =
       deliverAs?: "steer" | "followUp";
       prepared?: PiBridgePreparedPrompt;
     }
+      & Partial<ClientTurnIdentity>
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
   | { command: "set_model"; provider: string; id: string }
@@ -138,6 +140,7 @@ export type PiBridgeCommand =
   | { command: "new_session_abort"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "transcript_page"; cursor?: string }
   | { command: "turn_files_page"; checkpointId: string; cursor?: string; limit?: number }
+      & Partial<ClientTurnIdentity>
   | { command: "export_markdown" }
   | ({ command: "turn_file_diff"; checkpointId: string; path: string } & DiffLoadOptions)
   | { command: "snapshot" }

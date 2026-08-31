@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
-import type { NewThreadRequestId } from "../../src/shared/contracts.js";
+import type { ClientTurnIdentity, NewThreadRequestId } from "../../src/shared/contracts.js";
+import { ClientTurnLedgerStore, type ClientTurnLedgerObservation } from "../../src/shared/client-turn-ledger.js";
+import { clientIdentityMatches, hasExplicitClientIdentity, resolveClientTurnIdentity } from "../../src/shared/transcript-turn.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
 import type { TranscriptHistoryCompleteness } from "../../src/shared/transcript-completeness.js";
@@ -59,6 +61,181 @@ interface ClientState {
 }
 
 type BridgeTranscriptRecord = Record<string, unknown> & { role?: string };
+
+export interface BridgeMessageObservation {
+  role?: string;
+  content?: unknown;
+  timestamp?: number;
+  clientTurnId?: string;
+  clientMessageId?: string;
+  tauClientTurnId?: string;
+  tauClientMessageId?: string;
+}
+
+export const BRIDGE_TURN_PENDING_LIMIT = 64;
+export const BRIDGE_TURN_TOTAL_PENDING_LIMIT = 1_024;
+export const BRIDGE_TURN_REMEMBERED_LIMIT = 256;
+export const BRIDGE_TURN_TOTAL_REMEMBERED_LIMIT = 1_024;
+
+export function bridgeVisibleText(message: BridgeMessageObservation): string {
+  if (typeof message.content === "string") return message.content;
+  if (!Array.isArray(message.content)) return "";
+  return message.content.map((part) => {
+    if (typeof part === "string") return part;
+    if (!part || typeof part !== "object") return "";
+    const value = part as { type?: string; text?: string };
+    return value.type === "text" ? value.text ?? "" : "";
+  }).join("");
+}
+
+export function normalizeBridgeFingerprint(text: string): string {
+  return text.trim().replace(/\s+/gu, " ");
+}
+
+function bridgeIdentity(message: BridgeMessageObservation): ClientTurnIdentity | undefined {
+  return resolveClientTurnIdentity({
+    clientTurnId: message.clientTurnId ?? message.tauClientTurnId,
+    clientMessageId: message.clientMessageId ?? message.tauClientMessageId,
+  });
+}
+
+function hasExplicitBridgeIdentity(message: BridgeMessageObservation): boolean {
+  return hasExplicitClientIdentity({
+    clientTurnId: message.clientTurnId ?? message.tauClientTurnId,
+    clientMessageId: message.clientMessageId ?? message.tauClientMessageId,
+  });
+}
+
+/** Bounded bridge-side correlation for Pi versions that do not preserve send metadata. */
+export class BridgeClientTurnLedger {
+  private readonly store = new ClientTurnLedgerStore({
+    pendingPerScope: BRIDGE_TURN_PENDING_LIMIT,
+    pendingTotal: BRIDGE_TURN_TOTAL_PENDING_LIMIT,
+    rememberedPerScope: BRIDGE_TURN_REMEMBERED_LIMIT,
+    rememberedTotal: BRIDGE_TURN_TOTAL_REMEMBERED_LIMIT,
+  });
+
+  enqueue(sessionId: string | undefined, identity: ClientTurnIdentity, submittedText: string): number {
+    const metadata = { fingerprint: normalizeBridgeFingerprint(submittedText) };
+    return (sessionId
+      ? this.store.enqueue(sessionId, identity, metadata)
+      : this.store.enqueueAny(identity, metadata)).sequence;
+  }
+
+  enqueueAny(identity: ClientTurnIdentity, submittedText: string): number {
+    return this.store.enqueueAny(identity, { fingerprint: normalizeBridgeFingerprint(submittedText) }).sequence;
+  }
+
+  cancel(sessionId: string | undefined, identity: ClientTurnIdentity): void {
+    this.store.cancel(sessionId, identity);
+  }
+
+  cancelAny(identity: ClientTurnIdentity): void {
+    this.store.cancel(undefined, identity);
+  }
+
+  claim(
+    sessionId: string,
+    message: BridgeMessageObservation,
+    rawMessage?: object,
+    allowCommandOrderFallback = true,
+  ): ClientTurnIdentity | undefined {
+    if (message.role !== undefined && message.role !== "user") return undefined;
+    const explicit = bridgeIdentity(message);
+    if (hasExplicitBridgeIdentity(message)) {
+      if (!explicit) return undefined;
+      const selected = this.store.findPending(sessionId, (entry) => clientIdentityMatches(explicit, entry.identity), { bySequence: true });
+      if (selected) this.store.removePending(selected);
+      this.remember(sessionId, message, explicit, rawMessage);
+      return explicit;
+    }
+    const remembered = rawMessage ? this.store.identityForRaw(rawMessage) : undefined;
+    if (remembered) return remembered;
+    const fingerprint = normalizeBridgeFingerprint(bridgeVisibleText(message));
+    const selected = this.store.findPending(sessionId, (entry) => entry.fingerprint === fingerprint, { bySequence: true })
+      ?? (allowCommandOrderFallback ? this.store.findPending(sessionId, () => true, { bySequence: true }) : undefined);
+    if (!selected) {
+      const observed = this.identityForMessage(sessionId, message);
+      if (observed) {
+        this.remember(sessionId, message, observed, rawMessage);
+        return observed;
+      }
+      return undefined;
+    }
+    this.store.removePending(selected);
+    this.remember(sessionId, message, selected.entry.identity, rawMessage);
+    return selected.entry.identity;
+  }
+
+  remember(sessionId: string, message: BridgeMessageObservation, identity: ClientTurnIdentity, rawMessage?: object, sourceEntryId?: string): void {
+    const observation: ClientTurnLedgerObservation = {
+      sourceEntryId,
+      fingerprint: normalizeBridgeFingerprint(bridgeVisibleText(message)),
+      timestamp: message.timestamp,
+    };
+    this.store.remember(sessionId, observation, identity, rawMessage);
+  }
+
+  rememberEntry(sessionId: string, sourceEntryId: string, message: BridgeMessageObservation): void {
+    if (message.role !== undefined && message.role !== "user") return;
+    const withEntryId = { ...message, tauEntryId: sourceEntryId };
+    const identity = bridgeIdentity(message)
+      ?? this.store.identityForRaw(message as object)
+      ?? this.identityForMessage(sessionId, withEntryId)
+      ?? this.claim(sessionId, withEntryId, undefined, false);
+    if (identity) this.remember(sessionId, message, identity, message as object, sourceEntryId);
+  }
+
+  identityForMessage(sessionId: string, message: BridgeMessageObservation): ClientTurnIdentity | undefined {
+    if (message.role !== undefined && message.role !== "user") return undefined;
+    if (hasExplicitBridgeIdentity(message)) return bridgeIdentity(message);
+    const entries = this.store.rememberedEntries(sessionId);
+    const sourceEntryId = (message as { tauEntryId?: string }).tauEntryId;
+    const source = sourceEntryId ? entries.find((entry) => entry.sourceEntryId === sourceEntryId) : undefined;
+    if (source) return source.identity;
+    const fingerprint = normalizeBridgeFingerprint(bridgeVisibleText(message));
+    const fingerprintMatches = entries.filter((entry) => entry.fingerprint === fingerprint);
+    if (message.timestamp !== undefined) {
+      const exactTimestamp = fingerprintMatches.find((entry) => entry.timestamp === message.timestamp);
+      if (exactTimestamp) return exactTimestamp.identity;
+    }
+    return fingerprintMatches.length === 1 ? fingerprintMatches[0].identity : undefined;
+  }
+
+  clearSession(sessionId: string): void { this.store.clear(sessionId); }
+  settle(sessionId: string): void { this.clearSession(sessionId); }
+  clear(preserveAny = false): void { this.store.clear(undefined, { preserveAny }); }
+  get size(): number { return this.store.size; }
+}
+
+export function decorateBridgeUserMessage(ledger: BridgeClientTurnLedger, message: BridgeMessageObservation, sessionId: string): void {
+  if (message.role !== "user") return;
+  const text = bridgeVisibleText(message).trim();
+  if (text.startsWith("/tau-bridge-new") || text.startsWith("/tau-bridge-reload") || text.startsWith("/tau-bridge-fork")) return;
+  if (!text && !hasExplicitBridgeIdentity(message)) return;
+  const identity = ledger.claim(sessionId, message, message as object);
+  if (!identity) return;
+  const raw = message as Record<string, unknown>;
+  raw.tauClientTurnId = identity.clientTurnId;
+  raw.tauClientMessageId = identity.clientMessageId;
+}
+
+export function bridgeSnapshotMessages(
+  ledger: BridgeClientTurnLedger,
+  sessionId: string,
+  entries: readonly { type: string; id: string; message?: unknown }[],
+): unknown[] {
+  return entries.flatMap((entry) => {
+    if (entry.type !== "message" || !entry.message || typeof entry.message !== "object") return [];
+    const message = entry.message as BridgeMessageObservation & Record<string, unknown>;
+    ledger.rememberEntry(sessionId, entry.id, message);
+    const identity = ledger.identityForMessage(sessionId, message);
+    return [{ ...message, tauEntryId: entry.id, ...(identity ? {
+      tauClientTurnId: identity.clientTurnId,
+      tauClientMessageId: identity.clientMessageId,
+    } : {}) }];
+  });
+}
 
 const LEGACY_SNAPSHOT_RECORD_LIMIT = 160 as const;
 
@@ -185,12 +362,15 @@ export const PI_BRIDGE_SUPPORTS_IMAGE_INPUT = false as const;
 export function bridgeNewSessionCommand(
   initialPrompt?: string,
   requestId?: NewThreadRequestId,
-  clientMessageId?: string,
+  clientMessageIdOrIdentity?: string | ClientTurnIdentity,
   prepared?: PiBridgePreparedPrompt,
 ): string {
-  if (initialPrompt === undefined && requestId === undefined && clientMessageId === undefined && prepared === undefined) return "/tau-bridge-new";
-  const value = requestId || clientMessageId || prepared
-    ? { initialPrompt, requestId, clientMessageId, prepared }
+  const identity = typeof clientMessageIdOrIdentity === "string"
+    ? { clientTurnId: clientMessageIdOrIdentity, clientMessageId: clientMessageIdOrIdentity }
+    : clientMessageIdOrIdentity;
+  if (initialPrompt === undefined && requestId === undefined && identity === undefined && prepared === undefined) return "/tau-bridge-new";
+  const value = requestId || identity || prepared
+    ? { initialPrompt, requestId, ...(identity ?? {}), prepared }
     : initialPrompt;
   return `/tau-bridge-new ${Buffer.from(JSON.stringify(value), "utf8").toString("base64url")}`;
 }
@@ -281,6 +461,7 @@ function textFromContent(content: unknown): string {
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
+  const bridgeTurns = new BridgeClientTurnLedger();
   const newSessionRequests = createNewSessionRequestTracker();
   const correlationSkillNames = (): Set<string> => knownSkillNames(pi.getCommands());
   const preparedPrompt = (text: string, skill?: UiSkillDraft): PiBridgePreparedPrompt => {
@@ -415,10 +596,21 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     pendingClientMessageFingerprints.clear();
   };
 
-  const correlateUserMessageStart = (message: unknown): void => {
+  const correlateUserMessageStart = (ctx: ExtensionContext, message: unknown): void => {
     if (!message || typeof message !== "object") return;
-    const value = message as { role?: string; clientMessageId?: unknown };
+    const value = message as BridgeMessageObservation & Record<string, unknown>;
     if (value.role !== "user") return;
+    const identity = bridgeTurns.claim(ctx.sessionManager.getSessionId(), value, value);
+    if (identity) {
+      value.tauClientTurnId = identity.clientTurnId;
+      value.tauClientMessageId = identity.clientMessageId;
+      value.clientTurnId ??= identity.clientTurnId;
+      value.clientMessageId ??= identity.clientMessageId;
+      const pending = pendingClientMessageIds.indexOf(identity.clientMessageId);
+      if (pending >= 0) pendingClientMessageIds.splice(pending, 1);
+      inFlightClientMessageIds.add(identity.clientMessageId);
+      return;
+    }
     if (typeof value.clientMessageId === "string") {
       const pending = pendingClientMessageIds.indexOf(value.clientMessageId);
       if (pending >= 0) {
@@ -445,9 +637,27 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const entries = ctx.sessionManager.getBranch();
     const messages = branchMessagesWithClientMessageIds(entries, correlationSkillNames());
     let messageIndex = 0;
-    return entries.flatMap((entry) => entry.type === "message"
-      ? [{ ...(messages[messageIndex++] as Record<string, unknown>), tauEntryId: entry.id }]
-      : []);
+    return entries.flatMap((entry) => {
+      if (entry.type !== "message") return [];
+      const record: Record<string, unknown> = {
+        ...(messages[messageIndex++] as Record<string, unknown>),
+        tauEntryId: entry.id,
+      };
+      if (record.role === "user") {
+        const identity = bridgeTurns.identityForMessage(ctx.sessionManager.getSessionId(), record as BridgeMessageObservation)
+          ?? bridgeTurns.identityForMessage(ctx.sessionManager.getSessionId(), entry.message as BridgeMessageObservation);
+        if (identity) {
+          record.tauClientTurnId = identity.clientTurnId;
+          record.tauClientMessageId = identity.clientMessageId;
+          record.clientTurnId ??= identity.clientTurnId;
+          record.clientMessageId ??= identity.clientMessageId;
+          bridgeTurns.remember(ctx.sessionManager.getSessionId(), record as BridgeMessageObservation, identity, entry.message as object, entry.id);
+        } else {
+          bridgeTurns.rememberEntry(ctx.sessionManager.getSessionId(), entry.id, entry.message as BridgeMessageObservation);
+        }
+      }
+      return [record];
+    });
   };
 
   const normalizedTranscriptMessage = (message: unknown): { role: "user" | "assistant"; content: unknown } | undefined => {
@@ -484,11 +694,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const payload = typeof decoded === "string"
         ? { initialPrompt: decoded }
         : decoded && typeof decoded === "object"
-          ? decoded as { initialPrompt?: unknown; requestId?: unknown; clientMessageId?: unknown; prepared?: unknown }
+          ? decoded as { initialPrompt?: unknown; requestId?: unknown; clientTurnId?: unknown; clientMessageId?: unknown; prepared?: unknown }
           : {};
       const initialPrompt = typeof payload.initialPrompt === "string" ? payload.initialPrompt : undefined;
       const requestId = typeof payload.requestId === "string" ? payload.requestId as NewThreadRequestId : undefined;
+      const clientTurnId = typeof payload.clientTurnId === "string" ? payload.clientTurnId : undefined;
       const clientMessageId = typeof payload.clientMessageId === "string" ? payload.clientMessageId : undefined;
+      const clientIdentity = resolveClientTurnIdentity({ clientTurnId, clientMessageId });
       const prepared = payload.prepared && typeof payload.prepared === "object" ? payload.prepared as PiBridgePreparedPrompt : undefined;
       // Legacy bridge callers may submit a request-correlated prompt without
       // the skill preflight fields. Preserve that wire path; skill-aware
@@ -497,6 +709,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const resolved = initialPrompt && (clientMessageId || prepared)
         ? resolvePreparedPrompt(initialPrompt, prepared)
         : undefined;
+      if (clientIdentity && initialPrompt !== undefined) bridgeTurns.enqueueAny(clientIdentity, initialPrompt);
       let marker = false;
       let appendNewSessionEntry: ((customType: string, data?: unknown) => void) | undefined;
       try {
@@ -517,6 +730,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
                 await fresh.sendUserMessage(resolved?.runtimeText ?? initialPrompt, { expandPromptTemplates: true });
               } catch (error) {
                 if (marker && appendNewSessionEntry) failClientMessageIfUnpersisted(fresh, clientMessageId, appendNewSessionEntry);
+                if (clientIdentity) bridgeTurns.cancelAny(clientIdentity);
                 throw error;
               }
             },
@@ -529,6 +743,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           newSessionRequests.remove(requestId);
         }
         if (marker && appendNewSessionEntry) failClientMessageIfUnpersisted(ctx, clientMessageId, appendNewSessionEntry);
+        if (clientIdentity) bridgeTurns.cancelAny(clientIdentity);
         throw error;
       }
     },
@@ -763,7 +978,21 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (!event || typeof event !== "object") return event;
     const value = event as { message?: unknown };
     if (!value.message || typeof value.message !== "object" || (value.message as { role?: unknown }).role !== "user") return event;
-    const existing = value.message as { clientMessageId?: unknown };
+    const existing = value.message as BridgeMessageObservation & Record<string, unknown>;
+    const sessionId = ctx.sessionManager.getSessionId();
+    const identity = bridgeTurns.identityForMessage(sessionId, existing);
+    if (identity) {
+      return {
+        ...value,
+        message: {
+          ...existing,
+          clientTurnId: identity.clientTurnId,
+          clientMessageId: identity.clientMessageId,
+          tauClientTurnId: identity.clientTurnId,
+          tauClientMessageId: identity.clientMessageId,
+        },
+      };
+    }
     if (typeof existing.clientMessageId === "string") return event;
     const clientMessageId = clientMessageIdForMessage(ctx.sessionManager.getBranch(), value.message, correlationSkillNames())
       ?? matchClientMessageId(pendingClientMessageIds, pendingClientMessageFingerprints, value.message, correlationSkillNames());
@@ -772,7 +1001,16 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   const finalizeUserMessage = (ctx: ExtensionContext, message: unknown): void => {
     if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "user") return;
-    const value = message as { clientMessageId?: unknown };
+    const value = message as BridgeMessageObservation & Record<string, unknown>;
+    const identity = bridgeTurns.claim(ctx.sessionManager.getSessionId(), value, value);
+    if (identity) {
+      value.clientTurnId = identity.clientTurnId;
+      value.clientMessageId = identity.clientMessageId;
+      value.tauClientTurnId = identity.clientTurnId;
+      value.tauClientMessageId = identity.clientMessageId;
+      forgetClientMessageId(identity.clientMessageId);
+      return;
+    }
     const clientMessageId = typeof value.clientMessageId === "string"
       ? value.clientMessageId
       : clientMessageIdForMessage(ctx.sessionManager.getBranch(), message, correlationSkillNames())
@@ -880,7 +1118,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
             ? resolved.runtimeText.slice(1).split(/[ \t\r\n]/u, 1)[0]
             : "";
           const isExtensionCommand = pi.getCommands().some((command) => command.source === "extension" && command.name === commandName);
-          const clientTurnId = frame.clientTurnId ?? frame.clientMessageId ?? randomUUID();
+          const clientIdentity = resolveClientTurnIdentity(frame)
+            ?? (frame.clientMessageId ? { clientTurnId: frame.clientMessageId, clientMessageId: frame.clientMessageId } : undefined);
+          const clientTurnId = clientIdentity?.clientTurnId ?? randomUUID();
           if (!isExtensionCommand) {
             // Bind the accepted turn before its deferred Git operation can run.
             // The checkpoint extension's input/turn_start hooks will reuse this
@@ -892,9 +1132,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           // return is the transport acknowledgement; later persistence is
           // proven only by Pi's authoritative message events. Extension
           // commands do not create a user message, so they get no marker.
-          const marker = isExtensionCommand
+          const appendMarker = typeof pi.appendEntry === "function"
+            ? (customType: string, data?: unknown) => pi.appendEntry(customType, data)
+            : undefined;
+          const marker = isExtensionCommand || !appendMarker
             ? false
-            : appendClientMessageMarker((customType, data) => pi.appendEntry(customType, data), frame.clientMessageId, frame.text, resolved.sourceFingerprint);
+            : appendClientMessageMarker(appendMarker, frame.clientMessageId, frame.text, resolved.sourceFingerprint);
+          if (!isExtensionCommand && clientIdentity) bridgeTurns.enqueue(ctx.sessionManager.getSessionId(), clientIdentity, frame.text);
           try {
             pi.sendUserMessage(resolved.runtimeText, {
               ...(wasIdle ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
@@ -905,6 +1149,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
               void checkpointRuntime.reject(clientTurnId);
               broadcast({ type: "turn-checkpoint-error", turnId: clientTurnId, message: "Turn checkpoint capture failed." }, ctx);
             }
+            if (clientIdentity) bridgeTurns.cancel(ctx.sessionManager.getSessionId(), clientIdentity);
             if (marker) failClientMessageIfUnpersisted(ctx, frame.clientMessageId);
             throw error;
           }
@@ -1164,7 +1409,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     "thinking_level_select", "ui_prompt_start", "ui_prompt_end",
   ] as const) onAny(eventName, async (event, ctx) => {
     if (eventName === "message_start" && event.message && (event.message as { role?: unknown }).role === "user") {
-      correlateUserMessageStart(event.message);
+      correlateUserMessageStart(ctx, event.message);
     }
     if (eventName === "message_end" && event.message && (event.message as { role?: unknown }).role === "user") {
       finalizeUserMessage(ctx, event.message);

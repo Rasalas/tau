@@ -1,8 +1,13 @@
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptScrollAnchor } from "../transcript-history";
 import { Message } from "./Message";
+import {
+  groupTranscriptActivitiesForMessageIds,
+  unanchoredTranscriptActivitiesForMessageCount,
+  type TranscriptActivity,
+} from "./transcript-activity";
 import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
 
 export interface VirtualTranscriptProps {
@@ -12,7 +17,14 @@ export interface VirtualTranscriptProps {
   sessionKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
-  activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
+  activities?: readonly TranscriptActivity[];
+  activeTurnStartId?: string;
+  /** Changes only when the ordered message ID set changes (not on deltas). */
+  messageScopeKey?: string;
+  /** Visible record revision; lets a stable array carry an O(1) delta to rows. */
+  revision?: number;
+  /** Invalidates the user-message lookup when an existing record's metadata changes. */
+  lookupRevision?: number;
   /** Anchor used while a history page is measured after prepending. */
   anchorRef?: { current: TranscriptScrollAnchor | undefined };
   onCopyMessage?: (message: UiMessage) => void;
@@ -22,13 +34,8 @@ export interface VirtualTranscriptProps {
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
 const MAX_EXPANDED_MESSAGE_IDS = 64;
 
-function resolveMessageId(messages: readonly UiMessage[], requestedId?: string): string | undefined {
-  if (!requestedId) return undefined;
-  return messages.find((message) => message.id === requestedId || message.sourceEntryId === requestedId)?.id;
-}
-
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
-export function VirtualTranscript({
+export const VirtualTranscript = memo(function VirtualTranscript({
   messages,
   scrollRef,
   isStreaming,
@@ -36,30 +43,81 @@ export function VirtualTranscript({
   activity,
   activityAfterMessageId,
   activities = [],
+  activeTurnStartId,
+  messageScopeKey,
+  revision,
+  lookupRevision,
   anchorRef,
   onCopyMessage,
   onForkMessage,
 }: VirtualTranscriptProps) {
-  const pendingActivities = [
+  const pendingActivities = useMemo<TranscriptActivity[]>(() => [
     ...activities,
-    ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, content: activity }] : []),
-  ];
-  const tailMessageId = messages.at(-1)?.id;
-  const activitiesByMessage = new Map<string, typeof pendingActivities>();
-  for (const entry of pendingActivities) {
-    const resolvedAnchor = resolveMessageId(messages, entry.afterMessageId);
-    const anchor = entry.afterMessageId
-      ? (resolvedAnchor ?? (entry.id === "turn-activity" ? tailMessageId : undefined))
-      : tailMessageId;
-    if (!anchor) continue;
-    const anchored = activitiesByMessage.get(anchor) ?? [];
-    anchored.push(entry);
-    activitiesByMessage.set(anchor, anchored);
+    ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, fallbackToTail: true, content: activity }] : []),
+  ], [activities, activity, activityAfterMessageId]);
+  const indexRef = useRef<{
+    scopeKey?: string;
+    length: number;
+    firstId?: string;
+    lastId?: string;
+    lookupRevision?: number;
+    revision?: number;
+    ids: Set<string>;
+    positions: Map<string, number>;
+    references: Map<string, string>;
+    version: number;
+  } | undefined>(undefined);
+  const firstId = messages[0]?.id;
+  const lastId = messages.at(-1)?.id;
+  const currentIndex = indexRef.current;
+  if (!currentIndex
+    || currentIndex.scopeKey !== messageScopeKey
+    || currentIndex.length !== messages.length
+    || currentIndex.firstId !== firstId
+    || currentIndex.lastId !== lastId
+    || currentIndex.lookupRevision !== lookupRevision) {
+    const ids = new Set<string>();
+    const positions = new Map<string, number>();
+    const references = new Map<string, string>();
+    messages.forEach((message, index) => {
+      ids.add(message.id);
+      positions.set(message.id, index);
+      if (message.sourceEntryId) references.set(message.sourceEntryId, message.id);
+    });
+    indexRef.current = {
+      scopeKey: messageScopeKey,
+      length: messages.length,
+      firstId,
+      lastId,
+      lookupRevision,
+      revision,
+      ids,
+      positions,
+      references,
+      version: (currentIndex?.version ?? 0) + 1,
+    };
+  } else if (currentIndex.revision !== revision) {
+    indexRef.current = { ...currentIndex, revision };
   }
-
-  const unanchoredLiveActivity = messages.length === 0
-    ? pendingActivities.filter((entry) => entry.id === "turn-activity")
-    : [];
+  const messageIndex = indexRef.current!;
+  const normalizedActivities = useMemo(() => pendingActivities.map((entry) => ({
+    ...entry,
+    ...(entry.afterMessageId && messageIndex.references.has(entry.afterMessageId)
+      ? { afterMessageId: messageIndex.references.get(entry.afterMessageId) }
+      : {}),
+  })), [pendingActivities, messageIndex.version]);
+  const activitiesByMessage = useMemo(
+    () => groupTranscriptActivitiesForMessageIds(messageIndex.ids, messageIndex.lastId, normalizedActivities),
+    [messageIndex, normalizedActivities],
+  );
+  const unanchoredActivities = useMemo(
+    () => unanchoredTranscriptActivitiesForMessageCount(messageIndex.length, normalizedActivities),
+    [messageIndex, normalizedActivities],
+  );
+  const activeTurnStartIndex = useMemo(
+    () => activeTurnStartId === undefined ? -1 : messageIndex.positions.get(activeTurnStartId) ?? -1,
+    [activeTurnStartId, messageIndex],
+  );
 
   const measureThrough = anchorRef?.current?.measureThrough;
   const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
@@ -98,7 +156,9 @@ export function VirtualTranscript({
     estimateSize: () => 180,
     getItemKey: (index) => messages[index]?.id ?? index,
     initialRect: { width: 780, height: 600 },
-    overscan: 6,
+    // Keep the initial/current-turn window small enough that long active turns
+    // remain bounded without paying for a large hidden DOM on every update.
+    overscan: 3,
     rangeExtractor,
     useAnimationFrameWithResizeObserver: true,
   });
@@ -117,9 +177,9 @@ export function VirtualTranscript({
     ? measuredRows
     : messages.slice(0, 12).map((message, index) => ({ index, key: message.id, start: index * 180 }));
 
-  if (messages.length === 0 && unanchoredLiveActivity.length > 0) {
+  if (messages.length === 0 && unanchoredActivities.length > 0) {
     return <div className="virtual-transcript static-activity-transcript">
-      {unanchoredLiveActivity.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
+      {unanchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
     </div>;
   }
 
@@ -135,7 +195,10 @@ export function VirtualTranscript({
         ref={virtualizer.measureElement}
         data-index={row.index}
         data-message-id={message.id}
-        className="virtual-transcript-row"
+        className={[
+          "virtual-transcript-row",
+          activeTurnStartIndex >= 0 && row.index >= activeTurnStartIndex ? "transcript-current-row" : "",
+        ].filter(Boolean).join(" ")}
         style={{
           position: "absolute",
           width: "100%",
@@ -156,4 +219,4 @@ export function VirtualTranscript({
       </div>;
     })}
   </div>;
-}
+});

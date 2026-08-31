@@ -37,11 +37,22 @@ export interface UiSkillInvocation {
   copyText: string;
 }
 
+/**
+ * Correlates one renderer submission with the user message Pi eventually
+ * writes. Pi may expand a skill or prompt template before that message is
+ * emitted, so the correlation must not depend on the submitted text.
+ */
+export interface ClientTurnIdentity {
+  clientTurnId: string;
+  clientMessageId: string;
+}
+
 export interface UiMessage {
   id: string;
   /** Persisted Pi session entry used for exact branch/fork operations. */
   sourceEntryId?: string;
   /** Stable renderer-to-runtime correlation id for this user turn. */
+  clientTurnId?: string;
   clientMessageId?: string;
   role: UiRole;
   text: string;
@@ -581,13 +592,13 @@ export interface TauDesktopApi {
   loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<import("./host-protocol.js").TranscriptPage>;
   preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt>;
   /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
-  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: PreparedPrompt): Promise<void>;
+  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
-  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: PreparedPrompt): Promise<void>;
-  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string, prepared?: PreparedPrompt): Promise<void>;
+  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
+  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;

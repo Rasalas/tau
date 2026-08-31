@@ -156,6 +156,21 @@ describe("Pi message mapping", () => {
     expect(first?.id).not.toBe(second?.id);
   });
 
+  it("preserves client turn metadata from a bridge or persisted snapshot", () => {
+    expect(mapMessage({
+      role: "user",
+      content: [{ type: "text", text: "expanded template" }],
+      timestamp: 2,
+      tauEntryId: "entry",
+      clientTurnId: "turn-1",
+      clientMessageId: "message-1",
+    }, 0)).toMatchObject({
+      id: "entry",
+      clientTurnId: "turn-1",
+      clientMessageId: "message-1",
+    });
+  });
+
   it("keeps unknown and malformed wrappers as the original user text", () => {
     const malformed = `<skill name="tdd" location="/tmp/tdd">\nInjected body\n</skill`;
     expect(mapMessage({ role: "user", content: [{ type: "text", text: malformed }] }, 0, {

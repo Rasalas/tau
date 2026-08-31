@@ -1,0 +1,672 @@
+{
+  "schemaVersion": 2,
+  "comparison": "same deterministic transcript workload; legacy VirtualTranscript versus anchored TranscriptViewport",
+  "generatedAt": "2026-08-31T21:47:47.493Z",
+  "workload": {
+    "turns": 1000,
+    "anchorTurn": 8,
+    "activities": 128,
+    "streamingDeltas": 36,
+    "fixtureIds": {
+      "baseline": "transcript-legacy-comparison-1000-turns",
+      "anchored": "transcript-viewport-anchored-1000-turns",
+      "streaming": "transcript-viewport-streaming-1000-turns"
+    },
+    "dataSha256": "39ebfdcec2d8bf42bc575786cec0270df41c8d1ed09af430b47674a2e5c9b170"
+  },
+  "environment": {
+    "machine": "Mini-von-Alex.fritz.box",
+    "os": "darwin 25.5.0",
+    "arch": "arm64",
+    "node": "v22.23.1",
+    "viewport": "1440x900",
+    "throttle": "none",
+    "warmupRuns": 2,
+    "sampleRuns": 5,
+    "parallelRuns": 1
+  },
+  "baseline": {
+    "commit": "6ddb4541b02410fa8c462dca4b9bb3b9969d5756",
+    "component": "VirtualTranscript",
+    "sourceSha256": "5b167e02e3f51de56da67dab8f3dbeb5d1e35dd1b9c440b270457b6644cb9b42",
+    "buildArtifactSha256": "c058660e4c730672aba37505562240c3e74d0ad4f9fa79afb71126627acdf1c4",
+    "harnessPatch": "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-legacy-baseline.patch",
+    "harnessPatchSha256": "18db74026f965371e85bca488bafa456ddfc10307c24022da21aedbb1964c98d",
+    "runs": [
+      {
+        "path": "reports/renderer-transcript-baseline-run-01.json",
+        "sha256": "25b87bfbe4d9fb78626673a14b571dab3a3350fc973a14b7f56eff54cbd69422",
+        "generatedAt": "2026-08-31T21:39:31.214Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.599999999999994,
+            "maximum": 17.600000000000023
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 23,
+            "p95": 26,
+            "maximum": 26
+          },
+          "domNodes": 137,
+          "heapBytes": {
+            "median": 8749955,
+            "p95": 8760404,
+            "maximum": 8760404
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-baseline-run-02.json",
+        "sha256": "74b2c4f3aac1cf3c4e2d27b65d60df58af4f0782080a099f50d3096e86bfe25b",
+        "generatedAt": "2026-08-31T21:40:37.265Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.600000000000023,
+            "p95": 17.599999999999994,
+            "maximum": 17.69999999999999
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 23.800000071525574,
+            "p95": 34.299999952316284,
+            "maximum": 34.299999952316284
+          },
+          "domNodes": 137,
+          "heapBytes": {
+            "median": 8739599,
+            "p95": 8752179,
+            "maximum": 8752179
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-baseline-run-03.json",
+        "sha256": "96a338915484174b14c6c067290a5351a11b48a718edd9dd4e568324105cb43c",
+        "generatedAt": "2026-08-31T21:41:45.011Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.599999999999994,
+            "p95": 17.600000000000023,
+            "maximum": 17.69999999999999
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 24.299999952316284,
+            "p95": 28.90000009536743,
+            "maximum": 28.90000009536743
+          },
+          "domNodes": 137,
+          "heapBytes": {
+            "median": 8749515,
+            "p95": 8759339,
+            "maximum": 8759339
+          }
+        }
+      }
+    ],
+    "aggregate": {
+      "runCount": 3,
+      "sampleRunsPerCompleteRun": [
+        5,
+        5,
+        5
+      ],
+      "frameIntervalsMs": {
+        "median": 16.600000000000023,
+        "p95": 17.600000000000023,
+        "maximum": 17.69999999999999
+      },
+      "longTasksMs": {
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 23.800000071525574,
+        "p95": 34.299999952316284,
+        "maximum": 34.299999952316284
+      },
+      "domNodes": 137,
+      "heapBytes": {
+        "median": 8749515,
+        "p95": 8760404,
+        "maximum": 8760404
+      },
+      "variability": {
+        "frameP95Ms": {
+          "minimum": 17.599999999999994,
+          "maximum": 17.69999999999999
+        },
+        "commitP95Ms": {
+          "minimum": 26,
+          "maximum": 34.299999952316284
+        },
+        "longTaskMaximumMs": {
+          "minimum": 0,
+          "maximum": 0
+        },
+        "heapMedianBytes": {
+          "minimum": 8739599,
+          "maximum": 8760404
+        }
+      }
+    }
+  },
+  "current": {
+    "commit": "c01a4163f8ab41cc1d407b28abff1a9f88ea6baf",
+    "component": "TranscriptViewport",
+    "sourceSha256": "b00d670bd060c647ad96d122873670ee163bc5ea9f071052b08d2e4c65a92221",
+    "buildArtifactSha256": "4fcf88e9d616a9b18f143d7737e20aa9f0ed871992a17f99b0f887b14f1bb20c",
+    "runs": [
+      {
+        "path": "reports/renderer-transcript-current-run-01.json",
+        "sha256": "a96340875f95328cdb859661db90fae947ceb181358b1cd28d2e07734ff40cf2",
+        "generatedAt": "2026-08-31T21:42:48.899Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.5,
+            "maximum": 17.599999999999994
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 23.399999976158142,
+            "p95": 23.5,
+            "maximum": 23.5
+          },
+          "domNodes": 108,
+          "heapBytes": {
+            "median": 9509557,
+            "p95": 9514945,
+            "maximum": 9514945
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-current-run-02.json",
+        "sha256": "b8edab4892ac8c6055febe3266002711336acceecbf459c55b06ada0ae2cc802",
+        "generatedAt": "2026-08-31T21:44:13.397Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.599999999999994,
+            "maximum": 17.700000000000017
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 23.5,
+            "p95": 27.899999976158142,
+            "maximum": 27.899999976158142
+          },
+          "domNodes": 108,
+          "heapBytes": {
+            "median": 9509153,
+            "p95": 9534429,
+            "maximum": 9534429
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-current-run-03.json",
+        "sha256": "65d433ace9316a6ed3ea96bc75cda4fa66de15db47411253c7d639afa6f49ac4",
+        "generatedAt": "2026-08-31T21:45:30.610Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.399999999999977,
+            "maximum": 17.599999999999994
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 21,
+            "p95": 21.300000071525574,
+            "maximum": 21.300000071525574
+          },
+          "domNodes": 108,
+          "heapBytes": {
+            "median": 9533677,
+            "p95": 9536117,
+            "maximum": 9536117
+          }
+        }
+      }
+    ],
+    "aggregate": {
+      "runCount": 3,
+      "sampleRunsPerCompleteRun": [
+        5,
+        5,
+        5
+      ],
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.599999999999994,
+        "maximum": 17.700000000000017
+      },
+      "longTasksMs": {
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 23.399999976158142,
+        "p95": 27.899999976158142,
+        "maximum": 27.899999976158142
+      },
+      "domNodes": 108,
+      "heapBytes": {
+        "median": 9509557,
+        "p95": 9536117,
+        "maximum": 9536117
+      },
+      "variability": {
+        "frameP95Ms": {
+          "minimum": 17.399999999999977,
+          "maximum": 17.700000000000017
+        },
+        "commitP95Ms": {
+          "minimum": 21.300000071525574,
+          "maximum": 27.899999976158142
+        },
+        "longTaskMaximumMs": {
+          "minimum": 0,
+          "maximum": 0
+        },
+        "heapMedianBytes": {
+          "minimum": 9509153,
+          "maximum": 9536117
+        }
+      }
+    }
+  },
+  "anchored": {
+    "requiredScenario": true,
+    "runs": [
+      {
+        "path": "reports/renderer-transcript-current-run-01.json",
+        "sha256": "a96340875f95328cdb859661db90fae947ceb181358b1cd28d2e07734ff40cf2",
+        "generatedAt": "2026-08-31T21:42:48.899Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.600000000000023,
+            "maximum": 17.600000000000023
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 23.100000023841858,
+            "p95": 36.60000002384186,
+            "maximum": 36.60000002384186
+          },
+          "domNodes": 139,
+          "heapBytes": {
+            "median": 9815160,
+            "p95": 9853657,
+            "maximum": 9853657
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-current-run-02.json",
+        "sha256": "b8edab4892ac8c6055febe3266002711336acceecbf459c55b06ada0ae2cc802",
+        "generatedAt": "2026-08-31T21:44:13.397Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.599999999999994,
+            "maximum": 17.60000000000001
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 22.399999976158142,
+            "p95": 24,
+            "maximum": 24
+          },
+          "domNodes": 139,
+          "heapBytes": {
+            "median": 9821812,
+            "p95": 9853540,
+            "maximum": 9853540
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-current-run-03.json",
+        "sha256": "65d433ace9316a6ed3ea96bc75cda4fa66de15db47411253c7d639afa6f49ac4",
+        "generatedAt": "2026-08-31T21:45:30.610Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.600000000000023,
+            "maximum": 50
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 22.600000023841858,
+            "p95": 26.5,
+            "maximum": 26.5
+          },
+          "domNodes": 139,
+          "heapBytes": {
+            "median": 9828240,
+            "p95": 9854548,
+            "maximum": 9854548
+          }
+        }
+      }
+    ],
+    "aggregate": {
+      "runCount": 3,
+      "sampleRunsPerCompleteRun": [
+        5,
+        5,
+        5
+      ],
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.600000000000023,
+        "maximum": 50
+      },
+      "longTasksMs": {
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 22.600000023841858,
+        "p95": 36.60000002384186,
+        "maximum": 36.60000002384186
+      },
+      "domNodes": 139,
+      "heapBytes": {
+        "median": 9821812,
+        "p95": 9854548,
+        "maximum": 9854548
+      },
+      "variability": {
+        "frameP95Ms": {
+          "minimum": 17.599999999999994,
+          "maximum": 50
+        },
+        "commitP95Ms": {
+          "minimum": 24,
+          "maximum": 36.60000002384186
+        },
+        "longTaskMaximumMs": {
+          "minimum": 0,
+          "maximum": 0
+        },
+        "heapMedianBytes": {
+          "minimum": 9815160,
+          "maximum": 9854548
+        }
+      }
+    }
+  },
+  "streaming": {
+    "scenario": "transcript-viewport-streaming-1000-turns",
+    "runs": [
+      {
+        "path": "reports/renderer-transcript-current-run-01.json",
+        "sha256": "a96340875f95328cdb859661db90fae947ceb181358b1cd28d2e07734ff40cf2",
+        "generatedAt": "2026-08-31T21:42:48.899Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.699999999999932,
+            "p95": 17.5,
+            "maximum": 34.19999999999999
+          },
+          "longTasksMs": {
+            "count": 1,
+            "median": 88,
+            "p95": 88,
+            "maximum": 88
+          },
+          "commitDurationsMs": {
+            "median": 0.6000000238418579,
+            "p95": 1.7999999523162842,
+            "maximum": 73.20000004768372
+          },
+          "domNodes": 139,
+          "heapBytes": {
+            "median": 9784347,
+            "p95": 9889392,
+            "maximum": 9889392
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-current-run-02.json",
+        "sha256": "b8edab4892ac8c6055febe3266002711336acceecbf459c55b06ada0ae2cc802",
+        "generatedAt": "2026-08-31T21:44:13.397Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.69999999999999,
+            "p95": 17.600000000000023,
+            "maximum": 33.799999999999955
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 0.6000000238418579,
+            "p95": 1.600000023841858,
+            "maximum": 33.799999952316284
+          },
+          "domNodes": 139,
+          "heapBytes": {
+            "median": 9861156,
+            "p95": 10088146,
+            "maximum": 10088146
+          }
+        }
+      },
+      {
+        "path": "reports/renderer-transcript-current-run-03.json",
+        "sha256": "65d433ace9316a6ed3ea96bc75cda4fa66de15db47411253c7d639afa6f49ac4",
+        "generatedAt": "2026-08-31T21:45:30.610Z",
+        "sampleRuns": 5,
+        "metrics": {
+          "frameIntervalsMs": {
+            "median": 16.699999999999932,
+            "p95": 17.5,
+            "maximum": 17.700000000000045
+          },
+          "longTasksMs": {
+            "count": 0,
+            "median": 0,
+            "p95": 0,
+            "maximum": 0
+          },
+          "commitDurationsMs": {
+            "median": 0.6000000238418579,
+            "p95": 2.200000047683716,
+            "maximum": 28.699999928474426
+          },
+          "domNodes": 139,
+          "heapBytes": {
+            "median": 9787627,
+            "p95": 10090221,
+            "maximum": 10090221
+          }
+        }
+      }
+    ],
+    "aggregate": {
+      "runCount": 3,
+      "sampleRunsPerCompleteRun": [
+        5,
+        5,
+        5
+      ],
+      "frameIntervalsMs": {
+        "median": 16.699999999999932,
+        "p95": 17.600000000000023,
+        "maximum": 34.19999999999999
+      },
+      "longTasksMs": {
+        "median": 0,
+        "p95": 88,
+        "maximum": 88
+      },
+      "commitDurationsMs": {
+        "median": 0.6000000238418579,
+        "p95": 2.200000047683716,
+        "maximum": 73.20000004768372
+      },
+      "domNodes": 139,
+      "heapBytes": {
+        "median": 9787627,
+        "p95": 10090221,
+        "maximum": 10090221
+      },
+      "variability": {
+        "frameP95Ms": {
+          "minimum": 17.5,
+          "maximum": 34.19999999999999
+        },
+        "commitP95Ms": {
+          "minimum": 1.600000023841858,
+          "maximum": 73.20000004768372
+        },
+        "longTaskMaximumMs": {
+          "minimum": 0,
+          "maximum": 88
+        },
+        "heapMedianBytes": {
+          "minimum": 9784347,
+          "maximum": 10090221
+        }
+      }
+    },
+    "measuredPath": "TranscriptMessageIndex.update + TranscriptViewport revision + VirtualTranscript window"
+  },
+  "reproduction": {
+    "subject": {
+      "currentRoot": "/path/to/tau-worktrees/thread-view-improvements/issue-01",
+      "measuredCurrentRoot": "$CURRENT_ROOT",
+      "baselineCommit": "6ddb4541b02410fa8c462dca4b9bb3b9969d5756",
+      "currentCommit": "c01a4163f8ab41cc1d407b28abff1a9f88ea6baf"
+    },
+    "harness": {
+      "baselinePatch": "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-legacy-baseline.patch"
+    },
+    "baseline": {
+      "worktreeVariable": "$BASELINE_ROOT",
+      "reports": [
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-baseline-run-01.json",
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-baseline-run-02.json",
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-baseline-run-03.json"
+      ],
+      "commands": [
+        "BASELINE_ROOT=\"$(mktemp -d -t tau-transcript-baseline.XXXXXX)\"",
+        "git -C \"$SUBJECT_ROOT\" worktree add --detach \"$BASELINE_ROOT\" \"$BASELINE_COMMIT\"",
+        "git -C \"$BASELINE_ROOT\" apply \"$BASELINE_PATCH\"",
+        "npm --prefix \"$BASELINE_ROOT\" run build",
+        "npm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-01.json",
+        "npm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-02.json",
+        "npm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-03.json"
+      ]
+    },
+    "current": {
+      "worktreeVariable": "$CURRENT_ROOT",
+      "subjectRoot": "/path/to/tau-worktrees/thread-view-improvements/issue-01",
+      "measuredRoot": "$CURRENT_ROOT",
+      "reports": [
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-01.json",
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-02.json",
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-03.json"
+      ],
+      "commands": [
+        "CURRENT_ROOT=\"$(mktemp -d -t tau-transcript-current.XXXXXX)\"",
+        "git -C \"$SUBJECT_ROOT\" worktree add --detach \"$CURRENT_ROOT\" \"$CURRENT_COMMIT\"",
+        "npm --prefix \"$CURRENT_ROOT\" run build",
+        "npm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-01.json",
+        "npm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-02.json",
+        "npm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-03.json"
+      ]
+    },
+    "aggregation": {
+      "command": "node \"$SUBJECT_ROOT/scripts/renderer-comparison-aggregate.mjs\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json\" \\\n  --baseline-root \"$BASELINE_ROOT\" \\\n  --current-root \"$CURRENT_ROOT\" \\\n  --baseline-commit \"$BASELINE_COMMIT\" \\\n  --current-commit \"$CURRENT_COMMIT\" \\\n  --baseline-patch \"$BASELINE_PATCH\" \\\n  --output \"$SUBJECT_ROOT/reports/renderer-transcript-comparison-aggregate.json\" --subject-root \"$SUBJECT_ROOT\"",
+      "baselineReports": [
+        "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json"
+      ],
+      "currentReports": [
+        "$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json"
+      ],
+      "baselineRoot": "$BASELINE_ROOT",
+      "currentRoot": "$CURRENT_ROOT",
+      "baselineCommit": "$BASELINE_COMMIT",
+      "currentCommit": "$CURRENT_COMMIT",
+      "baselinePatch": "$BASELINE_PATCH",
+      "output": "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-comparison-aggregate.json"
+    },
+    "shell": "set -euo pipefail\nSUBJECT_ROOT='/path/to/tau-worktrees/thread-view-improvements/issue-01'\nBASELINE_COMMIT='6ddb4541b02410fa8c462dca4b9bb3b9969d5756'\nCURRENT_COMMIT='c01a4163f8ab41cc1d407b28abff1a9f88ea6baf'\nBASELINE_PATCH='/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-legacy-baseline.patch'\nBASELINE_ROOT=\"$(mktemp -d -t tau-transcript-baseline.XXXXXX)\"\nCURRENT_ROOT=\"$(mktemp -d -t tau-transcript-current.XXXXXX)\"\ncleanup() {\n  if [ -e \"$BASELINE_ROOT/.git\" ]; then git -C \"$SUBJECT_ROOT\" worktree remove --force \"$BASELINE_ROOT\" >/dev/null 2>&1 || true; else rmdir \"$BASELINE_ROOT\" >/dev/null 2>&1 || true; fi\n  if [ -e \"$CURRENT_ROOT/.git\" ]; then git -C \"$SUBJECT_ROOT\" worktree remove --force \"$CURRENT_ROOT\" >/dev/null 2>&1 || true; else rmdir \"$CURRENT_ROOT\" >/dev/null 2>&1 || true; fi\n}\ntrap cleanup EXIT\ngit -C \"$SUBJECT_ROOT\" worktree add --detach \"$BASELINE_ROOT\" \"$BASELINE_COMMIT\"\ngit -C \"$SUBJECT_ROOT\" worktree add --detach \"$CURRENT_ROOT\" \"$CURRENT_COMMIT\"\nif [ -d \"$SUBJECT_ROOT/node_modules\" ]; then ln -s \"$SUBJECT_ROOT/node_modules\" \"$BASELINE_ROOT/node_modules\"; ln -s \"$SUBJECT_ROOT/node_modules\" \"$CURRENT_ROOT/node_modules\"; else npm --prefix \"$BASELINE_ROOT\" install; npm --prefix \"$CURRENT_ROOT\" install; fi\ngit -C \"$BASELINE_ROOT\" apply \"$BASELINE_PATCH\"\nnpm --prefix \"$BASELINE_ROOT\" run build\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-01.json\ncp \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-01.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json\"\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-02.json\ncp \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-02.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json\"\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-03.json\ncp \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-03.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json\"\nnpm --prefix \"$CURRENT_ROOT\" run build\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-01.json\ncp \"$CURRENT_ROOT/reports/renderer-transcript-current-run-01.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json\"\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-02.json\ncp \"$CURRENT_ROOT/reports/renderer-transcript-current-run-02.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json\"\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-03.json\ncp \"$CURRENT_ROOT/reports/renderer-transcript-current-run-03.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json\"\nnode \"$SUBJECT_ROOT/scripts/renderer-comparison-aggregate.mjs\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json\" \\\n  --baseline-root \"$BASELINE_ROOT\" \\\n  --current-root \"$CURRENT_ROOT\" \\\n  --baseline-commit \"$BASELINE_COMMIT\" \\\n  --current-commit \"$CURRENT_COMMIT\" \\\n  --baseline-patch \"$BASELINE_PATCH\" \\\n  --output \"$SUBJECT_ROOT/reports/renderer-transcript-comparison-aggregate.json\" --subject-root \"$SUBJECT_ROOT\"",
+    "caveat": "Each raw report contains five measured samples after two warm-ups; aggregate p95/max values are aggregated from all complete-run summaries. Electron scheduling, GPU state, and other desktop load remain uncontrolled."
+  }
+}

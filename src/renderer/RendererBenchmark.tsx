@@ -1,11 +1,14 @@
-import { Profiler, useEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
+import { Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
 import { DiffView } from "./components/DiffView";
 import { Message } from "./components/Message";
 import { ToolGroup } from "./components/ToolGroup";
+import { TranscriptViewport } from "./components/TranscriptViewport";
+import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
+import { TranscriptMessageIndex } from "../shared/transcript-index";
 
 interface BenchmarkResult {
   ready: true;
@@ -61,6 +64,54 @@ function makeTranscript(turns: number): UiMessage[] {
   }));
 }
 
+function StreamingTranscriptScenario({
+  activities,
+  onTick,
+}: {
+  activities: readonly TranscriptActivity[];
+  onTick(tick: number): void;
+}) {
+  const indexRef = useRef<TranscriptMessageIndex | undefined>(undefined);
+  if (!indexRef.current) indexRef.current = new TranscriptMessageIndex(makeTranscript(1_000));
+  const activeMessageId = "turn-999";
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let tick = 0;
+    let stopped = false;
+    const update = () => {
+      if (stopped) return;
+      const delta = `\nstreaming delta ${tick}`;
+      indexRef.current!.update(activeMessageId, (message) => ({ ...message, text: message.text + delta }));
+      onTick(tick);
+      tick += 1;
+      if (tick < 36) requestAnimationFrame(update);
+    };
+    requestAnimationFrame(update);
+    return () => { stopped = true; };
+  }, [onTick]);
+
+  const messages = indexRef.current.messages;
+  const anchor = messages[8];
+  return <TranscriptViewport
+    messages={messages}
+    scrollRef={scrollRef}
+    sessionId="renderer-benchmark"
+    revision={indexRef.current.revision}
+    lookupRevision={indexRef.current.lookupRevision}
+    turnStart={anchor ? {
+      turnId: "benchmark-streaming-turn",
+      sessionId: "renderer-benchmark",
+      messageId: anchor.id,
+      text: anchor.text,
+      timestamp: anchor.timestamp,
+    } : undefined}
+    isStreaming
+    activities={activities}
+    liveStatus={<div className="live-status">Streaming current turn</div>}
+  />;
+}
+
 function makeDiff(targetBytes: number): UiFileDiff {
   const lines: UiFileDiff["hunks"][number]["lines"] = [];
   const payload = () => ({
@@ -95,6 +146,7 @@ export default function RendererBenchmark() {
   const targetBytes = scenarioConfig.bytes ?? 0;
   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
   const [toolOutput, setToolOutput] = useState("");
+  const [streamingTick, setStreamingTick] = useState(0);
   const [listQuery, setListQuery] = useState("");
   const mountDurations = useRef<number[]>([]);
   const updateDurations = useRef<number[]>([]);
@@ -110,7 +162,24 @@ export default function RendererBenchmark() {
   const longMessageInteraction = useRef<BenchmarkResult["longMessageInteraction"]>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
-  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(scenarioConfig.turns ?? 0) : [], [scenario, scenarioConfig.turns]);
+  const transcript = useMemo(() => (
+    scenario === "transcript-1000-turns"
+      || scenario === "transcript-legacy-comparison-1000-turns"
+      || scenario === "transcript-viewport-anchored-1000-turns"
+      || scenario === "transcript-viewport-streaming-1000-turns"
+      ? makeTranscript(1_000)
+      : []
+  ), [scenario]);
+  const transcriptTurn = transcript[8];
+  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => scenario === "transcript-legacy-comparison-1000-turns"
+    || scenario === "transcript-viewport-anchored-1000-turns"
+    || scenario === "transcript-viewport-streaming-1000-turns"
+    ? transcript.slice(0, 128).map((message, index) => ({
+      id: `benchmark-activity-${index}`,
+      afterMessageId: message.id,
+      content: <span>Activity {index}</span>,
+    }))
+    : [], [scenario, transcript]);
   const listItems = useMemo(
     () => scenario.endsWith("-10000") ? Array.from({ length: scenarioConfig.items ?? 0 }, (_, index) => `Benchmark item ${index}`) : [],
     [scenario, scenarioConfig.items],
@@ -133,6 +202,16 @@ export default function RendererBenchmark() {
       updateDurations.current.push(actualDuration);
     }
   };
+  // Fixture construction is setup, not renderer commit work. Start timing only
+  // after the scenario-specific input exists, matching production data flow.
+  const onStreamingTick = useCallback((tick: number) => {
+    updateStartedAt.current = performance.now();
+    setStreamingTick(tick);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!profilerReportedUpdate.current) updateDurations.current.push(performance.now() - (updateStartedAt.current ?? performance.now()));
+  }, [listQuery, streamingTick, text, toolOutput]);
 
   useEffect(() => {
     // Production React may omit Profiler callbacks. Keep the same commit
@@ -258,6 +337,14 @@ export default function RendererBenchmark() {
           });
         });
       });
+    } else if (scenario === "transcript-viewport-streaming-1000-turns") {
+      let settleFrames = 0;
+      const waitForStreaming = () => {
+        settleFrames += 1;
+        if (settleFrames < 48) requestAnimationFrame(waitForStreaming);
+        else finish();
+      };
+      requestAnimationFrame(waitForStreaming);
     } else {
       requestAnimationFrame(() => {
         updateStartedAt.current = performance.now();
@@ -279,6 +366,34 @@ export default function RendererBenchmark() {
     content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
       <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />
     </div></div>;
+  } else if (scenario === "transcript-legacy-comparison-1000-turns") {
+    content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
+      <VirtualTranscript
+        messages={transcript}
+        scrollRef={scrollRef}
+        isStreaming={false}
+        activities={transcriptActivities}
+        activeTurnStartId={transcriptTurn?.id}
+      />
+    </div></div>;
+  } else if (scenario === "transcript-viewport-anchored-1000-turns") {
+    content = <TranscriptViewport
+      messages={transcript}
+      scrollRef={scrollRef}
+      sessionId="renderer-benchmark"
+      turnStart={transcriptTurn ? {
+        turnId: "benchmark-turn",
+        sessionId: "renderer-benchmark",
+        messageId: transcriptTurn.id,
+        text: transcriptTurn.text,
+        timestamp: transcriptTurn.timestamp,
+      } : undefined}
+      isStreaming={false}
+      activities={transcriptActivities}
+      liveStatus={<div className="live-status">Current turn activity</div>}
+    />;
+  } else if (scenario === "transcript-viewport-streaming-1000-turns") {
+    content = <StreamingTranscriptScenario activities={transcriptActivities} onTick={onStreamingTick} />;
   } else if (scenario.endsWith("-10000")) {
     content = <VirtualList
       items={filteredListItems}

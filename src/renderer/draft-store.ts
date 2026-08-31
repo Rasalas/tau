@@ -4,17 +4,36 @@ const DRAFTS_KEY = "tau.composer-drafts.v1";
 const NEW_THREAD_KEY = "tau.active-new-thread.v1";
 
 export interface NewThreadDraft {
+  kind: "draft";
+  /** Distinguishes two unstarted threads in the same project. */
+  draftId: string;
   projectPath: string;
   projectName: string;
   sessionId?: string;
-  /** Unique draft identity; same-project new-thread requests must not share state. */
-  draftId?: string;
   /** Text-only recovery state; pending attachments remain memory-only. */
   draft?: string;
 }
 
+let draftSequence = 0;
+
+function newDraftId(): string {
+  const crypto = globalThis.crypto;
+  if (crypto?.randomUUID) return `draft-${crypto.randomUUID()}`;
+  draftSequence += 1;
+  return `draft-${Date.now()}-${draftSequence}`;
+}
+
+export function createNewThreadDraft(project: Pick<NewThreadDraft, "projectPath" | "projectName">): NewThreadDraft {
+  return {
+    kind: "draft",
+    draftId: newDraftId(),
+    projectPath: project.projectPath,
+    projectName: project.projectName,
+  };
+}
+
 export function draftKey(sessionId?: string, pending?: NewThreadDraft): DraftKey | undefined {
-  if (pending) return createDraftKey(`new:${pending.projectPath}:${pending.draftId ?? "legacy"}`);
+  if (pending) return createDraftKey(`new:${pending.projectPath}:${pending.draftId}`);
   return sessionId ? createDraftKey(`session:${sessionId}`) : undefined;
 }
 
@@ -51,15 +70,19 @@ export function writeComposerDraft(storage: Storage, key: DraftKey | string | un
 export function readNewThreadDraft(storage: Storage): NewThreadDraft | undefined {
   try {
     const value = JSON.parse(storage.getItem(NEW_THREAD_KEY) ?? "null") as Partial<NewThreadDraft> | null;
-    return value && typeof value.projectPath === "string" && typeof value.projectName === "string"
-    ? {
+    if (!value || typeof value.projectPath !== "string" || typeof value.projectName !== "string") return undefined;
+    const draft: NewThreadDraft = {
+      kind: "draft",
+      draftId: typeof value.draftId === "string" && value.draftId.length > 0 ? value.draftId : newDraftId(),
       projectPath: value.projectPath,
       projectName: value.projectName,
       ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
-      ...(typeof value.draftId === "string" ? { draftId: value.draftId } : {}),
       ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
-    }
-      : undefined;
+    };
+    // Migrate the single legacy persisted draft once. The generated ID is
+    // written back so a reload keeps the same draft scope.
+    if (value.kind !== "draft" || value.draftId !== draft.draftId) writeNewThreadDraft(storage, draft);
+    return draft;
   } catch { return undefined; }
 }
 
