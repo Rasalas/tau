@@ -567,6 +567,8 @@ export class PiHost {
     observed?: { sessionId: string; sessionFile: string; bridgeEpoch: string };
     acknowledging?: boolean;
   }>();
+  /** Requests detached during a transport handoff still need Pi-side cleanup. */
+  private readonly pendingBridgeNewSessionAborts = new Map<NewThreadRequestId, { projectPath: string; attempting?: boolean }>();
   /** Set while Tau deliberately takes a thread over from Pi, so it does not re-attach. */
   private suppressBridgeAttach = false;
   private readonly bridgeReconnectLoop = new PiBridgeReconnectLoop();
@@ -589,7 +591,7 @@ export class PiHost {
   /** Runtimes being opened, keyed by session file, so a prewarm and a switch share one. */
   private readonly openingThreads = new Map<string, Promise<ThreadRuntime>>();
   /** A blank runtime for the current project, so a new thread is ready before it is asked for. */
-  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined> };
+  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined>; cancel: () => void };
   private preparedThreadCapabilityGeneration = 0;
   /** Session managers whose runtime is being built in the background, outside any measurement. */
   private readonly backgroundManagers = new WeakSet<SessionManager>();
@@ -1782,7 +1784,7 @@ export class PiHost {
   private async openThread(
     manager: SessionManager,
     sessionStartEvent: RuntimeStartEvent | undefined,
-    options: { background?: boolean; adopt?: boolean; prepared?: boolean } = {},
+    options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal } = {},
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
     if (options.background) this.backgroundManagers.add(manager);
@@ -1797,7 +1799,16 @@ export class PiHost {
       });
       thread = new ThreadRuntime(runtime);
       if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
+      const cancelPrepared = () => {
+        this.cancelUiPromptsFor(thread!.sessionId);
+        void thread!.session.abort().catch((error) => this.log("runtime.prepared.abort", this.errorMessage(error)));
+      };
+      if (options.abortSignal) {
+        options.abortSignal.addEventListener("abort", cancelPrepared, { once: true });
+        if (options.abortSignal.aborted) cancelPrepared();
+      }
       await this.bindThread(thread, thread.session);
+      if (options.abortSignal?.aborted) throw new Error("Prepared runtime creation was cancelled.");
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
       return thread;
@@ -1937,10 +1948,11 @@ export class PiHost {
     if ((!this.automaticPrewarm && !force) || this.safeMode || this.spare?.cwd === cwd) return;
     void this.discardSpare().catch((error) => this.fail(error));
     const startedAt = performance.now();
+    const cancellation = new AbortController();
     const pending = this.openThread(
       SessionManager.create(cwd),
       { type: "session_start", reason: "new", previousSessionFile: undefined },
-      { background: true, adopt: false, prepared: true },
+      { background: true, adopt: false, prepared: true, abortSignal: cancellation.signal },
     ).then((thread) => {
       this.log("runtime.spare.ready", basename(cwd));
       return thread;
@@ -1948,7 +1960,7 @@ export class PiHost {
       this.log("runtime.spare.failed", this.errorMessage(error));
       return undefined;
     }).finally(() => this.recordBackgroundLifecycle("spare", startedAt));
-    this.spare = { cwd, pending };
+    this.spare = { cwd, pending, cancel: () => cancellation.abort() };
   }
 
   private async takePreparedThread(cwd: string): Promise<ThreadRuntime | undefined> {
@@ -1961,13 +1973,17 @@ export class PiHost {
   }
 
   private retainPreparedThread(thread: ThreadRuntime): void {
-    this.spare = { cwd: thread.cwd, pending: Promise.resolve(thread) };
+    this.spare = { cwd: thread.cwd, pending: Promise.resolve(thread), cancel: () => {
+      this.cancelUiPromptsFor(thread.sessionId);
+      void thread.session.abort().catch((error) => this.log("runtime.prepared.abort", this.errorMessage(error)));
+    } };
   }
 
   private async discardSpare(): Promise<void> {
     const spare = this.spare;
     this.spare = undefined;
     if (!spare) return;
+    spare.cancel();
     const thread = await spare.pending;
     if (thread) await this.disposeThread(thread);
   }
@@ -2083,6 +2099,7 @@ export class PiHost {
     this.detachBridge(false);
     this.bridge = client;
     this.bridgeSnapshot = bridgeSnapshot;
+    await this.flushBridgeNewSessionAborts(client, bridgeSnapshot);
     this.acceptPendingBridgeSnapshot(bridgeSnapshot, client.descriptor.epoch);
     this.cwd = bridgeSnapshot.cwd;
     const unsubscribeEvents = client.subscribe((frame) => this.handleBridgeFrame(frame));
@@ -2143,14 +2160,49 @@ export class PiHost {
   private abortBridgeNewSession(
     bridge: PiBridgeClient,
     requestId: NewThreadRequestId,
-    pending: { observed?: { sessionId: string; sessionFile: string; bridgeEpoch: string } },
+    pending: { projectPath: string; observed?: { sessionId: string; sessionFile: string; bridgeEpoch: string } },
   ): void {
-    void bridge.command({
-      command: "new_session_abort",
-      requestId,
-      sessionId: pending.observed?.sessionId ?? bridge.descriptor.sessionId,
-      bridgeEpoch: bridge.descriptor.epoch,
-    }, 3_000).catch((error) => this.log("bridge.new_session.abort_failed", this.errorMessage(error)));
+    const tombstone = this.pendingBridgeNewSessionAborts.get(requestId) ?? { projectPath: pending.projectPath };
+    this.pendingBridgeNewSessionAborts.set(requestId, tombstone);
+    void this.tryAbortBridgeNewSession(bridge, requestId, pending.observed?.sessionId);
+  }
+
+  private async flushBridgeNewSessionAborts(bridge: PiBridgeClient, snapshot: PiBridgeSnapshot): Promise<void> {
+    const attempts = [...this.pendingBridgeNewSessionAborts.keys()]
+      .filter((requestId) => this.pendingBridgeNewSessionAborts.get(requestId)?.projectPath === snapshot.cwd)
+      .map((requestId) => this.tryAbortBridgeNewSession(bridge, requestId, snapshot.sessionId, snapshot.newSessionRequestId));
+    await Promise.allSettled(attempts);
+  }
+
+  private async tryAbortBridgeNewSession(
+    bridge: PiBridgeClient,
+    requestId: NewThreadRequestId,
+    sessionId?: string,
+    snapshotRequestId?: NewThreadRequestId,
+  ): Promise<void> {
+    const tombstone = this.pendingBridgeNewSessionAborts.get(requestId);
+    if (!tombstone || tombstone.attempting || (snapshotRequestId && snapshotRequestId !== requestId)) return;
+    tombstone.attempting = true;
+    const targetSessionId = sessionId ?? bridge.descriptor.sessionId;
+    try {
+      const response = await bridge.command({
+        command: "new_session_abort",
+        requestId,
+        sessionId: targetSessionId,
+        bridgeEpoch: bridge.descriptor.epoch,
+      }, 3_000);
+      if (response && typeof response === "object"
+        && (response as { accepted?: unknown }).accepted === true
+        && (response as { requestId?: unknown }).requestId === requestId
+        && (response as { sessionId?: unknown }).sessionId === targetSessionId
+        && (response as { bridgeEpoch?: unknown }).bridgeEpoch === bridge.descriptor.epoch) {
+        this.pendingBridgeNewSessionAborts.delete(requestId);
+      }
+    } catch (error) {
+      this.log("bridge.new_session.abort_failed", this.errorMessage(error));
+    } finally {
+      if (this.pendingBridgeNewSessionAborts.get(requestId) === tombstone) tombstone.attempting = false;
+    }
   }
 
   private acceptPendingBridgeSnapshot(snapshot: PiBridgeSnapshot, transportEpoch?: string): NewThreadRequestId | undefined {
@@ -2219,6 +2271,7 @@ export class PiHost {
     }
     if (frame.type !== "snapshot") return;
     this.bridgeSnapshot = frame.snapshot;
+    if (this.bridge) void this.flushBridgeNewSessionAborts(this.bridge, frame.snapshot);
     const requestId = this.acceptPendingBridgeSnapshot(frame.snapshot, frame.epoch);
     this.syncBridgeAwaitingInput(frame.snapshot);
     this.cwd = frame.snapshot.cwd;
