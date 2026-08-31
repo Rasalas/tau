@@ -88,6 +88,7 @@ function changedFile(value: unknown): UiChangedFile | undefined {
     status: item.status,
     added: Math.max(0, item.added),
     removed: Math.max(0, item.removed),
+    ...(typeof item.note === "string" && item.note.length > 0 ? { note: item.note.slice(0, 240) } : {}),
   };
 }
 
@@ -171,6 +172,17 @@ export function parseStoredTurnCheckpoint(value: unknown, expectedSessionId?: st
     ? item.files.length
     : (typeof item.fileCount === "number" && Number.isSafeInteger(item.fileCount) && item.fileCount >= 0 ? item.fileCount : -1);
   if (fileCount < files.length) return undefined;
+  const completeness = item.completeness === undefined
+    ? undefined
+    : (item.completeness === "complete" || item.completeness === "partial" ? item.completeness : undefined);
+  if (item.completeness !== undefined && completeness === undefined) return undefined;
+  const omittedFileCount = item.omittedFileCount === undefined
+    ? undefined
+    : (typeof item.omittedFileCount === "number" && Number.isSafeInteger(item.omittedFileCount) && item.omittedFileCount >= 0
+      ? item.omittedFileCount
+      : -1);
+  if (omittedFileCount === -1) return undefined;
+  if (completeness === "partial" && omittedFileCount === undefined) return undefined;
   const checkpoint: StoredTurnCheckpoint = {
     id: item.id,
     turnId: item.turnId,
@@ -185,6 +197,11 @@ export function parseStoredTurnCheckpoint(value: unknown, expectedSessionId?: st
     added: Math.max(0, item.added),
     removed: Math.max(0, item.removed),
     ...(typeof item.branch === "string" ? { branch: item.branch } : {}),
+    ...(completeness ? { completeness } : {}),
+    ...(typeof item.incompleteReason === "string" && item.incompleteReason.length > 0
+      ? { incompleteReason: item.incompleteReason.slice(0, 320) }
+      : {}),
+    ...(omittedFileCount !== undefined ? { omittedFileCount } : {}),
     ...(typeof item.transactionId === "string" && item.transactionId.length > 0
       ? { transactionId: item.transactionId }
       : {}),
@@ -308,7 +325,7 @@ export function checkpointsForBranch(
 }
 
 /** Convert a full Git summary into the only file data allowed in a checkpoint entry. */
-export function boundedTurnCheckpointSummary(changes: UiWorkspaceChanges): Pick<UiTurnCheckpoint, "files" | "fileCount" | "added" | "removed" | "branch"> {
+export function boundedTurnCheckpointSummary(changes: UiWorkspaceChanges): Pick<UiTurnCheckpoint, "files" | "fileCount" | "added" | "removed" | "branch" | "completeness" | "incompleteReason" | "omittedFileCount"> {
   const files = changes.files.slice(0, MAX_TURN_CHECKPOINT_PREVIEW_FILES);
   const fileCount = changes.fileCount === undefined
     ? changes.files.length
@@ -321,6 +338,11 @@ export function boundedTurnCheckpointSummary(changes: UiWorkspaceChanges): Pick<
     fileCount,
     added: Math.max(0, changes.added),
     removed: Math.max(0, changes.removed),
+    ...(changes.completeness ? { completeness: changes.completeness } : {}),
+    ...(changes.incompleteReason ? { incompleteReason: changes.incompleteReason.slice(0, 320) } : {}),
+    ...(changes.completeness === "partial" || changes.omittedFileCount !== undefined
+      ? { omittedFileCount: Math.max(0, changes.omittedFileCount ?? 0) }
+      : {}),
   };
 }
 

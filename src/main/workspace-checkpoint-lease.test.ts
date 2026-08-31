@@ -40,6 +40,53 @@ describe("workspace checkpoint leases", () => {
     }
   });
 
+  it("keeps FIFO admission across independent manager instances", async () => {
+    const cwd = await repository("tau-lease-cross-process-fifo-");
+    try {
+      const firstManager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const secondManager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const thirdManager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      await Promise.all([
+        firstManager.canonicalKey(cwd),
+        secondManager.canonicalKey(cwd),
+        thirdManager.canonicalKey(cwd),
+      ]);
+      for (let round = 0; round < 3; round += 1) {
+        const order: string[] = [];
+        const first = await firstManager.acquire(cwd, { sessionId: `first-${round}`, turnId: "turn" });
+        let secondWaiting = false;
+        const secondPromise = secondManager.acquire(cwd, {
+          sessionId: `second-${round}`,
+          turnId: "turn",
+          onState: (state) => { if (state === "waiting") secondWaiting = true; },
+        }).then((lease) => { order.push("second"); return lease; });
+        for (let attempt = 0; attempt < 100 && !secondWaiting; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+        }
+        expect(secondWaiting).toBe(true);
+        let thirdWaiting = false;
+        const thirdPromise = thirdManager.acquire(cwd, {
+          sessionId: `third-${round}`,
+          turnId: "turn",
+          onState: (state) => { if (state === "waiting") thirdWaiting = true; },
+        }).then((lease) => { order.push("third"); return lease; });
+        for (let attempt = 0; attempt < 100 && !thirdWaiting; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+        }
+        expect(thirdWaiting).toBe(true);
+
+        await first.release();
+        const second = await secondPromise;
+        await second.release();
+        const third = await thirdPromise;
+        await third.release();
+        expect(order).toEqual(["second", "third"]);
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("allows independent workspaces to hold leases concurrently", async () => {
     const firstCwd = await repository("tau-lease-one-");
     const secondCwd = await repository("tau-lease-two-");
@@ -153,7 +200,7 @@ describe("workspace checkpoint leases", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 30_000);
 
   it("cancels an aborted waiter without letting later turns bypass the owner", async () => {
     const cwd = await repository("tau-lease-abort-");

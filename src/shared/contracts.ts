@@ -185,7 +185,11 @@ export interface UiChangedFile {
   status: ChangeStatus;
   added: number;
   removed: number;
+  /** Why a historical diff cannot be opened for this entry, when applicable. */
+  note?: string;
 }
+
+export type WorkspaceChangesCompleteness = "complete" | "partial";
 
 export interface UiWorkspaceChanges {
   branch?: string;
@@ -194,6 +198,12 @@ export interface UiWorkspaceChanges {
   files: UiChangedFile[];
   /** Optional total when `files` is only a bounded preview. */
   fileCount?: number;
+  /** Partial means the snapshot backend could not inspect the complete workspace. */
+  completeness?: WorkspaceChangesCompleteness;
+  /** Human-readable bounded explanation for omitted or content-unavailable files. */
+  incompleteReason?: string;
+  /** Number of files known to be omitted from the snapshot scan. */
+  omittedFileCount?: number;
   added: number;
   removed: number;
   /** Derived from the changed paths — a starting point, not a generated message. */

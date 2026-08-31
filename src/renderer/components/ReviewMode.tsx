@@ -97,22 +97,26 @@ export function ReviewMode({
             <span className="stat-del">−{changes.removed}</span>
           </header>
           <div className="review-files">
+            {changes.completeness === "partial" ? <p className="file-tree-error changed-files-warning">
+              {changes.incompleteReason ?? "Snapshot coverage is partial; some workspace changes may be omitted."}
+              {changes.omittedFileCount ? ` (${changes.omittedFileCount} file${changes.omittedFileCount === 1 ? "" : "s"} omitted)` : ""}
+            </p> : null}
             <VirtualList
               items={files}
               itemHeight={43}
               className="review-files-virtual"
-              empty={<p className="empty-copy">The worktree is clean.</p>}
+              empty={<p className="empty-copy">{changes.completeness === "partial" ? "No fully captured file entries are available." : "The worktree is clean."}</p>}
               renderItem={(file) => <button
                 key={file.path}
                 className={`review-file ${file.path === selectedPath ? "active" : ""}`}
                 onClick={() => onSelect(file.path)}
               >
                 <i>{STATUS_GLYPH[file.status] ?? "M"}</i>
-                <span className="meta"><strong>{file.name}</strong><small>{file.directory || "."}</small></span>
+                <span className="meta"><strong>{file.name}</strong><small>{(file.note ?? file.directory) || "."}</small></span>
                 <span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
               </button>}
             />
-            {fileCount === 0 ? <p className="empty-copy">The worktree is clean.</p> : null}
+            {fileCount === 0 ? <p className="empty-copy">{changes.completeness === "partial" ? "No fully captured file entries are available." : "The worktree is clean."}</p> : null}
             {loadFiles && hasMoreFiles ? <div className="changed-files-more-row">
               <button className="text-button" disabled={loadingFiles} onClick={() => void loadNextFiles()}>
                 {loadingFiles ? "Loading…" : `Load more (${Math.max(0, fileCount - files.length)} remaining)`}

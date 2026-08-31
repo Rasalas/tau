@@ -53,12 +53,6 @@ export interface WorkspaceCheckpointLeaseManagerOptions {
   lockFileName?: string;
 }
 
-interface LeaseQueue {
-  /** The unresolved completion promise of the last local ticket. */
-  tail: Promise<void>;
-  nextTicket: number;
-}
-
 interface RecoveryClaim extends WorkspaceLeaseMetadata {
   targetOwnerId: string;
 }
@@ -109,22 +103,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       reject(new Error("Workspace checkpoint lease acquisition was aborted."));
     };
     signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-function waitForAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(new Error("Workspace checkpoint lease acquisition was aborted."));
-  return new Promise<T>((resolveWait, rejectWait) => {
-    const onAbort = () => {
-      signal.removeEventListener("abort", onAbort);
-      rejectWait(new Error("Workspace checkpoint lease acquisition was aborted."));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => { signal.removeEventListener("abort", onAbort); resolveWait(value); },
-      (error) => { signal.removeEventListener("abort", onAbort); rejectWait(error); },
-    );
   });
 }
 
@@ -202,6 +180,38 @@ function isStale(
   return metadata.host !== hostname() || !isAlive(metadata.pid);
 }
 
+export interface LiveWorkspaceLeaseOptions {
+  now?(): number;
+  staleAfterMs?: number;
+  processAlive?(pid: number): boolean;
+  lockFileName?: string;
+}
+
+/**
+ * Returns active writers visible to this process.  Git refs are shared by
+ * linked worktrees even though their checkout leases are intentionally
+ * independent, so maintenance must prove that an unknown session is not
+ * currently publishing from a sibling checkout before deleting its refs.
+ */
+export async function listLiveWorkspaceLeaseSessions(
+  options: LiveWorkspaceLeaseOptions = {},
+): Promise<readonly WorkspaceLeaseMetadata[]> {
+  const root = join(tmpdir(), "tau-workspace-leases");
+  const now = options.now ?? Date.now;
+  const staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
+  const isAlive = options.processAlive ?? defaultProcessAlive;
+  const lockFileName = options.lockFileName ?? "tau-turn-checkpoint.lock";
+  const directories = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const owners: WorkspaceLeaseMetadata[] = [];
+  for (const directory of directories) {
+    if (!directory.isDirectory()) continue;
+    const lockPath = join(root, directory.name, lockFileName);
+    const metadata = metadataFromFile(await readFile(lockPath, "utf8").catch(() => ""));
+    if (metadata && !isStale(metadata, now(), staleAfterMs, isAlive)) owners.push(metadata);
+  }
+  return owners;
+}
+
 async function isStaleMarker(
   lockPath: string,
   metadata: WorkspaceLeaseMetadata | undefined,
@@ -227,6 +237,160 @@ function mutationGuardPath(lockPath: string): string {
 
 function mutationGuardTokenPath(path: string, ownerId: string): string {
   return join(path, `${ownerId}.json`);
+}
+
+interface FilesystemLeaseTicket {
+  path: string;
+  sequence: number;
+  metadata?: WorkspaceLeaseMetadata;
+}
+
+const TICKET_FILE_PATTERN = /^(\d{20})-([0-9a-f-]+)\.json$/iu;
+
+function ticketQueuePath(key: string): string {
+  return join(key, "tickets");
+}
+
+function ticketSequencePath(queuePath: string): string {
+  return join(queuePath, "sequence");
+}
+
+async function readTicketEntries(queuePath: string): Promise<FilesystemLeaseTicket[]> {
+  const entries = await readdir(queuePath, { withFileTypes: true }).catch(() => []);
+  const tickets: FilesystemLeaseTicket[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const match = TICKET_FILE_PATTERN.exec(entry.name);
+    if (!match) continue;
+    const path = join(queuePath, entry.name);
+    const metadata = metadataFromFile(await readFile(path, "utf8").catch(() => ""));
+    // Include an in-flight (temporarily empty) ticket in ordering. Ignoring it
+    // would let a later process pass while the first owner is still writing.
+    tickets.push({ path, sequence: Number(match[1]), metadata });
+  }
+  return tickets.sort((left, right) => left.sequence - right.sequence || left.path.localeCompare(right.path));
+}
+
+async function cleanupStaleTickets(
+  queuePath: string,
+  now: () => number,
+  staleAfterMs: number,
+  isAlive: (pid: number) => boolean,
+): Promise<void> {
+  const entries = await readdir(queuePath, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries.filter((entry) => entry.isFile() && TICKET_FILE_PATTERN.test(entry.name)).map(async (entry) => {
+    const path = join(queuePath, entry.name);
+    const metadata = metadataFromFile(await readFile(path, "utf8").catch(() => ""));
+    const stale = metadata
+      ? isStale(metadata, now(), staleAfterMs, isAlive)
+      : await stat(path).then((item) => now() - item.mtimeMs >= staleAfterMs).catch(() => false);
+    // Tickets are immutable create-if-absent files. Removing this exact path
+    // cannot touch a later owner's generation, and a live same-host process
+    // is protected by the PID check above.
+    if (stale) await rm(path, { force: true }).catch(() => undefined);
+  }));
+}
+
+async function writeSequenceCounter(path: string, value: number): Promise<void> {
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  const handle = await open(temporary, "wx");
+  try {
+    await handle.writeFile(`${value}\n`, "utf8");
+  } finally {
+    await handle.close();
+  }
+  try {
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+async function createFilesystemTicket(
+  key: string,
+  cwd: string,
+  options: WorkspaceCheckpointLeaseOptions,
+  ownerId: string,
+  now: () => number,
+  staleAfterMs: number,
+  pollMs: number,
+  isAlive: (pid: number) => boolean,
+): Promise<FilesystemLeaseTicket> {
+  const queuePath = ticketQueuePath(key);
+  await mkdir(queuePath, { recursive: true });
+  const sequencePath = ticketSequencePath(queuePath);
+  const guard = await acquireMutationGuard(
+    sequencePath,
+    cwd,
+    options.sessionId,
+    options.turnId,
+    now,
+    staleAfterMs,
+    pollMs,
+    isAlive,
+  );
+  try {
+    const counter = Number.parseInt(await readFile(sequencePath, "utf8").catch(() => "0"), 10);
+    const existing = await readTicketEntries(queuePath);
+    const largestTicket = existing.reduce((largest, ticket) => Math.max(largest, ticket.sequence), 0);
+    const sequence = Math.max(Number.isSafeInteger(counter) ? counter : 0, largestTicket) + 1;
+    await writeSequenceCounter(sequencePath, sequence);
+    const metadata: WorkspaceLeaseMetadata = {
+      ownerId,
+      pid: process.pid,
+      host: hostname(),
+      cwd,
+      sessionId: options.sessionId,
+      turnId: options.turnId,
+      acquiredAt: now(),
+      heartbeatAt: now(),
+    };
+    const path = join(queuePath, `${String(sequence).padStart(20, "0")}-${randomUUID()}.json`);
+    const handle = await open(path, "wx");
+    try {
+      await handle.writeFile(`${JSON.stringify(metadata)}\n`, "utf8");
+    } finally {
+      await handle.close();
+    }
+    return { path, sequence, metadata };
+  } finally {
+    await guard.release();
+  }
+}
+
+async function waitForFilesystemTicket(
+  ticket: FilesystemLeaseTicket,
+  options: WorkspaceCheckpointLeaseOptions,
+  now: () => number,
+  staleAfterMs: number,
+  pollMs: number,
+  isAlive: (pid: number) => boolean,
+): Promise<void> {
+  const queuePath = dirname(ticket.path);
+  const startedWaitingAt = now();
+  let reportedWaiting = false;
+  for (;;) {
+    if (aborted(options.signal)) throw new Error("Workspace checkpoint lease acquisition was aborted.");
+    if (options.timeoutMs !== undefined && now() - startedWaitingAt >= options.timeoutMs) {
+      throw new Error("Timed out waiting for the workspace checkpoint lease.");
+    }
+    await cleanupStaleTickets(queuePath, now, staleAfterMs, isAlive);
+    const tickets = await readTicketEntries(queuePath);
+    if (!tickets.some((candidate) => candidate.path === ticket.path)) {
+      throw new Error("Workspace checkpoint lease ticket was reclaimed before admission.");
+    }
+    const first = tickets[0];
+    if (first?.path === ticket.path) return;
+    if (!reportedWaiting) {
+      reportedWaiting = true;
+      options.onState?.("waiting");
+    }
+    await sleep(pollMs, options.signal);
+  }
+}
+
+async function removeFilesystemTicket(ticket: FilesystemLeaseTicket | undefined): Promise<void> {
+  if (ticket) await rm(ticket.path, { force: true }).catch(() => undefined);
 }
 
 /**
@@ -412,11 +576,10 @@ async function claimStaleMarker(
 
 /**
  * Serialises workspace mutation windows without touching the user's index or
- * worktree. Atomic `open(..., "wx")` is the inter-process boundary; the local
- * FIFO tail avoids starvation between runtimes in one host process.
+ * worktree. Atomic ticket creation and a filesystem sequence counter provide
+ * FIFO admission across independent host and bridge processes.
  */
 export class WorkspaceCheckpointLeaseManager {
-  private readonly queued = new Map<string, LeaseQueue>();
   private readonly canonicalKeys = new Map<string, Promise<string>>();
   private readonly runGit: (cwd: string, args: string[]) => Promise<string>;
   private readonly now: () => number;
@@ -461,22 +624,28 @@ export class WorkspaceCheckpointLeaseManager {
   async acquire(cwd: string, options: WorkspaceCheckpointLeaseOptions): Promise<WorkspaceCheckpointLease> {
     const key = await this.canonicalKey(cwd);
     options.onState?.("queued");
-    const queue = this.queued.get(key) ?? { tail: Promise.resolve(), nextTicket: 0 };
-    this.queued.set(key, queue);
-    const predecessor = queue.tail;
-    const ticket = ++queue.nextTicket;
-    let completeTicket!: () => void;
-    const ticketDone = new Promise<void>((resolveTicket) => { completeTicket = resolveTicket; });
-    // Keep the unresolved tail itself, rather than replacing a map entry with
-    // whichever waiter happened to be last. This gives every local runtime a
-    // deterministic ticket even when an earlier waiter aborts.
-    queue.tail = ticketDone;
+    const now = options.now ?? this.now;
+    const staleAfterMs = options.staleAfterMs ?? this.staleAfterMs;
+    const pollMs = options.pollMs ?? this.pollMs;
+    const isAlive = options.processAlive ?? this.processAlive;
+    const ownerId = options.ownerId ?? randomUUID();
+    const ticket = await createFilesystemTicket(
+      key,
+      cwd,
+      options,
+      ownerId,
+      now,
+      staleAfterMs,
+      pollMs,
+      isAlive,
+    );
     let handedOff = false;
     try {
-      await waitForAbort(predecessor, options.signal);
+      await waitForFilesystemTicket(ticket, options, now, staleAfterMs, pollMs, isAlive);
       if (aborted(options.signal)) throw new Error("Workspace checkpoint lease acquisition was aborted.");
-      const acquired = await this.acquireFile(key, cwd, options);
+      const acquired = await this.acquireFile(key, cwd, { ...options, ownerId });
       handedOff = true;
+      await removeFilesystemTicket(ticket);
       const release = acquired.release;
       return {
         ...acquired,
@@ -484,26 +653,16 @@ export class WorkspaceCheckpointLeaseManager {
           try {
             await release();
           } finally {
-            completeTicket();
-            if (this.queued.get(key) === queue && queue.tail === ticketDone) this.queued.delete(key);
+            await removeFilesystemTicket(ticket);
           }
         },
       };
     } finally {
       if (!handedOff) {
-        // An aborted waiter must not release its local FIFO slot while its
-        // predecessor still owns the checkout. Keep the ticket linked until
-        // that predecessor completes, so later turns cannot bypass the owner.
-        predecessor.then(
-          () => {
-            completeTicket();
-            if (this.queued.get(key) === queue && queue.tail === ticketDone) this.queued.delete(key);
-          },
-          () => {
-            completeTicket();
-            if (this.queued.get(key) === queue && queue.tail === ticketDone) this.queued.delete(key);
-          },
-        );
+        // An aborted or failed waiter owns only this immutable ticket. Remove
+        // exactly that file immediately; later tickets remain ordered and may
+        // proceed without depending on a local manager instance.
+        await removeFilesystemTicket(ticket);
       }
     }
   }

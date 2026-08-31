@@ -28,6 +28,7 @@ import {
   turnSnapshotRef,
 } from "../shared/turn-checkpoint-codec.js";
 import { normalizeDiffLoadOptions } from "../shared/turn-checkpoint-diff.js";
+import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,6 +50,9 @@ interface FilesystemSnapshotFile {
   size: number;
   /** Captured once so summary generation never rereads historical blobs. */
   lines?: number;
+  /** Large files retain identity metadata but intentionally no historical bytes. */
+  contentAvailable: boolean;
+  unavailableReason?: string;
 }
 
 interface FilesystemSnapshotManifest {
@@ -57,6 +61,11 @@ interface FilesystemSnapshotManifest {
   cwd: string;
   treeId: string;
   files: Record<string, FilesystemSnapshotFile>;
+  /** A false value is explicit: the scan did not cover the complete folder. */
+  complete: boolean;
+  omittedFileCount: number;
+  omittedBytes: number;
+  omissionReasons: string[];
 }
 
 function filesystemWorkspaceKey(cwd: string): string {
@@ -81,7 +90,48 @@ async function readFilesystemSnapshot(cwd: string, id: string): Promise<Filesyst
     const value = JSON.parse(await readFile(filesystemManifestPath(await realpath(cwd).catch(() => resolve(cwd)), id), "utf8")) as Partial<FilesystemSnapshotManifest>;
     if (value.version !== 1 || value.id !== id || typeof value.cwd !== "string" || typeof value.treeId !== "string"
       || !value.files || typeof value.files !== "object") return undefined;
-    return value as FilesystemSnapshotManifest;
+    const files: Record<string, FilesystemSnapshotFile> = {};
+    for (const [path, candidate] of Object.entries(value.files)) {
+      if (!candidate || typeof candidate !== "object") return undefined;
+      const file = candidate as Partial<FilesystemSnapshotFile>;
+      if (typeof file.hash !== "string" || typeof file.size !== "number" || !Number.isFinite(file.size) || file.size < 0) return undefined;
+      if (file.lines !== undefined && (!Number.isSafeInteger(file.lines) || file.lines < 0)) return undefined;
+      const unavailableReason = typeof file.unavailableReason === "string"
+        ? file.unavailableReason.slice(0, 240)
+        : undefined;
+      files[path] = {
+        hash: file.hash,
+        size: file.size,
+        ...(file.lines === undefined ? {} : { lines: file.lines }),
+        contentAvailable: file.contentAvailable !== false,
+        ...(unavailableReason ? { unavailableReason } : {}),
+      };
+    }
+    const omissionReasons = Array.isArray(value.omissionReasons)
+      ? value.omissionReasons.filter((reason): reason is string => typeof reason === "string").map((reason) => reason.slice(0, 240)).slice(0, 8)
+      : [];
+    const omittedFileCount = Number.isSafeInteger(value.omittedFileCount) && (value.omittedFileCount as number) >= 0
+      ? value.omittedFileCount as number
+      : 0;
+    const omittedBytes = Number.isSafeInteger(value.omittedBytes) && (value.omittedBytes as number) >= 0
+      ? value.omittedBytes as number
+      : 0;
+    // Manifests written before coverage metadata existed are conservatively
+    // partial. Replaying one cannot silently turn previously skipped files
+    // into an apparently complete workspace state.
+    const hasCoverageMetadata = typeof value.complete === "boolean";
+    const complete = value.complete === true;
+    return {
+      version: 1,
+      id,
+      cwd: value.cwd,
+      treeId: value.treeId,
+      files,
+      complete,
+      omittedFileCount: hasCoverageMetadata ? omittedFileCount : Math.max(1, omittedFileCount),
+      omittedBytes,
+      omissionReasons,
+    };
   } catch {
     return undefined;
   }
@@ -103,16 +153,89 @@ async function writeFilesystemBlob(cwd: string, bytes: Buffer, hash: string): Pr
   }
 }
 
-async function collectFilesystemFiles(cwd: string): Promise<Record<string, FilesystemSnapshotFile>> {
+interface FilesystemCollection {
+  files: Record<string, FilesystemSnapshotFile>;
+  complete: boolean;
+  omittedFileCount: number;
+  omittedBytes: number;
+  omissionReasons: string[];
+}
+
+interface FilesystemFileMetadata {
+  hash: string;
+  lines?: number;
+}
+
+async function streamFilesystemFileMetadata(path: string): Promise<FilesystemFileMetadata | undefined> {
+  const handle = await open(path, "r").catch(() => undefined);
+  if (!handle) return undefined;
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  let lines = 0;
+  let hasBytes = false;
+  let binary = false;
+  let lastByte = 0;
+  try {
+    for (;;) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      hasBytes = true;
+      hash.update(buffer.subarray(0, bytesRead));
+      for (let index = 0; index < bytesRead; index += 1) {
+        const byte = buffer[index];
+        if (byte === 0) binary = true;
+        if (byte === 10) lines += 1;
+        lastByte = byte;
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+  if (binary) return { hash: hash.digest("hex") };
+  return { hash: hash.digest("hex"), lines: hasBytes && lastByte !== 10 ? lines + 1 : lines };
+}
+
+async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection> {
   const files: Record<string, FilesystemSnapshotFile> = {};
   let fileCount = 0;
   let totalBytes = 0;
+  let complete = true;
+  let omittedFileCount = 0;
+  let omittedBytes = 0;
+  const omissionReasons: string[] = [];
+  const recordIncomplete = (reason: string): void => {
+    complete = false;
+    if (!omissionReasons.includes(reason) && omissionReasons.length < 8) omissionReasons.push(reason);
+  };
+  const recordOmission = (reason: string, bytes = 0, count = 1): void => {
+    recordIncomplete(reason);
+    omittedFileCount += count;
+    omittedBytes += Math.max(0, bytes);
+    if (!omissionReasons.includes(reason) && omissionReasons.length < 8) omissionReasons.push(reason);
+  };
   const walk = async (directory: string, relative: string): Promise<void> => {
-    if (fileCount >= FILESYSTEM_MAX_FILES || totalBytes >= FILESYSTEM_MAX_BYTES) return;
-    const entries = await readdir(directory, { withFileTypes: true });
+    if (fileCount >= FILESYSTEM_MAX_FILES) {
+      recordOmission("file-count limit (20,000 files)");
+      return;
+    }
+    if (totalBytes >= FILESYSTEM_MAX_BYTES) {
+      recordOmission("workspace byte limit (128 MiB)");
+      return;
+    }
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => {
+      recordOmission("directory could not be read");
+      return [];
+    });
     entries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
-      if (fileCount >= FILESYSTEM_MAX_FILES || totalBytes >= FILESYSTEM_MAX_BYTES) break;
+      if (fileCount >= FILESYSTEM_MAX_FILES) {
+        recordOmission("file-count limit (20,000 files)");
+        break;
+      }
+      if (totalBytes >= FILESYSTEM_MAX_BYTES) {
+        recordOmission("workspace byte limit (128 MiB)");
+        break;
+      }
       if (entry.name === "." || entry.name === ".." || (relative === "" && FILESYSTEM_IGNORED_DIRECTORIES.has(entry.name))) continue;
       const path = join(directory, entry.name);
       const child = relative ? `${relative}/${entry.name}` : entry.name;
@@ -122,9 +245,45 @@ async function collectFilesystemFiles(cwd: string): Promise<Record<string, Files
       }
       if (!entry.isFile()) continue;
       const info = await stat(path).catch(() => undefined);
-      if (!info || info.size > FILESYSTEM_MAX_FILE_BYTES || totalBytes + info.size > FILESYSTEM_MAX_BYTES) continue;
+      if (!info) {
+        recordOmission("file metadata could not be read");
+        continue;
+      }
+      if (totalBytes + info.size > FILESYSTEM_MAX_BYTES) {
+        // Large files are still hashed below so their identity is visible, but
+        // crossing the workspace budget means the folder cannot be reported
+        // as fully covered.
+        recordIncomplete("workspace byte limit (128 MiB)");
+      }
+      if (info.size > FILESYSTEM_MAX_FILE_BYTES) {
+        // Read the large file in bounded chunks. Its content is not retained,
+        // but the full hash and line metadata still make a turn edit visible.
+        recordIncomplete("content limit (8 MiB); large file content is unavailable");
+        const metadata = await streamFilesystemFileMetadata(path);
+        if (!metadata) {
+          recordOmission("large file could not be read", info.size);
+          continue;
+        }
+        files[child.replaceAll("\\", "/")] = {
+          hash: metadata.hash,
+          size: info.size,
+          ...(metadata.lines === undefined ? {} : { lines: metadata.lines }),
+          contentAvailable: false,
+          unavailableReason: "Historical content was not stored because this file exceeds the 8 MiB content limit.",
+        };
+        fileCount += 1;
+        totalBytes += info.size;
+        continue;
+      }
+      if (totalBytes + info.size > FILESYSTEM_MAX_BYTES) {
+        recordOmission("workspace byte limit (128 MiB)", info.size);
+        continue;
+      }
       const bytes = await readFile(path).catch(() => undefined);
-      if (!bytes) continue;
+      if (!bytes) {
+        recordOmission("file content could not be read", info.size);
+        continue;
+      }
       const hash = createHash("sha256").update(bytes).digest("hex");
       let lines: number | undefined;
       if (bytes.length > 0 && !bytes.includes(0)) {
@@ -133,26 +292,40 @@ async function collectFilesystemFiles(cwd: string): Promise<Record<string, Files
         if (bytes.at(-1) !== 10) lines += 1;
       }
       await writeFilesystemBlob(cwd, bytes, hash);
-      files[child.replaceAll("\\", "/")] = { hash, size: bytes.length, ...(lines === undefined ? {} : { lines }) };
+      files[child.replaceAll("\\", "/")] = {
+        hash,
+        size: bytes.length,
+        ...(lines === undefined ? {} : { lines }),
+        contentAvailable: true,
+      };
       fileCount += 1;
       totalBytes += bytes.length;
     }
   };
   await walk(await realpath(cwd).catch(() => resolve(cwd)), "");
-  return files;
+  return { files, complete, omittedFileCount, omittedBytes, omissionReasons };
 }
 
 async function createFilesystemSnapshot(cwd: string, options: WorkspaceSnapshotOptions, ref: string): Promise<WorkspaceSnapshot> {
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
-  const files = await collectFilesystemFiles(canonicalCwd);
-  const treeId = createHash("sha256").update(JSON.stringify(files)).digest("hex");
-  const manifest: FilesystemSnapshotManifest = { version: 1, id: ref, cwd: canonicalCwd, treeId, files };
+  const collection = await collectFilesystemFiles(canonicalCwd);
+  const treeId = createHash("sha256").update(JSON.stringify(collection)).digest("hex");
+  const manifest: FilesystemSnapshotManifest = {
+    version: 1,
+    id: ref,
+    cwd: canonicalCwd,
+    treeId,
+    ...collection,
+  };
   const path = filesystemManifestPath(canonicalCwd, ref);
   const existing = await readFile(path, "utf8").catch(() => undefined);
   if (existing) {
     let previous: Partial<FilesystemSnapshotManifest> | undefined;
     try { previous = JSON.parse(existing) as Partial<FilesystemSnapshotManifest>; } catch { /* overwritten below only if invalid */ }
-    if (previous?.treeId !== treeId) throw new Error(`Snapshot ref ${ref} already points to another tree.`);
+    const legacyTreeId = createHash("sha256").update(JSON.stringify(collection.files)).digest("hex");
+    if (previous?.treeId !== treeId && previous?.treeId !== legacyTreeId) {
+      throw new Error(`Snapshot ref ${ref} already points to another tree.`);
+    }
     return { id: ref, ref, treeId, cwd: canonicalCwd, backend: "filesystem", sessionId: options.namespace.split("/")[0], turnId: options.namespace.split("/")[1], phase: options.phase };
   }
   await mkdir(dirname(path), { recursive: true });
@@ -226,6 +399,7 @@ async function cloneFilesystemSnapshot(
 async function filesystemLineCount(cwd: string, file: FilesystemSnapshotFile | undefined): Promise<number> {
   if (!file) return 0;
   if (file.lines !== undefined) return file.lines;
+  if (!file.contentAvailable) return 0;
   const bytes = await readFile(filesystemBlobPath(cwd, file.hash)).catch(() => undefined);
   if (!bytes || bytes.includes(0)) return 0;
   if (bytes.length === 0) return 0;
@@ -245,18 +419,30 @@ async function diffFilesystemSnapshots(
     const after = pair.after.files[path];
     if (before && after && before.hash === after.hash) continue;
     const status: ChangeStatus = !before ? "added" : !after ? "deleted" : "modified";
+    const unavailableReason = after?.unavailableReason ?? before?.unavailableReason;
     files.push({
       path,
       ...describe(path),
       status,
       added: status === "deleted" ? 0 : await filesystemLineCount(pair.after.cwd, after),
       removed: status === "added" ? 0 : await filesystemLineCount(pair.before.cwd, before),
+      ...(unavailableReason ? { note: unavailableReason } : {}),
     });
   }
+  const omittedFileCount = pair.before.omittedFileCount + pair.after.omittedFileCount;
+  const omissionReasons = [...new Set([...pair.before.omissionReasons, ...pair.after.omissionReasons])];
+  const complete = pair.before.complete && pair.after.complete;
   return {
     ...(branch ? { branch } : {}),
     files,
     fileCount: files.length,
+    completeness: complete ? "complete" : "partial",
+    ...(complete ? {} : {
+      omittedFileCount,
+      incompleteReason: omissionReasons.length > 0
+        ? `Snapshot coverage is partial: ${omissionReasons.join("; ")}.`
+        : "Snapshot coverage is partial; some workspace files may be omitted.",
+    }),
     added: files.reduce((total, file) => total + file.added, 0),
     removed: files.reduce((total, file) => total + file.removed, 0),
     proposedMessage: proposeMessage(files),
@@ -943,6 +1129,10 @@ export async function cleanupCheckpointRefsForLiveSessions(
   runGit: GitRunner = git,
 ): Promise<void> {
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+  const liveLeaseSessions = await listLiveWorkspaceLeaseSessions();
+  const protectedSessionIds = new Set(liveLeaseSessions.map((owner) => {
+    try { return sanitizeTurnSnapshotComponent(owner.sessionId); } catch { return ""; }
+  }).filter(Boolean));
   // Git linked worktrees share one ref namespace but intentionally do not
   // share a mutation lease. Restrict this sweep to sessions belonging to the
   // current canonical checkout; otherwise a quiet worktree could delete a
@@ -971,7 +1161,13 @@ export async function cleanupCheckpointRefsForLiveSessions(
     // persisted index. The latter is the startup/pruning path for an offline
     // deletion; leaving them forever would leak immutable trees. A missing cwd
     // in any legacy record falls back to the conservative all-session behavior.
-    return sessions.some((session) => !session.cwd) || scopedSessionIds.has(sessionId) || !knownSessionIds.has(sessionId);
+    // Keep every ref in a live writer's session namespace out of this sweep.
+    // The writer may have published one phase but not its durable entry yet;
+    // a later pass after lease release can reclaim it safely.
+    if (protectedSessionIds.has(sessionId)) return false;
+    return sessions.some((session) => !session.cwd)
+      || scopedSessionIds.has(sessionId)
+      || !knownSessionIds.has(sessionId);
   });
   const refSet = new Set(refsForWorkspace);
   const valid = new Set<string>();
@@ -1119,6 +1315,9 @@ export async function diffWorkspaceSnapshotPage(
     branch: changes.branch,
     files,
     fileCount: changes.files.length,
+    ...(changes.completeness ? { completeness: changes.completeness } : {}),
+    ...(changes.incompleteReason ? { incompleteReason: changes.incompleteReason } : {}),
+    ...(changes.omittedFileCount !== undefined ? { omittedFileCount: changes.omittedFileCount } : {}),
     added: changes.added,
     removed: changes.removed,
     proposedMessage: changes.proposedMessage,
@@ -1442,6 +1641,10 @@ export async function getSnapshotFileDiff(
       const beforeFile = filesystem.before.files[path];
       const afterFile = filesystem.after.files[path];
       if (beforeFile?.hash === afterFile?.hash) return empty("No textual changes.");
+      const unavailableReason = afterFile?.unavailableReason ?? beforeFile?.unavailableReason;
+      if (beforeFile?.contentAvailable === false || afterFile?.contentAvailable === false) {
+        return empty(unavailableReason ?? "Historical content was not stored for this file.");
+      }
       const [beforeBytes, afterBytes] = await Promise.all([
         beforeFile ? readFile(filesystemBlobPath(filesystem.before.cwd, beforeFile.hash)) : Promise.resolve(Buffer.alloc(0)),
         afterFile ? readFile(filesystemBlobPath(filesystem.after.cwd, afterFile.hash)) : Promise.resolve(Buffer.alloc(0)),

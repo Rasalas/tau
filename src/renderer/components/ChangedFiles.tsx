@@ -21,7 +21,8 @@ export function ChangedFiles({
   const [open, setOpen] = useState(false);
   const { files: loadedFiles, fileCount, hasMore, loading, error: loadError, loadNextPage } = usePagedWorkspaceFiles(changes, loadFiles);
 
-  if (fileCount === 0) return null;
+  const isPartial = changes.completeness === "partial";
+  if (fileCount === 0 && !isPartial) return null;
   const previewFiles = loadedFiles.slice(0, 3);
   const remainingFiles = Math.max(0, fileCount - previewFiles.length);
 
@@ -33,20 +34,24 @@ export function ChangedFiles({
         onClick={() => setOpen((value) => !value)}
       >
         {open ? <ChevronDown size={13} className="chev" /> : <ChevronRight size={13} className="chev" />}
-        <strong>{label ? `${label} · ` : ""}{fileCount} changed {fileCount === 1 ? "file" : "files"}</strong>
+        <strong>{label ? `${label} · ` : ""}{fileCount} {isPartial ? "known changed" : "changed"} {fileCount === 1 ? "file" : "files"}{isPartial ? " · partial" : ""}</strong>
         <span className="stat-add">+{changes.added}</span>
         <span className="stat-del">−{changes.removed}</span>
         <span className="spacer" />
-        <span
-          className="mini-button"
-          role="button"
-          tabIndex={0}
-          onClick={(event) => { event.stopPropagation(); onOpenDiff(); }}
-          onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); onOpenDiff(); } }}
-        >
-          Open diff
-        </span>
+        {fileCount > 0 ? <span
+            className="mini-button"
+            role="button"
+            tabIndex={0}
+            onClick={(event) => { event.stopPropagation(); onOpenDiff(); }}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); onOpenDiff(); } }}
+          >
+            Open diff
+          </span> : null}
       </button>
+      {isPartial ? <p className="file-tree-error changed-files-warning">
+        {changes.incompleteReason ?? "Snapshot coverage is partial; some workspace changes may be omitted."}
+        {changes.omittedFileCount ? ` (${changes.omittedFileCount} file${changes.omittedFileCount === 1 ? "" : "s"} omitted)` : ""}
+      </p> : null}
       {!open ? (
         <button className="changed-files-preview" type="button" onClick={() => setOpen(true)}>
           <span className="changed-files-preview-pills">
@@ -64,7 +69,7 @@ export function ChangedFiles({
         <VirtualList items={loadedFiles} itemHeight={35} className="changed-files-list" renderItem={(file) => (
         <button className="changed-file-row" key={file.path} onClick={() => onOpenDiff(file.path)}>
           <FileKindIcon name={file.name} size={13} />
-          <span className="path" title={file.path}>{file.path}</span><span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
+          <span className="path" title={file.note ? `${file.path}: ${file.note}` : file.path}>{file.path}</span><span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
         </button>
         )} />
         {loadFiles && hasMore ? <div className="changed-files-more-row">

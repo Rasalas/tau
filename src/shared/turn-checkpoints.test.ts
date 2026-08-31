@@ -327,6 +327,23 @@ describe("turn checkpoints", () => {
     expect(summary.files.map((entry) => entry.path)).toEqual(changes.files.slice(0, 8).map((entry) => entry.path));
   });
 
+  it("persists partial coverage even when no changed file was fully captured", () => {
+    const summary = boundedTurnCheckpointSummary({
+      files: [],
+      fileCount: 0,
+      added: 0,
+      removed: 0,
+      completeness: "partial",
+      incompleteReason: "Snapshot coverage is partial: file-count limit.",
+      omittedFileCount: 3,
+    });
+    expect(summary).toMatchObject({
+      completeness: "partial",
+      omittedFileCount: 3,
+      incompleteReason: "Snapshot coverage is partial: file-count limit.",
+    });
+  });
+
   it("passes only the bounded summary to the persistence adapter", async () => {
     let persisted: UiTurnCheckpoint | undefined;
     const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({

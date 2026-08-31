@@ -24,6 +24,7 @@ import {
   validateWorkspaceSnapshotRefs,
 } from "./workspace-git.js";
 import { turnSnapshotRef, type StoredTurnCheckpoint } from "../shared/turn-checkpoint-codec.js";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
 describe("large diff bounds", () => {
   it("pages hunks and marks the bounded payload", () => {
@@ -72,6 +73,45 @@ describe("large diff bounds", () => {
 });
 
 describe("immutable turn snapshots", () => {
+  it("does not sweep refs published by a live linked-worktree writer", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-snapshot-linked-root-"));
+    const linked = await mkdtemp(join(tmpdir(), "tau-snapshot-linked-child-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "seed.txt"), "base\n");
+      execFileSync("git", ["add", "seed.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      execFileSync("git", ["worktree", "add", "-q", "-b", "linked", linked, "HEAD"], { cwd });
+
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const lease = await manager.acquire(linked, { sessionId: "live-linked", turnId: "turn" });
+      const before = await createWorkspaceSnapshot(linked, { namespace: "live-linked/turn", phase: "before" });
+      await writeFile(join(linked, "seed.txt"), "turn\n");
+      const after = await createWorkspaceSnapshot(linked, { namespace: "live-linked/turn", phase: "after" });
+
+      await cleanupCheckpointRefsForLiveSessions(cwd, []);
+      await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, {
+        sessionId: "live-linked",
+        turnId: "turn",
+      })).resolves.toMatchObject({ beforeTreeId: before.treeId, afterTreeId: after.treeId });
+
+      await lease.release();
+      await cleanupCheckpointRefsForLiveSessions(cwd, []);
+      await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, {
+        sessionId: "live-linked",
+        turnId: "turn",
+      })).rejects.toThrow();
+    } finally {
+      execFileSync("git", ["worktree", "remove", "--force", linked], { cwd, stdio: "ignore" });
+      await Promise.all([
+        rm(linked, { recursive: true, force: true }),
+        rm(cwd, { recursive: true, force: true }),
+      ]);
+    }
+  }, 30_000);
+
   it("diffs the complete before/after trees and excludes a pre-existing dirty base", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-snapshot-"));
     try {
@@ -295,6 +335,41 @@ describe("immutable turn snapshots", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("keeps large plain-folder changes visible with explicit content limits", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-folder-large-snapshot-"));
+    const largePath = join(cwd, "large.bin");
+    try {
+      const size = 8 * 1024 * 1024 + 1;
+      await writeFile(largePath, Buffer.alloc(size, 65));
+      const before = await createWorkspaceSnapshot(cwd, { namespace: "large-session/turn", phase: "before" });
+      await writeFile(largePath, Buffer.alloc(size, 66));
+      const after = await createWorkspaceSnapshot(cwd, { namespace: "large-session/turn", phase: "after" });
+
+      const summary = await diffWorkspaceSnapshots(cwd, before.id, after.id, {
+        expected: { sessionId: "large-session", turnId: "turn" },
+      });
+      expect(summary.completeness).toBe("partial");
+      expect(summary.incompleteReason).toContain("content limit");
+      expect(summary.files).toHaveLength(1);
+      expect(summary.files[0]).toMatchObject({ path: "large.bin" });
+      expect(summary.files[0]?.note).toContain("8 MiB");
+      const page = await diffWorkspaceSnapshotPage(cwd, before.id, after.id, {
+        sessionId: "large-session",
+        turnId: "turn",
+      });
+      expect(page.completeness).toBe("partial");
+      expect(page.files[0]?.note).toContain("8 MiB");
+      const historical = await getSnapshotFileDiff(cwd, before.id, after.id, "large.bin", {}, {
+        sessionId: "large-session",
+        turnId: "turn",
+      });
+      expect(historical.hunks).toHaveLength(0);
+      expect(historical.note).toContain("8 MiB");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 describe("worktree creation", () => {

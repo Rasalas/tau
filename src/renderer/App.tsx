@@ -720,7 +720,8 @@ export default function App() {
         if (pending) {
           pendingAssistantAnchorsRef.current.delete(event.checkpoint.anchorMessageId);
         }
-        if (pending && (event.checkpoint.fileCount ?? event.checkpoint.files.length) > 0) {
+        if (pending && (event.checkpoint.completeness === "partial"
+          || (event.checkpoint.fileCount ?? event.checkpoint.files.length) > 0)) {
           setMessages((current) => {
             if (current.some((message) => message.sourceEntryId === event.checkpoint.anchorMessageId)) return current;
             const existing = current.find((message) => message.id === pending.id);
@@ -803,7 +804,8 @@ export default function App() {
           // already known; a historical checkpoint arriving without this live
           // anchor must never be appended to the transcript tail.
           const checkpoint = turnCheckpointsRef.current.find((entry) => entry.anchorMessageId === event.sourceEntryId);
-          if (!checkpoint || (checkpoint.fileCount ?? checkpoint.files.length) === 0) return current;
+          if (!checkpoint || (checkpoint.completeness !== "partial"
+            && (checkpoint.fileCount ?? checkpoint.files.length) === 0)) return current;
           pendingAssistantAnchorsRef.current.delete(event.sourceEntryId);
           const anchor: UiMessage = {
             id: event.id,
@@ -1701,7 +1703,8 @@ export default function App() {
     // A persisted checkpoint may belong to a page that is not loaded yet. Do
     // not send it to the transcript with a tail fallback; it becomes visible at
     // its original position as soon as that page is fetched.
-    .filter((checkpoint) => (checkpoint.fileCount ?? checkpoint.files.length) > 0 && loadedMessageIds.has(checkpoint.anchorMessageId))
+    .filter((checkpoint) => (checkpoint.completeness === "partial"
+      || (checkpoint.fileCount ?? checkpoint.files.length) > 0) && loadedMessageIds.has(checkpoint.anchorMessageId))
     .map((checkpoint) => ({
       id: `turn-checkpoint-${checkpoint.id}`,
       afterMessageId: checkpoint.anchorMessageId,
