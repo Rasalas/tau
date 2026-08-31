@@ -25,6 +25,13 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     if (!result) throw new Error(`renderer benchmark timed out: ${scenario}`);
+    result.electronVersion = process.versions.electron;
+    result.gpuFeatureStatus = app.getGPUFeatureStatus();
+    try {
+      result.gpuInfo = await app.getGPUInfo("complete");
+    } catch {
+      result.gpuInfo = undefined;
+    }
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {
     window.destroy();

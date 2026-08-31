@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,21 @@ function commitSha() {
   } catch {
     return "unknown";
   }
+}
+
+function buildArtifactSha256() {
+  const files = [];
+  const visit = (directory) => {
+    for (const name of readdirSync(directory).sort()) {
+      const file = join(directory, name);
+      if (statSync(file).isDirectory()) visit(file);
+      else files.push(file);
+    }
+  };
+  visit(join(ROOT, "dist"));
+  return createHash("sha256")
+    .update(files.map((file) => `${file.slice(ROOT.length)}\0${readFileSync(file)}`).join("\0"))
+    .digest("hex");
 }
 
 const harnessFiles = [
@@ -85,6 +100,9 @@ function sampleScenario(scenario) {
     if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
       throw new Error(`renderer fixture returned invalid startup Long Task measurements for ${scenario.id}`);
     }
+    if (typeof result.electronVersion !== "string" || !result.electronVersion || result.gpuFeatureStatus === null || typeof result.gpuFeatureStatus !== "object") {
+      throw new Error(`renderer fixture returned incomplete Electron/GPU metadata for ${scenario.id}`);
+    }
     if (!Number.isFinite(result.heapBytes) || result.heapBytes <= 0) {
       throw new Error(`renderer fixture returned invalid heap measurement for ${scenario.id}`);
     }
@@ -109,6 +127,11 @@ function sampleScenario(scenario) {
     id: scenario.id,
     fixture: scenario,
     sampleRuns: samples.length,
+    environment: {
+      electronVersion: samples[0].electronVersion,
+      gpuFeatureStatus: samples[0].gpuFeatureStatus,
+      gpuInfo: samples[0].gpuInfo ?? null,
+    },
     longTaskObserverSupported: samples.every((sample) => sample.longTaskObserverSupported === true),
     frameIntervalsMs: { median: percentile(frames, 0.5), p95: percentile(frames, 0.95), maximum: Math.max(0, ...frames) },
     longTasksMs: { count: longTasks.length, median: percentile(longTasks, 0.5), p95: percentile(longTasks, 0.95), maximum: Math.max(0, ...longTasks) },
@@ -130,9 +153,10 @@ const report = {
   harnessSourceSha256,
   harnessPatchSha256,
   reproducibilityScript: "scripts/reproduce-renderer-baseline.mjs",
+  buildArtifactSha256: buildArtifactSha256(),
   execution: {
     electronExecutable: "node_modules/.bin/electron",
-    gpu: "default",
+    gpu: { mode: "default" },
     parallelRuns: 1,
     harnessFiles,
     harnessPatchFile,
@@ -141,6 +165,11 @@ const report = {
   machine: machineClass(),
   startConditions: fixture.startConditions,
   scenarios: fixture.scenarios.map(sampleScenario),
+};
+report.execution.gpu = {
+  mode: "default",
+  featureStatus: report.scenarios[0]?.environment.gpuFeatureStatus ?? {},
+  info: report.scenarios[0]?.environment.gpuInfo ?? null,
 };
 for (const scenario of report.scenarios) {
   for (const metric of ["frameIntervalsMs", "longTasksMs", "startupLongTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
