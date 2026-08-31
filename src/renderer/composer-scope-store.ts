@@ -58,24 +58,31 @@ async function loadPersistedScope(key: string): Promise<PersistedScope | undefin
 async function savePersistedScope(scope: PersistedScope): Promise<void> {
   const database = await openDatabase();
   if (!database) return;
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).put(scope);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error("Could not save composer storage."));
-    transaction.onabort = () => reject(transaction.error ?? new Error("Could not save composer storage."));
-  }).finally(() => database.close());
+  await runDraftWriteTransaction(database, (store) => store.put(scope), "save");
 }
 
 async function deletePersistedScope(key: string): Promise<void> {
   const database = await openDatabase();
   if (!database) return;
+  await runDraftWriteTransaction(database, (store) => store.delete(key), "delete");
+}
+
+async function runDraftWriteTransaction(
+  database: IDBDatabase,
+  operation: (store: IDBObjectStore) => void,
+  action: "save" | "delete",
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).delete(key);
+    try {
+      operation(transaction.objectStore(STORE_NAME));
+    } catch (error) {
+      reject(error);
+      return;
+    }
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error("Could not delete composer storage."));
-    transaction.onabort = () => reject(transaction.error ?? new Error("Could not delete composer storage."));
+    transaction.onerror = () => reject(transaction.error ?? new Error(`Could not ${action} composer storage.`));
+    transaction.onabort = () => reject(transaction.error ?? new Error(`Could not ${action} composer storage.`));
   }).finally(() => database.close());
 }
 
@@ -85,7 +92,7 @@ export interface ComposerScopeState {
   attachments: PendingAttachment[];
   error?: string;
   errorSubmissionId?: number;
-  queue: Promise<void>;
+  attachmentProcessing: Promise<void>;
   pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; revision: number }>;
   hydrationGeneration: number;
   persistenceQueue: Promise<void>;
@@ -93,8 +100,20 @@ export interface ComposerScopeState {
   persistenceError?: string;
 }
 
+export interface ComposerScopeSnapshot {
+  readonly draft: string;
+  readonly revision: number;
+  readonly attachments: readonly PendingAttachment[];
+  readonly error?: string;
+  readonly errorSubmissionId?: number;
+  readonly attachmentProcessing: Promise<void>;
+  readonly persistenceError?: string;
+}
+
 export class ComposerScopeStore {
   private readonly states = new Map<ComposerScope, ComposerScopeState>();
+  private readonly snapshots = new Map<ComposerScope, ComposerScopeSnapshot>();
+  private readonly listeners = new Map<ComposerScope, Set<() => void>>();
 
   constructor(private readonly persistence: ComposerScopePersistence = indexedDbPersistence) {}
 
@@ -106,7 +125,7 @@ export class ComposerScopeStore {
       draft,
       revision: 0,
       attachments: [],
-      queue: Promise.resolve(),
+      attachmentProcessing: Promise.resolve(),
       pendingSubmissions: new Map(),
       hydrationGeneration: 0,
       persistenceQueue: Promise.resolve(),
@@ -116,7 +135,44 @@ export class ComposerScopeStore {
     return created;
   }
 
-  hydrate(scope: ComposerScope, onChange: () => void, onError: (error: unknown) => void): void {
+  getSnapshot(scope: ComposerScope): ComposerScopeSnapshot {
+    const current = this.snapshots.get(scope);
+    if (current) return current;
+    const state = this.ensure(scope);
+    const snapshot = this.snapshotFor(state);
+    this.snapshots.set(scope, snapshot);
+    return snapshot;
+  }
+
+  subscribe(scope: ComposerScope, listener: () => void): () => void {
+    const listeners = this.listeners.get(scope) ?? new Set<() => void>();
+    listeners.add(listener);
+    this.listeners.set(scope, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.listeners.delete(scope);
+    };
+  }
+
+  private snapshotFor(state: ComposerScopeState): ComposerScopeSnapshot {
+    return {
+      draft: state.draft,
+      revision: state.revision,
+      attachments: [...state.attachments],
+      error: state.error,
+      errorSubmissionId: state.errorSubmissionId,
+      attachmentProcessing: state.attachmentProcessing,
+      persistenceError: state.persistenceError,
+    };
+  }
+
+  private notify(scope: ComposerScope): void {
+    const state = this.ensure(scope);
+    this.snapshots.set(scope, this.snapshotFor(state));
+    for (const listener of this.listeners.get(scope) ?? []) listener();
+  }
+
+  hydrate(scope: ComposerScope, onError: (error: unknown) => void): void {
     const state = this.ensure(scope);
     const generation = ++state.hydrationGeneration;
     const revision = state.revision;
@@ -141,9 +197,10 @@ export class ComposerScopeStore {
       state.attachments = nextAttachments;
       state.updatedAt = Math.max(state.updatedAt, persistedUpdatedAt);
       state.revision = Math.max(state.revision, persistedRevision);
-      if (changed) onChange();
+      if (changed) this.notify(scope);
     }).catch((error) => {
       state.persistenceError = error instanceof Error ? error.message : String(error);
+      this.notify(scope);
       onError(error);
     });
   }
@@ -162,8 +219,10 @@ export class ComposerScopeStore {
       return this.persistence.save(snapshot);
     }).then(() => {
       state.persistenceError = undefined;
+      this.notify(scope);
     }).catch((error) => {
       state.persistenceError = error instanceof Error ? error.message : String(error);
+      this.notify(scope);
       onError(error);
     });
   }
@@ -180,6 +239,7 @@ export class ComposerScopeStore {
       state.persistenceError = error instanceof Error ? error.message : String(error);
       onError(error);
     }
+    this.notify(scope);
     this.persist(scope, onError);
   }
 
@@ -189,6 +249,7 @@ export class ComposerScopeStore {
     state.revision += 1;
     state.updatedAt = Date.now();
     state.persistenceError = undefined;
+    this.notify(scope);
     this.persist(scope, onError);
   }
 
@@ -206,17 +267,23 @@ export class ComposerScopeStore {
     const state = this.ensure(scope);
     state.error = error;
     state.errorSubmissionId = submissionId;
+    this.notify(scope);
   }
 
   setPersistenceError(scope: ComposerScope, error: unknown): void {
     const state = this.ensure(scope);
     state.persistenceError = error instanceof Error ? error.message : String(error);
+    this.notify(scope);
   }
 
-  setQueue(scope: ComposerScope, queue: Promise<void>): void { this.ensure(scope).queue = queue; }
+  setAttachmentProcessing(scope: ComposerScope, processing: Promise<void>): void {
+    this.ensure(scope).attachmentProcessing = processing;
+    this.notify(scope);
+  }
 
   beginSubmission(scope: ComposerScope, id: number, attachmentIds: ReadonlySet<number>, revision: number): void {
     this.ensure(scope).pendingSubmissions.set(id, { attachmentIds, revision });
+    this.notify(scope);
   }
 
   settleSubmission(scope: ComposerScope, id: number, result: SubmitResultForStore, onError: (error: unknown) => void): boolean {
@@ -247,6 +314,7 @@ export class ComposerScopeStore {
       }
     }
     this.persist(scope, onError);
+    this.notify(scope);
     return true;
   }
 }

@@ -347,7 +347,7 @@ export interface HostBootstrap {
     olderCursor?: string;
   };
   catalog: {
-    sessionId: string;
+    sessionId?: string;
     models: UiModel[];
     model?: UiModel;
     thinkingLevel: string;
@@ -427,7 +427,7 @@ export interface TauDesktopApi {
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;

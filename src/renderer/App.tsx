@@ -582,9 +582,17 @@ export default function App() {
       return;
     }
     if (update.type === "catalog") {
-      setSnapshot((current) => current && current.sessionId === update.catalog.sessionId
-        ? { ...current, ...update.catalog, supportsImageInput: update.catalog.supportsImageInput ?? false }
-        : current);
+      setSnapshot((current) => {
+        if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
+        const { sessionId: _sessionId, supportsImageInput, ...legacyCatalog } = update.catalog;
+        return {
+          ...current,
+          ...legacyCatalog,
+          ...(update.catalog.sessionId === undefined
+            ? {}
+            : { supportsImageInput: supportsImageInput ?? false }),
+        };
+      });
       return;
     }
     if (update.type === "project") {
@@ -1452,7 +1460,43 @@ export default function App() {
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
+        if (pending.sessionId) {
+          await window.tau.sendPrompt(text, attachments, pending.sessionId);
+          setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
+            ? { ...entry, scope: `session:${pending.sessionId}` }
+            : entry));
+          writeNewThreadDraft(window.localStorage);
+          setPendingNewThread(undefined);
+          void registry.notifyPromptSubmitted({
+            prompt: text,
+            snapshot: snapshot ? {
+              ...snapshot,
+              cwd: pending.projectPath,
+              sessionId: pending.sessionId,
+              sessionName: undefined,
+              sessionTitle: "Untitled thread",
+              messages: [],
+              isStreaming: false,
+              activeTools: [],
+              turnActivity: undefined,
+              taskProgress: undefined,
+              taskHistory: [],
+            } : undefined,
+          }, actions).catch((error) => setNotice(String(error)));
+          return { accepted: true };
+        }
         const result = await window.tau.newSession(text, attachments, pending.projectPath);
+        applyActionResult(result);
+        if (!result.submission.accepted) {
+          const rejectedDetail = result.updates.find((update) => update.type === "thread-detail");
+          const sessionId = rejectedDetail?.type === "thread-detail" ? rejectedDetail.detail.sessionId : undefined;
+          if (sessionId) {
+            setPendingNewThread((current) => current ? { ...current, sessionId } : current);
+            writeNewThreadDraft(window.localStorage, { ...pending, sessionId });
+          }
+          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+          return result.submission;
+        }
         const created = result.updates.find((update) => update.type === "thread-detail");
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
         if (sessionId) {
@@ -1485,7 +1529,6 @@ export default function App() {
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
           // view stays until that report arrives.
-          applyActionResult(result);
           return { accepted: true };
         }
       } catch (error) {

@@ -341,7 +341,7 @@ describe("App render isolation", () => {
   });
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
-    const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[] }));
+    const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[], submission: { accepted: true as const } }));
     const capabilityResolvers = new Map<string, Array<(capability: { cwd: string; generation: number; supportsImageInput: boolean }) => void>>();
     const getPreparedThreadCapability = vi.fn((cwd: string) => new Promise<{ cwd: string; generation: number; supportsImageInput: boolean }>((resolve) => {
       const pending = capabilityResolvers.get(cwd) ?? [];
@@ -480,6 +480,7 @@ describe("App render isolation", () => {
           },
         },
       ],
+      submission: { accepted: true as const },
     }));
     const generateThreadTitle = vi.fn(async () => ({
       version: 1 as const,

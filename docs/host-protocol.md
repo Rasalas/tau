@@ -8,8 +8,10 @@ state; it must not reinterpret it as a `HostSnapshot`.
 - `thread-detail` contains the active session's messages, run state, tools, and usage.
 - `transcript-page` contains a bounded page plus a cursor for older records.
 - `catalog` contains models, thinking levels, tools, and extension count.
-  The image-input capability is optional for v1 wire compatibility; an omitted
-  `supportsImageInput` is parsed as `false` by newer clients.
+  Legacy v1 catalogs may omit `sessionId` and the image-input capability. The
+  decoder accepts both omissions; omitted capability is treated as `false`,
+  while a catalog without a session id cannot change the active thread's
+  capability.
 - `project` contains workspace identity, branch, and optional project metadata.
 - `run` contains lifecycle state for the active session.
 

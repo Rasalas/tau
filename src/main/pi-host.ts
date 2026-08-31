@@ -44,7 +44,7 @@ import type {
   UiWorkspaceChanges,
   WorkspaceInfo,
 } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, detailFromSnapshot, type HostActionResult, type HostUpdate, type NewThreadResult, type PromptSubmissionResult, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol.js";
 import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { mergeTaskProgressHistory, taskProgressFromMessages, taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
@@ -836,6 +836,10 @@ export class PiHost {
     return result;
   }
 
+  private newThreadResult(updates: HostUpdate[], submission: PromptSubmissionResult): NewThreadResult {
+    return { ...this.actionResult(updates), submission };
+  }
+
   private lifecycleUpdates(snapshot: HostSnapshot): HostUpdate[] {
     const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
     return [
@@ -962,12 +966,14 @@ export class PiHost {
     });
   }
 
-  async newSession(initialPrompt?: string, attachments: UiPromptAttachment[] = [], cwd?: string): Promise<HostActionResult> {
+  async newSession(initialPrompt?: string, attachments: UiPromptAttachment[] = [], cwd?: string): Promise<NewThreadResult> {
     if (this.bridge && (!cwd || cwd === this.cwd)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      if (attachments.length > 0) {
+        return this.newThreadResult([], { accepted: false, message: "Image attachments are not supported while Tau is attached to Pi." });
+      }
       try {
         await this.bridgeCommand({ command: "new_session", initialPrompt });
-        return this.actionResult([]);
+        return this.newThreadResult([], { accepted: true });
       } catch (error) {
         // A new thread is a different session, so Pi has no standing to veto it.
         // Whether it refused because it is busy or stopped answering entirely,
@@ -1007,15 +1013,15 @@ export class PiHost {
         adopted = true;
         await this.activateThread(thread, true);
         promoted = true;
-        // The first prompt names the thread right away; the run that follows
-        // would otherwise leave it "Untitled" until it finishes.
-        if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
         // Shell/index publication is intentionally coalesced on a timer. Wait
         // for that publication before releasing runtime events from the
         // promotion barrier. Prompt acceptance is intentionally after
         // promotion, so no runtime prompt can start on a prepared spare.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         if (initialPrompt || attachments.length > 0) await this.promptThread(thread, initialPrompt ?? "", attachments, undefined, images);
+        // The first accepted prompt names the thread right away; a rejected
+        // preflight must leave the visible blank thread untitled.
+        if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
         thread.releaseEventBarrier((event, runtime, sessionId, cwd, error) => {
           if (error) this.fail(error, sessionId);
           else this.handleSessionEvent(event, runtime, sessionId, cwd);
@@ -1026,17 +1032,22 @@ export class PiHost {
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
         thread.cancelEventBarrier();
-        if (!adopted && !adoptionAttempted) this.retainPreparedThread(thread);
-        else if (!promoted) {
+        if (!adopted && !adoptionAttempted) {
+          this.retainPreparedThread(thread);
+          return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) });
+        } else if (!promoted) {
           if (this.threads.has(thread.sessionId)) await this.threads.release(thread.sessionId);
           else await this.disposeThread(thread);
           this.scheduleSpareThread(targetCwd, true);
+          return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) });
         }
-        throw error;
+        const active = await this.activeUpdates();
+        return { ...active, submission: { accepted: false, message: this.errorMessage(error) } };
       }
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       this.scheduleSpareThread(targetCwd);
-      return this.activeUpdates();
+      const active = await this.activeUpdates();
+      return { ...active, submission: { accepted: true } };
     });
   }
 
@@ -1250,33 +1261,37 @@ export class PiHost {
   }
 
   async steer(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
-    if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer" });
-      return;
-    }
-    try {
-      const thread = this.requireThread(sessionId);
-      assertImageInputCapability(thread.session, attachments);
-      await thread.session.steer(text, promptImages(attachments));
-    } catch (error) {
-      this.fail(error);
-      throw error;
-    }
+    await this.sendExistingThread(text, attachments, sessionId, "steer");
   }
 
   async followUp(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+    await this.sendExistingThread(text, attachments, sessionId, "followUp");
+  }
+
+  private async sendExistingThread(
+    text: string,
+    attachments: UiPromptAttachment[],
+    sessionId: string | undefined,
+    delivery: "steer" | "followUp",
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp" });
+      try {
+        if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+        await this.bridge!.command({ command: "prompt", text, deliverAs: delivery });
+      } catch (error) {
+        this.fail(error, sessionId);
+        throw error;
+      }
       return;
     }
     try {
       const thread = this.requireThread(sessionId);
       assertImageInputCapability(thread.session, attachments);
-      await thread.session.followUp(text, promptImages(attachments));
+      const images = promptImages(attachments);
+      if (delivery === "steer") await thread.session.steer(text, images);
+      else await thread.session.followUp(text, images);
     } catch (error) {
-      this.fail(error);
+      this.fail(error, sessionId);
       throw error;
     }
   }

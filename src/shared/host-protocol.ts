@@ -49,7 +49,8 @@ export interface TranscriptPage {
 }
 
 export interface HostCatalog {
-  sessionId: string;
+  /** Absent in legacy v1 catalogs; clients must not apply capability without it. */
+  sessionId?: string;
   models: UiModel[];
   model?: UiModel;
   thinkingLevel: string;
@@ -84,6 +85,14 @@ export interface HostActionResult {
   updates: HostUpdate[];
 }
 
+export type PromptSubmissionResult =
+  | { accepted: true }
+  | { accepted: false; message: string };
+
+export interface NewThreadResult extends HostActionResult {
+  submission: PromptSubmissionResult;
+}
+
 /** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */
 export interface GranularHostBootstrap {
   version: HostProtocolVersion;
@@ -113,7 +122,7 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "thread-shell": return Boolean(payload && typeof payload.sessionId === "string" && (payload.shell === undefined || record(payload.shell)));
     case "thread-detail": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.isStreaming === "boolean" && Array.isArray(payload.activeTools));
     case "transcript-page": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.messages) && typeof payload.hasMore === "boolean");
-    case "catalog": return Boolean(payload && typeof payload.sessionId === "string" && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number" && (payload.supportsImageInput === undefined || typeof payload.supportsImageInput === "boolean"));
+    case "catalog": return Boolean(payload && (payload.sessionId === undefined || typeof payload.sessionId === "string") && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number" && (payload.supportsImageInput === undefined || typeof payload.supportsImageInput === "boolean"));
     case "project": return Boolean(payload && typeof payload.cwd === "string");
     case "run": return typeof candidate.sessionId === "string" && ["started", "settled", "aborted"].includes(String(candidate.event));
     case "error": return typeof candidate.message === "string";

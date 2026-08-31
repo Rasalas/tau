@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiComposerCommand, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
@@ -166,21 +166,21 @@ export function Composer({
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const attachmentScope = createDraftKey(draftStorageKey);
-  const [, refreshScope] = useState(0);
-  const activeScopeState = scopeStore.ensure(attachmentScope);
+  const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
+  const readScope = useCallback(() => scopeStore.getSnapshot(attachmentScope), [attachmentScope, scopeStore]);
+  const activeScopeSnapshot = useSyncExternalStore(subscribeToScope, readScope, readScope);
   const activeAttachmentScopeRef = useRef<ComposerScope>(attachmentScope);
-  const attachments = activeScopeState.attachments;
-  const attachmentError = activeScopeState.error ?? activeScopeState.persistenceError;
+  const attachments = activeScopeSnapshot.attachments;
+  const attachmentError = activeScopeSnapshot.error ?? activeScopeSnapshot.persistenceError;
   const reportStorageError = useCallback((scope: ComposerScope, error: unknown) => {
     scopeStore.setPersistenceError(scope, error);
-    if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
   }, [scopeStore]);
   const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const text = value ?? activeScopeState.draft;
+  const text = value ?? activeScopeSnapshot.draft;
   const commands = snapshot?.composerCommands ?? [];
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
   const commandMatches = useMemo(() => {
@@ -198,12 +198,10 @@ export function Composer({
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
       appliedSeed.current = seed;
       scopeStore.setDraft(attachmentScope, seed, (error) => reportStorageError(attachmentScope, error));
-      refreshScope((current) => current + 1);
     }
-  }, [activeScopeState, attachmentScope, refreshScope, reportStorageError, scopeStore, seed, value]);
+  }, [attachmentScope, reportStorageError, scopeStore, seed, value]);
   const updateDraft = (next: string) => {
     scopeStore.setDraft(attachmentScope, next, (error) => reportStorageError(attachmentScope, error));
-    refreshScope((current) => current + 1);
     onChange?.(next);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -218,16 +216,12 @@ export function Composer({
     const previousScope = activeAttachmentScopeRef.current;
     if (previousScope === attachmentScope) return;
     activeAttachmentScopeRef.current = attachmentScope;
-    scopeStore.ensure(attachmentScope);
     setPreviewId(undefined);
-    refreshScope((current) => current + 1);
-  }, [attachmentScope, refreshScope, scopeStore]);
+  }, [attachmentScope]);
 
   useEffect(() => {
-    scopeStore.hydrate(attachmentScope, () => {
-      if (activeAttachmentScopeRef.current === attachmentScope) refreshScope((current) => current + 1);
-    }, (error) => reportStorageError(attachmentScope, error));
-  }, [attachmentScope, refreshScope, reportStorageError, scopeStore]);
+    scopeStore.hydrate(attachmentScope, (error) => reportStorageError(attachmentScope, error));
+  }, [attachmentScope, reportStorageError, scopeStore]);
 
   const processFiles = useCallback(async (
     files: FileList | readonly File[],
@@ -236,10 +230,9 @@ export function Composer({
   ) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
-    const state = scopeStore.ensure(scope);
+    const state = scopeStore.getSnapshot(scope);
     if (!capability) {
       scopeStore.setError(scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE, undefined);
-      if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
       return;
     }
     const policy = selectAttachmentCandidates(
@@ -256,17 +249,16 @@ export function Composer({
     if (accepted.length > 0) {
       scopeStore.addAttachments(scope, accepted, MAX_ATTACHMENTS, (storageError) => reportStorageError(scope, storageError));
     }
-    if (activeAttachmentScopeRef.current === scope) refreshScope((current) => current + 1);
   }, [reportStorageError, scopeStore]);
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
     const snapshot = Array.from(files);
     const scope = attachmentScope;
-    const state = scopeStore.ensure(scope);
-    const previous = state.queue;
+    const state = scopeStore.getSnapshot(scope);
+    const previous = state.attachmentProcessing;
     const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput));
-    scopeStore.setQueue(scope, operation.then(() => undefined, () => undefined));
+    scopeStore.setAttachmentProcessing(scope, operation.then(() => undefined, () => undefined));
     return operation;
   }, [attachmentScope, processFiles, scopeStore, supportsImageInput]);
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
@@ -292,19 +284,18 @@ export function Composer({
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     const submittedText = normalizeSkillInvocation(text, commands);
     const submittedScope = attachmentScope;
-    const submittedState = scopeStore.ensure(submittedScope);
+    const submittedState = scopeStore.getSnapshot(submittedScope);
     const submittedAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
     const submittedRevision = submittedState.revision;
     const submissionId = nextSubmissionId++;
     scopeStore.beginSubmission(submittedScope, submissionId, submittedAttachmentIds, submittedRevision);
     const settleSubmission = (result: SubmitResult) => {
-      const current = scopeStore.ensure(submittedScope);
+      const current = scopeStore.getSnapshot(submittedScope);
       const clearedDraft = result.accepted && current.revision === submittedRevision;
       if (!scopeStore.settleSubmission(submittedScope, submissionId, result, (error) => reportStorageError(submittedScope, error))) return;
       if (clearedDraft && activeAttachmentScopeRef.current === submittedScope) onChange?.("");
       if (activeAttachmentScopeRef.current === submittedScope) {
         if (result.accepted) setPreviewId(undefined);
-        refreshScope((current) => current + 1);
       }
     };
     let result: Promise<SubmitResult>;
@@ -368,7 +359,6 @@ export function Composer({
                   aria-label={`Remove ${attachment.name}`}
                   onClick={() => {
                     scopeStore.removeAttachment(attachmentScope, attachment.id, (error) => reportStorageError(attachmentScope, error));
-                    refreshScope((current) => current + 1);
                   }}
                 >
                   <X size={13} />

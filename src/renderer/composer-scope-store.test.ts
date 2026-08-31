@@ -32,7 +32,8 @@ describe("ComposerScopeStore", () => {
 
     const second = new ComposerScopeStore(persistence);
     let changed = false;
-    second.hydrate(key, () => { changed = true; }, (error) => { throw error; });
+    second.subscribe(key, () => { changed = true; });
+    second.hydrate(key, (error) => { throw error; });
     await second.ensure(key).persistenceQueue;
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(changed).toBe(true);
@@ -52,7 +53,8 @@ describe("ComposerScopeStore", () => {
     const store = new ComposerScopeStore(persistence);
     const key = createDraftKey("thread:one");
     const state = store.ensure(key);
-    store.hydrate(key, () => { throw new Error("stale hydration applied"); }, (error) => { throw error; });
+    store.subscribe(key, () => { throw new Error("stale hydration applied"); });
+    store.hydrate(key, (error) => { throw error; });
     state.draft = "newer edit";
     state.revision += 1;
     resolveLoad(undefined);
@@ -77,10 +79,14 @@ describe("ComposerScopeStore", () => {
     const store = new ComposerScopeStore(persistence);
     const key = createDraftKey("thread:remove");
     const state = store.ensure(key);
-    store.hydrate(key, () => { throw new Error("stale hydration applied"); }, (error) => { throw error; });
+    let notifications = 0;
+    store.subscribe(key, () => { notifications += 1; });
+    store.hydrate(key, (error) => { throw error; });
     store.setAttachments(key, [], (error) => { throw error; });
+    const afterRemoval = notifications;
     resolveLoad(persisted);
     await Promise.resolve();
+    expect(notifications).toBe(afterRemoval);
     expect(state.attachments).toEqual([]);
   });
 
@@ -121,7 +127,8 @@ describe("ComposerScopeStore", () => {
     };
     const store = new ComposerScopeStore(persistence);
     let changed = false;
-    store.hydrate(key, () => { changed = true; }, (error) => { throw error; });
+    store.subscribe(key, () => { changed = true; });
+    store.hydrate(key, (error) => { throw error; });
     await Promise.resolve();
     expect(changed).toBe(true);
     expect(store.ensure(key)).toMatchObject({ draft: "new local text", attachments: [{ name: "legacy.png" }] });

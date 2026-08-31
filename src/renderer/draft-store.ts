@@ -4,6 +4,7 @@ const NEW_THREAD_KEY = "tau.active-new-thread.v1";
 export interface NewThreadDraft {
   projectPath: string;
   projectName: string;
+  sessionId?: string;
 }
 
 function readMap(storage: Storage): Record<string, string> {
@@ -34,7 +35,7 @@ export function readNewThreadDraft(storage: Storage): NewThreadDraft | undefined
   try {
     const value = JSON.parse(storage.getItem(NEW_THREAD_KEY) ?? "null") as Partial<NewThreadDraft> | null;
     return value && typeof value.projectPath === "string" && typeof value.projectName === "string"
-      ? { projectPath: value.projectPath, projectName: value.projectName }
+    ? { projectPath: value.projectPath, projectName: value.projectName, ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}) }
       : undefined;
   } catch { return undefined; }
 }
