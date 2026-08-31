@@ -1,21 +1,97 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-31T18:35:58.401Z",
-  "commitSha": "541f11c2e55e7e2b94eebba4b3ce3e61b424848e",
-  "subjectCommit": "541f11c2e55e7e2b94eebba4b3ce3e61b424848e",
-  "harnessCommit": "541f11c2e55e7e2b94eebba4b3ce3e61b424848e",
-  "harnessPatchSha256": "0e58ad723adf7ad0b5ecda782869d32d048e34e3ebfd0846b052beb5a963929b",
+  "generatedAt": "2026-08-31T19:13:59.111Z",
+  "commitSha": "dba956789c75bead6345e579ea7e618723afb62c",
+  "subjectCommit": "dba956789c75bead6345e579ea7e618723afb62c",
+  "harnessCommit": "dba956789c75bead6345e579ea7e618723afb62c",
+  "harnessSourceSha256": "5b7edde316a19d5cf0049da2c60273b9d0bebe3f0e1b52b8d2be8066587e5873",
+  "harnessPatchSha256": "9d40e6359c9486a8c49d8d824501e0614fbf27b9e9a7ce8cf352d363af5fd38c",
+  "reproducibilityScript": "scripts/reproduce-renderer-baseline.mjs",
+  "buildArtifactSha256": "e073bef232e2cd8989d971de555c82f82924b84397faba5e249483a3e95bf0b5",
   "execution": {
     "electronExecutable": "node_modules/.bin/electron",
-    "gpu": "default",
+    "gpu": {
+      "mode": "default",
+      "featureStatus": {
+        "2d_canvas": "enabled",
+        "direct_rendering_display_compositor": "disabled_off_ok",
+        "gpu_compositing": "enabled",
+        "multiple_raster_threads": "enabled_on",
+        "opengl": "enabled_on",
+        "rasterization": "enabled",
+        "raw_draw": "disabled_off_ok",
+        "skia_graphite": "enabled_on",
+        "video_decode": "enabled",
+        "video_encode": "enabled",
+        "webgl": "enabled",
+        "webgl2": "enabled",
+        "webgpu": "enabled",
+        "webnn": "disabled_off"
+      },
+      "info": {
+        "auxAttributes": {
+          "amdSwitchable": false,
+          "canSupportThreadedTextureMailbox": false,
+          "displayType": "ANGLE_METAL",
+          "glExtensions": "GL_AMD_performance_monitor GL_ANGLE_base_vertex_base_instance_shader_builtin GL_ANGLE_blob_cache GL_ANGLE_client_arrays GL_ANGLE_compressed_texture_etc GL_ANGLE_depth_texture GL_ANGLE_framebuffer_blit GL_ANGLE_framebuffer_multisample GL_ANGLE_get_serialized_context_string GL_ANGLE_get_tex_level_parameter GL_ANGLE_instanced_arrays GL_ANGLE_memory_size GL_ANGLE_pack_reverse_row_order GL_ANGLE_polygon_mode GL_ANGLE_program_binary_readiness_query GL_ANGLE_program_cache_control GL_ANGLE_provoking_vertex GL_ANGLE_request_extension GL_ANGLE_robust_client_memory GL_ANGLE_texture_compression_dxt3 GL_ANGLE_texture_compression_dxt5 GL_ANGLE_translated_shader_source GL_APPLE_clip_distance GL_ARB_sync GL_ARM_rgba8 GL_CHROMIUM_bind_generates_resource GL_CHROMIUM_bind_uniform_location GL_CHROMIUM_color_buffer_float_rgb GL_CHROMIUM_color_buffer_float_rgba GL_CHROMIUM_copy_texture GL_CHROMIUM_lose_context GL_EXT_blend_func_extended GL_EXT_blend_minmax GL_EXT_clip_control GL_EXT_color_buffer_half_float GL_EXT_compressed_ETC1_RGB8_sub_texture GL_EXT_debug_label GL_EXT_debug_marker GL_EXT_depth_clamp GL_EXT_discard_framebuffer GL_EXT_disjoint_timer_query GL_EXT_draw_buffers GL_EXT_float_blend GL_EXT_frag_depth GL_EXT_instanced_arrays GL_EXT_map_buffer_range GL_EXT_multisampled_render_to_texture GL_EXT_occlusion_query_boolean GL_EXT_polygon_offset_clamp GL_EXT_pvrtc_sRGB GL_EXT_read_format_bgra GL_EXT_robustness GL_EXT_sRGB GL_EXT_shader_texture_lod GL_EXT_texture_compression_bptc GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_rgtc GL_EXT_texture_compression_s3tc_srgb GL_EXT_texture_filter_anisotropic GL_EXT_texture_format_BGRA8888 GL_EXT_texture_mirror_clamp_to_edge GL_EXT_texture_norm16 GL_EXT_texture_rg GL_EXT_texture_storage GL_IMG_texture_compression_pvrtc GL_KHR_debug GL_KHR_parallel_shader_compile GL_KHR_robustness GL_KHR_texture_compression_astc_hdr GL_KHR_texture_compression_astc_ldr GL_KHR_texture_compression_astc_sliced_3d GL_NV_fence GL_NV_framebuffer_blit GL_NV_pixel_buffer_object GL_OES_EGL_image GL_OES_EGL_sync GL_OES_compressed_EAC_R11_signed_texture GL_OES_compressed_EAC_R11_unsigned_texture GL_OES_compressed_EAC_RG11_signed_texture GL_OES_compressed_EAC_RG11_unsigned_texture GL_OES_compressed_ETC1_RGB8_texture GL_OES_compressed_ETC2_RGB8_texture GL_OES_compressed_ETC2_RGBA8_texture GL_OES_compressed_ETC2_punchthroughA_RGBA8_texture GL_OES_compressed_ETC2_punchthroughA_sRGB8_alpha_texture GL_OES_compressed_ETC2_sRGB8_alpha8_texture GL_OES_compressed_ETC2_sRGB8_texture GL_OES_depth24 GL_OES_depth32 GL_OES_depth_texture GL_OES_element_index_uint GL_OES_fbo_render_mipmap GL_OES_get_program_binary GL_OES_mapbuffer GL_OES_packed_depth_stencil GL_OES_required_internalformat GL_OES_rgb8_rgba8 GL_OES_standard_derivatives GL_OES_surfaceless_context GL_OES_texture_3D GL_OES_texture_float GL_OES_texture_float_linear GL_OES_texture_half_float GL_OES_texture_half_float_linear GL_OES_texture_npot GL_OES_vertex_array_object ",
+          "glImplementationParts": "(gl=egl-angle,angle=metal)",
+          "glRenderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Version 26.5.1 (Build 25F80))",
+          "glResetNotificationStrategy": 33377,
+          "glVendor": "Google Inc. (Apple)",
+          "glVersion": "OpenGL ES 2.0.0 (ANGLE 2.1.25161 git hash: fa40b7c586fd)",
+          "inProcessGpu": false,
+          "initializationTime": 57.452,
+          "isAsan": false,
+          "isClangCoverage": false,
+          "jpegDecodeAcceleratorSupported": false,
+          "maxMsaaSamples": "4",
+          "optimus": false,
+          "passthroughCmdDecoder": true,
+          "pixelShaderVersion": "1.00",
+          "sandboxed": true,
+          "skiaBackendType": "GraphiteDawnMetal",
+          "subpixelFontRendering": true,
+          "targetCpuBits": 64,
+          "vertexShaderVersion": "1.00",
+          "videoDecodeAcceleratorSupportedProfile": {
+            "encrypted_only": false,
+            "maxResolutionHeight": 8192,
+            "maxResolutionWidth": 8192,
+            "minResolutionHeight": 16,
+            "minResolutionWidth": 16,
+            "profile": 29
+          },
+          "visibilityCallbackCallCount": 0
+        },
+        "gpuDevice": [
+          {
+            "active": true,
+            "deviceId": 0,
+            "deviceString": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Version 26.5.1 (Build 25F80))",
+            "driverVendor": "Apple",
+            "driverVersion": "26.5.1",
+            "gpuPreference": 0,
+            "vendorId": 4203,
+            "vendorString": "Google Inc. (Apple)"
+          }
+        ],
+        "machineModelName": "Mac",
+        "machineModelVersion": "16.10"
+      }
+    },
     "parallelRuns": 1,
     "harnessFiles": [
       "benchmarks/renderer-fixtures.json",
       "scripts/renderer-benchmark.mjs",
       "scripts/renderer-benchmark-fixture.cjs",
+      "scripts/machine-class.mjs",
+      "scripts/renderer-budget.mjs",
+      "scripts/performance-budgets.json",
       "src/renderer/RendererBenchmark.tsx"
     ],
-    "caveats": "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail."
+    "harnessPatchFile": "reports/renderer-baseline-6ddb454-harness.patch",
+    "caveats": "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
+    "electronVersion": "36.9.5"
   },
   "machine": {
     "platform": "darwin",
@@ -52,8 +128,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.69999999999999,
-        "p95": 18.09999999999991,
-        "maximum": 18.600000000000136
+        "p95": 18,
+        "maximum": 18.699999999999932
       },
       "longTasksMs": {
         "count": 0,
@@ -61,22 +137,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 3.899999976158142,
-        "p95": 10.400000095367432,
-        "maximum": 10.400000095367432
+        "median": 3.8000000715255737,
+        "p95": 10.600000023841858,
+        "maximum": 10.600000023841858
       },
       "updateDurationsMs": {
-        "median": 2.399999976158142,
-        "p95": 3.700000047683716,
-        "maximum": 8.699999928474426
+        "median": 2.799999952316284,
+        "p95": 5.300000071525574,
+        "maximum": 8.799999952316284
       },
       "commits": 65,
       "domNodes": 38,
       "heapBytes": {
-        "median": 14214840,
-        "p95": 14540904,
-        "maximum": 14540904
+        "median": 14226070,
+        "p95": 14488658,
+        "maximum": 14488658
       }
     },
     {
@@ -96,8 +178,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.69999999999999,
-        "p95": 18.100000000000023,
-        "maximum": 18.699999999999932
+        "p95": 18.09999999999991,
+        "maximum": 18.700000000000017
       },
       "longTasksMs": {
         "count": 0,
@@ -105,22 +187,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 1.2999999523162842,
-        "p95": 2.5,
-        "maximum": 2.5
+        "median": 1,
+        "p95": 1.100000023841858,
+        "maximum": 1.100000023841858
       },
       "updateDurationsMs": {
-        "median": 3.399999976158142,
-        "p95": 8.200000047683716,
-        "maximum": 17
+        "median": 3.4000000953674316,
+        "p95": 7.299999952316284,
+        "maximum": 11.200000047683716
       },
       "commits": 71,
       "domNodes": 1718,
       "heapBytes": {
-        "median": 17613995,
-        "p95": 22107499,
-        "maximum": 22107499
+        "median": 18403112,
+        "p95": 18469600,
+        "maximum": 18469600
       }
     },
     {
@@ -141,7 +229,7 @@
       "frameIntervalsMs": {
         "median": 16.69999999999999,
         "p95": 18.40000000000009,
-        "maximum": 18.699999999999818
+        "maximum": 18.700000000000045
       },
       "longTasksMs": {
         "count": 0,
@@ -149,22 +237,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 2.5,
-        "p95": 10,
-        "maximum": 10
+        "median": 2,
+        "p95": 2.0999999046325684,
+        "maximum": 2.0999999046325684
       },
       "updateDurationsMs": {
-        "median": 0.5,
-        "p95": 1.100000023841858,
-        "maximum": 11.5
+        "median": 0.6000000238418579,
+        "p95": 1.4000000953674316,
+        "maximum": 10.5
       },
       "commits": 61,
       "domNodes": 29,
       "heapBytes": {
-        "median": 19917594,
-        "p95": 19949177,
-        "maximum": 19949177
+        "median": 19937864,
+        "p95": 19977284,
+        "maximum": 19977284
       }
     },
     {
@@ -184,8 +278,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.599999999999994,
-        "p95": 17.599999999999994,
-        "maximum": 18.5
+        "p95": 18.000000000000014,
+        "maximum": 18.600000000000023
       },
       "longTasksMs": {
         "count": 0,
@@ -193,22 +287,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 22.200000047683716,
-        "p95": 30.5,
-        "maximum": 30.5
+        "median": 24.199999928474426,
+        "p95": 34.10000002384186,
+        "maximum": 34.10000002384186
       },
       "updateDurationsMs": {
-        "median": 1.2999999523162842,
-        "p95": 1.7999999523162842,
-        "maximum": 1.7999999523162842
+        "median": 1.399999976158142,
+        "p95": 1.7000000476837158,
+        "maximum": 1.7000000476837158
       },
       "commits": 1,
       "domNodes": 136,
       "heapBytes": {
-        "median": 9268112,
-        "p95": 9299504,
-        "maximum": 9299504
+        "median": 9251668,
+        "p95": 9326456,
+        "maximum": 9326456
       }
     },
     {
@@ -228,8 +328,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.69999999999999,
-        "p95": 18.5,
-        "maximum": 18.599999999999994
+        "p95": 18.19999999999999,
+        "maximum": 18.400000000000006
       },
       "longTasksMs": {
         "count": 0,
@@ -237,22 +337,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 10.300000071525574,
-        "p95": 11.5,
-        "maximum": 11.5
+        "median": 12.600000023841858,
+        "p95": 20.40000009536743,
+        "maximum": 20.40000009536743
       },
       "updateDurationsMs": {
-        "median": 1.899999976158142,
-        "p95": 2.200000047683716,
-        "maximum": 2.200000047683716
+        "median": 2.1999999284744263,
+        "p95": 5,
+        "maximum": 5
       },
       "commits": 1,
       "domNodes": 168,
       "heapBytes": {
-        "median": 10626169,
-        "p95": 10647837,
-        "maximum": 10647837
+        "median": 10620659,
+        "p95": 10641723,
+        "maximum": 10641723
       }
     },
     {
@@ -272,8 +378,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.69999999999999,
-        "p95": 17.799999999999983,
-        "maximum": 18.299999999999983
+        "p95": 18.30000000000001,
+        "maximum": 18.5
       },
       "longTasksMs": {
         "count": 0,
@@ -281,22 +387,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 5.100000023841858,
-        "p95": 5.400000095367432,
-        "maximum": 5.400000095367432
+        "median": 5.700000047683716,
+        "p95": 6.5,
+        "maximum": 6.5
       },
       "updateDurationsMs": {
-        "median": 1,
+        "median": 1.100000023841858,
         "p95": 1.600000023841858,
-        "maximum": 1.7000000476837158
+        "maximum": 4.599999904632568
       },
       "commits": 4,
       "domNodes": 38,
       "heapBytes": {
-        "median": 8742275,
-        "p95": 8791739,
-        "maximum": 8791739
+        "median": 8735137,
+        "p95": 8828101,
+        "maximum": 8828101
       }
     },
     {
@@ -316,8 +428,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.69999999999999,
-        "p95": 17.900000000000006,
-        "maximum": 18.5
+        "p95": 18.599999999999994,
+        "maximum": 18.600000000000023
       },
       "longTasksMs": {
         "count": 0,
@@ -325,22 +437,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 5.200000047683716,
-        "p95": 5.5,
-        "maximum": 5.5
+        "median": 5.899999976158142,
+        "p95": 6.5,
+        "maximum": 6.5
       },
       "updateDurationsMs": {
-        "median": 1,
-        "p95": 1.5,
-        "maximum": 1.7000000476837158
+        "median": 1.2000000476837158,
+        "p95": 1.7000000476837158,
+        "maximum": 2.700000047683716
       },
       "commits": 4,
       "domNodes": 38,
       "heapBytes": {
-        "median": 8739275,
-        "p95": 8755691,
-        "maximum": 8755691
+        "median": 8748214,
+        "p95": 8828673,
+        "maximum": 8828673
       }
     },
     {
@@ -360,8 +478,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.69999999999999,
-        "p95": 18.099999999999994,
-        "maximum": 18.399999999999977
+        "p95": 18.599999999999994,
+        "maximum": 18.700000000000017
       },
       "longTasksMs": {
         "count": 0,
@@ -369,22 +487,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 5.200000047683716,
-        "p95": 5.600000023841858,
-        "maximum": 5.600000023841858
+        "median": 5.899999976158142,
+        "p95": 7.100000023841858,
+        "maximum": 7.100000023841858
       },
       "updateDurationsMs": {
-        "median": 1,
-        "p95": 1.600000023841858,
-        "maximum": 2.799999952316284
+        "median": 1.2000000476837158,
+        "p95": 1.8000000715255737,
+        "maximum": 2
       },
       "commits": 4,
       "domNodes": 38,
       "heapBytes": {
-        "median": 8725997,
-        "p95": 8743341,
-        "maximum": 8743341
+        "median": 8754370,
+        "p95": 8785437,
+        "maximum": 8785437
       }
     },
     {
@@ -404,8 +528,8 @@
       "longTaskObserverSupported": true,
       "frameIntervalsMs": {
         "median": 16.69999999999999,
-        "p95": 18,
-        "maximum": 18.099999999999994
+        "p95": 17.900000000000006,
+        "maximum": 18.299999999999983
       },
       "longTasksMs": {
         "count": 0,
@@ -413,22 +537,28 @@
         "p95": 0,
         "maximum": 0
       },
+      "startupLongTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
       "mountDurationsMs": {
-        "median": 7.700000047683716,
-        "p95": 15.399999976158142,
-        "maximum": 15.399999976158142
+        "median": 8.899999976158142,
+        "p95": 17.600000023841858,
+        "maximum": 17.600000023841858
       },
       "updateDurationsMs": {
-        "median": 8.299999952316284,
-        "p95": 8.300000071525574,
-        "maximum": 8.300000071525574
+        "median": 8.700000047683716,
+        "p95": 10.299999952316284,
+        "maximum": 10.299999952316284
       },
       "commits": 1,
       "domNodes": 22,
       "heapBytes": {
-        "median": 8701138,
-        "p95": 8729122,
-        "maximum": 8729122
+        "median": 8128802,
+        "p95": 8158638,
+        "maximum": 8158638
       }
     }
   ]

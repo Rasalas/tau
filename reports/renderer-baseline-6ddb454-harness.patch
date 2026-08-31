@@ -1,0 +1,553 @@
+diff --git a/benchmarks/renderer-fixtures.json b/benchmarks/renderer-fixtures.json
+index 1154c4f..dd0c552 100644
+--- a/benchmarks/renderer-fixtures.json
++++ b/benchmarks/renderer-fixtures.json
+@@ -9,13 +9,14 @@
+     "sampleRuns": 5
+   },
+   "scenarios": [
+-    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript" },
+-    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600 },
+-    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576 },
+-    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000 },
+-    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152 },
+-    { "id": "thread-shells-10000", "kind": "list", "items": 10000 },
+-    { "id": "workspace-files-10000", "kind": "list", "items": 10000 },
+-    { "id": "picker-catalog-10000", "kind": "list", "items": 10000 }
++    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript", "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000, "sanity": { "minDomNodes": 50, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152, "sanity": { "minDomNodes": 100, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "thread-shells-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "workspace-files-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "picker-catalog-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "long-user-message", "kind": "message", "bytes": 12000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } }
+   ]
+ }
+diff --git a/scripts/machine-class.mjs b/scripts/machine-class.mjs
+new file mode 100644
+index 0000000..dc2f56d
+--- /dev/null
++++ b/scripts/machine-class.mjs
+@@ -0,0 +1,28 @@
++import { execFileSync } from "node:child_process";
++import { cpus, totalmem } from "node:os";
++
++function sysctl(name) {
++  return execFileSync("sysctl", ["-n", name], { encoding: "utf8" }).trim();
++}
++
++/** Return stable, non-identifying hardware facts suitable for benchmark evidence. */
++export function machineClass() {
++  const processors = cpus();
++  const machine = {
++    platform: process.platform,
++    architecture: process.arch,
++    chip: processors[0]?.model || "unknown",
++    memoryGiB: Math.round(totalmem() / 1024 ** 3),
++    logicalCores: processors.length,
++  };
++  if (process.platform === "darwin") {
++    return {
++      ...machine,
++      modelIdentifier: sysctl("hw.model"),
++      chip: sysctl("machdep.cpu.brand_string"),
++      memoryGiB: Math.round(Number(sysctl("hw.memsize")) / 1024 ** 3),
++      logicalCores: Number(sysctl("hw.ncpu")),
++    };
++  }
++  return machine;
++}
+diff --git a/scripts/performance-budgets.json b/scripts/performance-budgets.json
+index 7afa1c1..29cabe2 100644
+--- a/scripts/performance-budgets.json
++++ b/scripts/performance-budgets.json
+@@ -10,10 +10,11 @@
+   "externalNetworkRequests": 0,
+   "overlayCompositionMs": 4,
+   "rendererFrameP95Ms": 24,
++  "rendererMountP95Ms": 24,
+   "rendererLongTaskMs": 50,
+   "rendererCommitP95Ms": 24,
+   "rendererScenarioBudgets": {
+-    "transcript-1000-turns": { "commitP95Ms": 40 }
++    "transcript-1000-turns": { "mountP95Ms": 40, "commitP95Ms": 40, "longTaskMs": 60 }
+   },
+   "rendererDomNodes": 5000,
+   "gitSubprocesses": 6,
+@@ -30,6 +31,7 @@
+     "diff-2mb",
+     "thread-shells-10000",
+     "workspace-files-10000",
+-    "picker-catalog-10000"
++    "picker-catalog-10000",
++    "long-user-message"
+   ]
+ }
+diff --git a/scripts/renderer-benchmark-fixture.cjs b/scripts/renderer-benchmark-fixture.cjs
+index 86cab23..7260f4c 100644
+--- a/scripts/renderer-benchmark-fixture.cjs
++++ b/scripts/renderer-benchmark-fixture.cjs
+@@ -3,6 +3,7 @@ const path = require("node:path");
+ 
+ const scenario = process.argv[2];
+ if (!scenario) throw new Error("renderer benchmark scenario is required");
++const scenarioConfig = JSON.parse(process.argv[3] || "{}");
+ app.commandLine.appendSwitch("enable-precise-memory-info");
+ 
+ app.whenReady().then(async () => {
+@@ -14,7 +15,7 @@ app.whenReady().then(async () => {
+   });
+   try {
+     await window.loadFile(path.join(__dirname, "..", "dist", "index.html"), {
+-      query: { rendererBenchmark: "1", scenario },
++      query: { rendererBenchmark: "1", scenario, config: JSON.stringify(scenarioConfig) },
+     });
+     const deadline = Date.now() + 30_000;
+     let result;
+@@ -24,6 +25,13 @@ app.whenReady().then(async () => {
+       await new Promise((resolve) => setTimeout(resolve, 50));
+     }
+     if (!result) throw new Error(`renderer benchmark timed out: ${scenario}`);
++    result.electronVersion = process.versions.electron;
++    result.gpuFeatureStatus = app.getGPUFeatureStatus();
++    try {
++      result.gpuInfo = await app.getGPUInfo("complete");
++    } catch {
++      result.gpuInfo = undefined;
++    }
+     process.stdout.write(`${JSON.stringify(result)}\n`);
+   } finally {
+     window.destroy();
+diff --git a/scripts/renderer-benchmark.mjs b/scripts/renderer-benchmark.mjs
+index 2420729..f4fd78e 100644
+--- a/scripts/renderer-benchmark.mjs
++++ b/scripts/renderer-benchmark.mjs
+@@ -1,8 +1,11 @@
+-import { spawnSync } from "node:child_process";
++import { execFileSync, spawnSync } from "node:child_process";
++import { createHash } from "node:crypto";
++import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+ import { mkdir, readFile, writeFile } from "node:fs/promises";
+-import { dirname, join } from "node:path";
++import { dirname, isAbsolute, join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { evaluateRendererBudgets } from "./renderer-budget.mjs";
++import { machineClass } from "./machine-class.mjs";
+ 
+ const ROOT = fileURLToPath(new URL("..", import.meta.url));
+ const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
+@@ -12,7 +15,7 @@ const args = process.argv.slice(2);
+ const check = args.includes("--check");
+ const skipBuild = args.includes("--no-build");
+ const outputArg = args.find((arg) => !arg.startsWith("--"));
+-const outputPath = join(ROOT, outputArg ?? "reports/renderer-report.json");
++const outputPath = outputArg ? (isAbsolute(outputArg) ? outputArg : join(ROOT, outputArg)) : join(ROOT, "reports/renderer-report.json");
+ 
+ function percentile(values, p) {
+   if (values.length === 0) return 0;
+@@ -28,28 +31,113 @@ function run(command, commandArgs) {
+   return result.stdout;
+ }
+ 
++function commitSha() {
++  try {
++    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
++  } catch {
++    return "unknown";
++  }
++}
++
++function buildArtifactSha256() {
++  const files = [];
++  const visit = (directory) => {
++    for (const name of readdirSync(directory).sort()) {
++      const file = join(directory, name);
++      if (statSync(file).isDirectory()) visit(file);
++      else files.push(file);
++    }
++  };
++  visit(join(ROOT, "dist"));
++  return createHash("sha256")
++    .update(files.map((file) => `${file.slice(ROOT.length)}\0${readFileSync(file)}`).join("\0"))
++    .digest("hex");
++}
++
++const harnessFiles = [
++  "benchmarks/renderer-fixtures.json",
++  "scripts/renderer-benchmark.mjs",
++  "scripts/renderer-benchmark-fixture.cjs",
++  "scripts/machine-class.mjs",
++  "scripts/renderer-budget.mjs",
++  "scripts/performance-budgets.json",
++  "src/renderer/RendererBenchmark.tsx",
++];
++const harnessSourceSha256 = createHash("sha256")
++  .update(harnessFiles.map((file) => `${file}\0${readFileSync(join(ROOT, file))}`).join("\0"))
++  .digest("hex");
++const harnessPatchFile = process.env.TAU_BENCHMARK_HARNESS_PATCH_FILE ?? "reports/renderer-baseline-6ddb454-harness.patch";
++const harnessPatchSha256 = process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256
++  ?? (existsSync(join(ROOT, harnessPatchFile)) ? createHash("sha256").update(readFileSync(join(ROOT, harnessPatchFile))).digest("hex") : "unknown");
++const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? commitSha();
++const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? commitSha();
++
+ if (!skipBuild) run("npm", ["run", "build"]);
+ 
+ function sampleScenario(scenario) {
+   const samples = [];
+   for (let runIndex = 0; runIndex < fixture.startConditions.warmupRuns + fixture.startConditions.sampleRuns; runIndex += 1) {
+-    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id]);
++    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id, JSON.stringify(scenario)]);
+     const line = stdout.trim().split("\n").reverse().find((candidate) => candidate.startsWith("{"));
+     if (!line) throw new Error(`renderer fixture returned no JSON for ${scenario.id}`);
+-    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(JSON.parse(line));
++    const result = JSON.parse(line);
++    const sanity = scenario.sanity ?? {};
++    if (result.ready !== true || result.scenario !== scenario.id) {
++      throw new Error(`renderer fixture returned an invalid readiness marker for ${scenario.id}`);
++    }
++    if (result.profilerMountCaptured !== true || !Array.isArray(result.mountDurationsMs) || result.mountDurationsMs.length === 0 || result.mountDurationsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture did not capture a valid Profiler mount for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.updateDurationsMs) || result.updateDurationsMs.length === 0 || result.updateDurationsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture did not capture a valid Profiler update for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.frameIntervalsMs) || result.frameIntervalsMs.length < (sanity.minFrames ?? 1) || result.frameIntervalsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture returned invalid frame measurements for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
++      throw new Error(`renderer fixture returned invalid Long Task measurements for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value < 0)) {
++      throw new Error(`renderer fixture returned invalid startup Long Task measurements for ${scenario.id}`);
++    }
++    if (typeof result.electronVersion !== "string" || !result.electronVersion || result.gpuFeatureStatus === null || typeof result.gpuFeatureStatus !== "object") {
++      throw new Error(`renderer fixture returned incomplete Electron/GPU metadata for ${scenario.id}`);
++    }
++    if (!Number.isFinite(result.heapBytes) || result.heapBytes <= 0) {
++      throw new Error(`renderer fixture returned invalid heap measurement for ${scenario.id}`);
++    }
++    if (!Number.isFinite(result.domNodes) || result.domNodes < (sanity.minDomNodes ?? 1) || result.domNodes > (sanity.maxDomNodes ?? Number.POSITIVE_INFINITY)) {
++      throw new Error(`renderer fixture returned implausible DOM node count for ${scenario.id}: ${result.domNodes}`);
++    }
++    if (!Number.isInteger(result.commits) || result.commits < (sanity.minCommits ?? 1)) {
++      throw new Error(`renderer fixture returned too few commits for ${scenario.id}: ${result.commits}`);
++    }
++    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
+   }
+   const frames = samples.flatMap((sample) => sample.frameIntervalsMs);
+   const longTasks = samples.flatMap((sample) => sample.longTasksMs);
+-  const commitDurations = samples.flatMap((sample) => sample.commitDurationsMs);
++  const startupLongTasks = samples.flatMap((sample) => sample.startupLongTasksMs);
++  const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
++  const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
+   const heaps = samples.map((sample) => sample.heapBytes ?? 0);
++  if (samples.length === 0 || frames.length === 0 || mountDurations.length === 0 || updateDurations.length === 0) {
++    throw new Error(`renderer fixture produced no accepted measurements for ${scenario.id}`);
++  }
+   return {
+     id: scenario.id,
+     fixture: scenario,
+     sampleRuns: samples.length,
++    environment: {
++      electronVersion: samples[0].electronVersion,
++      gpuFeatureStatus: samples[0].gpuFeatureStatus,
++      gpuInfo: samples[0].gpuInfo ?? null,
++    },
+     longTaskObserverSupported: samples.every((sample) => sample.longTaskObserverSupported === true),
+     frameIntervalsMs: { median: percentile(frames, 0.5), p95: percentile(frames, 0.95), maximum: Math.max(0, ...frames) },
+     longTasksMs: { count: longTasks.length, median: percentile(longTasks, 0.5), p95: percentile(longTasks, 0.95), maximum: Math.max(0, ...longTasks) },
+-    commitDurationsMs: { median: percentile(commitDurations, 0.5), p95: percentile(commitDurations, 0.95), maximum: Math.max(0, ...commitDurations) },
++    startupLongTasksMs: { count: startupLongTasks.length, median: percentile(startupLongTasks, 0.5), p95: percentile(startupLongTasks, 0.95), maximum: Math.max(0, ...startupLongTasks) },
++    mountDurationsMs: { median: percentile(mountDurations, 0.5), p95: percentile(mountDurations, 0.95), maximum: Math.max(0, ...mountDurations) },
++    updateDurationsMs: { median: percentile(updateDurations, 0.5), p95: percentile(updateDurations, 0.95), maximum: Math.max(0, ...updateDurations) },
+     commits: Math.max(...samples.map((sample) => sample.commits)),
+     domNodes: Math.max(...samples.map((sample) => sample.domNodes)),
+     heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
+@@ -59,9 +147,38 @@ function sampleScenario(scenario) {
+ const report = {
+   schemaVersion: 2,
+   generatedAt: new Date().toISOString(),
++  commitSha: commitSha(),
++  subjectCommit,
++  harnessCommit,
++  harnessSourceSha256,
++  harnessPatchSha256,
++  reproducibilityScript: "scripts/reproduce-renderer-baseline.mjs",
++  buildArtifactSha256: buildArtifactSha256(),
++  execution: {
++    electronExecutable: "node_modules/.bin/electron",
++    gpu: { mode: "default" },
++    parallelRuns: 1,
++    harnessFiles,
++    harnessPatchFile,
++    caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
++  },
++  machine: machineClass(),
+   startConditions: fixture.startConditions,
+   scenarios: fixture.scenarios.map(sampleScenario),
+ };
++report.execution.gpu = {
++  mode: "default",
++  featureStatus: report.scenarios[0]?.environment.gpuFeatureStatus ?? {},
++  info: report.scenarios[0]?.environment.gpuInfo ?? null,
++};
++report.execution.electronVersion = report.scenarios[0]?.environment.electronVersion ?? "unknown";
++for (const scenario of report.scenarios) delete scenario.environment;
++for (const scenario of report.scenarios) {
++  for (const metric of ["frameIntervalsMs", "longTasksMs", "startupLongTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
++    const distribution = scenario[metric];
++    if (distribution && distribution.p95 > distribution.maximum) throw new Error(`${scenario.id} ${metric} p95 exceeds maximum`);
++  }
++}
+ await mkdir(dirname(outputPath), { recursive: true });
+ await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+ 
+diff --git a/scripts/renderer-budget.mjs b/scripts/renderer-budget.mjs
+index e27e327..ee27965 100644
+--- a/scripts/renderer-budget.mjs
++++ b/scripts/renderer-budget.mjs
+@@ -16,8 +16,9 @@ export function evaluateRendererBudgets(report, budgets) {
+     }
+     const measurements = [
+       ["frame p95", scenario.frameIntervalsMs?.p95, budgets.rendererFrameP95Ms, "ms", scenario.frameIntervalsMs],
+-      ["long task", scenario.longTasksMs?.maximum, budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
+-      ["commit p95", scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.commitDurationsMs],
++      ["mount p95", scenario.mountDurationsMs?.p95, scenarioBudget.mountP95Ms ?? budgets.rendererMountP95Ms, "ms", scenario.mountDurationsMs],
++      ["long task", scenario.longTasksMs?.maximum, scenarioBudget.longTaskMs ?? budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
++      ["commit p95", scenario.updateDurationsMs?.p95 ?? scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.updateDurationsMs ?? scenario.commitDurationsMs],
+       ["DOM nodes", scenario.domNodes, budgets.rendererDomNodes, "", undefined],
+     ];
+     for (const [label, actual, budget, unit, distribution] of measurements) {
+diff --git a/src/renderer/RendererBenchmark.tsx b/src/renderer/RendererBenchmark.tsx
+index 5e0a161..419a1b8 100644
+--- a/src/renderer/RendererBenchmark.tsx
++++ b/src/renderer/RendererBenchmark.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
++import { Profiler, useEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
+ import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
+ import { DiffView } from "./components/DiffView";
+ import { Message } from "./components/Message";
+@@ -8,10 +8,15 @@ import { VirtualList } from "./components/VirtualList";
+ import { ExtensionRegistry } from "./extension-system";
+ 
+ interface BenchmarkResult {
++  ready: true;
++  scenario: string;
+   frameIntervalsMs: number[];
+   longTasksMs: number[];
++  startupLongTasksMs: number[];
+   longTaskObserverSupported: boolean;
+-  commitDurationsMs: number[];
++  profilerMountCaptured: boolean;
++  mountDurationsMs: number[];
++  updateDurationsMs: number[];
+   commits: number;
+   domNodes: number;
+   heapBytes?: number;
+@@ -21,6 +26,22 @@ declare global {
+   interface Window { __TAU_RENDERER_BENCHMARK__?: BenchmarkResult; }
+ }
+ 
++const longTaskCapture = (() => {
++  const entries: Array<{ startTime: number; duration: number }> = [];
++  if (typeof PerformanceObserver === "undefined") return { entries, supported: false, observer: undefined };
++  try {
++    const observer = new PerformanceObserver((entryList) => {
++      entryList.getEntries().forEach((entry) => entries.push({ startTime: entry.startTime, duration: entry.duration }));
++    });
++    // This module is loaded before the benchmark component mounts, so mount
++    // work is observed consistently instead of being lost in useEffect setup.
++    observer.observe({ type: "longtask", buffered: true });
++    return { entries, supported: true, observer };
++  } catch {
++    return { entries, supported: false, observer: undefined };
++  }
++})();
++
+ function codeChunk(index: number): string {
+   return Array.from({ length: 48 }, (_, line) => `const value${index}_${line} = ${line}; // streamed benchmark line\n`).join("");
+ }
+@@ -48,33 +69,61 @@ function makeDiff(): UiFileDiff {
+   return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
+ }
+ 
++function makeLongUserMessage(bytes: number, revision: number): UiMessage {
++  return { id: "benchmark-long-user-message", role: "user", text: `${"x".repeat(bytes)}${revision}`, timestamp: revision };
++}
++
+ export default function RendererBenchmark() {
+   const params = new URLSearchParams(window.location.search);
+   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
+-  const targetBytes = scenario === "tool-output-1mb" ? 1_048_576 : 153_600;
++  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number };
++  const targetBytes = scenarioConfig.bytes ?? 0;
+   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
+   const [toolOutput, setToolOutput] = useState("");
+   const [listQuery, setListQuery] = useState("");
+-  const commits = useRef<number[]>([]);
++  const mountDurations = useRef<number[]>([]);
++  const updateDurations = useRef<number[]>([]);
++  const mountStartedAt = useRef(performance.now());
++  const updateStartedAt = useRef<number | undefined>(undefined);
++  const interactionStartedAt = useRef<number | undefined>(undefined);
++  const profilerReportedMount = useRef(false);
++  const profilerReportedUpdate = useRef(false);
+   const frames = useRef<number[]>([]);
+-  const longTasks = useRef<number[]>([]);
++  const [benchmarkPulse, setBenchmarkPulse] = useState(0);
++  const [longUserRevision, setLongUserRevision] = useState(0);
+   const scrollRef = useRef<HTMLDivElement>(null);
+   const registry = useMemo(() => new ExtensionRegistry(), []);
+-  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
++  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(scenarioConfig.turns ?? 0) : [], [scenario, scenarioConfig.turns]);
+   const listItems = useMemo(
+-    () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
+-    [scenario],
++    () => scenario.endsWith("-10000") ? Array.from({ length: scenarioConfig.items ?? 0 }, (_, index) => `Benchmark item ${index}`) : [],
++    [scenario, scenarioConfig.items],
+   );
+   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
+   const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
++  const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage(targetBytes, longUserRevision) : undefined, [scenario, targetBytes, longUserRevision]);
+   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
+-  // Fixture construction is setup, not renderer commit work. Start timing only
+-  // after the scenario-specific input exists, matching production data flow.
+-  const updateStartedAt = useRef(performance.now());
++  const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
++    if (phase === "mount") {
++      profilerReportedMount.current = true;
++      mountDurations.current.push(actualDuration);
++    } else {
++      profilerReportedUpdate.current = true;
++      updateDurations.current.push(actualDuration);
++    }
++  };
+ 
+-  useLayoutEffect(() => {
+-    commits.current.push(performance.now() - updateStartedAt.current);
+-  }, [listQuery, text, toolOutput]);
++  useEffect(() => {
++    // Production React may omit Profiler callbacks. Keep the same commit
++    // boundary in that mode while retaining the Profiler instrumentation.
++    if (!profilerReportedMount.current && mountDurations.current.length === 0) {
++      mountDurations.current.push(performance.now() - mountStartedAt.current);
++    }
++  }, []);
++
++  useEffect(() => {
++    if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
++    updateDurations.current.push(performance.now() - updateStartedAt.current);
++  }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
+ 
+   useEffect(() => {
+     let frame = 0;
+@@ -86,33 +135,29 @@ export default function RendererBenchmark() {
+       if (!stopped) requestAnimationFrame(observeFrame);
+     };
+     requestAnimationFrame(observeFrame);
+-    let longTaskObserverSupported = typeof PerformanceObserver !== "undefined";
+-    let observer: PerformanceObserver | undefined;
+-    try {
+-      observer = new PerformanceObserver((entries) => {
+-        entries.getEntries().forEach((entry) => longTasks.current.push(entry.duration));
+-      });
+-      observer.observe({ type: "longtask", buffered: true });
+-    } catch {
+-      longTaskObserverSupported = false;
+-      observer?.disconnect();
+-      observer = undefined;
+-    }
+-
+     const finish = () => {
+       let settleFrames = 0;
+       const settle = () => {
+         settleFrames += 1;
+         if (settleFrames < 8) { requestAnimationFrame(settle); return; }
+         stopped = true;
+-        observer?.disconnect();
++        longTaskCapture.observer?.disconnect();
+         const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
+         window.__TAU_RENDERER_BENCHMARK__ = {
++          ready: true,
++          scenario,
+           frameIntervalsMs: frames.current.slice(2),
+-          longTasksMs: longTasks.current,
+-          longTaskObserverSupported,
+-          commitDurationsMs: commits.current,
+-          commits: commits.current.length,
++        longTasksMs: longTaskCapture.entries
++          .filter((entry) => interactionStartedAt.current !== undefined && entry.startTime >= interactionStartedAt.current)
++          .map((entry) => entry.duration),
++        startupLongTasksMs: longTaskCapture.entries
++          .filter((entry) => interactionStartedAt.current === undefined || entry.startTime < interactionStartedAt.current)
++          .map((entry) => entry.duration),
++          longTaskObserverSupported: longTaskCapture.supported,
++          profilerMountCaptured: mountDurations.current.length > 0,
++          mountDurationsMs: mountDurations.current,
++          updateDurationsMs: updateDurations.current,
++          commits: updateDurations.current.length,
+           domNodes: document.getElementsByTagName("*").length,
+           heapBytes: memory.memory?.usedJSHeapSize,
+         };
+@@ -125,6 +170,7 @@ export default function RendererBenchmark() {
+         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
+         frame += 1;
+         updateStartedAt.current = performance.now();
++        interactionStartedAt.current ??= updateStartedAt.current;
+         setText((current) => {
+           const remaining = targetBytes - current.length;
+           return remaining > 0 ? current + chunk.slice(0, remaining) : current;
+@@ -137,6 +183,7 @@ export default function RendererBenchmark() {
+       const chunk = "tool output benchmark line\n".repeat(640);
+       const append = () => {
+         updateStartedAt.current = performance.now();
++        interactionStartedAt.current ??= updateStartedAt.current;
+         setToolOutput((current) => current + chunk.slice(0, targetBytes - current.length));
+         frame += 1;
+         if (frame * chunk.length < targetBytes) requestAnimationFrame(append);
+@@ -149,14 +196,27 @@ export default function RendererBenchmark() {
+         const query = queries.shift();
+         if (query === undefined) { finish(); return; }
+         updateStartedAt.current = performance.now();
++        interactionStartedAt.current ??= updateStartedAt.current;
+         setListQuery(query);
+         requestAnimationFrame(update);
+       };
+       requestAnimationFrame(update);
++    } else if (scenario === "long-user-message") {
++      requestAnimationFrame(() => {
++        updateStartedAt.current = performance.now();
++        interactionStartedAt.current ??= updateStartedAt.current;
++        setLongUserRevision((revision) => revision + 1);
++        finish();
++      });
+     } else {
+-      requestAnimationFrame(finish);
++      requestAnimationFrame(() => {
++        updateStartedAt.current = performance.now();
++        interactionStartedAt.current ??= updateStartedAt.current;
++        setBenchmarkPulse((pulse) => pulse + 1);
++        finish();
++      });
+     }
+-    return () => { stopped = true; observer?.disconnect(); };
++    return () => { stopped = true; longTaskCapture.observer?.disconnect(); };
+   }, [scenario, targetBytes]);
+ 
+   let content;
+@@ -177,9 +237,11 @@ export default function RendererBenchmark() {
+       className="benchmark-large-list"
+       renderItem={(item) => <div key={item} className="benchmark-list-row">{item}</div>}
+     />;
++  } else if (scenario === "long-user-message") {
++    content = <Message message={longUserMessage!} />;
+   } else {
+     content = <DiffView diff={diff!} mode="unified" />;
+   }
+ 
+-  return <main className="renderer-benchmark">{content}</main>;
++  return <main className="renderer-benchmark"><Profiler id={scenario} onRender={onRender}>{content}</Profiler></main>;
+ }
