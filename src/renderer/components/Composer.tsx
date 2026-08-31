@@ -230,7 +230,7 @@ export function Composer({
     if (!text.trim() && attachments.length === 0) return;
     const submittedAttachments = attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     // The renderer sends user intent unchanged. The host/runtime adapter owns
-    // provider syntax and skill expansion at the execution boundary.
+    // runtime-adapter syntax and skill expansion at the execution boundary.
     const submittedText = text;
     if (delivery) onSubmit(submittedText, submittedAttachments, delivery);
     else onSubmit(submittedText, submittedAttachments);

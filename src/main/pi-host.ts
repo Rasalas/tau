@@ -28,7 +28,6 @@ import type {
   HostEvent,
   HostSnapshot,
   PushResult,
-  RuntimeCapabilities,
   ShellActionResult,
   ThreadIndexSnapshot,
   UiComposerCommand,
@@ -68,11 +67,20 @@ import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import {
-  PI_RUNTIME_ADAPTER,
+  branchMessagesWithClientMessageIds,
+  clientMessageCancelMarker,
+  clientMessageIdForMessage,
+  clientMessageMarker,
+  CLIENT_MESSAGE_CANCEL_MARKER,
+  CLIENT_MESSAGE_MARKER,
+  unclaimedClientMessageIds,
+} from "./client-message-correlation.js";
+import {
   normalizeSkillInvocationForRuntime,
   skillMessagePresentation,
-  type SkillRuntimeAdapter,
+  visibleSkillEnvelopeText,
 } from "./skill-invocation.js";
+import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
@@ -136,13 +144,13 @@ function thinkingFromContent(content: unknown): string | undefined {
 }
 
 export interface MessageMappingOptions {
-  skillRuntimeAdapter?: SkillRuntimeAdapter;
+  runtimeAdapter?: AgentRuntimeAdapter;
   skillCommands?: readonly UiComposerCommand[];
 }
 
 export interface PiHostOptions {
-  /** Runtime-owned skill syntax; Pi is used when no adapter is supplied. */
-  skillRuntimeAdapter?: SkillRuntimeAdapter;
+  /** Concrete agent runtime selected at startup; Pi is used by default. */
+  runtimeAdapter?: AgentRuntimeAdapter;
 }
 
 export function mapMessage(message: unknown, index: number, options: MessageMappingOptions = {}): UiMessage | undefined {
@@ -153,18 +161,26 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
     timestamp?: number;
     customType?: string;
     tauEntryId?: string;
+    clientMessageId?: string;
   };
 
   if (value.role === "user") {
     const text = textFromContent(value.content);
     const images = imagesFromContent(value.content);
-    const presentation = options.skillRuntimeAdapter && options.skillCommands
-      ? skillMessagePresentation(text, options.skillRuntimeAdapter, options.skillCommands)
+    const presentation = options.runtimeAdapter && options.skillCommands
+      ? skillMessagePresentation(text, options.runtimeAdapter, options.skillCommands)
       : undefined;
     const visibleText = presentation?.text ?? text;
+    const clientMessageId = typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
+      ? value.clientMessageId
+      : undefined;
     return {
-      id: value.tauEntryId ?? `user-${value.timestamp ?? index}-${index}`,
+      // Live events do not carry a persisted entry id yet. The request id is
+      // already stable at message_start, so use it to keep equal-timestamp
+      // user turns distinct until the next authoritative snapshot.
+      id: value.tauEntryId ?? (clientMessageId ? `user-${clientMessageId}` : `user-${value.timestamp ?? index}-${index}`),
       sourceEntryId: value.tauEntryId,
+      ...(clientMessageId ? { clientMessageId } : {}),
       role: "user",
       text: visibleText || (images.length ? `[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""),
       ...(presentation ? { skill: presentation.skill } : {}),
@@ -274,6 +290,41 @@ function firstSentence(value: string): string {
   return sentence.length > 96 ? `${sentence.slice(0, 93).trimEnd()}…` : sentence;
 }
 
+function visibleTitleText(value: string): string {
+  const envelope = visibleSkillEnvelopeText(value);
+  if (envelope !== undefined) return envelope;
+  // A malformed wrapper has no trustworthy visible user text. Keep runtime
+  // internals out of sidebar/title fallback rather than echoing the raw tag.
+  return /^\uFEFF?(?:(?:[ \t]*\r?\n)+[ \t]*)?<skill(?:[ \t\r\n>])/u.test(value)
+    ? "Skill invocation"
+    : value;
+}
+
+function safeSessionTitle(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try { return cleanThreadTitle(visibleTitleText(value)); }
+  catch { return undefined; }
+}
+
+function normalizeTranscriptMessage(message: unknown, mapping: MessageMappingOptions): unknown {
+  if (!message || typeof message !== "object") return message;
+  const value = message as { role?: string; content?: unknown };
+  if (value.role !== "user" || typeof mapping.runtimeAdapter === "undefined" || !mapping.skillCommands) return message;
+  const text = textFromContent(value.content);
+  const presentation = skillMessagePresentation(text, mapping.runtimeAdapter, mapping.skillCommands);
+  if (!presentation) return message;
+  const images = Array.isArray(value.content)
+    ? value.content.filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "image")
+    : [];
+  return {
+    ...value,
+    content: [
+      ...(presentation.text ? [{ type: "text", text: presentation.text }] : []),
+      ...images,
+    ],
+  };
+}
+
 interface TitleMessage {
   role?: string;
   content?: unknown;
@@ -286,7 +337,10 @@ export function buildTitleConversation(
   function render(messages: readonly TitleMessage[]): string {
     return messages
       .filter((message) => message.role === "user" || message.role === "assistant")
-      .map((message) => `${message.role}: ${textFromContent(message.content)}`)
+      .map((message) => {
+        const text = textFromContent(message.content);
+        return `${message.role}: ${message.role === "user" ? visibleTitleText(text) : text}`;
+      })
       .filter((line) => line.trim().length > line.indexOf(":") + 1)
       .slice(0, 4)
       .join("\n\n")
@@ -328,7 +382,7 @@ async function mapSessions(
     return {
       id: session.id,
       path: session.path,
-      title: cleanThreadTitle(session.name || firstSentence(session.firstMessage)),
+      title: cleanThreadTitle(safeSessionTitle(session.name) || firstSentence(visibleTitleText(session.firstMessage))),
       modifiedAt: session.modified.getTime(),
       projectPath,
       projectName: resolveProjectName(projectPath),
@@ -475,13 +529,19 @@ interface LiveTurnState {
  */
 class ThreadRuntime implements LiveTurnState {
   readonly tools = new Map<string, UiToolRun>();
+  readonly pendingClientMessageIds: string[] = [];
+  /** Markers assigned at message_start but not finalized at message_end yet. */
+  readonly inFlightClientMessageIds = new Set<string>();
+  adapterMessages: UiMessage[] = [];
+  adapterStreaming = false;
+  adapterQueue: Promise<void> = Promise.resolve();
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   unsubscribe?: () => void;
 
   constructor(
     readonly runtime: AgentSessionRuntime,
-    readonly skillRuntimeAdapter: SkillRuntimeAdapter,
+    readonly runtimeAdapter: AgentRuntimeAdapter,
   ) {}
 
   get session(): AgentSession { return this.runtime.session; }
@@ -493,9 +553,17 @@ class ThreadRuntime implements LiveTurnState {
 
   resetLiveState(): void {
     this.tools.clear();
+    this.pendingClientMessageIds.length = 0;
+    this.inFlightClientMessageIds.clear();
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
   }
+}
+
+function isThreadRuntime(thread: LiveTurnState | undefined): thread is ThreadRuntime {
+  // Keep event handling usable with a runtime carrier from a test or an
+  // adapter boundary. `instanceof` is not stable across duplicated bundles.
+  return Boolean(thread && "runtimeAdapter" in thread && "session" in thread);
 }
 
 function samePath(left: string | undefined, right: string | undefined): boolean {
@@ -504,7 +572,7 @@ function samePath(left: string | undefined, right: string | undefined): boolean 
 
 export class PiHost {
   private cwd: string;
-  private readonly skillRuntimeAdapter: SkillRuntimeAdapter;
+  private readonly runtimeAdapter: AgentRuntimeAdapter;
   private emit: Emit;
   private bridge?: PiBridgeClient;
   private bridgeSnapshot?: PiBridgeSnapshot;
@@ -660,7 +728,7 @@ export class PiHost {
     options: PiHostOptions = {},
   ) {
     this.cwd = cwd;
-    this.skillRuntimeAdapter = options.skillRuntimeAdapter ?? PI_RUNTIME_ADAPTER;
+    this.runtimeAdapter = assertRuntimeAdapter(options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER);
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
       emit(event);
@@ -716,7 +784,7 @@ export class PiHost {
 
   /** Whether a command for `sessionId` belongs to the thread Pi's TUI owns. */
   private bridgeOwns(sessionId: string | undefined): boolean {
-    return Boolean(this.bridge) && (!sessionId || sessionId === this.bridgeSnapshot?.sessionId);
+    return this.runtimeAdapter.id === "pi" && Boolean(this.bridge) && (!sessionId || sessionId === this.bridgeSnapshot?.sessionId);
   }
 
   private liveThreadForPath(path: string | undefined): ThreadRuntime | undefined {
@@ -737,7 +805,7 @@ export class PiHost {
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
           throw new Error("Pi already owns this session. Close Pi before opening the project in Tau safe mode.");
         }
-        if (!(await this.attachAvailableBridge(this.cwd))) {
+        if (this.runtimeAdapter.id !== "pi" || !(await this.attachAvailableBridge(this.cwd))) {
           const thread = await this.openThread(SessionManager.continueRecent(this.cwd), undefined);
           await this.activateThread(thread, false);
         }
@@ -833,7 +901,7 @@ export class PiHost {
   private async setWorkspaceNow(cwd: string): Promise<HostActionResult> {
     await this.rememberProject(cwd);
     if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates();
-    if (await this.attachAvailableBridge(cwd)) {
+    if (this.runtimeAdapter.id === "pi" && await this.attachAvailableBridge(cwd)) {
       await this.rememberProject(this.cwd);
       await this.refreshActiveThreadIndex(false);
       return this.activeUpdates();
@@ -938,11 +1006,16 @@ export class PiHost {
     });
   }
 
-  async newSession(initialPrompt?: string, attachments: UiPromptAttachment[] = [], cwd?: string): Promise<HostActionResult> {
-    if (this.bridge && (!cwd || cwd === this.cwd)) {
+  async newSession(
+    initialPrompt?: string,
+    attachments: UiPromptAttachment[] = [],
+    cwd?: string,
+    clientMessageId?: string,
+  ): Promise<HostActionResult> {
+    if (this.runtimeAdapter.id === "pi" && this.bridge && (!cwd || cwd === this.cwd)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt });
+        await this.bridgeCommand({ command: "new_session", initialPrompt, ...(clientMessageId ? { clientMessageId } : {}) });
         return this.actionResult([]);
       } catch (error) {
         // A new thread is a different session, so Pi has no standing to veto it.
@@ -970,10 +1043,10 @@ export class PiHost {
       await this.activateThread(thread, true);
       // The first prompt names the thread right away; the run that follows
       // would otherwise leave it "Untitled" until it finishes.
-      if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
+      if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(visibleTitleText(initialPrompt)));
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (initialPrompt || attachments.length > 0) {
-        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId).catch((error) => this.fail(error));
+        void this.prompt(initialPrompt ?? "", attachments, thread.sessionId, clientMessageId).catch((error) => this.fail(error));
       }
       this.scheduleSpareThread(targetCwd);
       return this.activeUpdates();
@@ -1018,20 +1091,124 @@ export class PiHost {
       if (expectedSessionId && this.bridgeSnapshot?.sessionId !== expectedSessionId) {
         throw new Error("The selected thread changed before it could be copied.");
       }
-      const result = await this.bridge.command({ command: "export_markdown" }) as { markdown?: unknown };
-      if (typeof result.markdown !== "string") throw new Error("Pi did not return a chat transcript.");
-      return result.markdown;
+      const result = await this.bridge.command({ command: "export_markdown" }) as {
+        title?: unknown;
+        cwd?: unknown;
+        sessionId?: unknown;
+        messages?: unknown;
+      };
+      if (!Array.isArray(result.messages)) throw new Error("Pi did not return a normalized chat transcript.");
+      const messages = result.messages as Array<{ role?: string; content?: unknown }>;
+      const explicitTitle = typeof result.title === "string"
+        ? safeSessionTitle(result.title)
+        : safeSessionTitle(this.bridgeSnapshot?.sessionName);
+      const firstUserMessage = messages.find((message) => message.role === "user");
+      return formatChatTranscript({
+        title: explicitTitle || firstSentence(visibleTitleText(textFromContent(firstUserMessage?.content))),
+        cwd: typeof result.cwd === "string" ? result.cwd : this.bridgeSnapshot?.cwd ?? this.cwd,
+        sessionId: typeof result.sessionId === "string" ? result.sessionId : this.bridgeSnapshot?.sessionId ?? "",
+        // The Pi bridge owns normalization against its live command registry.
+        // Re-parsing here could reinterpret a legitimate visible `$skill ...`
+        // instruction after the wrapper has already been removed.
+        messages,
+      });
     }
     const thread = this.requireThread(expectedSessionId);
     const session = thread.session;
-    const messages = session.sessionManager.getBranch()
-      .flatMap((entry) => entry.type === "message" ? [entry.message] : []);
+    const mapping = this.messageMappingOptions(thread);
+    const persistedMessages = session.sessionManager.getBranch()
+      .flatMap((entry) => entry.type === "message" ? [normalizeTranscriptMessage(entry.message, mapping)] : []) as Array<{ role?: string; content?: unknown }>;
+    const adapterMessages = (thread.adapterMessages ?? []).map((message) => ({
+      role: message.role,
+      content: [{ type: "text", text: message.text }],
+    }));
+    const messages = [...persistedMessages, ...adapterMessages];
     return formatChatTranscript({
-      title: session.sessionName || firstSentence(textFromContent(messages.find((message) => message.role === "user")?.content)),
+      title: safeSessionTitle(session.sessionName) || firstSentence(visibleTitleText(textFromContent(messages.find((message) => message.role === "user")?.content))),
       cwd: thread.cwd,
       sessionId: session.sessionId,
       messages,
     });
+  }
+
+  private async sendThroughRuntimeAdapter(
+    thread: ThreadRuntime,
+    text: string,
+    attachments: UiPromptAttachment[],
+    delivery: "prompt" | "steer" | "followUp",
+    clientMessageId?: string,
+  ): Promise<void> {
+    const operation = thread.adapterQueue.then(() => this.sendThroughRuntimeAdapterNow(
+      thread,
+      text,
+      attachments,
+      delivery,
+      clientMessageId,
+    ));
+    thread.adapterQueue = operation.catch(() => undefined);
+    return operation;
+  }
+
+  private async sendThroughRuntimeAdapterNow(
+    thread: ThreadRuntime,
+    text: string,
+    attachments: UiPromptAttachment[],
+    delivery: "prompt" | "steer" | "followUp",
+    clientMessageId?: string,
+  ): Promise<void> {
+    const commands = this.composerCommands(thread);
+    const normalizedText = normalizeSkillInvocationForRuntime(text, this.runtimeAdapter, commands);
+    const now = Date.now();
+    thread.adapterStreaming = true;
+    this.emit({ type: "agent-status", sessionId: thread.sessionId, running: true });
+    try {
+      if (attachments.length > 0) throw new Error("Image attachments are not supported by the selected runtime adapter.");
+      const transport = this.runtimeAdapter.transport;
+      if (!transport) throw new Error(`Runtime adapter '${this.runtimeAdapter.id}' has no configured transport.`);
+      const result = await transport.sendPrompt({
+        cwd: thread.cwd,
+        sessionId: thread.sessionId,
+        text: normalizedText,
+        delivery,
+        ...(clientMessageId ? { clientMessageId } : {}),
+      });
+      const presentation = skillMessagePresentation(text, this.runtimeAdapter, commands);
+      const user: UiMessage = {
+        id: `adapter-user-${clientMessageId ?? now}`,
+        ...(clientMessageId ? { clientMessageId } : {}),
+        role: "user",
+        text: presentation?.text ?? text,
+        ...(presentation ? { skill: presentation.skill } : {}),
+        timestamp: now,
+      };
+      (thread.adapterMessages ??= []).push(user);
+      this.emit({ type: "user-message", sessionId: thread.sessionId, message: user });
+      if (result.assistantText?.trim()) {
+        const assistant: UiMessage = {
+          id: `adapter-assistant-${clientMessageId ?? now}`,
+          role: "assistant",
+          text: result.assistantText,
+          timestamp: Date.now(),
+        };
+        (thread.adapterMessages ??= []).push(assistant);
+        this.emit({ type: "assistant-end", sessionId: thread.sessionId, message: assistant });
+      }
+      await this.refreshThreadShell(thread, true);
+    } catch (error) {
+      if (clientMessageId) {
+        this.emit({
+          type: "user-message-failed",
+          sessionId: thread.sessionId,
+          clientMessageId,
+          message: "The selected runtime rejected the message.",
+        });
+      }
+      this.fail(error);
+      throw error;
+    } finally {
+      thread.adapterStreaming = false;
+      this.emit({ type: "agent-status", sessionId: thread.sessionId, running: false });
+    }
   }
 
   async switchSession(path: string): Promise<HostActionResult> {
@@ -1046,7 +1223,7 @@ export class PiHost {
     }
     return this.runLifecycle(async () => {
       const startedAt = performance.now();
-      if (await this.attachAvailableBridge(dirname(path), path)) {
+      if (this.runtimeAdapter.id === "pi" && await this.attachAvailableBridge(dirname(path), path)) {
         this.cwd = this.bridgeSnapshot!.cwd;
         await this.rememberProject(this.cwd);
         await this.refreshActiveThreadIndex(false);
@@ -1080,29 +1257,56 @@ export class PiHost {
     }
   }
 
-  async prompt(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async prompt(
+    text: string,
+    attachments: UiPromptAttachment[] = [],
+    sessionId?: string,
+    clientMessageId?: string,
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
       // Pi's bridge extension is the runtime owner and performs this
       // normalization against its current command registry exactly once.
-      await this.bridge!.command({ command: "prompt", text });
+      await this.bridge!.command({ command: "prompt", text, ...(clientMessageId ? { clientMessageId } : {}) });
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
     const thread = this.requireThread(sessionId);
+    if (this.runtimeAdapter.id !== "pi") {
+      await this.sendThroughRuntimeAdapter(thread, text, attachments, "prompt", clientMessageId);
+      return;
+    }
     const session = thread.session;
     const prompt = this.normalizeThreadPrompt(thread, text);
+    const isExtensionCommand = this.isExtensionCommand(thread, prompt);
+    let markerActive = this.appendClientMessageMarker(thread, clientMessageId);
+    const wasStreaming = session.isStreaming;
+    const failUnpersistedMarker = () => {
+      if (!markerActive) return;
+      this.failClientMessageIfUnpersisted(thread, clientMessageId);
+      markerActive = false;
+    };
     const images = promptImages(attachments);
     this.log("prompt.accepted", `${prompt.slice(0, 80)}${images.length ? ` · ${images.length} image(s)` : ""}`);
     try {
       await session.prompt(prompt, {
         images,
         streamingBehavior: session.isStreaming ? "followUp" : undefined,
+        preflightResult: (success) => {
+          if (!success) failUnpersistedMarker();
+        },
       });
+      // Extension commands can be handled without creating a user message or
+      // an agent run. Do not leave their marker to label the next turn.
+      if ((!wasStreaming || isExtensionCommand) && markerActive) failUnpersistedMarker();
       if (this.threads.get(thread.sessionId)?.runtime === thread) await this.refreshThreadShell(thread, true);
     } catch (error) {
       // A thread released mid-run reports nothing: its runtime is gone on purpose.
       if (this.threads.get(thread.sessionId)?.runtime !== thread) return;
+      // A runtime can reject after accepting and even after message_start. The
+      // marker stays tracked until message_end, so reconcile every failure by
+      // id instead of assuming acceptance means persistence.
+      failUnpersistedMarker();
       this.fail(error);
       throw error;
     }
@@ -1131,30 +1335,66 @@ export class PiHost {
     };
   }
 
-  async steer(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async steer(
+    text: string,
+    attachments: UiPromptAttachment[] = [],
+    sessionId?: string,
+    clientMessageId?: string,
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer" });
+      await this.bridge!.command({ command: "prompt", text, deliverAs: "steer", ...(clientMessageId ? { clientMessageId } : {}) });
       return;
     }
     try {
       const thread = this.requireThread(sessionId);
-      await thread.session.steer(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
+      if (this.runtimeAdapter.id !== "pi") {
+        await this.sendThroughRuntimeAdapter(thread, text, attachments, "steer", clientMessageId);
+        return;
+      }
+      let markerActive = this.appendClientMessageMarker(thread, clientMessageId);
+      try {
+        await thread.session.steer(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
+      } catch (error) {
+        if (markerActive) {
+          this.failClientMessageIfUnpersisted(thread, clientMessageId);
+          markerActive = false;
+        }
+        throw error;
+      }
     } catch (error) {
       this.fail(error);
       throw error;
     }
   }
 
-  async followUp(text: string, attachments: UiPromptAttachment[] = [], sessionId?: string): Promise<void> {
+  async followUp(
+    text: string,
+    attachments: UiPromptAttachment[] = [],
+    sessionId?: string,
+    clientMessageId?: string,
+  ): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
       if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
-      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp" });
+      await this.bridge!.command({ command: "prompt", text, deliverAs: "followUp", ...(clientMessageId ? { clientMessageId } : {}) });
       return;
     }
     try {
       const thread = this.requireThread(sessionId);
-      await thread.session.followUp(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
+      if (this.runtimeAdapter.id !== "pi") {
+        await this.sendThroughRuntimeAdapter(thread, text, attachments, "followUp", clientMessageId);
+        return;
+      }
+      let markerActive = this.appendClientMessageMarker(thread, clientMessageId);
+      try {
+        await thread.session.followUp(this.normalizeThreadPrompt(thread, text), promptImages(attachments));
+      } catch (error) {
+        if (markerActive) {
+          this.failClientMessageIfUnpersisted(thread, clientMessageId);
+          markerActive = false;
+        }
+        throw error;
+      }
     } catch (error) {
       this.fail(error);
       throw error;
@@ -1268,7 +1508,18 @@ export class PiHost {
     if (!model) throw new Error(`Unknown title model: ${provider}/${modelId}`);
     const persistedMessages = session.sessionManager.getBranch()
       .flatMap((entry) => entry.type === "message" ? [entry.message] : []);
-    const conversation = buildTitleConversation(session.messages, persistedMessages);
+    const mapping = this.messageMappingOptions(thread);
+    const visibleMessages = (messages: readonly unknown[]): TitleMessage[] => messages.flatMap((message, index) => {
+      const mapped = mapMessage(message, index, mapping);
+      return mapped && (mapped.role === "user" || mapped.role === "assistant")
+        ? [{ role: mapped.role, content: mapped.text }]
+        : [];
+    });
+    const adapterMessages = (thread.adapterMessages ?? []).map((message) => ({ role: message.role, content: message.text }));
+    const conversation = buildTitleConversation(
+      [...visibleMessages(session.messages), ...adapterMessages],
+      visibleMessages(persistedMessages),
+    );
     if (!conversation) throw new Error("The thread has no conversation to title yet.");
 
     this.log("title.started", `${provider}/${modelId}`);
@@ -1541,7 +1792,7 @@ export class PiHost {
         sessionManager: manager,
         sessionStartEvent,
       });
-      const thread = new ThreadRuntime(runtime, this.skillRuntimeAdapter);
+      const thread = new ThreadRuntime(runtime, this.runtimeAdapter);
       await this.bindThread(thread, thread.session);
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
@@ -1593,9 +1844,25 @@ export class PiHost {
       mode: "rpc",
       onError: (error) => this.fail(error),
     });
+    this.recoverOrphanedClientMessageMarkers(thread);
     this.logRuntimePhase("bind", bindStartedAt, "active", thread.cwd);
     thread.unsubscribe?.();
     thread.unsubscribe = session.subscribe((event) => this.handleSessionEvent(event, thread, thread.sessionId, thread.cwd));
+  }
+
+  /**
+   * A persisted request marker can outlive a host process that crashed or was
+   * disconnected before Pi emitted the corresponding user message. Cancel
+   * those markers before subscribing to a reopened runtime so they cannot be
+   * assigned to a later, unrelated turn.
+   */
+  private recoverOrphanedClientMessageMarkers(thread: ThreadRuntime): void {
+    const manager = thread.session.sessionManager;
+    const staleIds = unclaimedClientMessageIds(manager.getBranch());
+    for (const clientMessageId of staleIds) {
+      manager.appendCustomEntry(CLIENT_MESSAGE_CANCEL_MARKER, clientMessageCancelMarker(clientMessageId).data);
+      this.forgetClientMessageId(thread, clientMessageId);
+    }
   }
 
   private installThreadHooks(thread: ThreadRuntime): void {
@@ -1807,6 +2074,21 @@ export class PiHost {
       if (!processIsAlive(descriptor.pid)) return false;
       throw new Error(`Pi owns this session, but Tau could not connect to it: ${this.errorMessage(error)}`);
     }
+    if (bridgeSnapshot.runtimeCapabilities
+      && bridgeSnapshot.runtimeCapabilities.skillInvocationDialect !== PI_AGENT_RUNTIME_ADAPTER.capabilities.skillInvocationDialect) {
+      client.close();
+      throw new Error("The attached bridge does not advertise the Pi runtime adapter.");
+    }
+    for (const clientMessageId of bridgeSnapshot.failedClientMessageIds ?? []) {
+      if (typeof clientMessageId === "string" && clientMessageId.length > 0) {
+        this.emit({
+          type: "user-message-failed",
+          sessionId: bridgeSnapshot.sessionId,
+          clientMessageId,
+          message: "Pi did not add the prompt to the transcript.",
+        });
+      }
+    }
     // Pi is the sole writer of that session while attached; a local runtime for
     // the same file would race it.
     const local = this.liveThreadForPath(descriptor.sessionFile);
@@ -1919,9 +2201,7 @@ export class PiHost {
     const messages = snapshot.messages
       .map((message, index) => mapMessage(message, index, mapping))
       .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
-    const firstUserMessage = snapshot.messages.find((message) =>
-      Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
-    );
+    const firstUserMessage = messages.find((message) => message.role === "user");
     const taskHistory = mergeTaskProgressHistory(
       snapshot.taskHistory,
       taskProgressHistoryFromMessages(snapshot.messages),
@@ -1929,10 +2209,8 @@ export class PiHost {
     return {
       cwd: snapshot.cwd,
       sessionId: snapshot.sessionId,
-      sessionName: snapshot.sessionName ? cleanThreadTitle(snapshot.sessionName) : undefined,
-      sessionTitle: cleanThreadTitle(snapshot.sessionName || firstSentence(firstUserMessage
-        ? textFromContent((firstUserMessage as { content?: unknown }).content)
-        : "")),
+      sessionName: safeSessionTitle(snapshot.sessionName),
+      sessionTitle: cleanThreadTitle(safeSessionTitle(snapshot.sessionName) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
       model: snapshot.model ? mapModel(snapshot.model) : undefined,
       models: snapshot.models.map(mapModel),
       thinkingLevel: snapshot.thinkingLevel,
@@ -1969,6 +2247,16 @@ export class PiHost {
 
   private handleSessionEvent(event: any, thread: LiveTurnState, sessionId: string, cwd: string): void {
       switch (event.type) {
+        case "user_message_failed":
+          if (typeof event.clientMessageId === "string") {
+            this.emit({
+              type: "user-message-failed",
+              sessionId,
+              clientMessageId: event.clientMessageId,
+              message: typeof event.message === "string" ? event.message : "Pi rejected the message.",
+            });
+          }
+          break;
         case "agent_start":
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
           this.emit({ type: "agent-status", sessionId, running: true });
@@ -1978,11 +2266,26 @@ export class PiHost {
           this.log("agent.ended", `${event.messages.length} messages`);
           break;
         case "agent_settled":
+          // Pi can report a settled inner turn while a follow-up is already
+          // queued. Only an actually idle session proves that no pending
+          // marker still belongs to a subsequent queued user message.
+        if (isThreadRuntime(thread) && thread.session.isIdle
+          && (thread.pendingClientMessageIds.length > 0 || thread.inFlightClientMessageIds.size > 0)) {
+            for (const clientMessageId of this.trackedClientMessageIds(thread)) {
+              this.failClientMessageIfUnpersisted(thread, clientMessageId, sessionId);
+            }
+            // Every tracked id was either persisted or canceled above.
+            thread.pendingClientMessageIds.length = 0;
+            thread.inFlightClientMessageIds.clear();
+          }
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
           this.emit({ type: "agent-status", sessionId, running: false });
           this.log("agent.settled", sessionId.slice(0, 8));
           break;
         case "message_start":
+          if (event.message.role === "user" && isThreadRuntime(thread)) {
+            this.correlateUserMessageStart(thread, event.message);
+          }
           if (event.message.role === "assistant") {
             thread.currentAssistantId = `assistant-live-${event.message.timestamp}`;
             thread.liveAssistant = { id: thread.currentAssistantId, text: "", thinking: "", timestamp: event.message.timestamp };
@@ -2016,7 +2319,8 @@ export class PiHost {
             thread.currentAssistantId = undefined;
             thread.liveAssistant = undefined;
           } else if (event.message.role === "user") {
-            const message = mapMessage(event.message, 0, this.messageMappingOptions(thread));
+            const decorated = isThreadRuntime(thread) ? this.decorateUserEvent(thread, event.message) : event.message;
+            const message = mapMessage(decorated, 0, this.messageMappingOptions(thread));
             if (message) this.emit({ type: "user-message", sessionId, message });
           }
           break;
@@ -2149,13 +2453,13 @@ export class PiHost {
     const shell = reconcileActiveThreadShell({
       id: session.sessionId,
       path: thread.sessionFile ?? session.sessionId,
-      explicitTitle: session.sessionName,
-      derivedTitle: firstSentence(textFromContent(session.messages.find((message) => message.role === "user")?.content)),
+      explicitTitle: safeSessionTitle(session.sessionName),
+      derivedTitle: firstSentence(visibleTitleText(this.messageSnapshot(thread).find((message) => message.role === "user")?.text ?? "")),
       now: Date.now(),
       projectPath,
       projectName: this.projectNameFor(projectPath),
       branch: this.branchFor(projectPath),
-      messageCount: session.messages.length,
+      messageCount: session.messages.length + (thread.adapterMessages?.length ?? 0),
     }, existing, touch);
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishThreadShellSoon(shell);
@@ -2204,8 +2508,111 @@ export class PiHost {
   }
 
   private branchMessagesWithEntryIds(thread: ThreadRuntime): unknown[] {
-    return thread.session.sessionManager.getBranch()
-      .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
+    const manager = thread.session.sessionManager;
+    if (!manager?.getBranch) return thread.session.messages;
+    const entries = manager.getBranch();
+    const messages = branchMessagesWithClientMessageIds(entries);
+    let messageIndex = 0;
+    return entries.flatMap((entry) => entry.type === "message"
+      ? [{ ...(messages[messageIndex++] as Record<string, unknown>), tauEntryId: entry.id }]
+      : []);
+  }
+
+  private appendClientMessageMarker(thread: ThreadRuntime, clientMessageId: string | undefined): boolean {
+    if (!clientMessageId) return false;
+    thread.pendingClientMessageIds.push(clientMessageId);
+    thread.session.sessionManager.appendCustomEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId).data);
+    return true;
+  }
+
+  private trackedClientMessageIds(thread: ThreadRuntime): string[] {
+    return [...new Set([
+      ...thread.pendingClientMessageIds,
+      ...thread.inFlightClientMessageIds,
+    ])];
+  }
+
+  /** Only a runtime-persisted id proves that a marker's request was recorded. */
+  private persistedClientMessageIds(thread: ThreadRuntime): Set<string> {
+    return new Set(thread.session.sessionManager.getBranch().flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || (entry as { type?: unknown }).type !== "message") return [];
+      const message = (entry as { message?: unknown }).message;
+      if (!message || typeof message !== "object") return [];
+      const value = message as { role?: unknown; clientMessageId?: unknown };
+      return value.role === "user" && typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
+        ? [value.clientMessageId]
+        : [];
+    }));
+  }
+
+  private forgetClientMessageId(thread: ThreadRuntime, clientMessageId: string): void {
+    for (;;) {
+      const pending = thread.pendingClientMessageIds.indexOf(clientMessageId);
+      if (pending < 0) break;
+      thread.pendingClientMessageIds.splice(pending, 1);
+    }
+    thread.inFlightClientMessageIds.delete(clientMessageId);
+  }
+
+  private cancelClientMessageMarker(thread: ThreadRuntime, clientMessageId: string | undefined): boolean {
+    if (!clientMessageId) return false;
+    const wasPending = thread.pendingClientMessageIds.includes(clientMessageId);
+    const wasInFlight = thread.inFlightClientMessageIds.delete(clientMessageId);
+    if (!wasPending && !wasInFlight) return false;
+    this.forgetClientMessageId(thread, clientMessageId);
+    thread.session.sessionManager.appendCustomEntry(CLIENT_MESSAGE_CANCEL_MARKER, clientMessageCancelMarker(clientMessageId).data);
+    return true;
+  }
+
+  private failClientMessageIfUnpersisted(thread: ThreadRuntime, clientMessageId: string | undefined, sessionId = thread.sessionId): boolean {
+    if (!clientMessageId) return false;
+    if (this.persistedClientMessageIds(thread).has(clientMessageId)) {
+      this.forgetClientMessageId(thread, clientMessageId);
+      return false;
+    }
+    const cancelled = this.cancelClientMessageMarker(thread, clientMessageId);
+    if (cancelled) {
+      this.emit({
+        type: "user-message-failed",
+        sessionId,
+        clientMessageId,
+        message: "Pi did not add the prompt to the transcript.",
+      });
+    }
+    return cancelled;
+  }
+
+  private correlateUserMessageStart(thread: ThreadRuntime, message: unknown): void {
+    if (!message || typeof message !== "object") return;
+    const value = message as { role?: string; clientMessageId?: unknown };
+    if (value.role !== "user") return;
+    if (typeof value.clientMessageId === "string") {
+      const pending = thread.pendingClientMessageIds.indexOf(value.clientMessageId);
+      if (pending >= 0) {
+        thread.pendingClientMessageIds.splice(pending, 1);
+        thread.inFlightClientMessageIds.add(value.clientMessageId);
+      }
+      return;
+    }
+    const clientMessageId = thread.pendingClientMessageIds.shift();
+    if (clientMessageId) {
+      thread.inFlightClientMessageIds.add(clientMessageId);
+      (message as Record<string, unknown>).clientMessageId = clientMessageId;
+    }
+  }
+
+  private decorateUserEvent(thread: ThreadRuntime, message: unknown): unknown {
+    if (!message || typeof message !== "object") return message;
+    const value = message as { role?: string; clientMessageId?: string };
+    if (value.role !== "user") return message;
+    const directId = typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
+      ? value.clientMessageId
+      : undefined;
+    const manager = thread.session.sessionManager;
+    const clientMessageId = directId
+      ?? (manager?.getBranch ? clientMessageIdForMessage(manager.getBranch(), message) : undefined);
+    if (clientMessageId) this.forgetClientMessageId(thread, clientMessageId);
+    return directId || !clientMessageId ? message : { ...value, clientMessageId };
   }
 
   private messageSnapshot(thread: ThreadRuntime): UiMessage[] {
@@ -2213,6 +2620,7 @@ export class PiHost {
     const messages = this.branchMessagesWithEntryIds(thread)
       .map((message, index) => mapMessage(message, index, mapping))
       .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
+    messages.push(...(thread.adapterMessages ?? []));
     // Text still streaming is not in the session yet; without it a thread opened
     // mid-answer would look silent until the answer finished.
     const live = thread.liveAssistant;
@@ -2270,28 +2678,32 @@ export class PiHost {
   private normalizeThreadPrompt(thread: ThreadRuntime, text: string): string {
     return normalizeSkillInvocationForRuntime(
       text,
-      thread.skillRuntimeAdapter,
+      thread.runtimeAdapter,
       this.composerCommands(thread),
     );
   }
 
-  private bridgeRuntimeCapabilities(): RuntimeCapabilities {
-    return this.bridgeSnapshot?.runtimeCapabilities ?? PI_RUNTIME_ADAPTER.capabilities;
+  private isExtensionCommand(thread: ThreadRuntime, text: string): boolean {
+    if (!text.startsWith("/")) return false;
+    const commandName = text.slice(1).split(/[ \t\r\n]/u, 1)[0];
+    return this.composerCommands(thread).some((command) => command.source === "extension" && command.name === commandName);
   }
 
-  private bridgeSkillRuntimeAdapter(): SkillRuntimeAdapter {
-    return { capabilities: this.bridgeRuntimeCapabilities() };
+  private bridgeRuntimeAdapter(): AgentRuntimeAdapter {
+    // The bridge is implemented by Pi itself. Its model provider is unrelated
+    // to the Pi command dialect, so the host never derives this from snapshot.model.
+    return PI_AGENT_RUNTIME_ADAPTER;
   }
 
   private messageMappingOptions(thread?: LiveTurnState): MessageMappingOptions {
-    if (thread instanceof ThreadRuntime) {
+    if (isThreadRuntime(thread)) {
       return {
-        skillRuntimeAdapter: thread.skillRuntimeAdapter,
+        runtimeAdapter: thread.runtimeAdapter,
         skillCommands: this.composerCommands(thread),
       };
     }
     return {
-      skillRuntimeAdapter: this.bridgeSkillRuntimeAdapter(),
+      runtimeAdapter: this.bridgeRuntimeAdapter(),
       skillCommands: this.bridgeSnapshot?.composerCommands ?? [],
     };
   }
@@ -2300,20 +2712,21 @@ export class PiHost {
     if (this.bridgeSnapshot) return { ...this.bridgeHostSnapshot(), models };
     const thread = this.requireActive();
     const session = thread.session;
-    const firstUserMessage = session.messages.find((message) => message.role === "user");
     const branchMessages = this.branchMessagesWithEntryIds(thread);
+    const messages = this.messageSnapshot(thread);
+    const firstUserMessage = messages.find((message) => message.role === "user");
     const usage = session.getContextUsage();
     return {
       cwd: this.cwd,
       sessionId: session.sessionId,
-      sessionName: session.sessionName ? cleanThreadTitle(session.sessionName) : undefined,
-      sessionTitle: cleanThreadTitle(session.sessionName || firstSentence(firstUserMessage ? textFromContent(firstUserMessage.content) : "")),
+      sessionName: safeSessionTitle(session.sessionName),
+      sessionTitle: cleanThreadTitle(safeSessionTitle(session.sessionName) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
       model: session.model ? mapModel(session.model) : undefined,
       models,
       thinkingLevel: session.thinkingLevel,
       thinkingLevels: session.getAvailableThinkingLevels(),
-      messages: this.messageSnapshot(thread),
-      isStreaming: session.isStreaming,
+      messages,
+      isStreaming: session.isStreaming || thread.adapterStreaming,
       activeTools: session.getActiveToolNames(),
       turnActivity: this.turnActivity(thread, branchMessages),
       taskProgress: taskProgressFromMessages(branchMessages),

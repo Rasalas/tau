@@ -22,6 +22,38 @@ describe("session index reconciliation", () => {
     ])).toBe("user: Visible request");
   });
 
+  it("removes runtime skill wrappers from fallback title context", () => {
+    const wrapper = `<skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions\n</skill>\n\nReview the parser`;
+    const conversation = buildTitleConversation([{ role: "user", content: wrapper }]);
+    expect(conversation).toBe("user: Review the parser");
+    expect(conversation).not.toContain("Injected instructions");
+    expect(conversation).not.toContain("/Users/me/.pi/skills");
+  });
+
+  it("uses a sanitized fallback for malformed runtime wrappers", () => {
+    const malformed = `<skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions\n</skill`;
+    const conversation = buildTitleConversation([{ role: "user", content: malformed }]);
+    expect(conversation).toBe("user: Skill invocation");
+    expect(conversation).not.toContain("Injected instructions");
+    expect(conversation).not.toContain("/Users/me/.pi/skills");
+  });
+
+  it("sanitizes malformed wrappers even when their opening tag is split", () => {
+    const malformed = `<skill\nname="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions`;
+    const conversation = buildTitleConversation([{ role: "user", content: malformed }]);
+    expect(conversation).toBe("user: Skill invocation");
+    expect(conversation).not.toContain("Injected instructions");
+    expect(conversation).not.toContain("/Users/me/.pi/skills");
+  });
+
+  it("sanitizes a malformed wrapper after leading blank lines", () => {
+    const malformed = `\n  <skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions`;
+    const conversation = buildTitleConversation([{ role: "user", content: malformed }]);
+    expect(conversation).toBe("user: Skill invocation");
+    expect(conversation).not.toContain("Injected instructions");
+    expect(conversation).not.toContain("/Users/me/.pi/skills");
+  });
+
   it("does not rename or reorder an existing shell merely because it was selected", () => {
     const existing = shell("selected", 100, "Stable title");
     const selected = reconcileActiveThreadShell({

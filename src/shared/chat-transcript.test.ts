@@ -22,4 +22,15 @@ describe("formatChatTranscript", () => {
     expect(markdown).not.toContain("secret");
     expect(markdown).not.toContain("large output");
   });
+
+  it("preserves visible user Markdown whitespace in the export", () => {
+    const userText = "  Review this:\n    keep indentation\n\n```md\n  keep this fence\n```  ";
+    const markdown = formatChatTranscript({
+      cwd: "/repo",
+      sessionId: "session",
+      exportedAt: new Date("2026-08-30T12:00:00.000Z"),
+      messages: [{ role: "user", content: [{ type: "text", text: userText }] }],
+    });
+    expect(markdown).toContain(`## User\n\n${userText}`);
+  });
 });

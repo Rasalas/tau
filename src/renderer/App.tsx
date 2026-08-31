@@ -164,24 +164,25 @@ interface OptimisticUserMessage {
   message: UiMessage;
 }
 
+let fallbackClientMessageCounter = 0;
+
+export function createClientMessageId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (randomUUID) return randomUUID.call(globalThis.crypto);
+  fallbackClientMessageCounter += 1;
+  return `client-${Date.now()}-${fallbackClientMessageCounter}`;
+}
+
 export function reconcileOptimisticMessages(
   pending: readonly OptimisticUserMessage[],
   authoritative: readonly UiMessage[],
 ): OptimisticUserMessage[] {
-  const confirmed = authoritative.filter((message) => message.role === "user");
-  const used = new Set<number>();
-  return pending.filter((entry) => {
-    const index = confirmed.findIndex((message, at) =>
-      !used.has(at)
-      && Math.abs(message.timestamp - entry.message.timestamp) <= 30_000
-      // Skill messages are host-resolved, so their visible text no longer
-      // equals the renderer's shorthand. Their typed metadata is the match.
-      && (message.text === entry.message.text || Boolean(message.skill)),
-    );
-    if (index < 0) return true;
-    used.add(index);
-    return false;
-  });
+  const confirmed = new Set(authoritative
+    .filter((message) => message.role === "user" && message.clientMessageId)
+    .map((message) => message.clientMessageId));
+  // Correlation is deliberately id-only. Timestamps and visible text are not
+  // identities: equal prompts and delayed/out-of-order events are valid.
+  return pending.filter((entry) => !entry.message.clientMessageId || !confirmed.has(entry.message.clientMessageId));
 }
 
 function elapsedLabel(ms: number): string {
@@ -592,6 +593,14 @@ export default function App() {
     // A real user message starts new work even when its thread is off-screen.
     // Recovered run status alone must not undo an explicit settled choice.
     if (event.type === "user-message") preferences.unsettle(event.sessionId);
+    if (event.type === "user-message-failed") {
+      // Bridge commands acknowledge dispatch before the runtime completes. A
+      // later failure still reconciles by the same request id, even if the
+      // user switched threads in the meantime.
+      setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
+      if (event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
+      return;
+    }
     // Every thread streams from its own runtime. Transcript and tool events for a
     // thread that is not on screen are dropped here; its persisted state is
     // re-read when it is opened.
@@ -1357,8 +1366,10 @@ export default function App() {
       return;
     }
     const optimisticText = text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`;
+    const clientMessageId = createClientMessageId();
     const optimistic: UiMessage = {
-      id: `local-${Date.now()}`,
+      id: `local-${clientMessageId}`,
+      clientMessageId,
       role: "user",
       text: optimisticText,
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
@@ -1370,7 +1381,7 @@ export default function App() {
         setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
         try {
           if (!window.tau) throw new Error("Steering requires the Electron host.");
-          await window.tau.steer(text, attachments, snapshot?.sessionId);
+          await window.tau.steer(text, attachments, snapshot?.sessionId, clientMessageId);
         } catch (error) {
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           writeComposerDraft(window.localStorage, activeDraftKey, text);
@@ -1382,7 +1393,7 @@ export default function App() {
         setQueue((current) => [...current, queuedText]);
         try {
           if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
-          await window.tau.followUp(text, attachments, snapshot?.sessionId);
+          await window.tau.followUp(text, attachments, snapshot?.sessionId, clientMessageId);
         } catch (error) {
           setQueue((current) => {
             const index = current.lastIndexOf(queuedText);
@@ -1401,7 +1412,7 @@ export default function App() {
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
-        const result = await window.tau.newSession(text, attachments, pending.projectPath);
+        const result = await window.tau.newSession(text, attachments, pending.projectPath, clientMessageId);
         const created = result.updates.find((update) => update.type === "thread-detail");
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
         if (sessionId) {
@@ -1451,7 +1462,7 @@ export default function App() {
     setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
     if (window.tau) {
       try {
-        await window.tau.sendPrompt(text, attachments, snapshot?.sessionId);
+        await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientMessageId);
         await registry.notifyPromptSubmitted({ prompt: text, snapshot }, actions);
       } catch (error) {
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));

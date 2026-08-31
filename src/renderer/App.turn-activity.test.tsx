@@ -210,7 +210,7 @@ describe("last-turn activity", () => {
     fireEvent.change(composer, { target: { value: "after this turn" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(followUp).toHaveBeenCalledWith("after this turn", [], "session"));
+    await waitFor(() => expect(followUp).toHaveBeenCalledWith("after this turn", [], "session", expect.any(String)));
     expect(steer).not.toHaveBeenCalled();
     expect(screen.getByTitle("after this turn")).toBeTruthy();
   });
@@ -227,7 +227,7 @@ describe("last-turn activity", () => {
     fireEvent.change(composer, { target: { value: "use this now" } });
     fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
 
-    await waitFor(() => expect(steer).toHaveBeenCalledWith("use this now", [], "session"));
+    await waitFor(() => expect(steer).toHaveBeenCalledWith("use this now", [], "session", expect.any(String)));
     expect(screen.getByText("use this now")).toBeTruthy();
   });
 

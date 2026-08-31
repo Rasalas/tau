@@ -3,10 +3,9 @@ import type { UiComposerCommand } from "../shared/contracts.js";
 import {
   normalizeSkillInvocationForRuntime,
   normalizePiBridgePrompt,
-  parseSkillEnvelope,
-  parseSkillInvocation,
   PI_RUNTIME_ADAPTER,
   skillMessagePresentation,
+  visibleSkillEnvelopeText,
   type SkillRuntimeAdapter,
 } from "./skill-invocation.js";
 
@@ -41,7 +40,7 @@ describe("skill runtime boundary", () => {
     expect(presentation?.text).not.toContain("Injected instructions");
     expect(presentation?.text).not.toContain("References are relative");
     expect(presentation?.skill.copyText).not.toContain("/Users/me/.pi/skills");
-    expect(parseSkillEnvelope(expanded)?.location).toBe("/Users/me/.pi/skills/tdd/SKILL.md");
+    expect(visibleSkillEnvelopeText(expanded)).toBe("Review **the parser** and preserve this Markdown.");
   });
 
   it("preserves user line whitespace, including indented and fenced Markdown", () => {
@@ -58,11 +57,18 @@ describe("skill runtime boundary", () => {
 
   it("does not close an envelope on a top-level-looking tag inside a fenced body", () => {
     const text = "<skill name=\"tdd\" location=\"/tmp/tdd\">\n```md\n</skill>\n```\n</skill>\n\nKeep this example.";
-    expect(parseSkillEnvelope(text)).toMatchObject({
-      name: "tdd",
-      body: "```md\n</skill>\n```\n",
-      userMessage: "Keep this example.",
-    });
+    expect(skillMessagePresentation(text, PI_RUNTIME_ADAPTER, commands)?.text).toBe("Keep this example.");
+  });
+
+  it("recognizes a structurally valid envelope with wrapped attributes", () => {
+    const text = "  <skill\n    location=\"/tmp/tdd\"\n    name=\"tdd\"\n  >\nbody\n</skill>\n\nKeep this example.";
+    expect(skillMessagePresentation(text, PI_RUNTIME_ADAPTER, commands)?.text).toBe("Keep this example.");
+    expect(normalizeSkillInvocationForRuntime(text, PI_RUNTIME_ADAPTER, commands)).toBe("/skill:tdd Keep this example.");
+  });
+
+  it("recognizes an envelope after Markdown-safe leading blank lines", () => {
+    const text = "\n  <skill name=\"tdd\" location=\"/tmp/tdd\">\nbody\n  </skill>\n\nKeep this example.";
+    expect(skillMessagePresentation(text, PI_RUNTIME_ADAPTER, commands)?.text).toBe("Keep this example.");
   });
 
   it("uses the explicit runtime adapter dialect, independent of model provider ids", () => {
@@ -82,11 +88,12 @@ describe("skill runtime boundary", () => {
     const malformed = expanded.replace("</skill>", "</skill");
     const fenced = `\`\`\`xml\n${expanded}\n\`\`\``;
     const indented = `    /tdd do not rewrite this code`;
+    const indentedEnvelope = `  ${expanded}`;
     for (const text of [unknown, malformed, fenced, indented]) {
-      expect(parseSkillInvocation(text, commands)).toBeUndefined();
       expect(normalizeSkillInvocationForRuntime(text, claudeCodeAdapter, commands)).toBe(text);
       expect(skillMessagePresentation(text, claudeCodeAdapter, commands)).toBeUndefined();
     }
+    expect(normalizeSkillInvocationForRuntime(indentedEnvelope, claudeCodeAdapter, commands)).toBe("/tdd Review **the parser** and preserve this Markdown.");
   });
 
   it("does not steal a colliding slash command from an extension or prompt", () => {
@@ -94,7 +101,6 @@ describe("skill runtime boundary", () => {
       ...commands,
       { name: "skill:review", source: "skill" as const },
     ];
-    expect(parseSkillInvocation("/review this", collision)).toBeUndefined();
     expect(normalizeSkillInvocationForRuntime("/review this", claudeCodeAdapter, collision)).toBe("/review this");
   });
 });

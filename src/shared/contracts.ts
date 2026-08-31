@@ -19,7 +19,7 @@ export interface RuntimeCapabilities {
 /** Host-resolved metadata for a user skill invocation. */
 export interface UiSkillInvocation {
   name: string;
-  /** Provider/runtime-supported command spelling, without the user instruction. */
+  /** Runtime-adapter-supported command spelling, without the user instruction. */
   command: string;
   /** Compact text safe to copy back into this runtime. */
   copyText: string;
@@ -29,6 +29,8 @@ export interface UiMessage {
   id: string;
   /** Persisted Pi session entry used for exact branch/fork operations. */
   sourceEntryId?: string;
+  /** Stable renderer-to-runtime correlation id for this user turn. */
+  clientMessageId?: string;
   role: UiRole;
   text: string;
   /** Present only when the host recognized a known skill invocation. */
@@ -379,6 +381,7 @@ export type HostEvent =
   | { type: "assistant-thinking"; sessionId: string; id: string; delta: string }
   | { type: "assistant-end"; sessionId: string; message: UiMessage }
   | { type: "user-message"; sessionId: string; message: UiMessage }
+  | { type: "user-message-failed"; sessionId: string; clientMessageId: string; message: string }
   | { type: "tool-start"; sessionId: string; tool: UiToolRun }
   | { type: "tool-update"; sessionId: string; id: string; output: string }
   | { type: "tool-end"; sessionId: string; tool: UiToolRun }
@@ -426,13 +429,13 @@ export interface TauDesktopApi {
   bootstrap(): Promise<HostBootstrap>;
   loadTranscript(sessionId: string, cursor?: string): Promise<import("./host-protocol.js").TranscriptPage>;
   /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
-  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
-  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
-  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string): Promise<void>;
+  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageId?: string): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;

@@ -143,6 +143,43 @@ describe("Message skill invocations", () => {
     expect(view.container.querySelector("pre")).toBeTruthy();
   });
 
+  it.each(["dark", "light"])("keeps the icon and text label available in the %s theme", (theme) => {
+    document.documentElement.dataset.theme = theme;
+    render(<Message message={{
+      id: `skill-${theme}`,
+      role: "user",
+      text: "Continue the implementation",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Continue the implementation" },
+      timestamp: 0,
+    }} />);
+
+    expect(screen.getByRole("img", { name: "Skill tdd" })).toBeTruthy();
+    expect(screen.getByText("Skill")).toBeTruthy();
+    expect(screen.getByText("tdd")).toBeTruthy();
+    cleanup();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("keeps skill copy keyboard-accessible while exposing a non-color label", () => {
+    const onCopy = vi.fn();
+    render(<Message message={{
+      id: "skill-copy",
+      role: "user",
+      text: "Fix the parser",
+      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd Fix the parser" },
+      timestamp: 0,
+    }} onCopy={onCopy} />);
+
+    const chip = screen.getByRole("img", { name: "Skill tdd" });
+    expect(chip.textContent).toContain("Skill");
+    const copy = screen.getByRole("button", { name: "Copy" });
+    copy.focus();
+    expect(document.activeElement).toBe(copy);
+    fireEvent.keyDown(copy, { key: "Enter" });
+    fireEvent.click(copy);
+    expect(onCopy).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves malformed and fenced lookalikes visible as ordinary Markdown", () => {
     const unknown = `<skill name="missing" location="/Users/me/.pi/skills/missing/SKILL.md">\nInjected skill content\n</skill>\n\nPlease keep this raw.`;
     const unknownView = render(<Message

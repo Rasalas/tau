@@ -10,29 +10,24 @@ export interface SkillRuntimeAdapter {
   readonly capabilities: RuntimeCapabilities;
 }
 
-/** The embedded Pi runtime is the default adapter; future adapters can opt into another dialect. */
+/** The embedded Pi runtime is the default adapter. */
 export const PI_RUNTIME_ADAPTER = {
   capabilities: { skillInvocationDialect: "pi" },
 } as const satisfies SkillRuntimeAdapter;
 
-export interface ParsedSkillEnvelope {
-  kind: "expanded";
+/*
+ * These parser records are deliberately private. Only the normalized visible
+ * text and typed chip metadata cross the host/renderer boundary; wrapper body,
+ * location, syntax and raw input stay inside the runtime-owner parser.
+ */
+interface InternalSkillInvocation {
   name: string;
-  location: string;
-  body: string;
   userMessage: string;
-  raw: string;
 }
 
-export interface ParsedSkillReference {
-  kind: "reference";
+interface SkillReferenceToken {
   name: string;
-  syntax: "slash" | "dollar" | "pi";
-  userMessage: string;
-  raw: string;
 }
-
-export type ParsedSkillInvocation = ParsedSkillEnvelope | ParsedSkillReference;
 
 const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 
@@ -50,7 +45,7 @@ function decodeAttribute(value: string): string {
 function openingTagEnd(text: string): number | undefined {
   if (!text.startsWith("<skill")) return undefined;
   const boundary = text[6];
-  if (boundary !== ">" && boundary !== " " && boundary !== "\t") return undefined;
+  if (boundary !== ">" && !/[ \t\r\n]/u.test(boundary ?? "")) return undefined;
 
   let quote: '"' | "'" | undefined;
   for (let index = 6; index < text.length; index += 1) {
@@ -64,7 +59,6 @@ function openingTagEnd(text: string): number | undefined {
       continue;
     }
     if (character === ">") return index;
-    if (character === "\n" || character === "\r") return undefined;
   }
   return undefined;
 }
@@ -77,15 +71,15 @@ function parseOpeningTag(text: string): { end: number; name: string; location: s
   let offset = 0;
 
   while (offset < attributes.length) {
-    while (offset < attributes.length && /[ \t]/u.test(attributes[offset] ?? "")) offset += 1;
+    while (offset < attributes.length && /[ \t\r\n]/u.test(attributes[offset] ?? "")) offset += 1;
     if (offset === attributes.length) break;
     const key = /^[A-Za-z][A-Za-z0-9:_-]*/u.exec(attributes.slice(offset));
     if (!key) return undefined;
     offset += key[0].length;
-    while (offset < attributes.length && /[ \t]/u.test(attributes[offset] ?? "")) offset += 1;
+    while (offset < attributes.length && /[ \t\r\n]/u.test(attributes[offset] ?? "")) offset += 1;
     if (attributes[offset] !== "=") return undefined;
     offset += 1;
-    while (offset < attributes.length && /[ \t]/u.test(attributes[offset] ?? "")) offset += 1;
+    while (offset < attributes.length && /[ \t\r\n]/u.test(attributes[offset] ?? "")) offset += 1;
     const quote = attributes[offset];
     if (quote !== '"' && quote !== "'") return undefined;
     offset += 1;
@@ -126,8 +120,12 @@ function stripEnvelopeSeparator(text: string): string {
 }
 
 /** Parse only a complete, top-level Pi expansion; malformed/fenced lookalikes return undefined. */
-export function parseSkillEnvelope(raw: string): ParsedSkillEnvelope | undefined {
-  const text = raw.startsWith("\uFEFF") ? raw.slice(1) : raw;
+function parseSkillEnvelope(raw: string): InternalSkillInvocation | undefined {
+  const withoutBom = raw.startsWith("\uFEFF") ? raw.slice(1) : raw;
+  // Allow Markdown-safe leading blank lines and up to three spaces/tabs on
+  // the opening line. Four-space indentation remains a code-block fallback.
+  const prefix = /^(?:(?:[ \t]{0,3})\r?\n)*[ \t]{0,3}/u.exec(withoutBom)?.[0] ?? "";
+  const text = withoutBom.slice(prefix.length);
   const opening = parseOpeningTag(text);
   if (!opening) return undefined;
   const openingLine = lineEnd(text, opening.end + 1);
@@ -143,14 +141,10 @@ export function parseSkillEnvelope(raw: string): ParsedSkillEnvelope | undefined
     } else {
       const started = fenceStart(line);
       if (started) fence = started;
-      else if (/^<\/skill>[ \t]*$/u.test(line)) {
+      else if (/^ {0,3}<\/skill>[ \t]*$/u.test(line)) {
         return {
-          kind: "expanded",
           name: opening.name,
-          location: opening.location,
-          body: text.slice(openingLine.next, cursor),
           userMessage: stripEnvelopeSeparator(text.slice(current.next)),
-          raw,
         };
       }
     }
@@ -178,41 +172,38 @@ function instructionAfterToken(text: string, end: number): string {
   return /^[ \t]/u.test(suffix) ? suffix.slice(1) : suffix;
 }
 
-function invocationName(token: string): { name: string; syntax: "slash" | "dollar" | "pi" } | undefined {
+function invocationName(token: string): SkillReferenceToken | undefined {
   if (!token.startsWith("skill:")) return undefined;
   const name = token.slice("skill:".length);
-  return SKILL_NAME.test(name) ? { name, syntax: "pi" } : undefined;
+  return SKILL_NAME.test(name) ? { name } : undefined;
 }
 
 /** Parse a known shorthand at the beginning of a user message. */
-export function parseSkillReference(raw: string, commands: readonly UiComposerCommand[]): ParsedSkillReference | undefined {
+function parseSkillReference(raw: string, commands: readonly UiComposerCommand[]): InternalSkillInvocation | undefined {
   const match = /^( {0,3})([$/])([^\s]+)(?=[ \t\r\n]|$)/u.exec(raw);
   if (!match) return undefined;
   const token = match[3];
   const parsedName = token.startsWith("skill:")
     ? invocationName(token)
-    : SKILL_NAME.test(token) ? { name: token, syntax: match[2] === "$" ? "dollar" as const : "slash" as const } : undefined;
+    : SKILL_NAME.test(token) ? { name: token } : undefined;
   if (!parsedName || !knownSkillNames(commands).has(parsedName.name)) return undefined;
   if (match[2] === "/" && !token.startsWith("skill:") && commands.some((command) => command.source !== "skill" && command.name === parsedName.name)) {
     return undefined;
   }
   return {
-    kind: "reference",
     name: parsedName.name,
-    syntax: parsedName.syntax,
     userMessage: instructionAfterToken(raw, match[0].length),
-    raw,
   };
 }
 
 /** Parse a known expanded envelope or shorthand; unknown input is deliberately not classified. */
-export function parseSkillInvocation(raw: string, commands: readonly UiComposerCommand[]): ParsedSkillInvocation | undefined {
+function parseSkillInvocation(raw: string, commands: readonly UiComposerCommand[]): InternalSkillInvocation | undefined {
   const envelope = parseSkillEnvelope(raw);
   if (envelope) return knownSkillNames(commands).has(envelope.name) ? envelope : undefined;
   return parseSkillReference(raw, commands);
 }
 
-export function formatSkillInvocation(name: string, userMessage: string, dialect: SkillInvocationDialect): string {
+function formatSkillInvocation(name: string, userMessage: string, dialect: SkillInvocationDialect): string {
   const command = dialect === "claude-code" ? `/${name}` : `/skill:${name}`;
   return userMessage ? `${command} ${userMessage}` : command;
 }
@@ -232,6 +223,11 @@ export function normalizeSkillInvocationForRuntime(
 /** Bridge-owned Pi runtime normalization, kept separate from host transport code. */
 export function normalizePiBridgePrompt(raw: string, commands: readonly UiComposerCommand[]): string {
   return normalizeSkillInvocationForRuntime(raw, PI_RUNTIME_ADAPTER, commands);
+}
+
+/** Structurally hide an expanded wrapper from sidebar/title seeds without classifying a skill. */
+export function visibleSkillEnvelopeText(raw: string): string | undefined {
+  return parseSkillEnvelope(raw)?.userMessage;
 }
 
 export interface SkillMessagePresentation {

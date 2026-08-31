@@ -12,7 +12,7 @@ export interface ChatTranscriptInput {
 }
 
 function contentText(content: unknown): string {
-  if (typeof content === "string") return content.trim();
+  if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.map((part) => {
     if (!part || typeof part !== "object") return "";
@@ -20,7 +20,7 @@ function contentText(content: unknown): string {
     if (item.type === "text") return item.text ?? "";
     if (item.type === "image") return "[Image attachment]";
     return "";
-  }).filter(Boolean).join("\n\n").trim();
+  }).filter(Boolean).join("\n\n");
 }
 
 function oneLine(value: string | undefined, fallback: string): string {
@@ -32,7 +32,7 @@ export function formatChatTranscript(input: ChatTranscriptInput): string {
   const messages = input.messages.flatMap((message) => {
     if (message.role !== "user" && message.role !== "assistant") return [];
     const text = contentText(message.content);
-    return text ? [{ role: message.role, text }] : [];
+    return text.trim() ? [{ role: message.role, text }] : [];
   });
   const sections = messages.map(({ role, text }) => `## ${role === "user" ? "User" : "Assistant"}\n\n${text}`);
   const title = oneLine(input.title, "Tau conversation");

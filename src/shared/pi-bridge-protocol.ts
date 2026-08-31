@@ -23,8 +23,10 @@ export interface PiBridgeSnapshot {
   messages: unknown[];
   isStreaming: boolean;
   model?: { provider: string; id: string; name?: string };
-  /** Runtime-owned skill syntax; absent only for older Pi bridges. */
+  /** Syntax supported by the attached runtime adapter; absent only for older bridges. */
   runtimeCapabilities?: RuntimeCapabilities;
+  /** Request ids canceled while the bridge was restarted; consumed by the host during attach. */
+  failedClientMessageIds?: string[];
   models: Array<{ provider: string; id: string; name?: string }>;
   thinkingLevel: string;
   thinkingLevels: string[];
@@ -40,7 +42,7 @@ export interface PiBridgeSnapshot {
 }
 
 export type PiBridgeCommand =
-  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp" }
+  | { command: "prompt"; text: string; deliverAs?: "steer" | "followUp"; clientMessageId?: string }
   | { command: "abort" }
   | { command: "set_thinking"; level: string }
   | { command: "set_model"; provider: string; id: string }
@@ -48,7 +50,7 @@ export type PiBridgeCommand =
   | { command: "reload" }
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
-  | { command: "new_session"; initialPrompt?: string }
+  | { command: "new_session"; initialPrompt?: string; clientMessageId?: string }
   | { command: "export_markdown" }
   | { command: "snapshot" }
   | { command: "ping" };
