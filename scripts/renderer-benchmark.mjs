@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
@@ -16,6 +17,13 @@ const check = args.includes("--check");
 const skipBuild = args.includes("--no-build");
 const outputArg = args.find((arg) => !arg.startsWith("--"));
 const outputPath = outputArg ? (isAbsolute(outputArg) ? outputArg : join(ROOT, outputArg)) : join(ROOT, "reports/renderer-report.json");
+const seriesId = process.env.TAU_BENCHMARK_SERIES_ID ?? null;
+const seriesSide = process.env.TAU_BENCHMARK_SERIES_SIDE ?? null;
+const archivePath = process.env.TAU_BENCHMARK_ARCHIVE ? resolve(process.env.TAU_BENCHMARK_ARCHIVE) : null;
+const archiveSequenceOffset = Number(process.env.TAU_BENCHMARK_SEQUENCE_OFFSET ?? 0);
+if (!Number.isInteger(archiveSequenceOffset) || archiveSequenceOffset < 0) throw new Error("benchmark archive sequence offset is malformed");
+let archiveSequence = archiveSequenceOffset;
+if (archivePath && (!seriesId || !seriesSide)) throw new Error("benchmark archive requires a series ID and side");
 
 function percentile(values, p) {
   if (values.length === 0) return 0;
@@ -38,6 +46,14 @@ function commitSha() {
 function requireSha(value, label, length) {
   if (!new RegExp(`^[0-9a-f]{${length}}$`).test(value ?? "")) throw new Error(`${label} is missing or malformed`);
   return value;
+}
+
+function loadMetadata() {
+  return {
+    logicalCores: os.cpus().length,
+    loadAverage1m: os.loadavg()[0],
+    loadAverage5m: os.loadavg()[1],
+  };
 }
 
 const reportCommit = requireSha(commitSha(), "report commit", 40);
@@ -88,6 +104,7 @@ if (!skipBuild) run("npm", ["run", "build"]);
 function sampleScenario(scenario) {
   const samples = [];
   for (let runIndex = 0; runIndex < fixture.startConditions.warmupRuns + fixture.startConditions.sampleRuns; runIndex += 1) {
+    const startedAt = new Date().toISOString();
     const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id, JSON.stringify(scenario)]);
     const line = stdout.trim().split("\n").reverse().find((candidate) => candidate.startsWith("{"));
     if (!line) throw new Error(`renderer fixture returned no JSON for ${scenario.id}`);
@@ -131,6 +148,25 @@ function sampleScenario(scenario) {
     }
     if (scenario.id === "long-user-message" && (!result.longMessageInteraction || !["expand", "prop-update"].includes(result.longMessageInteraction.mode) || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
       throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
+    }
+    if (archivePath) {
+      const archiveRecord = {
+        event: "sample",
+        seriesId,
+        side: seriesSide,
+        sequence: archiveSequence++,
+        runId: `${seriesId}:${seriesSide}:${scenario.id}:${runIndex}`,
+        scenario: scenario.id,
+        scenarioIndex: fixture.scenarios.findIndex((candidate) => candidate.id === scenario.id),
+        runIndex,
+        phase: runIndex < fixture.startConditions.warmupRuns ? "warmup" : "sample",
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        load: loadMetadata(),
+        result,
+      };
+      mkdirSync(dirname(archivePath), { recursive: true });
+      appendFileSync(archivePath, `${JSON.stringify(archiveRecord)}\n`);
     }
     if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
   }
@@ -196,6 +232,7 @@ const report = {
     parallelRuns: 1,
     harnessFiles,
     harnessPatchFile,
+    ...(archivePath ? { seriesId, seriesSide, archivePath, archiveSequenceCount: archiveSequence } : {}),
     caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
   },
   machine: machineClass(),

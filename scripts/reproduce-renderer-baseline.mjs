@@ -9,8 +9,11 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const subject = process.argv[2] ?? "6ddb4541b02410fa8c462dca4b9bb3b9969d5756";
 const worktree = resolve(process.argv[3] ?? `/tmp/tau-renderer-baseline-${process.pid}`);
 const nodeModules = resolve(process.argv[4] ?? join(ROOT, "node_modules"));
+const outputFile = resolve(process.argv[5] ?? join(ROOT, "reports/renderer-baseline-6ddb454.json"));
+const seriesId = process.env.TAU_BENCHMARK_SERIES_ID ?? null;
+const archivePath = process.env.TAU_BENCHMARK_ARCHIVE ?? null;
+const sequenceOffset = process.env.TAU_BENCHMARK_SEQUENCE_OFFSET ?? "0";
 const patchFile = join(ROOT, "reports", "renderer-baseline-6ddb454-harness.patch");
-const outputFile = join(ROOT, "reports", "renderer-baseline-6ddb454.json");
 
 function run(command, args, cwd = ROOT, env = process.env) {
   return execFileSync(command, args, { cwd, env, encoding: "utf8", stdio: "inherit" });
@@ -33,6 +36,8 @@ try {
     TAU_BENCHMARK_HARNESS_COMMIT: harnessCommit,
     TAU_BENCHMARK_HARNESS_PATCH_FILE: "reports/renderer-baseline-6ddb454-harness.patch",
     TAU_BENCHMARK_HARNESS_PATCH_SHA256: harnessPatchSha256,
+    ...(seriesId ? { TAU_BENCHMARK_SERIES_ID: seriesId, TAU_BENCHMARK_SERIES_SIDE: "base", TAU_BENCHMARK_SEQUENCE_OFFSET: sequenceOffset } : {}),
+    ...(archivePath ? { TAU_BENCHMARK_ARCHIVE: archivePath } : {}),
   });
   const report = JSON.parse(await readFile(outputFile, "utf8"));
   const manifestFiles = report.execution?.harnessFiles;
