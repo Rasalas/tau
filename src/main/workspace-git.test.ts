@@ -21,6 +21,7 @@ import {
   push,
   readProjectGitState,
   repositoryDisplayName,
+  runGitCommand,
   validateWorkspaceSnapshotRefs,
 } from "./workspace-git.js";
 import { turnSnapshotRef, type StoredTurnCheckpoint } from "../shared/turn-checkpoint-codec.js";
@@ -104,6 +105,70 @@ describe("immutable turn snapshots", () => {
         turnId: "turn",
       })).rejects.toThrow();
     } finally {
+      execFileSync("git", ["worktree", "remove", "--force", linked], { cwd, stdio: "ignore" });
+      await Promise.all([
+        rm(linked, { recursive: true, force: true }),
+        rm(cwd, { recursive: true, force: true }),
+      ]);
+    }
+  }, 30_000);
+
+  it("revalidates linked-worktree writers that start during ref enumeration", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-snapshot-race-root-"));
+    const linked = await mkdtemp(join(tmpdir(), "tau-snapshot-race-child-"));
+    let linkedLease: Awaited<ReturnType<WorkspaceCheckpointLeaseManager["acquire"]>> | undefined;
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "seed.txt"), "base\n");
+      execFileSync("git", ["add", "seed.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      execFileSync("git", ["worktree", "add", "-q", "-b", "linked", linked, "HEAD"], { cwd });
+
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      let writerStarted = false;
+      const runGitDuringSweep = async (
+        path: string,
+        args: string[],
+        maxBuffer?: number,
+        signal?: AbortSignal,
+      ): Promise<string> => {
+        if (!writerStarted && args[0] === "for-each-ref") {
+          writerStarted = true;
+          // This lease is acquired after the sweep's first writer snapshot,
+          // but before its ref enumeration. The second lease observation must
+          // therefore protect the pair that is about to be deleted.
+          linkedLease = await manager.acquire(linked, { sessionId: "race-writer", turnId: "turn" });
+          const before = await createWorkspaceSnapshot(linked, { namespace: "race-writer/turn", phase: "before" });
+          await writeFile(join(linked, "seed.txt"), "turn\n");
+          const after = await createWorkspaceSnapshot(linked, { namespace: "race-writer/turn", phase: "after" });
+          expect(before.treeId).not.toBe(after.treeId);
+        }
+        return runGitCommand(path, args, maxBuffer, signal);
+      };
+
+      await cleanupCheckpointRefsForLiveSessions(cwd, [], runGitDuringSweep);
+      expect(writerStarted).toBe(true);
+      await expect(validateWorkspaceSnapshotRefs(
+        cwd,
+        turnSnapshotRef("race-writer", "turn", "before"),
+        turnSnapshotRef("race-writer", "turn", "after"),
+        { sessionId: "race-writer", turnId: "turn" },
+      )).resolves.toBeDefined();
+
+      if (!linkedLease) throw new Error("Linked writer did not acquire its lease.");
+      await linkedLease.release();
+      linkedLease = undefined;
+      await cleanupCheckpointRefsForLiveSessions(cwd, []);
+      await expect(validateWorkspaceSnapshotRefs(
+        cwd,
+        turnSnapshotRef("race-writer", "turn", "before"),
+        turnSnapshotRef("race-writer", "turn", "after"),
+        { sessionId: "race-writer", turnId: "turn" },
+      )).rejects.toThrow();
+    } finally {
+      await linkedLease?.release().catch(() => undefined);
       execFileSync("git", ["worktree", "remove", "--force", linked], { cwd, stdio: "ignore" });
       await Promise.all([
         rm(linked, { recursive: true, force: true }),

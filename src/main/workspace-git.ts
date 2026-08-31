@@ -1129,10 +1129,14 @@ export async function cleanupCheckpointRefsForLiveSessions(
   runGit: GitRunner = git,
 ): Promise<void> {
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
-  const liveLeaseSessions = await listLiveWorkspaceLeaseSessions();
-  const protectedSessionIds = new Set(liveLeaseSessions.map((owner) => {
+  const liveSessionIds = (owners: readonly { sessionId: string }[]): Set<string> => new Set(owners.map((owner) => {
     try { return sanitizeTurnSnapshotComponent(owner.sessionId); } catch { return ""; }
   }).filter(Boolean));
+  // This first observation covers writers that were already active when the
+  // sweep began. It is deliberately repeated after the ref enumeration: a
+  // sibling can acquire its independent linked-worktree lease in between the
+  // first observation and `for-each-ref`, which is the dangerous TOCTOU gap.
+  const protectedSessionIds = liveSessionIds(await listLiveWorkspaceLeaseSessions());
   // Git linked worktrees share one ref namespace but intentionally do not
   // share a mutation lease. Restrict this sweep to sessions belonging to the
   // current canonical checkout; otherwise a quiet worktree could delete a
@@ -1154,6 +1158,7 @@ export async function cleanupCheckpointRefsForLiveSessions(
     .split("\n")
     .map((ref) => ref.trim())
     .filter((ref) => isTurnSnapshotId(ref));
+  for (const sessionId of liveSessionIds(await listLiveWorkspaceLeaseSessions())) protectedSessionIds.add(sessionId);
   const refsForWorkspace = refs.filter((ref) => {
     const sessionId = ref.split("/")[3];
     // If every caller supplied a workspace identity, retain known sessions in
@@ -1189,7 +1194,13 @@ export async function cleanupCheckpointRefsForLiveSessions(
       }
     }
   }
-  await Promise.all(refsForWorkspace.filter((ref) => !valid.has(ref)).map((ref) =>
+  // Revalidate immediately before the destructive batch as well. The Git
+  // ref scan and the linked-worktree lease namespace are separate resources;
+  // an owner discovered here is never eligible for this sweep, even if its
+  // refs appeared in the earlier enumeration.
+  for (const sessionId of liveSessionIds(await listLiveWorkspaceLeaseSessions())) protectedSessionIds.add(sessionId);
+  await Promise.all(refsForWorkspace.filter((ref) => !valid.has(ref)
+    && !protectedSessionIds.has(ref.split("/")[3])).map((ref) =>
     runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
   const checkpointRoot = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints");
   const filesystemRefs = await filesystemManifests(checkpointRoot);
@@ -1205,7 +1216,9 @@ export async function cleanupCheckpointRefsForLiveSessions(
       }
     }
   }
-  await Promise.all(filesystemRefs.filter((path) => !validFilesystem.has(path)).map((path) => rm(path, { force: true })));
+  const protectedBeforeFilesystemGc = liveSessionIds(await listLiveWorkspaceLeaseSessions());
+  await Promise.all(filesystemRefs.filter((path) => !validFilesystem.has(path)
+    && ![...protectedBeforeFilesystemGc].some((sessionId) => path.split(sep).includes(sessionId))).map((path) => rm(path, { force: true })));
   await gcFilesystemSnapshotBlobs(cwd);
 }
 
