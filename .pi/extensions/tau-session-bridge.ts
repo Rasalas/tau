@@ -46,37 +46,55 @@ async function createPiSession(ctx: ExtensionCommandContext, initialPrompt?: str
 export interface NewSessionRequestTracker {
   begin(requestId: NewThreadRequestId): void;
   remove(requestId: NewThreadRequestId): void;
-  markReady(requestId: NewThreadRequestId): void;
+  markReady(requestId: NewThreadRequestId, sessionId: string, bridgeEpoch: string): void;
   requestIdForSnapshot(): NewThreadRequestId | undefined;
-  acknowledge(requestId: NewThreadRequestId): boolean;
+  acknowledge(requestId: NewThreadRequestId, sessionId: string, bridgeEpoch: string): boolean;
+  abort(requestId: NewThreadRequestId, sessionId: string, bridgeEpoch: string): boolean;
+  clear(): void;
 }
 
 /** Keeps a request token alive until Pi receives the host's correlated ACK. */
 export function createNewSessionRequestTracker(): NewSessionRequestTracker {
-  type Entry = { state: "pending" | "ready" };
+  type Entry = { state: "pending" | "ready" | "acked"; sessionId?: string; bridgeEpoch?: string };
   const entries = new Map<NewThreadRequestId, Entry>();
   const remove = (requestId: NewThreadRequestId) => {
-    const entry = entries.get(requestId);
-    if (!entry) return;
     entries.delete(requestId);
   };
   return {
     begin(requestId) {
+      for (const [id, entry] of entries) if (entry.state === "acked") remove(id);
       if (entries.size > 0) throw new Error("Pi is already creating a new thread.");
       entries.set(requestId, { state: "pending" });
     },
     remove,
-    markReady(requestId) {
+    markReady(requestId, sessionId, bridgeEpoch) {
       const entry = entries.get(requestId);
-      if (!entry || entry.state === "ready") return;
-      entry.state = "ready";
+      if (!entry) return;
+      if (entry.sessionId && entry.sessionId !== sessionId) return;
+      entry.sessionId = sessionId;
+      entry.bridgeEpoch = bridgeEpoch;
+      if (entry.state !== "acked") entry.state = "ready";
     },
+    // Keep the acked tombstone in snapshots so a host that lost the ACK
+    // response can reconnect and retry the same idempotent acknowledgement.
     requestIdForSnapshot: () => entries.keys().next().value,
-    acknowledge(requestId) {
-      if (entries.get(requestId)?.state !== "ready") return false;
+    acknowledge(requestId, sessionId, bridgeEpoch) {
+      const entry = entries.get(requestId);
+      if (!entry || !entry.sessionId || !entry.bridgeEpoch
+        || entry.sessionId !== sessionId || entry.bridgeEpoch !== bridgeEpoch) return false;
+      if (entry.state === "acked") return true;
+      if (entry.state !== "ready") return false;
+      entry.state = "acked";
+      return true;
+    },
+    abort(requestId, sessionId, bridgeEpoch) {
+      const entry = entries.get(requestId);
+      if (!entry) return true;
+      if (entry.sessionId && (entry.sessionId !== sessionId || entry.bridgeEpoch !== bridgeEpoch)) return false;
       remove(requestId);
       return true;
     },
+    clear: () => entries.clear(),
   };
 }
 
@@ -111,7 +129,6 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           newSessionRequests.begin(requestId);
         }
         await createPiSession(ctx, initialPrompt);
-        if (requestId) newSessionRequests.markReady(requestId);
       } catch (error) {
         if (requestId) {
           broadcast({ type: "new_session_failed", requestId, message: error instanceof Error ? error.message : String(error) }, ctx);
@@ -237,7 +254,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         epoch: descriptor.epoch,
         snapshot: readySnapshot,
       });
-      if (readySnapshot.newSessionRequestId) newSessionRequests.markReady(readySnapshot.newSessionRequestId);
+      if (readySnapshot.newSessionRequestId) newSessionRequests.markReady(readySnapshot.newSessionRequestId, readySnapshot.sessionId, descriptor.epoch);
       return;
     }
     if (frame.type !== "command" || frame.expectedSessionId !== descriptor.sessionId) {
@@ -253,7 +270,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         case "snapshot": {
           const current = snapshot(ctx);
           respond(client, frame.id, true, current);
-          if (current.newSessionRequestId) newSessionRequests.markReady(current.newSessionRequestId);
+          if (current.newSessionRequestId) newSessionRequests.markReady(current.newSessionRequestId, current.sessionId, descriptor.epoch);
           break;
         }
         case "prompt":
@@ -306,7 +323,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           if (frame.sessionId !== ctx.sessionManager.getSessionId() || frame.bridgeEpoch !== descriptor.epoch) {
             throw new Error("The new-thread acknowledgement does not match this Pi session.");
           }
-          if (!newSessionRequests.acknowledge(frame.requestId)) throw new Error("The new-thread request is no longer pending.");
+          if (!newSessionRequests.acknowledge(frame.requestId, frame.sessionId, frame.bridgeEpoch)) throw new Error("The new-thread acknowledgement is stale or uncorrelated.");
           respond(client, frame.id, true, {
             accepted: true,
             requestId: frame.requestId,
@@ -319,7 +336,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           if (frame.sessionId !== ctx.sessionManager.getSessionId() || frame.bridgeEpoch !== descriptor.epoch) {
             throw new Error("The new-thread abort does not match this Pi session.");
           }
-          newSessionRequests.remove(frame.requestId);
+          if (!newSessionRequests.abort(frame.requestId, frame.sessionId, frame.bridgeEpoch)) throw new Error("The new-thread abort is stale or uncorrelated.");
           respond(client, frame.id, true, { accepted: true, requestId: frame.requestId, sessionId: frame.sessionId, bridgeEpoch: frame.bridgeEpoch });
           break;
         }
@@ -445,5 +462,5 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     awaitingInput = undefined;
     broadcastSnapshot(ctx);
   });
-  pi.on("session_shutdown", async () => { await stop(); });
+  pi.on("session_shutdown", async () => { newSessionRequests.clear(); await stop(); });
 }

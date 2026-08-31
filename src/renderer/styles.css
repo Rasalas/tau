@@ -474,19 +474,16 @@ button > svg { pointer-events: none; }
 .conversation-drop-overlay.invalid-size,
 .conversation-drop-overlay.too-many,
 .conversation-drop-overlay.total-size,
-.conversation-drop-overlay.unknown,
 .conversation-drop-overlay.unavailable { border-color: #d88c83; }
 .conversation-drop-overlay.invalid-type .conversation-drop-card,
 .conversation-drop-overlay.invalid-size .conversation-drop-card,
 .conversation-drop-overlay.too-many .conversation-drop-card,
 .conversation-drop-overlay.total-size .conversation-drop-card,
-.conversation-drop-overlay.unknown .conversation-drop-card,
 .conversation-drop-overlay.unavailable .conversation-drop-card { border-color: #d88c837a; }
 .conversation-drop-overlay.invalid-type .conversation-drop-card strong,
 .conversation-drop-overlay.invalid-size .conversation-drop-card strong,
 .conversation-drop-overlay.too-many .conversation-drop-card strong,
 .conversation-drop-overlay.total-size .conversation-drop-card strong,
-.conversation-drop-overlay.unknown .conversation-drop-card strong,
 .conversation-drop-overlay.unavailable .conversation-drop-card strong { color: #f0aaa0; }
 .conversation-start { overflow: hidden; }
 .conversation-start-screen {

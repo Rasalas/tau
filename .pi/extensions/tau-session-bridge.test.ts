@@ -15,18 +15,27 @@ describe("Tau Pi bridge capability", () => {
     const tracker = createNewSessionRequestTracker();
     const requestId = createNewThreadRequestId("request-lifecycle");
     const foreignId = createNewThreadRequestId("request-foreign");
+    const sessionId = "session-new";
+    const bridgeEpoch = "epoch-new";
 
     tracker.begin(requestId);
     expect(tracker.requestIdForSnapshot()).toBe(requestId);
-    expect(tracker.acknowledge(requestId)).toBe(false);
+    expect(tracker.acknowledge(requestId, sessionId, bridgeEpoch)).toBe(false);
     expect(tracker.requestIdForSnapshot()).toBe(requestId);
-    tracker.markReady(requestId);
+    tracker.markReady(requestId, sessionId, bridgeEpoch);
     expect(tracker.requestIdForSnapshot()).toBe(requestId);
-    expect(tracker.acknowledge(foreignId)).toBe(false);
+    expect(tracker.acknowledge(foreignId, sessionId, bridgeEpoch)).toBe(false);
+    expect(tracker.acknowledge(requestId, sessionId, "stale-epoch")).toBe(false);
     expect(tracker.requestIdForSnapshot()).toBe(requestId);
-    expect(tracker.acknowledge(requestId)).toBe(true);
-    expect(tracker.requestIdForSnapshot()).toBeUndefined();
-    expect(tracker.acknowledge(requestId)).toBe(false);
+    expect(tracker.acknowledge(requestId, sessionId, bridgeEpoch)).toBe(true);
+    expect(tracker.requestIdForSnapshot()).toBe(requestId);
+    expect(tracker.acknowledge(requestId, sessionId, bridgeEpoch)).toBe(true);
+    expect(tracker.acknowledge(requestId, "other-session", bridgeEpoch)).toBe(false);
+    tracker.markReady(requestId, sessionId, "reconnected-epoch");
+    expect(tracker.acknowledge(requestId, sessionId, "reconnected-epoch")).toBe(true);
+    tracker.begin(foreignId);
+    expect(tracker.requestIdForSnapshot()).toBe(foreignId);
+    expect(tracker.abort(foreignId, sessionId, bridgeEpoch)).toBe(true);
   });
 
   it("routes session creation through the registered command boundary", () => {

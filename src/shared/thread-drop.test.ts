@@ -45,7 +45,7 @@ describe("thread drop policy", () => {
       { kind: "file", mimeType: "image/png", size: 1 },
       { kind: "file", mimeType: "image/png" },
     ], true)).toBe("unknown");
-    expect(THREAD_DROP_FEEDBACK.unknown.dropEffect).toBe("none");
+    expect(THREAD_DROP_FEEDBACK.unknown.dropEffect).toBe("copy");
     expect(classifyThreadDrop(true, [{ kind: "other", mimeType: "" }], true)).toBe("unknown");
   });
 });

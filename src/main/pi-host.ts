@@ -519,6 +519,9 @@ class ThreadRuntime implements LiveTurnState {
   }
 
   deferHostEvent(event: ThreadHostEvent): boolean {
+    // Questions must remain answerable while a prepared runtime is binding;
+    // buffering their prompt would deadlock bind until the answer arrives.
+    if (event.type === "extension-ui-prompt" || event.type === "extension-ui-resolved") return false;
     return this.defer({ kind: "host", event });
   }
 
@@ -1416,14 +1419,7 @@ export class PiHost {
       this.pendingBridgeNewSessions.delete(requestId);
       pending.reject(new Error("The new-thread request was aborted."));
       const bridge = this.bridge;
-      if (bridge) {
-        void bridge.command({
-          command: "new_session_abort",
-          requestId,
-          sessionId: bridge.descriptor.sessionId,
-          bridgeEpoch: bridge.descriptor.epoch,
-        }, 3_000).catch((error) => this.log("bridge.new_session.abort_failed", this.errorMessage(error)));
-      }
+      if (bridge) this.abortBridgeNewSession(bridge, requestId, pending);
       break;
     }
   }
@@ -2101,10 +2097,12 @@ export class PiHost {
   private detachBridge(cancelReconnect = true): void {
     if (cancelReconnect) this.bridgeReconnectLoop.cancel();
     if (!this.bridge) return;
-    const detachedEpoch = this.bridge.descriptor.epoch;
+    const bridge = this.bridge;
+    const detachedEpoch = bridge.descriptor.epoch;
     if (cancelReconnect) {
       for (const [requestId, pending] of this.pendingBridgeNewSessions) {
         if (pending.bridgeEpoch !== detachedEpoch) continue;
+        this.abortBridgeNewSession(bridge, requestId, pending);
         this.pendingBridgeNewSessions.delete(requestId);
         pending.reject(new Error("The Pi bridge was detached before the new thread was reported."));
       }
@@ -2140,6 +2138,19 @@ export class PiHost {
       },
       (error) => this.log("bridge.reconnect.retry", this.errorMessage(error)),
     );
+  }
+
+  private abortBridgeNewSession(
+    bridge: PiBridgeClient,
+    requestId: NewThreadRequestId,
+    pending: { observed?: { sessionId: string; sessionFile: string; bridgeEpoch: string } },
+  ): void {
+    void bridge.command({
+      command: "new_session_abort",
+      requestId,
+      sessionId: pending.observed?.sessionId ?? bridge.descriptor.sessionId,
+      bridgeEpoch: bridge.descriptor.epoch,
+    }, 3_000).catch((error) => this.log("bridge.new_session.abort_failed", this.errorMessage(error)));
   }
 
   private acceptPendingBridgeSnapshot(snapshot: PiBridgeSnapshot, transportEpoch?: string): NewThreadRequestId | undefined {

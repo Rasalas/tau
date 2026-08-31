@@ -63,7 +63,9 @@ export const THREAD_DROP_FEEDBACK: Readonly<Record<ThreadDropState, ThreadDropFe
   unknown: {
     title: "Drop will be checked before attaching",
     description: "The file metadata is unavailable until the drop is released.",
-    dropEffect: "none",
+    // Browser DnD exposes an empty FileList during dragover. Keep the target
+    // consumable so the real files arrive with the drop event.
+    dropEffect: "copy",
   },
 };
 
