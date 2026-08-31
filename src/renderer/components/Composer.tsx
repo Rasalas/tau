@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { HostSnapshot, ServiceTier, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, UiContextUsage, UiPromptAttachment, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
+import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
 import { WorkspaceBar } from "./WorkspaceBar";
+import { TaskProgress } from "./TaskProgress";
+import { readComposerDraft, writeComposerDraft } from "../draft-store";
 
 type OpenMenu = "thinking" | "access" | undefined;
 
@@ -67,6 +70,7 @@ export function Composer({
   snapshot,
   value,
   seed,
+  draftStorageKey,
   queue,
   accessLevel,
   contextUsage,
@@ -79,6 +83,12 @@ export function Composer({
   onSetModel,
   onSetThinking,
   onSetServiceTier,
+  prompt,
+  promptsPending = 0,
+  onAnswerPrompt,
+  onCancelPrompt,
+  promptChoices,
+  onPreselectQuestion,
   onSetAccess,
   onCompactContext,
   workspace,
@@ -90,6 +100,7 @@ export function Composer({
   snapshot?: HostSnapshot;
   value?: string;
   seed?: string;
+  draftStorageKey?: string;
   queue: string[];
   accessLevel: AccessLevel;
   contextUsage?: UiContextUsage;
@@ -102,6 +113,14 @@ export function Composer({
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   onSetServiceTier(tier: ServiceTier): void;
+  prompt?: ExtensionUiPrompt;
+  promptsPending?: number;
+  /** `typed` is set when the answer came from the text field rather than a choice. */
+  onAnswerPrompt?(value: string | boolean, typed?: boolean): void;
+  onCancelPrompt?(): void;
+  /** Picks per question of the prompt's questionnaire, answered or waiting. */
+  promptChoices?: Record<number, QuestionnaireChoice>;
+  onPreselectQuestion?(index: number, labels: string[]): void;
   onSetAccess(level: AccessLevel): void;
   onCompactContext(): void;
   workspace?: WorkspaceInfo;
@@ -111,7 +130,7 @@ export function Composer({
   onSwitchRef(ref: string): void;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => readComposerDraft(window.localStorage, draftStorageKey));
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
   const [previewId, setPreviewId] = useState<number>();
@@ -119,12 +138,21 @@ export function Composer({
   const text = value ?? draft;
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (value === undefined) setDraft(readComposerDraft(window.localStorage, draftStorageKey));
+  }, [draftStorageKey, value]);
+  useEffect(() => {
     if (seed !== undefined && value === undefined && seed !== appliedSeed.current) {
       appliedSeed.current = seed;
       setDraft(seed);
     }
   }, [seed, value]);
-  const updateDraft = (next: string) => { if (value === undefined) setDraft(next); onChange?.(next); };
+  const updateDraft = (next: string) => {
+    if (value === undefined) {
+      setDraft(next);
+      writeComposerDraft(window.localStorage, draftStorageKey, next);
+    }
+    onChange?.(next);
+  };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const fastTier = snapshot?.serviceTier === "fast";
   const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
@@ -144,7 +172,22 @@ export function Composer({
     if (accepted.length > 0) setAttachments((current) => [...current, ...accepted].slice(0, MAX_ATTACHMENTS));
   };
 
+  // An editor prompt arrives with text to edit; seed the field once.
+  const seededPromptRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!prompt || seededPromptRef.current === prompt.id) return;
+    seededPromptRef.current = prompt.id;
+    if (prompt.prefill) updateDraft(prompt.prefill);
+  }, [prompt, updateDraft]);
+
+  const answerable = prompt && prompt.answerElsewhere !== true;
   const submitCurrent = () => {
+    if (answerable && prompt) {
+      if (!text.trim()) return;
+      onAnswerPrompt?.(text, true);
+      updateDraft("");
+      return;
+    }
     if (!text.trim() && attachments.length === 0) return;
     onSubmit(text, attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment));
     updateDraft("");
@@ -155,6 +198,17 @@ export function Composer({
 
   return (
     <footer className="composer-zone">
+      {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
+      {prompt ? (
+        <ExtensionPrompt
+          prompt={prompt}
+          pending={promptsPending}
+          choices={promptChoices}
+          onAnswer={(value) => { onAnswerPrompt?.(value); updateDraft(""); }}
+          onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
+          onPreselect={onPreselectQuestion}
+        />
+      ) : null}
       {queue.length > 0 ? (
         <div className="composer-queue">
           {queue.map((entry, index) => (
@@ -170,7 +224,7 @@ export function Composer({
       ) : null}
 
       <div
-        className={`composer-frame ${queue.length > 0 ? "stacked" : ""}`}
+        className={`composer-frame ${queue.length > 0 || prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
         onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
         onDrop={(event) => {
           if (event.dataTransfer.files.length === 0) return;
@@ -218,9 +272,11 @@ export function Composer({
             }
           }}
           placeholder={
-            streaming
-              ? "Steer the run — ↵ queues it for the agent"
-              : "Direct the agent — @ files, / commands, ⇧↵ newline"
+            answerable && prompt
+              ? prompt.placeholder ?? "Answer yourself — ↵ sends it back to the extension"
+              : streaming
+                ? "Steer the run — ↵ queues it for the agent"
+                : "Direct the agent — @ files, / commands, ⇧↵ newline"
           }
         />
 

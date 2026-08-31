@@ -2,7 +2,7 @@ import { memo, type CSSProperties } from "react";
 import { ArchiveRestore, Check } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 
-export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled";
+export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled";
 
 interface ThreadRowProps {
   activity: ThreadActivity;
