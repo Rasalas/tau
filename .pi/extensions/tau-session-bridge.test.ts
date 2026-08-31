@@ -18,6 +18,8 @@ describe("Tau Pi bridge capability", () => {
 
     tracker.begin(requestId);
     expect(tracker.requestIdForSnapshot()).toBe(requestId);
+    expect(tracker.acknowledge(requestId)).toBe(false);
+    expect(tracker.requestIdForSnapshot()).toBe(requestId);
     tracker.markReady(requestId);
     expect(tracker.requestIdForSnapshot()).toBe(requestId);
     expect(tracker.acknowledge(foreignId)).toBe(false);

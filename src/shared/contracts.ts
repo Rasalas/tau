@@ -370,9 +370,14 @@ export interface HostBootstrap {
   project: { cwd: string; branch?: string };
 }
 
-export type HostEvent =
+export type GlobalHostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
+  | { type: "error"; message: string; sessionId?: undefined }
+  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
+
+/** Events emitted by a runtime always carry the owning session explicitly. */
+export type ThreadHostEvent =
   | { type: "agent-status"; sessionId: string; running: boolean }
   // Every thread has its own runtime, so live events name the thread they belong
   // to; the renderer applies them only to the thread it is showing.
@@ -385,12 +390,14 @@ export type HostEvent =
   | { type: "tool-update"; sessionId: string; id: string; output: string }
   | { type: "tool-end"; sessionId: string; tool: UiToolRun }
   | { type: "queue"; sessionId: string; steering: string[]; followUp: string[] }
-  | { type: "tool-approval"; request: ToolApprovalRequest }
-  | { type: "extension-ui-prompt"; prompt: ExtensionUiPrompt }
-  | { type: "extension-ui-resolved"; id: string; sessionId?: string }
-  | { type: "notice"; message: string; level: "info" | "warning" | "error"; sessionId?: string }
-  | { type: "error"; message: string; sessionId?: string }
-  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: string };
+  | { type: "tool-approval"; sessionId: string; request: ToolApprovalRequest }
+  | { type: "extension-ui-prompt"; sessionId: string; prompt: ExtensionUiPrompt }
+  | { type: "extension-ui-resolved"; id: string; sessionId: string }
+  | { type: "notice"; message: string; level: "info" | "warning" | "error"; sessionId: string }
+  | { type: "error"; message: string; sessionId: string }
+  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId: string };
+
+export type HostEvent = GlobalHostEvent | ThreadHostEvent;
 
 /** The single result shape used by host, scoped composer store, and renderer. */
 export type SubmissionResult =

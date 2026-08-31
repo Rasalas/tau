@@ -23,7 +23,7 @@ import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
-import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
+import { ComposerScopeStore, createDraftKey, type DraftKey } from "./composer-scope-store";
 import { errorMessage } from "./error-message";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
@@ -206,7 +206,7 @@ interface NewThreadSubmissionCompletion {
   sessionId: string;
   optimisticId: string;
   prompt: string;
-  scope: string | undefined;
+  scope: DraftKey | undefined;
   requestId: NewThreadRequestId;
   result?: HostActionResult;
 }

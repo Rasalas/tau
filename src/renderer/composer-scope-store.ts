@@ -272,31 +272,30 @@ export class ComposerScopeStore {
     this.pendingSubmissionPromises.delete(scope);
     this.notify(scope);
     let settled = false;
+    const finalize = (result?: SubmissionResult) => {
+      try {
+        if (result) this.settleSubmission(scopeRef.scope, id, result);
+        else this.ensure(scopeRef.scope).pendingSubmissions.delete(id);
+      } finally {
+        if (this.activeSubmissionHandles.get(scopeRef.scope) === handle) this.activeSubmissionHandles.delete(scopeRef.scope);
+        this.submissionScopeRefs.delete(handle);
+        const current = this.ensure(scopeRef.scope);
+        current.submissionBusy = false;
+        this.notify(scopeRef.scope);
+      }
+    };
     const handle: SubmissionHandle = {
       text,
       attachments,
       settle: (result) => {
         if (settled) return;
         settled = true;
-        try {
-          this.settleSubmission(scopeRef.scope, id, result);
-        } finally {
-          if (this.activeSubmissionHandles.get(scopeRef.scope) === handle) this.activeSubmissionHandles.delete(scopeRef.scope);
-          this.submissionScopeRefs.delete(handle);
-          const current = this.ensure(scopeRef.scope);
-          current.submissionBusy = false;
-          this.notify(scopeRef.scope);
-        }
+        finalize(result);
       },
       cancel: () => {
         if (settled) return;
         settled = true;
-        const currentScope = scopeRef.scope;
-        this.ensure(currentScope).pendingSubmissions.delete(id);
-        this.activeSubmissionHandles.delete(currentScope);
-        this.submissionScopeRefs.delete(handle);
-        this.ensure(currentScope).submissionBusy = false;
-        this.notify(currentScope);
+        finalize();
       },
     };
     this.activeSubmissionHandles.set(scope, handle);

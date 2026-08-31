@@ -1,3 +1,5 @@
+import { createDraftKey, type DraftKey } from "./composer-scope-store";
+
 const NEW_THREAD_KEY = "tau.active-new-thread.v1";
 
 export interface NewThreadDraft {
@@ -8,9 +10,9 @@ export interface NewThreadDraft {
   draftId?: string;
 }
 
-export function draftKey(sessionId?: string, pending?: NewThreadDraft): string | undefined {
-  if (pending) return `new:${pending.projectPath}:${pending.draftId ?? "legacy"}`;
-  return sessionId ? `session:${sessionId}` : undefined;
+export function draftKey(sessionId?: string, pending?: NewThreadDraft): DraftKey | undefined {
+  if (pending) return createDraftKey(`new:${pending.projectPath}:${pending.draftId ?? "legacy"}`);
+  return sessionId ? createDraftKey(`session:${sessionId}`) : undefined;
 }
 
 export function readNewThreadDraft(storage: Storage): NewThreadDraft | undefined {

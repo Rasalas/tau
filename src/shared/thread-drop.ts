@@ -7,7 +7,7 @@ import {
   type AttachmentPolicyReason,
 } from "./prompt-attachment-limits.js";
 
-export type ThreadDropState = "idle" | "valid" | "mixed" | "unsupported" | "invalid-type" | "invalid-size" | "too-many" | "total-size" | "unavailable" | "unknown";
+export type ThreadDropState = "idle" | "valid" | "mixed" | "invalid-type" | "invalid-size" | "too-many" | "total-size" | "unavailable" | "unknown";
 
 export interface ThreadDropFeedback {
   title: string;
@@ -34,11 +34,6 @@ export const THREAD_DROP_FEEDBACK: Readonly<Record<ThreadDropState, ThreadDropFe
     title: "Drop supported images",
     description: "Supported images will be attached; other files will be skipped.",
     dropEffect: "copy",
-  },
-  unsupported: {
-    title: "That file type is not supported",
-    description: `Use ${SUPPORTED_IMAGE_TYPES_LABEL} images.`,
-    dropEffect: "none",
   },
   "invalid-type": {
     title: "That file type is not supported",
@@ -102,7 +97,7 @@ export function classifyThreadDrop(
   if (unknown) return "unknown";
   if (supported && unsupported) return "mixed";
   if (supported) return "valid";
-  return policy.rejected[0] ? THREAD_DROP_REASON_STATE[policy.rejected[0].reason] : "unsupported";
+  return policy.rejected[0] ? THREAD_DROP_REASON_STATE[policy.rejected[0].reason] : "invalid-type";
 }
 
 export const IMAGE_INPUT_UNAVAILABLE_MESSAGE = "Image attachments are unavailable for the active runtime.";

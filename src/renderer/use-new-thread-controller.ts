@@ -15,7 +15,7 @@ function newRequestIdentity(): NewThreadRequestId {
 
 export interface NewThreadPromotionContext {
   pending: NewThreadDraft;
-  scope: string | undefined;
+  scope: DraftKey | undefined;
   requestId: NewThreadRequestId;
   prompt: string;
 }
@@ -39,7 +39,7 @@ export function useNewThreadController(storage: Storage) {
     awaitingPromotionRef.current = undefined;
   }, []);
 
-  const isCurrent = useCallback((pending: NewThreadDraft, scope: string | undefined, requestId: NewThreadRequestId): boolean => {
+  const isCurrent = useCallback((pending: NewThreadDraft, scope: DraftKey | undefined, requestId: NewThreadRequestId): boolean => {
     const current = pendingRef.current;
     return requestRef.current === requestId
       && current !== undefined

@@ -27,6 +27,7 @@ import type {
   FileNode,
   HostBootstrap,
   HostEvent,
+  ThreadHostEvent,
   HostSnapshot,
   PreparedThreadCapability,
   PushResult,
@@ -469,7 +470,7 @@ interface LiveTurnState {
 type DeferredThreadRecord =
   | { kind: "event"; event: any; sessionId: string; cwd: string }
   | { kind: "error"; error: unknown }
-  | { kind: "host"; event: HostEvent }
+  | { kind: "host"; event: ThreadHostEvent }
   | { kind: "title"; title: string };
 
 /**
@@ -517,7 +518,7 @@ class ThreadRuntime implements LiveTurnState {
     return this.defer({ kind: "error", error });
   }
 
-  deferHostEvent(event: HostEvent): boolean {
+  deferHostEvent(event: ThreadHostEvent): boolean {
     return this.defer({ kind: "host", event });
   }
 
@@ -527,7 +528,7 @@ class ThreadRuntime implements LiveTurnState {
 
   releaseEventBarrier(
     dispatch: (event: any, thread: ThreadRuntime, sessionId: string, cwd: string, error?: unknown) => void,
-    dispatchHost: (event: HostEvent) => void,
+    dispatchHost: (event: ThreadHostEvent) => void,
     dispatchTitle: (title: string) => void,
   ): void {
     const records = this.deferredRecords;
@@ -560,6 +561,7 @@ export class PiHost {
     bridgeEpoch: string;
     resolve: (snapshot: PiBridgeSnapshot) => void;
     reject: (error: unknown) => void;
+    observed?: { sessionId: string; sessionFile: string; bridgeEpoch: string };
     acknowledging?: boolean;
   }>();
   /** Set while Tau deliberately takes a thread over from Pi, so it does not re-attach. */
@@ -1069,13 +1071,18 @@ export class PiHost {
             || pending.bridgeEpoch !== this.bridge?.descriptor.epoch) {
             throw new Error("Pi returned an uncorrelated new-thread snapshot.");
           }
+          pending.observed = {
+            sessionId: bridgeSnapshot.sessionId,
+            sessionFile: bridgeSnapshot.sessionFile,
+            bridgeEpoch: this.bridge?.descriptor.epoch ?? "",
+          };
           void this.acknowledgeBridgeNewSession(bridgeRequestId, this.bridge?.descriptor.epoch);
           return this.completeBridgeNewSession(bridgeSnapshot, bridgeRequestId);
         }
-        const switched = bridgeSession ? await Promise.race([
-          bridgeSession,
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Pi did not report the new thread after accepting the command.")), 10_000)),
-        ]) : undefined;
+        // A disconnected command response is indeterminate: Pi may already be
+        // switching sessions. Keep the owner alive until the correlated
+        // snapshot, terminal bridge error, abort, or teardown settles it.
+        const switched = bridgeSession ? await bridgeSession : undefined;
         if (switched) {
           return this.completeBridgeNewSession(switched, bridgeRequestId);
         }
@@ -1393,12 +1400,32 @@ export class PiHost {
 
   async abort(sessionId?: string): Promise<void> {
     if (this.bridgeOwns(sessionId)) {
+      this.cancelPendingBridgeNewSession(sessionId);
       await this.bridge!.command({ command: "abort" });
       return;
     }
     const thread = this.threadFor(sessionId);
     if (!thread) return;
     await this.abortThread(thread);
+  }
+
+  private cancelPendingBridgeNewSession(sessionId?: string): void {
+    const currentSessionId = this.bridgeSnapshot?.sessionId;
+    for (const [requestId, pending] of this.pendingBridgeNewSessions) {
+      if (sessionId && currentSessionId !== sessionId) continue;
+      this.pendingBridgeNewSessions.delete(requestId);
+      pending.reject(new Error("The new-thread request was aborted."));
+      const bridge = this.bridge;
+      if (bridge) {
+        void bridge.command({
+          command: "new_session_abort",
+          requestId,
+          sessionId: bridge.descriptor.sessionId,
+          bridgeEpoch: bridge.descriptor.epoch,
+        }, 3_000).catch((error) => this.log("bridge.new_session.abort_failed", this.errorMessage(error)));
+      }
+      break;
+    }
   }
 
   /**
@@ -1823,7 +1850,7 @@ export class PiHost {
       uiContext: createExtensionUiContext({
         sessionId: () => thread.sessionId,
         ask: (prompt) => this.askExtensionUi(prompt, thread),
-        notify: (message, level) => this.emitForThread(thread, { type: "notice", message, level }),
+        notify: (message, level) => this.emitForThread(thread, { type: "notice", message, level, sessionId: thread.sessionId }),
         setWindowTitle: (title) => {
           if (!thread.deferTitle(title)) this.onWindowTitle?.(title);
         },
@@ -2124,6 +2151,11 @@ export class PiHost {
       || snapshot.cwd !== pending.projectPath
       || transportEpoch === undefined
       || transportEpoch !== this.bridge?.descriptor.epoch) return undefined;
+    pending.observed = {
+      sessionId: snapshot.sessionId,
+      sessionFile: snapshot.sessionFile,
+      bridgeEpoch: transportEpoch,
+    };
     pending.resolve(snapshot);
     void this.acknowledgeBridgeNewSession(requestId, transportEpoch);
     return requestId;
@@ -2132,12 +2164,22 @@ export class PiHost {
   private async acknowledgeBridgeNewSession(requestId: NewThreadRequestId, transportEpoch?: string): Promise<void> {
     const pending = this.pendingBridgeNewSessions.get(requestId);
     const bridge = this.bridge;
-    if (!pending || !bridge || transportEpoch !== bridge.descriptor.epoch) return;
+    const observed = pending?.observed;
+    if (!pending || !observed || !bridge || transportEpoch !== bridge.descriptor.epoch || observed.bridgeEpoch !== transportEpoch) return;
     if (pending.acknowledging) return;
     pending.acknowledging = true;
     try {
-      const response = await bridge.command({ command: "new_session_ack", requestId }, 3_000);
-      if (response && typeof response === "object" && "requestId" in response && response.requestId !== requestId) {
+      const response = await bridge.command({
+        command: "new_session_ack",
+        requestId,
+        sessionId: observed.sessionId,
+        bridgeEpoch: observed.bridgeEpoch,
+      }, 3_000);
+      if (!response || typeof response !== "object"
+        || !("accepted" in response) || response.accepted !== true
+        || !("requestId" in response) || response.requestId !== requestId
+        || !("sessionId" in response) || response.sessionId !== observed.sessionId
+        || !("bridgeEpoch" in response) || response.bridgeEpoch !== observed.bridgeEpoch) {
         pending.acknowledging = false;
         return;
       }
@@ -2189,6 +2231,7 @@ export class PiHost {
       this.bridgeAwaitingPromptId = id;
       this.emit({
         type: "extension-ui-prompt",
+        sessionId: snapshot.sessionId,
         prompt: {
           id,
           sessionId: snapshot.sessionId,
@@ -2620,6 +2663,7 @@ export class PiHost {
       this.pendingApprovals.set(id, { sessionId, settle });
       this.emitForThread(this.threadFor(sessionId), {
         type: "tool-approval",
+        sessionId,
         request: { id, sessionId, toolName, summary: approvalSummary(toolName, input) },
       });
     });
@@ -2645,7 +2689,7 @@ export class PiHost {
         this.pendingUiPrompts.delete(prompt.id);
         this.openUiPrompts.delete(prompt.id);
         if (timer) clearTimeout(timer);
-        this.emitForThread(thread, { type: "extension-ui-resolved", id: prompt.id });
+        this.emitForThread(thread, { type: "extension-ui-resolved", id: prompt.id, sessionId: prompt.sessionId });
         resolve(answer);
       };
       // Only the extension's own deadline ends a question. Without one the
@@ -2663,7 +2707,7 @@ export class PiHost {
       this.openUiPrompts.set(prompt.id, prompt);
       if (thread) this.logForThread(thread, "extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
       else this.log("extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
-      this.emitForThread(thread, { type: "extension-ui-prompt", prompt });
+      this.emitForThread(thread, { type: "extension-ui-prompt", prompt, sessionId: prompt.sessionId });
     });
   }
 
@@ -2698,7 +2742,7 @@ export class PiHost {
   /** Re-announces questions raised before the renderer was listening. */
   replayOpenUiPrompts(): void {
     for (const prompt of this.openUiPrompts.values()) {
-      this.emit({ type: "extension-ui-prompt", prompt });
+      this.emit({ type: "extension-ui-prompt", prompt, sessionId: prompt.sessionId });
     }
   }
 
@@ -2776,12 +2820,9 @@ export class PiHost {
     this.emit({ type: "host-update", update });
   }
 
-  private emitForThread(thread: ThreadRuntime | undefined, event: HostEvent): void {
-    const ownedEvent = thread && !("sessionId" in event)
-      ? { ...event, sessionId: thread.sessionId } as HostEvent
-      : event;
-    if (thread?.deferHostEvent(ownedEvent)) return;
-    this.emit(ownedEvent);
+  private emitForThread(thread: ThreadRuntime | undefined, event: ThreadHostEvent): void {
+    if (thread?.deferHostEvent(event)) return;
+    this.emit(event);
   }
 
   private log(label: string, detail?: string): void {
@@ -2800,12 +2841,14 @@ export class PiHost {
   private fail(error: unknown, sessionId?: string, thread?: ThreadRuntime): void {
     if (thread?.deferError(error)) return;
     const message = this.errorMessage(error);
-    this.emit({ type: "error", message, ...(sessionId ? { sessionId } : {}) });
+    if (sessionId) this.emit({ type: "error", message, sessionId });
+    else this.emit({ type: "error", message });
     const owner = thread instanceof ThreadRuntime
       ? thread
       : sessionId ? this.threadFor(sessionId) : undefined;
     if (owner instanceof ThreadRuntime) this.logForThread(owner, "host.error", message);
-    else this.emit({ type: "event-log", label: "host.error", detail: message, timestamp: Date.now(), ...(sessionId ? { sessionId } : {}) });
+    else if (sessionId) this.emit({ type: "event-log", label: "host.error", detail: message, timestamp: Date.now(), sessionId });
+    else this.emit({ type: "event-log", label: "host.error", detail: message, timestamp: Date.now() });
   }
 }
 

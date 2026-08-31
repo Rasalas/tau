@@ -53,12 +53,11 @@ export interface NewSessionRequestTracker {
 
 /** Keeps a request token alive until Pi receives the host's correlated ACK. */
 export function createNewSessionRequestTracker(): NewSessionRequestTracker {
-  type Entry = { state: "pending" | "ready"; timeout?: ReturnType<typeof setTimeout> };
+  type Entry = { state: "pending" | "ready" };
   const entries = new Map<NewThreadRequestId, Entry>();
   const remove = (requestId: NewThreadRequestId) => {
     const entry = entries.get(requestId);
     if (!entry) return;
-    if (entry.timeout) clearTimeout(entry.timeout);
     entries.delete(requestId);
   };
   return {
@@ -71,12 +70,10 @@ export function createNewSessionRequestTracker(): NewSessionRequestTracker {
       const entry = entries.get(requestId);
       if (!entry || entry.state === "ready") return;
       entry.state = "ready";
-      entry.timeout = setTimeout(() => remove(requestId), 30_000);
-      entry.timeout.unref?.();
     },
     requestIdForSnapshot: () => entries.keys().next().value,
     acknowledge(requestId) {
-      if (!entries.has(requestId)) return false;
+      if (entries.get(requestId)?.state !== "ready") return false;
       remove(requestId);
       return true;
     },
@@ -114,6 +111,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           newSessionRequests.begin(requestId);
         }
         await createPiSession(ctx, initialPrompt);
+        if (requestId) newSessionRequests.markReady(requestId);
       } catch (error) {
         if (requestId) {
           broadcast({ type: "new_session_failed", requestId, message: error instanceof Error ? error.message : String(error) }, ctx);
@@ -305,8 +303,24 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           break;
         }
         case "new_session_ack": {
+          if (frame.sessionId !== ctx.sessionManager.getSessionId() || frame.bridgeEpoch !== descriptor.epoch) {
+            throw new Error("The new-thread acknowledgement does not match this Pi session.");
+          }
           if (!newSessionRequests.acknowledge(frame.requestId)) throw new Error("The new-thread request is no longer pending.");
-          respond(client, frame.id, true, { accepted: true, requestId: frame.requestId });
+          respond(client, frame.id, true, {
+            accepted: true,
+            requestId: frame.requestId,
+            sessionId: frame.sessionId,
+            bridgeEpoch: frame.bridgeEpoch,
+          });
+          break;
+        }
+        case "new_session_abort": {
+          if (frame.sessionId !== ctx.sessionManager.getSessionId() || frame.bridgeEpoch !== descriptor.epoch) {
+            throw new Error("The new-thread abort does not match this Pi session.");
+          }
+          newSessionRequests.remove(frame.requestId);
+          respond(client, frame.id, true, { accepted: true, requestId: frame.requestId, sessionId: frame.sessionId, bridgeEpoch: frame.bridgeEpoch });
           break;
         }
         case "fork": {
