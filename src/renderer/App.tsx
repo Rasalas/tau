@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type RefObject } from "react";
-import { PanelRight, PanelRightClose } from "lucide-react";
+import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
   FileNode,
   HostEvent,
@@ -65,6 +65,7 @@ import { preferences, type AccessLevel } from "./preferences";
 import { draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
+import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
 import {
@@ -1490,6 +1491,11 @@ export default function App() {
     && !conversationSnapshot?.isStreaming
     && activityTools.length === 0
     && threadPrompts.length === 0;
+  const startProjectPath = conversationSnapshot?.cwd ?? "";
+  const startProjectName = pendingNewThread?.projectName
+    ?? projects.find((project) => project.path === startProjectPath)?.name
+    ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
+    ?? startProjectPath;
   const shellClassName = [
     "app-shell",
     sidebarContributions.length === 0 ? "no-sidebar" : "",
@@ -1660,8 +1666,22 @@ export default function App() {
               {showStartScreen ? (
                 <section className="conversation-start-screen" aria-labelledby="start-screen-title">
                   <div className="conversation-start-content">
-                    <p>NEW THREAD</p>
                     <h1 id="start-screen-title">What do you want to build?</h1>
+                    <button
+                      type="button"
+                      className="conversation-start-project"
+                      aria-label={`Change project, current project ${startProjectName}`}
+                      onClick={() => setNewThreadOpen(true)}
+                    >
+                      <i><Folder size={17} /></i>
+                      <span>
+                        <small>Current project</small>
+                        <strong>{startProjectName}</strong>
+                        <code title={startProjectPath}>{displayPath(startProjectPath)}</code>
+                      </span>
+                      <b>Change</b>
+                      <ChevronDown size={15} />
+                    </button>
                     {conversationComposer}
                   </div>
                 </section>
@@ -1709,7 +1729,6 @@ export default function App() {
                     onCopyMessage={(message) => void copyMessage(message)}
                     onForkMessage={(message) => void forkMessage(message)}
                   />
-                  <ChangedFiles changes={pendingNewThread ? NO_CHANGES : turnChanges} onOpenDiff={openReview} />
                   {/* The tool block already says a run is in flight; two live rows
                       both duplicate the signal and collide with the virtual list. */}
                   {conversationSnapshot?.isStreaming && activityTools.length === 0
@@ -1718,6 +1737,11 @@ export default function App() {
                 </div>
               </div>
 
+              {!pendingNewThread && turnChanges.files.length > 0 ? (
+                <div className="conversation-files-dock">
+                  <ChangedFiles changes={turnChanges} onOpenDiff={openReview} />
+                </div>
+              ) : null}
               {conversationComposer}
                 </>
               )}

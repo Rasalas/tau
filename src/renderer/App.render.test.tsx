@@ -132,6 +132,8 @@ describe("App render isolation", () => {
     render(<App />);
     const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(heading.closest(".conversation-start-screen")).toBeTruthy();
+    expect(screen.queryByText("NEW THREAD")).toBeNull();
+    expect(screen.getByRole("button", { name: "Change project, current project project" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Untitled thread" })).toBeNull();
 
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
@@ -149,7 +151,10 @@ describe("App render isolation", () => {
     window.tau = {
       bootstrap: async () => ({
         version: 1,
-        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        threadIndex: { projects: [
+          { path: "/project", name: "project", lastOpenedAt: 2 },
+          { path: "/other", name: "other", lastOpenedAt: 1 },
+        ], sessions: [] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
         catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0 },
         project: { cwd: "/project" },
@@ -166,11 +171,12 @@ describe("App render isolation", () => {
     await screen.findByRole("heading", { name: "What do you want to build?" });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     await waitFor(() => expect(document.activeElement).toBe(composer));
-    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
-    const projectOption = within(dialog).getByRole("option");
+    const projectOption = within(dialog).getByRole("option", { name: /other/u });
     projectOption.focus();
     fireEvent.click(projectOption);
+    expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     expect(newSession).not.toHaveBeenCalled();
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.change(composer, { target: { value: "persistent draft" } });
@@ -183,7 +189,7 @@ describe("App render isolation", () => {
       return textarea;
     });
     fireEvent.keyDown(restored, { key: "Enter" });
-    await waitFor(() => expect(newSession).toHaveBeenCalledWith("persistent draft", [], "/project"));
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith("persistent draft", [], "/other"));
     expect(screen.getByText("persistent draft")).toBeTruthy();
   });
 

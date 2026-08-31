@@ -112,6 +112,37 @@ describe("last-turn activity", () => {
     ]);
   });
 
+  it("keeps changed files in the fixed dock outside the scrolling transcript", async () => {
+    writeCachedTurnActivity(localStorage, {
+      sessionId: "session",
+      baseline: { files: [], added: 0, removed: 0 },
+      tools: [],
+    });
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          messages: [{ id: "user", role: "user" as const, text: "Change the files", timestamp: 1 }],
+        },
+      };
+    };
+    window.tau!.getChanges = async () => ({
+      files: [{ path: "src/App.tsx", name: "App.tsx", directory: "src", status: "modified", added: 4, removed: 1 }],
+      added: 4,
+      removed: 1,
+    });
+
+    const view = render(<App />);
+    await screen.findByText("1 changed file");
+
+    const dock = view.container.querySelector(".conversation-files-dock");
+    expect(dock?.textContent).toContain("App.tsx");
+    expect(view.container.querySelector(".transcript")?.contains(dock)).toBe(false);
+  });
+
   it("aggregates steering into the current run and resets on the next run", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
