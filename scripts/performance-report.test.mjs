@@ -157,12 +157,14 @@ describe("performance report checks", () => {
   });
 
   it("parses a dry-run renderer comparison recipe with all explicit inputs", () => {
-    const currentRoot = "/tmp/tau renderer subject";
+    const subjectRoot = "/tmp/tau renderer subject";
+    const currentRoot = "/tmp/tau renderer measured";
     const reproduction = buildRendererComparisonReproduction({
       currentRoot,
+      subjectRoot,
       baselineCommit: "baseline-commit",
       currentCommit: "subject-commit",
-      baselinePatch: `${currentRoot}/reports/renderer-transcript-legacy-baseline.patch`,
+      baselinePatch: `${subjectRoot}/reports/renderer-transcript-legacy-baseline.patch`,
     });
     const aggregateCommand = reproduction.aggregation.command;
     expect((aggregateCommand.match(/--baseline /gu) ?? [])).toHaveLength(3);
@@ -172,8 +174,17 @@ describe("performance report checks", () => {
     expect(aggregateCommand).toContain('--baseline-commit "$BASELINE_COMMIT"');
     expect(aggregateCommand).toContain('--current-commit "$CURRENT_COMMIT"');
     expect(aggregateCommand).toContain('--baseline-patch "$BASELINE_PATCH"');
+    expect(aggregateCommand).toContain('--baseline "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json"');
+    expect(aggregateCommand).toContain('--current "$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json"');
     expect(aggregateCommand).not.toContain("...");
+    expect(reproduction.subject.currentCommit).toBe("subject-commit");
+    expect(reproduction.subject.currentRoot).toBe(subjectRoot);
+    expect(reproduction.subject.measuredCurrentRoot).toBe(currentRoot);
+    expect(reproduction.current.worktreeVariable).toBe("$CURRENT_ROOT");
+    expect(reproduction.shell).toContain('git -C "$SUBJECT_ROOT" worktree add --detach "$CURRENT_ROOT" "$CURRENT_COMMIT"');
     expect(reproduction.shell).toContain('git -C "$BASELINE_ROOT" apply "$BASELINE_PATCH"');
+    expect(reproduction.shell).toContain('npm --prefix "$CURRENT_ROOT" run build');
+    expect(reproduction.shell).not.toContain('npm --prefix "$SUBJECT_ROOT" run build');
     execFileSync("/bin/sh", ["-n"], { input: reproduction.shell, encoding: "utf8" });
 
     const dryRun = JSON.parse(execFileSync(process.execPath, [
@@ -181,14 +192,16 @@ describe("performance report checks", () => {
       "--dry-run",
       "--current-root",
       currentRoot,
+      "--subject-root",
+      subjectRoot,
       "--baseline-commit",
       "baseline-commit",
       "--current-commit",
       "subject-commit",
       "--baseline-patch",
-      `${currentRoot}/reports/renderer-transcript-legacy-baseline.patch`,
+      `${subjectRoot}/reports/renderer-transcript-legacy-baseline.patch`,
     ], { encoding: "utf8" }));
     expect(dryRun.aggregation.command).toBe(aggregateCommand);
-    expect(dryRun.baseline.commands).toContain('git -C "$CURRENT_ROOT" worktree add --detach "$BASELINE_ROOT" "$BASELINE_COMMIT"');
+    expect(dryRun.baseline.commands).toContain('git -C "$SUBJECT_ROOT" worktree add --detach "$BASELINE_ROOT" "$BASELINE_COMMIT"');
   });
 });

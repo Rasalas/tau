@@ -40,14 +40,16 @@ const currentPaths = flagValues("--current");
 const dryRun = process.argv.includes("--dry-run");
 const baselineRoot = flagValue("--baseline-root", ROOT);
 const currentRoot = flagValue("--current-root", ROOT);
+const subjectRoot = flagValue("--subject-root", ROOT);
 const baselineCommit = flagValues("--baseline-commit")[0] ?? gitCommit(baselineRoot);
 const currentCommit = flagValues("--current-commit")[0] ?? gitCommit(currentRoot);
 const baselinePatch = flagValue("--baseline-patch", "reports/renderer-transcript-legacy-baseline.patch");
 
-const baselinePatchPath = isAbsolute(baselinePatch) ? baselinePatch : join(currentRoot, baselinePatch);
-const outputPath = isAbsolute(output) ? output : join(currentRoot, output);
+const baselinePatchPath = isAbsolute(baselinePatch) ? baselinePatch : join(subjectRoot, baselinePatch);
+const outputPath = isAbsolute(output) ? output : join(subjectRoot, output);
 const reproduction = buildRendererComparisonReproduction({
   currentRoot,
+  subjectRoot,
   baselineCommit,
   currentCommit,
   baselinePatch: baselinePatchPath,

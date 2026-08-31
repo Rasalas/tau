@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "comparison": "same deterministic transcript workload; legacy VirtualTranscript versus anchored TranscriptViewport",
-  "generatedAt": "2026-08-31T21:26:34.406Z",
+  "generatedAt": "2026-08-31T21:38:18.245Z",
   "workload": {
     "turns": 1000,
     "anchorTurn": 8,
@@ -175,7 +175,7 @@
   "current": {
     "commit": "72ffd1a73d1bedf1f98b87ce0dd65f2602ff54d9",
     "component": "TranscriptViewport",
-    "sourceSha256": "660ef6f01b96c1b1500bfef0f9ddb4f02929c98cfadc6a6deeaa075cde2426cc",
+    "sourceSha256": "f639c77b8be641b88285e20cc7f97693bf807f534cc8fe7835937e977587c261",
     "buildArtifactSha256": "b1c737a43a38a138fc072f6cd2b086c9513dae70b8abb5568dc90a1121a45b64",
     "runs": [
       {
@@ -605,8 +605,9 @@
   "reproduction": {
     "subject": {
       "currentRoot": "/path/to/tau-worktrees/thread-view-improvements/issue-01",
+      "measuredCurrentRoot": "/path/to/tau-worktrees/thread-view-improvements/issue-01",
       "baselineCommit": "6ddb4541b02410fa8c462dca4b9bb3b9969d5756",
-      "currentCommit": "64f3be3250e041278658479e9a14cb287603c3d6"
+      "currentCommit": "72ffd1a73d1bedf1f98b87ce0dd65f2602ff54d9"
     },
     "harness": {
       "baselinePatch": "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-legacy-baseline.patch"
@@ -614,13 +615,13 @@
     "baseline": {
       "worktreeVariable": "$BASELINE_ROOT",
       "reports": [
-        "$BASELINE_ROOT/reports/renderer-transcript-baseline-run-01.json",
-        "$BASELINE_ROOT/reports/renderer-transcript-baseline-run-02.json",
-        "$BASELINE_ROOT/reports/renderer-transcript-baseline-run-03.json"
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-baseline-run-01.json",
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-baseline-run-02.json",
+        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-baseline-run-03.json"
       ],
       "commands": [
         "BASELINE_ROOT=\"$(mktemp -d -t tau-transcript-baseline.XXXXXX)\"",
-        "git -C \"$CURRENT_ROOT\" worktree add --detach \"$BASELINE_ROOT\" \"$BASELINE_COMMIT\"",
+        "git -C \"$SUBJECT_ROOT\" worktree add --detach \"$BASELINE_ROOT\" \"$BASELINE_COMMIT\"",
         "git -C \"$BASELINE_ROOT\" apply \"$BASELINE_PATCH\"",
         "npm --prefix \"$BASELINE_ROOT\" run build",
         "npm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-01.json",
@@ -629,13 +630,17 @@
       ]
     },
     "current": {
-      "root": "/path/to/tau-worktrees/thread-view-improvements/issue-01",
+      "worktreeVariable": "$CURRENT_ROOT",
+      "subjectRoot": "/path/to/tau-worktrees/thread-view-improvements/issue-01",
+      "measuredRoot": "/path/to/tau-worktrees/thread-view-improvements/issue-01",
       "reports": [
         "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-01.json",
         "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-02.json",
         "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-03.json"
       ],
       "commands": [
+        "CURRENT_ROOT=\"$(mktemp -d -t tau-transcript-current.XXXXXX)\"",
+        "git -C \"$SUBJECT_ROOT\" worktree add --detach \"$CURRENT_ROOT\" \"$CURRENT_COMMIT\"",
         "npm --prefix \"$CURRENT_ROOT\" run build",
         "npm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-01.json",
         "npm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-02.json",
@@ -643,16 +648,16 @@
       ]
     },
     "aggregation": {
-      "command": "node \"$CURRENT_ROOT/scripts/renderer-comparison-aggregate.mjs\" \\\n  --baseline \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-01.json\" \\\n  --baseline \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-02.json\" \\\n  --baseline \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-03.json\" \\\n  --current \"$CURRENT_ROOT/reports/renderer-transcript-current-run-01.json\" \\\n  --current \"$CURRENT_ROOT/reports/renderer-transcript-current-run-02.json\" \\\n  --current \"$CURRENT_ROOT/reports/renderer-transcript-current-run-03.json\" \\\n  --baseline-root \"$BASELINE_ROOT\" \\\n  --current-root \"$CURRENT_ROOT\" \\\n  --baseline-commit \"$BASELINE_COMMIT\" \\\n  --current-commit \"$CURRENT_COMMIT\" \\\n  --baseline-patch \"$BASELINE_PATCH\" \\\n  --output '/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-comparison-aggregate.json'",
+      "command": "node \"$SUBJECT_ROOT/scripts/renderer-comparison-aggregate.mjs\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json\" \\\n  --baseline-root \"$BASELINE_ROOT\" \\\n  --current-root \"$CURRENT_ROOT\" \\\n  --baseline-commit \"$BASELINE_COMMIT\" \\\n  --current-commit \"$CURRENT_COMMIT\" \\\n  --baseline-patch \"$BASELINE_PATCH\" \\\n  --output \"$SUBJECT_ROOT/reports/renderer-transcript-comparison-aggregate.json\" --subject-root \"$SUBJECT_ROOT\"",
       "baselineReports": [
-        "$BASELINE_ROOT/reports/renderer-transcript-baseline-run-01.json",
-        "$BASELINE_ROOT/reports/renderer-transcript-baseline-run-02.json",
-        "$BASELINE_ROOT/reports/renderer-transcript-baseline-run-03.json"
+        "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json"
       ],
       "currentReports": [
-        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-01.json",
-        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-02.json",
-        "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-current-run-03.json"
+        "$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json",
+        "$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json"
       ],
       "baselineRoot": "$BASELINE_ROOT",
       "currentRoot": "$CURRENT_ROOT",
@@ -661,7 +666,7 @@
       "baselinePatch": "$BASELINE_PATCH",
       "output": "/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-comparison-aggregate.json"
     },
-    "shell": "set -euo pipefail\nCURRENT_ROOT='/path/to/tau-worktrees/thread-view-improvements/issue-01'\nBASELINE_COMMIT='6ddb4541b02410fa8c462dca4b9bb3b9969d5756'\nCURRENT_COMMIT='64f3be3250e041278658479e9a14cb287603c3d6'\nBASELINE_PATCH='/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-legacy-baseline.patch'\nBASELINE_ROOT=\"$(mktemp -d -t tau-transcript-baseline.XXXXXX)\"\ntrap 'git -C \"$CURRENT_ROOT\" worktree remove --force \"$BASELINE_ROOT\" >/dev/null 2>&1 || true' EXIT\ngit -C \"$CURRENT_ROOT\" worktree add --detach \"$BASELINE_ROOT\" \"$BASELINE_COMMIT\"\nif [ -d \"$CURRENT_ROOT/node_modules\" ]; then ln -s \"$CURRENT_ROOT/node_modules\" \"$BASELINE_ROOT/node_modules\"; else npm --prefix \"$BASELINE_ROOT\" install; fi\ngit -C \"$BASELINE_ROOT\" apply \"$BASELINE_PATCH\"\nnpm --prefix \"$BASELINE_ROOT\" run build\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-01.json\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-02.json\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-03.json\nnpm --prefix \"$CURRENT_ROOT\" run build\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-01.json\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-02.json\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-03.json\nnode \"$CURRENT_ROOT/scripts/renderer-comparison-aggregate.mjs\" \\\n  --baseline \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-01.json\" \\\n  --baseline \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-02.json\" \\\n  --baseline \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-03.json\" \\\n  --current \"$CURRENT_ROOT/reports/renderer-transcript-current-run-01.json\" \\\n  --current \"$CURRENT_ROOT/reports/renderer-transcript-current-run-02.json\" \\\n  --current \"$CURRENT_ROOT/reports/renderer-transcript-current-run-03.json\" \\\n  --baseline-root \"$BASELINE_ROOT\" \\\n  --current-root \"$CURRENT_ROOT\" \\\n  --baseline-commit \"$BASELINE_COMMIT\" \\\n  --current-commit \"$CURRENT_COMMIT\" \\\n  --baseline-patch \"$BASELINE_PATCH\" \\\n  --output '/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-comparison-aggregate.json'",
+    "shell": "set -euo pipefail\nSUBJECT_ROOT='/path/to/tau-worktrees/thread-view-improvements/issue-01'\nBASELINE_COMMIT='6ddb4541b02410fa8c462dca4b9bb3b9969d5756'\nCURRENT_COMMIT='72ffd1a73d1bedf1f98b87ce0dd65f2602ff54d9'\nBASELINE_PATCH='/path/to/tau-worktrees/thread-view-improvements/issue-01/reports/renderer-transcript-legacy-baseline.patch'\nBASELINE_ROOT=\"$(mktemp -d -t tau-transcript-baseline.XXXXXX)\"\nCURRENT_ROOT=\"$(mktemp -d -t tau-transcript-current.XXXXXX)\"\ncleanup() {\n  if [ -e \"$BASELINE_ROOT/.git\" ]; then git -C \"$SUBJECT_ROOT\" worktree remove --force \"$BASELINE_ROOT\" >/dev/null 2>&1 || true; else rmdir \"$BASELINE_ROOT\" >/dev/null 2>&1 || true; fi\n  if [ -e \"$CURRENT_ROOT/.git\" ]; then git -C \"$SUBJECT_ROOT\" worktree remove --force \"$CURRENT_ROOT\" >/dev/null 2>&1 || true; else rmdir \"$CURRENT_ROOT\" >/dev/null 2>&1 || true; fi\n}\ntrap cleanup EXIT\ngit -C \"$SUBJECT_ROOT\" worktree add --detach \"$BASELINE_ROOT\" \"$BASELINE_COMMIT\"\ngit -C \"$SUBJECT_ROOT\" worktree add --detach \"$CURRENT_ROOT\" \"$CURRENT_COMMIT\"\nif [ -d \"$SUBJECT_ROOT/node_modules\" ]; then ln -s \"$SUBJECT_ROOT/node_modules\" \"$BASELINE_ROOT/node_modules\"; ln -s \"$SUBJECT_ROOT/node_modules\" \"$CURRENT_ROOT/node_modules\"; else npm --prefix \"$BASELINE_ROOT\" install; npm --prefix \"$CURRENT_ROOT\" install; fi\ngit -C \"$BASELINE_ROOT\" apply \"$BASELINE_PATCH\"\nnpm --prefix \"$BASELINE_ROOT\" run build\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-01.json\ncp \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-01.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json\"\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-02.json\ncp \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-02.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json\"\nnpm --prefix \"$BASELINE_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-baseline-run-03.json\ncp \"$BASELINE_ROOT/reports/renderer-transcript-baseline-run-03.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json\"\nnpm --prefix \"$CURRENT_ROOT\" run build\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-01.json\ncp \"$CURRENT_ROOT/reports/renderer-transcript-current-run-01.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json\"\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-02.json\ncp \"$CURRENT_ROOT/reports/renderer-transcript-current-run-02.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json\"\nnpm --prefix \"$CURRENT_ROOT\" run benchmark:renderer -- --no-build reports/renderer-transcript-current-run-03.json\ncp \"$CURRENT_ROOT/reports/renderer-transcript-current-run-03.json\" \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json\"\nnode \"$SUBJECT_ROOT/scripts/renderer-comparison-aggregate.mjs\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-02.json\" \\\n  --baseline \"$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-03.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-01.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-02.json\" \\\n  --current \"$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json\" \\\n  --baseline-root \"$BASELINE_ROOT\" \\\n  --current-root \"$CURRENT_ROOT\" \\\n  --baseline-commit \"$BASELINE_COMMIT\" \\\n  --current-commit \"$CURRENT_COMMIT\" \\\n  --baseline-patch \"$BASELINE_PATCH\" \\\n  --output \"$SUBJECT_ROOT/reports/renderer-transcript-comparison-aggregate.json\" --subject-root \"$SUBJECT_ROOT\"",
     "caveat": "Each raw report contains five measured samples after two warm-ups; aggregate p95/max values are aggregated from all complete-run summaries. Electron scheduling, GPU state, and other desktop load remain uncontrolled."
   }
 }
