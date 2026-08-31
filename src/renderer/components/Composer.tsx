@@ -224,12 +224,13 @@ export function Composer({
     files: FileList | readonly File[],
     scope: ComposerScope,
     capability: boolean,
+    generation: number,
   ) => {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
     const state = scopeStore.getSnapshot(scope);
     if (!capability) {
-      scopeStore.setError(scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE, undefined);
+      scopeStore.setAttachmentError(scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE, generation);
       return;
     }
     const policy = selectAttachmentCandidates(
@@ -242,7 +243,7 @@ export function Composer({
     const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     const error = firstError ?? (rejection ? errorMessage(rejection.reason) : undefined);
-    scopeStore.setError(scope, error, undefined);
+    scopeStore.setAttachmentError(scope, error, generation);
     if (accepted.length > 0) {
       scopeStore.addAttachments(scope, accepted, MAX_ATTACHMENTS, (storageError) => reportStorageError(scope, storageError));
     }
@@ -254,8 +255,9 @@ export function Composer({
     const scope = attachmentScope;
     const state = scopeStore.getSnapshot(scope);
     const previous = state.attachmentProcessing;
-    const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput));
-    scopeStore.setAttachmentProcessing(scope, operation);
+    let generation = 0;
+    const operation = previous.then(() => processFiles(snapshot, scope, supportsImageInput, generation));
+    generation = scopeStore.setAttachmentProcessing(scope, operation);
     return operation;
   }, [attachmentScope, processFiles, scopeStore, supportsImageInput]);
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
@@ -299,7 +301,11 @@ export function Composer({
       if (result.accepted && activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
     };
     const handleSubmissionError = (error: unknown) => {
-      scopeStore.setError(submittedScope, errorMessage(error), undefined);
+      scopeStore.setAttachmentError(
+        submittedScope,
+        errorMessage(error),
+        scopeStore.getAttachmentGeneration(submittedScope),
+      );
     };
     if ("then" in submission) {
       void submission.then(sendSubmission).catch(handleSubmissionError);

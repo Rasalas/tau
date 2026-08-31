@@ -991,7 +991,40 @@ export class PiHost {
         return this.newThreadResult([], { accepted: false, message: "Image attachments are not supported while Tau is attached to Pi." });
       }
       try {
-        await this.bridgeCommand({ command: "new_session", initialPrompt });
+        const response = await this.bridgeCommand({ command: "new_session", initialPrompt });
+        const bridgeSnapshot = response && typeof response === "object" && "snapshot" in response
+          ? response.snapshot as PiBridgeSnapshot
+          : undefined;
+        if (bridgeSnapshot?.sessionId && bridgeSnapshot.cwd) {
+          this.bridgeSnapshot = bridgeSnapshot;
+          if (this.bridge) {
+            this.bridge.descriptor.sessionId = bridgeSnapshot.sessionId;
+            this.bridge.descriptor.sessionFile = bridgeSnapshot.sessionFile;
+          }
+          this.cwd = bridgeSnapshot.cwd;
+          const next = this.bridgeHostSnapshot();
+          const firstUserMessage = bridgeSnapshot.messages.find((message) => (
+            message && typeof message === "object" && (message as { role?: string }).role === "user"
+          )) as { content?: unknown } | undefined;
+          const shell: UiSession = {
+            id: bridgeSnapshot.sessionId,
+            path: bridgeSnapshot.sessionFile,
+            title: cleanThreadTitle(bridgeSnapshot.sessionName || firstSentence(
+              textFromContent(firstUserMessage?.content),
+            )),
+            modifiedAt: Date.now(),
+            projectPath: bridgeSnapshot.cwd,
+            projectName: this.projectNameFor(bridgeSnapshot.cwd),
+            branch: this.branchFor(bridgeSnapshot.cwd),
+            messageCount: next.messages.length,
+          };
+          this.sessions = [shell, ...this.sessions.filter((entry) => entry.id !== shell.id)];
+          const updates: HostUpdate[] = [
+            { version: HOST_PROTOCOL_VERSION, type: "thread-shell", update: { sessionId: shell.id, shell } },
+            ...this.lifecycleUpdates(next),
+          ];
+          return this.newThreadResult(updates, { accepted: true });
+        }
         return this.newThreadResult([], { accepted: true });
       } catch (error) {
         // A new thread is a different session, so Pi has no standing to veto it.
@@ -1032,18 +1065,17 @@ export class PiHost {
         await this.activateThread(thread, true);
         promoted = true;
         // Shell/index publication is intentionally coalesced on a timer. Wait
-        // for that publication before releasing runtime events from the
-        // promotion barrier. Prompt acceptance is intentionally after
-        // promotion, so no runtime prompt can start on a prepared spare.
+        // for it before releasing runtime events; prompt preflight must run
+        // after release so extension questions are visible and answerable.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        if (initialPrompt || attachments.length > 0) await this.promptThread(thread, initialPrompt ?? "", attachments, undefined, images);
-        // The first accepted prompt names the thread right away; a rejected
-        // preflight must leave the visible blank thread untitled.
-        if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
         thread.releaseEventBarrier((event, runtime, sessionId, cwd, error) => {
           if (error) this.fail(error, sessionId);
           else this.handleSessionEvent(event, runtime, sessionId, cwd);
         }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
+        if (initialPrompt || attachments.length > 0) await this.promptThread(thread, initialPrompt ?? "", attachments, undefined, images);
+        // The first accepted prompt names the thread right away; a rejected
+        // preflight must leave the visible blank thread untitled.
+        if (initialPrompt?.trim()) this.retitleShell(thread.sessionId, firstSentence(initialPrompt));
       } catch (error) {
         // A pure validation failure leaves an untouched spare available. Once
         // adoption or activation has started, discard the candidate on failure
@@ -1702,16 +1734,15 @@ export class PiHost {
       if (options.adopt !== false) await this.adoptThread(thread);
       return thread;
     } catch (error) {
-      // A prepared runtime may have created extension questions while binding;
-      // cancel its barrier before teardown so no effect escapes after discard.
-      if (thread) {
-        this.cancelUiPromptsFor(thread.sessionId);
-        thread.cancelEventBarrier();
-      }
+      // A prepared runtime may have created extension questions while binding.
+      // Keep its barrier active until every callback and teardown side effect
+      // has completed, then discard all buffered output.
+      if (thread) this.cancelUiPromptsFor(thread.sessionId);
       if (runtime) {
         const cleanupErrors = await this.teardownRuntime(runtime);
+        thread?.cancelEventBarrier();
         if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed");
-      }
+      } else thread?.cancelEventBarrier();
       throw error;
     } finally {
       this.backgroundManagers.delete(manager);

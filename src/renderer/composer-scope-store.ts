@@ -25,18 +25,24 @@ export function allocateAttachmentId(): number { return nextAttachmentId++; }
 export interface ComposerScopeState {
   draft: string;
   revision: number;
+  textRevision: number;
+  attachmentRevision: number;
   attachments: PendingAttachment[];
-  error?: string;
-  errorSubmissionId?: number;
+  error?: ComposerError;
   attachmentProcessing: Promise<void>;
   attachmentProcessingReady: boolean;
-  pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; revision: number; draft: string }>;
+  attachmentGeneration: number;
+  pendingSubmissions: Map<number, { attachmentIds: ReadonlySet<number>; textRevision: number; attachmentRevision: number; draft: string }>;
   hydrationGeneration: number;
   persistenceQueue: Promise<void>;
   updatedAt: number;
   persistenceError?: string;
   submissionBusy: boolean;
 }
+
+export type ComposerError =
+  | { kind: "attachment"; generation: number; message: string }
+  | { kind: "submission"; submissionId: number; message: string };
 
 /** Opaque snapshot/settlement handle owned by one composer scope. */
 export interface SubmissionHandle {
@@ -56,7 +62,6 @@ export interface ComposerScopeSnapshot {
   readonly draft: string;
   readonly attachments: readonly PendingAttachment[];
   readonly error?: string;
-  readonly errorSubmissionId?: number;
   readonly attachmentProcessing: Promise<void>;
   readonly persistenceError?: string;
   readonly submissionPending: boolean;
@@ -80,9 +85,12 @@ export class ComposerScopeStore {
     const created: ComposerScopeState = {
       draft,
       revision: 0,
+      textRevision: 0,
+      attachmentRevision: 0,
       attachments: [],
       attachmentProcessing: Promise.resolve(),
       attachmentProcessingReady: true,
+      attachmentGeneration: 0,
       pendingSubmissions: new Map(),
       hydrationGeneration: 0,
       persistenceQueue: Promise.resolve(),
@@ -116,8 +124,7 @@ export class ComposerScopeStore {
     return {
       draft: state.draft,
       attachments: [...state.attachments],
-      error: state.error,
-      errorSubmissionId: state.errorSubmissionId,
+      error: state.error?.message,
       attachmentProcessing: state.attachmentProcessing,
       persistenceError: state.persistenceError,
       submissionPending: state.submissionBusy,
@@ -159,6 +166,8 @@ export class ComposerScopeStore {
       state.attachments = nextAttachments;
       state.updatedAt = Math.max(state.updatedAt, persistedUpdatedAt);
       state.revision = Math.max(state.revision, persistedRevision);
+      state.textRevision = Math.max(state.textRevision, persisted.textRevision ?? persistedRevision);
+      state.attachmentRevision = Math.max(state.attachmentRevision, persisted.attachmentRevision ?? persistedRevision);
       if (changed) this.notify(scope);
     }).catch((error) => {
       state.persistenceError = errorMessage(error);
@@ -174,6 +183,8 @@ export class ComposerScopeStore {
       draft: state.draft,
       attachments: state.attachments.map(({ previewUrl: _previewUrl, ...attachment }) => attachment),
       revision: state.revision,
+      textRevision: state.textRevision,
+      attachmentRevision: state.attachmentRevision,
       updatedAt: state.updatedAt,
     };
     state.persistenceQueue = state.persistenceQueue.then(() => {
@@ -193,6 +204,7 @@ export class ComposerScopeStore {
     const state = this.ensure(scope);
     state.draft = draft;
     state.revision += 1;
+    state.textRevision += 1;
     state.updatedAt = Date.now();
     state.persistenceError = undefined;
     try {
@@ -209,6 +221,7 @@ export class ComposerScopeStore {
     const state = this.ensure(scope);
     state.attachments = attachments;
     state.revision += 1;
+    state.attachmentRevision += 1;
     state.updatedAt = Date.now();
     state.persistenceError = undefined;
     this.notify(scope);
@@ -225,10 +238,16 @@ export class ComposerScopeStore {
     this.setAttachments(scope, state.attachments.filter((attachment) => attachment.id !== attachmentId), onError);
   }
 
-  setError(scope: ComposerScope, error: string | undefined, submissionId: number | undefined): void {
+  setAttachmentError(scope: ComposerScope, message: string | undefined, generation: number): void {
     const state = this.ensure(scope);
-    state.error = error;
-    state.errorSubmissionId = submissionId;
+    if (generation !== state.attachmentGeneration) return;
+    state.error = message ? { kind: "attachment", generation, message } : undefined;
+    this.notify(scope);
+  }
+
+  setSubmissionError(scope: ComposerScope, message: string, submissionId: number): void {
+    const state = this.ensure(scope);
+    state.error = { kind: "submission", submissionId, message };
     this.notify(scope);
   }
 
@@ -238,8 +257,10 @@ export class ComposerScopeStore {
     this.notify(scope);
   }
 
-  setAttachmentProcessing(scope: ComposerScope, processing: Promise<void>): void {
+  setAttachmentProcessing(scope: ComposerScope, processing: Promise<void>): number {
     const state = this.ensure(scope);
+    state.attachmentGeneration += 1;
+    const generation = state.attachmentGeneration;
     state.attachmentProcessing = processing;
     state.attachmentProcessingReady = false;
     void processing.then(() => {
@@ -248,6 +269,11 @@ export class ComposerScopeStore {
       if (state.attachmentProcessing === processing) state.attachmentProcessingReady = true;
     });
     this.notify(scope);
+    return generation;
+  }
+
+  getAttachmentGeneration(scope: ComposerScope): number {
+    return this.ensure(scope).attachmentGeneration;
   }
 
   beginSubmission(scope: ComposerScope, onError: (error: unknown) => void = () => {}): SubmissionHandle | Promise<SubmissionHandle> | SubmissionBusy {
@@ -275,11 +301,12 @@ export class ComposerScopeStore {
   private createSubmission(scope: ComposerScope, onError: (error: unknown) => void): SubmissionHandle {
     const state = this.ensure(scope);
     const id = this.nextSubmissionId++;
-    const revision = state.revision;
+    const textRevision = state.textRevision;
+    const attachmentRevision = state.attachmentRevision;
     const attachmentIds = new Set(state.attachments.map((attachment) => attachment.id));
     const text = state.draft;
     const attachments = state.attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
-    state.pendingSubmissions.set(id, { attachmentIds, revision, draft: text });
+    state.pendingSubmissions.set(id, { attachmentIds, textRevision, attachmentRevision, draft: text });
     this.pendingSubmissionPromises.delete(scope);
     this.notify(scope);
     let settled = false;
@@ -315,22 +342,21 @@ export class ComposerScopeStore {
     const pending = state.pendingSubmissions.get(id);
     if (!pending) return;
     state.pendingSubmissions.delete(id);
-    const sameRevision = state.revision === pending.revision;
-    const sameDraft = state.draft === pending.draft;
+    const sameTextRevision = state.textRevision === pending.textRevision;
     if (result.accepted) {
-      state.attachments = state.attachments.filter((attachment) => !pending.attachmentIds.has(attachment.id));
-      if (sameRevision || sameDraft) state.draft = "";
-      if (state.errorSubmissionId === undefined || state.errorSubmissionId === id) {
+      if (state.attachmentRevision >= pending.attachmentRevision) {
+        state.attachments = state.attachments.filter((attachment) => !pending.attachmentIds.has(attachment.id));
+      }
+      if (sameTextRevision) state.draft = "";
+      if (state.error?.kind !== "attachment" && (state.error === undefined || state.error.submissionId === id)) {
         state.error = undefined;
-        state.errorSubmissionId = undefined;
       }
     } else {
-      state.error = result.message;
-      state.errorSubmissionId = id;
+      state.error = { kind: "submission", submissionId: id, message: result.message };
     }
     state.revision += 1;
     state.updatedAt = Date.now();
-    if (result.accepted && (sameRevision || sameDraft)) {
+    if (result.accepted && sameTextRevision) {
       try {
         this.persistence.writeLegacyDraft?.(scope, "");
       } catch (error) {

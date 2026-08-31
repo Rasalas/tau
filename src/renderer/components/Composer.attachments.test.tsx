@@ -245,6 +245,40 @@ describe("Composer attachments", () => {
     expect(screen.queryByRole("button", { name: "Preview sent.png" })).toBeNull();
   });
 
+  it("preserves text edited away and back while submission is pending", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    let resolve!: (result: SubmitResult) => void;
+    const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
+    renderComposer(onSubmit, attachmentRef);
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "sent.png", { type: "image/png" })]);
+    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(draft, { target: { value: "first prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    fireEvent.change(draft, { target: { value: "temporary edit" } });
+    fireEvent.change(draft, { target: { value: "first prompt" } });
+    resolve({ accepted: true });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Preview sent.png" })).toBeNull());
+    expect(draft.value).toBe("first prompt");
+  });
+
+  it("keeps a newer attachment error after an older submission succeeds", async () => {
+    const attachmentRef = createRef<ComposerAttachmentHandle>();
+    let resolve!: (result: SubmitResult) => void;
+    const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
+    renderComposer(onSubmit, attachmentRef);
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "sent.png", { type: "image/png" })]);
+    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(draft, { target: { value: "first prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "notes.txt", { type: "text/plain" })]);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/not a supported/u));
+    resolve({ accepted: true });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Preview sent.png" })).toBeNull());
+    expect(screen.getByRole("alert").textContent).toMatch(/not a supported/u);
+  });
+
   it("does not bypass attachment limits while restoring a rejected submission", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     let resolve!: (result: SubmitResult) => void;

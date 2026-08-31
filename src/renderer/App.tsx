@@ -4,7 +4,6 @@ import type {
   FileNode,
   HostEvent,
   HostSnapshot,
-  PreparedThreadCapability,
   ThreadIndexSnapshot,
   UiEditor,
   UiMessage,
@@ -65,13 +64,16 @@ import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences, type AccessLevel } from "./preferences";
-import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { draftKey, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import type { HostActionResult, HostUpdate, ThreadDetail } from "../shared/host-protocol";
-import { THREAD_DROP_FEEDBACK, classifyThreadDrop, type ThreadDropState } from "../shared/thread-drop";
+import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
+import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
+import { useThreadDropController } from "./use-thread-drop-controller";
+import { useNewThreadController } from "./use-new-thread-controller";
 import {
   ThreadStoreContext,
   WorkbenchContext,
@@ -355,10 +357,15 @@ export default function App() {
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
-  const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(window.localStorage));
-  const [preparedThreadCapability, setPreparedThreadCapability] = useState<PreparedThreadCapability>();
-  const preparedThreadCapabilityRequestRef = useRef(0);
-  const preparedThreadCapabilityGenerationRef = useRef(0);
+  const newThreadController = useNewThreadController(window.localStorage);
+  const {
+    pendingNewThread,
+    setPendingNewThread,
+    requestId: newThreadRequestRef,
+    begin: beginNewThread,
+    invalidate: invalidateNewThread,
+    isCurrent: isCurrentNewThreadRequest,
+  } = newThreadController;
   const [settingsPage, setSettingsPage] = useState<string>();
   const [review, setReview] = useState<{ path?: string; primaryPush: boolean }>();
   const [committing, setCommitting] = useState(false);
@@ -370,8 +377,6 @@ export default function App() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
-  const [threadDrop, setThreadDrop] = useState<ThreadDropState>("idle");
-  const threadDropDepthRef = useRef(0);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
@@ -392,47 +397,6 @@ export default function App() {
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
-  useEffect(() => {
-    const request = ++preparedThreadCapabilityRequestRef.current;
-    const projectPath = pendingNewThread?.projectPath;
-    const getCapability = window.tau?.getPreparedThreadCapability;
-    if (!projectPath || !getCapability) {
-      setPreparedThreadCapability(undefined);
-      return;
-    }
-    setPreparedThreadCapability(undefined);
-    void getCapability(projectPath).then((capability) => {
-      if (
-        request !== preparedThreadCapabilityRequestRef.current
-        || capability.cwd !== projectPath
-        || capability.generation < preparedThreadCapabilityGenerationRef.current
-      ) return;
-      preparedThreadCapabilityGenerationRef.current = capability.generation;
-      setPreparedThreadCapability(capability);
-    }).catch(() => {
-      if (request === preparedThreadCapabilityRequestRef.current) setPreparedThreadCapability(undefined);
-    });
-  }, [pendingNewThread?.projectPath]);
-  useEffect(() => {
-    if (threadDrop === "idle") return;
-    const cancel = () => {
-      threadDropDepthRef.current = 0;
-      setThreadDrop("idle");
-    };
-    const cancelKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") cancel();
-    };
-    window.addEventListener("dragend", cancel);
-    window.addEventListener("drop", cancel);
-    window.addEventListener("blur", cancel);
-    window.addEventListener("keydown", cancelKey);
-    return () => {
-      window.removeEventListener("dragend", cancel);
-      window.removeEventListener("drop", cancel);
-      window.removeEventListener("blur", cancel);
-      window.removeEventListener("keydown", cancelKey);
-    };
-  }, [threadDrop]);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -1014,11 +978,10 @@ export default function App() {
 
   const createThreadInProject = useCallback((project: UiProject) => {
     const draft = { projectPath: project.path, projectName: project.name };
-    writeNewThreadDraft(window.localStorage, draft);
-    setPendingNewThread(draft);
+    beginNewThread(draft);
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, []);
+  }, [beginNewThread]);
 
   const browseForNewThread = useCallback(async () => {
     setNewThreadOpen(false);
@@ -1040,6 +1003,7 @@ export default function App() {
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
+    invalidateNewThread();
     setPendingNewThread(undefined);
     writeNewThreadDraft(window.localStorage);
     const startedAt = performance.now();
@@ -1061,7 +1025,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [addEvent, applyActionResult, applySnapshot, requireHost, snapshot, threadStore]);
+  }, [addEvent, applyActionResult, applySnapshot, invalidateNewThread, requireHost, snapshot, threadStore]);
 
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
@@ -1404,8 +1368,11 @@ export default function App() {
     sessionId: string,
     optimisticId: string,
     prompt: string,
+    scope: string | undefined,
+    requestId: number,
     result?: HostActionResult,
   ) => {
+    if (!isCurrentNewThreadRequest(pending, scope, requestId)) return;
     setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
       ? { ...entry, scope: `session:${sessionId}` }
       : entry));
@@ -1429,7 +1396,7 @@ export default function App() {
         taskHistory: [],
       } : undefined,
     }, actions).catch((error) => setNotice(errorMessage(error)));
-  }, [acceptWorkspace, actions, registry, snapshot, threadStore]);
+  }, [acceptWorkspace, actions, isCurrentNewThreadRequest, registry, snapshot, threadStore]);
 
   const submit = useCallback(async (
     value: string,
@@ -1456,7 +1423,9 @@ export default function App() {
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       timestamp: Date.now(),
     };
-    const optimisticScope = activeDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
+    const submittedDraftKey = activeDraftKey;
+    const newThreadRequestId = newThreadRequestRef.current;
+    const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
       if (delivery === "steer") {
         setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
@@ -1491,17 +1460,20 @@ export default function App() {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
           await window.tau.sendPrompt(text, attachments, pending.sessionId);
-          completeNewThreadSubmission(pending, pending.sessionId, optimistic.id, text);
+          completeNewThreadSubmission(pending, pending.sessionId, optimistic.id, text, submittedDraftKey, newThreadRequestId);
           return { accepted: true };
         }
         const result = await window.tau.newSession(text, attachments, pending.projectPath);
+        if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) return result.submission;
         applyActionResult(result);
         if (!result.submission.accepted) {
           const rejectedDetail = result.updates.find((update) => update.type === "thread-detail");
           const sessionId = rejectedDetail?.type === "thread-detail" ? rejectedDetail.detail.sessionId : undefined;
           if (sessionId) {
-            setPendingNewThread((current) => current ? { ...current, sessionId } : current);
-            writeNewThreadDraft(window.localStorage, { ...pending, sessionId });
+            if (isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) {
+              setPendingNewThread((current) => current ? { ...current, sessionId } : current);
+              writeNewThreadDraft(window.localStorage, { ...pending, sessionId });
+            }
           }
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           return result.submission;
@@ -1511,7 +1483,7 @@ export default function App() {
         if (sessionId) {
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
-          completeNewThreadSubmission(pending, sessionId, optimistic.id, text, result);
+          completeNewThreadSubmission(pending, sessionId, optimistic.id, text, submittedDraftKey, newThreadRequestId, result);
           return { accepted: true };
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
@@ -1553,7 +1525,7 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, completeNewThreadSubmission, pendingNewThread, rebuildWorkbench, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
+  }, [acceptWorkspace, actions, activeDraftKey, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, rebuildWorkbench, reloadRuntime, restartWorkbench, snapshot, threadStore, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -1621,6 +1593,10 @@ export default function App() {
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
   const scopedOptimisticMessages = optimisticMessages.filter((entry) => entry.scope === activeDraftKey);
   const unconfirmedOptimisticMessages = reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message);
+  const preparedThreadCapability = usePreparedThreadCapability(
+    pendingNewThread?.projectPath,
+    window.tau?.getPreparedThreadCapability,
+  );
   const conversationMessages = pendingNewThread
     ? unconfirmedOptimisticMessages
     : [...messages, ...unconfirmedOptimisticMessages].sort((left, right) => left.timestamp - right.timestamp);
@@ -1640,6 +1616,13 @@ export default function App() {
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
+  const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
+    void composerAttachmentRef.current?.addFiles(files);
+  }, []);
+  const threadDropController = useThreadDropController(
+    conversationSnapshot?.supportsImageInput ?? false,
+    addDroppedFiles,
+  );
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
   const conversationPrompts = pendingNewThread ? [] : threadPrompts;
   const showStartScreen = conversationMessages.length === 0
@@ -1657,41 +1640,6 @@ export default function App() {
     panels.length === 0 ? "no-dock" : "",
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
-
-  const classifyDataTransfer = (dataTransfer: DataTransfer): ThreadDropState => classifyThreadDrop(
-    Array.from(dataTransfer.types).includes("Files"),
-    Array.from(dataTransfer.items ?? []).map((item) => ({ kind: item.kind, mimeType: item.type })),
-    conversationSnapshot?.supportsImageInput ?? false,
-  );
-
-  const onThreadDragEnter = (event: React.DragEvent<HTMLElement>) => {
-    const state = classifyDataTransfer(event.dataTransfer);
-    if (state === "idle") return;
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-    event.preventDefault();
-    threadDropDepthRef.current += 1;
-    setThreadDrop(state);
-  };
-  const onThreadDragOver = (event: React.DragEvent<HTMLElement>) => {
-    const state = classifyDataTransfer(event.dataTransfer);
-    if (state === "idle") return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = THREAD_DROP_FEEDBACK[state].dropEffect;
-    setThreadDrop(state);
-  };
-  const onThreadDragLeave = (event: React.DragEvent<HTMLElement>) => {
-    if (threadDropDepthRef.current === 0) return;
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-    threadDropDepthRef.current = Math.max(0, threadDropDepthRef.current - 1);
-    if (threadDropDepthRef.current === 0) setThreadDrop("idle");
-  };
-  const onThreadDrop = (event: React.DragEvent<HTMLElement>) => {
-    if (classifyDataTransfer(event.dataTransfer) === "idle") return;
-    event.preventDefault();
-    threadDropDepthRef.current = 0;
-    setThreadDrop("idle");
-    if (event.dataTransfer.files.length > 0) composerAttachmentRef.current?.addFiles(event.dataTransfer.files);
-  };
 
   const conversationComposer = (
     <Composer
@@ -1858,16 +1806,16 @@ export default function App() {
 
             <main
               className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
-              onDragEnter={onThreadDragEnter}
-              onDragOver={onThreadDragOver}
-              onDragLeave={onThreadDragLeave}
-              onDrop={onThreadDrop}
+              onDragEnter={threadDropController.onDragEnter}
+              onDragOver={threadDropController.onDragOver}
+              onDragLeave={threadDropController.onDragLeave}
+              onDrop={threadDropController.onDrop}
             >
-              {threadDrop !== "idle" ? (
-                <div className={`conversation-drop-overlay ${threadDrop}`} role="status" aria-live="polite">
+              {threadDropController.state !== "idle" ? (
+                <div className={`conversation-drop-overlay ${threadDropController.state}`} role="status" aria-live="polite">
                   <div className="conversation-drop-card">
-                    <strong>{THREAD_DROP_FEEDBACK[threadDrop].title}</strong>
-                    <span>{THREAD_DROP_FEEDBACK[threadDrop].description}</span>
+                    <strong>{THREAD_DROP_FEEDBACK[threadDropController.state].title}</strong>
+                    <span>{THREAD_DROP_FEEDBACK[threadDropController.state].description}</span>
                   </div>
                 </div>
               ) : null}

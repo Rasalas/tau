@@ -3,7 +3,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import {
@@ -211,13 +211,25 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         }
         case "new_session": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before creating a new thread.");
-          respond(client, frame.id, true, { accepted: true });
-          setTimeout(() => {
-            const encodedPrompt = frame.initialPrompt
-              ? ` ${Buffer.from(JSON.stringify(frame.initialPrompt), "utf8").toString("base64url")}`
-              : "";
-            pi.sendUserMessage(`/tau-bridge-new${encodedPrompt}`, { expandPromptTemplates: true });
-          }, 0);
+          let replacementSnapshot: PiBridgeSnapshot | undefined;
+          const result = await (ctx as ExtensionCommandContext).newSession({
+            withSession: async (fresh) => {
+              replacementSnapshot = snapshot(fresh);
+              if (frame.initialPrompt) {
+                void fresh.sendUserMessage(frame.initialPrompt, { expandPromptTemplates: true }).catch((error) => {
+                  fresh.ui.notify(`The initial prompt failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+                });
+              }
+            },
+          });
+          if (result.cancelled || !replacementSnapshot) throw new Error("Pi cancelled creation of the new thread.");
+          // Keep the connected bridge's ownership boundary aligned with the
+          // replacement session before any subsequent client command arrives.
+          if (descriptor) {
+            descriptor.sessionId = replacementSnapshot.sessionId;
+            descriptor.sessionFile = replacementSnapshot.sessionFile;
+          }
+          respond(client, frame.id, true, { accepted: true, snapshot: replacementSnapshot });
           break;
         }
         case "fork": {

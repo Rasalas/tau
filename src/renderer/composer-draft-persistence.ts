@@ -14,6 +14,8 @@ export interface PersistedScope {
   draft: string;
   attachments: PersistedAttachment[];
   revision?: number;
+  textRevision?: number;
+  attachmentRevision?: number;
   updatedAt?: number;
 }
 
