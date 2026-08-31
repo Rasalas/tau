@@ -1,5 +1,4 @@
 import type { UiChangedFile, UiToolRun, UiWorkspaceChanges } from "../shared/contracts";
-import { changesSinceTurn as changesSinceTurnShared } from "../shared/turn-checkpoints";
 
 const TURN_ACTIVITY_CACHE_KEY = "tau.turn-activity.v1";
 
@@ -74,5 +73,25 @@ export function changesSinceTurn(
   baseline: UiWorkspaceChanges | undefined,
   current: UiWorkspaceChanges,
 ): UiWorkspaceChanges {
-  return changesSinceTurnShared(baseline, current);
+  if (!baseline) return { branch: current.branch, files: [], added: 0, removed: 0 };
+  const beforeByPath = new Map(baseline.files.map((file) => [file.path, file]));
+  const files = current.files.flatMap((file) => {
+    const before = beforeByPath.get(file.path);
+    if (before && before.status === file.status && before.added === file.added && before.removed === file.removed) return [];
+    if (!before) return [{ ...file }];
+    const addedDelta = file.added - before.added;
+    const removedDelta = file.removed - before.removed;
+    return [{
+      ...file,
+      added: Math.max(0, addedDelta) + Math.max(0, -removedDelta),
+      removed: Math.max(0, removedDelta) + Math.max(0, -addedDelta),
+    }];
+  });
+  return {
+    branch: current.branch,
+    refreshStatus: current.refreshStatus,
+    files,
+    added: files.reduce((total, file) => total + file.added, 0),
+    removed: files.reduce((total, file) => total + file.removed, 0),
+  };
 }

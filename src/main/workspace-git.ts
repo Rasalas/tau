@@ -20,12 +20,13 @@ import type {
   WorkspaceInfo,
 } from "../shared/contracts.js";
 import {
+  type StoredTurnCheckpoint,
   isTurnSnapshotId,
   namespacedSnapshotRef,
-  normalizeDiffLoadOptions,
   sanitizeTurnSnapshotComponent,
   turnSnapshotRef,
-} from "../shared/turn-checkpoints.js";
+} from "../shared/turn-checkpoint-codec.js";
+import { normalizeDiffLoadOptions } from "../shared/turn-checkpoint-diff.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -388,6 +389,113 @@ export async function validateWorkspaceSnapshotRefs(
   return { beforeTreeId, afterTreeId };
 }
 
+function snapshotPairShape(
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+): { namespace: string } | undefined {
+  if (!isTurnSnapshotId(beforeSnapshotId) || !isTurnSnapshotId(afterSnapshotId)) return undefined;
+  const beforeParts = beforeSnapshotId.split("/");
+  const afterParts = afterSnapshotId.split("/");
+  const beforePhase = beforeParts.at(-1);
+  const afterPhase = afterParts.at(-1);
+  const beforeNamespace = beforeParts.slice(3, -1).join("/");
+  const afterNamespace = afterParts.slice(3, -1).join("/");
+  if (beforePhase !== "before" || afterPhase !== "after" || beforeNamespace !== afterNamespace) return undefined;
+  return { namespace: beforeNamespace };
+}
+
+/**
+ * Forks inherit the conversation tree, but their checkpoint refs must live in
+ * the new session namespace. Copy the immutable tree targets atomically and
+ * remove only refs created by this operation if the second phase fails.
+ */
+export async function cloneTurnCheckpointRefs(
+  cwd: string,
+  sourceSessionId: string,
+  targetSessionId: string,
+  checkpoints: readonly StoredTurnCheckpoint[],
+  runGit: GitRunner = git,
+): Promise<void> {
+  const created: Array<{ id: string; treeId: string }> = [];
+  try {
+    for (const checkpoint of checkpoints) {
+      if (checkpoint.sessionId !== sourceSessionId
+        || checkpoint.beforeSnapshotId !== turnSnapshotRef(sourceSessionId, checkpoint.turnId, "before")
+        || checkpoint.afterSnapshotId !== turnSnapshotRef(sourceSessionId, checkpoint.turnId, "after")) {
+        throw new Error("Cannot clone a checkpoint with a foreign snapshot namespace.");
+      }
+      const trees = await validateWorkspaceSnapshotRefs(
+        cwd,
+        checkpoint.beforeSnapshotId,
+        checkpoint.afterSnapshotId,
+        { sessionId: sourceSessionId, turnId: checkpoint.turnId },
+        runGit,
+      );
+      for (const [phase, treeId] of [["before", trees.beforeTreeId], ["after", trees.afterTreeId]] as const) {
+        const id = turnSnapshotRef(targetSessionId, checkpoint.turnId, phase);
+        const existing = (await runGit(cwd, ["rev-parse", "--verify", id]).catch(() => "")).trim();
+        if (existing && existing !== treeId) throw new Error(`Fork snapshot ref ${id} already points to another tree.`);
+        if (existing) {
+          const existingType = (await runGit(cwd, ["cat-file", "-t", id]).catch(() => "")).trim();
+          if (existingType !== "tree") throw new Error(`Fork snapshot ref ${id} does not address a tree.`);
+        }
+        if (!existing) {
+          await runGit(cwd, ["update-ref", id, treeId, "0".repeat(treeId.length)]);
+          created.push({ id, treeId });
+        }
+      }
+      await validateWorkspaceSnapshotRefs(
+        cwd,
+        turnSnapshotRef(targetSessionId, checkpoint.turnId, "before"),
+        turnSnapshotRef(targetSessionId, checkpoint.turnId, "after"),
+        { sessionId: targetSessionId, turnId: checkpoint.turnId },
+        runGit,
+      );
+    }
+  } catch (error) {
+    await Promise.all(created.map(({ id, treeId }) => deleteWorkspaceSnapshot(
+      cwd,
+      id,
+      { sessionId: targetSessionId, turnId: id.split("/").at(-2) ?? "", phase: id.endsWith("/after") ? "after" : "before", treeId },
+      runGit,
+    )));
+    throw error;
+  }
+}
+
+/** Removes only target refs whose trees match the source fork copy. */
+export async function cleanupClonedTurnCheckpointRefs(
+  cwd: string,
+  sourceSessionId: string,
+  targetSessionId: string,
+  checkpoints: readonly StoredTurnCheckpoint[],
+  runGit: GitRunner = git,
+): Promise<void> {
+  await Promise.all(checkpoints.map(async (checkpoint) => {
+    if (checkpoint.sessionId !== sourceSessionId) return;
+    const source = await validateWorkspaceSnapshotRefs(
+      cwd,
+      checkpoint.beforeSnapshotId,
+      checkpoint.afterSnapshotId,
+      { sessionId: sourceSessionId, turnId: checkpoint.turnId },
+      runGit,
+    ).catch(() => undefined);
+    if (!source) return;
+    await deleteWorkspaceSnapshot(
+      cwd,
+      turnSnapshotRef(targetSessionId, checkpoint.turnId, "before"),
+      { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "before", treeId: source.beforeTreeId },
+      runGit,
+    );
+    await deleteWorkspaceSnapshot(
+      cwd,
+      turnSnapshotRef(targetSessionId, checkpoint.turnId, "after"),
+      { sessionId: targetSessionId, turnId: checkpoint.turnId, phase: "after", treeId: source.afterTreeId },
+      runGit,
+    );
+  }));
+}
+
 /** Delete only a verified, namespaced snapshot ref. The real index/worktree are untouched. */
 export async function deleteWorkspaceSnapshot(
   cwd: string,
@@ -417,6 +525,59 @@ export async function cleanupTurnCheckpointRefs(
     await deleteWorkspaceSnapshot(cwd, turnSnapshotRef(checkpoint.sessionId, checkpoint.turnId, "before"), checkpoint, runGit);
     await deleteWorkspaceSnapshot(cwd, turnSnapshotRef(checkpoint.sessionId, checkpoint.turnId, "after"), { ...checkpoint, phase: "after" }, runGit);
   }
+}
+
+/** Garbage-collect every checkpoint ref owned by a session file that was deleted. */
+export async function cleanupTurnCheckpointSessionRefs(
+  cwd: string,
+  sessionId: string,
+  runGit: GitRunner = git,
+): Promise<void> {
+  const prefix = `refs/tau/checkpoints/${sanitizeTurnSnapshotComponent(sessionId)}/`;
+  const refs = (await runGit(cwd, ["for-each-ref", "--format=%(refname)", prefix]).catch(() => ""))
+    .split("\n")
+    .map((ref) => ref.trim())
+    .filter((ref) => isTurnSnapshotId(ref));
+  await Promise.all(refs.map((ref) => runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
+}
+
+/**
+ * Crash recovery for the two-phase checkpoint write. A process can publish
+ * immutable trees and die before its session custom entry is appended; those
+ * refs are not discoverable by the UI and must not live forever. Keep only
+ * complete, namespace-validated pairs represented by the durable entries.
+ */
+export async function cleanupOrphanTurnCheckpointRefs(
+  cwd: string,
+  sessionId: string,
+  checkpoints: readonly StoredTurnCheckpoint[],
+  runGit: GitRunner = git,
+): Promise<void> {
+  const prefix = `refs/tau/checkpoints/${sanitizeTurnSnapshotComponent(sessionId)}/`;
+  const refs = (await runGit(cwd, ["for-each-ref", "--format=%(refname)", prefix]).catch(() => ""))
+    .split("\n")
+    .map((ref) => ref.trim())
+    .filter((ref) => isTurnSnapshotId(ref));
+  const refSet = new Set(refs);
+  const valid = new Set<string>();
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.sessionId !== sessionId) continue;
+    try {
+      const before = turnSnapshotRef(sessionId, checkpoint.turnId, "before");
+      const after = turnSnapshotRef(sessionId, checkpoint.turnId, "after");
+      // A durable entry is valid only when both deterministic refs still
+      // exist and both resolve to trees in the expected namespace. This also
+      // removes half-written pairs left by a crash or a failed ref update.
+      if (!refSet.has(before) || !refSet.has(after)) continue;
+      await validateWorkspaceSnapshotRefs(cwd, before, after, { sessionId, turnId: checkpoint.turnId }, runGit);
+      valid.add(before);
+      valid.add(after);
+    } catch {
+      // Malformed or incomplete persisted entries are ignored; their refs are
+      // intentionally treated as orphaned and removed below.
+    }
+  }
+  await Promise.all(refs.filter((ref) => !valid.has(ref)).map((ref) => runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
 }
 
 function snapshotStatus(value: string): ChangeStatus {
@@ -454,6 +615,9 @@ export async function diffWorkspaceSnapshots(
 ): Promise<UiWorkspaceChanges> {
   if (!isTurnSnapshotId(beforeSnapshotId) || !isTurnSnapshotId(afterSnapshotId)) {
     throw new Error("Invalid turn checkpoint snapshot ID.");
+  }
+  if (!snapshotPairShape(beforeSnapshotId, afterSnapshotId)) {
+    throw new Error("Turn checkpoint snapshot refs must be an ordered before/after pair in one namespace.");
   }
   const runGit = options.runGit ?? git;
   if (options.expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, options.expected, runGit);
@@ -828,6 +992,9 @@ export async function getSnapshotFileDiff(
 ): Promise<UiFileDiff> {
   const empty = (note: string): UiFileDiff => ({ path, added: 0, removed: 0, hunks: [], note });
   if (!isTurnSnapshotId(beforeSnapshotId) || !isTurnSnapshotId(afterSnapshotId)) {
+    return empty("This turn checkpoint is no longer available.");
+  }
+  if (!snapshotPairShape(beforeSnapshotId, afterSnapshotId)) {
     return empty("This turn checkpoint is no longer available.");
   }
   try {

@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 import {
   createWorktree,
   createWorkspaceSnapshot,
+  cleanupClonedTurnCheckpointRefs,
+  cleanupOrphanTurnCheckpointRefs,
   cleanupTurnCheckpointRefs,
+  cloneTurnCheckpointRefs,
   diffWorkspaceSnapshots,
   diffWorkspaceSnapshotPage,
   getFileDiff,
@@ -19,6 +22,7 @@ import {
   repositoryDisplayName,
   validateWorkspaceSnapshotRefs,
 } from "./workspace-git.js";
+import { turnSnapshotRef, type StoredTurnCheckpoint } from "../shared/turn-checkpoint-codec.js";
 
 describe("large diff bounds", () => {
   it("pages hunks and marks the bounded payload", () => {
@@ -152,6 +156,66 @@ describe("immutable turn snapshots", () => {
       expect(summary.files.at(-1)?.path).toBe("file-99.txt");
       const one = await getSnapshotFileDiff(cwd, before.id, after.id, "file-299.txt");
       expect(one.hunks.flatMap((hunk) => hunk.lines).some((line) => line.kind === "added" && line.text === "299")).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("clones immutable refs into a fork namespace and removes incomplete copies", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-fork-snapshots-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "seed.txt"), "before\n");
+      execFileSync("git", ["add", "seed.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      const before = await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "before" });
+      await writeFile(join(cwd, "seed.txt"), "after\n");
+      const after = await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "after" });
+      const checkpoint: StoredTurnCheckpoint = {
+        id: "turn",
+        turnId: "turn",
+        sessionId: "source",
+        anchorMessageId: "assistant",
+        beforeSnapshotId: before.id,
+        afterSnapshotId: after.id,
+        startedAt: 1,
+        endedAt: 2,
+        files: [],
+        added: 1,
+        removed: 1,
+      };
+
+      await cloneTurnCheckpointRefs(cwd, "source", "fork", [checkpoint]);
+      const forkBefore = turnSnapshotRef("fork", "turn", "before");
+      const forkAfter = turnSnapshotRef("fork", "turn", "after");
+      await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
+        .resolves.toMatchObject({ beforeTreeId: before.treeId, afterTreeId: after.treeId });
+      await cleanupClonedTurnCheckpointRefs(cwd, "source", "fork", [checkpoint]);
+      await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
+        .rejects.toThrow();
+
+      // A ref left by a crash before the custom entry is appended is removed
+      // on the next session open, while a valid pair remains untouched.
+      await cloneTurnCheckpointRefs(cwd, "source", "fork", [checkpoint]);
+      await cleanupOrphanTurnCheckpointRefs(cwd, "fork", []);
+      await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
+        .rejects.toThrow();
+
+      // A checkpoint entry does not make a half-written ref pair valid. If a
+      // process dies after publishing only one phase, the next session open
+      // must remove that dangling phase as well.
+      await cloneTurnCheckpointRefs(cwd, "source", "fork", [checkpoint]);
+      execFileSync("git", ["update-ref", "-d", forkAfter], { cwd });
+      await cleanupOrphanTurnCheckpointRefs(cwd, "fork", [{
+        ...checkpoint,
+        sessionId: "fork",
+        beforeSnapshotId: forkBefore,
+        afterSnapshotId: forkAfter,
+      }]);
+      await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
+        .rejects.toThrow();
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

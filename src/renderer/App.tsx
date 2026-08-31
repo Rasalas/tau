@@ -78,6 +78,7 @@ import {
 } from "./workbench-context";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+type CheckpointStatus = "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
 
 function questionKey(sessionId: string, index: number): string {
   return `${sessionId}:${index}`;
@@ -188,14 +189,14 @@ function elapsedLabel(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-function LiveStatus({ startedAt }: { startedAt?: number }) {
+function LiveStatus({ startedAt, label = "Pi is working" }: { startedAt?: number; label?: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (startedAt === undefined) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [startedAt]);
-  return <div className="live-status"><span className="spinner" /><span>Pi is working{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
+  return <div className="live-status"><span className="spinner" /><span>{label}{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
 }
 
 export function useTailScroll(
@@ -356,6 +357,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
+  const [checkpointStatus, setCheckpointStatus] = useState<CheckpointStatus>();
   const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
   const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
   const uiPromptsRef = useRef(uiPrompts);
@@ -492,6 +494,7 @@ export default function App() {
     setMessages(next.messages);
     turnCheckpointsRef.current = next.turnCheckpoints ?? [];
     setTurnCheckpoints(turnCheckpointsRef.current);
+    setCheckpointStatus(undefined);
     setTurnSettledWithoutCheckpoint(false);
     const restoredActivity = next.turnActivity ?? cachedActivity;
     setTools(restoredActivity?.tools ?? []);
@@ -652,7 +655,8 @@ export default function App() {
     if (
       (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
         || event.type === "assistant-end" || event.type === "assistant-anchor" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
-        || event.type === "tool-end" || event.type === "queue" || event.type === "turn-checkpoint")
+        || event.type === "tool-end" || event.type === "queue" || event.type === "turn-checkpoint"
+        || event.type === "turn-checkpoint-status")
       && event.sessionId !== threadStore.getSnapshot().activeThreadId
     ) return;
     switch (event.type) {
@@ -695,6 +699,10 @@ export default function App() {
         }
         break;
       }
+      case "turn-checkpoint-status":
+        if (event.status === "ready" || event.status === "failed") setCheckpointStatus(undefined);
+        else setCheckpointStatus(event.status);
+        break;
       case "turn-checkpoint": {
         const next = [...turnCheckpointsRef.current.filter((entry) => entry.id !== event.checkpoint.id), event.checkpoint]
           .sort((left, right) => left.endedAt - right.endedAt);
@@ -2028,9 +2036,11 @@ export default function App() {
                   />
                   {/* The tool block already says a run is in flight; two live rows
                       both duplicate the signal and collide with the virtual list. */}
-                  {conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
-                    ? <LiveStatus startedAt={runStartedAt} />
-                    : null}
+                  {checkpointStatus === "queued" || checkpointStatus === "waiting"
+                    ? <LiveStatus label="Waiting for workspace…" />
+                    : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
+                      ? <LiveStatus startedAt={runStartedAt} />
+                      : null}
                 </div>
               </div>
 

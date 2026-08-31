@@ -67,17 +67,20 @@ import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import type { PiBridgeServerFrame, PiBridgeSnapshot, PiBridgeTurnFilesPage } from "../shared/pi-bridge-protocol.js";
 import { assistantAnchorForBranch, assistantAnchorForMessage, createPiTurnCheckpointExtension } from "./pi-turn-checkpoint-extension.js";
 import {
-  boundedTurnCheckpointSummary,
+  cloneTurnCheckpoint,
+  checkpointsForBranch,
+  rehomeStoredTurnCheckpoint,
   TURN_CHECKPOINT_CUSTOM_TYPE,
-  summariesFromStoredTurnCheckpoints,
   turnCheckpointsFromEntries,
-  TurnCheckpointLifecycle,
-  type StoredTurnCheckpoint,
-} from "../shared/turn-checkpoints.js";
+  turnSnapshotRef,
+} from "../shared/turn-checkpoint-codec.js";
+import { TurnCheckpointLifecycle } from "../shared/turn-checkpoint-lifecycle.js";
+import { createTurnCheckpointAdapter } from "../shared/turn-checkpoint-adapter.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -574,6 +577,8 @@ export class PiHost {
   onWindowTitle?: (title: string) => void;
   private approvalCounter = 0;
   private readonly toolOutputBatcher: ToolOutputBatcher;
+  /** Filesystem leases coordinate every runtime that shares a checkout. */
+  private readonly checkpointLeaseManager = new WorkspaceCheckpointLeaseManager();
   private readonly toolOwners = new Map<string, string>();
   /** Lifecycle instances are created with each Pi runtime and shared with its inline adapter. */
   private readonly checkpointLifecycles = new WeakMap<object, TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>>();
@@ -700,9 +705,15 @@ export class PiHost {
     cwd: string,
   ): TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot> {
     const sessionId = sessionManager.getSessionId();
-    const lifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>({
+    const adapter = createTurnCheckpointAdapter<workspaceGit.WorkspaceSnapshot>({
+      sessionIdForTurn: () => sessionId,
       createBefore: (turnId) => workspaceGit.createTurnWorkspaceSnapshot(cwd, sessionId, turnId, "before"),
       createAfter: (turnId) => workspaceGit.createTurnWorkspaceSnapshot(cwd, sessionId, turnId, "after"),
+      acquireLease: (turnId, signal) => this.checkpointLeaseManager.acquire(cwd, {
+        sessionId,
+        turnId,
+        signal,
+      }),
       summarize: (before, after, turnId) => workspaceGit.diffWorkspaceSnapshots(cwd, before.id, after.id, {
         branch: this.knownBranches.get(cwd),
         expected: { sessionId, turnId },
@@ -714,28 +725,29 @@ export class PiHost {
           ? { sessionId: snapshot.sessionId, turnId: snapshot.turnId, phase: snapshot.phase, treeId: snapshot.treeId }
           : undefined,
       ),
-      persist: async (result, capture) => {
+      discardTurnSnapshot: (turnId, phase) => workspaceGit.deleteWorkspaceSnapshot(
+        cwd,
+        turnSnapshotRef(sessionId, turnId, phase),
+        { sessionId, turnId, phase },
+      ),
+      appendCheckpoint: async (stored) => {
         const branch = sessionManager.getBranch();
-        const summary = boundedTurnCheckpointSummary(result.changes);
-        const stored: StoredTurnCheckpoint = {
-          id: capture.id,
-          turnId: capture.id,
-          sessionId,
-          anchorMessageId: result.anchorMessageId,
-          beforeSnapshotId: result.beforeSnapshot.id,
-          afterSnapshotId: result.afterSnapshot.id,
-          startedAt: capture.startedAt,
-          endedAt: result.endedAt,
-          ...summary,
-        };
         if (turnCheckpointsFromEntries(branch, sessionId).some((entry) => entry.id === stored.id)) return;
+        // Keep the lease until SessionManager has synchronously appended the
+        // custom entry. A write error is intentionally propagated so the
+        // lifecycle removes the provisional refs instead of releasing a
+        // checkpoint that only exists in memory.
         sessionManager.appendCustomEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
-        const checkpoint = summariesFromStoredTurnCheckpoints([stored])[0];
-        if (checkpoint) this.emit({ type: "turn-checkpoint", sessionId, checkpoint });
-        this.log("turn.checkpoint.saved", `${stored.fileCount} ${stored.fileCount === 1 ? "file" : "files"}`);
+        // Persistence has completed at this point. Rendering is best effort:
+        // a broken subscriber or socket must never make the lifecycle delete a
+        // valid checkpoint's immutable refs.
+        try { this.emit({ type: "turn-checkpoint", sessionId, checkpoint: cloneTurnCheckpoint(stored) }); } catch { /* UI delivery is best effort */ }
+        try { this.log("turn.checkpoint.saved", `${stored.fileCount} ${stored.fileCount === 1 ? "file" : "files"}`); } catch { /* diagnostics are best effort */ }
       },
       onError: (error, capture) => this.log("turn.checkpoint.failed", `${capture.id}: ${this.errorMessage(error)}`),
+      onStatus: (status, capture) => this.emit({ type: "turn-checkpoint-status", sessionId, turnId: capture.id, status }),
     });
+    const lifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>(adapter);
     this.checkpointLifecycles.set(sessionManager, lifecycle);
     return lifecycle;
   }
@@ -1109,12 +1121,47 @@ export class PiHost {
         throw new Error("This thread has not been saved yet. Wait for the first assistant response before forking it.");
       }
       const startedAt = performance.now();
+      // Pi reports idle as soon as the agent boundary settles, while the
+      // checkpoint lifecycle deliberately persists in the background. Flush
+      // that per-thread journal before reading the source branch so a fork
+      // cannot miss the just-completed checkpoint.
+      await thread.checkpointLifecycle?.close();
       // The fork is a new session file, so it gets a runtime of its own; the
       // source thread keeps running untouched.
-      const forkedPath = SessionManager.open(sourceFile).createBranchedSession(entryId);
+      const sourceManager = SessionManager.open(sourceFile);
+      const sourceCheckpoints = turnCheckpointsFromEntries(sourceManager.getBranch(), thread.sessionId);
+      const forkedPath = sourceManager.createBranchedSession(entryId);
       if (!forkedPath) throw new Error("Failed to create the forked thread.");
+      const forkedManager = SessionManager.open(forkedPath);
+      const inheritedCheckpoints = checkpointsForBranch(forkedManager.getBranch(), sourceCheckpoints);
+      if (inheritedCheckpoints.length > 0) {
+        try {
+          await workspaceGit.cloneTurnCheckpointRefs(
+            thread.cwd,
+            thread.sessionId,
+            forkedManager.getSessionId(),
+            inheritedCheckpoints,
+          );
+          const existing = new Set(turnCheckpointsFromEntries(forkedManager.getBranch(), forkedManager.getSessionId()).map((checkpoint) => checkpoint.id));
+          for (const checkpoint of inheritedCheckpoints) {
+            if (existing.has(checkpoint.id)) continue;
+            forkedManager.appendCustomEntry(
+              TURN_CHECKPOINT_CUSTOM_TYPE,
+              rehomeStoredTurnCheckpoint(checkpoint, forkedManager.getSessionId()),
+            );
+          }
+        } catch (error) {
+          await workspaceGit.cleanupClonedTurnCheckpointRefs(
+            thread.cwd,
+            thread.sessionId,
+            forkedManager.getSessionId(),
+            inheritedCheckpoints,
+          );
+          throw error;
+        }
+      }
       const forked = await this.openThread(
-        SessionManager.open(forkedPath),
+        forkedManager,
         { type: "session_start", reason: "fork", previousSessionFile: sourceFile },
       );
       await this.activateThread(forked, true);
@@ -1742,6 +1789,16 @@ export class PiHost {
     options: { background?: boolean; adopt?: boolean } = {},
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
+    // A previous process may have died after publishing a snapshot ref but
+    // before appending its custom entry. Clean that incomplete phase before a
+    // runtime can start another turn in the same session.
+    if (manager.getSessionFile()) {
+      await workspaceGit.cleanupOrphanTurnCheckpointRefs(
+        cwd,
+        manager.getSessionId(),
+        turnCheckpointsFromEntries(manager.getBranch(), manager.getSessionId()),
+      );
+    }
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
     try {
@@ -2200,6 +2257,13 @@ export class PiHost {
       if (typeof event.message === "string") this.emit({ type: "error", message: event.message });
       return;
     }
+    if (event && typeof event === "object" && event.type === "turn-checkpoint-status") {
+      if (typeof event.turnId === "string"
+        && ["queued", "waiting", "capturing", "persisting", "ready", "failed"].includes(String(event.status))) {
+        this.emit({ type: "turn-checkpoint-status", sessionId, turnId: event.turnId, status: event.status as "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed" });
+      }
+      return;
+    }
     this.handleSessionEvent(event, thread, sessionId, this.cwd);
   }
 
@@ -2361,7 +2425,9 @@ export class PiHost {
           async (cwd) => this.branchFor(cwd),
           (cwd) => this.projectNameFor(cwd),
         );
-        this.sessions = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt, this.liveSessionIds());
+        const previous = this.sessions;
+        this.sessions = mergeSessionIndexScan(scanned, previous, scanStartedAt, this.liveSessionIds());
+        await this.cleanupDeletedSessionCheckpointRefs(previous, this.sessions);
         return this.threadIndexSnapshot();
       })().finally(() => {
         this.threadIndexRefresh = undefined;
@@ -2392,7 +2458,16 @@ export class PiHost {
     );
     const next = mergeSessionIndexScan(scanned, this.sessions, scanStartedAt, this.liveSessionIds());
     this.sessions = next;
+    await this.cleanupDeletedSessionCheckpointRefs(previous, next);
     for (const update of sessionIndexUpdates(previous, next)) this.emitUpdate(update);
+  }
+
+  /** Runtime eviction keeps persisted history; only a missing session file is deletion. */
+  private async cleanupDeletedSessionCheckpointRefs(previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
+    const nextIds = new Set(next.map((session) => session.id));
+    const liveIds = this.liveSessionIds();
+    const deleted = previous.filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path));
+    await Promise.allSettled(deleted.map((session) => workspaceGit.cleanupTurnCheckpointSessionRefs(session.projectPath, session.id)));
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
@@ -2493,9 +2568,7 @@ export class PiHost {
   }
 
   private turnCheckpoints(thread: ThreadRuntime): UiTurnCheckpoint[] {
-    return summariesFromStoredTurnCheckpoints(
-      turnCheckpointsFromEntries(thread.session.sessionManager.getBranch(), thread.sessionId),
-    );
+    return turnCheckpointsFromEntries(thread.session.sessionManager.getBranch(), thread.sessionId).map(cloneTurnCheckpoint);
   }
 
   private composerCommands(thread: ThreadRuntime): UiComposerCommand[] {

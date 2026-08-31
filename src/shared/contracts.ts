@@ -390,6 +390,12 @@ export type HostEvent =
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
   | { type: "agent-status"; sessionId: string; running: boolean }
   | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
+  | {
+      type: "turn-checkpoint-status";
+      sessionId: string;
+      turnId: string;
+      status: "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
+    }
   /** Adds the persisted session-entry id to a row emitted optimistically at message_end. */
   | {
       type: "assistant-anchor";

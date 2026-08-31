@@ -1,0 +1,126 @@
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+
+async function repository(prefix: string): Promise<string> {
+  const cwd = await mkdtemp(join(tmpdir(), prefix));
+  execFileSync("git", ["init", "-q"], { cwd });
+  return cwd;
+}
+
+describe("workspace checkpoint leases", () => {
+  it("serializes turns sharing a checkout and hands ownership over in FIFO order", async () => {
+    const cwd = await repository("tau-lease-shared-");
+    try {
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const states: string[] = [];
+      const first = await manager.acquire(cwd, {
+        sessionId: "session-a",
+        turnId: "turn-a",
+        onState: (state) => states.push(`a:${state}`),
+      });
+      let secondReady = false;
+      const secondPromise = manager.acquire(cwd, {
+        sessionId: "session-b",
+        turnId: "turn-b",
+        onState: (state) => states.push(`b:${state}`),
+      }).then((lease) => { secondReady = true; return lease; });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(secondReady).toBe(false);
+      await first.release();
+      const second = await secondPromise;
+      expect(secondReady).toBe(true);
+      expect(states.indexOf("a:acquired")).toBeLessThan(states.indexOf("b:acquired"));
+      await second.release();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("allows independent workspaces to hold leases concurrently", async () => {
+    const firstCwd = await repository("tau-lease-one-");
+    const secondCwd = await repository("tau-lease-two-");
+    try {
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const [first, second] = await Promise.all([
+        manager.acquire(firstCwd, { sessionId: "one", turnId: "turn" }),
+        manager.acquire(secondCwd, { sessionId: "two", turnId: "turn" }),
+      ]);
+      expect(first.key).not.toBe(second.key);
+      expect(first.lockPath).not.toBe(second.lockPath);
+      await Promise.all([first.release(), second.release()]);
+    } finally {
+      await Promise.all([
+        rm(firstCwd, { recursive: true, force: true }),
+        rm(secondCwd, { recursive: true, force: true }),
+      ]);
+    }
+  });
+
+  it("keeps plain workspaces out of their user data", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-lease-folder-"));
+    try {
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const lease = await manager.acquire(cwd, { sessionId: "folder", turnId: "turn" });
+      expect(lease.lockPath.startsWith(join(cwd, "tau-turn-checkpoint.lock"))).toBe(false);
+      await lease.release();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers a stale marker left by a crashed owner", async () => {
+    const cwd = await repository("tau-lease-stale-");
+    try {
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 100 });
+      const key = await manager.canonicalKey(cwd);
+      const lockPath = join(key, "tau-turn-checkpoint.lock");
+      await mkdir(key, { recursive: true });
+      await writeFile(lockPath, `${JSON.stringify({
+        ownerId: "crashed-owner",
+        pid: 999_999,
+        host: "crashed-host",
+        cwd,
+        sessionId: "old-session",
+        turnId: "old-turn",
+        acquiredAt: 1,
+        heartbeatAt: 1,
+      })}\n`);
+      const lease = await manager.acquire(cwd, {
+        sessionId: "new-session",
+        turnId: "new-turn",
+        now: () => 1_000,
+        processAlive: () => false,
+      });
+      expect(JSON.parse(await readFile(lockPath, "utf8"))).toMatchObject({ ownerId: lease.ownerId });
+      await lease.release();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("cancels an aborted waiter without letting later turns bypass the owner", async () => {
+    const cwd = await repository("tau-lease-abort-");
+    try {
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
+      const first = await manager.acquire(cwd, { sessionId: "one", turnId: "first" });
+      const controller = new AbortController();
+      const second = manager.acquire(cwd, { sessionId: "two", turnId: "second", signal: controller.signal });
+      const third = manager.acquire(cwd, { sessionId: "three", turnId: "third" });
+      controller.abort();
+      await expect(second).rejects.toThrow("aborted");
+      let thirdReady = false;
+      void third.then(() => { thirdReady = true; });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(thirdReady).toBe(false);
+      await first.release();
+      const thirdLease = await third;
+      await thirdLease.release();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});

@@ -3,21 +3,24 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
 import type { DiffLoadOptions, UiFileDiff } from "../../src/shared/contracts.js";
 import * as workspaceGit from "../../src/main/workspace-git.js";
+import { WorkspaceCheckpointLeaseManager } from "../../src/main/workspace-checkpoint-lease.js";
 import { assistantAnchorForMessage, createPiTurnCheckpointExtension } from "../../src/main/pi-turn-checkpoint-extension.js";
-import { pageRecords } from "../../src/shared/transcript-pager.js";
 import {
-  boundedTurnCheckpointSummary,
-  summariesFromStoredTurnCheckpoints,
+  checkpointsForBranch,
+  cloneTurnCheckpoint,
+  rehomeStoredTurnCheckpoint,
   TURN_CHECKPOINT_CUSTOM_TYPE,
   turnCheckpointsFromEntries,
-  TurnCheckpointLifecycle,
-  type StoredTurnCheckpoint,
-} from "../../src/shared/turn-checkpoints.js";
+  turnSnapshotRef,
+} from "../../src/shared/turn-checkpoint-codec.js";
+import { TurnCheckpointLifecycle } from "../../src/shared/turn-checkpoint-lifecycle.js";
+import { createTurnCheckpointAdapter } from "../../src/shared/turn-checkpoint-adapter.js";
+import { bridgeTranscriptPage, boundedBridgePayload, boundedBridgeValue } from "../../src/shared/bridge-transcript-pager.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -32,38 +35,14 @@ import {
 
 interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
 
-function boundedBridgeValue<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
-    if (typeof item !== "string") return item;
-    const bytes = Buffer.from(item, "utf8");
-    if (bytes.length <= 32 * 1024) return item;
-    return `${bytes.subarray(0, 32 * 1024).toString("utf8")}\n[Bridge value truncated from ${bytes.length} bytes]`;
-  })) as T;
-}
+const MAX_BRIDGE_CATALOG_ITEMS = 64;
+const MAX_BRIDGE_CATALOG_TEXT = 8 * 1024;
 
-function isUserRecord(value: unknown): boolean {
-  return Boolean(value && typeof value === "object" && (value as { role?: unknown }).role === "user");
-}
-
-/** Records that map to transcript rows. Tool results stay in activityMessages. */
-function isTranscriptRecord(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const role = (value as { role?: unknown }).role;
-  return role === "user" || role === "assistant" || role === "custom";
-}
-
-function bridgeTranscriptPage(records: readonly unknown[], cursor?: string) {
-  const visibleRecords = records.filter(isTranscriptRecord);
-  const page = pageRecords(visibleRecords, 40, cursor, isUserRecord);
-  const end = cursor === undefined ? visibleRecords.length : Number(cursor);
-  const start = end - page.messages.length;
-  const rawIndices = records.flatMap((record, index) => isTranscriptRecord(record) ? [index] : []);
-  const rawStart = rawIndices[start] ?? records.length;
-  const rawEnd = rawIndices[end] ?? records.length;
-  return {
-    page,
-    activityMessages: records.slice(rawStart, rawEnd),
-  };
+function boundedCatalogText(value: unknown): string {
+  const text = typeof value === "string" ? value : String(value ?? "");
+  return text.length <= MAX_BRIDGE_CATALOG_TEXT
+    ? text
+    : `${text.slice(0, MAX_BRIDGE_CATALOG_TEXT)}\n[Bridge catalog text truncated]`;
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
@@ -101,6 +80,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   // append to the correct session instead of following the mutable tail.
   const sessionContexts = new Map<string, ExtensionContext>();
   const turnContexts = new Map<string, ExtensionContext>();
+  const checkpointLeaseManager = new WorkspaceCheckpointLeaseManager();
+  let previousSessionForFork: {
+    context: ExtensionContext;
+    sessionId: string;
+    cwd: string;
+    checkpoints: ReturnType<typeof turnCheckpointsFromEntries>;
+  } | undefined;
   /**
    * Pi owns its own UI context while it owns the runtime, so an extension cannot
    * intercept another extension's question — it is answered in Pi's terminal.
@@ -109,11 +95,31 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   let awaitingInput: PiBridgeAwaitingInput | undefined;
   let sequence = 0;
   const clients = new Set<ClientState>();
-  const contextForTurn = (turnId: string): ExtensionContext | undefined => turnContexts.get(turnId) ?? latestContext;
-  const contextForNewTurn = (turnId: string): ExtensionContext | undefined => turnContexts.get(turnId) ?? latestContext;
+  // A turn is attributed to the context that accepted its client id. Falling
+  // back to the mutable session tail would make a switch during a queued turn
+  // attach its refs or checkpoint entry to the wrong session.
+  const contextForTurn = (turnId: string): ExtensionContext | undefined => turnContexts.get(turnId);
+  const contextForNewTurn = (turnId: string): ExtensionContext | undefined => turnContexts.get(turnId);
+  const releaseTurnContext = (turnId: string): void => {
+    const ctx = turnContexts.get(turnId);
+    turnContexts.delete(turnId);
+    if (!ctx) return;
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (![...turnContexts.values()].some((candidate) => candidate.sessionManager.getSessionId() === sessionId)) {
+      sessionContexts.delete(sessionId);
+    }
+  };
+  const disposeSessionContext = (ctx: ExtensionContext): void => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    for (const [turnId, candidate] of turnContexts) {
+      if (candidate.sessionManager.getSessionId() === sessionId) turnContexts.delete(turnId);
+    }
+    sessionContexts.delete(sessionId);
+  };
   const currentContext = (ctx: ExtensionContext): boolean => Boolean(descriptor
     && descriptor.sessionId === ctx.sessionManager.getSessionId());
-  const checkpointLifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>({
+  const checkpointAdapter = createTurnCheckpointAdapter<workspaceGit.WorkspaceSnapshot>({
+    sessionIdForTurn: (turnId) => contextForTurn(turnId)?.sessionManager.getSessionId(),
     createBefore: (turnId) => {
       const ctx = contextForNewTurn(turnId);
       if (!ctx) return Promise.resolve(undefined);
@@ -129,6 +135,15 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       sessionContexts.set(sessionId, ctx);
       turnContexts.set(turnId, ctx);
       return workspaceGit.createTurnWorkspaceSnapshot(ctx.cwd, sessionId, turnId, "after");
+    },
+    acquireLease: async (turnId, signal) => {
+      const ctx = contextForNewTurn(turnId);
+      if (!ctx) return undefined;
+      return checkpointLeaseManager.acquire(ctx.cwd, {
+        sessionId: ctx.sessionManager.getSessionId(),
+        turnId,
+        signal,
+      });
     },
     summarize: (before, after, turnId) => {
       const sessionId = before.sessionId;
@@ -153,7 +168,17 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           : undefined,
       );
     },
-    persist: async (result, capture) => {
+    discardTurnSnapshot: (turnId, phase) => {
+      const ctx = contextForTurn(turnId);
+      if (!ctx) return;
+      const sessionId = ctx.sessionManager.getSessionId();
+      return workspaceGit.deleteWorkspaceSnapshot(
+        ctx.cwd,
+        turnSnapshotRef(sessionId, turnId, phase),
+        { sessionId, turnId, phase },
+      );
+    },
+    appendCheckpoint: async (stored, result, capture) => {
       const sessionId = result.beforeSnapshot.sessionId;
       const ctx = sessionId ? sessionContexts.get(sessionId) : undefined;
       if (!ctx) throw new Error("Pi session is unavailable.");
@@ -161,37 +186,34 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         || result.afterSnapshot.turnId !== capture.id) {
         throw new Error("Pi session snapshot ownership changed.");
       }
-      const summary = boundedTurnCheckpointSummary(result.changes);
-      const stored: StoredTurnCheckpoint = {
-        id: capture.id,
-        turnId: capture.id,
-        sessionId,
-        anchorMessageId: result.anchorMessageId,
-        beforeSnapshotId: result.beforeSnapshot.id,
-        afterSnapshotId: result.afterSnapshot.id,
-        startedAt: capture.startedAt,
-        endedAt: result.endedAt,
-        ...summary,
-      };
+      if (turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), sessionId).some((entry) => entry.id === stored.id)) return;
+      // The lease is held until this synchronous append succeeds. Propagating
+      // a write error lets the shared lifecycle remove the provisional refs
+      // instead of releasing a checkpoint that exists only in memory.
+      ctx.sessionManager.appendCustomEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
+      if (!currentContext(ctx)) return;
       try {
-        if (turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), sessionId).some((entry) => entry.id === stored.id)) return;
-        ctx.sessionManager.appendCustomEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
-        if (!currentContext(ctx)) return;
-        broadcast({ type: "turn-checkpoint", checkpoint: summariesFromStoredTurnCheckpoints([stored])[0] }, ctx);
+        broadcast({ type: "turn-checkpoint", checkpoint: cloneTurnCheckpoint(stored) }, ctx);
         // The checkpoint may anchor an otherwise empty assistant message. A
         // bounded snapshot re-announces that exact raw entry so the renderer can
         // retain the anchor instead of inventing a tail activity row.
         broadcastSnapshot(ctx);
-      } finally {
-        turnContexts.delete(capture.id);
+      } catch {
+        // The session entry is already durable. A transient client/encoding
+        // failure must not make lifecycle cleanup delete a valid checkpoint.
       }
     },
     onError: (error, capture) => {
       const ctx = contextForTurn(capture.id);
-      turnContexts.delete(capture.id);
       if (ctx && currentContext(ctx)) broadcast({ type: "turn-checkpoint-error", turnId: capture.id, message: String(error) }, ctx);
     },
+    onStatus: (status, capture) => {
+      const ctx = contextForTurn(capture.id);
+      if (ctx && currentContext(ctx)) broadcast({ type: "turn-checkpoint-status", turnId: capture.id, status }, ctx);
+    },
+    onReleased: (capture) => releaseTurnContext(capture.id),
   });
+  const checkpointLifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>(checkpointAdapter);
 
   const historicalDiff = async (ctx: ExtensionContext, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff> => {
     const checkpoint = turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId())
@@ -223,7 +245,16 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   };
 
   const send = (client: ClientState, frame: PiBridgeServerFrame) => {
-    if (!client.socket.destroyed) client.socket.write(encodePiBridgeFrame(frame));
+    if (client.socket.destroyed) return;
+    try {
+      client.socket.write(encodePiBridgeFrame(frame));
+    } catch {
+      // A malformed/oversized extension payload must not escape an event hook
+      // as an unhandled exception. The client can reconnect and request a
+      // bounded snapshot after this connection is dropped.
+      client.socket.destroy();
+      clients.delete(client);
+    }
   };
 
   const branchMessages = (ctx: ExtensionContext): unknown[] => ctx.sessionManager.getBranch()
@@ -235,10 +266,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const id = (message as { tauEntryId?: unknown }).tauEntryId;
       return typeof id === "string" ? [id] : [];
     }));
-    return summariesFromStoredTurnCheckpoints(
-      turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId())
-        .filter((checkpoint) => ids.has(checkpoint.anchorMessageId)),
-    );
+    return turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId())
+      .filter((checkpoint) => ids.has(checkpoint.anchorMessageId))
+      .map(cloneTurnCheckpoint);
   };
 
   const snapshot = (ctx: ExtensionContext): PiBridgeSnapshot => {
@@ -252,7 +282,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     const initialPage = bridgeTranscriptPage(messages);
     const visibleMessages = initialPage.page.messages;
     const olderCursor = initialPage.page.olderCursor;
-    return {
+    const result: PiBridgeSnapshot = {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       cwd: ctx.cwd,
@@ -262,26 +292,31 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       ...(olderCursor ? { olderCursor } : {}),
       isStreaming: !ctx.isIdle(),
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, name: ctx.model.name } : undefined,
-      models: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, id: model.id, name: model.name })),
+      models: ctx.modelRegistry.getAvailable().slice(0, MAX_BRIDGE_CATALOG_ITEMS).map((model) => ({ provider: model.provider, id: model.id, name: boundedCatalogText(model.name) })),
       thinkingLevel: pi.getThinkingLevel(),
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
-      activeTools: pi.getActiveTools(),
-      allTools: pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+      activeTools: pi.getActiveTools().slice(0, MAX_BRIDGE_CATALOG_ITEMS).map((tool) => boundedCatalogText(tool)),
+      allTools: pi.getAllTools().slice(0, MAX_BRIDGE_CATALOG_ITEMS).map((tool) => ({ name: boundedCatalogText(tool.name), description: boundedCatalogText(tool.description) })),
       // A snapshot exposes only the bounded raw tail; never attach older cards
       // to this newest page. Older cards travel with their own transcript page.
       turnCheckpoints: checkpointsForRawMessages(ctx, visibleMessages),
       composerCommands: pi.getCommands()
         .filter((command) => !command.name.startsWith("tau-bridge-"))
+        .slice(0, MAX_BRIDGE_CATALOG_ITEMS)
         .map((command) => ({
-          name: command.name,
-          description: command.description,
+          name: boundedCatalogText(command.name),
+          description: boundedCatalogText(command.description),
           source: command.source,
         })),
       contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : undefined,
-      taskProgress: taskProgressFromMessages(messages),
-      taskHistory: taskProgressHistoryFromMessages(messages),
+      taskProgress: boundedBridgeValue(taskProgressFromMessages(messages)),
+      taskHistory: boundedBridgeValue(taskProgressHistoryFromMessages(messages)),
       awaitingInput,
     };
+    // Bound the complete snapshot as a final guard against extension-provided
+    // metadata. The transcript pager's 160-record ceiling is higher than the
+    // generic array cap, so no cursor-visible records are dropped here.
+    return boundedBridgePayload(result);
   };
 
   const broadcast = (event: unknown, ctx: ExtensionContext) => {
@@ -294,7 +329,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       epoch: descriptor.epoch,
       seq: ++sequence,
       sessionId: descriptor.sessionId,
-      event: boundedBridgeValue(event),
+      event: boundedBridgePayload(event, PI_BRIDGE_MAX_FRAME_BYTES - 64 * 1024),
     };
     for (const client of clients) if (client.authenticated) send(client, frame);
   };
@@ -314,7 +349,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   const respond = (client: ClientState, id: string, ok: boolean, result?: unknown) => {
     if (!descriptor) return;
     send(client, ok
-      ? { protocolVersion: PI_BRIDGE_PROTOCOL_VERSION, type: "response", id, epoch: descriptor.epoch, ok: true, result }
+      ? { protocolVersion: PI_BRIDGE_PROTOCOL_VERSION, type: "response", id, epoch: descriptor.epoch, ok: true, result: boundedBridgePayload(result, PI_BRIDGE_MAX_FRAME_BYTES - 64 * 1024) }
       : { protocolVersion: PI_BRIDGE_PROTOCOL_VERSION, type: "response", id, epoch: descriptor.epoch, ok: false, error: String(result) });
   };
 
@@ -368,7 +403,6 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
             // run. A session switch between queueing and delivery must not move
             // its before snapshot onto the new session's workspace.
             turnContexts.set(frame.clientTurnId, ctx);
-            sessionContexts.set(ctx.sessionManager.getSessionId(), ctx);
             checkpointLifecycle.acceptUserTurn(frame.clientTurnId, { deferBefore: true });
           }
           void pi.sendUserMessage(frame.text, {
@@ -480,17 +514,73 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     }
   };
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     // Settlement starts the old session's snapshot/summary writes but does not
     // hold Pi's session-switch lifecycle open. The adapter keeps the owning
     // session context, so those writes cannot drift onto the new session.
     await checkpointLifecycle.settle();
     await stop();
+    let inherited = event.reason === "fork" ? previousSessionForFork : undefined;
+    // A fork rebuilds the Pi extension runtime, so closure state from the
+    // source extension is not guaranteed to survive the session replacement.
+    // The runtime supplies the source session file precisely for this handoff;
+    // reread it after the source shutdown has durably appended its final entry.
+    const disposedSource = previousSessionForFork?.context;
+    if (disposedSource) disposeSessionContext(disposedSource);
+    if (event.reason === "fork" && event.previousSessionFile) {
+      try {
+        const sourceManager = SessionManager.open(event.previousSessionFile);
+        inherited = {
+          context: inherited?.context ?? ctx,
+          sessionId: sourceManager.getSessionId(),
+          cwd: sourceManager.getCwd(),
+          checkpoints: turnCheckpointsFromEntries(sourceManager.getBranch(), sourceManager.getSessionId()),
+        };
+      } catch {
+        // The in-process carrier is still useful for runtimes that expose a
+        // transiently unavailable source path during fork setup.
+      }
+    }
+    previousSessionForFork = undefined;
     if (ctx.mode !== "tui") return;
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (!sessionFile) return;
     latestContext = ctx;
     sequence = 0;
+    await workspaceGit.cleanupOrphanTurnCheckpointRefs(
+      ctx.cwd,
+      ctx.sessionManager.getSessionId(),
+      turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId()),
+    );
+    const inheritedCheckpoints = inherited
+      ? checkpointsForBranch(ctx.sessionManager.getBranch(), inherited.checkpoints)
+      : [];
+    if (inheritedCheckpoints.length > 0) {
+      try {
+        await workspaceGit.cloneTurnCheckpointRefs(
+          ctx.cwd,
+          inherited.sessionId,
+          ctx.sessionManager.getSessionId(),
+          inheritedCheckpoints,
+        );
+        const existing = new Set(turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId()).map((checkpoint) => checkpoint.id));
+        for (const checkpoint of inheritedCheckpoints) {
+          if (existing.has(checkpoint.id)) continue;
+          ctx.sessionManager.appendCustomEntry(
+            TURN_CHECKPOINT_CUSTOM_TYPE,
+            rehomeStoredTurnCheckpoint(checkpoint, ctx.sessionManager.getSessionId()),
+          );
+        }
+      } catch (error) {
+        await workspaceGit.cleanupClonedTurnCheckpointRefs(
+          ctx.cwd,
+          inherited.sessionId,
+          ctx.sessionManager.getSessionId(),
+          inheritedCheckpoints,
+        );
+        ctx.ui.notify(`Turn checkpoint history could not be carried into the fork: ${String(error)}`, "error");
+      }
+    }
     const epoch = randomUUID();
     const token = randomBytes(32).toString("base64url");
     const suffix = createHash("sha256").update(`${ctx.sessionManager.getSessionId()}:${epoch}`).digest("hex").slice(0, 20);
@@ -551,6 +641,10 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     lifecycle: checkpointLifecycle,
     nextTurnId: randomUUID,
     findAssistantAnchor: assistantAnchorForMessage,
+    bindTurnContext: (turnId, ctx) => {
+      turnContexts.set(turnId, ctx);
+      sessionContexts.set(ctx.sessionManager.getSessionId(), ctx);
+    },
   })(pi);
   for (const eventName of [
     "agent_start", "agent_end", "agent_settled", "turn_start", "turn_end", "message_start", "message_update", "message_end",
@@ -574,8 +668,29 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     awaitingInput = undefined;
     broadcastSnapshot(ctx);
   });
-  pi.on("session_shutdown", async () => {
+  pi.on("session_before_fork", (_event, ctx) => {
+    // Keep a source carrier even if Pi performs the fork without emitting a
+    // separate shutdown callback. The shutdown callback refreshes its entries
+    // after any final checkpoint persistence has settled.
+    previousSessionForFork = {
+      context: ctx,
+      sessionId: ctx.sessionManager.getSessionId(),
+      cwd: ctx.cwd,
+      checkpoints: turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId()),
+    };
+  });
+  pi.on("session_shutdown", async (_event, ctx) => {
+    const sessionId = ctx.sessionManager.getSessionId();
     await checkpointLifecycle.close();
+    // Read the branch after the awaited settle: a checkpoint that was in the
+    // final persistence phase must be part of a subsequent fork as well.
+    previousSessionForFork = {
+      context: ctx,
+      sessionId,
+      cwd: ctx.cwd,
+      checkpoints: turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), sessionId),
+    };
+    disposeSessionContext(ctx);
     await stop();
   });
 }

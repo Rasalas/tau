@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiTurnCheckpoint } from "./contracts.js";
 import {
-  completeTurnCapture,
   boundedTurnCheckpointSummary,
-  changesSinceTurn,
-  normalizeDiffLoadOptions,
   recordTurnAssistant,
   recordTurnOutcome,
   shouldPersistTurnCapture,
@@ -15,6 +12,7 @@ import {
   TurnCheckpointLifecycle,
   type TurnCaptureState,
 } from "./turn-checkpoints.js";
+import { normalizeDiffLoadOptions } from "./turn-checkpoint-diff.js";
 
 const file = (path: string, added: number, removed: number) => ({
   path,
@@ -90,16 +88,6 @@ describe("turn checkpoints", () => {
     ], "session")).toEqual([]);
   });
 
-  it("keeps the net change summary separate from the later live workspace", () => {
-    const baseline = { files: [file("src/app.ts", 2, 1)], added: 2, removed: 1 };
-    const current = { files: [file("src/app.ts", 5, 3), file("new.ts", 2, 0)], added: 7, removed: 3 };
-    expect(changesSinceTurn(baseline, current)).toMatchObject({
-      files: [file("src/app.ts", 3, 2), file("new.ts", 2, 0)],
-      added: 5,
-      removed: 2,
-    });
-  });
-
   it("shares retry, abort, and lazy paging semantics without retaining patch bytes", () => {
     const capture: TurnCaptureState = {
       id: "turn-1",
@@ -143,29 +131,6 @@ describe("turn checkpoints", () => {
       },
     }], "session");
     expect(parsed[0]).not.toHaveProperty("diffs");
-  });
-
-  it("shares immutable before/after capture boundaries", async () => {
-    const calls: string[] = [];
-    const capture = startTurnCapture("turn-3", 1, async () => {
-      calls.push("before");
-      return { id: "before" };
-    });
-    capture.started = true;
-    recordTurnOutcome(capture, { messages: [{ role: "assistant", stopReason: "stop" }] });
-    const completed = await completeTurnCapture(capture, {
-      createAfterSnapshot: async () => {
-        calls.push("after");
-        return { id: "after" };
-      },
-      summarize: async (before, after) => {
-        calls.push(`${before.id}->${after.id}`);
-        return { files: [], added: 0, removed: 0 };
-      },
-      anchorMessageId: "assistant-3",
-    });
-    expect(calls).toEqual(["before", "after", "before->after"]);
-    expect(completed).toMatchObject({ anchorMessageId: "assistant-3", beforeSnapshot: { id: "before" }, afterSnapshot: { id: "after" } });
   });
 
   it("keeps queued user turns separate and freezes the previous after boundary first", async () => {
@@ -385,6 +350,115 @@ describe("turn checkpoints", () => {
     await lifecycle.close();
     expect(discarded.sort()).toEqual(["after", "before"]);
     expect(errors.length).toBeGreaterThanOrEqual(2);
+    expect(lifecycle.pendingCount).toBe(0);
+  });
+
+  it("holds the workspace lease until the bounded checkpoint entry is durable", async () => {
+    let persistStarted = false;
+    let resolvePersist!: () => void;
+    const persisted = new Promise<void>((resolve) => { resolvePersist = resolve; });
+    const released: string[] = [];
+    const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({
+      createBefore: async () => ({ id: "before" }),
+      createAfter: async () => ({ id: "after" }),
+      summarize: async () => ({ files: [], added: 0, removed: 0 }),
+      discardSnapshot: () => undefined,
+      acquireLease: async () => ({ release: () => { released.push("lease"); } }),
+      persist: async (_result, capture) => {
+        persistStarted = true;
+        await persisted;
+        released.push(`persist:${capture.id}`);
+      },
+      onReleased: (capture) => { released.push(`context:${capture.id}`); },
+    });
+
+    lifecycle.acceptUserTurn("turn", { startedAt: 1 });
+    await lifecycle.beginTurn();
+    await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant");
+    const settling = lifecycle.close();
+    while (!persistStarted) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(released).toEqual([]);
+    resolvePersist();
+    await settling;
+    expect(released).toEqual(["persist:turn", "lease", "context:turn"]);
+    expect(lifecycle.pendingCount).toBe(0);
+  });
+
+  it("serializes concurrent settle calls for one thread", async () => {
+    let persistCalls = 0;
+    let resolvePersist!: () => void;
+    const persisted = new Promise<void>((resolve) => { resolvePersist = resolve; });
+    const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({
+      createBefore: async () => ({ id: "before" }),
+      createAfter: async () => ({ id: "after" }),
+      summarize: async () => ({ files: [], added: 0, removed: 0 }),
+      discardSnapshot: () => undefined,
+      persist: async () => { persistCalls += 1; await persisted; },
+    });
+    lifecycle.acceptUserTurn("turn");
+    await lifecycle.beginTurn();
+    await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant");
+    const first = lifecycle.settle();
+    const second = lifecycle.settle();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(persistCalls).toBe(1);
+    resolvePersist();
+    await Promise.all([first, second]);
+    expect(lifecycle.pendingCount).toBe(0);
+  });
+
+  it("detaches a settled capture so a new client turn can prepare without losing it", async () => {
+    let persistCalls = 0;
+    let releaseFirst!: () => void;
+    const firstPersist = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const persisted: string[] = [];
+    const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({
+      createBefore: async (id) => ({ id: `before:${id}` }),
+      createAfter: async (id) => ({ id: `after:${id}` }),
+      summarize: async () => ({ files: [], added: 0, removed: 0 }),
+      discardSnapshot: () => undefined,
+      persist: async (_result, capture) => {
+        persistCalls += 1;
+        persisted.push(capture.id);
+        if (capture.id === "first") await firstPersist;
+      },
+    });
+    lifecycle.acceptUserTurn("first");
+    await lifecycle.acceptInput("first");
+    await lifecycle.beginTurn();
+    await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant-first");
+    const settling = lifecycle.settle();
+    while (persistCalls === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+
+    lifecycle.acceptUserTurn("second", { deferBefore: true });
+    await lifecycle.acceptInput("second");
+    await lifecycle.beginTurn();
+    await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant-second");
+    releaseFirst();
+    await settling;
+    await lifecycle.close();
+
+    expect(persisted).toEqual(["first", "second"]);
+    expect(lifecycle.pendingCount).toBe(0);
+  });
+
+  it("resolves a deferred anchor after the terminal message has been persisted", async () => {
+    let persistedEntry = false;
+    let persistedAnchor: string | undefined;
+    const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({
+      createBefore: async () => ({ id: "before" }),
+      createAfter: async () => ({ id: "after" }),
+      summarize: async () => ({ files: [], added: 0, removed: 0 }),
+      discardSnapshot: () => undefined,
+      persist: async (result) => { persistedAnchor = result.anchorMessageId; },
+    });
+    lifecycle.acceptUserTurn("turn");
+    await lifecycle.acceptInput("turn");
+    await lifecycle.beginTurn();
+    await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, undefined, () => persistedEntry ? "assistant-entry" : undefined);
+    persistedEntry = true;
+    await lifecycle.settle();
+    expect(persistedAnchor).toBe("assistant-entry");
     expect(lifecycle.pendingCount).toBe(0);
   });
 });

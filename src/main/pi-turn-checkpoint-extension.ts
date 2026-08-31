@@ -1,11 +1,13 @@
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { TurnCheckpointLifecycle } from "../shared/turn-checkpoints.js";
+import type { TurnCheckpointLifecycle } from "../shared/turn-checkpoint-lifecycle.js";
 
 export interface PiTurnCheckpointExtensionOptions<Snapshot> {
   lifecycle: TurnCheckpointLifecycle<Snapshot>;
   nextTurnId(): string;
   /** Resolves the persisted session-entry id for the assistant at turn_end. */
   findAssistantAnchor(ctx: ExtensionContext, message: unknown): string | undefined;
+  /** Binds a turn created by a Pi-native prompt to the context that received it. */
+  bindTurnContext?(turnId: string, ctx: ExtensionContext): void;
 }
 
 /**
@@ -63,8 +65,9 @@ export function createPiTurnCheckpointExtension<Snapshot>(
   options: PiTurnCheckpointExtensionOptions<Snapshot>,
 ): ExtensionFactory {
   return (pi) => {
-    pi.on("input", async (event) => {
+    pi.on("input", async (event, ctx) => {
       const id = options.lifecycle.nextInputTurnId() ?? options.nextTurnId();
+      options.bindTurnContext?.(id, ctx);
       // Pi emits `input` when a streaming prompt is queued, not when that
       // follow-up is delivered. Defer its boundary until the later turn_start.
       await options.lifecycle.acceptInput(id, { deferBefore: Boolean(event.streamingBehavior) });
@@ -78,14 +81,20 @@ export function createPiTurnCheckpointExtension<Snapshot>(
     pi.on("turn_end", async (event, ctx) => {
       await options.lifecycle.endTurn(
         event.message,
-        options.findAssistantAnchor(ctx, event.message),
+        undefined,
+        // Pi's turn_end extension callback runs before the SDK's listener
+        // persists the assistant entry. Resolve only once the lifecycle is
+        // settling, so a same-timestamp prior assistant cannot steal the card.
+        () => options.findAssistantAnchor(ctx, event.message),
       );
     });
     // agent_end can be followed by a retry. The shared lifecycle therefore
     // waits for the next turn_start or the definitive settled event instead of
     // treating this low-level boundary as a completed user turn.
-    pi.on("agent_settled", async () => {
-      await options.lifecycle.settle();
+    pi.on("agent_settled", () => {
+      // Persistence remains awaited by the lifecycle itself, but Pi's global
+      // settled signal must not hold another workspace/thread behind Git I/O.
+      void options.lifecycle.settle().catch(() => undefined);
     });
   };
 }
