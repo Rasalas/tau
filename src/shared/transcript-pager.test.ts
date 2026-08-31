@@ -65,4 +65,28 @@ describe("TranscriptPager", () => {
     expect(rawRecords[bounds.start]?.role).toBe("user");
     expect(bounds.hasMore).toBe(true);
   });
+
+  it("does not turn leading orphan activities into a partial older page", () => {
+    const records: UiMessage[] = [
+      { id: "orphan-assistant", role: "assistant", text: "orphan", timestamp: 0 },
+      { id: "orphan-notice", role: "notice", text: "orphan activity", timestamp: 1 },
+      { id: "user-0", role: "user", text: "first", timestamp: 2 },
+      { id: "assistant-0", role: "assistant", text: "answer", timestamp: 3 },
+    ];
+    const page = TranscriptPager.pageFor("thread", records, 10);
+    expect(page.messages.map((message) => message.id)).toEqual(["user-0", "assistant-0"]);
+    expect(page.hasMore).toBe(false);
+    expect(page.olderCursor).toBeUndefined();
+  });
+
+  it("treats an activity-only branch as a bounded empty transcript", () => {
+    const records: UiMessage[] = [
+      { id: "activity-0", role: "notice", text: "tool activity", timestamp: 0 },
+      { id: "activity-1", role: "assistant", text: "non-user record", timestamp: 1 },
+    ];
+    const page = TranscriptPager.pageFor("thread", records, 10);
+    expect(page.messages).toEqual([]);
+    expect(page.hasMore).toBe(false);
+    expect(page.olderCursor).toBeUndefined();
+  });
 });

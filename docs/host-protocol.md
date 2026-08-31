@@ -14,3 +14,18 @@ state; it must not reinterpret it as a `HostSnapshot`.
 The legacy `HostSnapshot` remains a recovery shape for pre-v1 clients only. New
 bootstrap responses provide `version`, detail, catalog, project metadata, and the
 thread index separately; normal metadata actions return focused updates.
+
+## Pi bridge paging negotiation
+
+The Pi socket keeps wire version `1` for compatibility. A newer Tau host may add
+`capabilities: { transcriptPaging: true }` to its `hello` frame. A bridge that
+understands paging echoes that capability in the `ready`/`snapshot` payload and
+returns a bounded bootstrap window with `messagesOffset`, bounded activity
+history, and the `transcript_page` command.
+
+If `hello.capabilities` is absent or does not enable `transcriptPaging`, the
+bridge serves the legacy v1 snapshot shape and window, omits paging metadata,
+and rejects `transcript_page`. This is the compatibility path for an older host;
+the host only sends paging commands after the capability has been echoed. Unknown
+commands are rejected explicitly so a client cannot mistake an unsupported
+extension for an empty page.

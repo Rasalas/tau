@@ -2,7 +2,7 @@ import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
 import { detailFromSnapshot } from "../shared/host-protocol";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT } from "../shared/transcript-pager";
 
-const CACHE_KEY = "tau.bootstrap-cache.v1";
+const CACHE_KEY = "tau.bootstrap-cache.v2";
 const MAX_BYTES = 512 * 1024;
 
 export interface CachedBootstrap {
@@ -24,13 +24,14 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   const mappedCursor = retainedIndexes?.[0];
   const existingCursor = snapshot.olderCursor === undefined ? undefined : Number(snapshot.olderCursor);
   const boundedCursor = mappedCursor !== undefined
-    ? mappedCursor > 0 ? String(mappedCursor) : undefined
+    ? detail.olderCursor !== undefined && mappedCursor > 0 ? String(mappedCursor) : undefined
     : firstRetainedIndex >= 0 && existingCursor !== undefined && Number.isSafeInteger(existingCursor) && existingCursor >= 0
-      ? String(existingCursor + firstRetainedIndex)
+      && detail.olderCursor !== undefined ? String(existingCursor + firstRetainedIndex)
       : detail.olderCursor;
   return {
     ...snapshot,
     messages: detail.messages,
+    taskHistory: detail.taskHistory,
     ...(boundedCursor ? { olderCursor: boundedCursor } : { olderCursor: undefined }),
     ...(retainedIndexes?.every((index): index is number => index !== undefined)
       ? { transcriptMessageIndexes: retainedIndexes }
@@ -47,8 +48,11 @@ export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStor
     const raw = storage.getItem(CACHE_KEY);
     if (!raw || raw.length > MAX_BYTES) return undefined;
     const value = JSON.parse(raw) as CachedBootstrap;
-    if (!value?.snapshot?.sessionId || !Array.isArray(value.threadIndex?.sessions)) return undefined;
-    return value;
+    if (!value?.snapshot?.sessionId || !Array.isArray(value.snapshot.messages) || !Array.isArray(value.threadIndex?.sessions)) return undefined;
+    // Normalize records written by an older renderer before exposing them to
+    // the first paint. The v2 key prevents normal reads of the old shape, while
+    // this guard also protects tests/imported caches with stale contents.
+    return { snapshot: boundedSnapshot(value.snapshot), threadIndex: value.threadIndex };
   } catch {
     return undefined;
   }

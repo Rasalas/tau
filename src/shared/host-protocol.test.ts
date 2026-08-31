@@ -62,4 +62,19 @@ describe("host protocol", () => {
     expect(detail.transcriptMessageIndexes).toEqual(Array.from({ length: 10 }, (_, index) => index + 120));
     expect(detail.olderCursor).toBe("120");
   });
+
+  it("does not infer older turns from an offset when only orphan activities precede the window", () => {
+    const messages = [
+      { id: "user", role: "user" as const, text: "hello", timestamp: 5 },
+      { id: "answer", role: "assistant" as const, text: "world", timestamp: 6 },
+    ];
+    const detail = detailFromSnapshot({
+      ...snapshot,
+      messages,
+      transcriptMessageIndexes: [5, 6],
+    });
+    expect(detail.messages.map((message) => message.id)).toEqual(["user", "answer"]);
+    expect(detail.olderCursor).toBeUndefined();
+    expect(detail.hasMore).toBe(false);
+  });
 });

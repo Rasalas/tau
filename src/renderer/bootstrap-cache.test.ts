@@ -51,4 +51,38 @@ describe("bootstrap cache", () => {
     expect(cached?.snapshot.olderCursor).toBe("120");
     expect(detailFromSnapshot(cached!.snapshot).olderCursor).toBe("120");
   });
+
+  it("normalizes a stale v2 payload before first paint and ignores the old cache key", () => {
+    const stale = JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } });
+    const storage = {
+      getItem: (key: string) => key === "tau.bootstrap-cache.v2" ? stale : null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.messages).toHaveLength(10);
+    expect(cached?.snapshot.messages[0]?.id).toBe("40");
+    expect(cached?.snapshot.olderCursor).toBe("40");
+
+    const oldOnly = {
+      getItem: (key: string) => key === "tau.bootstrap-cache.v1" ? stale : null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    expect(readBootstrapCache(oldOnly)).toBeUndefined();
+  });
+
+  it("does not cache a cursor for leading orphan activities", () => {
+    let value: string | null = null;
+    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    writeBootstrapCache({
+      ...snapshot,
+      messages: [
+        { id: "user", role: "user", text: "hello", timestamp: 5 },
+        { id: "answer", role: "assistant", text: "world", timestamp: 6 },
+      ],
+      transcriptMessageIndexes: [5, 6],
+    }, { projects: [], sessions: [] }, storage);
+    expect(readBootstrapCache(storage)?.snapshot.olderCursor).toBeUndefined();
+  });
 });

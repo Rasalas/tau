@@ -66,7 +66,7 @@ import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
-import type { PiBridgeServerFrame, PiBridgeSnapshot, PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
+import { transcriptPagingNegotiated, type PiBridgeServerFrame, type PiBridgeSnapshot, type PiBridgeTranscriptPage } from "../shared/pi-bridge-protocol.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
@@ -173,6 +173,72 @@ export function mapMessage(message: unknown, index: number): UiMessage | undefin
   }
 
   return undefined;
+}
+
+export interface BridgeMessageMapping {
+  messages: UiMessage[];
+  transcriptMessageIndexes?: number[];
+}
+
+function bridgeMessagesOffset(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error("Pi returned an invalid transcript message offset.");
+  }
+  return value as number;
+}
+
+function bridgeTranscriptCursor(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^\d+$/u.test(value)) {
+    throw new Error("Pi returned an invalid transcript page cursor.");
+  }
+  return value;
+}
+
+/** Validate and map one bridge-owned raw page, preserving its raw indexes. */
+export function mapBridgeMessages(value: unknown, offsetValue?: unknown): BridgeMessageMapping {
+  if (!Array.isArray(value)) throw new Error("Pi returned an invalid transcript message list.");
+  const offset = bridgeMessagesOffset(offsetValue);
+  const messages: UiMessage[] = [];
+  const transcriptMessageIndexes: number[] = [];
+  value.forEach((raw, index) => {
+    const mapped = mapMessage(raw, index);
+    if (!mapped?.text) return;
+    messages.push(mapped);
+    if (offset !== undefined) transcriptMessageIndexes.push(offset + index);
+  });
+  return offset === undefined ? { messages } : { messages, transcriptMessageIndexes };
+}
+
+function bridgeTranscriptPage(value: unknown, expectedSessionId: string): PiBridgeTranscriptPage {
+  if (!value || typeof value !== "object") throw new Error("Pi returned an invalid transcript page.");
+  const page = value as Partial<PiBridgeTranscriptPage>;
+  if (page.sessionId !== expectedSessionId || !Array.isArray(page.messages) || typeof page.hasMore !== "boolean") {
+    throw new Error("Pi returned an invalid transcript page.");
+  }
+  bridgeMessagesOffset(page.messagesOffset);
+  const olderCursor = bridgeTranscriptCursor(page.olderCursor);
+  if (page.hasMore !== (olderCursor !== undefined)) throw new Error("Pi returned an invalid transcript page.");
+  if (page.taskHistory !== undefined && !Array.isArray(page.taskHistory)) {
+    throw new Error("Pi returned an invalid transcript activity history.");
+  }
+  return page as PiBridgeTranscriptPage;
+}
+
+/** Validate and map one bridge-owned transcript page at the host seam. */
+export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown): TranscriptPage {
+  const page = bridgeTranscriptPage(value, sessionId);
+  const mapped = mapBridgeMessages(page.messages, page.messagesOffset);
+  const taskHistory = taskHistoryForMessages(page.taskHistory, mapped.messages);
+  return {
+    sessionId,
+    messages: mapped.messages,
+    ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
+    ...(taskHistory ? { taskHistory } : {}),
+    ...(typeof page.olderCursor === "string" ? { olderCursor: page.olderCursor } : {}),
+    hasMore: page.hasMore,
+  };
 }
 
 export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivity | undefined {
@@ -760,7 +826,7 @@ export class PiHost {
 
   async loadTranscript(sessionId: string, cursor?: string): Promise<TranscriptPage> {
     let result: TranscriptPage;
-    if (this.bridgeOwns(sessionId) && this.bridgeSnapshot?.messagesOffset !== undefined) {
+    if (this.bridgeOwns(sessionId) && transcriptPagingNegotiated(this.bridgeSnapshot?.capabilities)) {
       const raw = await this.bridgeCommand(cursor === undefined
         ? { command: "transcript_page" }
         : { command: "transcript_page", cursor }) as unknown;
@@ -799,31 +865,7 @@ export class PiHost {
   }
 
   private mapBridgeTranscriptPage(sessionId: string, value: unknown): TranscriptPage {
-    if (!value || typeof value !== "object") throw new Error("Pi returned an invalid transcript page.");
-    const page = value as Partial<PiBridgeTranscriptPage>;
-    if (page.sessionId !== sessionId || !Array.isArray(page.messages) || typeof page.hasMore !== "boolean") {
-      throw new Error("Pi returned an invalid transcript page.");
-    }
-    const messagesOffset = Number.isSafeInteger(page.messagesOffset) && (page.messagesOffset ?? 0) >= 0
-      ? page.messagesOffset ?? 0
-      : undefined;
-    const messageIndexes: number[] = [];
-    const messages: UiMessage[] = [];
-    page.messages.forEach((message, index) => {
-      const mapped = mapMessage(message, index);
-      if (!mapped?.text) return;
-      messages.push(mapped);
-      if (messagesOffset !== undefined) messageIndexes.push(messagesOffset + index);
-    });
-    const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
-    return {
-      sessionId,
-      messages,
-      ...(messagesOffset !== undefined ? { transcriptMessageIndexes: messageIndexes } : {}),
-      ...(taskHistory ? { taskHistory } : {}),
-      ...(typeof page.olderCursor === "string" ? { olderCursor: page.olderCursor } : {}),
-      hasMore: page.hasMore,
-    };
+    return mapBridgeTranscriptPageValue(sessionId, value);
   }
 
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
@@ -1941,17 +1983,7 @@ export class PiHost {
   private bridgeHostSnapshot(): HostSnapshot {
     const snapshot = this.bridgeSnapshot;
     if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
-    const messageIndexes: number[] = [];
-    const messages: UiMessage[] = [];
-    const messagesOffset = Number.isSafeInteger(snapshot.messagesOffset) && snapshot.messagesOffset! >= 0
-      ? snapshot.messagesOffset!
-      : undefined;
-    snapshot.messages.forEach((message, index) => {
-      const mapped = mapMessage(message, index);
-      if (!mapped?.text) return;
-      messages.push(mapped);
-      if (messagesOffset !== undefined) messageIndexes.push(messagesOffset + index);
-    });
+    const mapped = mapBridgeMessages(snapshot.messages, snapshot.messagesOffset);
     const firstUserMessage = snapshot.messages.find((message) =>
       Boolean(message && typeof message === "object" && (message as { role?: string }).role === "user"),
     );
@@ -1970,8 +2002,9 @@ export class PiHost {
       models: snapshot.models.map(mapModel),
       thinkingLevel: snapshot.thinkingLevel,
       thinkingLevels: snapshot.thinkingLevels,
-      messages,
-      ...(messagesOffset !== undefined ? { transcriptMessageIndexes: messageIndexes } : {}),
+      messages: mapped.messages,
+      ...(mapped.transcriptMessageIndexes ? { transcriptMessageIndexes: mapped.transcriptMessageIndexes } : {}),
+      ...(snapshot.olderCursor ? { olderCursor: snapshot.olderCursor } : {}),
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,
       turnActivity: lastTurnActivityFromMessages(snapshot.messages),

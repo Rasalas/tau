@@ -12,6 +12,7 @@ import type {
   UiTurnActivity,
   UiWorkspaceChanges,
 } from "./contracts.js";
+import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, TranscriptPager } from "./transcript-pager.js";
 
 /** The wire version is deliberately independent from the Pi SDK version. */
@@ -29,32 +30,18 @@ export interface ThreadIndexUpdate {
   sessions: ThreadIndexSnapshot["sessions"];
 }
 
-export interface ThreadDetail {
+export interface ThreadDetail extends TranscriptBundle<UiMessage> {
   sessionId: string;
-  messages: UiMessage[];
-  /** Raw message indexes corresponding to `messages` for bounded bridge details. */
-  transcriptMessageIndexes?: number[];
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
-  taskHistory?: UiTaskProgressEntry[];
   contextUsage?: UiContextUsage;
-  /** Cursor for the next page of older transcript records. */
-  olderCursor?: string;
   /** Whether another page exists; omitted by older protocol peers. */
   hasMore?: boolean;
 }
 
-export interface TranscriptPage {
-  sessionId: string;
-  messages: UiMessage[];
-  /** Raw message indexes corresponding to `messages` when a bridge owns paging. */
-  transcriptMessageIndexes?: number[];
-  taskHistory?: UiTaskProgressEntry[];
-  olderCursor?: string;
-  hasMore: boolean;
-}
+export type TranscriptPage = ThreadTranscriptPage<UiMessage>;
 
 export interface HostCatalog {
   models: UiModel[];
@@ -158,8 +145,9 @@ function cursorForPage(
 ): string | undefined {
   const offset = snapshot.transcriptMessageIndexes;
   if (!offset) return page.olderCursor ?? snapshot.olderCursor;
-  const localStart = page.olderCursor === undefined ? 0 : Number(page.olderCursor);
-  const index = offset[localStart] ?? offset[0];
+  if (page.olderCursor === undefined) return snapshot.olderCursor;
+  const localStart = Number(page.olderCursor);
+  const index = offset[localStart];
   return index === undefined || index <= 0 ? snapshot.olderCursor : String(index);
 }
 

@@ -22,6 +22,10 @@ export interface TranscriptHistoryRequest {
   cursor: string;
 }
 
+export interface TranscriptBootstrapRequest {
+  generation: number;
+}
+
 export interface TranscriptScrollAnchor {
   messageId: string;
   viewportOffset: number;
@@ -150,15 +154,15 @@ export class TranscriptHistoryController {
   private cachedSnapshot?: HostSnapshot;
   private cachedIndex?: ThreadIndexSnapshot;
   private generation = 0;
-  private activeSessionId = "";
-  private pendingSessionId?: string;
+  private activeThreadId = "";
+  private pendingThreadId?: string;
   private switching = false;
   private bootstrapped = false;
 
   constructor(initialSnapshot?: HostSnapshot, initialIndex?: ThreadIndexSnapshot) {
     this.cachedSnapshot = initialSnapshot;
     this.cachedIndex = initialIndex;
-    this.activeSessionId = initialSnapshot?.sessionId ?? "";
+    this.activeThreadId = initialSnapshot?.sessionId ?? "";
     this.bootstrapped = false;
     if (initialSnapshot) {
       this.details.set({
@@ -206,12 +210,27 @@ export class TranscriptHistoryController {
     writeBootstrapCache(this.cachedSnapshot, this.cachedIndex);
   }
 
-  syncSnapshot(snapshot: HostSnapshot, detail: ThreadDetail): void {
+  beginBootstrap(): TranscriptBootstrapRequest {
+    this.generation += 1;
+    return { generation: this.generation };
+  }
+
+  isCurrentBootstrap(request: TranscriptBootstrapRequest): boolean {
+    return request.generation === this.generation && !this.switching;
+  }
+
+  syncSnapshot(
+    snapshot: HostSnapshot,
+    detail: ThreadDetail,
+    request?: TranscriptBootstrapRequest,
+  ): boolean {
+    if (request && !this.isCurrentBootstrap(request)) return false;
     this.invalidate(snapshot.sessionId, snapshot.olderCursor);
     this.details.set(detail);
     this.cachedSnapshot = snapshot;
     this.publish({ sessionId: snapshot.sessionId, olderCursor: snapshot.olderCursor, loading: false });
     this.persistCache();
+    return true;
   }
 
   applyDetail(detail: ThreadDetail, snapshot?: HostSnapshot): TranscriptDetailApplication | undefined {
@@ -252,54 +271,61 @@ export class TranscriptHistoryController {
       taskHistory,
       contextUsage: renderedDetail.contextUsage,
     } : undefined;
-    this.invalidate(renderedDetail.sessionId, renderedDetail.olderCursor);
+    const preservePagingRequest = this.state.loading && keepHistory;
+    const preserveAnchor = !preservePagingRequest
+      && keepHistory
+      && this.activeThreadId === renderedDetail.sessionId
+      && this.anchorRef.current !== undefined;
+    if (!preservePagingRequest) this.invalidate(renderedDetail.sessionId, renderedDetail.olderCursor, preserveAnchor);
     this.details.set(renderedDetail);
     if (renderedSnapshot) this.cachedSnapshot = renderedSnapshot;
-    this.publish({ sessionId: renderedDetail.sessionId, olderCursor: renderedDetail.olderCursor, loading: false });
+    this.publish(preservePagingRequest
+      ? { ...this.state, sessionId: renderedDetail.sessionId, olderCursor: renderedDetail.olderCursor }
+      : { sessionId: renderedDetail.sessionId, olderCursor: renderedDetail.olderCursor, loading: false });
     this.persistCache();
     return { detail: renderedDetail, snapshot: renderedSnapshot };
   }
 
-  beginSessionSwitch(sessionId?: string): number {
+  beginThreadSwitch(threadId?: string): number {
     this.generation += 1;
     this.switching = true;
-    this.pendingSessionId = sessionId;
+    this.pendingThreadId = threadId;
     this.anchorRef.current = undefined;
     this.preserveScrollRef.current = undefined;
     this.publish({ ...this.state, loading: false, status: undefined });
     return this.generation;
   }
 
-  isCurrentTransition(generation: number): boolean {
+  isCurrentThreadTransition(generation: number): boolean {
     return generation === this.generation && this.switching;
   }
 
-  confirmTransition(generation: number, sessionId: string): boolean {
-    if (!this.isCurrentTransition(generation)) return false;
-    if (this.pendingSessionId && this.pendingSessionId !== sessionId) return false;
-    this.pendingSessionId = sessionId;
+  confirmThreadTransition(generation: number, threadId: string): boolean {
+    if (!this.isCurrentThreadTransition(generation)) return false;
+    if (this.pendingThreadId && this.pendingThreadId !== threadId) return false;
+    this.pendingThreadId = threadId;
     return true;
   }
 
-  prepareActionDetail(sessionId: string): boolean {
-    if (this.switching) return this.pendingSessionId === sessionId;
-    this.beginSessionSwitch(sessionId);
+  prepareActionDetail(threadId: string): boolean {
+    if (this.switching) return this.pendingThreadId === threadId;
+    this.beginThreadSwitch(threadId);
     return true;
   }
 
-  acceptsDetail(sessionId: string): boolean {
+  acceptsDetail(threadId: string): boolean {
     if (!this.bootstrapped) return true;
-    if (this.switching) return this.pendingSessionId === sessionId;
-    if (!this.switching && this.activeSessionId && this.activeSessionId !== sessionId) return false;
+    if (this.switching) return this.pendingThreadId === threadId;
+    if (!this.switching && this.activeThreadId && this.activeThreadId !== threadId) return false;
     return true;
   }
 
-  acceptsExternalPage(sessionId: string): boolean {
-    return !this.switching && this.activeSessionId === sessionId;
+  acceptsExternalPage(threadId: string): boolean {
+    return !this.switching && this.activeThreadId === threadId;
   }
 
   beginLoad(anchor?: TranscriptScrollAnchor): TranscriptHistoryRequest | undefined {
-    const sessionId = this.state.sessionId ?? this.activeSessionId;
+    const sessionId = this.state.sessionId ?? this.activeThreadId;
     const cursor = this.state.olderCursor;
     if (!sessionId || !cursor || this.state.loading || this.switching) return undefined;
     this.generation += 1;
@@ -378,13 +404,21 @@ export class TranscriptHistoryController {
 
   completeSuccess(request: TranscriptHistoryRequest, loadedTurns: number): boolean {
     if (!this.isCurrent(request)) return false;
-    this.anchorRef.current = undefined;
-    this.preserveScrollRef.current = undefined;
+    if (!this.anchorRef.current) this.preserveScrollRef.current = undefined;
     this.publish({
       ...this.state,
       loading: false,
       status: { state: "success", loadedTurns },
     });
+    return true;
+  }
+
+  /** Release a paging anchor after an explicit user interaction. */
+  releaseAnchor(): boolean {
+    if (!this.anchorRef.current && this.preserveScrollRef.current === undefined) return false;
+    this.anchorRef.current = undefined;
+    this.preserveScrollRef.current = undefined;
+    this.publish({ ...this.state });
     return true;
   }
 
@@ -404,14 +438,16 @@ export class TranscriptHistoryController {
     return true;
   }
 
-  private invalidate(sessionId: string, olderCursor?: string): void {
+  private invalidate(sessionId: string, olderCursor?: string, preserveAnchor = false): void {
+    const anchor = preserveAnchor ? this.anchorRef.current : undefined;
+    const preserveScroll = preserveAnchor ? this.preserveScrollRef.current : undefined;
     this.generation += 1;
-    this.activeSessionId = sessionId;
-    this.pendingSessionId = undefined;
+    this.activeThreadId = sessionId;
+    this.pendingThreadId = undefined;
     this.switching = false;
     this.bootstrapped = true;
-    this.anchorRef.current = undefined;
-    this.preserveScrollRef.current = undefined;
+    this.anchorRef.current = anchor;
+    this.preserveScrollRef.current = preserveScroll;
     this.state = { sessionId, olderCursor, loading: false };
   }
 

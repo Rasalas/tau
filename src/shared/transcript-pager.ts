@@ -1,5 +1,5 @@
 import type { UiMessage } from "./contracts.js";
-import type { TranscriptPage } from "./host-protocol.js";
+import type { ThreadTranscriptPage, TranscriptPageBundle } from "./transcript-contract.js";
 
 /** The number of user turns needed for the first useful transcript paint. */
 export const INITIAL_TRANSCRIPT_TURN_LIMIT = 10 as const;
@@ -23,17 +23,24 @@ export function transcriptPageBounds(
   if (!Number.isInteger(turnLimit) || turnLimit < 1) throw new Error("turnLimit must be positive");
   const end = cursor === undefined ? messages.length : parseTranscriptCursor(cursor, messages.length);
   if (end <= 0) return { start: 0, end, hasMore: false };
+  const firstUser = messages.findIndex((message, index) => index < end && message.role === "user");
+  // Records before the first user turn are orphan activities. They cannot be
+  // rendered as a complete turn and must not make an activity-only branch
+  // appear pageable forever.
+  if (firstUser < 0) return { start: end, end, hasMore: false };
   let start = end;
   let turns = 0;
   while (start > 0 && turns < turnLimit) {
     start -= 1;
     if (messages[start]?.role === "user") turns += 1;
   }
+  if (turns < turnLimit && start < firstUser) start = firstUser;
+  const hasOlderTurn = messages.slice(0, start).some((message) => message.role === "user");
   return {
     start,
     end,
-    ...(start > 0 ? { olderCursor: String(start) } : {}),
-    hasMore: start > 0,
+    ...(hasOlderTurn ? { olderCursor: String(start) } : {}),
+    hasMore: hasOlderTurn,
   };
 }
 
@@ -52,20 +59,19 @@ export class TranscriptPager {
     this.messages = [...messages];
   }
 
-  page(cursor?: string): TranscriptPage {
+  page(cursor?: string): TranscriptPageBundle<UiMessage> {
     const bounds = transcriptPageBounds(this.messages, this.turnLimit, cursor);
     // A page always starts at a user message and includes every record after it
     // up to the cursor. This avoids splitting a visible conversation turn while
     // retaining notices and other records adjacent to that turn.
     return {
-      sessionId: "",
       messages: this.messages.slice(bounds.start, bounds.end),
       ...(bounds.olderCursor ? { olderCursor: bounds.olderCursor } : {}),
       hasMore: bounds.hasMore,
     };
   }
 
-  static pageFor(sessionId: string, messages: readonly UiMessage[], turnLimit: number = INITIAL_TRANSCRIPT_TURN_LIMIT, cursor?: string): TranscriptPage {
+  static pageFor(sessionId: string, messages: readonly UiMessage[], turnLimit: number = INITIAL_TRANSCRIPT_TURN_LIMIT, cursor?: string): ThreadTranscriptPage<UiMessage> {
     const page = new TranscriptPager(messages, turnLimit).page(cursor);
     return { ...page, sessionId };
   }

@@ -11,6 +11,7 @@ import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
   PI_BRIDGE_PROTOCOL_VERSION,
+  transcriptPagingNegotiated,
   type PiBridgeClientFrame,
   type PiBridgeDescriptor,
   type PiBridgeServerFrame,
@@ -19,7 +20,12 @@ import {
   type PiBridgeTranscriptPage,
 } from "../../src/shared/pi-bridge-protocol.js";
 
-interface ClientState { socket: Socket; authenticated: boolean; buffer: string }
+interface ClientState {
+  socket: Socket;
+  authenticated: boolean;
+  buffer: string;
+  transcriptPaging: boolean;
+}
 
 function boundedBridgeValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item: unknown) => {
@@ -71,21 +77,27 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     if (!client.socket.destroyed) client.socket.write(encodePiBridgeFrame(frame));
   };
 
-  const snapshot = (ctx: ExtensionContext): PiBridgeSnapshot => {
+  const snapshot = (ctx: ExtensionContext, paged = false): PiBridgeSnapshot => {
     const file = ctx.sessionManager.getSessionFile();
     if (!file) throw new Error("Tau bridge requires a persisted Pi session.");
     const usage = ctx.getContextUsage();
     const branchMessages = ctx.sessionManager.getBranch()
       .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
-    const bounds = transcriptPageBounds(branchMessages, INITIAL_TRANSCRIPT_TURN_LIMIT);
-    const visibleMessages = branchMessages.slice(bounds.start, bounds.end);
+    const bounds = paged ? transcriptPageBounds(branchMessages, INITIAL_TRANSCRIPT_TURN_LIMIT) : undefined;
+    const visibleMessages = bounds
+      ? branchMessages.slice(bounds.start, bounds.end)
+      : branchMessages.slice(-160);
     return {
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       cwd: ctx.cwd,
       sessionName: pi.getSessionName(),
       messages: boundedBridgeValue(visibleMessages),
-      messagesOffset: bounds.start,
+      ...(bounds ? {
+        messagesOffset: bounds.start,
+        capabilities: { transcriptPaging: true },
+        ...(bounds.olderCursor ? { olderCursor: bounds.olderCursor } : {}),
+      } : {}),
       isStreaming: !ctx.isIdle(),
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, name: ctx.model.name } : undefined,
       models: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, id: model.id, name: model.name })),
@@ -102,7 +114,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         })),
       contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : undefined,
       taskProgress: taskProgressFromMessages(branchMessages),
-      taskHistory: taskProgressHistoryFromMessages(visibleMessages),
+      taskHistory: taskProgressHistoryFromMessages(paged ? visibleMessages : branchMessages),
       awaitingInput,
     };
   };
@@ -139,14 +151,16 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
 
   const broadcastSnapshot = (ctx: ExtensionContext) => {
     if (!descriptor) return;
-    const frame: PiBridgeServerFrame = {
-      protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
-      type: "snapshot",
-      epoch: descriptor.epoch,
-      seq: ++sequence,
-      snapshot: snapshot(ctx),
-    };
-    for (const client of clients) if (client.authenticated) send(client, frame);
+    for (const client of clients) if (client.authenticated) {
+      const frame: PiBridgeServerFrame = {
+        protocolVersion: PI_BRIDGE_PROTOCOL_VERSION,
+        type: "snapshot",
+        epoch: descriptor.epoch,
+        seq: ++sequence,
+        snapshot: snapshot(ctx, client.transcriptPaging),
+      };
+      send(client, frame);
+    }
   };
 
   const respond = (client: ClientState, id: string, ok: boolean, result?: unknown) => {
@@ -166,6 +180,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         client.socket.destroy();
         return;
       }
+      client.transcriptPaging = transcriptPagingNegotiated(frame.capabilities);
       client.authenticated = true;
       const ctx = latestContext;
       if (!ctx) return client.socket.destroy();
@@ -174,7 +189,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         type: "ready",
         id: frame.id,
         epoch: descriptor.epoch,
-        snapshot: snapshot(ctx),
+        snapshot: snapshot(ctx, client.transcriptPaging),
       });
       return;
     }
@@ -188,7 +203,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     try {
       switch (frame.command) {
         case "ping": respond(client, frame.id, true, { now: Date.now() }); break;
-        case "snapshot": respond(client, frame.id, true, snapshot(ctx)); break;
+        case "snapshot": respond(client, frame.id, true, snapshot(ctx, client.transcriptPaging)); break;
         case "prompt":
           pi.sendUserMessage(frame.text, {
             ...(ctx.isIdle() ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
@@ -238,6 +253,10 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           break;
         }
         case "transcript_page":
+          if (!client.transcriptPaging) {
+            respond(client, frame.id, false, "Transcript paging was not negotiated by this v1 client.");
+            break;
+          }
           respond(client, frame.id, true, transcriptPage(ctx, frame.cursor));
           break;
         case "fork": {
@@ -292,7 +311,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       : join(tmpdir(), `tau-pi-${process.getuid?.() ?? "user"}-${suffix}.sock`);
     if (process.platform !== "win32") await rm(socketPath, { force: true }).catch(() => undefined);
     server = createServer((socket) => {
-      const client: ClientState = { socket, authenticated: false, buffer: "" };
+      const client: ClientState = { socket, authenticated: false, buffer: "", transcriptPaging: false };
       clients.add(client);
       socket.setEncoding("utf8");
       socket.on("data", (chunk: string) => {

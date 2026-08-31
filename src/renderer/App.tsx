@@ -79,6 +79,7 @@ import {
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import {
   TranscriptHistoryController,
+  type TranscriptBootstrapRequest,
   type TranscriptHistoryRequest,
 } from "./transcript-history";
 
@@ -443,7 +444,8 @@ export default function App() {
     if (toolFrameRef.current === undefined) toolFrameRef.current = requestAnimationFrame(flushToolUpdates);
   }, [flushToolUpdates]);
 
-  const applySnapshot = useCallback((next: HostSnapshot) => {
+  const applySnapshot = useCallback((next: HostSnapshot, request?: TranscriptBootstrapRequest): boolean => {
+    if (request && !transcriptHistory.isCurrentBootstrap(request)) return false;
     assistantStartsRef.current.clear();
     pendingDeltasRef.current.clear();
     pendingToolUpdatesRef.current.clear();
@@ -464,7 +466,7 @@ export default function App() {
       olderCursor: next.olderCursor,
       hasMore: next.olderCursor !== undefined,
     };
-    transcriptHistory.syncSnapshot(next, detail);
+    if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
     threadStore.applyHostSnapshot(next);
     threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
@@ -476,6 +478,7 @@ export default function App() {
     setTurnBaseline(cachedActivity?.baseline);
     setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
     activeWorkspaceRef.current = next.cwd;
+    return true;
   }, [threadStore, transcriptHistory]);
 
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
@@ -548,12 +551,12 @@ export default function App() {
   }, [applyThreadIndex, applyTranscriptPage, threadStore, transcriptHistory]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: number): boolean => {
-    if (expectedTransition !== undefined && !transcriptHistory.isCurrentTransition(expectedTransition)) return false;
+    if (expectedTransition !== undefined && !transcriptHistory.isCurrentThreadTransition(expectedTransition)) return false;
     const detail = result.updates.find((update) => update.type === "thread-detail");
     if (detail?.type === "thread-detail") {
       const prepared = expectedTransition === undefined
         ? transcriptHistory.prepareActionDetail(detail.detail.sessionId)
-        : transcriptHistory.confirmTransition(expectedTransition, detail.detail.sessionId);
+        : transcriptHistory.confirmThreadTransition(expectedTransition, detail.detail.sessionId);
       if (!prepared) return false;
     }
     result.updates.forEach((update) => applyHostUpdate(update));
@@ -765,7 +768,9 @@ export default function App() {
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
       void window.tau.syncExtensionUi?.().catch(() => undefined);
+      const bootstrapRequest = transcriptHistory.beginBootstrap();
       window.tau.bootstrap().then((bootstrap) => {
+        if (!transcriptHistory.isCurrentBootstrap(bootstrapRequest)) return;
         applyThreadIndex(bootstrap.threadIndex);
         const current: HostSnapshot = {
           cwd: bootstrap.project.cwd,
@@ -791,10 +796,12 @@ export default function App() {
           contextUsage: bootstrap.detail.contextUsage,
           olderCursor: bootstrap.detail.olderCursor,
         };
-        applySnapshot(current);
+        if (!applySnapshot(current, bootstrapRequest)) return;
         void refreshChanges();
         void refreshWorkspace();
-      }).catch((error) => setNotice(String(error)));
+      }).catch((error) => {
+        if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(String(error));
+      });
       window.tau.listEditors().then(setEditors).catch(() => setEditors([]));
     } else {
       applyThreadIndex(mockThreadIndex);
@@ -802,7 +809,7 @@ export default function App() {
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
     return unsubscribe;
-  }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, refreshChanges, refreshWorkspace]);
+  }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, refreshChanges, refreshWorkspace, transcriptHistory]);
 
   // Best-effort sync: while Pi owns the runtime the access gate lives there, so a
   // refusal is expected on attach and must not surface as an error on every launch.
@@ -976,7 +983,7 @@ export default function App() {
       applySnapshot(optimisticThreadSnapshot(snapshot, target, cached));
       addEvent("thread.switch.cached", target?.title);
     }
-    const transition = transcriptHistory.beginSessionSwitch(target?.id);
+    const transition = transcriptHistory.beginThreadSwitch(target?.id);
     try {
       const next = await window.tau!.switchSession(path);
       if (!applyActionResult(next, transition)) return false;
@@ -984,7 +991,7 @@ export default function App() {
       addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
       return true;
     } catch (error) {
-      if (!transcriptHistory.isCurrentTransition(transition)) return false;
+      if (!transcriptHistory.isCurrentThreadTransition(transition)) return false;
       if (previous) applySnapshot(previous);
       setNotice(String(error));
       return false;

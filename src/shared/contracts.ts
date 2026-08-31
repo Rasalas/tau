@@ -1,4 +1,5 @@
 import type { HostActionResult } from "./host-protocol.js";
+import type { TranscriptBundle } from "./transcript-contract.js";
 
 export type UiRole = "user" | "assistant" | "notice";
 
@@ -291,7 +292,7 @@ export interface UiTurnActivity {
   anchorMessageId?: string;
 }
 
-export interface HostSnapshot {
+export interface HostSnapshot extends TranscriptBundle<UiMessage> {
   cwd: string;
   branch?: string;
   sessionId: string;
@@ -301,16 +302,11 @@ export interface HostSnapshot {
   models: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
-  messages: UiMessage[];
   /** Cursor for the next page when this snapshot already contains a bounded window. */
-  olderCursor?: string;
-  /** Raw message indexes corresponding to `messages` for a bounded bridge window. */
-  transcriptMessageIndexes?: number[];
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
-  taskHistory?: UiTaskProgressEntry[];
   allTools: Array<{ name: string; description: string }>;
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
@@ -325,22 +321,21 @@ export interface ThreadIndexSnapshot {
   sessions: UiSession[];
 }
 
+export interface HostBootstrapDetail extends TranscriptBundle<UiMessage> {
+  sessionId: string;
+  isStreaming: boolean;
+  activeTools: string[];
+  turnActivity?: UiTurnActivity;
+  taskProgress?: UiTaskProgress;
+  contextUsage?: UiContextUsage;
+  /** Older v1 clients may omit this derived flag. */
+  hasMore?: boolean;
+}
+
 export interface HostBootstrap {
   threadIndex: ThreadIndexSnapshot;
   version: 1;
-  detail: {
-    sessionId: string;
-    messages: UiMessage[];
-    transcriptMessageIndexes?: number[];
-    isStreaming: boolean;
-    activeTools: string[];
-    turnActivity?: UiTurnActivity;
-    taskProgress?: UiTaskProgress;
-    taskHistory?: UiTaskProgressEntry[];
-    contextUsage?: UiContextUsage;
-    olderCursor?: string;
-    hasMore?: boolean;
-  };
+  detail: HostBootstrapDetail;
   catalog: {
     models: UiModel[];
     model?: UiModel;

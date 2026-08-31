@@ -202,5 +202,27 @@ describe("TranscriptHistoryBoundary integration", () => {
     expect(scrollNode.scrollTop).toBeGreaterThan(500);
     expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeGreaterThanOrEqual(4);
 
+    const beforeBelowGrowth = scrollNode.scrollTop;
+    actualHeights.set("tail", 1_400);
+    measuredHeights.set("tail", 1_400);
+    DeferredResizeObserver.trigger();
+    await waitFor(() => expect(scrollNode.scrollTop).toBe(beforeBelowGrowth));
+
+    // A late image/font/markdown measurement arrives well after the initial
+    // success state. The same visible row must remain pinned until the user
+    // explicitly interacts with the scroll container.
+    const settledOffset = anchorAfter!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
+    actualHeights.set("older-a", 720);
+    measuredHeights.set("older-a", 720);
+    DeferredResizeObserver.trigger();
+    await waitFor(() => {
+      const lateAnchor = view.container.querySelector<HTMLElement>('[data-message-id="anchor"]');
+      expect(lateAnchor).not.toBeNull();
+      const lateOffset = lateAnchor!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
+      expect(Math.abs(lateOffset - settledOffset)).toBeLessThan(1);
+    });
+    expect(controller.anchorRef.current?.messageId).toBe("anchor");
+    fireEvent.wheel(scrollNode, { deltaY: -120 });
+    expect(controller.anchorRef.current).toBeUndefined();
   });
 });
