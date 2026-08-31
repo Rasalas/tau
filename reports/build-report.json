@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-31T22:13:30.524Z",
-  "buildTimeMs": 5506,
+  "generatedAt": "2026-08-31T22:38:39.304Z",
+  "buildTimeMs": 4790,
   "sourcemaps": false,
   "initial": {
     "javascript": {
-      "bytes": 1511721,
-      "gzipBytes": 352533,
+      "bytes": 1515496,
+      "gzipBytes": 353419,
       "files": 1
     },
     "css": {
-      "bytes": 84075,
-      "gzipBytes": 14656,
+      "bytes": 84210,
+      "gzipBytes": 14693,
       "files": 1
     },
     "sourcemaps": {
@@ -22,9 +22,9 @@
   },
   "lazy": {
     "javascript": {
-      "bytes": 94518,
-      "gzipBytes": 36573,
-      "files": 22
+      "bytes": 100168,
+      "gzipBytes": 39327,
+      "files": 26
     },
     "css": {
       "bytes": 0,
@@ -46,7 +46,14 @@
       "gzipBytes": 1573
     },
     {
-      "file": "assets/CommandPalette-BXjlfhN2.js",
+      "file": "assets/ChangedFiles-B5qD7yva.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 2578,
+      "gzipBytes": 1076
+    },
+    {
+      "file": "assets/CommandPalette-CqCt2tac.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 2465,
@@ -67,11 +74,18 @@
       "gzipBytes": 312
     },
     {
-      "file": "assets/DiffView-CBllNzCh.js",
+      "file": "assets/DiffView-UC6MXAJ4.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1736,
       "gzipBytes": 707
+    },
+    {
+      "file": "assets/FileKindIcon-CNeqQjDm.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 977,
+      "gzipBytes": 555
     },
     {
       "file": "assets/go-4VmnRw3R.js",
@@ -81,18 +95,18 @@
       "gzipBytes": 708
     },
     {
-      "file": "assets/index-B3Uardt4.css",
-      "kind": "css",
-      "phase": "initial",
-      "bytes": 84075,
-      "gzipBytes": 14656
-    },
-    {
-      "file": "assets/index-O6c38p5z.js",
+      "file": "assets/index-BS7O2ryf.js",
       "kind": "javascript",
       "phase": "initial",
-      "bytes": 1511721,
-      "gzipBytes": 352533
+      "bytes": 1515496,
+      "gzipBytes": 353419
+    },
+    {
+      "file": "assets/index-SobznrAR.css",
+      "kind": "css",
+      "phase": "initial",
+      "bytes": 84210,
+      "gzipBytes": 14693
     },
     {
       "file": "assets/javascript-DUNaicwC.js",
@@ -116,18 +130,18 @@
       "gzipBytes": 895
     },
     {
-      "file": "assets/observatory-panel-C9BbXGcj.js",
+      "file": "assets/observatory-panel-BYoeSHh2.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1361,
-      "gzipBytes": 590
+      "gzipBytes": 588
     },
     {
-      "file": "assets/project-navigation-B753ww59.js",
+      "file": "assets/project-navigation-IEcOG069.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 15571,
-      "gzipBytes": 5151
+      "bytes": 15566,
+      "gzipBytes": 5150
     },
     {
       "file": "assets/python-CXf-_D6G.js",
@@ -137,18 +151,18 @@
       "gzipBytes": 1505
     },
     {
-      "file": "assets/RendererBenchmark-vb9ZgmF8.js",
+      "file": "assets/RendererBenchmark-CO95rK_n.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 6325,
       "gzipBytes": 2542
     },
     {
-      "file": "assets/ReviewMode-DNAylG-_.js",
+      "file": "assets/ReviewMode-BlVG1jVa.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 4007,
-      "gzipBytes": 1504
+      "bytes": 4947,
+      "gzipBytes": 1907
     },
     {
       "file": "assets/rust-DsMvwcVK.js",
@@ -158,11 +172,11 @@
       "gzipBytes": 1436
     },
     {
-      "file": "assets/SettingsModal-Bvo18DMd.js",
+      "file": "assets/SettingsModal-CiEQEOsC.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 6750,
-      "gzipBytes": 2293
+      "gzipBytes": 2292
     },
     {
       "file": "assets/shell-DYhVHYSm.js",
@@ -186,11 +200,25 @@
       "gzipBytes": 3079
     },
     {
-      "file": "assets/workspace-panels-vx5RuZdX.js",
+      "file": "assets/usePagedWorkspaceFiles-DHhc7cDs.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 3767,
-      "gzipBytes": 1415
+      "bytes": 695,
+      "gzipBytes": 424
+    },
+    {
+      "file": "assets/workspace-checkpoint-card-DZuvwNMd.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 425,
+      "gzipBytes": 277
+    },
+    {
+      "file": "assets/workspace-panels-CXF_KoYY.js",
+      "kind": "javascript",
+      "phase": "lazy",
+      "bytes": 3807,
+      "gzipBytes": 1438
     },
     {
       "file": "assets/xml-FcirFJJ2.js",

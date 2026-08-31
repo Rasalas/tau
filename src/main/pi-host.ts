@@ -399,6 +399,9 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
   if (page.taskHistory !== undefined && !Array.isArray(page.taskHistory)) {
     throw new Error("Pi returned an invalid transcript activity history.");
   }
+  const turnCheckpoints = Array.isArray(page.turnCheckpoints)
+    ? page.turnCheckpoints.filter((checkpoint): checkpoint is UiTurnCheckpoint => Boolean(checkpoint && typeof checkpoint === "object"))
+    : undefined;
   return {
     sessionId,
     messages,
@@ -407,13 +410,14 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
     ...(messagesOffset !== undefined ? { messagesOffset } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     ...(historyCompleteness !== undefined ? { historyCompleteness } : {}),
+    ...(turnCheckpoints ? { turnCheckpoints } : {}),
   };
 }
 
 /** Validate and map one bridge-owned transcript page at the host seam. */
 export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown): TranscriptPage {
   const page = bridgeTranscriptPage(value, sessionId);
-  const messages = mapBridgeMessages(page.messages, page.messagesOffset);
+  const messages = mapBridgeMessages(page.messages, page.messagesOffset, { checkpoints: page.turnCheckpoints });
   const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
   const firstUserMessage = messages.find((message) => message.role === "user");
   const olderCursor = page.olderCursor === undefined
@@ -434,6 +438,7 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
     ...(cursorBoundaries ? { cursorBoundaries } : {}),
     historyCompleteness: resolveTranscriptHistoryCompleteness(page.historyCompleteness, page.hasMore),
     hasMore: page.hasMore,
+    turnCheckpoints: checkpointsForMessages(page.turnCheckpoints, messages),
   };
 }
 
@@ -2140,8 +2145,7 @@ export class PiHost {
         await this.bridge!.command({
           command: "prompt",
           text,
-          clientTurnId: clientMessageId ?? randomUUID(),
-          ...(clientMessageId ? { clientMessageId } : {}),
+          ...(clientMessageId ? { clientTurnId: clientMessageId, clientMessageId } : {}),
           ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
         });
       } catch (error) {
@@ -2280,9 +2284,8 @@ export class PiHost {
       await this.bridge!.command({
         command: "prompt",
         text,
-        clientTurnId: clientMessageId ?? randomUUID(),
         deliverAs: "steer",
-        ...(clientMessageId ? { clientMessageId } : {}),
+        ...(clientMessageId ? { clientTurnId: clientMessageId, clientMessageId } : {}),
         ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
       });
       return;
@@ -2334,9 +2337,8 @@ export class PiHost {
       await this.bridge!.command({
         command: "prompt",
         text,
-        clientTurnId: clientMessageId ?? randomUUID(),
         deliverAs: "followUp",
-        ...(clientMessageId ? { clientMessageId } : {}),
+        ...(clientMessageId ? { clientTurnId: clientMessageId, clientMessageId } : {}),
         ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
       });
       return;
@@ -3862,7 +3864,7 @@ export class PiHost {
   /** Runtime eviction keeps persisted history; only a missing session file is deletion. */
   private async cleanupDeletedSessionCheckpointRefs(previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
     const nextIds = new Set(next.map((session) => session.id));
-    const liveIds = this.liveSessionIds();
+    const liveIds = this.liveThreadIds();
     const deleted = previous.filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path));
     await Promise.allSettled(deleted.map(async (session) => {
       await this.checkpointMaintenance.cleanupSessionRefs(session.projectPath, session.id);
@@ -3888,11 +3890,11 @@ export class PiHost {
     for (const record of this.threads.list()) {
       if (!isPiBackend(record.runtime)) continue;
       const branch = record.runtime.backend.branchEntries();
-      if (live.some((session) => session.sessionId === record.sessionId)) continue;
+      if (live.some((session) => session.sessionId === record.threadId)) continue;
       live.push({
-        sessionId: record.sessionId,
+        sessionId: record.threadId,
         cwd: record.cwd,
-        checkpoints: turnCheckpointsFromEntries(branch, record.sessionId),
+        checkpoints: turnCheckpointsFromEntries(branch, record.threadId),
       });
     }
     const workspaces = new Map<string, string>();

@@ -629,7 +629,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     },
     onError: (error, capture) => {
       const ctx = contextForTurn(capture.id);
-      if (ctx && currentContext(ctx)) broadcast({ type: "turn-checkpoint-error", turnId: capture.id, message: String(error) }, ctx);
+      if (ctx && currentContext(ctx)) {
+        // Error details may contain prompt text or skill contents. Keep the
+        // wire event useful without exposing those details to the renderer.
+        broadcast({ type: "turn-checkpoint-error", turnId: capture.id, message: "Turn checkpoint capture failed." }, ctx);
+      }
     },
     onStatus: (status, capture) => {
       const ctx = contextForTurn(capture.id);
@@ -899,7 +903,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           } catch (error) {
             if (!isExtensionCommand) {
               void checkpointRuntime.reject(clientTurnId);
-              broadcast({ type: "turn-checkpoint-error", turnId: clientTurnId, message: String(error) }, ctx);
+              broadcast({ type: "turn-checkpoint-error", turnId: clientTurnId, message: "Turn checkpoint capture failed." }, ctx);
             }
             if (marker) failClientMessageIfUnpersisted(ctx, frame.clientMessageId);
             throw error;
