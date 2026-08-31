@@ -7,9 +7,9 @@ import { VirtualTranscript } from "./VirtualTranscript";
 
 afterEach(cleanup);
 
-function Fixture({ messages, threadKey = "fixture", activity, activityAfterMessageId, activities }: {
+function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities }: {
   messages: UiMessage[];
-  threadKey?: string;
+  sessionKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
@@ -20,7 +20,7 @@ function Fixture({ messages, threadKey = "fixture", activity, activityAfterMessa
       messages={messages}
       scrollRef={ref}
       isStreaming={false}
-      threadKey={threadKey}
+      sessionKey={sessionKey}
       activity={activity}
       activityAfterMessageId={activityAfterMessageId}
       activities={activities}
@@ -45,6 +45,56 @@ class DelayedResizeObserver {
       borderBoxSize: [{ blockSize: height, inlineSize: 780 }],
     } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
   }
+}
+
+function installDelayedMeasurementHarness(options: {
+  rowHeight?: (node: HTMLElement) => number;
+  scrollHeight?: (node: HTMLElement) => number;
+} = {}) {
+  const rafCallbacks = new Map<number, FrameRequestCallback>();
+  let nextFrameId = 0;
+  vi.stubGlobal("ResizeObserver", DelayedResizeObserver);
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    const id = ++nextFrameId;
+    rafCallbacks.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => { rafCallbacks.delete(id); });
+
+  const properties = ["clientWidth", "clientHeight", "offsetWidth", "offsetHeight", "scrollHeight"] as const;
+  const previous = new Map<typeof properties[number], PropertyDescriptor | undefined>();
+  for (const property of properties) previous.set(property, Object.getOwnPropertyDescriptor(HTMLElement.prototype, property));
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 780 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 780 });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() {
+      const node = this as unknown as HTMLElement;
+      if (!node.classList.contains("virtual-transcript-row")) return 600;
+      return options.rowHeight?.(node) ?? (node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 300 : 500);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      const node = this as unknown as HTMLElement;
+      return options.scrollHeight?.(node) ?? 0;
+    },
+  });
+
+  return {
+    rafCallbacks,
+    restore() {
+      for (const property of properties) {
+        const descriptor = previous.get(property);
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, property, descriptor);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[property];
+      }
+      DelayedResizeObserver.instances = [];
+      vi.unstubAllGlobals();
+    },
+  };
 }
 
 function RealVirtualizerFixture({ messages }: { messages: UiMessage[] }) {
@@ -103,12 +153,12 @@ describe("virtual transcript", () => {
 
   it("scopes expansion state to the active thread", async () => {
     const messages: UiMessage[] = [{ id: "reused", role: "user", text: "x".repeat(601), timestamp: 1 }];
-    const view = render(<Fixture messages={messages} threadKey="thread-a" />);
+    const view = render(<Fixture messages={messages} sessionKey="session-a" />);
     await waitFor(() => expect(view.container.querySelector(".virtual-transcript-row")).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(screen.getByRole("button", { name: "Show less" })).toBeTruthy();
 
-    view.rerender(<Fixture messages={messages} threadKey="thread-b" />);
+    view.rerender(<Fixture messages={messages} sessionKey="session-b" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Show more" })).toBeTruthy());
   });
 
@@ -130,34 +180,14 @@ describe("virtual transcript", () => {
   });
 
   it("restores the visible row after delayed ResizeObserver remeasurement on expand and collapse", async () => {
-    const rafCallbacks = new Map<number, FrameRequestCallback>();
-    let nextFrameId = 0;
-    vi.stubGlobal("ResizeObserver", DelayedResizeObserver);
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      const id = ++nextFrameId;
-      rafCallbacks.set(id, callback);
-      return id;
-    });
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => { rafCallbacks.delete(id); });
-
-    const previousClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
-    const previousClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
-    const previousOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
-    const previousOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
     let naturalHeightSame = false;
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 780 });
-    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
-    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 780 });
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-      configurable: true,
-      get() {
-        const node = this as unknown as HTMLElement;
-        if (!node.classList.contains("virtual-transcript-row")) return 600;
-        const content = node.querySelector<HTMLElement>(".message-text-content");
+    const harness = installDelayedMeasurementHarness({
+      rowHeight: (node) => {
         if (naturalHeightSame) return 300;
-        return content?.classList.contains("collapsed") ? 300 : 500;
+        return node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 300 : 500;
       },
     });
+    const { rafCallbacks } = harness;
 
     const scrollTop = 240;
     const messages: UiMessage[] = [
@@ -234,51 +264,30 @@ describe("virtual transcript", () => {
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       container.dispatchEvent(new Event("scroll"));
       expect(container.scrollTop).toBe(440);
+
+      // A scroll-only user signal cancels a pending restore even without a
+      // wheel, pointer, touch, or keyboard precursor.
+      const beforeScrollCancel = DelayedResizeObserver.instances.length;
+      fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+      const scrollCancelObservers = DelayedResizeObserver.instances.slice(beforeScrollCancel).filter((instance) => instance.targets.has(rows[0]));
+      expect(scrollCancelObservers).toHaveLength(1);
+      container.dispatchEvent(new Event("scroll"));
+      scrollCancelObservers.forEach((observer) => observer.trigger(rows[0], 500));
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      expect(container.scrollTop).toBe(440);
     } finally {
-      if (previousClientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", previousClientWidth);
-      if (previousClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", previousClientHeight);
-      if (previousOffsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", previousOffsetWidth);
-      if (previousOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", previousOffsetHeight);
-      DelayedResizeObserver.instances = [];
-      vi.unstubAllGlobals();
+      harness.restore();
     }
   });
 
   it("uses an absolute clamped target when a tail row changes near the bottom", async () => {
-    const rafCallbacks = new Map<number, FrameRequestCallback>();
-    let nextFrameId = 0;
-    vi.stubGlobal("ResizeObserver", DelayedResizeObserver);
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      const id = ++nextFrameId;
-      rafCallbacks.set(id, callback);
-      return id;
+    const harness = installDelayedMeasurementHarness({
+      scrollHeight: (node) => node.classList.contains("virtualizer-test-container")
+        ? (node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 700 : 900)
+        : 0,
     });
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => { rafCallbacks.delete(id); });
-
-    const previousClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
-    const previousClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
-    const previousOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
-    const previousOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
-    const previousScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 780 });
-    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
-    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 780 });
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-      configurable: true,
-      get() {
-        const node = this as unknown as HTMLElement;
-        if (!node.classList.contains("virtual-transcript-row")) return 600;
-        return node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 300 : 500;
-      },
-    });
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get() {
-        const node = this as unknown as HTMLElement;
-        if (!node.classList.contains("virtualizer-test-container")) return 0;
-        return node.querySelector<HTMLElement>(".message-text-content")?.classList.contains("collapsed") ? 700 : 900;
-      },
-    });
+    const { rafCallbacks } = harness;
 
     const view = render(<RealVirtualizerFixture messages={[{ id: "tail", role: "user", text: "x".repeat(601), timestamp: 1 }]} />);
     const container = view.container.querySelector<HTMLDivElement>(".virtualizer-test-container")!;
@@ -306,20 +315,40 @@ describe("virtual transcript", () => {
       fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
       const collapseObservers = DelayedResizeObserver.instances.slice(beforeCollapse).filter((instance) => instance.targets.has(row));
       expect(collapseObservers).toHaveLength(1);
-      // Model the browser's pre-delivery clamp to the new max scrollTop.
-      container.scrollTop = 100;
+      // A scroll-only signal that is not the browser's exact natural clamp is
+      // user intent and must cancel the delayed restore.
+      container.scrollTop = 50;
+      container.dispatchEvent(new Event("scroll"));
       collapseObservers.forEach((observer) => observer.trigger(row, 300));
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
       await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
-      expect(container.scrollTop).toBe(100);
+      expect(container.scrollTop).toBe(50);
+
+      // Re-expand so the following collapse exercises the browser clamp path.
+      const beforeReexpand = DelayedResizeObserver.instances.length;
+      fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
+      const reexpandObservers = DelayedResizeObserver.instances.slice(beforeReexpand).filter((instance) => instance.targets.has(row));
+      expect(reexpandObservers).toHaveLength(1);
+      reexpandObservers.forEach((observer) => observer.trigger(row, 500));
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+
+      // Model the browser's pre-delivery clamp to the new max scrollTop.
+      const beforeClampedCollapse = DelayedResizeObserver.instances.length;
+      fireEvent.click(row.querySelector<HTMLButtonElement>("button.message-expand")!);
+      const clampedCollapseObservers = DelayedResizeObserver.instances.slice(beforeClampedCollapse).filter((instance) => instance.targets.has(row));
+      expect(clampedCollapseObservers).toHaveLength(1);
+      container.scrollTop = 100;
+      container.dispatchEvent(new Event("scroll"));
+      clampedCollapseObservers.forEach((observer) => observer.trigger(row, 300));
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      await act(async () => { for (const callback of [...rafCallbacks.values()]) callback(0); });
+      // The target is based on the pre-toggle offset (250 - 200), then
+      // clamped once against the new max. It must not subtract the shrink
+      // from the browser-clamped 100 a second time.
+      expect(container.scrollTop).toBe(50);
     } finally {
-      if (previousClientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", previousClientWidth);
-      if (previousClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", previousClientHeight);
-      if (previousOffsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", previousOffsetWidth);
-      if (previousOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", previousOffsetHeight);
-      if (previousScrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", previousScrollHeight);
-      DelayedResizeObserver.instances = [];
-      vi.unstubAllGlobals();
+      harness.restore();
     }
   });
 });

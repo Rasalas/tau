@@ -7,7 +7,7 @@ export interface VirtualTranscriptProps {
   messages: UiMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
   isStreaming: boolean;
-  threadKey?: string;
+  sessionKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: Array<{ id: string; afterMessageId?: string; content: ReactNode }>;
@@ -35,6 +35,7 @@ interface PendingToggle {
 
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
 const USER_SCROLL_KEYS = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "End", "Home", "PageDown", "PageUp", " "]);
+const MAX_EXPANDED_MESSAGE_IDS = 64;
 
 function captureViewportPosition(container: HTMLElement, messageIndex: number): ViewportPosition | undefined {
   const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
@@ -60,8 +61,9 @@ function captureViewportPosition(container: HTMLElement, messageIndex: number): 
   };
 }
 
-function restoreViewportPosition(position: ViewportPosition): void {
+function restoreViewportPosition(position: ViewportPosition, markProgrammaticScroll: () => void): void {
   if (position.anchor && position.anchorTop !== undefined && position.anchor.isConnected) {
+    markProgrammaticScroll();
     position.container.scrollTop += position.anchor.getBoundingClientRect().top - position.anchorTop;
     return;
   }
@@ -73,6 +75,7 @@ function restoreViewportPosition(position: ViewportPosition): void {
     const delta = position.tracked.getBoundingClientRect().height - position.trackedHeight;
     const maxScrollTop = Math.max(0, position.container.scrollHeight - position.container.clientHeight);
     const targetScrollTop = Math.min(maxScrollTop, Math.max(0, position.scrollTop + delta));
+    markProgrammaticScroll();
     position.container.scrollTop = targetScrollTop;
   }
 }
@@ -82,7 +85,7 @@ export function VirtualTranscript({
   messages,
   scrollRef,
   isStreaming,
-  threadKey = "default",
+  sessionKey = "default",
   activity,
   activityAfterMessageId,
   activities = [],
@@ -110,19 +113,27 @@ export function VirtualTranscript({
     ? pendingActivities.filter((entry) => entry.id === "turn-activity")
     : [];
 
-  const [expandedState, setExpandedState] = useState<{ threadKey: string; ids: ReadonlySet<string> }>(() => ({ threadKey, ids: new Set() }));
-  const expandedMessageIds = expandedState.threadKey === threadKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
+  const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
+  const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
   const messageIndexes = useRef(new Map<string, number>());
   messageIndexes.current = new Map(messages.map((message, index) => [message.id, index]));
   const scrollRefValue = useRef(scrollRef);
   scrollRefValue.current = scrollRef;
-  const threadKeyValue = useRef(threadKey);
-  threadKeyValue.current = threadKey;
+  const sessionKeyValue = useRef(sessionKey);
+  sessionKeyValue.current = sessionKey;
   const nextToggleToken = useRef(0);
   const pendingToggle = useRef<PendingToggle | undefined>(undefined);
   const targetObserver = useRef<ResizeObserver | undefined>(undefined);
   const pendingInteractionCleanup = useRef<(() => void) | undefined>(undefined);
   const restoreFrames = useRef<[number, number?] | undefined>(undefined);
+  const programmaticScrollToken = useRef(0);
+
+  const markProgrammaticScroll = () => {
+    const token = ++programmaticScrollToken.current;
+    window.setTimeout(() => {
+      if (programmaticScrollToken.current === token) programmaticScrollToken.current = 0;
+    }, 0);
+  };
 
   const cancelRestore = () => {
     if (!restoreFrames.current) return;
@@ -147,8 +158,11 @@ export function VirtualTranscript({
       const second = window.requestAnimationFrame(() => {
         restoreFrames.current = undefined;
         if (pendingToggle.current?.token !== toggle.token) return;
+        restoreViewportPosition(toggle.position, markProgrammaticScroll);
+        // Keep the pending record alive through the actual scrollTop write so
+        // a synchronous browser scroll event can consume the short
+        // programmatic-write token. Then clear it deterministically.
         clearPendingToggle(toggle.token);
-        restoreViewportPosition(toggle.position);
       });
       restoreFrames.current = [first, second];
     });
@@ -162,15 +176,16 @@ export function VirtualTranscript({
   }, []);
 
   useLayoutEffect(() => {
-    if (expandedState.threadKey === threadKey) return;
+    if (expandedState.sessionKey === sessionKey) return;
     cancelRestore();
     if (pendingToggle.current) clearPendingToggle(pendingToggle.current.token);
-    setExpandedState({ threadKey, ids: new Set() });
-  }, [expandedState.threadKey, threadKey]);
+    setExpandedState({ sessionKey, ids: new Set() });
+  }, [expandedState.sessionKey, sessionKey]);
 
   const onMessageToggleExpanded = useCallback((messageId: string, expanded: boolean) => {
     const token = ++nextToggleToken.current;
     const container = scrollRefValue.current.current;
+    programmaticScrollToken.current = 0;
     cancelRestore();
     const previous = pendingToggle.current;
     if (previous) clearPendingToggle(previous.token);
@@ -186,7 +201,21 @@ export function VirtualTranscript({
       const cancelForUserMovement = (event: Event) => {
         const pending = pendingToggle.current;
         if (!pending) return;
-        if (event.type === "scroll" && pending.position.scrollHeight !== container.scrollHeight) return;
+        if (event.type === "scroll") {
+          if (programmaticScrollToken.current > 0) {
+            programmaticScrollToken.current = 0;
+            return;
+          }
+          if (pending.position.scrollHeight !== container.scrollHeight) {
+            // A shrinking scroll range can emit a browser-generated scroll
+            // event before ResizeObserver delivers the row measurement. Only
+            // accept that exact clamp; every other scrollTop change is user
+            // intent and must cancel the delayed restore.
+            const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+            const naturalClamp = Math.min(pending.position.scrollTop, maxScrollTop);
+            if (container.scrollTop === naturalClamp) return;
+          }
+        }
         if (event.type === "keydown" && !USER_SCROLL_KEYS.has((event as KeyboardEvent).key)) return;
         cancelRestore();
         clearPendingToggle(pending.token);
@@ -211,10 +240,15 @@ export function VirtualTranscript({
       };
     }
     setExpandedState((current) => {
-      const next = new Set(current.threadKey === threadKeyValue.current ? current.ids : EMPTY_MESSAGE_IDS);
-      if (expanded) next.add(messageId);
-      else next.delete(messageId);
-      return { threadKey: threadKeyValue.current, ids: next };
+      const next = new Set(current.sessionKey === sessionKeyValue.current ? current.ids : EMPTY_MESSAGE_IDS);
+      if (expanded) {
+        // Re-inserting makes this a small LRU: frequently used expanded rows
+        // stay available while abandoned IDs cannot grow without bound.
+        next.delete(messageId);
+        next.add(messageId);
+      } else next.delete(messageId);
+      while (next.size > MAX_EXPANDED_MESSAGE_IDS) next.delete(next.values().next().value!);
+      return { sessionKey: sessionKeyValue.current, ids: next };
     });
   }, []);
 

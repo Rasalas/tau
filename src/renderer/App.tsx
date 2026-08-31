@@ -1781,7 +1781,7 @@ export default function App() {
                     messages={conversationMessages}
                     scrollRef={transcriptRef}
                     isStreaming={Boolean(conversationSnapshot?.isStreaming)}
-                    threadKey={conversationSnapshot?.sessionId}
+                    sessionKey={conversationSnapshot?.sessionId}
                     activity={conversationActivityTools.length > 0 ? (
                       <ToolGroup
                         tools={conversationActivityTools}
