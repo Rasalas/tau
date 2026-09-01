@@ -1323,6 +1323,58 @@ describe("App render isolation", () => {
     await waitFor(() => expect(screen.queryByText("bridge prompt")).toBeNull());
   });
 
+  it.each(["before", "after"] as const)("restores a detached new-thread draft when failure arrives %s the IPC response", async (order) => {
+    localStorage.clear();
+    let resolveNewSession!: (result: { version: 1; updates: never[]; submission: { accepted: true } }) => void;
+    let newSessionArgs: unknown[] | undefined;
+    const newSession = vi.fn((...args: unknown[]) => {
+      newSessionArgs = args;
+      return new Promise<{ version: 1; updates: never[]; submission: { accepted: true } }>((resolve) => {
+        resolveNewSession = resolve;
+      });
+    });
+    let publish: ((event: HostEvent) => void) | undefined;
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 2 }, { path: "/other", name: "other", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/other", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(dialog).getByRole("option", { name: /other/u }));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "restore this prompt" } });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalled());
+    const identity = newSessionArgs?.[3] as { clientMessageId: string } | undefined;
+    if (!identity) throw new Error("newSession did not receive client identity");
+    const failure: HostEvent = { type: "user-message-failed", sessionId: "new-session", clientMessageId: identity.clientMessageId, message: "prompt failed" };
+    if (order === "before") publish?.(failure);
+    resolveNewSession({ version: 1, updates: [], submission: { accepted: true } });
+    if (order === "after") {
+      await waitFor(() => expect(composer.value).toBe("") );
+      publish?.(failure);
+    }
+    await waitFor(() => expect(composer.value).toBe("restore this prompt"));
+    expect(screen.getAllByText("prompt failed").length).toBeGreaterThan(0);
+  });
+
   it("copies the host-resolved skill instruction instead of injected content", async () => {
     const copyText = vi.fn(async () => undefined);
     window.tau = {

@@ -30,7 +30,7 @@ import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
-import { ComposerScopeStore, createDraftKey, type DraftKey } from "./composer-scope-store";
+import { allocateAttachmentId, ComposerScopeStore, createDraftKey, type ComposerScopeReference, type DraftKey, type PendingAttachment } from "./composer-scope-store";
 import { errorMessage } from "./error-message";
 import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
 import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
@@ -335,6 +335,13 @@ interface NewThreadSubmissionCompletion {
   scope: DraftKey | undefined;
   requestId: NewThreadRequestId;
   result?: HostActionResult;
+}
+
+interface NewThreadSubmissionRecovery {
+  scopeRef: ComposerScopeReference;
+  draft: string;
+  attachments: PendingAttachment[];
+  failed?: string;
 }
 
 function LiveStatus({ startedAt, label = "Pi is working" }: { startedAt?: number; label?: string }) {
@@ -650,10 +657,6 @@ export default function App() {
   const [editors, setEditors] = useState<UiEditor[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
-  const newThreadWorktreePaths = useMemo(
-    () => new Set(workspace?.worktrees.filter((worktree) => !worktree.isMain).map((worktree) => worktree.path) ?? []),
-    [workspace?.worktrees],
-  );
   const [queue, setQueue] = useState<string[]>([]);
   const [checkpointStatus, setCheckpointStatus] = useState<CheckpointStatus>();
   const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
@@ -686,6 +689,17 @@ export default function App() {
   } = newThreadController;
   const pendingNewThreadRef = useRef(pendingNewThread);
   pendingNewThreadRef.current = pendingNewThread;
+  const newThreadWorktreePaths = useMemo(
+    () => new Set(!workspaceBusy && (!pendingNewThread || workspace?.root === pendingNewThread.projectPath)
+      ? workspace?.worktrees.filter((worktree) => !worktree.isMain).map((worktree) => worktree.path) ?? []
+      : []),
+    [pendingNewThread, workspace?.root, workspace?.worktrees, workspaceBusy],
+  );
+  const allowWorkspaceMutation = useCallback((what: string): boolean => {
+    if (!pendingNewThreadRef.current) return true;
+    setNotice(`${what} is unavailable until this draft becomes a thread.`);
+    return false;
+  }, []);
   const [transcriptTurnStart, setTranscriptTurnStartState] = useState<TranscriptTurnStart>();
   const [settingsPage, setSettingsPage] = useState<string>();
   const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
@@ -711,6 +725,7 @@ export default function App() {
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
+  const newThreadRecoveryRef = useRef(new Map<string, NewThreadSubmissionRecovery>());
   const [notice, setNotice] = useState<string>();
   const [dockOpen, setDockOpen] = useState(true);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -739,6 +754,22 @@ export default function App() {
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
+  const restoreNewThreadSubmission = useCallback((recovery: NewThreadSubmissionRecovery) => {
+    const scope = recovery.scopeRef.scope;
+    const current = composerScopeStore.getSnapshot(scope);
+    // Do not overwrite edits made while the runtime was starting. Restoration
+    // only fills the fields that the accepted call had cleared.
+    if (!current.draft && recovery.draft) composerScopeStore.setDraft(scope, recovery.draft);
+    if (current.attachments.length === 0 && recovery.attachments.length > 0) {
+      composerScopeStore.setAttachments(scope, recovery.attachments);
+    }
+  }, [composerScopeStore]);
+  const releaseNewThreadRecovery = useCallback((clientMessageId: string) => {
+    const recovery = newThreadRecoveryRef.current.get(clientMessageId);
+    if (!recovery) return;
+    newThreadRecoveryRef.current.delete(clientMessageId);
+    composerScopeStore.releaseScopeReference(recovery.scopeRef);
+  }, [composerScopeStore]);
   const transcriptScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
   const transcriptScope = useMemo(
     () => transcriptNavigationScope(snapshot, pendingNewThread),
@@ -1056,6 +1087,7 @@ export default function App() {
     const request = ++workspaceRequestRef.current;
     const pendingPath = pendingNewThreadRef.current?.projectPath;
     const cwd = pendingPath ?? activeWorkspaceRef.current;
+    setWorkspaceBusy(true);
     try {
       const next = pendingPath
         ? await window.tau.getWorkspaceInfo(cwd)
@@ -1064,6 +1096,8 @@ export default function App() {
       if (request === workspaceRequestRef.current && cwd === currentCwd) setWorkspace(next);
     } catch (error) {
       if (request === workspaceRequestRef.current) setNotice(errorMessage(error));
+    } finally {
+      if (request === workspaceRequestRef.current) setWorkspaceBusy(false);
     }
   }, []);
 
@@ -1079,6 +1113,13 @@ export default function App() {
     // after reconnecting, so compare its stable content before changing the
     // user's explicit settled choice.
     if (event.type === "user-message") {
+      const clientMessageId = event.message.clientMessageId;
+      // A persisted user message is the positive acknowledgement for a
+      // detached new-thread prompt. It may arrive before newSession's IPC
+      // response, so consume the recovery record independently of that order.
+      if (clientMessageId && newThreadRecoveryRef.current.has(clientMessageId)) {
+        releaseNewThreadRecovery(clientMessageId);
+      }
       const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
       const known = active
         ? messagesRef.current
@@ -1093,7 +1134,13 @@ export default function App() {
       // later failure still reconciles by the same request id, even if the
       // user switched threads in the meantime.
       setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
-      if (event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
+      const recovery = newThreadRecoveryRef.current.get(event.clientMessageId);
+      if (recovery) {
+        recovery.failed = event.message;
+        restoreNewThreadSubmission(recovery);
+      }
+      if (event.sessionId === threadStore.getSnapshot().activeThreadId
+        || recovery?.scopeRef.scope === activeDraftKey) setNotice(event.message);
       return;
     }
     // Every thread streams from its own runtime. Transcript and tool events for a
@@ -1351,7 +1398,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, replaceTranscriptMessages, threadStore, updateTranscriptMessages]);
+  }, [activeDraftKey, addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, releaseNewThreadRecovery, replaceTranscriptMessages, restoreNewThreadSubmission, threadStore, updateTranscriptMessages]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -1618,6 +1665,7 @@ export default function App() {
   }, [acceptWorkspace, requireHost, restoreRequest, snapshot?.sessionId, visibleStreaming]);
 
   const chooseWorkspace = useCallback(async (): Promise<boolean> => {
+    if (!allowWorkspaceMutation("Project selection")) return false;
     if (!requireHost("Project selection")) return false;
     try {
       const next = await window.tau!.chooseWorkspace();
@@ -1628,9 +1676,10 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [acceptWorkspace, requireHost]);
+  }, [acceptWorkspace, allowWorkspaceMutation, requireHost]);
 
   const openWorkspace = useCallback(async (path: string): Promise<boolean> => {
+    if (!allowWorkspaceMutation("Project switching")) return false;
     if (path === snapshot?.cwd) return true;
     if (!requireHost("Project switching")) return false;
     try {
@@ -1640,7 +1689,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [acceptWorkspace, requireHost, snapshot?.cwd]);
+  }, [acceptWorkspace, allowWorkspaceMutation, requireHost, snapshot?.cwd]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
@@ -1652,6 +1701,10 @@ export default function App() {
   }, [applyActionResult, requireHost]);
 
   const createThreadInProject = useCallback((project: UiProject) => {
+    if (pendingNewThread && activeDraftKey && composerScopeStore.getSnapshot(activeDraftKey).submissionPending) {
+      setNotice("Wait for the current message to be accepted before changing projects.");
+      return;
+    }
     const nextDraft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
     const destinationScope = draftKey(undefined, nextDraft);
     const sourceSnapshot = pendingNewThread && activeDraftKey
@@ -1678,6 +1731,7 @@ export default function App() {
   }, [chooseWorkspace]);
 
   const cloneWorkspace = useCallback(async (repositoryUrl: string): Promise<boolean> => {
+    if (!allowWorkspaceMutation("Git clone")) return false;
     if (!requireHost("Git clone")) return false;
     try {
       const next = await window.tau!.cloneProject(repositoryUrl);
@@ -1688,7 +1742,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [acceptWorkspace, requireHost]);
+  }, [acceptWorkspace, allowWorkspaceMutation, requireHost]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
@@ -1814,6 +1868,7 @@ export default function App() {
   }, [editors, requireHost, settings.editorId]);
 
   const commit = useCallback(async (message: string, push: boolean) => {
+    if (!allowWorkspaceMutation("Committing")) return;
     if (!requireHost("Committing")) return;
     setCommitting(true);
     try {
@@ -1827,33 +1882,38 @@ export default function App() {
     } finally {
       setCommitting(false);
     }
-  }, [addEvent, refreshWorkspace, requireHost]);
+  }, [addEvent, allowWorkspaceMutation, refreshWorkspace, requireHost]);
 
   const stageFile = useCallback(async (path: string) => {
+    if (!allowWorkspaceMutation("Staging changes")) return;
     if (!requireHost("Staging changes")) return;
     try { setChanges(await window.tau!.stageFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [requireHost]);
+  }, [allowWorkspaceMutation, requireHost]);
 
   const unstageFile = useCallback(async (path: string) => {
+    if (!allowWorkspaceMutation("Unstaging changes")) return;
     if (!requireHost("Unstaging changes")) return;
     try { setChanges(await window.tau!.unstageFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [requireHost]);
+  }, [allowWorkspaceMutation, requireHost]);
 
   const stageAll = useCallback(async () => {
+    if (!allowWorkspaceMutation("Staging changes")) return;
     if (!requireHost("Staging changes")) return;
     try { setChanges(await window.tau!.stageAll()); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [requireHost]);
+  }, [allowWorkspaceMutation, requireHost]);
 
   const revertFile = useCallback(async (path: string) => {
+    if (!allowWorkspaceMutation("Reverting changes")) return;
     if (!requireHost("Reverting changes")) return;
     try { setChanges(await window.tau!.revertFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [requireHost]);
+  }, [allowWorkspaceMutation, requireHost]);
 
   const pushWorkspace = useCallback(async () => {
+    if (!allowWorkspaceMutation("Pushing")) return;
     if (!requireHost("Pushing")) return;
     setCommitting(true);
     try {
@@ -1866,9 +1926,10 @@ export default function App() {
     } finally {
       setCommitting(false);
     }
-  }, [addEvent, refreshChanges, refreshWorkspace, requireHost]);
+  }, [addEvent, allowWorkspaceMutation, refreshChanges, refreshWorkspace, requireHost]);
 
   const runShellAction = useCallback(async (command: string, includeInContext: boolean, name: string) => {
+    if (!allowWorkspaceMutation("Project actions")) return;
     if (!requireHost("Project actions")) return;
     try {
       setNotice(`Running ${name}…`);
@@ -1879,9 +1940,10 @@ export default function App() {
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, [refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
+  }, [allowWorkspaceMutation, refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
 
   const runWorkspaceAction = useCallback(async (action: () => Promise<HostActionResult>): Promise<boolean> => {
+    if (!allowWorkspaceMutation("Worktree actions")) return false;
     if (!requireHost("Worktrees")) return false;
     setWorkspaceBusy(true);
     try {
@@ -1899,7 +1961,7 @@ export default function App() {
     } finally {
       setWorkspaceBusy(false);
     }
-  }, [acceptWorkspace, composerScopeStore, requireHost]);
+  }, [acceptWorkspace, allowWorkspaceMutation, composerScopeStore, requireHost]);
 
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -2185,9 +2247,11 @@ export default function App() {
       images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       timestamp: submittedAt,
     };
+    const newThreadRequestId = newThreadRequestRef.current;
     const clientTurn: ClientTurnIdentity = {
       clientTurnId: logicalTurnId,
       clientMessageId,
+      ...(newThreadRequestId ? { newThreadRequestId } : {}),
     };
     const submissionScopeKey = transcriptScopeKey;
     const submissionScope = transcriptNavigationScope(snapshot, pendingNewThread);
@@ -2228,7 +2292,6 @@ export default function App() {
       setTranscriptTurnStart(undefined, logicalTurnId);
     };
     const submittedDraftKey = activeDraftKey;
-    const newThreadRequestId = newThreadRequestRef.current;
     const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
@@ -2273,17 +2336,41 @@ export default function App() {
     if (pendingNewThread) {
       const pending = pendingNewThread;
       const pendingKey = draftKey(undefined, pending);
+      const recovery: NewThreadSubmissionRecovery | undefined = submittedDraftKey
+        ? {
+          scopeRef: composerScopeStore.createScopeReference(submittedDraftKey),
+          draft: text,
+          attachments: attachments.map((attachment) => ({
+            ...attachment,
+            id: allocateAttachmentId(),
+            previewUrl: `data:${attachment.mimeType};base64,${attachment.data}`,
+          })),
+        }
+        : undefined;
+      if (recovery) newThreadRecoveryRef.current.set(clientMessageId, recovery);
       startTranscriptTurn(pending.sessionId, false, true);
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
           await window.tau.sendPrompt(text, attachments, pending.sessionId, clientTurn, prepared);
+          if (recovery?.failed) {
+            releaseNewThreadRecovery(clientMessageId);
+            return { accepted: false, message: recovery.failed };
+          }
           completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId });
+          releaseNewThreadRecovery(clientMessageId);
           return { accepted: true };
         }
         const result = await window.tau.newSession(text, attachments, pending.projectPath, clientTurn, prepared);
-        if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) return result.submission;
+        if (recovery?.failed) {
+          releaseNewThreadRecovery(clientMessageId);
+          return { accepted: false, message: recovery.failed };
+        }
+        if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) {
+          releaseNewThreadRecovery(clientMessageId);
+          return result.submission;
+        }
         const created = result.updates.find((update) => update.type === "thread-detail");
         if (result.submission.accepted
           && created?.type !== "thread-detail"
@@ -2301,6 +2388,7 @@ export default function App() {
             }
           }
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+          releaseNewThreadRecovery(clientMessageId);
           return result.submission;
         }
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
@@ -2338,6 +2426,7 @@ export default function App() {
             setTranscriptTurnStart(nextTurnStart, logicalTurnId);
           }
           completeNewThreadSubmission({ pending, sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId, result });
+          releaseNewThreadRecovery(clientMessageId);
           return { accepted: true };
         } else {
           // Pi's own TUI creates the thread and reports it later; the draft
@@ -2345,6 +2434,7 @@ export default function App() {
           return { accepted: true };
         }
       } catch (error) {
+        releaseNewThreadRecovery(clientMessageId);
         const currentSubmission = isCurrentSubmission();
         cancelTranscriptTurn();
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));

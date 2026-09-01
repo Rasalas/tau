@@ -1631,11 +1631,11 @@ export class PiHost {
     ], { accepted: true }, requestId);
   }
 
-  private lifecycleUpdates(snapshot: HostSnapshot): HostUpdate[] {
+  private lifecycleUpdates(snapshot: HostSnapshot, requestId?: NewThreadRequestId): HostUpdate[] {
     const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
     return [
       ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
-      { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) },
+      { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
       { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
       { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
     ];
@@ -1645,6 +1645,27 @@ export class PiHost {
     const snapshot = await this.snapshot();
     if (activationEpoch !== undefined && !this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     return this.actionResult(this.lifecycleUpdates(snapshot));
+  }
+
+  /**
+   * Publish the initial snapshot after a new-thread request has been accepted.
+   * Model/catalog discovery can share a serialized backend lane with the first
+   * prompt, so it must never be part of the renderer's acceptance round trip.
+   */
+  private async publishNewSessionUpdates(activationEpoch: number, requestId: NewThreadRequestId | undefined, sessionId: string): Promise<void> {
+    try {
+      const active = await this.activeUpdates(activationEpoch);
+      if (!this.isCurrentActivation(activationEpoch)) return;
+      for (const update of active.updates) {
+        if (requestId && update.type === "thread-detail") {
+          this.emitUpdate({ ...update, detail: { ...update.detail, requestId } });
+        } else {
+          this.emitUpdate(update);
+        }
+      }
+    } catch (error) {
+      this.fail(error, sessionId);
+    }
   }
 
   async setWorkspace(cwd: string): Promise<HostActionResult> {
@@ -1803,8 +1824,10 @@ export class PiHost {
     const requestValue = typeof clientMessageIdOrRequestId === "string" ? clientMessageIdOrRequestId : undefined;
     const requestId = requestValue?.startsWith("new-thread-")
       ? requestValue as NewThreadRequestId
-      : undefined;
-    const identity = requestId ? undefined : clientIdentityForRequest(clientMessageIdOrRequestId);
+      : typeof clientMessageIdOrRequestId === "object"
+        ? clientMessageIdOrRequestId.newThreadRequestId
+        : undefined;
+    const identity = clientIdentityForRequest(clientMessageIdOrRequestId);
     const clientMessageId = identity?.clientMessageId;
     const backendKind = prepared?.backendKind ?? this.defaultBackendKind;
     if (prepared && backendKind !== "pi" && backendKind !== "claude-code") {
@@ -1969,12 +1992,11 @@ export class PiHost {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
-      const active = await this.activeUpdates(activationEpoch);
+      void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
-        // Capture the initial shell/catalog before starting the detached prompt.
-        // AgentSession may serialize catalog reads with a running prompt; doing
-        // this in the opposite order would keep newSession pending until the
-        // first agent run settles and leave the renderer's composer busy.
+        // Delivery is intentionally detached from acceptance. AgentSession may
+        // keep its prompt pending while the renderer has already settled the
+        // submission, and a later correlated failure event reconciles it.
         void (async () => {
           try {
             const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
@@ -2000,7 +2022,7 @@ export class PiHost {
           }
         })();
       }
-      return { ...active, submission: { accepted: true }, ...(requestId ? { requestId } : {}) };
+      return this.newThreadResult([], { accepted: true }, requestId);
     });
   }
 
@@ -3331,7 +3353,24 @@ export class PiHost {
   }
 
   async getWorkspaceInfo(cwd = this.cwd): Promise<WorkspaceInfo> {
-    return this.gitCoordinator.getWorkspaceInfo(cwd);
+    const canonicalCwd = await this.knownWorkspacePath(cwd);
+    return this.gitCoordinator.getWorkspaceInfo(canonicalCwd);
+  }
+
+  /** Workspace metadata is only exposed for projects already admitted by the host. */
+  private async knownWorkspacePath(cwd: string): Promise<string> {
+    const requested = await realpath(cwd).catch(() => resolve(cwd));
+    const candidates = new Set<string>([
+      this.cwd,
+      ...this.projectHistory.list().map((project) => project.path),
+      ...this.sessions.map((session) => session.projectPath),
+      ...this.threads.list().map((thread) => thread.cwd),
+    ]);
+    for (const candidate of candidates) {
+      const canonical = await realpath(candidate).catch(() => resolve(candidate));
+      if (canonical === requested) return canonical;
+    }
+    throw new Error("Workspace is not a known Tau project.");
   }
 
   async push(): Promise<PushResult> {

@@ -45,6 +45,8 @@ export interface UiSkillInvocation {
 export interface ClientTurnIdentity {
   clientTurnId: string;
   clientMessageId: string;
+  /** Correlates a detached first prompt with its prepared new-thread draft. */
+  newThreadRequestId?: NewThreadRequestId;
 }
 
 export interface UiMessage {

@@ -48,6 +48,23 @@ describe("workspace restore recovery", () => {
   });
 });
 
+describe("workspace metadata scope", () => {
+  it("canonicalizes and rejects paths outside known projects", async () => {
+    const history = {
+      list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }],
+      isHidden: () => false,
+    };
+    const host = new PiHost("/known", () => undefined, history as never, false, false);
+    const internals = host as unknown as { gitCoordinator: { getWorkspaceInfo: (cwd: string) => Promise<unknown> } };
+    const read = vi.fn(async (cwd: string) => ({ root: cwd, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }));
+    internals.gitCoordinator.getWorkspaceInfo = read;
+
+    await host.getWorkspaceInfo("/known/../known");
+    expect(read).toHaveBeenCalledWith("/known");
+    await expect(host.getWorkspaceInfo("/not-a-project")).rejects.toThrow("known Tau project");
+  });
+});
+
 function piPromptThread(session: {
   model: { input?: readonly string[] };
   isStreaming: boolean;
@@ -545,14 +562,13 @@ describe("PiHost.generateThreadTitle", () => {
     internals.openThread = async () => thread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
-    let promptStarted = false;
     let releaseCatalog!: () => void;
     const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
     internals.ensureModels = async () => {
       // A real AgentSession can serialize catalog access with prompt delivery.
-      // This is the regression seam: newSession must not await this read after
-      // it has started its detached first prompt.
-      if (promptStarted) await catalog;
+      // This is the regression seam: acceptance must not await this read at
+      // all. The read is allowed to finish later and publish its update.
+      await catalog;
       return [];
     };
     internals.activeUpdates = async () => {
@@ -562,7 +578,6 @@ describe("PiHost.generateThreadTitle", () => {
     let releasePrompt!: () => void;
     const prompt = new Promise<void>((resolve) => { releasePrompt = resolve; });
     internals.prompt = vi.fn(async () => {
-      promptStarted = true;
       await prompt;
     });
 
