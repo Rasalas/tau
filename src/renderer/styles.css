@@ -1941,18 +1941,26 @@ button > svg { pointer-events: none; }
   color: var(--removed); font: 10px/1.4 var(--mono);
 }
 .review-scope-popover > span { flex: 1; }
-.review-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
-.review-list { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--chrome); }
+.review-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.review-list { position: relative; min-width: 200px; max-width: 480px; min-height: 0; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--chrome); }
 .review-list > header, .review-stage > header {
   height: 46px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line);
 }
 .review-list > header h2 { margin: 0; font-size: 12px; }
 .review-list > header small { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font: 9.5px var(--mono); white-space: nowrap; }
 .review-list > header .spacer, .review-stage > header .spacer { flex: 1; }
+.review-filter {
+  height: 34px; flex: none; display: flex; align-items: center; gap: 7px; margin: 7px 8px 2px; padding: 0 9px;
+  border: 1px solid var(--line-control); border-radius: 7px; background: var(--sunken); color: var(--faint);
+}
+.review-filter:focus-within { border-color: var(--line-float); color: var(--muted); }
+.review-filter input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink-2); font: 11px var(--sans); }
+.review-filter input::placeholder { color: var(--fainter); }
+.review-filter > button { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; }
 .review-progress { flex: none; display: flex; align-items: center; gap: 9px; padding: 7px 12px 2px; color: var(--faint); font: 9.5px var(--mono); }
 .review-progress > i { height: 3px; flex: 1; overflow: hidden; border-radius: 2px; background: var(--line); }
 .review-progress > i > b { display: block; height: 100%; background: var(--acid); }
-.review-list .review-files { min-height: 0; }
+.review-list .review-files { min-height: 0; overflow: hidden; padding: 5px 6px 6px; }
 .review-list .review-files-virtual { flex: 1; }
 .review-file { padding: 0; gap: 2px; }
 .review-file-select { min-width: 0; flex: 1; align-self: stretch; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
@@ -1968,14 +1976,40 @@ button > svg { pointer-events: none; }
 .commit-proposal { flex: none; margin: 8px 2px 2px; padding: 10px; border-top: 1px solid var(--line); color: var(--faint); font: 10px/1.5 var(--mono); }
 .commit-proposal em { color: var(--ink-3); font-style: normal; }
 .commit-proposal textarea { width: 100%; min-height: 54px; resize: vertical; margin-top: 5px; border: 1px solid var(--line-control); border-radius: 6px; background: var(--sunken); color: var(--ink); padding: 7px; font: 11px var(--sans); }
-.review-stage { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
+.review-sidebar-resizer { position: absolute; z-index: 20; top: 0; right: -4px; bottom: 0; width: 8px; cursor: col-resize; }
+.review-sidebar-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; }
+.review-sidebar-resizer:hover::after, body.review-resizing .review-sidebar-resizer::after { background: var(--line-float); }
+body.review-resizing { cursor: col-resize; user-select: none; }
+.review-stage { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; background: var(--stage); }
 .review-stage > header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); font-weight: 400; }
 .review-stage > header .text-button { display: inline-flex; align-items: center; gap: 4px; }
+.review-toolbar { padding: 0 8px !important; gap: 6px !important; }
+.review-sidebar-toggle { width: 30px; height: 28px; flex: none; }
+.review-sidebar-toggle.active { background: var(--raised); color: var(--ink); }
+.review-collapsed-meta { min-width: 0; display: flex; align-items: center; gap: 7px; padding-right: 4px; }
+.review-collapsed-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 11px; }
+.review-collapsed-meta small { flex: none; color: var(--fainter); font: 9px var(--mono); text-transform: uppercase; }
+.review-file-navigation { display: flex; align-items: center; }
+.review-file-navigation .icon-button { width: 29px; height: 28px; border-radius: 5px; }
+.review-file-navigation .icon-button:disabled { opacity: .35; cursor: default; }
+.review-toolbar .toggle-group > button { padding: 4px 8px; font-size: 10px; }
+.review-file-header {
+  height: 40px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 14px;
+  border-bottom: 1px solid var(--line); background: var(--stage);
+}
+.review-file-header > svg { flex: none; }
+.review-file-header > strong { flex: none; color: var(--ink); font: 500 12px var(--mono); white-space: nowrap; }
+.review-file-header > span:not(.spacer, .stat-add, .stat-del, .review-file-status) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 11px var(--mono); }
+.review-file-header > .spacer { flex: 1; }
+.review-file-status { width: 16px; flex: none; color: var(--working); font: 600 10px var(--mono); text-align: center; }
+.review-file-status.added, .review-file-status.untracked { color: var(--ready); }
+.review-file-status.deleted { color: var(--removed); }
+.review-file-status.renamed { color: var(--acid); }
 .review-stage-content { flex: 1; min-height: 0; display: flex; }
 .review-diff { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .review-diff > .diff-scroll, .review-diff > .diff-empty { flex: 1; }
 .review-comment-composer {
-  position: absolute; z-index: 35; top: 42px; right: 12px; width: min(560px, calc(100% - 24px));
+  position: absolute; z-index: 35; top: 84px; right: 12px; width: min(560px, calc(100% - 24px));
   display: grid; grid-template-columns: minmax(110px, auto) minmax(180px, 1fr) auto auto; align-items: center; gap: 8px;
   padding: 10px; border: 1px solid var(--line-float); border-radius: 9px; background: var(--overlay); box-shadow: 0 16px 44px #000c;
 }
@@ -1994,7 +2028,16 @@ button > svg { pointer-events: none; }
 .diff-row:hover .diff-annotate, .diff-annotate.has-comments { display: flex; }
 .diff-annotate.has-comments { color: var(--acid); }
 .diff-annotate span { font: 8px var(--mono); }
-@media (max-width: 800px) { .review-body { grid-template-columns: 220px minmax(0, 1fr); } .review-scope { margin-left: 6px; } .review-notes { width: 260px; } }
+.diff-error { display: flex; flex-direction: column; gap: 5px; }
+.diff-error strong { color: var(--removed); font-size: 12px; }
+.diff-error span { color: var(--faint); }
+@media (max-width: 900px) {
+  .review-list { max-width: 42vw; }
+  .review-scope { margin-left: 6px; }
+  .review-notes { width: 260px; }
+  .review-toolbar > .review-comment-action, .review-toolbar > .review-editor-action { font-size: 0; gap: 0; }
+  .review-toolbar > .review-comment-action svg, .review-toolbar > .review-editor-action svg { width: 13px; height: 13px; }
+}
 
 .commit-box {
   flex: none; display: flex; flex-direction: column; gap: 8px;
@@ -2016,6 +2059,27 @@ button > svg { pointer-events: none; }
 .commit-box .commit-actions > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
 .review-files { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
 .review-files-virtual { min-height: 0; overflow: auto; }
+.review-tree { flex: 1; min-height: 0; overflow: auto; padding: 1px 0 7px; }
+.review-tree-group { display: contents; }
+.review-tree-directory {
+  width: 100%; height: 27px; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--muted); font: 10.5px var(--mono); cursor: pointer; text-align: left;
+}
+.review-tree-directory:hover { background: var(--raised); color: var(--ink-2); }
+.review-tree-directory > svg { flex: none; }
+.review-tree-directory > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-tree-directory > small { margin-left: auto; padding-right: 8px; color: var(--fainter); font: 9px var(--mono); }
+.review-tree-file { min-width: 0; height: 32px; display: flex; align-items: center; border-radius: 5px; color: var(--ink-3); }
+.review-tree-file:hover, .review-tree-file.active { background: var(--raised); }
+.review-tree-file.viewed { opacity: .55; }
+.review-tree-open { min-width: 0; flex: 1; align-self: stretch; display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.review-tree-open > svg { flex: none; color: var(--faint); }
+.review-tree-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font: 10.5px var(--mono); }
+.review-tree-open > i { width: 12px; flex: none; color: var(--working); font: 9px var(--mono); font-style: normal; text-align: center; }
+.review-tree-open .stat-add, .review-tree-open .stat-del { font-size: 8.5px; }
+.review-tree-viewed { width: 22px; height: 22px; flex: none; display: grid; place-items: center; margin: 0 5px 0 2px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: transparent; cursor: pointer; }
+.review-tree-file:hover .review-tree-viewed, .review-tree-viewed:focus-visible { color: var(--fainter); }
+.review-tree-file.viewed .review-tree-viewed { border-color: var(--acid-line); background: var(--acid-chip); color: var(--acid); }
 .changed-files-list { max-height: 360px; overflow: auto; }
 .changes-tree { flex: 1; min-height: 0; overflow: auto; padding: 6px; }
 .changes-tree-group { display: contents; }
@@ -2099,6 +2163,7 @@ button > svg { pointer-events: none; }
   font: 500 11px var(--sans); padding: 5px 10px; cursor: pointer; white-space: nowrap;
 }
 .toggle-group > button.active { background: var(--raised); color: var(--ink); }
+.toggle-group > button:disabled { opacity: .4; cursor: default; }
 .review-read-only { color: var(--muted); font: 500 11px var(--mono); }
 
 .diff-scroll { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; font: 12px/1.85 var(--mono); }
