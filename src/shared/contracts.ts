@@ -353,6 +353,8 @@ export interface DiffLoadOptions {
   /** Zero-based hunk page. The host still enforces its byte and line ceilings. */
   hunkOffset?: number;
   hunkLimit?: number;
+  /** Git context lines around each hunk. The host clamps this value. */
+  contextLines?: number;
   scope?: WorkspaceDiffScope;
   baseRef?: string;
   baseCommit?: string;

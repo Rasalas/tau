@@ -151,6 +151,29 @@ describe("large diff bounds", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("keeps context bounded by default and expands it only when requested", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-diff-context-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      const before = Array.from({ length: 30 }, (_, index) => `line ${index}`);
+      await writeFile(join(cwd, "context.txt"), `${before.join("\n")}\n`);
+      execFileSync("git", ["add", "context.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      const after = before.map((line, index) => index === 15 ? `${line} changed` : line);
+      await writeFile(join(cwd, "context.txt"), `${after.join("\n")}\n`);
+
+      const collapsed = await getFileDiff(cwd, "context.txt");
+      const expanded = await getFileDiff(cwd, "context.txt", { contextLines: 100_000 });
+      expect(collapsed.hunks[0]?.lines.length).toBeLessThan(expanded.hunks[0]?.lines.length ?? 0);
+      expect(expanded.hunks[0]?.lines.some((line) => line.text === "line 0")).toBe(true);
+      expect(expanded.hunks[0]?.lines.some((line) => line.text === "line 29")).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("immutable turn snapshots", () => {

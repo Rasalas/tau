@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiWorkspaceChanges } from "../../shared/contracts";
 import { ReviewMode } from "./ReviewMode";
 
@@ -24,6 +24,7 @@ const branch: UiWorkspaceChanges = {
 
 describe("ReviewMode", () => {
   beforeEach(() => localStorage.clear());
+  afterEach(() => cleanup());
 
   it("switches to branch changes and persists viewed files and line notes", async () => {
     const onSelect = vi.fn();
@@ -53,5 +54,51 @@ describe("ReviewMode", () => {
     await waitFor(() => expect(loadChanges).toHaveBeenCalledWith({ scope: "branch" }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("src/b.ts"));
     expect(await screen.findByText("from main")).toBeTruthy();
+  });
+
+  it("uses a filterable tree, cycles files, and expands context only on request", async () => {
+    const changes: UiWorkspaceChanges = {
+      branch: "feat/review",
+      files: [
+        { path: "src/a.ts", name: "a.ts", directory: "src", status: "modified", added: 1, removed: 0 },
+        { path: "src/nested/b.ts", name: "b.ts", directory: "src/nested", status: "added", added: 1, removed: 0 },
+      ],
+      fileCount: 2,
+      added: 2,
+      removed: 0,
+    };
+    const onSelect = vi.fn();
+    const loadDiff = vi.fn(async (path: string) => ({
+      path,
+      added: 1,
+      removed: 0,
+      hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added" as const, newLine: 1, text: "hello" }] }],
+    }));
+    render(<ReviewMode
+      changes={changes}
+      selectedPath="src/a.ts"
+      busy={false}
+      primaryPush={false}
+      onSelect={onSelect}
+      onBack={() => undefined}
+      onCommit={() => undefined}
+      onOpenInEditor={() => undefined}
+      loadDiff={loadDiff}
+    />);
+
+    await waitFor(() => expect(loadDiff).toHaveBeenCalledWith("src/a.ts", expect.objectContaining({ contextLines: 3 })));
+    fireEvent.click(screen.getByRole("button", { name: "All lines" }));
+    await waitFor(() => expect(loadDiff).toHaveBeenLastCalledWith("src/a.ts", expect.objectContaining({ contextLines: 100_000 })));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next changed file" }));
+    expect(onSelect).toHaveBeenCalledWith("src/nested/b.ts");
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter changed files" }), { target: { value: "nested" } });
+    expect(screen.getByTitle("src/nested/b.ts")).toBeTruthy();
+    expect(screen.queryByTitle("src/a.ts")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle file tree" }));
+    expect(screen.getByRole("button", { name: "Toggle file tree" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("searchbox", { name: "Filter changed files" })).toBeNull();
   });
 });

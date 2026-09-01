@@ -36,6 +36,16 @@ import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js"
 const execFileAsync = promisify(execFile);
 
 const EMPTY_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+const DEFAULT_DIFF_CONTEXT_LINES = 3;
+const MAX_DIFF_CONTEXT_LINES = 100_000;
+
+function diffContextArgument(options: DiffLoadOptions): string {
+  const requested = options.contextLines;
+  const contextLines = Number.isFinite(requested)
+    ? Math.min(MAX_DIFF_CONTEXT_LINES, Math.max(0, Math.floor(requested ?? DEFAULT_DIFF_CONTEXT_LINES)))
+    : DEFAULT_DIFF_CONTEXT_LINES;
+  return `-U${contextLines}`;
+}
 
 /**
  * Plain folders do not have Git objects to anchor a turn. Keep their bounded,
@@ -2112,11 +2122,12 @@ export async function getFileDiff(cwd: string, path: string, options: DiffLoadOp
     const branchBase = options.scope === "branch"
       ? options.baseCommit ? { ref: options.baseRef ?? options.baseCommit, mergeBase: options.baseCommit } : await resolveBranchBase(cwd, options.baseRef)
       : undefined;
-    let streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", "-U3", branchBase?.mergeBase ?? "HEAD", ...(branchBase ? ["HEAD"] : []), "--", path], options);
+    const context = diffContextArgument(options);
+    let streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", context, branchBase?.mergeBase ?? "HEAD", ...(branchBase ? ["HEAD"] : []), "--", path], options);
     if (!streamed.patch.trim()) {
       if (branchBase) return empty("No textual changes.");
       // Untracked files have no HEAD side; diff them against an empty tree.
-      streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", "-U3", "--no-index", "--", "/dev/null", path], options, true);
+      streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", context, "--no-index", "--", "/dev/null", path], options, true);
     }
     if (!streamed.patch.trim()) return empty("No textual changes.");
     if (/^Binary files /mu.test(streamed.patch)) return empty("Binary file — no line diff.");
@@ -2252,7 +2263,7 @@ export async function getSnapshotFileDiff(
     if (expected) await validateWorkspaceSnapshotRefs(cwd, beforeSnapshotId, afterSnapshotId, expected);
     const streamed = await streamFilePatch(
       cwd,
-      ["diff", "--no-ext-diff", "--find-renames", "-U3", beforeSnapshotId, afterSnapshotId, "--", path],
+      ["diff", "--no-ext-diff", "--find-renames", diffContextArgument(options), beforeSnapshotId, afterSnapshotId, "--", path],
       options,
     );
     if (!streamed.patch.trim()) return empty("No textual changes.");

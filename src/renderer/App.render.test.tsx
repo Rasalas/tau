@@ -955,7 +955,7 @@ describe("App render isolation", () => {
     expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
     expect(document.querySelector(".conversation-files-dock")).toBeNull();
     fireEvent.click(screen.getByText("Open diff"));
-    await waitFor(() => expect(getTurnFileDiff).toHaveBeenCalledWith("session", "turn-1", "src/old.ts", { hunkLimit: 40 }));
+    await waitFor(() => expect(getTurnFileDiff).toHaveBeenCalledWith("session", "turn-1", "src/old.ts", { hunkLimit: 40, contextLines: 3 }));
     expect(screen.getByText("Historical turn")).toBeTruthy();
   });
 
