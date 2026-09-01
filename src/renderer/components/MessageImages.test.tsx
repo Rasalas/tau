@@ -25,12 +25,20 @@ describe("message images", () => {
   });
 
   it("does not render an empty bubble for a persisted image-only message", () => {
-    const view = render(<Message message={{ id: "image-only", role: "user", text: "", images: [{ mimeType: "image/png", data: "iVBORw==" }], timestamp: 0 }} />);
+    const onCopy = vi.fn();
+    const onFork = vi.fn();
+    const message = { id: "image-only", role: "user" as const, text: "", sourceEntryId: "entry-image-only", images: [{ mimeType: "image/png", data: "iVBORw==" }], timestamp: 0 };
+    const view = render(<Message message={message} onCopy={onCopy} onFork={onFork} />);
 
     expect(screen.getByRole("img", { name: "Attached image" })).toBeTruthy();
-    expect(view.container.querySelector("article.message.user")).toBeNull();
+    expect(view.container.querySelector("article.message.user")).toBeTruthy();
     expect(view.container.querySelector(".message-text")).toBeNull();
     expect(screen.queryByText("Image attached")).toBeNull();
+    expect(screen.getByLabelText(/^Sent /u)).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Copy message"));
+    fireEvent.click(screen.getByTitle("Fork through this message"));
+    expect(onCopy).toHaveBeenCalledWith(message);
+    expect(onFork).toHaveBeenCalledWith(message);
   });
 
   it("does not render an empty bubble for a local-path-only message", async () => {
@@ -40,9 +48,9 @@ describe("message images", () => {
     const view = render(<Message message={{ id: "local-image-only", role: "user", text: "/tmp/preview.png", timestamp: 0 }} />);
 
     expect(screen.queryByText("Image attached")).toBeNull();
-    expect(view.container.querySelector("article.message.user")).toBeNull();
+    expect(view.container.querySelector("article.message.user")).toBeTruthy();
     await screen.findByRole("img", { name: "preview.png" });
-    expect(view.container.querySelector("article.message.user")).toBeNull();
+    expect(view.container.querySelector("article.message.user")).toBeTruthy();
     expect(view.container.querySelector(".message-text")).toBeNull();
   });
 

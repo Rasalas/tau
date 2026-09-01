@@ -56,8 +56,8 @@ export function UserMessage({
     <div className="message-shell user">
       <PersistedMessageImages images={persistedImages} />
       {hasLocalImages ? <MessageImages text={message.text} /> : null}
-      {hasMessageContent ? (
-        <article className="message user">
+      <article className="message user">
+        {hasMessageContent ? (
           <div className="message-text">
             <div
               id={contentId}
@@ -72,32 +72,32 @@ export function UserMessage({
                 : null}
             </div>
           </div>
-          {long ? (
-            <button
-              className="message-expand"
-              type="button"
-              aria-controls={contentId}
-              aria-expanded={expanded}
-              onClick={toggleExpanded}
-            >
-              {expanded ? "Show less" : "Show more"}
-            </button>
-          ) : null}
-          <div className="message-user-meta">
-            <time
-              dateTime={new Date(message.timestamp).toISOString()}
-              title={fullTimestamp(message.timestamp)}
-              aria-label={`Sent ${fullTimestamp(message.timestamp)}`}
-            >
-              {compactTimestamp(message.timestamp)}
-            </time>
-            {onCopy ? <MessageActions
-              onCopy={() => onCopy(copyableMessage(message))}
-              onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
-            /> : null}
-          </div>
-        </article>
-      ) : null}
+        ) : null}
+        {long ? (
+          <button
+            className="message-expand"
+            type="button"
+            aria-controls={contentId}
+            aria-expanded={expanded}
+            onClick={toggleExpanded}
+          >
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        ) : null}
+        <div className="message-user-meta">
+          <time
+            dateTime={new Date(message.timestamp).toISOString()}
+            title={fullTimestamp(message.timestamp)}
+            aria-label={`Sent ${fullTimestamp(message.timestamp)}`}
+          >
+            {compactTimestamp(message.timestamp)}
+          </time>
+          {onCopy ? <MessageActions
+            onCopy={() => onCopy(copyableMessage(message))}
+            onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
+          /> : null}
+        </div>
+      </article>
     </div>
   );
 }

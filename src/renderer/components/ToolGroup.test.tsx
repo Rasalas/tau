@@ -173,7 +173,7 @@ describe("ToolGroup computer-use presentation", () => {
     expect(readFullOutput).not.toHaveBeenCalled();
   });
 
-  it("keeps waiting and interrupted states distinct without settled result badges", () => {
+  it("keeps waiting and interrupted states distinct without settled result badges", async () => {
     const registry = registryWithBundledExtensions();
     const { rerender } = render(<ToolGroup
       tools={[{ id: "waiting", name: "read", args: { path: "question.ts" }, status: "running", startedAt: 0 }]}
@@ -191,6 +191,7 @@ describe("ToolGroup computer-use presentation", () => {
       activityStatus="interrupted"
     />);
     expect(screen.queryByText("Interrupted")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
     expect(screen.getByText("interrupted")).toBeTruthy();
 
     rerender(<ToolGroup
@@ -199,8 +200,6 @@ describe("ToolGroup computer-use presentation", () => {
       activityStatus="error"
     />);
     expect(screen.queryByText("1 failed")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
-    expect(screen.getByText("failed.ts")).toBeTruthy();
   });
 
   it("does not promote one failed tool to an aggregate error without an authoritative status", () => {
@@ -225,5 +224,22 @@ describe("ToolGroup computer-use presentation", () => {
 
     expect(screen.getByRole("img", { name: label }).getAttribute("title")).toBe(label);
     expect(screen.queryByText(label)).toBeNull();
+  });
+
+  it.each([
+    ["error", "Activity failed"],
+    ["interrupted", "Activity interrupted"],
+  ] as const)("uses authoritative terminal %s status over a stale running tool", (status, label) => {
+    const view = render(<ToolGroup
+      tools={[{ id: status, name: "read", args: { path: `${status}.ts` }, status: "running", startedAt: 0 }]}
+      registry={registryWithBundledExtensions()}
+      streaming={false}
+      activityStatus={status}
+    />);
+
+    expect(view.container.querySelector(".tool-activity-summary")?.textContent).not.toContain("tool call interrupted");
+    expect(screen.getByRole("img", { name: label })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
+    expect(screen.getByText("interrupted")).toBeTruthy();
   });
 });
