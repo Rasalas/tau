@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
@@ -58,6 +58,20 @@ function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const 
 afterEach(cleanup);
 
 describe("Composer command menu", () => {
+  it("grows and shrinks with multiline input", async () => {
+    renderComposer();
+    const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    let scrollHeight = 118;
+    Object.defineProperty(textarea, "scrollHeight", { configurable: true, get: () => scrollHeight });
+
+    fireEvent.change(textarea, { target: { value: "first\nsecond\nthird", selectionStart: 18 } });
+    await waitFor(() => expect(textarea.style.height).toBe("118px"));
+
+    scrollHeight = 46;
+    fireEvent.change(textarea, { target: { value: "short", selectionStart: 5 } });
+    await waitFor(() => expect(textarea.style.height).toBe("46px"));
+  });
+
   it("shows skills with the $ syntax and sends the user's shorthand unchanged", () => {
     const onSubmit = renderComposer();
     const textarea = screen.getByPlaceholderText(/\$ skills/u) as HTMLTextAreaElement;

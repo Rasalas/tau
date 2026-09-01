@@ -650,6 +650,10 @@ export default function App() {
   const [editors, setEditors] = useState<UiEditor[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>();
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const newThreadWorktreePaths = useMemo(
+    () => new Set(workspace?.worktrees.filter((worktree) => !worktree.isMain).map((worktree) => worktree.path) ?? []),
+    [workspace?.worktrees],
+  );
   const [queue, setQueue] = useState<string[]>([]);
   const [checkpointStatus, setCheckpointStatus] = useState<CheckpointStatus>();
   const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
@@ -2704,6 +2708,7 @@ export default function App() {
       <ProjectPicker
         open={newThreadOpen}
         projects={projects}
+        worktreePaths={newThreadWorktreePaths}
         onBrowse={() => void browseForNewThread()}
         onClose={() => setNewThreadOpen(false)}
         onRemove={removeProject}

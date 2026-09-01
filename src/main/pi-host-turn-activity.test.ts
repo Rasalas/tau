@@ -304,6 +304,25 @@ describe("PiHost deliberate tool-output reads", () => {
 });
 
 describe("PiHost.generateThreadTitle", () => {
+  it("silently skips automatic title generation until the first message exists", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const thread = makeActivationThread("session");
+    Object.assign(thread.backend, {
+      sessionName: () => undefined,
+      transcript: async () => [],
+    });
+    const internals = host as unknown as {
+      threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
+      sessions: Array<Record<string, unknown>>;
+    };
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    internals.threads.setActive("session");
+    internals.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 0 }];
+
+    await expect(host.generateThreadTitle("provider", "model", false, "session"))
+      .resolves.toEqual({ version: 1, updates: [] });
+  });
+
   it("waits for a new thread's active first run before generating its title", async () => {
     let streaming = true;
     let finishRun!: () => void;
@@ -476,6 +495,61 @@ describe("PiHost.generateThreadTitle", () => {
     await expect(queuedNewSession).resolves.toEqual({ version: 1, updates: [] });
     expect(prompts).toEqual([]);
     expect(internals.threads.active?.threadId).toBe("warm-live-thread");
+  });
+
+  it("does not accept a new-thread submission before prompt preflight settles", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    let acceptPrompt!: () => void;
+    const preflight = new Promise<void>((resolve) => { acceptPrompt = resolve; });
+    internals.prompt = vi.fn(async () => preflight);
+
+    let settled = false;
+    const creation = host.newSession("start the work", [], "/repo")
+      .finally(() => { settled = true; });
+    await vi.waitFor(() => expect(internals.prompt).toHaveBeenCalledWith(
+      "start the work",
+      [],
+      "new-thread",
+      undefined,
+      undefined,
+    ));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    acceptPrompt();
+    await expect(creation).resolves.toMatchObject({ submission: { accepted: true } });
+  });
+
+  it("reports a rejected new-thread preflight without accepting an interrupted turn", async () => {
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    const rejection = new Error("prompt preflight rejected");
+    internals.prompt = vi.fn(async () => { throw rejection; });
+
+    await expect(host.newSession("start the work", [], "/repo")).resolves.toMatchObject({
+      submission: { accepted: false, message: "prompt preflight rejected" },
+    });
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
   });
 });
 

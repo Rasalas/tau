@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft, WorkspaceInfo } from "../../shared/contracts";
 import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
@@ -29,6 +29,7 @@ type OpenMenu = "thinking" | "access" | undefined;
 
 /** Pi's out-of-the-box reasoning level; shown as the Default badge. */
 const DEFAULT_THINKING = "medium";
+const MAX_COMPOSER_HEIGHT = 220;
 
 /** Pi's level ids are identifiers; these are how they read in the menu. */
 const THINKING_LABELS: Record<string, string> = {
@@ -203,6 +204,18 @@ export function Composer({
   const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const text = value ?? activeScopeSnapshot.draft;
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const contentHeight = textarea.scrollHeight;
+    if (contentHeight <= 0) {
+      textarea.style.height = "";
+      return;
+    }
+    textarea.style.height = `${Math.min(contentHeight, MAX_COMPOSER_HEIGHT)}px`;
+    textarea.style.overflowY = contentHeight > MAX_COMPOSER_HEIGHT ? "auto" : "hidden";
+  }, [text, textareaRef]);
   const commands = snapshot?.composerCommands ?? [];
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
   const commandMatches = useMemo(() => {
