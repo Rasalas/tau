@@ -115,7 +115,7 @@ describe("ToolGroup computer-use presentation", () => {
       activityStatus="completed"
     />);
 
-    expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.queryByText("Completed")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Ran 1 command/u }));
     expect(view.container.querySelector(".tool-output")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
@@ -173,7 +173,7 @@ describe("ToolGroup computer-use presentation", () => {
     expect(readFullOutput).not.toHaveBeenCalled();
   });
 
-  it("keeps waiting, interrupted, and failed results distinct in collapsed summaries", () => {
+  it("keeps waiting and interrupted states distinct without settled result badges", async () => {
     const registry = registryWithBundledExtensions();
     const { rerender } = render(<ToolGroup
       tools={[{ id: "waiting", name: "read", args: { path: "question.ts" }, status: "running", startedAt: 0 }]}
@@ -190,7 +190,8 @@ describe("ToolGroup computer-use presentation", () => {
       streaming={false}
       activityStatus="interrupted"
     />);
-    expect(screen.getByText("Interrupted")).toBeTruthy();
+    expect(screen.queryByText("Interrupted")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
     expect(screen.getByText("interrupted")).toBeTruthy();
 
     rerender(<ToolGroup
@@ -198,8 +199,47 @@ describe("ToolGroup computer-use presentation", () => {
       registry={registry}
       activityStatus="error"
     />);
-    expect(screen.getByText("1 failed")).toBeTruthy();
+    expect(screen.queryByText("1 failed")).toBeNull();
+  });
+
+  it("does not promote one failed tool to an aggregate error without an authoritative status", () => {
+    render(<ToolGroup
+      tools={[{ id: "failed", name: "read", args: { path: "failed.ts" }, status: "error", startedAt: 0, endedAt: 1 }]}
+      registry={registryWithBundledExtensions()}
+    />);
+
+    expect(screen.queryByRole("img", { name: "Activity failed" })).toBeNull();
+    expect(screen.queryByText(/failed/u)).toBeNull();
+  });
+
+  it.each([
+    ["error", "Activity failed"],
+    ["interrupted", "Activity interrupted"],
+  ] as const)("renders an icon-only authoritative %s activity status", (status, label) => {
+    render(<ToolGroup
+      tools={[{ id: status, name: "read", args: { path: `${status}.ts` }, status: "done", startedAt: 0, endedAt: 1 }]}
+      registry={registryWithBundledExtensions()}
+      activityStatus={status}
+    />);
+
+    expect(screen.getByRole("img", { name: label }).getAttribute("title")).toBe(label);
+    expect(screen.queryByText(label)).toBeNull();
+  });
+
+  it.each([
+    ["error", "Activity failed"],
+    ["interrupted", "Activity interrupted"],
+  ] as const)("uses authoritative terminal %s status over a stale running tool", (status, label) => {
+    const view = render(<ToolGroup
+      tools={[{ id: status, name: "read", args: { path: `${status}.ts` }, status: "running", startedAt: 0 }]}
+      registry={registryWithBundledExtensions()}
+      streaming={false}
+      activityStatus={status}
+    />);
+
+    expect(view.container.querySelector(".tool-activity-summary")?.textContent).not.toContain("tool call interrupted");
+    expect(screen.getByRole("img", { name: label })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
-    expect(screen.getByText("failed.ts")).toBeTruthy();
+    expect(screen.getByText("interrupted")).toBeTruthy();
   });
 });

@@ -687,6 +687,8 @@ export interface TauDesktopApi {
   cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
   renameThread(title: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   copyText(text: string): Promise<void>;
+  /** Copies a validated image data URL through the Electron main process. */
+  copyImage(dataUrl: string): Promise<void>;
   /** Reads the persisted tool result, rather than the bounded transcript preview. */
   readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
