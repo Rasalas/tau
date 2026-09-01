@@ -197,7 +197,7 @@ export default function RendererBenchmark() {
     if (phase === "mount") {
       profilerReportedMount.current = true;
       mountDurations.current.push(actualDuration);
-    } else {
+    } else if (actualDuration > 0) {
       profilerReportedUpdate.current = true;
       updateDurations.current.push(actualDuration);
     }
@@ -210,7 +210,9 @@ export default function RendererBenchmark() {
   }, []);
 
   useLayoutEffect(() => {
-    if (!profilerReportedUpdate.current) updateDurations.current.push(performance.now() - (updateStartedAt.current ?? performance.now()));
+    if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
+    const duration = performance.now() - updateStartedAt.current;
+    if (duration > 0) updateDurations.current.push(duration);
   }, [listQuery, streamingTick, text, toolOutput]);
 
   useEffect(() => {
@@ -223,7 +225,8 @@ export default function RendererBenchmark() {
 
   useEffect(() => {
     if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
-    updateDurations.current.push(performance.now() - updateStartedAt.current);
+    const duration = performance.now() - updateStartedAt.current;
+    if (duration > 0) updateDurations.current.push(duration);
   }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
 
   useEffect(() => {

@@ -6,7 +6,6 @@ import { TranscriptTurnNavigation } from "./TranscriptTurnNavigation";
 import {
   clientIdentityKey,
   resolveTurnMessage,
-  type TranscriptMessageLookup,
   type TranscriptNavigationScope,
   type TranscriptTurnStart,
 } from "./transcript-navigation";
@@ -23,6 +22,45 @@ export { useTranscriptNavigation } from "./transcript-navigation-dom";
 
 const TRANSCRIPT_ID = "thread-transcript";
 const VISIBLE_TURN_LEAD = 96;
+
+interface MutableTranscriptMessageLookup {
+  byId: Map<string, UiMessage>;
+  byClientIdentity: Map<string, UiMessage>;
+  byText: Map<string, UiMessage[]>;
+  positions: Map<string, number>;
+}
+
+function emptyTranscriptMessageLookup(): MutableTranscriptMessageLookup {
+  return {
+    byId: new Map(),
+    byClientIdentity: new Map(),
+    byText: new Map(),
+    positions: new Map(),
+  };
+}
+
+function populateTranscriptMessageLookup(
+  messages: readonly UiMessage[],
+  lookup: MutableTranscriptMessageLookup,
+): void {
+  lookup.byId.clear();
+  lookup.byClientIdentity.clear();
+  lookup.byText.clear();
+  lookup.positions.clear();
+  messages.forEach((message, index) => {
+    lookup.positions.set(message.id, index);
+    // Turn anchors are always user messages. Excluding assistant deltas from
+    // these maps keeps the lookup immutable across every streaming update.
+    if (message.role !== "user") return;
+    lookup.byId.set(message.id, message);
+    const textMessages = lookup.byText.get(message.text) ?? [];
+    textMessages.push(message);
+    lookup.byText.set(message.text, textMessages);
+    if (message.clientTurnId && message.clientMessageId) {
+      lookup.byClientIdentity.set(clientIdentityKey(message.clientTurnId, message.clientMessageId), message);
+    }
+  });
+}
 
 function messageContentTop(node: HTMLDivElement, element: HTMLElement): number | undefined {
   const nodeRect = node.getBoundingClientRect();
@@ -130,7 +168,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     lastId?: string;
     lookupRevision?: number;
     messages: UiMessage[];
-    lookup: TranscriptMessageLookup;
+    lookup: MutableTranscriptMessageLookup;
   } | undefined>(undefined);
   const firstId = messages[0]?.id;
   const lastId = messages.at(-1)?.id;
@@ -142,23 +180,6 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     || previousLookup.lastId !== lastId
     || previousLookup.lookupRevision !== lookupRevision
     || (lookupRevision === undefined && previousLookup.messages !== messages)) {
-    const byId = new Map<string, UiMessage>();
-    const byClientIdentity = new Map<string, UiMessage>();
-    const byText = new Map<string, UiMessage[]>();
-    const positions = new Map<string, number>();
-    messages.forEach((message, index) => {
-      positions.set(message.id, index);
-      // Turn anchors are always user messages. Excluding assistant deltas from
-      // these maps keeps the lookup immutable across every streaming update.
-      if (message.role !== "user") return;
-      byId.set(message.id, message);
-      const textMessages = byText.get(message.text) ?? [];
-      textMessages.push(message);
-      byText.set(message.text, textMessages);
-      if (message.clientTurnId && message.clientMessageId) {
-        byClientIdentity.set(clientIdentityKey(message.clientTurnId, message.clientMessageId), message);
-      }
-    });
     lookupRef.current = {
       scopeKey: messageScopeKey,
       length: messages.length,
@@ -166,7 +187,10 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       lastId,
       lookupRevision,
       messages,
-      lookup: { byId, byClientIdentity, byText, positions },
+      // Resolve the initial anchor through the existing message array. Fill
+      // the reusable lookup after first paint so a long transcript does not
+      // pay four O(history) map builds on the mount-critical path.
+      lookup: emptyTranscriptMessageLookup(),
     };
   }
   const lookup = lookupRef.current!.lookup;
@@ -176,7 +200,10 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     // previews are useful after that paint, but building hundreds of them is
     // unnecessary work on the mount-critical path.
     let frame: number | undefined;
-    const update = () => setTurnEntries(buildTranscriptTurnNavigation(messages));
+    const update = () => {
+      if (lookupRef.current?.lookup === lookup) populateTranscriptMessageLookup(messages, lookup);
+      setTurnEntries(buildTranscriptTurnNavigation(messages));
+    };
     if (typeof window.requestAnimationFrame === "function") {
       frame = window.requestAnimationFrame(update);
     } else {
