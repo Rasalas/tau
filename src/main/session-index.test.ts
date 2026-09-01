@@ -3,13 +3,34 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { UiSession } from "../shared/contracts.js";
-import { buildTitleConversation, mergeSessionIndexScan, prioritizeRestoreTargetSession, reconcileActiveThreadShell, sessionIndexUpdates } from "./pi-host.js";
+import { buildTitleConversation, mapSessions, mergeSessionIndexScan, prioritizeRestoreTargetSession, reconcileActiveThreadShell, sessionIndexUpdates } from "./pi-host.js";
 
 function shell(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/sessions/${id}.jsonl`, title, modifiedAt, projectPath: "/project", projectName: "project", messageCount: 1 };
 }
 
 describe("session index reconciliation", () => {
+  it("keeps every persisted thread when the renderer virtualizes the list", async () => {
+    const sessions = Array.from({ length: 120 }, (_, index) => ({
+      id: `thread-${index}`,
+      path: `/sessions/thread-${index}.jsonl`,
+      cwd: `/projects/project-${index % 3}`,
+      modified: new Date(10_000 - index),
+      messageCount: 1,
+      name: `Thread ${index}`,
+      firstMessage: `Prompt ${index}`,
+    }));
+
+    const mapped = await mapSessions(
+      sessions as Parameters<typeof mapSessions>[0],
+      "/fallback",
+      async () => "main",
+    );
+
+    expect(mapped).toHaveLength(120);
+    expect(mapped.map((thread) => thread.id)).toContain("thread-119");
+  });
+
   it("titles a persisted conversation when the fresh runtime buffer is not ready", () => {
     expect(buildTitleConversation([], [
       { role: "user", content: "Persisted question" },

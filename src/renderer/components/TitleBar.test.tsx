@@ -45,10 +45,21 @@ function setup(workspaceInfo = workspace()) {
   return handlers;
 }
 
-beforeEach(() => localStorage.clear());
-afterEach(cleanup);
+beforeEach(() => {
+  localStorage.clear();
+  window.tau = { platform: "darwin" } as typeof window.tau;
+});
+afterEach(() => {
+  cleanup();
+  delete window.tau;
+});
 
 describe("TitleBar actions", () => {
+  it("reserves the macOS traffic-light inset before the workspace title", () => {
+    setup();
+    expect(document.querySelector(".title-bar > .window-controls-inset")).not.toBeNull();
+  });
+
   it("opens the preferred editor and opens a selected editor from the split menu", () => {
     const handlers = setup();
     fireEvent.click(screen.getByRole("button", { name: "Open" }));

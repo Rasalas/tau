@@ -195,7 +195,8 @@ describe("TranscriptHistoryBoundary integration", () => {
     });
     DeferredResizeObserver.trigger();
 
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2 older turns loaded"));
+    await waitFor(() => expect(controller.getSnapshot().status).toMatchObject({ state: "success", loadedTurns: 2 }));
+    expect(screen.queryByLabelText("Transcript history")).toBeNull();
     // The initial success used estimates for the newly prepended rows. A later
     // delivery reports their actual, different heights and must still restore
     // the same visible virtualizer anchor.

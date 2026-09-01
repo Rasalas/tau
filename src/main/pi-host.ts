@@ -713,15 +713,14 @@ export function cleanThreadTitle(value: string): string {
   return title.length > 80 ? `${title.slice(0, 77).trimEnd()}…` : title;
 }
 
-async function mapSessions(
+export async function mapSessions(
   sessions: SessionInfo[],
   fallbackCwd: string,
   resolveBranch: (cwd: string) => Promise<string | undefined>,
   resolveProjectName: (cwd: string) => string = (cwd) => basename(cwd) || cwd,
 ): Promise<UiSession[]> {
   const recent = [...sessions]
-    .sort((a, b) => b.modified.getTime() - a.modified.getTime())
-    .slice(0, 80);
+    .sort((a, b) => b.modified.getTime() - a.modified.getTime());
   const projectPaths = [...new Set(recent.map((session) => session.cwd || fallbackCwd))];
   const branches = new Map(
     await Promise.all(projectPaths.map(async (path) => [path, await resolveBranch(path)] as const)),

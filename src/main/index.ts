@@ -82,7 +82,7 @@ async function createWindow(): Promise<void> {
     trafficLightPosition: { x: 19, y: 15 },
     backgroundColor: "#11110f",
     webPreferences: {
-      preload: join(currentDir, "../preload/index.cjs"),
+      preload: join(currentDir, "../preload/bundle.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },

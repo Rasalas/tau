@@ -27,17 +27,14 @@ export function TranscriptHistoryControl({
 }: TranscriptHistoryControlProps) {
   const hasOlder = Boolean(olderCursor);
   const limited = historyCompleteness === "unknown";
+  if ((!hasOlder || limited) && !loading && status?.state !== "error") return null;
   const message = loading
     ? "Loading older turns…"
     : status?.state === "error"
       ? status.message ?? "Could not load older turns."
-      : limited
-        ? "Older history availability cannot be determined for this connection."
       : status?.state === "success"
-        ? `${loadedLabel(status.loadedTurns)}${hasOlder ? "" : " Beginning of history."}`
-        : hasOlder
-          ? "Older turns are available."
-          : "Beginning of history.";
+        ? loadedLabel(status.loadedTurns)
+        : "Older turns are available.";
 
   return <section
     className={`transcript-history-control${loading ? " loading" : ""}${status?.state === "error" ? " error" : ""}${limited ? " limited" : ""}`}
