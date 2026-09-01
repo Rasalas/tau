@@ -138,6 +138,18 @@ describe("turn checkpoints", () => {
       { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: { ...transaction, state: "committed" } },
       { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: { ...transaction, targetAfterSnapshotId: turnSnapshotRef("foreign", "turn-1", "after") } },
     ], "backup-session")).toMatchObject([{ ...transaction, state: "committed" }]);
+
+    const backupOpen = {
+      ...transaction,
+      kind: "backup-open" as const,
+      targetSessionId: "backup-session",
+      sourceSessionId: "backup-session",
+      sourceTurnId: "restore-backup-1",
+      targetAfterSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "after"),
+    };
+    expect(turnRestoreTransactionsFromEntries([
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: backupOpen },
+    ], "backup-session")).toMatchObject([backupOpen]);
   });
 
   it("exposes fork records only after every record precedes its commit marker", () => {

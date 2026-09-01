@@ -8,6 +8,7 @@ import type {
   StoredTurnCheckpoint,
   TurnRestoreBackup,
   TurnRestoreTransaction,
+  TurnRestoreTransactionKind,
   TurnRestoreTransactionState,
   TurnCaptureState,
   TurnCheckpointCaptureResult,
@@ -302,6 +303,10 @@ function restoreTransactionState(value: unknown): value is TurnRestoreTransactio
     || value === "committed" || value === "recovered";
 }
 
+function restoreTransactionKind(value: unknown): value is TurnRestoreTransactionKind {
+  return value === "checkpoint-restore" || value === "backup-open";
+}
+
 /** Parse a restore journal record and reject refs outside its declared owners. */
 export function parseTurnRestoreTransaction(
   value: unknown,
@@ -310,6 +315,7 @@ export function parseTurnRestoreTransaction(
   const item = record(value);
   if (!item
     || item.version !== 1
+    || (item.kind !== undefined && !restoreTransactionKind(item.kind))
     || typeof item.transactionId !== "string"
     || item.transactionId.length === 0
     || !restoreTransactionState(item.state)
@@ -328,7 +334,8 @@ export function parseTurnRestoreTransaction(
     || item.sourceCheckpointId.length === 0
     || typeof item.targetSessionId !== "string"
     || item.targetSessionId.length === 0
-    || item.targetSessionId === item.backupSessionId
+    || (item.previousSessionId !== undefined
+      && (typeof item.previousSessionId !== "string" || item.previousSessionId.length === 0))
     || typeof item.cwd !== "string"
     || item.cwd.length === 0
     || !isTurnSnapshotId(item.targetAfterSnapshotId)
@@ -342,9 +349,12 @@ export function parseTurnRestoreTransaction(
   } catch {
     return undefined;
   }
+  const kind = item.kind === undefined ? "checkpoint-restore" : item.kind;
   if (item.targetAfterSnapshotId !== expectedTargetAfter || item.backupAfterSnapshotId !== expectedBackupAfter) return undefined;
+  if (kind === "checkpoint-restore" && item.targetSessionId === item.backupSessionId) return undefined;
   return {
     version: 1,
+    kind,
     transactionId: item.transactionId,
     state: item.state,
     sessionId: item.sessionId,
@@ -354,6 +364,7 @@ export function parseTurnRestoreTransaction(
     sourceTurnId: item.sourceTurnId,
     sourceCheckpointId: item.sourceCheckpointId,
     targetSessionId: item.targetSessionId,
+    ...(item.previousSessionId === undefined ? {} : { previousSessionId: item.previousSessionId }),
     cwd: item.cwd,
     targetAfterSnapshotId: item.targetAfterSnapshotId,
     backupAfterSnapshotId: item.backupAfterSnapshotId,

@@ -110,6 +110,7 @@ export interface TurnRestoreBackup {
 
 export type TurnRestoreTransactionState = "prepared" | "applying" | "cleaned" | "workspace-applied"
   | "rolling-back" | "committed" | "recovered";
+export type TurnRestoreTransactionKind = "checkpoint-restore" | "backup-open";
 
 /**
  * Append-only restore journal entry. The marker lives in the durable backup
@@ -118,6 +119,8 @@ export type TurnRestoreTransactionState = "prepared" | "applying" | "cleaned" | 
  */
 export interface TurnRestoreTransaction {
   version: 1;
+  /** The target/rollback layout differs when opening an existing backup. */
+  kind: TurnRestoreTransactionKind;
   transactionId: string;
   state: TurnRestoreTransactionState;
   sessionId: string;
@@ -127,6 +130,8 @@ export interface TurnRestoreTransaction {
   sourceTurnId: string;
   sourceCheckpointId: string;
   targetSessionId: string;
+  /** Session that was visible before a backup-thread open began. */
+  previousSessionId?: string;
   cwd: string;
   targetAfterSnapshotId: string;
   backupAfterSnapshotId: string;

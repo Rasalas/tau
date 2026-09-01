@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { readdir, realpath, rm } from "node:fs/promises";
+import { readdir, realpath, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
@@ -764,6 +764,25 @@ interface LiveAssistant {
   timestamp: number;
 }
 
+/**
+ * A committed restore keeps its recovery thread discoverable without making
+ * that thread the one resumed by `continueRecent` on the next launch.
+ */
+export async function prioritizeRestoreTargetSession(targetPath: string, backupPath: string): Promise<void> {
+  const [target, backup] = await Promise.all([stat(targetPath), stat(backupPath)]);
+  // Keep a visible gap because findMostRecentSession compares millisecond
+  // timestamps while some filesystems expose coarser mtime resolution.
+  const targetTime = Math.max(Date.now() + 2_000, target.mtimeMs + 1_000, backup.mtimeMs + 2_000);
+  const backupTime = Math.max(0, targetTime - 1_000);
+  await utimes(backupPath, new Date(backupTime), new Date(backupTime));
+  await utimes(targetPath, new Date(targetTime), new Date(targetTime));
+}
+
+interface RestoreActivationTransaction {
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
 /** In-flight state of one thread's current turn, whichever process runs it. */
 interface LiveTurnState {
   readonly tools: Map<string, UiToolRun>;
@@ -1423,13 +1442,17 @@ export class PiHost {
     // Per-thread checkpoint preparation is owned by Pi's awaited event hook;
     // workspace switching never waits on another thread's history work.
     await this.rememberProject(cwd);
-    if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates();
+    if (cwd === this.cwd && (this.bridge || this.active)) {
+      await this.recoverPendingRestoreTransactions(cwd);
+      return this.activeUpdates();
+    }
     if (this.defaultBackendKind === "pi" && await this.attachAvailableBridge(cwd)) {
       await this.rememberProject(this.cwd);
       await this.refreshActiveThreadIndex(false);
       return this.activeUpdates();
     }
     this.detachBridge();
+    await this.recoverPendingRestoreTransactions(cwd);
     const startedAt = performance.now();
     const thread = this.defaultBackendKind === "claude-code"
       ? await this.openInitialThread(cwd)
@@ -1808,6 +1831,7 @@ export class PiHost {
       throw new Error("Restore is unavailable while Pi owns this thread. Use Fork to keep the current workspace unchanged.");
     }
     return this.runLifecycle(async () => {
+      await this.recoverPendingRestoreTransactions(this.cwd);
       const { sourceThread, sourceFile, sourceCheckpoints, checkpoint } = await this.verifiedRestoreCheckpoint(sessionId, checkpointId);
 
       // Build and open the candidate target before taking the destructive
@@ -1922,6 +1946,7 @@ export class PiHost {
         const transactionId = randomUUID();
         restoreTransaction = {
           version: 1,
+          kind: "checkpoint-restore",
           transactionId,
           state: "prepared",
           sessionId: backupSessionId,
@@ -1975,6 +2000,12 @@ export class PiHost {
         restoreTransaction = { ...restoreTransaction, state: "committed" };
         backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
         restoreCommitted = true;
+        await prioritizeRestoreTargetSession(targetPath, backupPath).catch((error) => {
+          // The content commit is already durable. A failed timestamp update
+          // must not roll it back; index recovery can still discover both
+          // sessions and the target remains the active runtime in this host.
+          this.log("restore.target-mtime.failed", this.errorMessage(error));
+        });
         targetRuntime.releaseEventBarrier((event, runtime, eventSessionId, eventCwd, error) => {
           if (error) this.fail(error, eventSessionId);
           else this.handleSessionEvent(event, runtime, eventSessionId, eventCwd);
@@ -2333,6 +2364,7 @@ export class PiHost {
     const live = this.bridge ? undefined : this.liveThreadForPath(path);
     if (live) {
       const startedAt = performance.now();
+      await this.recoverPendingRestoreTransactions(this.cwd);
       await this.activateThread(live, false);
       this.logReplacement("live-switch", startedAt);
       return this.activeUpdates();
@@ -2346,6 +2378,7 @@ export class PiHost {
         return this.activeUpdates();
       }
       this.detachBridge();
+      await this.recoverPendingRestoreTransactions(this.cwd);
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
@@ -3282,10 +3315,11 @@ export class PiHost {
    * Opening it replays its verified workspace pair while retaining a temporary
    * rollback pair for the workspace that is currently on disk.
    */
-  private async restoreBackupWorkspaceOnOpen(thread: ThreadRuntime): Promise<void> {
-    if (!isPiBackend(thread)) return;
+  private async restoreBackupWorkspaceOnOpen(thread: ThreadRuntime): Promise<RestoreActivationTransaction | undefined> {
+    if (!isPiBackend(thread)) return undefined;
     const backup = turnRestoreBackupsFromEntries(thread.backend.branchEntries(), thread.sessionId).at(-1);
-    if (!backup) return;
+    if (!backup) return undefined;
+    await this.recoverPendingRestoreTransactions(thread.cwd);
     if (backup.cwd !== thread.cwd) throw new Error("This restore backup belongs to another workspace.");
     if (!thread.backend.isIdle() || thread.adapterStreaming || thread.adapterPending > 0) {
       throw new Error("Wait for the backup thread to become idle before restoring its workspace.");
@@ -3307,6 +3341,17 @@ export class PiHost {
     });
     let rollbackBefore: workspaceGit.WorkspaceSnapshot | undefined;
     let rollbackAfter: workspaceGit.WorkspaceSnapshot | undefined;
+    let handedOff = false;
+    let transaction: TurnRestoreTransaction | undefined;
+    const cleanupRollback = async (): Promise<void> => {
+      if (!rollbackBefore && !rollbackAfter) return;
+      await workspaceGit.cleanupTurnCheckpointRefs(thread.cwd, [{ sessionId: thread.sessionId, turnId: rollbackTurnId }]);
+    };
+    const appendTransaction = (state: TurnRestoreTransaction["state"]): void => {
+      if (!transaction) return;
+      transaction = { ...transaction, state };
+      thread.backend.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, transaction);
+    };
     try {
       rollbackBefore = await workspaceGit.createTurnWorkspaceSnapshot(
         thread.cwd,
@@ -3320,36 +3365,121 @@ export class PiHost {
         rollbackTurnId,
         "after",
       );
+      transaction = {
+        version: 1,
+        kind: "backup-open",
+        transactionId: randomUUID(),
+        state: "prepared",
+        sessionId: thread.sessionId,
+        backupSessionId: thread.sessionId,
+        backupTurnId: rollbackTurnId,
+        sourceSessionId: backup.sessionId,
+        sourceTurnId: backup.turnId,
+        sourceCheckpointId: backup.backupId,
+        targetSessionId: thread.sessionId,
+        ...(this.active && this.active.threadId !== thread.threadId ? { previousSessionId: this.active.threadId } : {}),
+        cwd: thread.cwd,
+        targetAfterSnapshotId: backup.afterSnapshotId,
+        backupAfterSnapshotId: rollbackAfter.id,
+        createdAt: Date.now(),
+      };
+      appendTransaction("prepared");
       await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, backup.afterSnapshotId, {
         target: { sessionId: backup.sessionId, turnId: backup.turnId },
         rollback: { sessionId: thread.sessionId, turnId: rollbackTurnId },
+        onPhase: (phase) => {
+          const state = phase === "apply-started"
+            ? "applying"
+            : phase === "cleaned"
+              ? "cleaned"
+              : phase === "applied"
+                ? "workspace-applied"
+                : "rolling-back";
+          appendTransaction(state);
+        },
       });
       this.gitCoordinator.invalidate(thread.cwd);
+      appendTransaction("workspace-applied");
+      handedOff = true;
+      let finished = false;
+      const commit = async (): Promise<void> => {
+        if (finished) return;
+        appendTransaction("committed");
+        finished = true;
+        await cleanupRollback().catch(() => undefined);
+        await lease.release();
+      };
+      const rollback = async (): Promise<void> => {
+        if (finished) return;
+        try {
+          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter!.id, {
+            target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
+            rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
+          });
+          this.gitCoordinator.invalidate(thread.cwd);
+          appendTransaction("recovered");
+          finished = true;
+          await cleanupRollback().catch(() => undefined);
+        } finally {
+          await lease.release();
+        }
+      };
+      return { commit, rollback };
     } catch (error) {
-      throw new Error(`The restore backup could not be applied safely; the selected thread was not opened. ${this.errorMessage(error)}`);
-    } finally {
-      // The temporary pair is only a rollback guard for this open operation;
-      // the durable backup pair remains owned by its own thread.
-      if (rollbackBefore || rollbackAfter) {
-        await workspaceGit.cleanupTurnCheckpointRefs(thread.cwd, [{ sessionId: thread.sessionId, turnId: rollbackTurnId }]);
+      let recovered = false;
+      const recoveryErrors: unknown[] = [];
+      if (transaction && rollbackAfter) {
+        try {
+          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter.id, {
+            target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
+            rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
+          });
+          this.gitCoordinator.invalidate(thread.cwd);
+          appendTransaction("recovered");
+          recovered = true;
+        } catch (recoveryError) {
+          recoveryErrors.push(recoveryError);
+        }
       }
-      await lease.release();
+      if (recovered) await cleanupRollback().catch((error) => recoveryErrors.push(error));
+      const message = `The restore backup could not be applied safely; the selected thread was not opened. ${this.errorMessage(error)}`;
+      if (recoveryErrors.length > 0) {
+        throw new AggregateError([error, ...recoveryErrors], `${message} Workspace recovery needs attention.`);
+      }
+      throw new Error(message);
+    } finally {
+      // The lease remains held while activateThread publishes the selected
+      // thread. Pending transactions retain their temporary rollback pair
+      // until the next startup can recover it.
+      if (!handedOff) await lease.release();
     }
   }
 
   /** Puts a live thread on screen. Cheap: it changes pointers and publishes state. */
   private async activateThread(thread: ThreadRuntime, touch: boolean): Promise<void> {
-    await this.restoreBackupWorkspaceOnOpen(thread);
-    if (!this.threads.has(thread.threadId)) await this.adoptThread(thread);
-    this.threads.setActive(thread.threadId);
-    this.cwd = thread.cwd;
-    this.extensionCount = thread.backend.extensionCount();
-    await this.rememberProject(this.cwd);
-    await this.refreshThreadShell(thread, touch);
-    this.log("session.opened", thread.threadId.slice(0, 8));
-    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
-    this.scheduleRuntimePrewarm();
-    if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
+    const restore = await this.restoreBackupWorkspaceOnOpen(thread);
+    try {
+      if (!this.threads.has(thread.threadId)) await this.adoptThread(thread);
+      this.threads.setActive(thread.threadId);
+      this.cwd = thread.cwd;
+      this.extensionCount = thread.backend.extensionCount();
+      await this.rememberProject(this.cwd);
+      await this.refreshThreadShell(thread, touch);
+      this.log("session.opened", thread.threadId.slice(0, 8));
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
+      this.scheduleRuntimePrewarm();
+      if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
+      await restore?.commit();
+    } catch (error) {
+      if (restore) {
+        try {
+          await restore.rollback();
+        } catch (recoveryError) {
+          throw new AggregateError([error, recoveryError], "Thread activation failed and workspace recovery needs attention.");
+        }
+      }
+      throw error;
+    }
   }
 
   private async publishActiveCatalog(): Promise<void> {
@@ -4192,10 +4322,11 @@ export class PiHost {
    * sufficient to identify the only safe recovery target without trusting the
    * partially-created target runtime.
    */
-  private async recoverPendingRestoreTransactions(): Promise<void> {
+  private async recoverPendingRestoreTransactions(workspaceCwd = this.cwd): Promise<void> {
+    if (this.bridge) return;
     const sessionInfos = await SessionManager.listAll();
     const byId = new Map(sessionInfos.map((info) => [info.id, info] as const));
-    const currentWorkspace = await realpath(this.cwd).catch(() => resolve(this.cwd));
+    const currentWorkspace = await realpath(workspaceCwd).catch(() => resolve(workspaceCwd));
     for (const info of sessionInfos) {
       let manager: SessionManager;
       try {
@@ -4205,6 +4336,24 @@ export class PiHost {
       }
       const transactions = turnRestoreTransactionsFromEntries(manager.getBranch(), info.id)
         .filter((transaction) => transaction.state !== "committed" && transaction.state !== "recovered");
+      const committedTransactions = turnRestoreTransactionsFromEntries(manager.getBranch(), info.id)
+        .filter((transaction) => transaction.state === "committed" && transaction.kind === "checkpoint-restore");
+      for (const transaction of committedTransactions) {
+        const targetInfo = byId.get(transaction.targetSessionId);
+        if (!targetInfo?.path || targetInfo.path === info.path) continue;
+        const transactionWorkspace = await realpath(transaction.cwd).catch(() => resolve(transaction.cwd));
+        if (transactionWorkspace !== currentWorkspace) continue;
+        const [targetStat, backupStat] = await Promise.all([
+          stat(targetInfo.path).catch(() => undefined),
+          stat(info.path).catch(() => undefined),
+        ]);
+        // A crash can occur after the committed marker updates the backup's
+        // mtime but before the target-prioritization write. Repair that
+        // discoverability gap before continueRecent chooses a session.
+        if (targetStat && backupStat && backupStat.mtimeMs >= targetStat.mtimeMs) {
+          await prioritizeRestoreTargetSession(targetInfo.path, info.path).catch(() => undefined);
+        }
+      }
       for (const transaction of transactions) {
         // listAll spans every project. Recovery is deliberately scoped to the
         // checkout this host is opening; mutating an unrelated project's
@@ -4233,6 +4382,38 @@ export class PiHost {
       turnId: `restore-recovery-${transaction.transactionId}`,
     });
     try {
+      if (transaction.kind === "backup-open") {
+        // Opening a backup uses the durable backup pair as the target and a
+        // temporary pair in the same backup session as the rollback. If the
+        // process died before activation committed, put the pre-open
+        // workspace back and leave the backup thread unopened.
+        await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, transaction.backupAfterSnapshotId, {
+          target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
+          rollback: { sessionId: transaction.sourceSessionId, turnId: transaction.sourceTurnId },
+        });
+        this.gitCoordinator.invalidate(transaction.cwd);
+        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, {
+          ...transaction,
+          state: "recovered",
+        });
+        const previousPath = transaction.previousSessionId
+          ? sessionInfos.get(transaction.previousSessionId)?.path
+          : undefined;
+        const backupPath = backupManager.getSessionFile();
+        if (previousPath && backupPath && previousPath !== backupPath) {
+          await prioritizeRestoreTargetSession(previousPath, backupPath).catch(() => undefined);
+        } else if (backupPath) {
+          await utimes(backupPath, new Date(0), new Date(0)).catch(() => undefined);
+        }
+        // Recovery is durable before deleting the temporary rollback pair. If
+        // cleanup is interrupted, the committed recovery marker makes the
+        // harmless orphan eligible for ordinary checkpoint GC.
+        await workspaceGit.cleanupTurnCheckpointRefs(transaction.cwd, [{
+          sessionId: transaction.backupSessionId,
+          turnId: transaction.backupTurnId,
+        }]);
+        return;
+      }
       const backupBefore = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "before");
       const backupAfter = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "after");
       // Replaying the backup pair is idempotent and also repairs a process
