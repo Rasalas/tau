@@ -128,6 +128,8 @@ export interface NewThreadResult extends HostActionResult {
   submission: SubmissionResult;
   /** Correlates a bridge replacement with the originating composer request. */
   requestId?: NewThreadRequestId;
+  /** Runtime identity assigned before detached prompt delivery finishes. */
+  sessionId?: string;
 }
 
 /** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */

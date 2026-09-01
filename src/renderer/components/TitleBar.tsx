@@ -26,6 +26,7 @@ export function TitleBar({
   workspace,
   gitBusy,
   dockOpen,
+  editorDisabled = false,
   onOpenInEditor,
   onChooseEditor,
   onOpenReview,
@@ -40,6 +41,7 @@ export function TitleBar({
   workspace?: WorkspaceInfo;
   gitBusy: boolean;
   dockOpen: boolean;
+  editorDisabled?: boolean;
   onOpenInEditor(editorId?: string): void;
   onChooseEditor(id: string): void;
   onOpenReview(push: boolean): void;
@@ -75,8 +77,8 @@ export function TitleBar({
         <div className="chrome-group" aria-label="Open in editor">
           <button
             className="chrome-button split-main"
-            disabled={!activeEditor}
-            title={activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH"}
+            disabled={!activeEditor || editorDisabled}
+            title={editorDisabled ? "Unavailable until this draft becomes a thread" : activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH"}
             onClick={() => activeEditor && onOpenInEditor(activeEditor.id)}
           >
             <EditorIcon editorId={activeEditor?.id} className="editor-icon" />
@@ -84,7 +86,7 @@ export function TitleBar({
           </button>
           <button
             className="chrome-button split-trigger"
-            disabled={editors.length === 0}
+            disabled={editors.length === 0 || editorDisabled}
             aria-label="Choose editor"
             onClick={() => setEditorMenu(true)}
           >

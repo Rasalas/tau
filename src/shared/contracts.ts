@@ -45,6 +45,8 @@ export interface UiSkillInvocation {
 export interface ClientTurnIdentity {
   clientTurnId: string;
   clientMessageId: string;
+  /** Correlates a detached first prompt with its prepared new-thread draft. */
+  newThreadRequestId?: NewThreadRequestId;
 }
 
 export interface UiMessage {
@@ -597,6 +599,18 @@ export type ThreadHostEvent =
   | { type: "assistant-thinking"; sessionId: string; id: string; delta: string }
   | { type: "assistant-end"; sessionId: string; message: UiMessage }
   | { type: "user-message"; sessionId: string; message: UiMessage }
+  /**
+   * The prompt was accepted but answered without a user turn, so no user
+   * message will ever persist for it. Extension commands work this way.
+   */
+  | { type: "prompt-without-user-turn"; sessionId: string; clientMessageId: string }
+  /**
+   * Detached new-thread delivery reached its authoritative outcome. This is the
+   * commit point for a draft: session allocation happens earlier and the agent
+   * run ends later.
+   */
+  | { type: "new-thread-delivery-settled"; sessionId: string; clientMessageId: string; accepted: true }
+  | { type: "new-thread-delivery-settled"; sessionId: string; clientMessageId: string; accepted: false; message: string }
   | { type: "user-message-failed"; sessionId: string; clientMessageId: string; message: string }
   | { type: "tool-start"; sessionId: string; tool: UiToolRun }
   | { type: "tool-update"; sessionId: string; id: string; output: string }
@@ -708,7 +722,8 @@ export interface TauDesktopApi {
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
-  getWorkspaceInfo(): Promise<WorkspaceInfo>;
+  /** Reads metadata for the selected project without changing the active host workspace. */
+  getWorkspaceInfo(cwd?: string): Promise<WorkspaceInfo>;
   createWorktree(branch: string, baseRef?: string): Promise<HostActionResult>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;

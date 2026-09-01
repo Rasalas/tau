@@ -48,6 +48,23 @@ describe("workspace restore recovery", () => {
   });
 });
 
+describe("workspace metadata scope", () => {
+  it("canonicalizes and rejects paths outside known projects", async () => {
+    const history = {
+      list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }],
+      isHidden: () => false,
+    };
+    const host = new PiHost("/known", () => undefined, history as never, false, false);
+    const internals = host as unknown as { gitCoordinator: { getWorkspaceInfo: (cwd: string) => Promise<unknown> } };
+    const read = vi.fn(async (cwd: string) => ({ root: cwd, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }));
+    internals.gitCoordinator.getWorkspaceInfo = read;
+
+    await host.getWorkspaceInfo("/known/../known");
+    expect(read).toHaveBeenCalledWith("/known");
+    await expect(host.getWorkspaceInfo("/not-a-project")).rejects.toThrow("known Tau project");
+  });
+});
+
 function piPromptThread(session: {
   model: { input?: readonly string[] };
   isStreaming: boolean;
@@ -462,7 +479,13 @@ describe("PiHost.generateThreadTitle", () => {
     await expect(host.switchSession("/live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
     releaseStale();
 
-    await expect(staleNewSession).resolves.toEqual({ version: 1, updates: [] });
+    // A superseded request reports its rejection so the client stops waiting
+    // for a thread that will never be created.
+    await expect(staleNewSession).resolves.toEqual({
+      version: 1,
+      updates: [],
+      submission: { accepted: false, message: "A newer request replaced this new thread." },
+    });
     expect(internals.threads.active?.threadId).toBe("live-thread");
   });
 
@@ -492,7 +515,11 @@ describe("PiHost.generateThreadTitle", () => {
     await expect(host.switchSession("/warm-live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
     releaseLifecycle();
 
-    await expect(queuedNewSession).resolves.toEqual({ version: 1, updates: [] });
+    await expect(queuedNewSession).resolves.toEqual({
+      version: 1,
+      updates: [],
+      submission: { accepted: false, message: "A newer request replaced this new thread." },
+    });
     expect(prompts).toEqual([]);
     expect(internals.threads.active?.threadId).toBe("warm-live-thread");
   });
@@ -532,6 +559,103 @@ describe("PiHost.generateThreadTitle", () => {
     await creation;
 
     expect(outcome).toBe("accepted");
+  });
+
+  it("returns new-thread acceptance while prompt delivery and catalog reads remain blocked", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    let releaseCatalog!: () => void;
+    const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+    internals.ensureModels = async () => {
+      // A real AgentSession can serialize catalog access with prompt delivery.
+      // This is the regression seam: acceptance must not await this read at
+      // all. The read is allowed to finish later and publish its update.
+      await catalog;
+      return [];
+    };
+    internals.activeUpdates = async () => {
+      await internals.ensureModels();
+      return { version: 1, updates: [] };
+    };
+    let releasePrompt!: () => void;
+    const prompt = new Promise<void>((resolve) => { releasePrompt = resolve; });
+    internals.prompt = vi.fn(async () => {
+      await prompt;
+    });
+
+    const creation = host.newSession("start the work", [], "/repo");
+    const outcome = await Promise.race([
+      creation.then((result) => (result as { submission?: { accepted?: boolean } }).submission?.accepted
+        ? "accepted" as const
+        : "rejected" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 2_000)),
+    ]);
+    expect(outcome).toBe("accepted");
+    expect(internals.prompt).toHaveBeenCalledWith("start the work", [], "new-thread", undefined, undefined);
+    releaseCatalog();
+    releasePrompt();
+    await creation;
+  });
+
+  it("publishes the accepted thread detail before a blocked catalog read", async () => {
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.snapshotSync = () => ({
+      cwd: "/repo",
+      threadId: "new-thread",
+      providerSessionId: "new-thread",
+      sessionId: "new-thread",
+      runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+      backendKind: "pi",
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: [],
+      messages: [],
+      isStreaming: true,
+      activeTools: [],
+      allTools: [],
+      composerCommands: [],
+      extensionCount: 0,
+      serviceTier: "standard",
+      serviceTierAvailable: false,
+      supportsCheckpointRestore: true,
+    });
+    let releaseCatalog!: () => void;
+    const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+    internals.activeUpdates = async () => {
+      await catalog;
+      return { version: 1, updates: [] };
+    };
+    internals.prompt = vi.fn(async () => undefined);
+
+    const creation = host.newSession("start the work", [], "/repo");
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: "host-update",
+      update: expect.objectContaining({
+        type: "thread-detail",
+        detail: expect.objectContaining({ sessionId: "new-thread" }),
+      }),
+    })));
+    expect(((await creation) as unknown as { submission: { accepted: boolean } }).submission.accepted).toBe(true);
+
+    releaseCatalog();
   });
 
   it("keeps cold thread switching responsive while new-thread preflight is pending", async () => {
@@ -606,6 +730,109 @@ describe("PiHost.generateThreadTitle", () => {
       message: "prompt preflight rejected",
     })));
     expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+  });
+
+  it("commits detached delivery only after the prompt is accepted", async () => {
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    let acceptPrompt!: () => void;
+    const delivery = new Promise<void>((resolve) => { acceptPrompt = resolve; });
+    internals.prompt = vi.fn(async () => { await delivery; });
+
+    await expect(host.newSession("start the work", [], "/repo", {
+      clientTurnId: "turn",
+      clientMessageId: "message",
+    })).resolves.toMatchObject({ submission: { accepted: true }, sessionId: "new-thread" });
+    // Session allocation is not the commit: the client must still hold its draft.
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "new-thread-delivery-settled" }));
+
+    acceptPrompt();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith({
+      type: "new-thread-delivery-settled",
+      sessionId: "new-thread",
+      clientMessageId: "message",
+      accepted: true,
+    }));
+  });
+
+  it("settles an accepted extension command without a user turn or a later failure", async () => {
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    thread.backend.composerCommands = () => [{ name: "extension-command", source: "extension" }];
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    // The real prompt() runs here so the marker bookkeeping is exercised.
+    thread.backend.prompt = async (options: { promptOptions?: { preflightResult?: (success: boolean) => void } }) => {
+      options.promptOptions?.preflightResult?.(true);
+    };
+    thread.backend.preparePrompt = async (text: string) => ({ runtimeText: text, visibleText: text });
+    internals.assertPreparedPrompt = () => {};
+    internals.appendClientMessageMarker = () => true;
+
+    await host.newSession("/extension-command", [], "/repo", { clientTurnId: "turn", clientMessageId: "message" });
+    // prompt() owns this decision: it is the only place that knows the text the
+    // runtime actually resolved.
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith({
+      type: "prompt-without-user-turn",
+      sessionId: "new-thread",
+      clientMessageId: "message",
+    }));
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith({
+      type: "new-thread-delivery-settled",
+      sessionId: "new-thread",
+      clientMessageId: "message",
+      accepted: true,
+    }));
+
+    // agent_settled must not report the cleared marker as a lost user message.
+    internals.handleSessionEvent({ type: "agent_settled", messages: [] }, thread, "new-thread", "/repo");
+    expect(thread.pendingClientMessageIds).toEqual([]);
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "user-message-failed" }));
+  });
+});
+
+describe("PiHost project index", () => {
+  it("keeps linked worktrees of every saved repository out of the project list", async () => {
+    const history = {
+      list: () => [
+        { path: "/repos/alpha", name: "alpha", lastOpenedAt: 4 },
+        { path: "/repos/alpha-worktrees/feat", name: "alpha", lastOpenedAt: 3 },
+        { path: "/repos/beta", name: "beta", lastOpenedAt: 2 },
+        { path: "/repos/beta-worktrees/fix", name: "beta", lastOpenedAt: 1 },
+      ],
+      isHidden: () => false,
+    };
+    const host = new PiHost("/repos/alpha", () => undefined, history as never, false, false);
+    const internals = host as unknown as Record<string, any>;
+    const worktrees = new Set(["/repos/alpha-worktrees/feat", "/repos/beta-worktrees/fix"]);
+
+    // Nothing is offered before the checkouts have been classified.
+    expect(internals.threadIndexSnapshot().projects).toEqual([]);
+
+    await Promise.all([...history.list()].map(async (project) => {
+      internals.knownWorktreeProjects.set(project.path, worktrees.has(project.path));
+    }));
+
+    expect(internals.threadIndexSnapshot().projects.map((project: { path: string }) => project.path))
+      .toEqual(["/repos/alpha", "/repos/beta"]);
   });
 });
 

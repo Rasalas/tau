@@ -17,6 +17,7 @@ import {
   getBranchChanges,
   getFileDiff,
   getSnapshotFileDiff,
+  isLinkedWorktree,
   MAX_DIFF_BYTES,
   MAX_DIFF_HUNKS,
   parseUnifiedDiff,
@@ -778,6 +779,25 @@ describe("immutable turn snapshots", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe("worktree classification", () => {
+  it("separates a linked worktree from a main checkout and a plain folder", async () => {
+    const gitDirs = async (_cwd: string, args: string[]) => {
+      expect(args).toEqual(["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]);
+      return "/repos/tau/.git/worktrees/feat\n/repos/tau/.git\n";
+    };
+    await expect(isLinkedWorktree("/repos/tau-worktrees/feat", gitDirs)).resolves.toBe(true);
+
+    await expect(isLinkedWorktree("/repos/tau", async () => "/repos/tau/.git\n/repos/tau/.git\n"))
+      .resolves.toBe(false);
+
+    // A folder that is not a repository has no answer at all; the caller, not
+    // this helper, decides what to do with that.
+    await expect(isLinkedWorktree("/tmp/plain", async () => { throw new Error("not a git repository"); }))
+      .rejects.toThrow("not a git repository");
+    await expect(isLinkedWorktree("/tmp/plain", async () => "\n")).rejects.toThrow("not a Git repository");
+  });
 });
 
 describe("worktree creation", () => {

@@ -1070,7 +1070,8 @@ export class PiHost {
   private activationEpoch = 0;
   private threadIndexRefresh?: Promise<ThreadIndexSnapshot>;
   private readonly detailStore = new ThreadDetailStore(5);
-  private activeIndexPublish?: ReturnType<typeof setTimeout>;
+  /** Publications coalesced into the next tick, keyed by what they carry. */
+  private readonly coalescedPublishes = new Map<"shells" | "index", ReturnType<typeof setTimeout>>();
   private indexRecoveryTimer?: ReturnType<typeof setInterval>;
   private projectBranch?: string;
   /** Last known branch per project. Git is never awaited on an interactive path. */
@@ -1078,6 +1079,9 @@ export class PiHost {
   private readonly branchRefreshes = new Map<string, Promise<void>>();
   /** A linked worktree keeps the repository's project name instead of becoming a new project. */
   private readonly knownProjectNames = new Map<string, string>();
+  /** Which known project paths are linked worktrees. Unclassified paths stay absent. */
+  private readonly knownWorktreeProjects = new Map<string, boolean>();
+  private readonly worktreeClassifications = new Map<string, Promise<void>>();
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   private accessLevel: AccessLevel = "full";
   private serviceTier: ServiceTier = "standard";
@@ -1312,6 +1316,15 @@ export class PiHost {
     return this.actionResult([]);
   }
 
+  /**
+   * A superseded new-thread request never reaches prompt delivery, so it must
+   * report a rejection. A bare action result would leave the client waiting for
+   * a commit that can no longer happen.
+   */
+  private async staleNewThreadResult(requestId?: NewThreadRequestId): Promise<NewThreadResult> {
+    return this.newThreadResult([], { accepted: false, message: "A newer request replaced this new thread." }, requestId);
+  }
+
   /** Whether a command for a Tau thread id belongs to the thread Pi's TUI owns. */
   private bridgeOwns(threadId: string | undefined): boolean {
     return this.adapterFor("pi").id === "pi" && Boolean(this.bridge) && (!threadId || threadId === this.bridgeSnapshot?.sessionId);
@@ -1352,6 +1365,9 @@ export class PiHost {
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
         await this.rememberProject(this.cwd);
+        // Classify saved projects while the runtime opens. Each answer is a
+        // single git call, so it is ready long before bootstrap reads the list.
+        for (const project of this.projectHistory.list()) this.classifyWorktreeInBackground(project.path);
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
@@ -1390,6 +1406,9 @@ export class PiHost {
   }
 
   async bootstrap(): Promise<HostBootstrap> {
+    // The project list is withheld while a checkout is unclassified. Bootstrap
+    // is the one publication the client cannot miss, so settle it here.
+    await Promise.allSettled([...this.worktreeClassifications.values()]);
     const host = { ...this.snapshotSync(await this.ensureModels()), branch: this.projectBranch };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
@@ -1598,8 +1617,18 @@ export class PiHost {
     return result;
   }
 
-  private newThreadResult(updates: HostUpdate[], submission: SubmissionResult, requestId?: NewThreadRequestId): NewThreadResult {
-    return { ...this.actionResult(updates), submission, ...(requestId ? { requestId } : {}) };
+  private newThreadResult(
+    updates: HostUpdate[],
+    submission: SubmissionResult,
+    requestId?: NewThreadRequestId,
+    sessionId?: string,
+  ): NewThreadResult {
+    return {
+      ...this.actionResult(updates),
+      submission,
+      ...(requestId ? { requestId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+    };
   }
 
   /** Complete a correlated Pi handoff through one identity/publication path. */
@@ -1628,14 +1657,14 @@ export class PiHost {
     return this.newThreadResult([
       { version: HOST_PROTOCOL_VERSION, type: "thread-shell", update: { sessionId: shell.id, shell } },
       ...this.lifecycleUpdates(next),
-    ], { accepted: true }, requestId);
+    ], { accepted: true }, requestId, snapshot.sessionId);
   }
 
-  private lifecycleUpdates(snapshot: HostSnapshot): HostUpdate[] {
+  private lifecycleUpdates(snapshot: HostSnapshot, requestId?: NewThreadRequestId): HostUpdate[] {
     const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
     return [
       ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
-      { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) },
+      { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
       { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
       { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
     ];
@@ -1645,6 +1674,48 @@ export class PiHost {
     const snapshot = await this.snapshot();
     if (activationEpoch !== undefined && !this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     return this.actionResult(this.lifecycleUpdates(snapshot));
+  }
+
+  /**
+   * Publish the initial snapshot after a new-thread request has been accepted.
+   * Model/catalog discovery can share a serialized backend lane with the first
+   * prompt, so it must never be part of the renderer's acceptance round trip.
+   */
+  private async publishNewSessionUpdates(activationEpoch: number, requestId: NewThreadRequestId | undefined, sessionId: string): Promise<void> {
+    // Publish the thread identity and a first detail without waiting for the
+    // model catalog. Catalog discovery can share the runtime's serialized
+    // lane with prompt delivery; neither the renderer's promotion nor the
+    // initial thread shell should depend on that slower read.
+    try {
+      if (!this.isCurrentActivation(activationEpoch)) return;
+      const snapshot = this.snapshotSync([]);
+      if (!this.isCurrentActivation(activationEpoch)) return;
+      const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
+      const initialUpdates: HostUpdate[] = [
+        ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
+        { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
+        { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
+      ];
+      for (const update of initialUpdates) this.emitUpdate(update);
+    } catch (error) {
+      // A runtime may expose its first detail only after its own startup
+      // bookkeeping. Keep the asynchronous catalog path alive; it can still
+      // publish the authoritative snapshot once that bookkeeping completes.
+      this.log("new-session.initial-publish.failed", this.errorMessage(error));
+    }
+    try {
+      const active = await this.activeUpdates(activationEpoch);
+      if (!this.isCurrentActivation(activationEpoch)) return;
+      for (const update of active.updates) {
+        if (requestId && update.type === "thread-detail") {
+          this.emitUpdate({ ...update, detail: { ...update.detail, requestId } });
+        } else {
+          this.emitUpdate(update);
+        }
+      }
+    } catch (error) {
+      this.fail(error, sessionId);
+    }
   }
 
   async setWorkspace(cwd: string): Promise<HostActionResult> {
@@ -1803,15 +1874,17 @@ export class PiHost {
     const requestValue = typeof clientMessageIdOrRequestId === "string" ? clientMessageIdOrRequestId : undefined;
     const requestId = requestValue?.startsWith("new-thread-")
       ? requestValue as NewThreadRequestId
-      : undefined;
-    const identity = requestId ? undefined : clientIdentityForRequest(clientMessageIdOrRequestId);
+      : typeof clientMessageIdOrRequestId === "object"
+        ? clientMessageIdOrRequestId.newThreadRequestId
+        : undefined;
+    const identity = clientIdentityForRequest(clientMessageIdOrRequestId);
     const clientMessageId = identity?.clientMessageId;
     const backendKind = prepared?.backendKind ?? this.defaultBackendKind;
     if (prepared && backendKind !== "pi" && backendKind !== "claude-code") {
       throw new Error("Prepared prompt names an unsupported runtime backend.");
     }
     if (backendKind === "pi" && this.bridge && (!cwd || cwd === this.cwd)) {
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       const bridgeRequestId = requestId ?? createNewThreadRequestId(randomUUID());
       if (attachments.length > 0) {
         return this.newThreadResult([], { accepted: false, message: "Image attachments are not supported while Tau is attached to Pi." }, bridgeRequestId);
@@ -1846,7 +1919,7 @@ export class PiHost {
         if (response && responseRequestId !== bridgeRequestId) {
           throw new Error("The Pi bridge did not acknowledge this new-thread request.");
         }
-        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         const bridgeSnapshot = response && typeof response === "object" && "snapshot" in response
           ? response.snapshot as PiBridgeSnapshot
           : undefined;
@@ -1865,7 +1938,7 @@ export class PiHost {
             bridgeEpoch: this.bridge?.descriptor.epoch ?? "",
           };
           void this.acknowledgeBridgeNewSession(bridgeRequestId, this.bridge?.descriptor.epoch);
-          if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+          if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
           return this.completeBridgeNewSession(bridgeSnapshot, bridgeRequestId);
         }
         // A bridge without snapshots cannot prove a handoff, but should not
@@ -1875,12 +1948,12 @@ export class PiHost {
           return this.newThreadResult([], { accepted: true }, bridgeRequestId);
         }
         const completedBridgeSnapshot = await bridgeSession;
-        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         return this.completeBridgeNewSession(completedBridgeSnapshot, bridgeRequestId);
       } catch (error) {
         if (identity) this.clientTurns.cancel(undefined, identity);
         this.pendingBridgeNewSessions.delete(bridgeRequestId);
-        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         const reason = error instanceof Error ? error.message : String(error);
         this.log("bridge.new_session.rejected", reason);
         return this.newThreadResult([], { accepted: false, message: reason }, bridgeRequestId);
@@ -1901,7 +1974,7 @@ export class PiHost {
       });
     }
     return this.runLifecycle(async () => {
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       this.detachBridge();
@@ -1930,7 +2003,7 @@ export class PiHost {
           if (this.threads.get(thread.threadId)?.runtime === thread && this.active !== thread) {
             await this.threads.release(thread.threadId);
           }
-          return this.staleActivationResult();
+          return this.staleNewThreadResult(requestId);
         }
         lifecycle = "promoted";
         if (isPiBackend(thread)) {
@@ -1946,35 +2019,6 @@ export class PiHost {
           const presentation = prepared?.skill ?? skillMessagePresentation(initialPrompt, thread.runtimeAdapter, this.composerCommands(thread));
           const visiblePrompt = prepared?.visibleText ?? (presentation && "text" in presentation ? presentation.text : visibleTitleText(initialPrompt));
           this.retitleShell(thread.threadId, firstSentence(visiblePrompt));
-        }
-        if (initialPrompt || attachments.length > 0) {
-          // Creation owns only runtime activation. Prompt preparation can wait
-          // on a checkpoint lease, so it must neither hold the lifecycle queue
-          // nor keep the captured composer draft in a pending submission.
-          void (async () => {
-            try {
-              const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
-              const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
-                ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
-                  ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
-                  : undefined)
-                : prepared;
-              await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
-            } catch (error) {
-              // prompt() normally reconciles the optimistic message through its
-              // marker. Re-preparation can fail before that marker exists, so
-              // the detached boundary also publishes the correlated failure.
-              if (clientMessageId) {
-                this.emit({
-                  type: "user-message-failed",
-                  sessionId: thread.threadId,
-                  clientMessageId,
-                  message: this.errorMessage(error),
-                });
-              }
-              this.log("prompt.rejected", this.errorMessage(error));
-            }
-          })();
         }
       } catch (error) {
         // A pure validation failure leaves an untouched spare available. Once
@@ -1995,11 +2039,59 @@ export class PiHost {
         const active = await this.activeUpdates();
         return { ...active, submission: { accepted: false, message: this.errorMessage(error) }, ...(requestId ? { requestId } : {}) };
       }
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
-      const active = await this.activeUpdates(activationEpoch);
-      return { ...active, submission: { accepted: true }, ...(requestId ? { requestId } : {}) };
+      void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
+      if (initialPrompt || attachments.length > 0) {
+        // Delivery is intentionally detached from acceptance. AgentSession may
+        // keep its prompt pending while the renderer has already settled the
+        // submission, and a later correlated failure event reconciles it.
+        void (async () => {
+          try {
+            const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
+            const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
+              ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
+                ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
+                : undefined)
+              : prepared;
+            await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
+            // Whether this prompt creates a user turn is decided inside
+            // prompt(), against the text it actually resolved, and reported by
+            // its own event. Do not re-derive it from the request here.
+            if (clientMessageId) {
+              this.emit({
+                type: "new-thread-delivery-settled",
+                sessionId: thread.threadId,
+                clientMessageId,
+                accepted: true,
+              });
+            }
+          } catch (error) {
+            // prompt() normally reconciles the optimistic message through its
+            // marker. Re-preparation can fail before that marker exists, so
+            // the detached boundary also publishes the correlated failure.
+            if (clientMessageId) {
+              const message = this.errorMessage(error);
+              this.emit({
+                type: "new-thread-delivery-settled",
+                sessionId: thread.threadId,
+                clientMessageId,
+                accepted: false,
+                message,
+              });
+              this.emit({
+                type: "user-message-failed",
+                sessionId: thread.threadId,
+                clientMessageId,
+                message,
+              });
+            }
+            this.log("prompt.rejected", this.errorMessage(error));
+          }
+        })();
+      }
+      return this.newThreadResult([], { accepted: true }, requestId, thread.sessionId);
     });
   }
 
@@ -2802,9 +2894,24 @@ export class PiHost {
       if (identity) this.clientTurns.cancel(thread.threadId, identity);
       reportPreflight({ accepted: false, error });
     }
+    // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;
-    // Extension commands can be handled without creating a user message or an
-    // agent run. Do not leave their marker to label the next turn.
+    // An extension command is answered without a user message or an agent run.
+    // Its marker would otherwise label the next turn and be reported as a lost
+    // message by agent_settled, and the client would wait for a turn that never
+    // persists.
+    if (isExtensionCommand && markerActive) {
+      if (clientMessageId && this.persistedClientMessageIds(thread).has(clientMessageId)) {
+        this.forgetClientMessageId(thread, clientMessageId);
+      } else {
+        this.cancelClientMessageMarker(thread, clientMessageId);
+      }
+      if (identity) this.clientTurns.cancel(thread.threadId, identity);
+      markerActive = false;
+      if (clientMessageId) {
+        this.emit({ type: "prompt-without-user-turn", sessionId: thread.threadId, clientMessageId });
+      }
+    }
     if ((!wasStreaming || isExtensionCommand) && markerActive && (preflightState as PromptPreflightState) !== "accepted") failUnpersistedMarker();
     this.log("prompt.accepted", `${text.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
   }
@@ -3329,8 +3436,25 @@ export class PiHost {
     }
   }
 
-  async getWorkspaceInfo(): Promise<WorkspaceInfo> {
-    return this.gitCoordinator.getWorkspaceInfo(this.cwd);
+  async getWorkspaceInfo(cwd = this.cwd): Promise<WorkspaceInfo> {
+    const canonicalCwd = await this.knownWorkspacePath(cwd);
+    return this.gitCoordinator.getWorkspaceInfo(canonicalCwd);
+  }
+
+  /** Workspace metadata is only exposed for projects already admitted by the host. */
+  private async knownWorkspacePath(cwd: string): Promise<string> {
+    const requested = await realpath(cwd).catch(() => resolve(cwd));
+    const candidates = new Set<string>([
+      this.cwd,
+      ...this.projectHistory.list().map((project) => project.path),
+      ...this.sessions.map((session) => session.projectPath),
+      ...this.threads.list().map((thread) => thread.cwd),
+    ]);
+    for (const candidate of candidates) {
+      const canonical = await realpath(candidate).catch(() => resolve(candidate));
+      if (canonical === requested) return canonical;
+    }
+    throw new Error("Workspace is not a known Tau project.");
   }
 
   async push(): Promise<PushResult> {
@@ -3400,8 +3524,8 @@ export class PiHost {
     return this.runLifecycle(async () => {
       this.clientTurns.clear();
       this.toolOutputBatcher.dispose();
-      if (this.activeIndexPublish) clearTimeout(this.activeIndexPublish);
-      this.activeIndexPublish = undefined;
+      for (const timer of this.coalescedPublishes.values()) clearTimeout(timer);
+      this.coalescedPublishes.clear();
       if (this.indexRecoveryTimer) clearInterval(this.indexRecoveryTimer);
       this.indexRecoveryTimer = undefined;
       if (this.prewarmTimer) clearTimeout(this.prewarmTimer);
@@ -5055,9 +5179,7 @@ export class PiHost {
 
   private publishThreadShellSoon(shell: UiSession): void {
     this.pendingShellUpdates.set(shell.id, shell);
-    if (this.activeIndexPublish !== undefined) return;
-    this.activeIndexPublish = setTimeout(() => {
-      this.activeIndexPublish = undefined;
+    this.publishSoon("shells", () => {
       const updates = [...this.pendingShellUpdates.values()];
       this.pendingShellUpdates.clear();
       for (const pending of updates) {
@@ -5067,8 +5189,18 @@ export class PiHost {
           update: { sessionId: pending.id, shell: pending },
         });
       }
+    });
+  }
+
+  /** Collapse repeated publications of one kind into a single later emit. */
+  private publishSoon(kind: "shells" | "index", publish: () => void): void {
+    if (this.coalescedPublishes.has(kind)) return;
+    const timer = setTimeout(() => {
+      this.coalescedPublishes.delete(kind);
+      publish();
     }, 0);
-    this.activeIndexPublish.unref?.();
+    timer.unref?.();
+    this.coalescedPublishes.set(kind, timer);
   }
 
   private threadIndexSnapshot(): ThreadIndexSnapshot {
@@ -5084,7 +5216,48 @@ export class PiHost {
       knownPaths.add(thread.projectPath);
     }
     projects.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
-    return { projects, sessions: this.sessions };
+    return { projects: projects.filter((project) => this.isProjectRoot(project.path)), sessions: this.sessions };
+  }
+
+  /**
+   * A linked worktree belongs to a repository that is already a project, so the
+   * workspace bar moves between worktrees instead. Git is never awaited here; an
+   * unclassified checkout is withheld until its background answer arrives.
+   */
+  private isProjectRoot(cwd: string): boolean {
+    const isWorktree = this.knownWorktreeProjects.get(cwd);
+    if (isWorktree === undefined) {
+      this.classifyWorktreeInBackground(cwd);
+      return false;
+    }
+    return !isWorktree;
+  }
+
+  private classifyWorktreeInBackground(cwd: string): void {
+    if (this.worktreeClassifications.has(cwd)) return;
+    const startedAt = performance.now();
+    const pending = workspaceGit.isLinkedWorktree(cwd).then((isWorktree) => {
+      if (this.knownWorktreeProjects.get(cwd) === isWorktree) return;
+      this.knownWorktreeProjects.set(cwd, isWorktree);
+      this.publishThreadIndexSoon();
+    }).catch(() => {
+      // A path that is not a repository at all is simply not a worktree.
+      if (this.knownWorktreeProjects.has(cwd)) return;
+      this.knownWorktreeProjects.set(cwd, false);
+      this.publishThreadIndexSoon();
+    }).finally(() => {
+      this.recordBackgroundLifecycle("worktree-classification", startedAt);
+      this.worktreeClassifications.delete(cwd);
+    });
+    this.worktreeClassifications.set(cwd, pending);
+  }
+
+  private publishThreadIndexSoon(): void {
+    this.publishSoon("index", () => this.emitUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-index",
+      index: this.threadIndexSnapshot(),
+    }));
   }
 
   private branchMessagesWithEntryIds(thread: ThreadRuntime): unknown[] {

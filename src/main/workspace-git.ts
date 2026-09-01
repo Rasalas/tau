@@ -2388,6 +2388,19 @@ async function prepareWorktreeBase(cwd: string, baseRef: string, runGit: GitRunn
   return base;
 }
 
+/**
+ * Whether `cwd` is a linked worktree rather than a repository's main checkout.
+ * A linked worktree's own git dir sits under the shared common dir; anything
+ * that is not a repository at all is not a worktree.
+ */
+export async function isLinkedWorktree(cwd: string, runGit: GitRunner = git): Promise<boolean> {
+  const [gitDir, commonDir] = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]))
+    .split("\n")
+    .map((line) => line.trim());
+  if (!gitDir || !commonDir) throw new Error(`${cwd} is not a Git repository.`);
+  return resolve(cwd, gitDir) !== resolve(cwd, commonDir);
+}
+
 /** Returns one stable project name for a repository and all of its linked worktrees. */
 export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
   try {
