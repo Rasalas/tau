@@ -754,6 +754,8 @@ export default function App() {
   const toolFrameRef = useRef<number | undefined>(undefined);
   const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
+  const activeDraftKeyRef = useRef(activeDraftKey);
+  activeDraftKeyRef.current = activeDraftKey;
   const restoreNewThreadSubmission = useCallback((recovery: NewThreadSubmissionRecovery) => {
     const scope = recovery.scopeRef.scope;
     const current = composerScopeStore.getSnapshot(scope);
@@ -1140,7 +1142,7 @@ export default function App() {
         restoreNewThreadSubmission(recovery);
       }
       if (event.sessionId === threadStore.getSnapshot().activeThreadId
-        || recovery?.scopeRef.scope === activeDraftKey) setNotice(event.message);
+        || recovery?.scopeRef.scope === activeDraftKeyRef.current) setNotice(event.message);
       return;
     }
     // Every thread streams from its own runtime. Transcript and tool events for a
@@ -1398,7 +1400,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [activeDraftKey, addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, releaseNewThreadRecovery, replaceTranscriptMessages, restoreNewThreadSubmission, threadStore, updateTranscriptMessages]);
+  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, queueAssistantDelta, queueToolUpdate, refreshChanges, releaseNewThreadRecovery, replaceTranscriptMessages, restoreNewThreadSubmission, threadStore, updateTranscriptMessages]);
 
   useEffect(() => {
     let unsubscribe = () => {};
