@@ -6,11 +6,13 @@ import type { UiMessage } from "../../shared/contracts";
 import {
   buildTranscriptTurnNavigation,
   MIN_TRANSCRIPT_TURN_NAVIGATION_TURNS,
+  TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE,
   normalizePromptPreview,
   shouldShowTranscriptTurnNavigation,
   truncatePromptPreview,
 } from "./transcript-turn-navigation";
 import { visibleTranscriptTurnId } from "./TranscriptViewport";
+import { TranscriptTurnNavigation } from "./TranscriptTurnNavigation";
 
 vi.mock("./VirtualTranscript", () => ({
   VirtualTranscript: ({ messages }: { messages: UiMessage[] }) => (
@@ -61,7 +63,10 @@ function Fixture({ messages }: { messages: UiMessage[] }) {
     });
   }, [messages.length]);
 
-  return <TranscriptViewport messages={messages} scrollRef={scrollRef} isStreaming={false} />;
+  return <>
+    <TranscriptViewport messages={messages} scrollRef={scrollRef} isStreaming={false} />
+    <textarea aria-label="Composer" />
+  </>;
 }
 
 describe("transcript turn navigation data", () => {
@@ -108,7 +113,26 @@ describe("TranscriptViewport turn navigation", () => {
     expect(navigation.getAttribute("aria-controls")).toBe("thread-transcript");
     expect(navigation.querySelectorAll("button")).toHaveLength(8);
     expect(navigation.querySelectorAll("button")[7]?.getAttribute("aria-label")).toContain("Go to turn 8:");
+    expect([...navigation.querySelectorAll("button")].every((button) => button.getAttribute("aria-label")?.startsWith("Go to turn "))).toBe(true);
     expect(navigation.textContent).not.toContain("\n\n");
+  });
+
+  it("activates a turn with Enter and Space without losing the reading position", async () => {
+    const view = render(<Fixture messages={userMessages(8)} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_440));
+
+    const firstTurn = view.getByRole("button", { name: "Go to turn 1: Prompt 1" });
+    firstTurn.focus();
+    expect(document.activeElement).toBe(firstTurn);
+    fireEvent.keyDown(firstTurn, { key: "Enter" });
+    await waitFor(() => expect(transcript.scrollTop).toBe(0));
+
+    const secondTurn = view.getByRole("button", { name: "Go to turn 2: Prompt 2" });
+    secondTurn.focus();
+    fireEvent.keyDown(secondTurn, { key: " " });
+    await waitFor(() => expect(transcript.scrollTop).toBe(180));
+    expect(secondTurn.getAttribute("aria-current")).toBe("true");
   });
 
   it("selects a turn with a button, enters reading mode, and stays there as content grows", async () => {
@@ -144,6 +168,41 @@ describe("TranscriptViewport turn navigation", () => {
     await waitFor(() => expect(view.getByRole("button", { name: "Go to turn 5: Prompt 5" }).getAttribute("aria-current")).toBe("true"));
   });
 
+  it("uses measured row geometry and virtual range for variable-height turns", () => {
+    const node = document.createElement("div") as HTMLDivElement;
+    Object.defineProperties(node, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, value: 700 },
+      scrollHeight: {
+        configurable: true,
+        get: () => { throw new Error("active turn must not estimate from scrollHeight"); },
+      },
+    });
+    const messages: UiMessage[] = [
+      { id: "user-1", role: "user", text: "First prompt", timestamp: 1 },
+      { id: "assistant-1", role: "assistant", text: "A very tall answer", timestamp: 2 },
+      { id: "user-2", role: "user", text: "Second prompt", timestamp: 3 },
+      { id: "assistant-2", role: "assistant", text: "Another answer", timestamp: 4 },
+    ];
+    const row = (id: string, index: number, top: number) => {
+      const element = document.createElement("div");
+      element.dataset.messageId = id;
+      element.dataset.index = String(index);
+      element.style.transform = `translateY(${top}px)`;
+      node.append(element);
+    };
+    row("user-1", 0, 0);
+    row("assistant-1", 1, 180);
+    row("user-2", 2, 1_180);
+    row("assistant-2", 3, 1_360);
+    const entries = buildTranscriptTurnNavigation(messages);
+
+    expect(visibleTranscriptTurnId(node, entries)).toBe("user-1");
+
+    node.replaceChildren(node.querySelector<HTMLElement>('[data-message-id="assistant-1"]')!);
+    expect(visibleTranscriptTurnId(node, entries, { startIndex: 1, endIndex: 1 })).toBe("user-1");
+  });
+
   it("keeps navigation outside the transcript and composer flow", async () => {
     const view = render(<Fixture messages={userMessages(8)} />);
     const navigation = await waitFor(() => view.getByRole("navigation", { name: "Transcript turns" }));
@@ -151,6 +210,47 @@ describe("TranscriptViewport turn navigation", () => {
     expect(navigation.parentElement).toBe(transcript.parentElement);
     expect(navigation.classList.contains("transcript-overlay")).toBe(false);
     expect(navigation.nextElementSibling).toBe(transcript);
+  });
+
+  it("keeps the turn rail DOM-bounded and preserves focus order for 1000 turns", async () => {
+    const entries = buildTranscriptTurnNavigation(userMessages(1_000));
+    const view = render(
+      <TranscriptTurnNavigation
+        entries={entries}
+        activeMessageId={entries.at(-1)?.messageId}
+        transcriptId="thread-transcript"
+        onSelect={() => {}}
+      />,
+    );
+    const navigation = view.getByRole("navigation", { name: "Transcript turns" });
+    const firstTurn = navigation.querySelector("[data-turn-navigation-entry] button") as HTMLButtonElement;
+    const previous = view.getByRole("button", { name: "Previous turn page" });
+    const next = view.getByRole("button", { name: "Next turn page" });
+    expect(navigation.querySelectorAll("[data-turn-navigation-entry]")).toHaveLength(TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE);
+    expect(navigation.querySelectorAll("button").length).toBeLessThanOrEqual(TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE + 2);
+    expect(firstTurn.getAttribute("aria-label")).toContain("Go to turn");
+    expect(previous.getAttribute("aria-label")).toBe("Previous turn page");
+    expect(next.getAttribute("aria-label")).toBe("Next turn page");
+    expect(navigation.querySelector('[aria-current="true"]')?.getAttribute("aria-label")).toContain("Go to turn 1000:");
+    await waitFor(() => expect(firstTurn.tabIndex).toBe(0));
+  });
+
+  it("places rail controls before the transcript and composer in tab order", async () => {
+    const view = render(<Fixture messages={userMessages(8)} />);
+    const navigation = await waitFor(() => view.getByRole("navigation", { name: "Transcript turns" }));
+    const transcript = view.getByRole("log");
+    const composer = view.getByRole("textbox", { name: "Composer" });
+    const firstTurn = view.getByRole("button", { name: "Go to turn 1: Prompt 1" });
+    expect(firstTurn.tabIndex).toBe(0);
+    expect(transcript.tabIndex).toBe(0);
+    expect(Boolean(navigation.compareDocumentPosition(transcript) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(transcript.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    firstTurn.focus();
+    expect(document.activeElement).toBe(firstTurn);
+    transcript.focus();
+    expect(document.activeElement).toBe(transcript);
+    composer.focus();
+    expect(document.activeElement).toBe(composer);
   });
 });
 

@@ -7,6 +7,9 @@ export const MIN_TRANSCRIPT_TURN_NAVIGATION_TURNS = 8 as const;
 /** The preview is deliberately short enough to scan in a compact turn rail. */
 export const TRANSCRIPT_TURN_PREVIEW_LENGTH = 76 as const;
 
+/** Keep the turn rail's interactive DOM bounded even for very long threads. */
+export const TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE = 8 as const;
+
 export interface TranscriptTurnNavigationEntry {
   /** The user-message ID used by the virtual transcript as its stable anchor. */
   messageId: string;

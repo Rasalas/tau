@@ -16,7 +16,7 @@ import {
   shouldShowTranscriptTurnNavigation,
   type TranscriptTurnNavigationEntry,
 } from "./transcript-turn-navigation";
-import { VirtualTranscript } from "./VirtualTranscript";
+import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscript";
 
 export type { TranscriptNavigationScope, TranscriptTurnStart } from "./transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
@@ -50,14 +50,9 @@ function messageContentTop(node: HTMLDivElement, element: HTMLElement): number |
 export function visibleTranscriptTurnId(
   node: HTMLDivElement,
   entries: readonly TranscriptTurnNavigationEntry[],
-  messageCount?: number,
+  visibleRange?: TranscriptVisibleRange,
 ): string | undefined {
   if (entries.length === 0) return undefined;
-  const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
-  // The browser clamps a real scroll position at the tail. This explicit
-  // check also keeps deterministic renderer fixtures from selecting an older
-  // turn when they model scrollTop as scrollHeight.
-  if (node.scrollTop >= maxScrollTop - 32) return entries.at(-1)!.messageId;
 
   const lead = node.scrollTop + Math.min(VISIBLE_TURN_LEAD, Math.max(0, node.clientHeight * 0.35));
   let visible: TranscriptTurnNavigationEntry | undefined;
@@ -69,23 +64,12 @@ export function visibleTranscriptTurnId(
   }
   if (visible) return visible.messageId;
 
-  // A virtualizer can leave every user row outside the DOM while it is
-  // settling after a large seek. Estimate the row index until the next scroll
-  // event reports the measured window.
-  const renderedMessageCount = [...node.querySelectorAll<HTMLElement>("[data-index]")]
-    .reduce((largest, element) => Math.max(largest, Number(element.dataset.index) + 1), 0);
-  const estimatedMessageCount = Math.max(
-    messageCount ?? 0,
-    renderedMessageCount,
-    entries.at(-1)!.messageIndex + 1,
-  );
-  const estimatedRowHeight = estimatedMessageCount > 0
-    ? Math.max(1, node.scrollHeight / estimatedMessageCount)
-    : 0;
-  const estimatedIndex = estimatedRowHeight > 0
-    ? Math.floor(lead / estimatedRowHeight)
-    : 0;
-  return [...entries].reverse().find((entry) => entry.messageIndex <= estimatedIndex)?.messageId
+  // If the current user row is outside the DOM, use the virtualizer's real
+  // measured viewport range. Do not infer a row from total scroll height:
+  // assistant/tool rows are variable-height and make that estimate wrong.
+  if (!visibleRange) return undefined;
+  return [...entries].reverse().find((entry) => entry.messageIndex < visibleRange.startIndex)?.messageId
+    ?? entries.find((entry) => entry.messageIndex <= visibleRange.endIndex)?.messageId
     ?? entries[0]!.messageId;
 }
 
@@ -180,6 +164,12 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   const showTurnNavigation = shouldShowTranscriptTurnNavigation(turnEntries);
   const turnEntriesRef = useRef(turnEntries);
   turnEntriesRef.current = turnEntries;
+  const visibleRangeRef = useRef<TranscriptVisibleRange | undefined>(undefined);
+  const previousTurnEntriesRef = useRef(turnEntries);
+  if (previousTurnEntriesRef.current !== turnEntries) {
+    visibleRangeRef.current = undefined;
+    previousTurnEntriesRef.current = turnEntries;
+  }
   const [visibleTurnMessageId, setVisibleTurnMessageId] = useState<string | undefined>(
     () => turnEntries.at(-1)?.messageId,
   );
@@ -210,8 +200,9 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     const node = scrollRef.current;
     const update = () => {
       const next = node
-        ? visibleTranscriptTurnId(node, turnEntriesRef.current, messages.length)
+        ? visibleTranscriptTurnId(node, turnEntriesRef.current, visibleRangeRef.current)
         : turnEntriesRef.current.at(-1)?.messageId;
+      if (next === undefined) return;
       setVisibleTurnMessageId((current) => current === next ? current : next);
     };
     updateVisibleTurnRef.current = update;
@@ -243,6 +234,14 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       if (updateVisibleTurnRef.current === update) updateVisibleTurnRef.current = () => {};
     };
   }, [messages, scrollRef, turnEntries]);
+
+  const reportVisibleRange = useCallback((range: TranscriptVisibleRange | undefined) => {
+    visibleRangeRef.current = range;
+    updateVisibleTurnRef.current();
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => updateVisibleTurnRef.current());
+    }
+  }, []);
 
   const selectTurn = useCallback((messageId: string) => {
     // Reflect the explicit choice immediately; the scroll listener will refine
@@ -293,6 +292,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
           messageScopeKey={messageScopeKey}
           revision={revision}
           lookupRevision={lookupRevision}
+          onVisibleRangeChange={reportVisibleRange}
           activeTurnStartId={currentTurnAnchor.sessionId === sessionId ? currentTurnAnchor.id : undefined}
           onCopyMessage={onCopyMessage}
           onForkMessage={onForkMessage}
