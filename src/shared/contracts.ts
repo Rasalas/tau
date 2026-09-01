@@ -569,6 +569,8 @@ export interface HostBootstrap {
 export type GlobalHostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
+  /** Published by a host extension for its desktop counterpart; core only routes it. */
+  | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
   | { type: "error"; message: string; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
@@ -629,6 +631,16 @@ export type HostEvent = GlobalHostEvent | ThreadHostEvent;
 export type SubmissionResult =
   | { accepted: true }
   | { accepted: false; message: string };
+
+/** What the host reports about one of its extensions, for settings and diagnostics. */
+export interface HostExtensionSummary {
+  id: string;
+  name: string;
+  active: boolean;
+  commands: string[];
+  /** Activation failure, when the extension is known but could not start. */
+  error?: string;
+}
 
 /** A desktop extension compiled by the host, ready for the renderer to import. */
 export interface DesktopExtensionBundle {
@@ -708,31 +720,21 @@ export interface TauDesktopApi {
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
-  getFileTree(path?: string): Promise<FileNode[]>;
-  getChanges(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
-  getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
-  stageFile(path: string): Promise<UiWorkspaceChanges>;
-  unstageFile(path: string): Promise<UiWorkspaceChanges>;
-  stageAll(): Promise<UiWorkspaceChanges>;
-  revertFile(path: string): Promise<UiWorkspaceChanges>;
-  readFile(path: string): Promise<UiFileContent>;
   /** Loads the immutable diff captured for one completed turn. */
   getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   /** Loads one bounded page of files from an immutable turn snapshot pair. */
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
-  commit(message: string, push: boolean): Promise<CommitResult>;
-  push(): Promise<PushResult>;
-  /** Reads metadata for the selected project without changing the active host workspace. */
-  getWorkspaceInfo(cwd?: string): Promise<WorkspaceInfo>;
-  createWorktree(branch: string, baseRef?: string): Promise<HostActionResult>;
-  switchRef(ref: string): Promise<HostActionResult>;
-  listEditors(): Promise<UiEditor[]>;
-  openInEditor(editorId: string, path?: string): Promise<void>;
   /**
    * Compiles the desktop extensions for a workspace. `sharedExports` names what the
    * renderer publishes on `globalThis.__tauShared`, so bundles can bind to it.
    */
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
+  /**
+   * Invokes a command a host extension registered. Host features that are not
+   * part of the core (Git, files, editors, ...) live behind this one channel.
+   */
+  invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  listHostExtensions(): Promise<HostExtensionSummary[]>;
   /** Rebuilds the workbench from source without leaving the app. */
   rebuildWorkbench(): Promise<WorkbenchBuildResult>;
   /** Restarts the app so a rebuilt main process takes effect. */

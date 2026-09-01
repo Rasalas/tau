@@ -6,6 +6,7 @@ import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.j
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost, turnActivityHistoryFromMessages } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { createWorkspaceHostExtension } from "./extensions/workspace-host-extension.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
@@ -54,14 +55,18 @@ describe("workspace metadata scope", () => {
       list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }],
       isHidden: () => false,
     };
-    const host = new PiHost("/known", () => undefined, history as never, false, false);
-    const internals = host as unknown as { gitCoordinator: { getWorkspaceInfo: (cwd: string) => Promise<unknown> } };
+    const host = new PiHost("/known", () => undefined, history as never, false, false, { hostExtensions: [createWorkspaceHostExtension()] });
+    const internals = host as unknown as {
+      gitCoordinator: { getWorkspaceInfo: (cwd: string) => Promise<unknown> };
+      activateHostExtensions(): Promise<void>;
+    };
     const read = vi.fn(async (cwd: string) => ({ root: cwd, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }));
     internals.gitCoordinator.getWorkspaceInfo = read;
+    await internals.activateHostExtensions();
 
-    await host.getWorkspaceInfo("/known/../known");
+    await host.invokeHostExtension("tau.workspace", "workspace-info", { cwd: "/known/../known" });
     expect(read).toHaveBeenCalledWith("/known");
-    await expect(host.getWorkspaceInfo("/not-a-project")).rejects.toThrow("known Tau project");
+    await expect(host.invokeHostExtension("tau.workspace", "workspace-info", { cwd: "/not-a-project" })).rejects.toThrow("known Tau project");
   });
 });
 

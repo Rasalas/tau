@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type {
   DiffLoadOptions,
+  GlobalHostEvent,
   HostSnapshot,
   UiEditor,
   UiFileDiff,
@@ -183,7 +184,24 @@ export type ExtensionOption =
   | { id: string; kind: "toggle"; label: string; defaultValue: boolean }
   | { id: string; kind: "chips"; label: string; values: string[] };
 
+/** The host entry of the same extension package, reached by extension id. */
+export interface HostExtensionClient {
+  /** Invokes a command the host entry registered with `registerCommand`. */
+  invoke(command: string, input?: unknown): Promise<unknown>;
+  /** Events the host entry publishes with `emit`. */
+  onEvent(name: string, listener: (payload: unknown) => void): () => void;
+}
+
+/** How the registry reaches host extensions; the desktop API is the default. */
+export interface HostExtensionBridge {
+  invoke(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+}
+
+export type ExtensionEvent = Extract<GlobalHostEvent, { type: "extension-event" }>;
+
 export interface DesktopExtensionContext {
+  /** This extension's host entry, if the package has one. */
+  host: HostExtensionClient;
   registerPanel(panel: PanelContribution): () => void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
@@ -223,7 +241,17 @@ interface ToolRenderer {
 
 type Owned<T> = T & ContributionOwner;
 
+const desktopApiBridge: HostExtensionBridge = {
+  invoke: (extensionId, command, input) => window.tau
+    ? window.tau.invokeHostExtension(extensionId, command, input)
+    : Promise.reject(new Error("The Electron host is not available.")),
+};
+
 export class ExtensionRegistry {
+  private readonly hostEventListeners = new Map<string, Map<string, Set<(payload: unknown) => void>>>();
+
+  constructor(private readonly hostBridge: HostExtensionBridge = desktopApiBridge) {}
+
   private panels = new Map<string, Owned<PanelContribution>>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
@@ -255,6 +283,19 @@ export class ExtensionRegistry {
     const disposers: Array<() => void> = [];
     const note = (kind: string) => { if (!kinds.includes(kind)) kinds.push(kind); };
     const context: DesktopExtensionContext = {
+      host: {
+        invoke: (command, input) => this.hostBridge.invoke(extension.id, command, input),
+        onEvent: (name, listener) => {
+          const byName = this.hostEventListeners.get(extension.id) ?? new Map<string, Set<(payload: unknown) => void>>();
+          this.hostEventListeners.set(extension.id, byName);
+          const listeners = byName.get(name) ?? new Set<(payload: unknown) => void>();
+          byName.set(name, listeners);
+          listeners.add(listener);
+          const dispose = () => { listeners.delete(listener); };
+          disposers.push(dispose);
+          return dispose;
+        },
+      },
       registerPanel: (panel) => {
         note(panel.label.toLowerCase());
         return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
@@ -390,6 +431,15 @@ export class ExtensionRegistry {
       } catch (error) {
         actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+  }
+
+  /** Routes a host extension event to the desktop entry that subscribed to it. */
+  dispatchExtensionEvent(event: ExtensionEvent): void {
+    const listeners = this.hostEventListeners.get(event.extensionId)?.get(event.name);
+    if (!listeners) return;
+    for (const listener of [...listeners]) {
+      try { listener(event.payload); } catch (error) { console.error(`Extension ${event.extensionId} event handler failed`, error); }
     }
   }
 

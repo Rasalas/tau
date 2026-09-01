@@ -62,3 +62,25 @@ describe("ExtensionRegistry contribution selectors", () => {
     expect(registry.getReviewContributions("historical")).toEqual([]);
   });
 });
+
+describe("ExtensionRegistry host seam", () => {
+  it("scopes host commands and events to the extension that owns them", async () => {
+    const calls: unknown[][] = [];
+    const registry = new ExtensionRegistry({ invoke: async (...args) => { calls.push(args); return "ok"; } });
+    const seen: unknown[] = [];
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.host.onEvent("changed", (payload) => seen.push(payload));
+      void context.host.invoke("changes", { query: {} });
+    } });
+    expect(calls).toEqual([["kit", "changes", { query: {} }]]);
+
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "kit", name: "changed", payload: 1 });
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "other", name: "changed", payload: 2 });
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "kit", name: "other", payload: 3 });
+    expect(seen).toEqual([1]);
+
+    registry.deactivate("kit");
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "kit", name: "changed", payload: 4 });
+    expect(seen).toEqual([1]);
+  });
+});

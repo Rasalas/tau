@@ -105,6 +105,14 @@ import {
   type TimelineEvent,
 } from "./workbench-context";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
+import { WORKSPACE_HOST_EXTENSION_ID, createWorkspaceHostClient } from "../shared/workspace-kit-protocol";
+
+// Workspace Kit's host entry, reached through the generic extension channel.
+// App still orchestrates these calls; moving that orchestration into the kit
+// itself is the next cut described in docs/CORE.md.
+const workspaceKit = createWorkspaceHostClient((command, input) => window.tau
+  ? window.tau.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input)
+  : Promise.reject(new Error("The Electron host is not available.")));
 import {
   TranscriptHistoryController,
   type TranscriptBootstrapRequest,
@@ -1307,7 +1315,7 @@ export default function App() {
       return;
     }
     try {
-      const next = await window.tau.getChanges();
+      const next = await workspaceKit.getChanges();
       if (request === changesRequestRef.current && cwd === activeWorkspaceRef.current) setChanges(next);
     } catch (error) {
       if (request === changesRequestRef.current) setNotice(errorMessage(error));
@@ -1322,8 +1330,8 @@ export default function App() {
     setWorkspaceBusy(true);
     try {
       const next = pendingPath
-        ? await window.tau.getWorkspaceInfo(cwd)
-        : await window.tau.getWorkspaceInfo();
+        ? await workspaceKit.getWorkspaceInfo(cwd)
+        : await workspaceKit.getWorkspaceInfo();
       const currentCwd = pendingNewThreadRef.current?.projectPath ?? activeWorkspaceRef.current;
       if (request === workspaceRequestRef.current && cwd === currentCwd) setWorkspace(next);
     } catch (error) {
@@ -1407,6 +1415,7 @@ export default function App() {
     switch (event.type) {
       case "host-update": applyHostUpdate(event.update); break;
       case "thread-index": applyThreadIndex(event.threadIndex); break;
+      case "extension-event": registry.dispatchExtensionEvent(event); break;
       case "agent-status": {
         // Record the run against its own thread first: a thread keeps its
         // WORKING state while you are reading a different one.
@@ -1689,7 +1698,7 @@ export default function App() {
       }).catch((error) => {
         if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
       });
-      window.tau.listEditors().then(setEditors).catch(() => setEditors([]));
+      workspaceKit.listEditors().then(setEditors).catch(() => setEditors([]));
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
@@ -1771,7 +1780,7 @@ export default function App() {
   }, [activePanel, panels]);
 
   const refreshFiles = useCallback(async () => {
-    if (window.tau) setFileTree((await window.tau.getFileTree()) ?? []);
+    if (window.tau) setFileTree((await workspaceKit.getFileTree()) ?? []);
     else setFileTree([
       { name: "src", path: "/workspace/tau/src", kind: "directory", children: [
         { name: "renderer", path: "/workspace/tau/src/renderer", kind: "directory", children: [
@@ -1785,7 +1794,7 @@ export default function App() {
   }, []);
 
   const loadFiles = useCallback(async (path: string): Promise<FileNode[]> => {
-    const children = window.tau ? ((await window.tau.getFileTree(path)) ?? []) : [];
+    const children = window.tau ? ((await workspaceKit.getFileTree(path)) ?? []) : [];
     setFileTree((current) => {
       const attach = (nodes: FileNode[]): FileNode[] => nodes.map((node) => node.path === path
         ? { ...node, children }
@@ -1814,10 +1823,10 @@ export default function App() {
     setReview({ path: target, primaryPush: pushPrimary });
   }, [changes.files, refreshChanges, workspace?.upstream]);
   const loadFile = useCallback(async (path: string): Promise<UiFileContent> => window.tau
-    ? window.tau.readFile(path)
+    ? workspaceKit.readFile(path)
     : { path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require the Electron host." }, []);
   const loadDiff = useCallback(async (path: string, options?: DiffLoadOptions) => window.tau
-    ? window.tau.getFileDiff(path, options)
+    ? workspaceKit.getFileDiff(path, options)
     : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }, []);
 
   const openCheckpointReview = useCallback((checkpointId: string, path?: string) => {
@@ -2121,7 +2130,7 @@ export default function App() {
     if (!editorId) { setNotice("No supported editor found on PATH"); return; }
     if (!requireHost("Opening an editor")) return;
     try {
-      await window.tau!.openInEditor(editorId, path);
+      await workspaceKit.openInEditor(editorId, path);
     } catch (error) {
       setNotice(errorMessage(error));
     }
@@ -2132,7 +2141,7 @@ export default function App() {
     if (!requireHost("Committing")) return;
     setCommitting(true);
     try {
-      const result = await window.tau!.commit(message, push);
+      const result = await workspaceKit.commit(message, push);
       setChanges(result.changes);
       setNotice(result.detail);
       addEvent("git.commit", result.detail);
@@ -2147,28 +2156,28 @@ export default function App() {
   const stageFile = useCallback(async (path: string) => {
     if (!allowWorkspaceAction("Staging changes")) return;
     if (!requireHost("Staging changes")) return;
-    try { setChanges(await window.tau!.stageFile(path)); }
+    try { setChanges(await workspaceKit.stageFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
   }, [allowWorkspaceAction, requireHost]);
 
   const unstageFile = useCallback(async (path: string) => {
     if (!allowWorkspaceAction("Unstaging changes")) return;
     if (!requireHost("Unstaging changes")) return;
-    try { setChanges(await window.tau!.unstageFile(path)); }
+    try { setChanges(await workspaceKit.unstageFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
   }, [allowWorkspaceAction, requireHost]);
 
   const stageAll = useCallback(async () => {
     if (!allowWorkspaceAction("Staging changes")) return;
     if (!requireHost("Staging changes")) return;
-    try { setChanges(await window.tau!.stageAll()); }
+    try { setChanges(await workspaceKit.stageAll()); }
     catch (error) { setNotice(errorMessage(error)); }
   }, [allowWorkspaceAction, requireHost]);
 
   const revertFile = useCallback(async (path: string) => {
     if (!allowWorkspaceAction("Reverting changes")) return;
     if (!requireHost("Reverting changes")) return;
-    try { setChanges(await window.tau!.revertFile(path)); }
+    try { setChanges(await workspaceKit.revertFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
   }, [allowWorkspaceAction, requireHost]);
 
@@ -2177,7 +2186,7 @@ export default function App() {
     if (!requireHost("Pushing")) return;
     setCommitting(true);
     try {
-      const result = await window.tau!.push();
+      const result = await workspaceKit.push();
       setNotice(result.detail);
       addEvent("git.push", result.detail);
       await Promise.all([refreshChanges(), refreshWorkspace()]);
@@ -3058,8 +3067,8 @@ export default function App() {
       onOpenWorktree={(path) => path === workspaceCwd
         ? Promise.resolve(true)
         : runWorkspaceAction(() => window.tau!.openProject(path))}
-      onCreateWorktree={(branch, baseRef) => runWorkspaceAction(() => window.tau!.createWorktree(branch, baseRef))}
-      onSwitchRef={(ref) => runWorkspaceAction(() => window.tau!.switchRef(ref))}
+      onCreateWorktree={(branch, baseRef) => runWorkspaceAction(() => workspaceKit.createWorktree(branch, baseRef))}
+      onSwitchRef={(ref) => runWorkspaceAction(() => workspaceKit.switchRef(ref))}
     />
   );
 
@@ -3148,7 +3157,7 @@ export default function App() {
                         readOnly={Boolean(review.checkpointId)}
                         checkpointTitle={review.checkpointId ? "Turn changes" : undefined}
                         workspaceKey={snapshot?.cwd}
-                        loadChanges={!review.checkpointId && window.tau ? (query) => window.tau!.getChanges(query) : undefined}
+                        loadChanges={!review.checkpointId && window.tau ? (query) => workspaceKit.getChanges(query) : undefined}
                         loadFiles={review.checkpointId && window.tau
                           ? (cursor, limit) => window.tau!.getTurnFiles(
                             review.sessionId ?? snapshot?.sessionId ?? "",
@@ -3167,7 +3176,7 @@ export default function App() {
                               options,
                             );
                           }
-                          return window.tau.getFileDiff(path, options);
+                          return workspaceKit.getFileDiff(path, options);
                         }}
                       />
                     </Suspense>

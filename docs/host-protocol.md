@@ -62,3 +62,7 @@ host marks metadata-free legacy windows as `unknown`, so the workbench never
 presents that bounded view as the beginning of history and reports that older
 history availability cannot be determined. Unknown commands are rejected
 explicitly so a client cannot mistake an unsupported extension for an empty page.
+
+## Host extension channel
+
+Host features that are not core do not get an IPC entry each. A host extension registers commands under its id, and the renderer reaches them through one call, `invokeHostExtension(extensionId, command, input)`. Input is untrusted at the host: every command re-reads its fields. A host extension publishes to its desktop counterpart with the `extension-event` global event, `{ extensionId, name, payload }`; core routes it by id and otherwise ignores it. Which commands exist is the extension package's own contract (for Workspace Kit, `src/shared/workspace-kit-protocol.ts`), never part of this protocol.

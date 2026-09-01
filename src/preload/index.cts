@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DiffLoadOptions, HostEvent, TauDesktopApi, WorkspaceChangesQuery } from "../shared/contracts.js";
+import type { HostEvent, TauDesktopApi } from "../shared/contracts.js";
 import { isHostUpdate } from "../shared/host-protocol.js";
 
 const api: TauDesktopApi = {
@@ -41,24 +41,11 @@ const api: TauDesktopApi = {
   openProject: (path) => ipcRenderer.invoke("tau:open-project", path),
   removeProject: (path) => ipcRenderer.invoke("tau:remove-project", path),
   cloneProject: (repositoryUrl) => ipcRenderer.invoke("tau:clone-project", repositoryUrl),
-  getFileTree: (path) => ipcRenderer.invoke("tau:file-tree", path),
-  getChanges: (query?: WorkspaceChangesQuery) => ipcRenderer.invoke("tau:changes", query),
-  getFileDiff: (path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:file-diff", path, options),
-  stageFile: (path) => ipcRenderer.invoke("tau:stage-file", path),
-  unstageFile: (path) => ipcRenderer.invoke("tau:unstage-file", path),
-  stageAll: () => ipcRenderer.invoke("tau:stage-all"),
-  revertFile: (path) => ipcRenderer.invoke("tau:revert-file", path),
-  readFile: (path) => ipcRenderer.invoke("tau:read-file", path),
-  getTurnFileDiff: (sessionId, checkpointId, path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:turn-file-diff", sessionId, checkpointId, path, options),
+  getTurnFileDiff: (sessionId, checkpointId, path, options) => ipcRenderer.invoke("tau:turn-file-diff", sessionId, checkpointId, path, options),
   getTurnFiles: (sessionId, checkpointId, cursor, limit) => ipcRenderer.invoke("tau:turn-files", sessionId, checkpointId, cursor, limit),
-  commit: (message, push) => ipcRenderer.invoke("tau:commit", message, push),
-  push: () => ipcRenderer.invoke("tau:push"),
-  getWorkspaceInfo: (cwd) => ipcRenderer.invoke("tau:workspace-info", cwd),
-  createWorktree: (branch, baseRef) => ipcRenderer.invoke("tau:create-worktree", branch, baseRef),
-  switchRef: (ref) => ipcRenderer.invoke("tau:switch-ref", ref),
-  listEditors: () => ipcRenderer.invoke("tau:list-editors"),
-  openInEditor: (editorId, path) => ipcRenderer.invoke("tau:open-in-editor", editorId, path),
   loadDesktopExtensions: (cwd, sharedExports) => ipcRenderer.invoke("tau:desktop-extensions", cwd, sharedExports),
+  invokeHostExtension: (extensionId, command, input) => ipcRenderer.invoke("tau:host-extension", extensionId, command, input),
+  listHostExtensions: () => ipcRenderer.invoke("tau:host-extensions"),
   rebuildWorkbench: () => ipcRenderer.invoke("tau:rebuild-workbench"),
   relaunchWorkbench: () => ipcRenderer.invoke("tau:relaunch-workbench"),
   onHostEvent: (listener) => {

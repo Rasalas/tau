@@ -5,6 +5,7 @@ import type { ClientTurnIdentity, HostEvent, TauDesktopApi, UiToolRun } from "..
 import App from "./App";
 import { preferences } from "./preferences";
 import { writeCachedTurnActivity } from "./turn-activity";
+import { workspaceHostStub } from "./test-support/workspace-host-stub";
 
 afterEach(cleanup);
 
@@ -30,10 +31,12 @@ describe("last-turn activity", () => {
         project: { cwd: "/project" },
       }),
       onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
-      listEditors: async () => [],
-      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
-      getFileTree: async () => [],
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
       setAccessLevel: async () => {},
     } as unknown as TauDesktopApi;
   });
@@ -274,11 +277,11 @@ describe("last-turn activity", () => {
         },
       };
     };
-    window.tau!.getChanges = async () => ({
+    window.tau!.invokeHostExtension = workspaceHostStub({ getChanges: async () => ({
       files: [{ path: "src/App.tsx", name: "App.tsx", directory: "src", status: "modified", added: 4, removed: 1 }],
       added: 4,
       removed: 1,
-    });
+    }) });
 
     const view = render(<App />);
     await screen.findByText("1 changed file");

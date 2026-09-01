@@ -15,12 +15,14 @@ import { readBoundedImagePreview } from "./image-preview.js";
 import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { rebuildWorkbench } from "./workbench-build.js";
+import { bundledHostExtensions } from "./extensions/index.js";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const runtimeAdapter = selectRuntimeAdapter(undefined, { safeMode });
+const hostOptions = { runtimeAdapter, hostExtensions: safeMode ? [] : bundledHostExtensions() };
 const execFileAsync = promisify(execFile);
 
 async function rendererImagePreview(path: string) {
@@ -123,7 +125,7 @@ async function requireHostReady(): Promise<PiHost> {
 function installIpc(): void {
   ipcMain.handle("tau:bootstrap", async () => {
     if (!host) {
-      host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, { runtimeAdapter });
+      host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
       host.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
       hostReady = host.start();
       return hostReady;
@@ -174,25 +176,15 @@ function installIpc(): void {
   });
   ipcMain.handle("tau:read-image-preview", async (_event, path: string) => rendererImagePreview(path));
   ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean, expectedSessionId?: string) => (await requireHostReady()).generateThreadTitle(provider, modelId, force, expectedSessionId));
-  ipcMain.handle("tau:file-tree", async (_event, path?: string) => (await requireHostReady()).getFileTree(path));
-  ipcMain.handle("tau:changes", async (_event, query?: import("../shared/contracts.js").WorkspaceChangesQuery) => (await requireHostReady()).getChanges(query));
-  ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));
-  ipcMain.handle("tau:stage-file", async (_event, path: string) => (await requireHostReady()).stageFile(path));
-  ipcMain.handle("tau:unstage-file", async (_event, path: string) => (await requireHostReady()).unstageFile(path));
-  ipcMain.handle("tau:stage-all", async () => (await requireHostReady()).stageAll());
-  ipcMain.handle("tau:revert-file", async (_event, path: string) => (await requireHostReady()).revertFile(path));
-  ipcMain.handle("tau:read-file", async (_event, path: string) => (await requireHostReady()).readFile(path));
   ipcMain.handle("tau:turn-file-diff", async (_event, sessionId: string, checkpointId: string, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) =>
     (await requireHostReady()).getTurnFileDiff(sessionId, checkpointId, path, options));
   ipcMain.handle("tau:turn-files", async (_event, sessionId: string, checkpointId: string, cursor?: string, limit?: number) =>
     (await requireHostReady()).getTurnFiles(sessionId, checkpointId, cursor, limit));
-  ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => (await requireHostReady()).commit(message, push));
-  ipcMain.handle("tau:push", async () => (await requireHostReady()).push());
-  ipcMain.handle("tau:workspace-info", async (_event, cwd?: string) => (await requireHostReady()).getWorkspaceInfo(cwd));
-  ipcMain.handle("tau:create-worktree", async (_event, branch: string, baseRef?: string) => (await requireHostReady()).createWorktree(branch, baseRef));
-  ipcMain.handle("tau:switch-ref", async (_event, ref: string) => (await requireHostReady()).switchRef(ref));
-  ipcMain.handle("tau:list-editors", async () => (await requireHostReady()).listEditors());
-  ipcMain.handle("tau:open-in-editor", async (_event, editorId: string, path?: string) => (await requireHostReady()).openInEditor(editorId, path));
+  // Host extensions reach the renderer through this single channel; core does
+  // not grow an IPC entry per feature.
+  ipcMain.handle("tau:host-extension", async (_event, extensionId: string, command: string, input?: unknown) =>
+    (await requireHostReady()).invokeHostExtension(extensionId, command, input));
+  ipcMain.handle("tau:host-extensions", async () => (await requireHostReady()).listHostExtensions());
   ipcMain.handle("tau:list-directories", async (_event, path?: string) => listDirectories(path));
   ipcMain.handle("tau:desktop-extensions", async (_event, cwd: string, sharedExports: Record<string, string[]>) =>
     loadDesktopExtensions(cwd, getAgentDir(), { sharedExports }));
@@ -238,7 +230,7 @@ app.whenReady().then(async () => {
   await projectHistory.load();
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
-  host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, { runtimeAdapter });
+  host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
   hostReady = host.start();
   installIpc();
   await createWindow();

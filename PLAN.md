@@ -34,6 +34,21 @@ Planned work:
 
 Completion check: a user can work across several projects and threads for a week without reaching for the Pi TUI for a missing core interaction, and Workspace Kit can be removed without breaking Tau core.
 
+## Phase 1b: shrink the core
+
+The prototype proved the desktop seam, but core still owns the behavior behind most features. [docs/CORE.md](docs/CORE.md) defines what "Pi in a window, plus threads" includes; everything else moves out in this order.
+
+Planned work, in order:
+
+1. write down the core (done: `docs/CORE.md`) and make safe mode the proof of it
+2. add a host-side extension seam so a package can own host commands and events (done: ADR 0006, `src/main/host-extensions.ts`)
+3. move features out by size: Git and workspace (done: `src/main/extensions/workspace-host-extension.ts`), then turn checkpoints, title generation, service tier, questionnaire, computer use, editors, clone, export; the Claude Code backend stays a supported runtime, keeps its ADR 0005 seam, and its implementation becomes its own package
+4. add the renderer contribution points the moved features need: real keybindings, slash commands, regions next to the transcript and composer, a status line, host event subscriptions, extension state, so the orchestration in `App.tsx` can follow the views into the kits
+5. close the gaps to the Pi terminal: render thinking, tree/fork/clone, map `ctx.ui` status, widget, footer and notify onto workbench slots, honor `registerShortcut` and `keybindings.json`, register the hard-coded slash commands as Pi commands
+6. decide whether the access gate is core or a default-on extension
+
+Completion check: `start:safe` shows exactly the core listed in `docs/CORE.md`; every bundled kit can be removed on both the host and the desktop side without editing core; no feature name appears in `src/shared/contracts.ts` or `src/main/index.ts`.
+
 ## Phase 2: load extension packages dynamically
 
 Replace the bundled-only registry with a package loader.

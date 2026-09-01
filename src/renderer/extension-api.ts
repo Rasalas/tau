@@ -15,6 +15,9 @@ export { preferences } from "./preferences";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
+  HostExtensionClient,
+  HostExtensionBridge,
+  ExtensionEvent,
   WorkbenchActions,
   PanelContribution,
   PanelProps,

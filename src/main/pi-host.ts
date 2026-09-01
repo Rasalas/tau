@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { readdir, realpath, rm, stat, utimes } from "node:fs/promises";
+import { realpath, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
@@ -24,20 +24,16 @@ import type {
   ExtensionUiPrompt,
   UiQuestionnaireQuestion,
   ServiceTier,
-  CommitResult,
   DiffLoadOptions,
-  FileNode,
   HostBootstrap,
   HostEvent,
+  HostExtensionSummary,
   ThreadHostEvent,
   HostSnapshot,
   PreparedThreadCapability,
-  PushResult,
   ShellActionResult,
   ThreadIndexSnapshot,
   UiComposerCommand,
-  UiEditor,
-  UiFileContent,
   UiFileDiff,
   UiMessage,
   UiMessageImage,
@@ -53,8 +49,6 @@ import type {
   UiTurnActivityEntry,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
-  WorkspaceChangesQuery,
-  WorkspaceInfo,
   NewThreadRequestId,
   ThreadBackendKind,
   PreparedPrompt,
@@ -91,9 +85,9 @@ import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
 import { createQuestionnaireExtension } from "./questionnaire-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
-import { readBoundedFileContent } from "./file-content.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
@@ -180,8 +174,6 @@ const CLAUDE_SESSION_PATH_PREFIX = "tau-claude-session:";
 const SHUTDOWN_ABORT_MS = 3_000;
 /** How long a typed answer waits for the extension's follow-up input prompt. */
 const TYPED_ANSWER_TTL_MS = 10_000;
-const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
-const VISIBLE_DOT_DIRECTORIES = new Set([".pi", ".scratch"]);
 
 function claudeThreadPath(threadId: string): string {
   return `${CLAUDE_SESSION_PATH_PREFIX}${threadId}`;
@@ -287,6 +279,8 @@ export interface PiHostOptions {
   defaultBackendKind?: ThreadBackendKind;
   /** Commands available to the non-Pi backend; Pi discovers its own resources. */
   runtimeCommands?: readonly UiComposerCommand[];
+  /** Host entries of desktop kits; activated at start, before the first runtime opens. */
+  hostExtensions?: readonly HostExtension[];
 }
 
 export function mapMessage(message: unknown, index: number, options: MessageMappingOptions = {}): UiMessage | undefined {
@@ -1045,6 +1039,8 @@ export class PiHost {
   private extensionCount = 0;
   private readonly lifecycleMetrics = new HostLifecycleInstrumentation();
   private readonly gitCoordinator = new GitCoordinator({ onSubprocess: () => this.lifecycleMetrics.countSubprocess() });
+  private readonly hostExtensions: HostExtensionRegistry;
+  private readonly pendingHostExtensions: readonly HostExtension[];
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
   private readonly threads = new ThreadRuntimeRegistry<ThreadRuntime>({
@@ -1234,6 +1230,8 @@ export class PiHost {
       : new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(this.agentDir) });
     this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? configured.id;
     this.runtimeCommands = options.runtimeCommands ?? [];
+    this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
+    this.hostExtensions = new HostExtensionRegistry(this.hostExtensionServices(), (event) => this.emit(event));
     markTauHostRuntime();
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
@@ -1244,6 +1242,32 @@ export class PiHost {
         this.emit({ type: "tool-update", sessionId: this.toolOwners.get(id) ?? "", id, output });
       }
     });
+  }
+
+  /** What a host extension may ask of core: the workspace, project identity, Git cache, logging. */
+  private hostExtensionServices(): HostExtensionServices {
+    return {
+      cwd: () => this.cwd,
+      safeMode: this.safeMode,
+      log: (label, detail) => this.log(label, detail),
+      openWorkspace: (path) => this.setWorkspace(path),
+      knownWorkspacePath: (path) => this.knownWorkspacePath(path),
+      projectName: (cwd) => this.loadProjectName(cwd),
+      rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
+      git: this.gitCoordinator,
+    };
+  }
+
+  private async activateHostExtensions(): Promise<void> {
+    for (const extension of this.pendingHostExtensions) await this.hostExtensions.activate(extension);
+  }
+
+  invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown> {
+    return this.hostExtensions.invoke(extensionId, command, input);
+  }
+
+  listHostExtensions(): HostExtensionSummary[] {
+    return this.hostExtensions.summaries();
   }
 
   private adapterFor(kind: ThreadBackendKind): AgentRuntimeAdapter {
@@ -1372,6 +1396,7 @@ export class PiHost {
     return this.runLifecycle(async () => {
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
+        await this.activateHostExtensions();
         await this.rememberProject(this.cwd);
         // Classify saved projects while the runtime opens. Each answer is a
         // single git call, so it is ready long before bootstrap reads the list.
@@ -3323,51 +3348,6 @@ export class PiHost {
     return { ...this.snapshotSync(models), branch: this.branchFor(this.cwd) };
   }
 
-  async getFileTree(path?: string): Promise<FileNode[]> {
-    const root = path ?? this.cwd;
-    await assertWorkspacePath(this.cwd, root);
-    return this.readTree(root, 0, { count: 0 });
-  }
-
-  async getChanges(query: WorkspaceChangesQuery = {}): Promise<UiWorkspaceChanges> {
-    if (query.scope === "branch") return workspaceGit.getBranchChanges(this.cwd, query);
-    return this.gitCoordinator.getChanges(this.cwd);
-  }
-
-  async getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff> {
-    await assertWorkspacePath(this.cwd, path);
-    return workspaceGit.getFileDiff(this.cwd, path, options);
-  }
-
-  async stageFile(path: string): Promise<UiWorkspaceChanges> {
-    await workspaceGit.stageFile(this.cwd, path);
-    this.gitCoordinator.invalidate(this.cwd);
-    return this.gitCoordinator.getChanges(this.cwd);
-  }
-
-  async unstageFile(path: string): Promise<UiWorkspaceChanges> {
-    await workspaceGit.unstageFile(this.cwd, path);
-    this.gitCoordinator.invalidate(this.cwd);
-    return this.gitCoordinator.getChanges(this.cwd);
-  }
-
-  async stageAll(): Promise<UiWorkspaceChanges> {
-    await workspaceGit.stageAll(this.cwd);
-    this.gitCoordinator.invalidate(this.cwd);
-    return this.gitCoordinator.getChanges(this.cwd);
-  }
-
-  async revertFile(path: string): Promise<UiWorkspaceChanges> {
-    await workspaceGit.revertFile(this.cwd, path);
-    this.gitCoordinator.invalidate(this.cwd);
-    return this.gitCoordinator.getChanges(this.cwd);
-  }
-
-  async readFile(path: string): Promise<UiFileContent> {
-    await assertWorkspacePath(this.cwd, path);
-    return readBoundedFileContent(resolve(this.cwd, path));
-  }
-
   /**
    * Returns the immutable diff captured when a completed turn settled. This
    * deliberately never falls back to the live workspace: an old card must not
@@ -3430,27 +3410,6 @@ export class PiHost {
     return thread.checkpointFeature.historicalFiles(thread.cwd, checkpoint, cursor, limit);
   }
 
-  async commit(message: string, push: boolean): Promise<CommitResult> {
-    const project = this.cwd;
-    try {
-      const result = await workspaceGit.commit(project, message, push, async (cwd) => {
-        this.gitCoordinator.invalidate(cwd);
-        return this.gitCoordinator.getChanges(cwd);
-      });
-      this.gitCoordinator.invalidate(project);
-      this.log("git.commit", result.detail);
-      return result;
-    } catch (error) {
-      this.gitCoordinator.invalidate(project);
-      throw error;
-    }
-  }
-
-  async getWorkspaceInfo(cwd = this.cwd): Promise<WorkspaceInfo> {
-    const canonicalCwd = await this.knownWorkspacePath(cwd);
-    return this.gitCoordinator.getWorkspaceInfo(canonicalCwd);
-  }
-
   /** Workspace metadata is only exposed for projects already admitted by the host. */
   private async knownWorkspacePath(cwd: string): Promise<string> {
     const requested = await realpath(cwd).catch(() => resolve(cwd));
@@ -3467,69 +3426,6 @@ export class PiHost {
     throw new Error("Workspace is not a known Tau project.");
   }
 
-  async push(): Promise<PushResult> {
-    const project = this.cwd;
-    try {
-      const result = await workspaceGit.push(project);
-      this.gitCoordinator.invalidate(project);
-      this.log("git.push", result.detail);
-      return result;
-    } catch (error) {
-      this.gitCoordinator.invalidate(project);
-      throw error;
-    }
-  }
-
-  async createWorktree(branch: string, baseRef?: string): Promise<HostActionResult> {
-    const activationEpoch = this.beginActivation();
-    return this.runLifecycle(async () => {
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
-      const project = this.cwd;
-      try {
-        const destination = await workspaceGit.createWorktree(
-          project,
-          branch,
-          baseRef,
-          (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd),
-        );
-        this.knownProjectNames.set(destination, await this.loadProjectName(project));
-        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-        this.log("git.worktree.added", destination);
-        return this.setWorkspaceNow(destination, activationEpoch);
-      } catch (error) {
-        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-        throw error;
-      }
-    });
-  }
-
-  async switchRef(ref: string): Promise<HostActionResult> {
-    const activationEpoch = this.beginActivation();
-    return this.runLifecycle(async () => {
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
-      const project = this.cwd;
-      try {
-        const target = await workspaceGit.resolveRefTarget(project, ref, (cwd) => this.gitCoordinator.getWorkspaceInfo(cwd));
-        this.log("git.ref.switch", `${ref} → ${target}`);
-        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-        if (target === this.cwd) return this.activeUpdates(activationEpoch);
-        return this.setWorkspaceNow(target, activationEpoch);
-      } catch (error) {
-        this.gitCoordinator.invalidate(project, ["branch", "status", "workspace"]);
-        throw error;
-      }
-    });
-  }
-
-  async listEditors(): Promise<UiEditor[]> {
-    return workspaceGit.listEditors();
-  }
-
-  async openInEditor(editorId: string, path?: string): Promise<void> {
-    if (path) await assertWorkspacePath(this.cwd, path);
-    await workspaceGit.openInEditor(this.cwd, editorId, path);
-  }
-
   async dispose(): Promise<void> {
     return this.runLifecycle(async () => {
       this.clientTurns.clear();
@@ -3543,6 +3439,7 @@ export class PiHost {
       this.pendingShellUpdates.clear();
       const teardownErrors: unknown[] = [];
       this.detachBridge();
+      try { await this.hostExtensions.dispose(); } catch (error) { teardownErrors.push(error); }
       try { await this.discardSpare(); } catch (error) { teardownErrors.push(error); }
       const opening = [...this.openingThreads.values()];
       this.openingThreads.clear();
@@ -5728,25 +5625,6 @@ export class PiHost {
         ? ["status", "branch", "workspace"]
         : ["status", "workspace"]);
     }
-  }
-
-  private async readTree(path: string, depth: number, budget: { count: number }): Promise<FileNode[]> {
-    if (depth > 4 || budget.count > 320) return [];
-    const entries = await readdir(path, { withFileTypes: true });
-    const nodes: FileNode[] = [];
-    for (const entry of entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))) {
-      if (budget.count++ > 320) break;
-      if (entry.name.startsWith(".") && !VISIBLE_DOT_DIRECTORIES.has(entry.name)) continue;
-      if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-      const fullPath = join(path, entry.name);
-      const node: FileNode = {
-        name: entry.name,
-        path: fullPath,
-        kind: entry.isDirectory() ? "directory" : "file",
-      };
-      nodes.push(node);
-    }
-    return nodes;
   }
 
   private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string, thread?: ThreadRuntime): void {
