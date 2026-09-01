@@ -149,6 +149,34 @@ export class ComposerScopeStore {
     }
   }
 
+  /**
+   * Transfer only editor state while a not-yet-submitted draft changes
+   * projects. Submission handles belong to the old semantic scope and must
+   * never make a fresh draft appear busy.
+   */
+  transferDraft(from: ComposerScope, to: ComposerScope): void {
+    if (from === to) return;
+    const source = this.states.get(from);
+    if (!source) return;
+    const destination = this.states.get(to);
+    if (destination && (destination.draft !== "" || destination.attachments.length > 0)) return;
+    const attachmentError = source.error?.kind === "attachment" ? source.error : undefined;
+    this.states.set(to, {
+      ...source,
+      attachments: [...source.attachments],
+      error: attachmentError,
+      pendingSubmissions: new Map(),
+      submissionBusy: false,
+    });
+    this.states.delete(from);
+    this.snapshots.delete(from);
+    this.snapshots.delete(to);
+    this.attachmentSnapshots.delete(from);
+    this.attachmentSnapshots.delete(to);
+    for (const scopeRef of this.operationScopeRefs) if (scopeRef.scope === from) scopeRef.scope = to;
+    this.notify(to);
+  }
+
   createScopeReference(scope: ComposerScope): ComposerScopeReference {
     const reference = { scope };
     this.operationScopeRefs.add(reference);

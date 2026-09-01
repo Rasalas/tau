@@ -708,7 +708,8 @@ export interface TauDesktopApi {
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
-  getWorkspaceInfo(): Promise<WorkspaceInfo>;
+  /** Reads metadata for the selected project without changing the active host workspace. */
+  getWorkspaceInfo(cwd?: string): Promise<WorkspaceInfo>;
   createWorktree(branch: string, baseRef?: string): Promise<HostActionResult>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;

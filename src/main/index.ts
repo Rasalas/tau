@@ -188,7 +188,7 @@ function installIpc(): void {
     (await requireHostReady()).getTurnFiles(sessionId, checkpointId, cursor, limit));
   ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => (await requireHostReady()).commit(message, push));
   ipcMain.handle("tau:push", async () => (await requireHostReady()).push());
-  ipcMain.handle("tau:workspace-info", async () => (await requireHostReady()).getWorkspaceInfo());
+  ipcMain.handle("tau:workspace-info", async (_event, cwd?: string) => (await requireHostReady()).getWorkspaceInfo(cwd));
   ipcMain.handle("tau:create-worktree", async (_event, branch: string, baseRef?: string) => (await requireHostReady()).createWorktree(branch, baseRef));
   ipcMain.handle("tau:switch-ref", async (_event, ref: string) => (await requireHostReady()).switchRef(ref));
   ipcMain.handle("tau:list-editors", async () => (await requireHostReady()).listEditors());

@@ -1026,7 +1026,10 @@ export default function App() {
   noticeRef.current = setNotice;
   eventRef.current = addEvent;
 
-  const workspaceCwd = safeMode ? undefined : snapshot?.cwd;
+  // A prepared thread is not a runtime session yet, so its project is the
+  // only trustworthy workspace identity while it is on screen. In
+  // particular, do not expose the last real thread's worktree in the chrome.
+  const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
   useEffect(() => {
     if (!workspaceCwd || !window.tau) return;
     void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
@@ -1036,6 +1039,10 @@ export default function App() {
     if (!window.tau) return;
     const request = ++changesRequestRef.current;
     const cwd = activeWorkspaceRef.current;
+    if (pendingNewThreadRef.current?.projectPath && pendingNewThreadRef.current.projectPath !== cwd) {
+      setChanges(NO_CHANGES);
+      return;
+    }
     try {
       const next = await window.tau.getChanges();
       if (request === changesRequestRef.current && cwd === activeWorkspaceRef.current) setChanges(next);
@@ -1047,10 +1054,14 @@ export default function App() {
   const refreshWorkspace = useCallback(async () => {
     if (!window.tau) return;
     const request = ++workspaceRequestRef.current;
-    const cwd = activeWorkspaceRef.current;
+    const pendingPath = pendingNewThreadRef.current?.projectPath;
+    const cwd = pendingPath ?? activeWorkspaceRef.current;
     try {
-      const next = await window.tau.getWorkspaceInfo();
-      if (request === workspaceRequestRef.current && cwd === activeWorkspaceRef.current) setWorkspace(next);
+      const next = pendingPath
+        ? await window.tau.getWorkspaceInfo(cwd)
+        : await window.tau.getWorkspaceInfo();
+      const currentCwd = pendingNewThreadRef.current?.projectPath ?? activeWorkspaceRef.current;
+      if (request === workspaceRequestRef.current && cwd === currentCwd) setWorkspace(next);
     } catch (error) {
       if (request === workspaceRequestRef.current) setNotice(errorMessage(error));
     }
@@ -1642,10 +1653,16 @@ export default function App() {
 
   const createThreadInProject = useCallback((project: UiProject) => {
     const nextDraft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
-    const sourceScope = activeDraftKey;
     const destinationScope = draftKey(undefined, nextDraft);
-    const sourceSnapshot = sourceScope ? composerScopeStore.getSnapshot(sourceScope) : undefined;
-    if (sourceScope && destinationScope) composerScopeStore.moveScope(sourceScope, destinationScope);
+    const sourceSnapshot = pendingNewThread && activeDraftKey
+      ? composerScopeStore.getSnapshot(activeDraftKey)
+      : undefined;
+    // Only another unsubmitted draft may carry editor state into this new
+    // scope. A real thread's scope can still own a pending submission; moving
+    // it would make the fresh draft inherit that lifecycle and stay disabled.
+    if (pendingNewThread && activeDraftKey && destinationScope) {
+      composerScopeStore.transferDraft(activeDraftKey, destinationScope);
+    }
     // A new project is a new draft scope, but changing projects before the
     // first send should not discard what the user already composed. Attachments
     // stay memory-only and move with the scope; text also survives a reload.
@@ -1653,7 +1670,7 @@ export default function App() {
     beginNewThread(draft);
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [activeDraftKey, beginNewThread, composerScopeStore]);
+  }, [activeDraftKey, beginNewThread, composerScopeStore, pendingNewThread]);
 
   const browseForNewThread = useCallback(async () => {
     setNewThreadOpen(false);
@@ -2667,7 +2684,7 @@ export default function App() {
       onCompactContext={() => void compactContext()}
       workspace={workspace}
       workspaceBusy={workspaceBusy}
-      onOpenWorktree={(path) => path === snapshot?.cwd
+      onOpenWorktree={(path) => path === workspaceCwd
         ? Promise.resolve(true)
         : runWorkspaceAction(() => window.tau!.openProject(path))}
       onCreateWorktree={(branch, baseRef) => runWorkspaceAction(() => window.tau!.createWorktree(branch, baseRef))}
@@ -2804,7 +2821,7 @@ export default function App() {
             <ObservatoryContext.Provider value={observatoryContextValue}>
           <div className={shellClassName}>
             <TitleBar
-              cwd={snapshot?.cwd}
+              cwd={workspaceCwd}
               editors={editors}
               activeEditor={activeEditor}
               changes={changes}

@@ -13,6 +13,7 @@ vi.mock("./components/Message", () => ({
 }));
 
 import App, { ComposerHost, isCurrentTranscriptSubmission, latestActivityAnchor, measureComposerGeometry, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import { createNewThreadDraft, writeNewThreadDraft } from "./draft-store";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 
@@ -316,6 +317,105 @@ describe("App render isolation", () => {
     expect(screen.getByPlaceholderText(/Direct the agent/u)).toBe(composer);
     expect(document.activeElement).toBe(composer);
     expect(composer.closest(".conversation-composer-host")?.classList.contains("docked")).toBe(true);
+  });
+
+  it("starts a fresh draft while an earlier real-thread submission is pending", async () => {
+    let resolveOld!: () => void;
+    const sendPrompt = vi.fn(() => new Promise<void>((resolve) => { resolveOld = resolve; }));
+    const newSession = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [{
+        version: 1 as const,
+        type: "thread-detail" as const,
+        detail: {
+          sessionId: "new-session",
+          messages: [{ id: "new-prompt", role: "user" as const, text: "new draft", timestamp: Date.now() }],
+          isStreaming: false,
+          activeTools: [],
+        },
+      }],
+      submission: { accepted: true as const },
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [
+          { path: "/project", name: "project", lastOpenedAt: 2 },
+          { path: "/other", name: "other", lastOpenedAt: 1 },
+        ], sessions: [{ id: "session", path: "/session.jsonl", title: "Existing thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 }] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      sendPrompt,
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    const oldComposer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(oldComposer, { target: { value: "old in-flight prompt" } });
+    fireEvent.keyDown(oldComposer, { key: "Enter" });
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Existing thread" }));
+    fireEvent.click(await screen.findByText("New thread"));
+    const picker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(picker).getByRole("option", { name: /other/u }));
+    const draftComposer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    expect(draftComposer.value).toBe("");
+    fireEvent.change(draftComposer, { target: { value: "new draft" } });
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+
+    fireEvent.keyDown(draftComposer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "new draft",
+      [],
+      "/other",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
+    await waitFor(() => expect(screen.getByText("new draft")).toBeTruthy());
+    await waitFor(() => expect(draftComposer.value).toBe(""));
+    resolveOld();
+  });
+
+  it("keeps restored draft chrome scoped to its pending project", async () => {
+    writeNewThreadDraft(localStorage, createNewThreadDraft({ projectPath: "/other", projectName: "other" }));
+    const getWorkspaceInfo = vi.fn(async (cwd?: string) => cwd === "/other"
+      ? { root: "/other", isRepo: true, isDirty: false, branch: "main", worktrees: [], refs: [], worktreeParent: "/" }
+      : { root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] });
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [
+          { path: "/project", name: "project", lastOpenedAt: 2 },
+          { path: "/other", name: "other", lastOpenedAt: 1 },
+        ], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo,
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
+    expect(document.querySelector(".title-identity strong")?.textContent).toBe("other");
+    await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalledWith("/other"));
+    expect(screen.getByRole("button", { name: "main" })).toBeTruthy();
   });
 
   it("uses the visible composer surface for a dynamic dock geometry", () => {

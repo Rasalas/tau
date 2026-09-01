@@ -1947,35 +1947,6 @@ export class PiHost {
           const visiblePrompt = prepared?.visibleText ?? (presentation && "text" in presentation ? presentation.text : visibleTitleText(initialPrompt));
           this.retitleShell(thread.threadId, firstSentence(visiblePrompt));
         }
-        if (initialPrompt || attachments.length > 0) {
-          // Creation owns only runtime activation. Prompt preparation can wait
-          // on a checkpoint lease, so it must neither hold the lifecycle queue
-          // nor keep the captured composer draft in a pending submission.
-          void (async () => {
-            try {
-              const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
-              const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
-                ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
-                  ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
-                  : undefined)
-                : prepared;
-              await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
-            } catch (error) {
-              // prompt() normally reconciles the optimistic message through its
-              // marker. Re-preparation can fail before that marker exists, so
-              // the detached boundary also publishes the correlated failure.
-              if (clientMessageId) {
-                this.emit({
-                  type: "user-message-failed",
-                  sessionId: thread.threadId,
-                  clientMessageId,
-                  message: this.errorMessage(error),
-                });
-              }
-              this.log("prompt.rejected", this.errorMessage(error));
-            }
-          })();
-        }
       } catch (error) {
         // A pure validation failure leaves an untouched spare available. Once
         // adoption or activation has started, discard the candidate on failure
@@ -1999,6 +1970,36 @@ export class PiHost {
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
       const active = await this.activeUpdates(activationEpoch);
+      if (initialPrompt || attachments.length > 0) {
+        // Capture the initial shell/catalog before starting the detached prompt.
+        // AgentSession may serialize catalog reads with a running prompt; doing
+        // this in the opposite order would keep newSession pending until the
+        // first agent run settles and leave the renderer's composer busy.
+        void (async () => {
+          try {
+            const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
+            const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
+              ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
+                ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
+                : undefined)
+              : prepared;
+            await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
+          } catch (error) {
+            // prompt() normally reconciles the optimistic message through its
+            // marker. Re-preparation can fail before that marker exists, so
+            // the detached boundary also publishes the correlated failure.
+            if (clientMessageId) {
+              this.emit({
+                type: "user-message-failed",
+                sessionId: thread.threadId,
+                clientMessageId,
+                message: this.errorMessage(error),
+              });
+            }
+            this.log("prompt.rejected", this.errorMessage(error));
+          }
+        })();
+      }
       return { ...active, submission: { accepted: true }, ...(requestId ? { requestId } : {}) };
     });
   }
@@ -3329,8 +3330,8 @@ export class PiHost {
     }
   }
 
-  async getWorkspaceInfo(): Promise<WorkspaceInfo> {
-    return this.gitCoordinator.getWorkspaceInfo(this.cwd);
+  async getWorkspaceInfo(cwd = this.cwd): Promise<WorkspaceInfo> {
+    return this.gitCoordinator.getWorkspaceInfo(cwd);
   }
 
   async push(): Promise<PushResult> {

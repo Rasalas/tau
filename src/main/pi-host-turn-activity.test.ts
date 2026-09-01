@@ -534,6 +534,52 @@ describe("PiHost.generateThreadTitle", () => {
     expect(outcome).toBe("accepted");
   });
 
+  it("returns new-thread acceptance while prompt delivery and catalog reads remain blocked", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    let promptStarted = false;
+    let releaseCatalog!: () => void;
+    const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+    internals.ensureModels = async () => {
+      // A real AgentSession can serialize catalog access with prompt delivery.
+      // This is the regression seam: newSession must not await this read after
+      // it has started its detached first prompt.
+      if (promptStarted) await catalog;
+      return [];
+    };
+    internals.activeUpdates = async () => {
+      await internals.ensureModels();
+      return { version: 1, updates: [] };
+    };
+    let releasePrompt!: () => void;
+    const prompt = new Promise<void>((resolve) => { releasePrompt = resolve; });
+    internals.prompt = vi.fn(async () => {
+      promptStarted = true;
+      await prompt;
+    });
+
+    const creation = host.newSession("start the work", [], "/repo");
+    const outcome = await Promise.race([
+      creation.then((result) => (result as { submission?: { accepted?: boolean } }).submission?.accepted
+        ? "accepted" as const
+        : "rejected" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 2_000)),
+    ]);
+    expect(outcome).toBe("accepted");
+    expect(internals.prompt).toHaveBeenCalledWith("start the work", [], "new-thread", undefined, undefined);
+    releaseCatalog();
+    releasePrompt();
+    await creation;
+  });
+
   it("keeps cold thread switching responsive while new-thread preflight is pending", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as Record<string, any>;
