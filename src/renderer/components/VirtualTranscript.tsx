@@ -54,6 +54,11 @@ function resolveMessageId(messages: readonly UiMessage[], requestedId?: string):
   return messages.find((message) => message.id === requestedId || message.sourceEntryId === requestedId)?.id;
 }
 
+export interface TranscriptVisibleRange {
+  startIndex: number;
+  endIndex: number;
+}
+
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
 export const VirtualTranscript = memo(function VirtualTranscript({
   messages,
@@ -149,8 +154,10 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   }, [anchorRef, measureThrough, messages.length]);
   const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
   const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
-  const messageIndexes = useRef(new Map<string, number>());
-  messageIndexes.current = new Map(messages.map((message, index) => [message.id, index]));
+  // The transcript index already owns this mapping. Reusing it avoids a second
+  // full message scan and map allocation on every render of a long transcript.
+  const messageIndexes = useRef<Map<string, number>>(messageIndex.positions);
+  messageIndexes.current = messageIndex.positions;
   useLayoutEffect(() => {
     if (expandedState.sessionKey === sessionKey) return;
     setExpandedState({ sessionKey, ids: new Set() });
@@ -175,10 +182,13 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 180,
     getItemKey: (index) => messages[index]?.id ?? index,
-    initialRect: { width: 780, height: 600 },
+    // The first pass only needs a small window. The real scroll element is
+    // measured immediately after mount and expands the range on the next
+    // frame, while this keeps the mount-critical work bounded for long logs.
+    initialRect: { width: 780, height: messages.length >= 200 ? 360 : 600 },
     // Keep the initial/current-turn window small enough that long active turns
     // remain bounded without paying for a large hidden DOM on every update.
-    overscan: 3,
+    overscan: messages.length >= 200 ? 0 : 3,
     rangeExtractor,
     useAnimationFrameWithResizeObserver: true,
   });
@@ -262,6 +272,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   const rows = measuredRows.length > 0
     ? measuredRows
     : messages.slice(0, 12).map((message, index) => ({ index, key: message.id, start: index * 180 }));
+  const visibleRangeStart = virtualizer.range?.startIndex;
+  const visibleRangeEnd = virtualizer.range?.endIndex;
 
   if (messages.length === 0 && unanchoredActivities.length > 0) {
     return <div className="virtual-transcript static-activity-transcript">
@@ -272,6 +284,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   return <div
     className="virtual-transcript"
     style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}
+    data-visible-start-index={visibleRangeStart}
+    data-visible-end-index={visibleRangeEnd}
   >
     {rows.map((row) => {
       const message = messages[row.index];

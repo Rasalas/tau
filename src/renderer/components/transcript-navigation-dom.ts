@@ -25,6 +25,7 @@ export function useTranscriptNavigation(
 ): {
   canJumpToLatest: boolean;
   jumpToLatest: () => void;
+  jumpToMessage: (messageId: string) => void;
 } {
   const navigationRef = useRef<TranscriptNavigationState | undefined>(undefined);
   if (!navigationRef.current) {
@@ -45,6 +46,8 @@ export function useTranscriptNavigation(
   }
   const [canJumpToLatest, setCanJumpToLatest] = useState(false);
   const frameRef = useRef<number | undefined>(undefined);
+  const seekFrameRef = useRef<number | undefined>(undefined);
+  const seekTargetRef = useRef<{ messageId: string; attempts: number } | undefined>(undefined);
   const scheduleRef = useRef<() => void>(() => {});
   const messagesRef = useRef<UiMessage[]>(options.messages);
   messagesRef.current = options.messages;
@@ -70,11 +73,13 @@ export function useTranscriptNavigation(
     node.scrollTop = node.scrollHeight;
   };
 
+  const findMessage = (node: HTMLDivElement, id: string): HTMLElement | undefined => [...node.querySelectorAll<HTMLElement>("[data-message-id]")]
+    .find((element) => element.dataset.messageId === id);
+
   const findAnchor = (node: HTMLDivElement): HTMLElement | undefined => {
     const id = navigationRef.current!.anchorId;
     if (!id) return undefined;
-    return [...node.querySelectorAll<HTMLElement>("[data-message-id]")]
-      .find((element) => element.dataset.messageId === id);
+    return findMessage(node, id);
   };
 
   const paddingTop = (node: HTMLDivElement): number => {
@@ -90,6 +95,8 @@ export function useTranscriptNavigation(
     if (elementRect.height > 0 || elementRect.top !== 0 || nodeRect.top !== 0) {
       return node.scrollTop + elementRect.top - nodeRect.top;
     }
+    const transform = element.style.transform.match(/translateY\(\s*(-?\d+(?:\.\d+)?)px\s*\)/u);
+    if (transform?.[1] !== undefined) return Number(transform[1]);
     let top = 0;
     let current: HTMLElement | null = element;
     while (current && current !== node) {
@@ -97,6 +104,31 @@ export function useTranscriptNavigation(
       current = current.offsetParent as HTMLElement | null;
     }
     return top;
+  };
+
+  const placeMessage = (node: HTMLDivElement, messageId: string): boolean => {
+    const message = findMessage(node, messageId);
+    if (!message) {
+      // TanStack Virtual may not have mounted a distant row yet. Seeking to
+      // its estimated position mounts the relevant window; a later frame then
+      // uses the real row geometry without inventing transcript content.
+      const messageIndex = lookupRef.current?.positions.get(messageId)
+        ?? messagesRef.current.findIndex((candidate) => candidate.id === messageId);
+      const estimatedRowHeight = messagesRef.current.length > 0
+        ? Math.max(1, node.scrollHeight / messagesRef.current.length)
+        : 0;
+      if (messageIndex < 0 || estimatedRowHeight <= 0) return false;
+      const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+      node.scrollTop = Math.min(
+        maxScrollTop,
+        Math.max(0, messageIndex * estimatedRowHeight - paddingTop(node)),
+      );
+      return false;
+    }
+    const rawTarget = contentTop(node, message) - paddingTop(node);
+    const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+    node.scrollTop = Math.max(0, Math.min(maxScrollTop, rawTarget));
+    return true;
   };
 
   const viewportTop = (node: HTMLDivElement, element: HTMLElement): number | undefined => {
@@ -180,6 +212,9 @@ export function useTranscriptNavigation(
     const node = ref.current;
     const navigation = navigationRef.current!;
     if (!node) return;
+    seekTargetRef.current = undefined;
+    if (seekFrameRef.current !== undefined) cancelAnimationFrame(seekFrameRef.current);
+    seekFrameRef.current = undefined;
     followTail(navigation, onAnchorChangeRef.current);
     setCanJumpToLatest(false);
     if (typeof node.scrollTo === "function") {
@@ -197,6 +232,36 @@ export function useTranscriptNavigation(
       placeAtTail(node);
       scheduleRef.current();
     }
+  }, [ref]);
+
+  const jumpToMessage = useCallback((messageId: string) => {
+    const node = ref.current;
+    const navigation = navigationRef.current!;
+    if (!node || !messagesRef.current.some((message) => message.id === messageId)) return;
+
+    // A turn selection is an explicit reading decision. Release the tail
+    // lease before moving so streaming deltas cannot pull the user back down.
+    stopFollowing(navigation, onAnchorChangeRef.current);
+    seekTargetRef.current = { messageId, attempts: 0 };
+    if (seekFrameRef.current !== undefined) cancelAnimationFrame(seekFrameRef.current);
+    seekFrameRef.current = undefined;
+
+    const place = () => {
+      seekFrameRef.current = undefined;
+      const target = seekTargetRef.current;
+      const current = ref.current;
+      if (!target || !current || !navigationRef.current || navigationRef.current.following) return;
+      if (placeMessage(current, target.messageId) || target.attempts >= 8) {
+        seekTargetRef.current = undefined;
+        updateJumpAvailability(current);
+        return;
+      }
+      target.attempts += 1;
+      seekFrameRef.current = requestAnimationFrame(place);
+    };
+
+    place();
+    updateJumpAvailability(node);
   }, [ref]);
 
   useEffect(() => {
@@ -232,6 +297,9 @@ export function useTranscriptNavigation(
         // whether the new thread happens to contain a similarly named prompt.
         resetNavigation(navigation, { ...options, turnStart: undefined });
       }
+      seekTargetRef.current = undefined;
+      if (seekFrameRef.current !== undefined) cancelAnimationFrame(seekFrameRef.current);
+      seekFrameRef.current = undefined;
       setCanJumpToLatest(false);
     }
     navigation.lastScrollTop = node.scrollTop;
@@ -377,6 +445,9 @@ export function useTranscriptNavigation(
       clearScrollIntent();
       if (frameRef.current !== undefined) cancelAnimationFrame(frameRef.current);
       frameRef.current = undefined;
+      seekTargetRef.current = undefined;
+      if (seekFrameRef.current !== undefined) cancelAnimationFrame(seekFrameRef.current);
+      seekFrameRef.current = undefined;
     };
   }, [options.scopeKey, options.sessionId, options.scope, options.turnStart?.turnId, options.turnStart?.sessionId, ref]);
 
@@ -453,5 +524,5 @@ export function useTranscriptNavigation(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, updates);
 
-  return { canJumpToLatest, jumpToLatest };
+  return { canJumpToLatest, jumpToLatest, jumpToMessage };
 }
