@@ -57,17 +57,19 @@ export function buildTranscriptTurnNavigation(
   messages: readonly UiMessage[],
 ): TranscriptTurnNavigationEntry[] {
   let turnNumber = 0;
-  return messages.flatMap((message, messageIndex) => {
-    if (message.role !== "user") return [];
+  const entries: TranscriptTurnNavigationEntry[] = [];
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const message = messages[messageIndex]!;
+    if (message.role !== "user") continue;
     turnNumber += 1;
-    const normalized = normalizePromptPreview(message.text);
-    return [{
+    entries.push({
       messageId: message.id,
       messageIndex,
       turnNumber,
-      preview: truncatePromptPreview(normalized),
-    }];
-  });
+      preview: truncatePromptPreview(message.text),
+    });
+  }
+  return entries;
 }
 
 export function shouldShowTranscriptTurnNavigation(

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ChevronDown } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptActivity } from "./transcript-activity";
@@ -24,11 +24,6 @@ export { useTranscriptNavigation } from "./transcript-navigation-dom";
 const TRANSCRIPT_ID = "thread-transcript";
 const VISIBLE_TURN_LEAD = 96;
 
-function messageElement(node: HTMLDivElement, messageId: string): HTMLElement | undefined {
-  return [...node.querySelectorAll<HTMLElement>("[data-message-id]")]
-    .find((element) => element.dataset.messageId === messageId);
-}
-
 function messageContentTop(node: HTMLDivElement, element: HTMLElement): number | undefined {
   const nodeRect = node.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();
@@ -46,6 +41,15 @@ function messageContentTop(node: HTMLDivElement, element: HTMLElement): number |
   return top;
 }
 
+function virtualizerVisibleRange(node: HTMLDivElement): TranscriptVisibleRange | undefined {
+  const content = node.querySelector<HTMLElement>(".virtual-transcript");
+  const startIndex = Number.parseInt(content?.dataset.visibleStartIndex ?? "", 10);
+  const endIndex = Number.parseInt(content?.dataset.visibleEndIndex ?? "", 10);
+  return Number.isInteger(startIndex) && Number.isInteger(endIndex)
+    ? { startIndex, endIndex }
+    : undefined;
+}
+
 /** Resolve the user prompt whose row currently leads the readable viewport. */
 export function visibleTranscriptTurnId(
   node: HTMLDivElement,
@@ -55,9 +59,14 @@ export function visibleTranscriptTurnId(
   if (entries.length === 0) return undefined;
 
   const lead = node.scrollTop + Math.min(VISIBLE_TURN_LEAD, Math.max(0, node.clientHeight * 0.35));
+  const elementsByMessageId = new Map<string, HTMLElement>();
+  node.querySelectorAll<HTMLElement>("[data-message-id]").forEach((element) => {
+    const messageId = element.dataset.messageId;
+    if (messageId !== undefined) elementsByMessageId.set(messageId, element);
+  });
   let visible: TranscriptTurnNavigationEntry | undefined;
   for (const entry of entries) {
-    const element = messageElement(node, entry.messageId);
+    const element = elementsByMessageId.get(entry.messageId);
     if (!element) continue;
     const top = messageContentTop(node, element);
     if (top !== undefined && top <= lead) visible = entry;
@@ -67,9 +76,13 @@ export function visibleTranscriptTurnId(
   // If the current user row is outside the DOM, use the virtualizer's real
   // measured viewport range. Do not infer a row from total scroll height:
   // assistant/tool rows are variable-height and make that estimate wrong.
-  if (!visibleRange) return undefined;
-  return [...entries].reverse().find((entry) => entry.messageIndex < visibleRange.startIndex)?.messageId
-    ?? entries.find((entry) => entry.messageIndex <= visibleRange.endIndex)?.messageId
+  const measuredRange = visibleRange ?? virtualizerVisibleRange(node);
+  if (!measuredRange) return undefined;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]!;
+    if (entry.messageIndex < measuredRange.startIndex) return entry.messageId;
+  }
+  return entries.find((entry) => entry.messageIndex <= measuredRange.endIndex)?.messageId
     ?? entries[0]!.messageId;
 }
 
@@ -157,19 +170,25 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     };
   }
   const lookup = lookupRef.current!.lookup;
-  const turnEntries = useMemo(
-    () => buildTranscriptTurnNavigation(messages),
-    [lookupRevision, messages],
-  );
+  const [turnEntries, setTurnEntries] = useState<TranscriptTurnNavigationEntry[]>([]);
+  useEffect(() => {
+    // Keep the first transcript paint on the existing virtualizer path. Prompt
+    // previews are useful after that paint, but building hundreds of them is
+    // unnecessary work on the mount-critical path.
+    let frame: number | undefined;
+    const update = () => setTurnEntries(buildTranscriptTurnNavigation(messages));
+    if (typeof window.requestAnimationFrame === "function") {
+      frame = window.requestAnimationFrame(update);
+    } else {
+      update();
+    }
+    return () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+    };
+  }, [lookupRevision, messages]);
   const showTurnNavigation = shouldShowTranscriptTurnNavigation(turnEntries);
   const turnEntriesRef = useRef(turnEntries);
   turnEntriesRef.current = turnEntries;
-  const visibleRangeRef = useRef<TranscriptVisibleRange | undefined>(undefined);
-  const previousTurnEntriesRef = useRef(turnEntries);
-  if (previousTurnEntriesRef.current !== turnEntries) {
-    visibleRangeRef.current = undefined;
-    previousTurnEntriesRef.current = turnEntries;
-  }
   const [visibleTurnMessageId, setVisibleTurnMessageId] = useState<string | undefined>(
     () => turnEntries.at(-1)?.messageId,
   );
@@ -200,7 +219,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     const node = scrollRef.current;
     const update = () => {
       const next = node
-        ? visibleTranscriptTurnId(node, turnEntriesRef.current, visibleRangeRef.current)
+        ? visibleTranscriptTurnId(node, turnEntriesRef.current)
         : turnEntriesRef.current.at(-1)?.messageId;
       if (next === undefined) return;
       setVisibleTurnMessageId((current) => current === next ? current : next);
@@ -234,14 +253,6 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       if (updateVisibleTurnRef.current === update) updateVisibleTurnRef.current = () => {};
     };
   }, [messages, scrollRef, turnEntries]);
-
-  const reportVisibleRange = useCallback((range: TranscriptVisibleRange | undefined) => {
-    visibleRangeRef.current = range;
-    updateVisibleTurnRef.current();
-    if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(() => updateVisibleTurnRef.current());
-    }
-  }, []);
 
   const selectTurn = useCallback((messageId: string) => {
     // Reflect the explicit choice immediately; the scroll listener will refine
@@ -292,7 +303,6 @@ export const TranscriptViewport = memo(function TranscriptViewport({
           messageScopeKey={messageScopeKey}
           revision={revision}
           lookupRevision={lookupRevision}
-          onVisibleRangeChange={reportVisibleRange}
           activeTurnStartId={currentTurnAnchor.sessionId === sessionId ? currentTurnAnchor.id : undefined}
           onCopyMessage={onCopyMessage}
           onForkMessage={onForkMessage}

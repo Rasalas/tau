@@ -25,8 +25,6 @@ export interface VirtualTranscriptProps {
   revision?: number;
   /** Invalidates the user-message lookup when an existing record's metadata changes. */
   lookupRevision?: number;
-  /** Reports the virtualizer's measured viewport range without exposing its instance. */
-  onVisibleRangeChange?: (range: TranscriptVisibleRange | undefined) => void;
   /** Anchor used while a history page is measured after prepending. */
   anchorRef?: { current: TranscriptScrollAnchor | undefined };
   onCopyMessage?: (message: UiMessage) => void;
@@ -54,7 +52,6 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   messageScopeKey,
   revision,
   lookupRevision,
-  onVisibleRangeChange,
   anchorRef,
   onCopyMessage,
   onForkMessage,
@@ -184,12 +181,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   const rows = measuredRows.length > 0
     ? measuredRows
     : messages.slice(0, 12).map((message, index) => ({ index, key: message.id, start: index * 180 }));
-  const visibleRange: TranscriptVisibleRange | undefined = virtualizer.range
-    ? { startIndex: virtualizer.range.startIndex, endIndex: virtualizer.range.endIndex }
-    : undefined;
-  useLayoutEffect(() => {
-    onVisibleRangeChange?.(visibleRange);
-  }, [onVisibleRangeChange, visibleRange?.startIndex, visibleRange?.endIndex]);
+  const visibleRangeStart = virtualizer.range?.startIndex;
+  const visibleRangeEnd = virtualizer.range?.endIndex;
 
   if (messages.length === 0 && unanchoredActivities.length > 0) {
     return <div className="virtual-transcript static-activity-transcript">
@@ -200,6 +193,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   return <div
     className="virtual-transcript"
     style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}
+    data-visible-start-index={visibleRangeStart}
+    data-visible-end-index={visibleRangeEnd}
   >
     {rows.map((row) => {
       const message = messages[row.index];
