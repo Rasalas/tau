@@ -20,6 +20,12 @@ export interface NewThreadPromotionContext {
   prompt: string;
 }
 
+export interface NewThreadMessagePromotion {
+  pending: NewThreadDraft;
+  scope: DraftKey;
+  requestId: NewThreadRequestId;
+}
+
 export function useNewThreadController(storage: Storage) {
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
   const pendingRef = useRef(pendingNewThread);
@@ -68,6 +74,22 @@ export function useNewThreadController(storage: Storage) {
     return Boolean(sessionId);
   }, [storage]);
 
+  /**
+   * A persisted user-message is stronger evidence than a blank lifecycle
+   * detail. It can arrive before the newSession IPC response, so promote the
+   * draft from that correlated event without waiting for catalog discovery.
+   */
+  const promoteFromUserMessage = useCallback((sessionId: string, projectPath: string): NewThreadMessagePromotion | undefined => {
+    const current = pendingRef.current;
+    if (!sessionId || !current || current.sessionId || current.projectPath !== projectPath) return undefined;
+    const scope = draftKey(undefined, current);
+    if (!scope) return undefined;
+    awaitingPromotionRef.current = undefined;
+    writeNewThreadDraft(storage);
+    setPendingNewThread(undefined);
+    return { pending: current, scope, requestId: requestRef.current };
+  }, [storage]);
+
   return {
     pendingNewThread,
     setPendingNewThread,
@@ -77,5 +99,6 @@ export function useNewThreadController(storage: Storage) {
     isCurrent,
     markAwaitingPromotion,
     promoteFromHostReport,
+    promoteFromUserMessage,
   };
 }

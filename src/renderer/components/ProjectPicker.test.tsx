@@ -55,4 +55,23 @@ describe("ProjectPicker large catalogs", () => {
     expect(screen.getByRole("option", { name: /\/repos\/tau$/u })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /feat-input/u })).toBeNull();
   });
+
+  it("fails closed while the workspace filter is not ready", () => {
+    const onSelect = vi.fn();
+    render(<ProjectPicker
+      open
+      projects={projects.slice(0, 2)}
+      worktreeFilterReady={false}
+      onBrowse={() => {}}
+      onClose={() => {}}
+      onRemove={() => {}}
+      onSelect={onSelect}
+    />);
+
+    expect(screen.queryByRole("option")).toBeNull();
+    expect(screen.getByText("Loading workspace…")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add project/u }).hasAttribute("disabled")).toBe(true);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
 });

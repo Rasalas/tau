@@ -1653,6 +1653,27 @@ export class PiHost {
    * prompt, so it must never be part of the renderer's acceptance round trip.
    */
   private async publishNewSessionUpdates(activationEpoch: number, requestId: NewThreadRequestId | undefined, sessionId: string): Promise<void> {
+    // Publish the thread identity and a first detail without waiting for the
+    // model catalog. Catalog discovery can share the runtime's serialized
+    // lane with prompt delivery; neither the renderer's promotion nor the
+    // initial thread shell should depend on that slower read.
+    try {
+      if (!this.isCurrentActivation(activationEpoch)) return;
+      const snapshot = this.snapshotSync([]);
+      if (!this.isCurrentActivation(activationEpoch)) return;
+      const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
+      const initialUpdates: HostUpdate[] = [
+        ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
+        { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
+        { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
+      ];
+      for (const update of initialUpdates) this.emitUpdate(update);
+    } catch (error) {
+      // A runtime may expose its first detail only after its own startup
+      // bookkeeping. Keep the asynchronous catalog path alive; it can still
+      // publish the authoritative snapshot once that bookkeeping completes.
+      this.log("new-session.initial-publish.failed", this.errorMessage(error));
+    }
     try {
       const active = await this.activeUpdates(activationEpoch);
       if (!this.isCurrentActivation(activationEpoch)) return;

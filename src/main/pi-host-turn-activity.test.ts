@@ -595,6 +595,59 @@ describe("PiHost.generateThreadTitle", () => {
     await creation;
   });
 
+  it("publishes the accepted thread detail before a blocked catalog read", async () => {
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.snapshotSync = () => ({
+      cwd: "/repo",
+      threadId: "new-thread",
+      providerSessionId: "new-thread",
+      sessionId: "new-thread",
+      runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+      backendKind: "pi",
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: [],
+      messages: [],
+      isStreaming: true,
+      activeTools: [],
+      allTools: [],
+      composerCommands: [],
+      extensionCount: 0,
+      serviceTier: "standard",
+      serviceTierAvailable: false,
+      supportsCheckpointRestore: true,
+    });
+    let releaseCatalog!: () => void;
+    const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+    internals.activeUpdates = async () => {
+      await catalog;
+      return { version: 1, updates: [] };
+    };
+    internals.prompt = vi.fn(async () => undefined);
+
+    const creation = host.newSession("start the work", [], "/repo");
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: "host-update",
+      update: expect.objectContaining({
+        type: "thread-detail",
+        detail: expect.objectContaining({ sessionId: "new-thread" }),
+      }),
+    })), { timeout: 500 });
+    expect(((await creation) as unknown as { submission: { accepted: boolean } }).submission.accepted).toBe(true);
+
+    releaseCatalog();
+  });
+
   it("keeps cold thread switching responsive while new-thread preflight is pending", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as Record<string, any>;

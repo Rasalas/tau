@@ -71,6 +71,28 @@ describe("TitleBar actions", () => {
     expect(handlers.onOpenInEditor).toHaveBeenCalledWith("zed");
   });
 
+  it("disables editor actions while detached delivery is pending", () => {
+    render(<TitleBar
+      cwd="/project"
+      editors={[{ id: "code", name: "VS Code" }]}
+      activeEditor={{ id: "code", name: "VS Code" }}
+      changes={dirty}
+      workspace={workspace()}
+      gitBusy={false}
+      dockOpen
+      editorDisabled
+      onOpenInEditor={vi.fn()}
+      onChooseEditor={vi.fn()}
+      onOpenReview={vi.fn()}
+      onPush={vi.fn()}
+      onRunAction={vi.fn()}
+      onToggleDock={vi.fn()}
+    />);
+
+    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Choose editor" }).hasAttribute("disabled")).toBe(true);
+  });
+
   it("chooses commit versus commit and push from upstream state", () => {
     const withoutUpstream = setup();
     fireEvent.click(screen.getByRole("button", { name: "Commit" }));

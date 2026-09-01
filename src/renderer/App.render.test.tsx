@@ -12,7 +12,7 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { ComposerHost, isCurrentTranscriptSubmission, latestActivityAnchor, measureComposerGeometry, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App, { ComposerHost, isCurrentTranscriptSubmission, latestActivityAnchor, measureComposerGeometry, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
 import { createNewThreadDraft, writeNewThreadDraft } from "./draft-store";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
@@ -24,6 +24,16 @@ describe("App render isolation", () => {
     messageRenders.count = 0;
     localStorage.clear();
     delete window.tau;
+  });
+
+  it("merges detached draft recovery ahead of newer composer input", () => {
+    expect(mergeNewThreadRecoveryDraft("failed prompt", "next prompt")).toBe("failed prompt\n\nnext prompt");
+    expect(mergeNewThreadRecoveryDraft("failed prompt", "")).toBe("failed prompt");
+    expect(mergeNewThreadRecoveryDraft("failed prompt", "failed prompt")).toBe("failed prompt");
+    const recovered = { id: 1, kind: "image" as const, name: "old.png", mimeType: "image/png", data: "old", size: 3, previewUrl: "data:image/png;base64,old" };
+    const newer = { id: 2, kind: "image" as const, name: "new.png", mimeType: "image/png", data: "new", size: 3, previewUrl: "data:image/png;base64,new" };
+    expect(mergeNewThreadRecoveryAttachments([recovered], [newer])).toEqual([recovered, newer]);
+    expect(mergeNewThreadRecoveryAttachments([recovered], [{ ...recovered, id: 7 }])).toEqual([recovered]);
   });
 
   it("rejects a late old-draft failure before it can restore current composer UI", () => {
@@ -908,7 +918,7 @@ describe("App render isolation", () => {
       onHostEvent: () => () => {},
       listEditors: async () => [],
       getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
       getFileTree: async () => [],
       setAccessLevel: async () => {},
       newSession,
@@ -1142,6 +1152,175 @@ describe("App render isolation", () => {
     expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
   });
 
+  it("promotes a draft from its correlated user message before the IPC result", async () => {
+    let resolveNewSession!: (result: { version: 1; updates: never[]; submission: { accepted: true } }) => void;
+    let publish: ((event: HostEvent) => void) | undefined;
+    let identity: { clientMessageId: string; newThreadRequestId?: string } | undefined;
+    const newSession = vi.fn((...args: unknown[]) => {
+      identity = args[3] as typeof identity;
+      return new Promise<{ version: 1; updates: never[]; submission: { accepted: true } }>((resolve) => { resolveNewSession = resolve; });
+    });
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 0 }], sessions: [] },
+        detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      listEditors: async () => [{ id: "code", name: "VS Code" }],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option", { name: /project/u }));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "start in the detached runtime" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalled());
+    if (!identity?.clientMessageId) throw new Error("newSession did not receive a client identity");
+
+    publish?.({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "thread-detail",
+        detail: { sessionId: "created", messages: [], isStreaming: true, activeTools: [], requestId: identity.newThreadRequestId as never },
+      },
+    });
+    publish?.({
+      type: "user-message",
+      sessionId: "created",
+      message: { id: "persisted", clientMessageId: identity.clientMessageId, role: "user", text: "start in the detached runtime", timestamp: Date.now() },
+    });
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    expect(screen.getAllByText("start in the detached runtime").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Untitled thread/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New thread" }));
+    const picker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(picker).getByRole("option", { name: /other/u }));
+    expect(screen.getByRole("dialog", { name: "Search projects" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close project picker" }));
+    resolveNewSession({ version: 1, updates: [], submission: { accepted: true } });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
+    publish?.({ type: "user-message-failed", sessionId: "created", clientMessageId: identity.clientMessageId, message: "late failure" });
+    expect(screen.queryByText("late failure")).toBeNull();
+  });
+
+  it("binds a generated session id on detached failure so retry uses sendPrompt", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let clientMessageId: string | undefined;
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
+      return { version: 1 as const, updates: [] as never[], submission: { accepted: true as const } };
+    });
+    const sendPrompt = vi.fn(async () => undefined);
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "retry this runtime" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    if (!clientMessageId) throw new Error("newSession did not receive a client message id");
+
+    publish?.({ type: "user-message-failed", sessionId: "generated-session", clientMessageId, message: "runtime failed" });
+    await waitFor(() => expect(composer.value).toBe("retry this runtime"));
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
+      "retry this runtime",
+      [],
+      "generated-session",
+      expect.objectContaining({ clientMessageId: expect.any(String) }),
+      undefined,
+    ));
+    expect(newSession).toHaveBeenCalledOnce();
+  });
+
+  it("prepends a failed prompt to newer text and keeps both attachments persisted", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let clientMessageId: string | undefined;
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
+      return { version: 1 as const, updates: [] as never[], submission: { accepted: true as const } };
+    });
+    const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+      getPreparedThreadCapability,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const chooseAttachment = screen.getByLabelText("Choose attachment files");
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/project"));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Attach files" }) as HTMLButtonElement).disabled).toBe(false));
+    const oldImage = new File([new Uint8Array([1, 2, 3])], "old.png", { type: "image/png" });
+    fireEvent.change(composer, { target: { value: "failed first prompt" } });
+    fireEvent.change(chooseAttachment, { target: { files: [oldImage] } });
+    await screen.findByRole("button", { name: "Preview old.png" });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    if (!clientMessageId) throw new Error("newSession did not receive a client message id");
+
+    await waitFor(() => expect(composer.value).toBe("") );
+    fireEvent.change(composer, { target: { value: "newer queued text" } });
+    const newerImage = new File([new Uint8Array([4, 5, 6])], "new.png", { type: "image/png" });
+    fireEvent.change(chooseAttachment, { target: { files: [newerImage] } });
+    await screen.findByRole("button", { name: "Preview new.png" });
+
+    publish?.({ type: "user-message-failed", sessionId: "generated-session", clientMessageId, message: "runtime failed" });
+    await waitFor(() => expect(composer.value).toBe("failed first prompt\n\nnewer queued text"));
+    expect(screen.getByRole("button", { name: "Preview old.png" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview new.png" })).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem("tau.active-new-thread.v1") ?? "{}").draft).toBe("failed first prompt\n\nnewer queued text");
+  });
+
   it("does not send a prompt to the previous thread while a worktree is opening", async () => {
     let resolveCreation!: (result: {
       version: 1;
@@ -1345,7 +1524,7 @@ describe("App render isolation", () => {
       onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       listEditors: async () => [],
       getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-      getWorkspaceInfo: async () => ({ root: "/other", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
       getFileTree: async () => [],
       setAccessLevel: async () => {},

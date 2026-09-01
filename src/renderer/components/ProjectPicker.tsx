@@ -7,6 +7,8 @@ interface ProjectPickerProps {
   open: boolean;
   projects: readonly UiProject[];
   worktreePaths?: ReadonlySet<string>;
+  /** Worktree filtering is fail-closed until the active workspace is known. */
+  worktreeFilterReady?: boolean;
   onBrowse: () => void;
   onClose: () => void;
   onRemove: (project: UiProject) => void | Promise<void>;
@@ -26,6 +28,7 @@ export function ProjectPicker({
   open,
   projects,
   worktreePaths,
+  worktreeFilterReady = true,
   onBrowse,
   onClose,
   onRemove,
@@ -36,8 +39,10 @@ export function ProjectPicker({
   const [contextMenu, setContextMenu] = useState<{ project: UiProject; x: number; y: number }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const selectableProjects = useMemo(
-    () => worktreePaths ? projects.filter((project) => !worktreePaths.has(project.path)) : projects,
-    [projects, worktreePaths],
+    () => !worktreeFilterReady
+      ? []
+      : worktreePaths ? projects.filter((project) => !worktreePaths.has(project.path)) : projects,
+    [projects, worktreeFilterReady, worktreePaths],
   );
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -119,7 +124,7 @@ export function ProjectPicker({
         </header>
         <div className="project-picker-heading">
           <span>Projects</span>
-          <small>{matches.length}</small>
+          <small>{worktreeFilterReady ? matches.length : "…"}</small>
         </div>
         <VirtualList
           items={matches}
@@ -128,7 +133,7 @@ export function ProjectPicker({
           className="project-picker-results"
           role="listbox"
           scrollToIndex={selected}
-          empty={<p>No matching projects</p>}
+          empty={<p>{worktreeFilterReady ? "No matching projects" : "Loading workspace…"}</p>}
           renderItem={(project, index) => (
             <button
               key={project.path}
@@ -156,7 +161,7 @@ export function ProjectPicker({
           )}
         />
         <footer>
-          <button onClick={onBrowse}><span>＋</span> Add project from another source…</button>
+          <button disabled={!worktreeFilterReady} onClick={onBrowse}><span>＋</span> Add project from another source…</button>
           <small><kbd>↑↓</kbd> select <kbd>↵</kbd> open</small>
         </footer>
       </section>
