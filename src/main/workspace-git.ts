@@ -28,6 +28,7 @@ import {
   sanitizeTurnSnapshotComponent,
   turnSnapshotRef,
 } from "../shared/turn-checkpoint-codec.js";
+import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
 import { normalizeDiffLoadOptions } from "../shared/turn-checkpoint-diff.js";
 import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js";
 
@@ -1502,6 +1503,8 @@ export interface LiveCheckpointSession {
   sessionId: string;
   checkpoints: readonly StoredTurnCheckpoint[];
   backups?: readonly TurnRestoreBackup[];
+  /** Pending restore transactions own rollback refs until recovery commits. */
+  restoreTransactions?: readonly TurnRestoreTransaction[];
   /** Canonical workspace used to scope GC when linked worktrees share refs. */
   cwd?: string;
 }
@@ -1597,6 +1600,22 @@ export async function cleanupCheckpointRefsForLiveSessions(
         // Invalid backup metadata is intentionally not a GC root.
       }
     }
+    for (const transaction of session.restoreTransactions ?? []) {
+      if (transaction.sessionId !== session.sessionId
+        || transaction.state === "committed" || transaction.state === "recovered") continue;
+      try {
+        const before = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "before");
+        const after = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "after");
+        // Keep the rollback pair rooted for every pending state. A process can
+        // die after publishing one phase, and deleting the surviving ref here
+        // would make the durable recovery journal unrecoverable.
+        if (refSet.has(before)) valid.add(before);
+        if (refSet.has(after)) valid.add(after);
+      } catch {
+        // Parsed transaction refs are normally deterministic; malformed
+        // objects supplied by legacy callers are not GC roots.
+      }
+    }
   }
   // Revalidate immediately before the destructive batch as well. The Git
   // ref scan and the linked-worktree lease namespace are separate resources;
@@ -1626,6 +1645,21 @@ export async function cleanupCheckpointRefsForLiveSessions(
       if (before && after) {
         validFilesystem.add(filesystemManifestPath(canonicalCwd, before.id));
         validFilesystem.add(filesystemManifestPath(canonicalCwd, after.id));
+      }
+    }
+    for (const transaction of session.restoreTransactions ?? []) {
+      if (transaction.sessionId !== session.sessionId
+        || transaction.state === "committed" || transaction.state === "recovered") continue;
+      try {
+        const before = filesystemManifestPath(canonicalCwd, turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "before"));
+        const after = filesystemManifestPath(canonicalCwd, turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "after"));
+        // Preserve each manifest independently. A partial pair still needs to
+        // survive GC so startup can report the incomplete recovery honestly.
+        if (filesystemRefs.includes(before)) validFilesystem.add(before);
+        if (filesystemRefs.includes(after)) validFilesystem.add(after);
+      } catch {
+        // Parsed transaction refs are normally deterministic; malformed
+        // objects supplied by legacy callers are not GC roots.
       }
     }
   }

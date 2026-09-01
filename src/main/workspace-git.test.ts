@@ -27,6 +27,7 @@ import {
   validateWorkspaceSnapshotRefs,
 } from "./workspace-git.js";
 import { turnSnapshotRef, type StoredTurnCheckpoint } from "../shared/turn-checkpoint-codec.js";
+import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
 describe("large diff bounds", () => {
@@ -304,6 +305,54 @@ describe("immutable turn snapshots", () => {
         rm(linked, { recursive: true, force: true }),
         rm(cwd, { recursive: true, force: true }),
       ]);
+    }
+  }, 30_000);
+
+  it("roots rollback refs from pending restore transactions", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-restore-gc-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "tracked.txt"), "before\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      const rollbackBefore = await createWorkspaceSnapshot(cwd, { namespace: "journal/rollback", phase: "before" });
+      await writeFile(join(cwd, "tracked.txt"), "after\n");
+      const rollbackAfter = await createWorkspaceSnapshot(cwd, { namespace: "journal/rollback", phase: "after" });
+      const transaction: TurnRestoreTransaction = {
+        version: 1,
+        kind: "backup-open",
+        transactionId: "pending-restore",
+        state: "workspace-applied",
+        sessionId: "journal",
+        backupSessionId: "journal",
+        backupTurnId: "rollback",
+        sourceSessionId: "source",
+        sourceTurnId: "turn",
+        sourceCheckpointId: "backup",
+        targetSessionId: "journal",
+        cwd,
+        targetAfterSnapshotId: turnSnapshotRef("source", "turn", "after"),
+        backupAfterSnapshotId: rollbackAfter.id,
+        createdAt: Date.now(),
+      };
+
+      await cleanupCheckpointRefsForLiveSessions(cwd, [{
+        sessionId: "journal",
+        cwd,
+        checkpoints: [],
+        restoreTransactions: [transaction],
+      }]);
+
+      await expect(validateWorkspaceSnapshotRefs(
+        cwd,
+        rollbackBefore.id,
+        rollbackAfter.id,
+        { sessionId: "journal", turnId: "rollback" },
+      )).resolves.toMatchObject({ beforeTreeId: rollbackBefore.treeId, afterTreeId: rollbackAfter.treeId });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
     }
   }, 30_000);
 

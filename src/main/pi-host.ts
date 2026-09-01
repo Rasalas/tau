@@ -3316,10 +3316,13 @@ export class PiHost {
    * rollback pair for the workspace that is currently on disk.
    */
   private async restoreBackupWorkspaceOnOpen(thread: ThreadRuntime): Promise<RestoreActivationTransaction | undefined> {
+    // Recovery is workspace-scoped, not backend-scoped. A normal project
+    // session can be the first thread opened after switching projects and
+    // still needs to repair a pending clean/read-tree transaction in its cwd.
+    await this.recoverPendingRestoreTransactions(thread.cwd);
     if (!isPiBackend(thread)) return undefined;
     const backup = turnRestoreBackupsFromEntries(thread.backend.branchEntries(), thread.sessionId).at(-1);
     if (!backup) return undefined;
-    await this.recoverPendingRestoreTransactions(thread.cwd);
     if (backup.cwd !== thread.cwd) throw new Error("This restore backup belongs to another workspace.");
     if (!thread.backend.isIdle() || thread.adapterStreaming || thread.adapterPending > 0) {
       throw new Error("Wait for the backup thread to become idle before restoring its workspace.");
@@ -4532,6 +4535,7 @@ export class PiHost {
           cwd: info.cwd,
           checkpoints: turnCheckpointsFromEntries(manager.getBranch(), info.id),
           backups: turnRestoreBackupsFromEntries(manager.getBranch(), info.id),
+          restoreTransactions: turnRestoreTransactionsFromEntries(manager.getBranch(), info.id),
         });
       } catch {
         // A session can disappear between listAll and open; its refs are
@@ -4547,6 +4551,7 @@ export class PiHost {
         cwd: record.cwd,
         checkpoints: turnCheckpointsFromEntries(branch, record.threadId),
         backups: turnRestoreBackupsFromEntries(branch, record.threadId),
+        restoreTransactions: turnRestoreTransactionsFromEntries(branch, record.threadId),
       });
     }
     const workspaces = new Map<string, string>();
