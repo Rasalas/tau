@@ -40,6 +40,7 @@ export function UserMessage({
   const visibleText = visibleUserMessageText(message.text);
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
+  const hasMessageContent = Boolean(visibleText || message.skill);
   const long = isLongMessage(visibleText);
   const [localExpanded, setLocalExpanded] = useState(false);
   const expanded = controlledExpanded ?? localExpanded;
@@ -55,46 +56,48 @@ export function UserMessage({
     <div className="message-shell user">
       <PersistedMessageImages images={persistedImages} />
       {hasLocalImages ? <MessageImages text={message.text} /> : null}
-      <article className="message user">
-        <div className="message-text">
-          <div
-            id={contentId}
-            className={`message-text-content${long && !expanded ? " collapsed" : ""}`}
-            data-collapsed={long && !expanded ? "true" : "false"}
-          >
-            {message.skill ? <SkillChip name={message.skill.name} /> : null}
-            {visibleText
-              ? long && !expanded
-                ? <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
-                : <Markdown inlineStart={Boolean(message.skill)}>{visibleText}</Markdown>
-              : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
+      {hasMessageContent ? (
+        <article className="message user">
+          <div className="message-text">
+            <div
+              id={contentId}
+              className={`message-text-content${long && !expanded ? " collapsed" : ""}`}
+              data-collapsed={long && !expanded ? "true" : "false"}
+            >
+              {message.skill ? <SkillChip name={message.skill.name} /> : null}
+              {visibleText
+                ? long && !expanded
+                  ? <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
+                  : <Markdown inlineStart={Boolean(message.skill)}>{visibleText}</Markdown>
+                : null}
+            </div>
           </div>
-        </div>
-        {long ? (
-          <button
-            className="message-expand"
-            type="button"
-            aria-controls={contentId}
-            aria-expanded={expanded}
-            onClick={toggleExpanded}
-          >
-            {expanded ? "Show less" : "Show more"}
-          </button>
-        ) : null}
-        <div className="message-user-meta">
-          <time
-            dateTime={new Date(message.timestamp).toISOString()}
-            title={fullTimestamp(message.timestamp)}
-            aria-label={`Sent ${fullTimestamp(message.timestamp)}`}
-          >
-            {compactTimestamp(message.timestamp)}
-          </time>
-          {onCopy ? <MessageActions
-            onCopy={() => onCopy(copyableMessage(message))}
-            onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
-          /> : null}
-        </div>
-      </article>
+          {long ? (
+            <button
+              className="message-expand"
+              type="button"
+              aria-controls={contentId}
+              aria-expanded={expanded}
+              onClick={toggleExpanded}
+            >
+              {expanded ? "Show less" : "Show more"}
+            </button>
+          ) : null}
+          <div className="message-user-meta">
+            <time
+              dateTime={new Date(message.timestamp).toISOString()}
+              title={fullTimestamp(message.timestamp)}
+              aria-label={`Sent ${fullTimestamp(message.timestamp)}`}
+            >
+              {compactTimestamp(message.timestamp)}
+            </time>
+            {onCopy ? <MessageActions
+              onCopy={() => onCopy(copyableMessage(message))}
+              onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
+            /> : null}
+          </div>
+        </article>
+      ) : null}
     </div>
   );
 }

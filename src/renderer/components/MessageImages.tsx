@@ -20,9 +20,18 @@ function cachedImagePreview(path: string): Promise<UiImagePreview | undefined> {
 
 function MessageImageGallery({ images }: { images: readonly AttachmentImage[] }) {
   const [contextMenu, setContextMenu] = useState<{ image: AttachmentImage; x: number; y: number }>();
+  const contextTriggerRef = useRef<HTMLButtonElement>(null);
   if (images.length === 0) return null;
 
-  const closeContextMenu = () => setContextMenu(undefined);
+  const closeContextMenu = () => {
+    contextTriggerRef.current?.focus();
+    setContextMenu(undefined);
+  };
+  const openContextMenu = (button: HTMLButtonElement, image: AttachmentImage, x: number, y: number) => {
+    contextTriggerRef.current = button;
+    button.focus();
+    setContextMenu({ image, x, y });
+  };
   return <AttachmentImageDialog images={images}>{(open) =>
     <div className="message-images" data-image-count={images.length}>
       {images.map((image, index) => (
@@ -36,7 +45,13 @@ function MessageImageGallery({ images }: { images: readonly AttachmentImage[] })
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            setContextMenu({ image, x: event.clientX, y: event.clientY });
+            openContextMenu(event.currentTarget, image, event.clientX, event.clientY);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "ContextMenu" && event.key !== "Apps" && !(event.key === "F10" && event.shiftKey)) return;
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            openContextMenu(event.currentTarget, image, rect.right, rect.bottom);
           }}
         >
           <img src={image.src} alt={image.alt} />
@@ -71,6 +86,7 @@ function ImageContextMenu({
   onCopy(): Promise<void>;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuItemRef = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState({ x, y });
 
   useLayoutEffect(() => {
@@ -81,6 +97,10 @@ function ImageContextMenu({
       x: Math.max(margin, Math.min(x, window.innerWidth - menu.offsetWidth - margin)),
       y: Math.max(margin, Math.min(y, window.innerHeight - menu.offsetHeight - margin)),
     });
+  }, [x, y]);
+
+  useLayoutEffect(() => {
+    menuItemRef.current?.focus();
   }, [x, y]);
 
   useEffect(() => {
@@ -109,9 +129,15 @@ function ImageContextMenu({
       style={{ left: position.x, top: position.y }}
     >
       <button
+        ref={menuItemRef}
         type="button"
         role="menuitem"
         onClick={() => { void onCopy().catch(() => undefined); }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          void onCopy().catch(() => undefined);
+        }}
       >
         Copy image
       </button>

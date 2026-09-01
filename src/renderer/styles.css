@@ -924,6 +924,11 @@ button > svg { pointer-events: none; }
 }
 .tool-activity { color: var(--muted); animation: fade-up 180ms ease-out; }
 .tool-activity-summary { padding: 7px 2px; }
+.tool-activity-summary > .tool-activity-status-icon {
+  flex: none; display: inline-flex; color: var(--faint);
+}
+.tool-activity-summary > .tool-activity-status-icon.error { color: var(--removed); }
+.tool-activity-summary > .tool-activity-status-icon.interrupted { color: var(--working); }
 .tool-activity-detail {
   margin: 5px 0 0 26px; overflow: hidden;
   border: 1px solid var(--line-card); border-radius: 9px; background: var(--chrome);

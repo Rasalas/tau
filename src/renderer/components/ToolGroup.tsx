@@ -1,4 +1,4 @@
-import { ChevronRight, Hammer, Square } from "lucide-react";
+import { ChevronRight, CircleAlert, CircleStop, Hammer, Square } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import type { UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
@@ -229,6 +229,15 @@ export function ToolGroup({
       >
         {(live > 0 || streaming) && !stalled ? <span className="spinner acid small" /> : <Hammer size={16} strokeWidth={1.7} />}
         <span>{summary}</span>
+        {!waiting && live === 0 && activityStatus === "error" ? (
+          <span className="tool-activity-status-icon error" role="img" aria-label="Activity failed" title="Activity failed">
+            <CircleAlert size={14} strokeWidth={1.8} aria-hidden="true" />
+          </span>
+        ) : !waiting && live === 0 && activityStatus === "interrupted" ? (
+          <span className="tool-activity-status-icon interrupted" role="img" aria-label="Activity interrupted" title="Activity interrupted">
+            <CircleStop size={14} strokeWidth={1.8} aria-hidden="true" />
+          </span>
+        ) : null}
         <ChevronRight className="activity-chevron" size={14} />
       </button>
       {expanded ? (

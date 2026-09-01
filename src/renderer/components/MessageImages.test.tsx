@@ -24,6 +24,28 @@ describe("message images", () => {
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
   });
 
+  it("does not render an empty bubble for a persisted image-only message", () => {
+    const view = render(<Message message={{ id: "image-only", role: "user", text: "", images: [{ mimeType: "image/png", data: "iVBORw==" }], timestamp: 0 }} />);
+
+    expect(screen.getByRole("img", { name: "Attached image" })).toBeTruthy();
+    expect(view.container.querySelector("article.message.user")).toBeNull();
+    expect(view.container.querySelector(".message-text")).toBeNull();
+    expect(screen.queryByText("Image attached")).toBeNull();
+  });
+
+  it("does not render an empty bubble for a local-path-only message", async () => {
+    window.tau = {
+      readImagePreview: vi.fn(async () => ({ name: "preview.png", dataUrl: "data:image/png;base64,iVBORw==" })),
+    } as unknown as typeof window.tau;
+    const view = render(<Message message={{ id: "local-image-only", role: "user", text: "/tmp/preview.png", timestamp: 0 }} />);
+
+    expect(screen.queryByText("Image attached")).toBeNull();
+    expect(view.container.querySelector("article.message.user")).toBeNull();
+    await screen.findByRole("img", { name: "preview.png" });
+    expect(view.container.querySelector("article.message.user")).toBeNull();
+    expect(view.container.querySelector(".message-text")).toBeNull();
+  });
+
   it("offers a viewport-safe image context menu and copies persisted image data", async () => {
     const copyImage = vi.fn(async () => undefined);
     window.tau = { copyImage } as unknown as typeof window.tau;
@@ -33,9 +55,16 @@ describe("message images", () => {
     fireEvent.contextMenu(imageButton, { clientX: 9999, clientY: 9999 });
     const menu = screen.getByRole("menu", { name: "Image actions" });
     expect(menu.parentElement).toBe(document.body);
-    expect(screen.getByRole("menuitem", { name: "Copy image" })).toBeTruthy();
+    const menuItem = screen.getByRole("menuitem", { name: "Copy image" });
+    expect(document.activeElement).toBe(menuItem);
 
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy image" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull();
+    expect(document.activeElement).toBe(imageButton);
+
+    fireEvent.keyDown(imageButton, { key: "F10", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Copy image" }));
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Copy image" }), { key: "Enter" });
     await waitFor(() => expect(copyImage).toHaveBeenCalledWith("data:image/png;base64,iVBORw=="));
     expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull();
   });

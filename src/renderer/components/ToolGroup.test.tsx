@@ -202,4 +202,28 @@ describe("ToolGroup computer-use presentation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
     expect(screen.getByText("failed.ts")).toBeTruthy();
   });
+
+  it("does not promote one failed tool to an aggregate error without an authoritative status", () => {
+    render(<ToolGroup
+      tools={[{ id: "failed", name: "read", args: { path: "failed.ts" }, status: "error", startedAt: 0, endedAt: 1 }]}
+      registry={registryWithBundledExtensions()}
+    />);
+
+    expect(screen.queryByRole("img", { name: "Activity failed" })).toBeNull();
+    expect(screen.queryByText(/failed/u)).toBeNull();
+  });
+
+  it.each([
+    ["error", "Activity failed"],
+    ["interrupted", "Activity interrupted"],
+  ] as const)("renders an icon-only authoritative %s activity status", (status, label) => {
+    render(<ToolGroup
+      tools={[{ id: status, name: "read", args: { path: `${status}.ts` }, status: "done", startedAt: 0, endedAt: 1 }]}
+      registry={registryWithBundledExtensions()}
+      activityStatus={status}
+    />);
+
+    expect(screen.getByRole("img", { name: label }).getAttribute("title")).toBe(label);
+    expect(screen.queryByText(label)).toBeNull();
+  });
 });
