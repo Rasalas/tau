@@ -1598,8 +1598,20 @@ export class PiHost {
     return result;
   }
 
-  private newThreadResult(updates: HostUpdate[], submission: SubmissionResult, requestId?: NewThreadRequestId): NewThreadResult {
-    return { ...this.actionResult(updates), submission, ...(requestId ? { requestId } : {}) };
+  private newThreadResult(
+    updates: HostUpdate[],
+    submission: SubmissionResult,
+    requestId?: NewThreadRequestId,
+    sessionId?: string,
+    terminal?: boolean,
+  ): NewThreadResult {
+    return {
+      ...this.actionResult(updates),
+      submission,
+      ...(requestId ? { requestId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(terminal ? { terminal } : {}),
+    };
   }
 
   /** Complete a correlated Pi handoff through one identity/publication path. */
@@ -1628,7 +1640,7 @@ export class PiHost {
     return this.newThreadResult([
       { version: HOST_PROTOCOL_VERSION, type: "thread-shell", update: { sessionId: shell.id, shell } },
       ...this.lifecycleUpdates(next),
-    ], { accepted: true }, requestId);
+    ], { accepted: true }, requestId, snapshot.sessionId);
   }
 
   private lifecycleUpdates(snapshot: HostSnapshot, requestId?: NewThreadRequestId): HostUpdate[] {
@@ -2013,6 +2025,8 @@ export class PiHost {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
+      const terminalWithoutAgentRun = isPiBackend(thread)
+        && this.isExtensionCommand(thread, prepared?.runtimeText ?? initialPrompt ?? "");
       void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
         // Delivery is intentionally detached from acceptance. AgentSession may
@@ -2043,7 +2057,7 @@ export class PiHost {
           }
         })();
       }
-      return this.newThreadResult([], { accepted: true }, requestId);
+      return this.newThreadResult([], { accepted: true }, requestId, thread.sessionId, terminalWithoutAgentRun);
     });
   }
 

@@ -1152,10 +1152,60 @@ describe("App render isolation", () => {
     expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
   });
 
+  it("promotes and settles an extension command when no user-message event is emitted", async () => {
+    const newSession = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [] as never[],
+      sessionId: "extension-session",
+      terminal: true,
+      submission: { accepted: true as const },
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
+        catalog: {
+          sessionId: "old",
+          models: [{ provider: "provider", id: "model", name: "Model" }],
+          model: { provider: "provider", id: "model", name: "Model" },
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+          serviceTier: "standard" as const,
+          serviceTierAvailable: false,
+          allTools: [],
+          extensionCount: 1,
+          supportsImageInput: true,
+        },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [{ id: "code", name: "VS Code" }],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "/extension-command" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(newSession).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false);
+    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+  });
+
   it("promotes a draft from its correlated user message before the IPC result", async () => {
     let resolveNewSession!: (result: { version: 1; updates: never[]; submission: { accepted: true } }) => void;
     let publish: ((event: HostEvent) => void) | undefined;
     let identity: { clientMessageId: string; newThreadRequestId?: string } | undefined;
+    const generateThreadTitle = vi.fn(async () => ({ version: 1 as const, updates: [] as never[] }));
     const newSession = vi.fn((...args: unknown[]) => {
       identity = args[3] as typeof identity;
       return new Promise<{ version: 1; updates: never[]; submission: { accepted: true } }>((resolve) => { resolveNewSession = resolve; });
@@ -1165,7 +1215,7 @@ describe("App render isolation", () => {
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 0 }], sessions: [] },
         detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "old", models: [{ provider: "provider", id: "model", name: "Model" }], model: { provider: "provider", id: "model", name: "Model" }, thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
@@ -1175,6 +1225,7 @@ describe("App render isolation", () => {
       getFileTree: async () => [],
       setAccessLevel: async () => {},
       newSession,
+      generateThreadTitle,
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -1200,6 +1251,8 @@ describe("App render isolation", () => {
       sessionId: "created",
       message: { id: "persisted", clientMessageId: identity.clientMessageId, role: "user", text: "start in the detached runtime", timestamp: Date.now() },
     });
+    await waitFor(() => expect(generateThreadTitle).toHaveBeenCalledWith("provider", "model", false, "created"));
+    expect(generateThreadTitle).toHaveBeenCalledOnce();
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
     expect(screen.getAllByText("start in the detached runtime").length).toBeGreaterThan(0);
@@ -1212,6 +1265,7 @@ describe("App render isolation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close project picker" }));
     resolveNewSession({ version: 1, updates: [], submission: { accepted: true } });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    publish?.({ type: "agent-status", sessionId: "created", running: false });
     await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
     publish?.({ type: "user-message-failed", sessionId: "created", clientMessageId: identity.clientMessageId, message: "late failure" });
     expect(screen.queryByText("late failure")).toBeNull();

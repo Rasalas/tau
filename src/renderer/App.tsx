@@ -348,6 +348,8 @@ interface NewThreadSubmissionRecovery {
   sessionId?: string;
   promoted?: boolean;
   terminal?: boolean;
+  /** Prompt hooks are shared by IPC and event promotion; run them once. */
+  notified?: boolean;
   failed?: string;
 }
 
@@ -637,6 +639,8 @@ export default function App() {
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
   const [snapshot, setSnapshot] = useState<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
+  const snapshotRef = useRef<HostSnapshot | undefined>(snapshot);
+  snapshotRef.current = snapshot;
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
   const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
   // Run state lives in the thread store, fed by the host's per-thread status
@@ -765,6 +769,7 @@ export default function App() {
   const [dockOpen, setDockOpen] = useState(true);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
+  const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptTurnSequenceRef = useRef(0);
   const transcriptTurnStartRef = useRef<TranscriptTurnStart | undefined>(undefined);
@@ -1108,10 +1113,40 @@ export default function App() {
     return true;
   }, [applyHostUpdate, transcriptHistory]);
 
-  const promoteRecoveryFromUserMessage = useCallback((
+  const notifyNewThreadPromptSubmitted = useCallback((
+    pending: NewThreadDraft,
+    sessionId: string,
+    prompt: string,
+    recovery?: NewThreadSubmissionRecovery,
+  ) => {
+    if (recovery?.notified) return;
+    const currentActions = actionsRef.current;
+    if (!currentActions) return;
+    if (recovery) recovery.notified = true;
+    const currentSnapshot = snapshotRef.current;
+    void registry.notifyPromptSubmitted({
+      prompt,
+      snapshot: currentSnapshot ? {
+        ...currentSnapshot,
+        cwd: pending.projectPath,
+        sessionId,
+        sessionName: undefined,
+        sessionTitle: "Untitled thread",
+        messages: [],
+        isStreaming: false,
+        activeTools: [],
+        turnActivity: undefined,
+        taskProgress: undefined,
+        taskHistory: [],
+      } : undefined,
+    }, currentActions).catch((error) => setNotice(errorMessage(error)));
+  }, [registry]);
+
+  const promoteRecoveryToSession = useCallback((
     clientMessageId: string,
     sessionId: string,
     message: UiMessage,
+    terminal = false,
   ): boolean => {
     const recovery = newThreadRecoveryRef.current.get(clientMessageId);
     if (!recovery || recovery.failed || recovery.sessionId) return false;
@@ -1119,7 +1154,7 @@ export default function App() {
     if (!promotion) return false;
     recovery.sessionId = sessionId;
     recovery.promoted = true;
-    recovery.terminal = true;
+    recovery.terminal = terminal;
     composerScopeStore.moveScope(promotion.scope, createDraftKey(draftKey(sessionId)));
     setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === clientMessageId
       ? { ...entry, scope: `session:${sessionId}` }
@@ -1146,16 +1181,23 @@ export default function App() {
         detail: {
           sessionId,
           messages: [message],
-          isStreaming: true,
+          isStreaming: !terminal,
           activeTools: [],
         },
       });
     } else {
-      threadStore.setActiveThread(sessionId, true);
+      threadStore.setActiveThread(sessionId, !terminal);
     }
-    if (!recovery.ipcPending) releaseNewThreadRecovery(clientMessageId);
+    notifyNewThreadPromptSubmitted(recovery.pending, sessionId, message.text || recovery.draft, recovery);
+    if (!recovery.ipcPending && recovery.terminal) releaseNewThreadRecovery(clientMessageId);
     return true;
-  }, [applyHostUpdate, composerScopeStore, promoteFromUserMessage, releaseNewThreadRecovery, setTranscriptTurnStart, threadStore, transcriptHistory]);
+  }, [applyHostUpdate, composerScopeStore, notifyNewThreadPromptSubmitted, promoteFromUserMessage, releaseNewThreadRecovery, setTranscriptTurnStart, threadStore, transcriptHistory]);
+
+  const promoteRecoveryFromUserMessage = useCallback((
+    clientMessageId: string,
+    sessionId: string,
+    message: UiMessage,
+  ): boolean => promoteRecoveryToSession(clientMessageId, sessionId, message), [promoteRecoveryToSession]);
 
   const restoreFailedNewThreadRecovery = useCallback((recovery: NewThreadSubmissionRecovery, sessionId: string) => {
     recovery.sessionId = sessionId || recovery.sessionId;
@@ -1904,10 +1946,8 @@ export default function App() {
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
-    const currentProject = pendingNewThreadRef.current?.projectPath ?? snapshot?.cwd;
-    if (newThreadRecoveryRef.current.size > 0
-      && (!target || (currentProject !== undefined && target.projectPath !== currentProject))) {
-      setNotice("Wait for the current message delivery to finish before changing projects.");
+    if (newThreadRecoveryRef.current.size > 0) {
+      setNotice("Wait for the current message delivery to finish before changing threads.");
       return false;
     }
     invalidateNewThread();
@@ -2323,6 +2363,7 @@ export default function App() {
     chooseWorkspace, cloneWorkspace, generateThreadTitle, openPanel,
     activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot?.model, switchSession,
   ]);
+  actionsRef.current = actions;
 
   const completeNewThreadSubmission = useCallback((completion: NewThreadSubmissionCompletion) => {
     const { pending, sessionId, optimisticId, prompt, scope, requestId, result } = completion;
@@ -2337,23 +2378,8 @@ export default function App() {
     setPendingNewThread(undefined);
     if (result) acceptWorkspace(result);
     threadStore.markRead(sessionId);
-    void registry.notifyPromptSubmitted({
-      prompt,
-      snapshot: snapshot ? {
-        ...snapshot,
-        cwd: pending.projectPath,
-        sessionId,
-        sessionName: undefined,
-        sessionTitle: "Untitled thread",
-        messages: [],
-        isStreaming: false,
-        activeTools: [],
-        turnActivity: undefined,
-        taskProgress: undefined,
-        taskHistory: [],
-      } : undefined,
-    }, actions).catch((error) => setNotice(errorMessage(error)));
-  }, [acceptWorkspace, actions, composerScopeStore, isCurrentNewThreadRequest, registry, snapshot, threadStore]);
+    notifyNewThreadPromptSubmitted(pending, sessionId, prompt);
+  }, [acceptWorkspace, composerScopeStore, isCurrentNewThreadRequest, notifyNewThreadPromptSubmitted, setPendingNewThread, threadStore]);
 
   const submit = useCallback(async (
     value: string,
@@ -2534,6 +2560,9 @@ export default function App() {
         }
         const result = await window.tau.newSession(text, attachments, pending.projectPath, clientTurn, prepared);
         settleNewThreadRecoveryIpc(clientMessageId, recovery);
+        if (result.submission.accepted && result.sessionId && recovery && !recovery.promoted) {
+          promoteRecoveryToSession(clientMessageId, result.sessionId, optimistic, result.terminal === true);
+        }
         if (recovery?.failed) {
           releaseNewThreadRecovery(clientMessageId);
           return { accepted: false, message: recovery.failed };
@@ -2659,7 +2688,7 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [acceptWorkspace, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [acceptWorkspace, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
