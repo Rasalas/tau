@@ -469,6 +469,8 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   /** Whether the active host/runtime adapter accepts image prompt input. */
   /** Optional for protocol-v1 compatibility; missing means unsupported. */
   supportsImageInput?: boolean;
+  /** Whether completed turn checkpoints can safely restore this thread; missing means unsupported. */
+  supportsCheckpointRestore?: boolean;
 }
 
 /** Capability of the runtime prepared for a not-yet-created thread. */
@@ -501,6 +503,8 @@ export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTra
   contextUsage?: UiContextUsage;
   /** Older v1 clients may omit this derived flag. */
   hasMore?: boolean;
+  /** Whether completed turn checkpoints can safely restore this thread; missing means unsupported. */
+  supportsCheckpointRestore?: boolean;
 }
 
 export interface HostBootstrap {
@@ -625,6 +629,11 @@ export interface TauDesktopApi {
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  /** Ref and workspace integrity check used before showing Restore. */
+  canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
+  /** Exact live-workspace delta that restoring a checkpoint would replace. */
+  getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
+  restoreCheckpoint(sessionId: string, checkpointId: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
   setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;

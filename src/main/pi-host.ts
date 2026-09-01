@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readdir, realpath, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
@@ -151,8 +151,14 @@ import {
   cloneTurnCheckpoint,
   checkpointsForBranch,
   TURN_CHECKPOINT_CUSTOM_TYPE,
+  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
+  TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
+  turnRestoreBackupsFromEntries,
+  turnRestoreTransactionsFromEntries,
   turnCheckpointsFromEntries,
+  turnSnapshotRef,
 } from "../shared/turn-checkpoint-codec.js";
+import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
 import {
   createWorkspaceKitCheckpointFeature,
   createWorkspaceKitCheckpointMaintenance,
@@ -841,6 +847,25 @@ interface LiveAssistant {
   timestamp: number;
 }
 
+/**
+ * A committed restore keeps its recovery thread discoverable without making
+ * that thread the one resumed by `continueRecent` on the next launch.
+ */
+export async function prioritizeRestoreTargetSession(targetPath: string, backupPath: string): Promise<void> {
+  const [target, backup] = await Promise.all([stat(targetPath), stat(backupPath)]);
+  // Keep a visible gap because findMostRecentSession compares millisecond
+  // timestamps while some filesystems expose coarser mtime resolution.
+  const targetTime = Math.max(Date.now() + 2_000, target.mtimeMs + 1_000, backup.mtimeMs + 2_000);
+  const backupTime = Math.max(0, targetTime - 1_000);
+  await utimes(backupPath, new Date(backupTime), new Date(backupTime));
+  await utimes(targetPath, new Date(targetTime), new Date(targetTime));
+}
+
+interface RestoreActivationTransaction {
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
 /** In-flight state of one thread's current turn, whichever process runs it. */
 interface LiveTurnState {
   readonly tools: Map<string, UiToolRun>;
@@ -1331,6 +1356,11 @@ export class PiHost {
         }
         if (this.defaultBackendKind !== "pi" || !(await this.attachAvailableBridge(this.cwd, undefined, {}, activationEpoch))) {
           if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
+          // A restore journal is written before any workspace mutation. Replay
+          // its safe backup target before opening a session so a crash cannot
+          // expose a half-restored checkout as a normal active thread.
+          await this.recoverPendingRestoreTransactions();
+          if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
           const thread = await this.openInitialThread(this.cwd);
           if (!await this.activateThread(thread, false, activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         }
@@ -1625,7 +1655,11 @@ export class PiHost {
     // workspace switching never waits on another thread's history work.
     await this.rememberProject(cwd);
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
-    if (cwd === this.cwd && (this.bridge || this.active)) return this.activeUpdates(activationEpoch);
+    if (cwd === this.cwd && (this.bridge || this.active)) {
+      await this.recoverPendingRestoreTransactions(cwd);
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      return this.activeUpdates(activationEpoch);
+    }
     if (this.defaultBackendKind === "pi" && await this.attachAvailableBridge(cwd, undefined, {}, activationEpoch)) {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       await this.rememberProject(this.cwd);
@@ -1636,6 +1670,7 @@ export class PiHost {
     }
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     this.detachBridge();
+    await this.recoverPendingRestoreTransactions(cwd);
     const startedAt = performance.now();
     const thread = this.defaultBackendKind === "claude-code"
       ? await this.openInitialThread(cwd)
@@ -2026,6 +2061,255 @@ export class PiHost {
     });
   }
 
+  /**
+   * Restores a completed local Pi turn through a new active branch. The source
+   * session is never truncated: a separately named backup preserves its
+   * current branch and workspace snapshot before the target workspace is
+   * changed. Fork therefore remains the non-destructive explicit alternative.
+   */
+  async restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult> {
+    if (this.bridge) {
+      throw new Error("Restore is unavailable while Pi owns this thread. Use Fork to keep the current workspace unchanged.");
+    }
+    return this.runLifecycle(async () => {
+      await this.recoverPendingRestoreTransactions(this.cwd);
+      const { sourceThread, sourceFile, sourceCheckpoints, checkpoint } = await this.verifiedRestoreCheckpoint(sessionId, checkpointId);
+
+      // Build and open the candidate target before taking the destructive
+      // workspace step. It is not adopted until the workspace transaction has
+      // succeeded, so a runtime-construction failure leaves the source active.
+      const targetSourceManager = SessionManager.open(sourceFile);
+      const targetPath = targetSourceManager.createBranchedSession(checkpoint.anchorMessageId);
+      if (!targetPath) throw new Error("Failed to create the restored thread.");
+      const targetManager = SessionManager.open(targetPath);
+      const targetThreadId = targetManager.getSessionId();
+      let targetRuntime: ThreadRuntime | undefined;
+      let backupPath: string | undefined;
+      let backupSessionId: string | undefined;
+      let backupTurnId: string | undefined;
+      let backupManager: SessionManager | undefined;
+      let restoreTransaction: TurnRestoreTransaction | undefined;
+      let backupDurable = false;
+      let restoreAttempted = false;
+      let restoreCommitted = false;
+      const startedAt = performance.now();
+      let lease: Awaited<ReturnType<WorkspaceCheckpointLeaseManager["acquire"]>> | undefined;
+      const cleanupTarget = async (): Promise<void> => {
+        if (targetRuntime) {
+          if (this.threads.get(targetRuntime.threadId)?.runtime === targetRuntime) {
+            await this.threads.release(targetRuntime.threadId).catch(() => undefined);
+          } else {
+            await this.disposeThread(targetRuntime).catch(() => undefined);
+          }
+          targetRuntime = undefined;
+        }
+        await workspaceGit.cleanupTurnCheckpointSessionRefs(sourceThread.cwd, targetThreadId).catch(() => undefined);
+        await rm(targetPath, { force: true }).catch(() => undefined);
+      };
+      const cleanupUncommittedBackup = async (): Promise<void> => {
+        if (!backupSessionId || backupDurable) return;
+        await workspaceGit.cleanupTurnCheckpointSessionRefs(sourceThread.cwd, backupSessionId).catch(() => undefined);
+        if (backupPath) await rm(backupPath, { force: true }).catch(() => undefined);
+      };
+
+      try {
+        targetRuntime = await this.openThread(
+          targetManager,
+          { type: "session_start", reason: "resume", previousSessionFile: sourceFile },
+          { adopt: false, prepared: true },
+        );
+        lease = await this.checkpointLeaseManager.acquire(sourceThread.cwd, {
+          sessionId: sourceThread.sessionId,
+          turnId: `restore-${randomUUID()}`,
+        });
+
+        // Create the backup from the source branch's current leaf. This is the
+        // first durable artifact and is complete before any workspace restore.
+        const backupSourceManager = SessionManager.open(sourceFile);
+        const sourceLeaf = backupSourceManager.getLeafId();
+        if (!sourceLeaf) throw new Error("This thread has no current conversation branch to back up.");
+        backupPath = backupSourceManager.createBranchedSession(sourceLeaf);
+        if (!backupPath) throw new Error("Failed to create the restore backup thread.");
+        const durableBackupManager = SessionManager.open(backupPath);
+        backupManager = durableBackupManager;
+        backupSessionId = durableBackupManager.getSessionId();
+        backupTurnId = `restore-backup-${randomUUID()}`;
+        await this.checkpointMaintenance.rehomeFork({
+          cwd: sourceThread.cwd,
+          sourceSessionId: sourceThread.sessionId,
+          targetSessionId: backupSessionId,
+          checkpoints: sourceCheckpoints,
+          lease,
+          appendEntry: (customType, data) => { durableBackupManager.appendCustomEntry(customType, data); },
+          committedCheckpoints: () => turnCheckpointsFromEntries(durableBackupManager.getBranch(), backupSessionId!),
+        });
+        const backupBefore = await workspaceGit.createTurnWorkspaceSnapshot(
+          sourceThread.cwd,
+          backupSessionId,
+          backupTurnId,
+          "before",
+        );
+        const backupAfter = await workspaceGit.createTurnWorkspaceSnapshot(
+          sourceThread.cwd,
+          backupSessionId,
+          backupTurnId,
+          "after",
+        );
+        if (backupBefore.complete === false || backupAfter.complete === false) {
+          throw new Error("The current workspace is only partially captured, so Tau cannot create a recoverable restore backup.");
+        }
+        await backupManager.appendSessionInfo(`Backup before restore to turn ${checkpoint.turnId.slice(0, 12)}`);
+        backupManager.appendCustomEntry(TURN_RESTORE_BACKUP_CUSTOM_TYPE, {
+          version: 1,
+          backupId: randomUUID(),
+          sessionId: backupSessionId,
+          turnId: backupTurnId,
+          sourceSessionId: sourceThread.sessionId,
+          sourceCheckpointId: checkpoint.id,
+          cwd: sourceThread.cwd,
+          beforeSnapshotId: backupBefore.id,
+          afterSnapshotId: backupAfter.id,
+          createdAt: Date.now(),
+        });
+        backupDurable = true;
+
+        const targetCheckpoints = checkpointsForBranch(targetManager.getBranch(), sourceCheckpoints);
+        await this.checkpointMaintenance.rehomeFork({
+          cwd: sourceThread.cwd,
+          sourceSessionId: sourceThread.sessionId,
+          targetSessionId: targetThreadId,
+          checkpoints: targetCheckpoints,
+          lease,
+          appendEntry: (customType, data) => { targetManager.appendCustomEntry(customType, data); },
+          committedCheckpoints: () => turnCheckpointsFromEntries(targetManager.getBranch(), targetThreadId),
+        });
+
+        const transactionId = randomUUID();
+        restoreTransaction = {
+          version: 1,
+          kind: "checkpoint-restore",
+          transactionId,
+          state: "prepared",
+          sessionId: backupSessionId,
+          backupSessionId,
+          backupTurnId,
+          sourceSessionId: sourceThread.sessionId,
+          sourceTurnId: checkpoint.turnId,
+          sourceCheckpointId: checkpoint.id,
+          targetSessionId: targetThreadId,
+          cwd: sourceThread.cwd,
+          targetAfterSnapshotId: checkpoint.afterSnapshotId,
+          backupAfterSnapshotId: backupAfter.id,
+          createdAt: Date.now(),
+        };
+        // This append is the durable intent point. A crash after it can be
+        // repaired on startup by replaying the complete backup pair.
+        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
+
+        restoreAttempted = true;
+        await workspaceGit.restoreWorkspaceSnapshot(
+          sourceThread.cwd,
+          checkpoint.afterSnapshotId,
+          {
+            target: { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
+            rollback: { sessionId: backupSessionId, turnId: backupTurnId },
+            onPhase: (phase) => {
+              if (!restoreTransaction || !backupManager) return;
+              const state = phase === "apply-started"
+                ? "applying"
+                : phase === "cleaned"
+                  ? "cleaned"
+                  : phase === "applied"
+                    ? "workspace-applied"
+                    : "rolling-back";
+              restoreTransaction = { ...restoreTransaction, state };
+              backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
+            },
+          },
+        );
+        this.gitCoordinator.invalidate(sourceThread.cwd);
+        restoreTransaction = { ...restoreTransaction, state: "workspace-applied" };
+        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
+
+        await this.adoptThread(targetRuntime);
+        await this.activateThread(targetRuntime, true);
+        // Keep the successfully restored branch as the most recent durable
+        // session. Restore backups remain indexed and discoverable, but a
+        // restart must resume the restored checkpoint rather than reopening
+        // the backup solely because its transaction journal was written last.
+        targetManager.appendSessionInfo(`Restored to turn ${checkpoint.turnId.slice(0, 12)}`);
+        restoreTransaction = { ...restoreTransaction, state: "committed" };
+        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
+        restoreCommitted = true;
+        await prioritizeRestoreTargetSession(targetPath, backupPath).catch((error) => {
+          // The content commit is already durable. A failed timestamp update
+          // must not roll it back; index recovery can still discover both
+          // sessions and the target remains the active runtime in this host.
+          this.log("restore.target-mtime.failed", this.errorMessage(error));
+        });
+        targetRuntime.releaseEventBarrier((event, runtime, eventSessionId, eventCwd, error) => {
+          if (error) this.fail(error, eventSessionId);
+          else this.handleSessionEvent(event, runtime, eventSessionId, eventCwd);
+        }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
+        this.logReplacement("restore", startedAt);
+        targetRuntime = undefined;
+      } catch (error) {
+        const recoveryErrors: unknown[] = [];
+        let recovered = false;
+        if (!restoreCommitted && restoreAttempted && backupSessionId && backupTurnId) {
+          try {
+            await workspaceGit.restoreWorkspaceSnapshot(
+              sourceThread.cwd,
+              turnSnapshotRef(backupSessionId, backupTurnId, "after"),
+              {
+                target: { sessionId: backupSessionId, turnId: backupTurnId },
+                rollback: { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
+              },
+            );
+            this.gitCoordinator.invalidate(sourceThread.cwd);
+            recovered = true;
+          } catch (recoveryError) {
+            recoveryErrors.push(recoveryError);
+          }
+        }
+        if (targetRuntime && this.threads.active?.runtime === targetRuntime) {
+          this.threads.setActive(sourceThread.threadId);
+          this.cwd = sourceThread.cwd;
+          this.extensionCount = sourceThread.backend.extensionCount();
+        }
+        await cleanupTarget();
+        if (recovered && restoreTransaction && backupManager) {
+          try {
+            backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, {
+              ...restoreTransaction,
+              state: "recovered",
+            });
+          } catch (journalError) {
+            recoveryErrors.push(journalError);
+          }
+        }
+        await cleanupUncommittedBackup();
+        const message = this.errorMessage(error);
+        if (recoveryErrors.length > 0) {
+          throw new AggregateError([error, ...recoveryErrors], `Restore failed and workspace rollback needs attention: ${message}`);
+        }
+        throw new Error(`Restore failed; the original thread and workspace were kept unchanged. ${message}`);
+      } finally {
+        await lease?.release();
+      }
+
+      // The backup must remain indexed as its own thread after the successful
+      // transaction. Refreshing after releasing the writer lease prevents a
+      // nested acquisition in the startup/pruning sweep.
+      const index = await this.refreshThreadIndex(false).catch(() => this.threadIndexSnapshot());
+      const active = await this.snapshot();
+      return this.actionResult([
+        { version: HOST_PROTOCOL_VERSION, type: "thread-index", index },
+        ...this.lifecycleUpdates(active),
+      ]);
+    });
+  }
+
   async exportThreadMarkdown(expectedSessionId?: string): Promise<string> {
     if (this.bridge) {
       if (expectedSessionId && this.bridgeSnapshot?.sessionId !== expectedSessionId) {
@@ -2340,6 +2624,7 @@ export class PiHost {
       }
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.detachBridge();
+      await this.recoverPendingRestoreTransactions(this.cwd);
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
@@ -3148,6 +3433,7 @@ export class PiHost {
         cwd,
         manager.getSessionId(),
         turnCheckpointsFromEntries(manager.getBranch(), manager.getSessionId()),
+        turnRestoreBackupsFromEntries(manager.getBranch(), manager.getSessionId()),
       );
     }
     if (options.background) this.backgroundManagers.add(manager);
@@ -3306,6 +3592,154 @@ export class PiHost {
     });
   }
 
+  /**
+   * A restore backup is a real recovery thread, not only a retention marker.
+   * Opening it replays its verified workspace pair while retaining a temporary
+   * rollback pair for the workspace that is currently on disk.
+   */
+  private async restoreBackupWorkspaceOnOpen(thread: ThreadRuntime): Promise<RestoreActivationTransaction | undefined> {
+    // Recovery is workspace-scoped, not backend-scoped. A normal project
+    // session can be the first thread opened after switching projects and
+    // still needs to repair a pending clean/read-tree transaction in its cwd.
+    await this.recoverPendingRestoreTransactions(thread.cwd);
+    if (!isPiBackend(thread)) return undefined;
+    const backup = turnRestoreBackupsFromEntries(thread.backend.branchEntries(), thread.sessionId).at(-1);
+    if (!backup) return undefined;
+    if (backup.cwd !== thread.cwd) throw new Error("This restore backup belongs to another workspace.");
+    if (!thread.backend.isIdle() || thread.adapterStreaming || thread.adapterPending > 0) {
+      throw new Error("Wait for the backup thread to become idle before restoring its workspace.");
+    }
+    const active = this.active;
+    if (active && active !== thread && (active.backend.isStreaming() || active.adapterStreaming || active.adapterPending > 0)) {
+      throw new Error("Wait for the active turn to finish before opening the restore backup.");
+    }
+    await workspaceGit.validateRestorableWorkspaceSnapshotRefs(
+      thread.cwd,
+      backup.beforeSnapshotId,
+      backup.afterSnapshotId,
+      { sessionId: backup.sessionId, turnId: backup.turnId },
+    );
+    const rollbackTurnId = `open-backup-${randomUUID()}`;
+    const lease = await this.checkpointLeaseManager.acquire(thread.cwd, {
+      sessionId: thread.sessionId,
+      turnId: rollbackTurnId,
+    });
+    let rollbackBefore: workspaceGit.WorkspaceSnapshot | undefined;
+    let rollbackAfter: workspaceGit.WorkspaceSnapshot | undefined;
+    let handedOff = false;
+    let transaction: TurnRestoreTransaction | undefined;
+    const cleanupRollback = async (): Promise<void> => {
+      if (!rollbackBefore && !rollbackAfter) return;
+      await workspaceGit.cleanupTurnCheckpointRefs(thread.cwd, [{ sessionId: thread.sessionId, turnId: rollbackTurnId }]);
+    };
+    const appendTransaction = (state: TurnRestoreTransaction["state"]): void => {
+      if (!transaction) return;
+      transaction = { ...transaction, state };
+      thread.backend.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, transaction);
+    };
+    try {
+      rollbackBefore = await workspaceGit.createTurnWorkspaceSnapshot(
+        thread.cwd,
+        thread.sessionId,
+        rollbackTurnId,
+        "before",
+      );
+      rollbackAfter = await workspaceGit.createTurnWorkspaceSnapshot(
+        thread.cwd,
+        thread.sessionId,
+        rollbackTurnId,
+        "after",
+      );
+      transaction = {
+        version: 1,
+        kind: "backup-open",
+        transactionId: randomUUID(),
+        state: "prepared",
+        sessionId: thread.sessionId,
+        backupSessionId: thread.sessionId,
+        backupTurnId: rollbackTurnId,
+        sourceSessionId: backup.sessionId,
+        sourceTurnId: backup.turnId,
+        sourceCheckpointId: backup.backupId,
+        targetSessionId: thread.sessionId,
+        ...(this.active && this.active.threadId !== thread.threadId ? { previousSessionId: this.active.threadId } : {}),
+        cwd: thread.cwd,
+        targetAfterSnapshotId: backup.afterSnapshotId,
+        backupAfterSnapshotId: rollbackAfter.id,
+        createdAt: Date.now(),
+      };
+      appendTransaction("prepared");
+      await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, backup.afterSnapshotId, {
+        target: { sessionId: backup.sessionId, turnId: backup.turnId },
+        rollback: { sessionId: thread.sessionId, turnId: rollbackTurnId },
+        onPhase: (phase) => {
+          const state = phase === "apply-started"
+            ? "applying"
+            : phase === "cleaned"
+              ? "cleaned"
+              : phase === "applied"
+                ? "workspace-applied"
+                : "rolling-back";
+          appendTransaction(state);
+        },
+      });
+      this.gitCoordinator.invalidate(thread.cwd);
+      appendTransaction("workspace-applied");
+      handedOff = true;
+      let finished = false;
+      const commit = async (): Promise<void> => {
+        if (finished) return;
+        appendTransaction("committed");
+        finished = true;
+        await cleanupRollback().catch(() => undefined);
+        await lease.release();
+      };
+      const rollback = async (): Promise<void> => {
+        if (finished) return;
+        try {
+          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter!.id, {
+            target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
+            rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
+          });
+          this.gitCoordinator.invalidate(thread.cwd);
+          appendTransaction("recovered");
+          finished = true;
+          await cleanupRollback().catch(() => undefined);
+        } finally {
+          await lease.release();
+        }
+      };
+      return { commit, rollback };
+    } catch (error) {
+      let recovered = false;
+      const recoveryErrors: unknown[] = [];
+      if (transaction && rollbackAfter) {
+        try {
+          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter.id, {
+            target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
+            rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
+          });
+          this.gitCoordinator.invalidate(thread.cwd);
+          appendTransaction("recovered");
+          recovered = true;
+        } catch (recoveryError) {
+          recoveryErrors.push(recoveryError);
+        }
+      }
+      if (recovered) await cleanupRollback().catch((error) => recoveryErrors.push(error));
+      const message = `The restore backup could not be applied safely; the selected thread was not opened. ${this.errorMessage(error)}`;
+      if (recoveryErrors.length > 0) {
+        throw new AggregateError([error, ...recoveryErrors], `${message} Workspace recovery needs attention.`);
+      }
+      throw new Error(message);
+    } finally {
+      // The lease remains held while activateThread publishes the selected
+      // thread. Pending transactions retain their temporary rollback pair
+      // until the next startup can recover it.
+      if (!handedOff) await lease.release();
+    }
+  }
+
   /** Puts a live thread on screen. Cheap: it changes pointers and publishes state. */
   private async activateThread(
     thread: ThreadRuntime,
@@ -3313,20 +3747,52 @@ export class PiHost {
     activationEpoch = this.activationEpoch,
   ): Promise<boolean> {
     if (!this.isCurrentActivation(activationEpoch)) return false;
-    if (!this.threads.has(thread.threadId)) await this.adoptThread(thread);
-    if (!this.isCurrentActivation(activationEpoch)) return false;
-    this.threads.setActive(thread.threadId);
-    this.cwd = thread.cwd;
-    this.extensionCount = thread.backend.extensionCount();
-    await this.rememberProject(this.cwd);
-    if (!this.isCurrentActivation(activationEpoch)) return false;
-    await this.refreshThreadShell(thread, touch);
-    if (!this.isCurrentActivation(activationEpoch)) return false;
-    this.log("session.opened", thread.threadId.slice(0, 8));
-    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
-    this.scheduleRuntimePrewarm();
-    if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
-    return true;
+    const restore = await this.restoreBackupWorkspaceOnOpen(thread);
+    let restoreCommitted = !restore;
+    try {
+      if (!this.isCurrentActivation(activationEpoch)) {
+        await restore?.rollback();
+        restoreCommitted = true;
+        return false;
+      }
+      if (!this.threads.has(thread.threadId)) await this.adoptThread(thread);
+      if (!this.isCurrentActivation(activationEpoch)) {
+        await restore?.rollback();
+        restoreCommitted = true;
+        return false;
+      }
+      this.threads.setActive(thread.threadId);
+      this.cwd = thread.cwd;
+      this.extensionCount = thread.backend.extensionCount();
+      await this.rememberProject(this.cwd);
+      if (!this.isCurrentActivation(activationEpoch)) {
+        await restore?.rollback();
+        restoreCommitted = true;
+        return false;
+      }
+      await this.refreshThreadShell(thread, touch);
+      if (!this.isCurrentActivation(activationEpoch)) {
+        await restore?.rollback();
+        restoreCommitted = true;
+        return false;
+      }
+      this.log("session.opened", thread.threadId.slice(0, 8));
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
+      this.scheduleRuntimePrewarm();
+      if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
+      await restore?.commit();
+      restoreCommitted = true;
+      return true;
+    } catch (error) {
+      if (restore && !restoreCommitted) {
+        try {
+          await restore.rollback();
+        } catch (recoveryError) {
+          throw new AggregateError([error, recoveryError], "Thread activation failed and workspace recovery needs attention.");
+        }
+      }
+      throw error;
+    }
   }
 
   private async publishActiveCatalog(): Promise<void> {
@@ -3902,6 +4368,7 @@ export class PiHost {
       extensionCount: 0,
       serviceTier: "standard",
       serviceTierAvailable: false,
+      supportsCheckpointRestore: false,
       supportsImageInput: false,
       contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
         ? { tokens: snapshot.contextUsage.tokens, contextWindow: snapshot.contextUsage.contextWindow, percent: snapshot.contextUsage.percent }
@@ -4237,6 +4704,207 @@ export class PiHost {
   }
 
   /**
+   * Finish restore transactions left behind by a process crash. The backup
+   * thread is the journal owner, so a prepared or workspace-applied marker is
+   * sufficient to identify the only safe recovery target without trusting the
+   * partially-created target runtime.
+   */
+  private async recoverPendingRestoreTransactions(workspaceCwd = this.cwd): Promise<void> {
+    if (this.bridge) return;
+    const sessionInfos = await SessionManager.listAll();
+    const byId = new Map(sessionInfos.map((info) => [info.id, info] as const));
+    const currentWorkspace = await realpath(workspaceCwd).catch(() => resolve(workspaceCwd));
+    for (const info of sessionInfos) {
+      let manager: SessionManager;
+      try {
+        manager = SessionManager.open(info.path);
+      } catch {
+        continue;
+      }
+      const transactions = turnRestoreTransactionsFromEntries(manager.getBranch(), info.id)
+        .filter((transaction) => transaction.state !== "committed" && transaction.state !== "recovered");
+      const committedTransactions = turnRestoreTransactionsFromEntries(manager.getBranch(), info.id)
+        .filter((transaction) => transaction.state === "committed" && transaction.kind === "checkpoint-restore");
+      for (const transaction of committedTransactions) {
+        const targetInfo = byId.get(transaction.targetSessionId);
+        if (!targetInfo?.path || targetInfo.path === info.path) continue;
+        const transactionWorkspace = await realpath(transaction.cwd).catch(() => resolve(transaction.cwd));
+        if (transactionWorkspace !== currentWorkspace) continue;
+        const [targetStat, backupStat] = await Promise.all([
+          stat(targetInfo.path).catch(() => undefined),
+          stat(info.path).catch(() => undefined),
+        ]);
+        // A crash can occur after the committed marker updates the backup's
+        // mtime but before the target-prioritization write. Repair that
+        // discoverability gap before continueRecent chooses a session.
+        if (targetStat && backupStat && backupStat.mtimeMs >= targetStat.mtimeMs) {
+          await prioritizeRestoreTargetSession(targetInfo.path, info.path).catch(() => undefined);
+        }
+      }
+      for (const transaction of transactions) {
+        // listAll spans every project. Recovery is deliberately scoped to the
+        // checkout this host is opening; mutating an unrelated project's
+        // workspace during startup would be a data-loss bug in its own right.
+        const transactionWorkspace = await realpath(transaction.cwd).catch(() => resolve(transaction.cwd));
+        if (transactionWorkspace !== currentWorkspace) continue;
+        await this.recoverRestoreTransaction(transaction, manager, byId);
+      }
+    }
+  }
+
+  private async recoverRestoreTransaction(
+    transaction: TurnRestoreTransaction,
+    backupManager: SessionManager,
+    sessionInfos: ReadonlyMap<string, SessionInfo>,
+  ): Promise<void> {
+    const [transactionWorkspace, backupWorkspace] = await Promise.all([
+      this.checkpointLeaseManager.canonicalKey(transaction.cwd),
+      this.checkpointLeaseManager.canonicalKey(backupManager.getCwd()),
+    ]);
+    if (transactionWorkspace !== backupWorkspace) {
+      throw new Error(`Restore recovery refused a workspace mismatch for backup ${transaction.backupSessionId.slice(0, 12)}.`);
+    }
+    const lease = await this.checkpointLeaseManager.acquire(transaction.cwd, {
+      sessionId: transaction.backupSessionId,
+      turnId: `restore-recovery-${transaction.transactionId}`,
+    });
+    try {
+      if (transaction.kind === "backup-open") {
+        // Opening a backup uses the durable backup pair as the target and a
+        // temporary pair in the same backup session as the rollback. If the
+        // process died before activation committed, put the pre-open
+        // workspace back and leave the backup thread unopened.
+        await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, transaction.backupAfterSnapshotId, {
+          target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
+          rollback: { sessionId: transaction.sourceSessionId, turnId: transaction.sourceTurnId },
+        });
+        this.gitCoordinator.invalidate(transaction.cwd);
+        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, {
+          ...transaction,
+          state: "recovered",
+        });
+        const previousPath = transaction.previousSessionId
+          ? sessionInfos.get(transaction.previousSessionId)?.path
+          : undefined;
+        const backupPath = backupManager.getSessionFile();
+        if (previousPath && backupPath && previousPath !== backupPath) {
+          await prioritizeRestoreTargetSession(previousPath, backupPath).catch(() => undefined);
+        } else if (backupPath) {
+          await utimes(backupPath, new Date(0), new Date(0)).catch(() => undefined);
+        }
+        // Recovery is durable before deleting the temporary rollback pair. If
+        // cleanup is interrupted, the committed recovery marker makes the
+        // harmless orphan eligible for ordinary checkpoint GC.
+        await workspaceGit.cleanupTurnCheckpointRefs(transaction.cwd, [{
+          sessionId: transaction.backupSessionId,
+          turnId: transaction.backupTurnId,
+        }]);
+        return;
+      }
+      const backupBefore = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "before");
+      const backupAfter = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "after");
+      // Replaying the backup pair is idempotent and also repairs a process
+      // death in the middle of Git's clean/read-tree sequence. Using the same
+      // pair as rollback means an apply failure is retried against the same
+      // known-good state rather than falling back to the selected checkpoint.
+      await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, backupAfter, {
+        target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
+        rollback: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
+      });
+      this.gitCoordinator.invalidate(transaction.cwd);
+
+      // Remove the uncommitted target before recording recovery. If the
+      // process dies between these operations the next startup simply repeats
+      // the idempotent workspace replay and cleanup.
+      await workspaceGit.cleanupTurnCheckpointSessionRefs(transaction.cwd, transaction.targetSessionId);
+      const targetInfo = sessionInfos.get(transaction.targetSessionId);
+      if (targetInfo?.path && targetInfo.path !== backupManager.getSessionFile()) {
+        await rm(targetInfo.path, { force: true });
+      }
+      backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, {
+        ...transaction,
+        state: "recovered",
+      });
+    } catch (error) {
+      throw new Error(`Restore recovery failed for backup ${transaction.backupSessionId.slice(0, 12)}; the workspace was not exposed as restored. ${this.errorMessage(error)}`);
+    } finally {
+      await lease.release();
+    }
+  }
+
+  /** Shared trust boundary used by both the restore action and its UI offer. */
+  private async verifiedRestoreCheckpoint(sessionId: string, checkpointId: string) {
+    if (this.bridge) throw new Error("Restore is unavailable while Pi owns this thread.");
+    const sourceThread = this.requireActive();
+    if (sourceThread.threadId !== sessionId) throw new Error("The selected thread changed before it could be restored.");
+    if (!isPiBackend(sourceThread)) throw new Error("Only local Pi threads with workspace checkpoints can be restored.");
+    if (sourceThread.backend.isStreaming()
+      || !sourceThread.backend.isIdle()
+      || sourceThread.adapterStreaming
+      || sourceThread.adapterPending > 0
+      || (sourceThread.checkpointRuntime?.pendingCount ?? 0) > 0
+      || this.hasOpenUiPrompts(sourceThread.threadId)) {
+      throw new Error("Wait for the active turn and its checkpoint to finish before restoring it.");
+    }
+    const sourceFile = sourceThread.sessionFile;
+    if (!sourceFile || !existsSync(sourceFile)) throw new Error("This thread has no durable session to restore.");
+    const sourceManager = SessionManager.open(sourceFile);
+    const sourceBranch = sourceManager.getBranch();
+    const sourceCheckpoints = turnCheckpointsFromEntries(sourceBranch, sourceThread.sessionId);
+    const checkpoint = sourceCheckpoints.find((entry) => entry.id === checkpointId);
+    if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
+    if (checkpoint.completeness === "partial") {
+      throw new Error("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
+    }
+    const anchor = sourceBranch.find((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const item = entry as { id?: unknown; type?: unknown; message?: unknown };
+      return item.id === checkpoint.anchorMessageId
+        && item.type === "message"
+        && Boolean(item.message && typeof item.message === "object"
+          && (item.message as { role?: unknown }).role === "assistant");
+    });
+    if (!anchor || typeof (anchor as { id?: unknown }).id !== "string") {
+      throw new Error("This checkpoint has no completed assistant anchor and cannot be restored.");
+    }
+    await workspaceGit.validateRestorableWorkspaceSnapshotRefs(
+      sourceThread.cwd,
+      checkpoint.beforeSnapshotId,
+      checkpoint.afterSnapshotId,
+      { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
+    );
+    return { sourceThread, sourceFile, sourceBranch, sourceCheckpoints, checkpoint };
+  }
+
+  /** Ref verification is deliberately completed before the renderer offers Restore. */
+  async canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean> {
+    if (this.bridge) return false;
+    return this.runLifecycle(async () => {
+      try {
+        await this.verifiedRestoreCheckpoint(sessionId, checkpointId);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /** Preview the exact live-workspace delta that the selected checkpoint would replace. */
+  async getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges> {
+    if (this.bridge) throw new Error("Restore is unavailable while Pi owns this thread.");
+    return this.runLifecycle(async () => {
+      const { sourceThread, checkpoint } = await this.verifiedRestoreCheckpoint(sessionId, checkpointId);
+      return workspaceGit.previewWorkspaceRestore(
+        sourceThread.cwd,
+        checkpoint.beforeSnapshotId,
+        checkpoint.afterSnapshotId,
+        { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
+        { branch: this.knownBranches.get(sourceThread.cwd) },
+      );
+    });
+  }
+
+  /**
    * Reconciles all persisted session journals against namespaced snapshot refs.
    * The sweep runs under the same checkout lease as capture, so an offline
    * deletion/prune cannot remove a live writer's provisional or committed refs.
@@ -4246,7 +4914,13 @@ export class PiHost {
     for (const info of sessionInfos) {
       try {
         const manager = SessionManager.open(info.path);
-        live.push({ sessionId: info.id, cwd: info.cwd, checkpoints: turnCheckpointsFromEntries(manager.getBranch(), info.id) });
+        live.push({
+          sessionId: info.id,
+          cwd: info.cwd,
+          checkpoints: turnCheckpointsFromEntries(manager.getBranch(), info.id),
+          backups: turnRestoreBackupsFromEntries(manager.getBranch(), info.id),
+          restoreTransactions: turnRestoreTransactionsFromEntries(manager.getBranch(), info.id),
+        });
       } catch {
         // A session can disappear between listAll and open; its refs are
         // intentionally eligible for the same sweep.
@@ -4260,6 +4934,8 @@ export class PiHost {
         sessionId: record.threadId,
         cwd: record.cwd,
         checkpoints: turnCheckpointsFromEntries(branch, record.threadId),
+        backups: turnRestoreBackupsFromEntries(branch, record.threadId),
+        restoreTransactions: turnRestoreTransactionsFromEntries(branch, record.threadId),
       });
     }
     const workspaces = new Map<string, string>();
@@ -4634,6 +5310,7 @@ export class PiHost {
         extensionCount: 0,
         serviceTier: "standard",
         serviceTierAvailable: false,
+        supportsCheckpointRestore: false,
       };
     }
     const branchMessages = this.branchMessagesWithEntryIds(thread);
@@ -4666,6 +5343,7 @@ export class PiHost {
       extensionCount: this.extensionCount,
       serviceTier: this.serviceTier,
       serviceTierAvailable: this.serviceTierAvailable(),
+      supportsCheckpointRestore: true,
       historyCompleteness: "complete",
       supportsImageInput: modelSupportsImageInput(thread.runtime?.session.model),
       contextUsage: usage && usage.tokens !== null && usage.percent !== null

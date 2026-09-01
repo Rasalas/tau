@@ -19,6 +19,7 @@ import type {
   TurnCheckpointCaptureResult,
   TurnCheckpointLease,
   TurnCheckpointStatus,
+  TurnRestoreBackup,
   TurnOutcomeEvent,
 } from "../shared/turn-checkpoint-types.js";
 import { createPiTurnCheckpointExtension } from "./pi-turn-checkpoint-extension.js";
@@ -27,7 +28,7 @@ import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js
 
 export interface WorkspaceKitCheckpointMaintenance {
   cleanupSessionRefs(cwd: string, sessionId: string): Promise<void>;
-  cleanupOrphanRefs(cwd: string, sessionId: string, checkpoints: readonly StoredTurnCheckpoint[]): Promise<void>;
+  cleanupOrphanRefs(cwd: string, sessionId: string, checkpoints: readonly StoredTurnCheckpoint[], backups?: readonly TurnRestoreBackup[]): Promise<void>;
   cleanupLiveRefs(cwd: string, sessions: readonly workspaceGit.LiveCheckpointSession[]): Promise<void>;
   rehomeFork(options: WorkspaceKitForkOptions): Promise<void>;
 }
@@ -43,6 +44,8 @@ export interface WorkspaceKitForkOptions {
   appendEntry(customType: string, data: unknown): void | Promise<void>;
   /** Reads committed target entries after each append for crash-safe cleanup. */
   committedCheckpoints(): readonly StoredTurnCheckpoint[];
+  /** The caller may already hold the workspace lease for a larger transaction. */
+  lease?: TurnCheckpointLease;
 }
 
 /**
@@ -70,12 +73,10 @@ export function createWorkspaceKitCheckpointMaintenance(
   };
   return {
     cleanupSessionRefs: (cwd, sessionId) => withLease(cwd, sessionId, () => workspaceGit.cleanupTurnCheckpointSessionRefs(cwd, sessionId)),
-    cleanupOrphanRefs: (cwd, sessionId, checkpoints) => withLease(cwd, sessionId, () => workspaceGit.cleanupOrphanTurnCheckpointRefs(cwd, sessionId, checkpoints)),
+    cleanupOrphanRefs: (cwd, sessionId, checkpoints, backups) => withLease(cwd, sessionId, () => workspaceGit.cleanupOrphanTurnCheckpointRefs(cwd, sessionId, checkpoints, undefined, backups)),
     cleanupLiveRefs: (cwd, sessions) => withLease(cwd, "tau-checkpoint-gc", () => workspaceGit.cleanupCheckpointRefsForLiveSessions(cwd, sessions)),
-    rehomeFork: async ({ cwd, sourceSessionId, targetSessionId, checkpoints, appendEntry, committedCheckpoints }) => withLease(
-      cwd,
-      targetSessionId,
-      async () => {
+    rehomeFork: async ({ cwd, sourceSessionId, targetSessionId, checkpoints, appendEntry, committedCheckpoints, lease }) => {
+      const operation = async () => {
         if (checkpoints.length === 0) return;
         const transactionId = randomUUID();
         try {
@@ -119,8 +120,9 @@ export function createWorkspaceKitCheckpointMaintenance(
           ).catch(() => undefined);
           throw error;
         }
-      },
-    ),
+      };
+      return lease ? operation() : withLease(cwd, targetSessionId, operation);
+    },
   };
 }
 

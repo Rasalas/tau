@@ -5,7 +5,11 @@ import {
   createTurnCheckpointBatch,
   TURN_CHECKPOINT_CUSTOM_TYPE,
   TURN_CHECKPOINT_BATCH_CUSTOM_TYPE,
+  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
+  TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
+  turnRestoreTransactionsFromEntries,
   turnCheckpointsFromEntries,
+  turnRestoreBackupsFromEntries,
   turnSnapshotRef,
 } from "./turn-checkpoint-codec.js";
 import {
@@ -90,6 +94,62 @@ describe("turn checkpoints", () => {
       { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: swapped },
       { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: foreign },
     ], "session")).toEqual([]);
+  });
+
+  it("keeps only session-bound restore backup markers", () => {
+    const backup = {
+      version: 1,
+      backupId: "backup-1",
+      sessionId: "backup-session",
+      turnId: "restore-backup-1",
+      sourceSessionId: "source-session",
+      sourceCheckpointId: "turn-1",
+      cwd: "/workspace",
+      beforeSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "before"),
+      afterSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "after"),
+      createdAt: 10,
+    };
+    expect(turnRestoreBackupsFromEntries([
+      { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: backup },
+      { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: { ...backup, backupId: "foreign", sessionId: "other" } },
+      { type: "custom", customType: TURN_RESTORE_BACKUP_CUSTOM_TYPE, data: { ...backup, backupId: "swapped", afterSnapshotId: backup.beforeSnapshotId } },
+    ], "backup-session")).toEqual([backup]);
+  });
+
+  it("keeps the latest valid restore journal state and rejects foreign refs", () => {
+    const transaction = {
+      version: 1,
+      transactionId: "restore-1",
+      state: "prepared" as const,
+      sessionId: "backup-session",
+      backupSessionId: "backup-session",
+      backupTurnId: "restore-backup-1",
+      sourceSessionId: "source-session",
+      sourceTurnId: "turn-1",
+      sourceCheckpointId: "turn-1",
+      targetSessionId: "target-session",
+      cwd: "/workspace",
+      targetAfterSnapshotId: turnSnapshotRef("source-session", "turn-1", "after"),
+      backupAfterSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "after"),
+      createdAt: 10,
+    };
+    expect(turnRestoreTransactionsFromEntries([
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: transaction },
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: { ...transaction, state: "committed" } },
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: { ...transaction, targetAfterSnapshotId: turnSnapshotRef("foreign", "turn-1", "after") } },
+    ], "backup-session")).toMatchObject([{ ...transaction, state: "committed" }]);
+
+    const backupOpen = {
+      ...transaction,
+      kind: "backup-open" as const,
+      targetSessionId: "backup-session",
+      sourceSessionId: "backup-session",
+      sourceTurnId: "restore-backup-1",
+      targetAfterSnapshotId: turnSnapshotRef("backup-session", "restore-backup-1", "after"),
+    };
+    expect(turnRestoreTransactionsFromEntries([
+      { type: "custom", customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: backupOpen },
+    ], "backup-session")).toMatchObject([backupOpen]);
   });
 
   it("exposes fork records only after every record precedes its commit marker", () => {
