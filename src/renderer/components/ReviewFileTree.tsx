@@ -90,9 +90,7 @@ export function ReviewFileTree({
       <button className="review-tree-open" title={file.path} onClick={() => onOpen(file.path)}>
         <FileKindIcon name={file.name} />
         <span className="review-tree-name">{file.name}</span>
-        <i>{STATUS_GLYPH[file.status] ?? "M"}</i>
-        <span className="stat-add">+{file.added}</span>
-        <span className="stat-del">−{file.removed}</span>
+        <i className={file.status} title={file.status}>{STATUS_GLYPH[file.status] ?? "M"}</i>
       </button>
       {!readOnly ? <button
         className="review-tree-viewed"
