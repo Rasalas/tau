@@ -1953,8 +1953,10 @@ export class PiHost {
               ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
               : undefined)
             : prepared;
-          void this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared)
-            .catch((error) => this.fail(error, thread.threadId));
+          // A new thread is not accepted until the runtime accepts its first
+          // prompt. Waiting only for preflight keeps creation fast while
+          // preventing a rejected prompt from becoming an interrupted turn.
+          await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
         }
       } catch (error) {
         // A pure validation failure leaves an untouched spare available. Once
@@ -3067,7 +3069,10 @@ export class PiHost {
     const conversation = buildTitleConversation(
       visibleMessages.map((message) => ({ role: message.role, content: message.text })),
     );
-    if (!conversation) throw new Error("The thread has no conversation to title yet.");
+    if (!conversation) {
+      if (!force) return this.actionResult([]);
+      throw new Error("The thread has no conversation to title yet.");
+    }
 
     this.log("title.started", `${provider}/${modelId}`);
     const title = cleanThreadTitle(await thread.backend.completeTitle(provider, modelId, conversation));

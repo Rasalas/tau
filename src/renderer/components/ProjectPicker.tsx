@@ -6,6 +6,7 @@ import { VirtualList } from "./VirtualList";
 interface ProjectPickerProps {
   open: boolean;
   projects: readonly UiProject[];
+  worktreePaths?: ReadonlySet<string>;
   onBrowse: () => void;
   onClose: () => void;
   onRemove: (project: UiProject) => void | Promise<void>;
@@ -24,6 +25,7 @@ function compactPath(path: string): string {
 export function ProjectPicker({
   open,
   projects,
+  worktreePaths,
   onBrowse,
   onClose,
   onRemove,
@@ -33,13 +35,17 @@ export function ProjectPicker({
   const [selected, setSelected] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ project: UiProject; x: number; y: number }>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const selectableProjects = useMemo(
+    () => worktreePaths ? projects.filter((project) => !worktreePaths.has(project.path)) : projects,
+    [projects, worktreePaths],
+  );
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return projects;
-    return projects.filter((project) =>
+    if (!needle) return selectableProjects;
+    return selectableProjects.filter((project) =>
       `${project.name} ${project.path}`.toLocaleLowerCase().includes(needle),
     );
-  }, [projects, query]);
+  }, [query, selectableProjects]);
 
   useEffect(() => {
     if (!open) return;
