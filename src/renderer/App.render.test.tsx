@@ -1210,12 +1210,14 @@ describe("App render isolation", () => {
     // Session allocation alone leaves the draft in flight.
     expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
 
+    // The host reports the missing user turn from prompt(), then commits the
+    // detached delivery. Both arrive in that order over one channel.
+    publish?.({ type: "prompt-without-user-turn", sessionId: "extension-session", clientMessageId });
     publish?.({
       type: "new-thread-delivery-settled",
       sessionId: "extension-session",
       clientMessageId,
       accepted: true,
-      userTurn: false,
     });
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
@@ -1383,6 +1385,8 @@ describe("App render isolation", () => {
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
     if (!clientMessageId) throw new Error("newSession did not receive a client message id");
 
+    // A rejected delivery reports both: the message that will never exist, and
+    // the new-thread settlement that reopens its draft.
     publish?.({
       type: "new-thread-delivery-settled",
       sessionId: "allocated",
@@ -1390,6 +1394,7 @@ describe("App render isolation", () => {
       accepted: false,
       message: "the runtime refused the prompt",
     });
+    publish?.({ type: "user-message-failed", sessionId: "allocated", clientMessageId, message: "the runtime refused the prompt" });
 
     await waitFor(() => expect(composer.value).toBe("delivery is refused"));
     expect(screen.getByRole("heading", { name: "What do you want to build?" })).toBeTruthy();

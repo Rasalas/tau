@@ -479,7 +479,13 @@ describe("PiHost.generateThreadTitle", () => {
     await expect(host.switchSession("/live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
     releaseStale();
 
-    await expect(staleNewSession).resolves.toEqual({ version: 1, updates: [] });
+    // A superseded request reports its rejection so the client stops waiting
+    // for a thread that will never be created.
+    await expect(staleNewSession).resolves.toEqual({
+      version: 1,
+      updates: [],
+      submission: { accepted: false, message: "A newer request replaced this new thread." },
+    });
     expect(internals.threads.active?.threadId).toBe("live-thread");
   });
 
@@ -509,7 +515,11 @@ describe("PiHost.generateThreadTitle", () => {
     await expect(host.switchSession("/warm-live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
     releaseLifecycle();
 
-    await expect(queuedNewSession).resolves.toEqual({ version: 1, updates: [] });
+    await expect(queuedNewSession).resolves.toEqual({
+      version: 1,
+      updates: [],
+      submission: { accepted: false, message: "A newer request replaced this new thread." },
+    });
     expect(prompts).toEqual([]);
     expect(internals.threads.active?.threadId).toBe("warm-live-thread");
   });
@@ -642,7 +652,7 @@ describe("PiHost.generateThreadTitle", () => {
         type: "thread-detail",
         detail: expect.objectContaining({ sessionId: "new-thread" }),
       }),
-    })), { timeout: 500 });
+    })));
     expect(((await creation) as unknown as { submission: { accepted: boolean } }).submission.accepted).toBe(true);
 
     releaseCatalog();
@@ -752,7 +762,6 @@ describe("PiHost.generateThreadTitle", () => {
       sessionId: "new-thread",
       clientMessageId: "message",
       accepted: true,
-      userTurn: true,
     }));
   });
 
@@ -779,12 +788,18 @@ describe("PiHost.generateThreadTitle", () => {
     internals.appendClientMessageMarker = () => true;
 
     await host.newSession("/extension-command", [], "/repo", { clientTurnId: "turn", clientMessageId: "message" });
+    // prompt() owns this decision: it is the only place that knows the text the
+    // runtime actually resolved.
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith({
+      type: "prompt-without-user-turn",
+      sessionId: "new-thread",
+      clientMessageId: "message",
+    }));
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith({
       type: "new-thread-delivery-settled",
       sessionId: "new-thread",
       clientMessageId: "message",
       accepted: true,
-      userTurn: false,
     }));
 
     // agent_settled must not report the cleared marker as a lost user message.

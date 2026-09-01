@@ -351,6 +351,8 @@ interface NewThreadSubmissionRecovery {
   /** The host assigned a runtime session before the first prompt was durable. */
   sessionId?: string;
   promoted?: boolean;
+  /** The host answered this prompt without a user turn; expect no message. */
+  withoutUserTurn?: boolean;
   /** Prompt hooks are shared by IPC and event promotion; run them once. */
   notified?: boolean;
   failed?: string;
@@ -725,7 +727,9 @@ export default function App() {
   } = newThreadController;
   const pendingNewThreadRef = useRef(pendingNewThread);
   pendingNewThreadRef.current = pendingNewThread;
-  const allowWorkspaceMutation = useCallback((what: string): boolean => {
+  // A draft can target a project the host has not opened yet. Actions that would
+  // otherwise run against the previous thread's workspace wait for the promotion.
+  const allowWorkspaceAction = useCallback((what: string): boolean => {
     if (!pendingNewThreadRef.current && newThreadRecoveryRef.current.size === 0) return true;
     setNotice(`${what} is unavailable until this draft becomes a thread.`);
     return false;
@@ -1170,14 +1174,13 @@ export default function App() {
     const recovery = newThreadRecoveryRef.current.get(clientMessageId);
     if (!recovery || recovery.failed) return false;
     if (recovery.sessionId && recovery.sessionId !== sessionId) return false;
-    const promotion = promoteFromUserMessage(sessionId, recovery.pending.projectPath);
-    // A correlated host detail may have already cleared the controller's
-    // pending draft. The recovery record is still the authoritative scope for
-    // this detached delivery, so allow that already-promoted path to finish.
-    if (!promotion && recovery.sessionId !== sessionId) return false;
+    // A correlated host detail may have already cleared the controller's pending
+    // draft; the recovery scope then finishes the move on its own.
+    const promotedScope = promoteFromUserMessage(sessionId, recovery.pending.projectPath);
+    if (!promotedScope && recovery.sessionId !== sessionId) return false;
     recovery.sessionId = sessionId;
     recovery.promoted = true;
-    if (promotion) composerScopeStore.moveScope(promotion.scope, createDraftKey(draftKey(sessionId)));
+    if (promotedScope) composerScopeStore.moveScope(promotedScope, createDraftKey(draftKey(sessionId)));
     setOptimisticMessages((current) => message
       ? current.map((entry) => entry.message.clientMessageId === clientMessageId
         ? { ...entry, scope: `session:${sessionId}` }
@@ -1256,30 +1259,29 @@ export default function App() {
   const settleNewThreadDelivery = useCallback((
     clientMessageId: string,
     sessionId: string,
-    settlement: { accepted: true; userTurn: boolean } | { accepted: false; message: string },
+    settlement: { accepted: true } | { accepted: false; message: string },
   ): boolean => {
     const recovery = newThreadRecoveryRef.current.get(clientMessageId);
     if (!recovery) return false;
     if (settlement.accepted) {
-      return promoteRecoveryToSession(
+      const promoted = promoteRecoveryToSession(
         clientMessageId,
         sessionId,
-        settlement.userTurn ? recovery.optimistic : undefined,
+        recovery.withoutUserTurn ? undefined : recovery.optimistic,
       );
+      // The host has committed this delivery. Whether the draft was still there
+      // to promote decides nothing: holding the record would block thread
+      // switching and every guarded workspace action for the rest of the session.
+      if (!promoted) releaseNewThreadRecovery(clientMessageId);
+      return true;
     }
     recovery.failed = settlement.message || "The runtime rejected the message.";
-    // Nothing was delivered, so the submission leaves no turn behind. The
-    // paired user-message-failed event is a duplicate of this cleanup, not the
-    // other half of it.
-    setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== clientMessageId));
-    const turnStart = transcriptTurnStartRef.current;
-    if (turnStart?.clientMessageId === clientMessageId) setTranscriptTurnStart(undefined, turnStart.turnId);
     restoreFailedNewThreadRecovery(recovery, sessionId);
     // A failed delivery is safe to release once its IPC acknowledgement has
     // arrived; until then the late accepted result must not clear recovery.
     if (!recovery.ipcPending) releaseNewThreadRecovery(clientMessageId);
     return true;
-  }, [promoteRecoveryToSession, releaseNewThreadRecovery, restoreFailedNewThreadRecovery, setTranscriptTurnStart]);
+  }, [promoteRecoveryToSession, releaseNewThreadRecovery, restoreFailedNewThreadRecovery]);
 
   const addEvent = useCallback((label: string, detail?: string, timestamp = Date.now()) => {
     setEvents((current) => [...current.slice(-99), { id: `${timestamp}-${Math.random()}`, label, detail, timestamp }]);
@@ -1359,9 +1361,20 @@ export default function App() {
         preferences.unsettle(event.sessionId);
       }
     }
+    // A prompt with no user turn leaves an optimistic message that no
+    // transcript will ever confirm. This arrives before any new-thread
+    // settlement, so a draft promotion downstream knows not to expect one.
+    if (event.type === "prompt-without-user-turn") {
+      setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
+      const turnStart = transcriptTurnStartRef.current;
+      if (turnStart?.clientMessageId === event.clientMessageId) setTranscriptTurnStart(undefined, turnStart.turnId);
+      const recovery = newThreadRecoveryRef.current.get(event.clientMessageId);
+      if (recovery) recovery.withoutUserTurn = true;
+      return;
+    }
     if (event.type === "new-thread-delivery-settled") {
       settleNewThreadDelivery(event.clientMessageId, event.sessionId, event.accepted
-        ? { accepted: true, userTurn: event.userTurn }
+        ? { accepted: true }
         : { accepted: false, message: event.message });
     }
     // Recovered run status alone must not undo an explicit settled choice.
@@ -1370,6 +1383,9 @@ export default function App() {
       // later failure still reconciles by the same request id, even if the
       // user switched threads in the meantime.
       setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
+      // A committed delivery has no record left, and deliberately so: the host
+      // only fails a client message it did not persist, so a draft restored
+      // after promotion would duplicate a prompt that is in the transcript.
       const recovery = newThreadRecoveryRef.current.get(event.clientMessageId);
       if (recovery) {
         settleNewThreadDelivery(event.clientMessageId, event.sessionId, { accepted: false, message: event.message });
@@ -1633,7 +1649,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, refreshChanges, replaceTranscriptMessages, settleNewThreadDelivery, threadStore, updateTranscriptMessages]);
+  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, refreshChanges, replaceTranscriptMessages, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, updateTranscriptMessages]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -1900,7 +1916,7 @@ export default function App() {
   }, [acceptWorkspace, requireHost, restoreRequest, snapshot?.sessionId, visibleStreaming]);
 
   const chooseWorkspace = useCallback(async (): Promise<boolean> => {
-    if (!allowWorkspaceMutation("Project selection")) return false;
+    if (!allowWorkspaceAction("Project selection")) return false;
     if (!requireHost("Project selection")) return false;
     try {
       const next = await window.tau!.chooseWorkspace();
@@ -1911,10 +1927,10 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [acceptWorkspace, allowWorkspaceMutation, requireHost]);
+  }, [acceptWorkspace, allowWorkspaceAction, requireHost]);
 
   const openWorkspace = useCallback(async (path: string): Promise<boolean> => {
-    if (!allowWorkspaceMutation("Project switching")) return false;
+    if (!allowWorkspaceAction("Project switching")) return false;
     if (path === snapshot?.cwd) return true;
     if (!requireHost("Project switching")) return false;
     try {
@@ -1924,7 +1940,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [acceptWorkspace, allowWorkspaceMutation, requireHost, snapshot?.cwd]);
+  }, [acceptWorkspace, allowWorkspaceAction, requireHost, snapshot?.cwd]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
@@ -1970,7 +1986,7 @@ export default function App() {
   }, [chooseWorkspace]);
 
   const cloneWorkspace = useCallback(async (repositoryUrl: string): Promise<boolean> => {
-    if (!allowWorkspaceMutation("Git clone")) return false;
+    if (!allowWorkspaceAction("Git clone")) return false;
     if (!requireHost("Git clone")) return false;
     try {
       const next = await window.tau!.cloneProject(repositoryUrl);
@@ -1981,7 +1997,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [acceptWorkspace, allowWorkspaceMutation, requireHost]);
+  }, [acceptWorkspace, allowWorkspaceAction, requireHost]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
@@ -2100,7 +2116,7 @@ export default function App() {
   }, [applyActionResult, requireHost]);
 
   const openInEditor = useCallback(async (path?: string, editorOverride?: string) => {
-    if (!allowWorkspaceMutation("Opening an editor")) return;
+    if (!allowWorkspaceAction("Opening an editor")) return;
     const editorId = editorOverride ?? settings.editorId ?? editors[0]?.id;
     if (!editorId) { setNotice("No supported editor found on PATH"); return; }
     if (!requireHost("Opening an editor")) return;
@@ -2109,10 +2125,10 @@ export default function App() {
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, [allowWorkspaceMutation, editors, requireHost, settings.editorId]);
+  }, [allowWorkspaceAction, editors, requireHost, settings.editorId]);
 
   const commit = useCallback(async (message: string, push: boolean) => {
-    if (!allowWorkspaceMutation("Committing")) return;
+    if (!allowWorkspaceAction("Committing")) return;
     if (!requireHost("Committing")) return;
     setCommitting(true);
     try {
@@ -2126,38 +2142,38 @@ export default function App() {
     } finally {
       setCommitting(false);
     }
-  }, [addEvent, allowWorkspaceMutation, refreshWorkspace, requireHost]);
+  }, [addEvent, allowWorkspaceAction, refreshWorkspace, requireHost]);
 
   const stageFile = useCallback(async (path: string) => {
-    if (!allowWorkspaceMutation("Staging changes")) return;
+    if (!allowWorkspaceAction("Staging changes")) return;
     if (!requireHost("Staging changes")) return;
     try { setChanges(await window.tau!.stageFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceMutation, requireHost]);
+  }, [allowWorkspaceAction, requireHost]);
 
   const unstageFile = useCallback(async (path: string) => {
-    if (!allowWorkspaceMutation("Unstaging changes")) return;
+    if (!allowWorkspaceAction("Unstaging changes")) return;
     if (!requireHost("Unstaging changes")) return;
     try { setChanges(await window.tau!.unstageFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceMutation, requireHost]);
+  }, [allowWorkspaceAction, requireHost]);
 
   const stageAll = useCallback(async () => {
-    if (!allowWorkspaceMutation("Staging changes")) return;
+    if (!allowWorkspaceAction("Staging changes")) return;
     if (!requireHost("Staging changes")) return;
     try { setChanges(await window.tau!.stageAll()); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceMutation, requireHost]);
+  }, [allowWorkspaceAction, requireHost]);
 
   const revertFile = useCallback(async (path: string) => {
-    if (!allowWorkspaceMutation("Reverting changes")) return;
+    if (!allowWorkspaceAction("Reverting changes")) return;
     if (!requireHost("Reverting changes")) return;
     try { setChanges(await window.tau!.revertFile(path)); }
     catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceMutation, requireHost]);
+  }, [allowWorkspaceAction, requireHost]);
 
   const pushWorkspace = useCallback(async () => {
-    if (!allowWorkspaceMutation("Pushing")) return;
+    if (!allowWorkspaceAction("Pushing")) return;
     if (!requireHost("Pushing")) return;
     setCommitting(true);
     try {
@@ -2170,10 +2186,10 @@ export default function App() {
     } finally {
       setCommitting(false);
     }
-  }, [addEvent, allowWorkspaceMutation, refreshChanges, refreshWorkspace, requireHost]);
+  }, [addEvent, allowWorkspaceAction, refreshChanges, refreshWorkspace, requireHost]);
 
   const runShellAction = useCallback(async (command: string, includeInContext: boolean, name: string) => {
-    if (!allowWorkspaceMutation("Project actions")) return;
+    if (!allowWorkspaceAction("Project actions")) return;
     if (!requireHost("Project actions")) return;
     try {
       setNotice(`Running ${name}…`);
@@ -2184,10 +2200,10 @@ export default function App() {
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, [allowWorkspaceMutation, refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
+  }, [allowWorkspaceAction, refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
 
   const runWorkspaceAction = useCallback(async (action: () => Promise<HostActionResult>): Promise<boolean> => {
-    if (!allowWorkspaceMutation("Worktree actions")) return false;
+    if (!allowWorkspaceAction("Worktree actions")) return false;
     if (!requireHost("Worktrees")) return false;
     setWorkspaceBusy(true);
     try {
@@ -2205,7 +2221,7 @@ export default function App() {
     } finally {
       setWorkspaceBusy(false);
     }
-  }, [acceptWorkspace, allowWorkspaceMutation, composerScopeStore, requireHost]);
+  }, [acceptWorkspace, allowWorkspaceAction, composerScopeStore, requireHost]);
 
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));

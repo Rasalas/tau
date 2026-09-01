@@ -1070,7 +1070,8 @@ export class PiHost {
   private activationEpoch = 0;
   private threadIndexRefresh?: Promise<ThreadIndexSnapshot>;
   private readonly detailStore = new ThreadDetailStore(5);
-  private activeIndexPublish?: ReturnType<typeof setTimeout>;
+  /** Publications coalesced into the next tick, keyed by what they carry. */
+  private readonly coalescedPublishes = new Map<"shells" | "index", ReturnType<typeof setTimeout>>();
   private indexRecoveryTimer?: ReturnType<typeof setInterval>;
   private projectBranch?: string;
   /** Last known branch per project. Git is never awaited on an interactive path. */
@@ -1081,7 +1082,6 @@ export class PiHost {
   /** Which known project paths are linked worktrees. Unclassified paths stay absent. */
   private readonly knownWorktreeProjects = new Map<string, boolean>();
   private readonly worktreeClassifications = new Map<string, Promise<void>>();
-  private pendingIndexPublish?: ReturnType<typeof setTimeout>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   private accessLevel: AccessLevel = "full";
   private serviceTier: ServiceTier = "standard";
@@ -1314,6 +1314,15 @@ export class PiHost {
 
   private async staleActivationResult(): Promise<HostActionResult> {
     return this.actionResult([]);
+  }
+
+  /**
+   * A superseded new-thread request never reaches prompt delivery, so it must
+   * report a rejection. A bare action result would leave the client waiting for
+   * a commit that can no longer happen.
+   */
+  private async staleNewThreadResult(requestId?: NewThreadRequestId): Promise<NewThreadResult> {
+    return this.newThreadResult([], { accepted: false, message: "A newer request replaced this new thread." }, requestId);
   }
 
   /** Whether a command for a Tau thread id belongs to the thread Pi's TUI owns. */
@@ -1875,7 +1884,7 @@ export class PiHost {
       throw new Error("Prepared prompt names an unsupported runtime backend.");
     }
     if (backendKind === "pi" && this.bridge && (!cwd || cwd === this.cwd)) {
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       const bridgeRequestId = requestId ?? createNewThreadRequestId(randomUUID());
       if (attachments.length > 0) {
         return this.newThreadResult([], { accepted: false, message: "Image attachments are not supported while Tau is attached to Pi." }, bridgeRequestId);
@@ -1910,7 +1919,7 @@ export class PiHost {
         if (response && responseRequestId !== bridgeRequestId) {
           throw new Error("The Pi bridge did not acknowledge this new-thread request.");
         }
-        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         const bridgeSnapshot = response && typeof response === "object" && "snapshot" in response
           ? response.snapshot as PiBridgeSnapshot
           : undefined;
@@ -1929,7 +1938,7 @@ export class PiHost {
             bridgeEpoch: this.bridge?.descriptor.epoch ?? "",
           };
           void this.acknowledgeBridgeNewSession(bridgeRequestId, this.bridge?.descriptor.epoch);
-          if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+          if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
           return this.completeBridgeNewSession(bridgeSnapshot, bridgeRequestId);
         }
         // A bridge without snapshots cannot prove a handoff, but should not
@@ -1939,12 +1948,12 @@ export class PiHost {
           return this.newThreadResult([], { accepted: true }, bridgeRequestId);
         }
         const completedBridgeSnapshot = await bridgeSession;
-        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         return this.completeBridgeNewSession(completedBridgeSnapshot, bridgeRequestId);
       } catch (error) {
         if (identity) this.clientTurns.cancel(undefined, identity);
         this.pendingBridgeNewSessions.delete(bridgeRequestId);
-        if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+        if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         const reason = error instanceof Error ? error.message : String(error);
         this.log("bridge.new_session.rejected", reason);
         return this.newThreadResult([], { accepted: false, message: reason }, bridgeRequestId);
@@ -1965,7 +1974,7 @@ export class PiHost {
       });
     }
     return this.runLifecycle(async () => {
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       this.detachBridge();
@@ -1994,7 +2003,7 @@ export class PiHost {
           if (this.threads.get(thread.threadId)?.runtime === thread && this.active !== thread) {
             await this.threads.release(thread.threadId);
           }
-          return this.staleActivationResult();
+          return this.staleNewThreadResult(requestId);
         }
         lifecycle = "promoted";
         if (isPiBackend(thread)) {
@@ -2030,7 +2039,7 @@ export class PiHost {
         const active = await this.activeUpdates();
         return { ...active, submission: { accepted: false, message: this.errorMessage(error) }, ...(requestId ? { requestId } : {}) };
       }
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
+      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
       void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
@@ -2047,18 +2056,15 @@ export class PiHost {
                 : undefined)
               : prepared;
             await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
+            // Whether this prompt creates a user turn is decided inside
+            // prompt(), against the text it actually resolved, and reported by
+            // its own event. Do not re-derive it from the request here.
             if (clientMessageId) {
-              // An extension command is answered without a user turn, so the
-              // client must drop its optimistic message instead of waiting for
-              // one that will never be persisted.
-              const userTurn = !(isPiBackend(thread)
-                && this.isExtensionCommand(thread, deliveryPrepared?.runtimeText ?? initialPrompt ?? ""));
               this.emit({
                 type: "new-thread-delivery-settled",
                 sessionId: thread.threadId,
                 clientMessageId,
                 accepted: true,
-                userTurn,
               });
             }
           } catch (error) {
@@ -2890,9 +2896,10 @@ export class PiHost {
     }
     // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;
-    // Extension commands can be handled without creating a user message or an
-    // agent run. Do not leave their marker or client identity behind: it would
-    // label the next turn, and agent_settled would report it as a failure.
+    // An extension command is answered without a user message or an agent run.
+    // Its marker would otherwise label the next turn and be reported as a lost
+    // message by agent_settled, and the client would wait for a turn that never
+    // persists.
     if (isExtensionCommand && markerActive) {
       if (clientMessageId && this.persistedClientMessageIds(thread).has(clientMessageId)) {
         this.forgetClientMessageId(thread, clientMessageId);
@@ -2901,6 +2908,9 @@ export class PiHost {
       }
       if (identity) this.clientTurns.cancel(thread.threadId, identity);
       markerActive = false;
+      if (clientMessageId) {
+        this.emit({ type: "prompt-without-user-turn", sessionId: thread.threadId, clientMessageId });
+      }
     }
     if ((!wasStreaming || isExtensionCommand) && markerActive && (preflightState as PromptPreflightState) !== "accepted") failUnpersistedMarker();
     this.log("prompt.accepted", `${text.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
@@ -3514,10 +3524,8 @@ export class PiHost {
     return this.runLifecycle(async () => {
       this.clientTurns.clear();
       this.toolOutputBatcher.dispose();
-      if (this.activeIndexPublish) clearTimeout(this.activeIndexPublish);
-      this.activeIndexPublish = undefined;
-      if (this.pendingIndexPublish) clearTimeout(this.pendingIndexPublish);
-      this.pendingIndexPublish = undefined;
+      for (const timer of this.coalescedPublishes.values()) clearTimeout(timer);
+      this.coalescedPublishes.clear();
       if (this.indexRecoveryTimer) clearInterval(this.indexRecoveryTimer);
       this.indexRecoveryTimer = undefined;
       if (this.prewarmTimer) clearTimeout(this.prewarmTimer);
@@ -5171,9 +5179,7 @@ export class PiHost {
 
   private publishThreadShellSoon(shell: UiSession): void {
     this.pendingShellUpdates.set(shell.id, shell);
-    if (this.activeIndexPublish !== undefined) return;
-    this.activeIndexPublish = setTimeout(() => {
-      this.activeIndexPublish = undefined;
+    this.publishSoon("shells", () => {
       const updates = [...this.pendingShellUpdates.values()];
       this.pendingShellUpdates.clear();
       for (const pending of updates) {
@@ -5183,8 +5189,18 @@ export class PiHost {
           update: { sessionId: pending.id, shell: pending },
         });
       }
+    });
+  }
+
+  /** Collapse repeated publications of one kind into a single later emit. */
+  private publishSoon(kind: "shells" | "index", publish: () => void): void {
+    if (this.coalescedPublishes.has(kind)) return;
+    const timer = setTimeout(() => {
+      this.coalescedPublishes.delete(kind);
+      publish();
     }, 0);
-    this.activeIndexPublish.unref?.();
+    timer.unref?.();
+    this.coalescedPublishes.set(kind, timer);
   }
 
   private threadIndexSnapshot(): ThreadIndexSnapshot {
@@ -5204,11 +5220,9 @@ export class PiHost {
   }
 
   /**
-   * A linked worktree is a checkout of a repository that is already a project,
-   * so it is never offered as one of its own; the workspace bar switches
-   * worktrees within a project instead. Git is never awaited here: an
-   * unclassified path is withheld until the background answer republishes the
-   * index, so an unknown checkout is never offered by mistake.
+   * A linked worktree belongs to a repository that is already a project, so the
+   * workspace bar moves between worktrees instead. Git is never awaited here; an
+   * unclassified checkout is withheld until its background answer arrives.
    */
   private isProjectRoot(cwd: string): boolean {
     const isWorktree = this.knownWorktreeProjects.get(cwd);
@@ -5238,18 +5252,12 @@ export class PiHost {
     this.worktreeClassifications.set(cwd, pending);
   }
 
-  /** Coalesce the republications that background project classification triggers. */
   private publishThreadIndexSoon(): void {
-    if (this.pendingIndexPublish !== undefined) return;
-    this.pendingIndexPublish = setTimeout(() => {
-      this.pendingIndexPublish = undefined;
-      this.emitUpdate({
-        version: HOST_PROTOCOL_VERSION,
-        type: "thread-index",
-        index: this.threadIndexSnapshot(),
-      });
-    }, 0);
-    this.pendingIndexPublish.unref?.();
+    this.publishSoon("index", () => this.emitUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-index",
+      index: this.threadIndexSnapshot(),
+    }));
   }
 
   private branchMessagesWithEntryIds(thread: ThreadRuntime): unknown[] {

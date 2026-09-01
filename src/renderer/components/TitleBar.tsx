@@ -78,7 +78,7 @@ export function TitleBar({
           <button
             className="chrome-button split-main"
             disabled={!activeEditor || editorDisabled}
-            title={editorDisabled ? "Opening an editor is unavailable while a draft is being delivered" : activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH"}
+            title={editorDisabled ? "Unavailable until this draft becomes a thread" : activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH"}
             onClick={() => activeEditor && onOpenInEditor(activeEditor.id)}
           >
             <EditorIcon editorId={activeEditor?.id} className="editor-icon" />

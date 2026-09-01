@@ -19,12 +19,6 @@ export interface NewThreadPromotionContext {
   requestId: NewThreadRequestId;
 }
 
-export interface NewThreadMessagePromotion {
-  pending: NewThreadDraft;
-  scope: DraftKey;
-  requestId: NewThreadRequestId;
-}
-
 export function useNewThreadController(storage: Storage) {
   const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
   const pendingRef = useRef(pendingNewThread);
@@ -82,7 +76,7 @@ export function useNewThreadController(storage: Storage) {
    * detail. It can arrive before the newSession IPC response, so promote the
    * draft from that correlated event without waiting for catalog discovery.
    */
-  const promoteFromUserMessage = useCallback((sessionId: string, projectPath: string): NewThreadMessagePromotion | undefined => {
+  const promoteFromUserMessage = useCallback((sessionId: string, projectPath: string): DraftKey | undefined => {
     const current = pendingRef.current;
     if (!sessionId || !current || current.sessionId || current.projectPath !== projectPath) return undefined;
     const scope = draftKey(undefined, current);
@@ -90,7 +84,7 @@ export function useNewThreadController(storage: Storage) {
     awaitingPromotionRef.current = undefined;
     writeNewThreadDraft(storage);
     setPendingNewThread(undefined);
-    return { pending: current, scope, requestId: requestRef.current };
+    return scope;
   }, [storage]);
 
   return {
