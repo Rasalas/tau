@@ -115,7 +115,7 @@ describe("ToolGroup computer-use presentation", () => {
       activityStatus="completed"
     />);
 
-    expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.queryByText("Completed")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Ran 1 command/u }));
     expect(view.container.querySelector(".tool-output")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
@@ -173,7 +173,7 @@ describe("ToolGroup computer-use presentation", () => {
     expect(readFullOutput).not.toHaveBeenCalled();
   });
 
-  it("keeps waiting, interrupted, and failed results distinct in collapsed summaries", () => {
+  it("keeps waiting and interrupted states distinct without settled result badges", () => {
     const registry = registryWithBundledExtensions();
     const { rerender } = render(<ToolGroup
       tools={[{ id: "waiting", name: "read", args: { path: "question.ts" }, status: "running", startedAt: 0 }]}
@@ -190,7 +190,7 @@ describe("ToolGroup computer-use presentation", () => {
       streaming={false}
       activityStatus="interrupted"
     />);
-    expect(screen.getByText("Interrupted")).toBeTruthy();
+    expect(screen.queryByText("Interrupted")).toBeNull();
     expect(screen.getByText("interrupted")).toBeTruthy();
 
     rerender(<ToolGroup
@@ -198,7 +198,7 @@ describe("ToolGroup computer-use presentation", () => {
       registry={registry}
       activityStatus="error"
     />);
-    expect(screen.getByText("1 failed")).toBeTruthy();
+    expect(screen.queryByText("1 failed")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
     expect(screen.getByText("failed.ts")).toBeTruthy();
   });

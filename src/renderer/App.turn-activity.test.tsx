@@ -253,7 +253,8 @@ describe("last-turn activity", () => {
       });
       publish({ type: "agent-status", sessionId: "session", running: true });
     });
-    expect(await screen.findByText("Completed")).toBeTruthy();
+    expect(await screen.findByText("Used 1 tool")).toBeTruthy();
+    expect(screen.queryByText("Completed")).toBeNull();
   });
 
   it("keeps changed files in the fixed dock outside the scrolling transcript", async () => {
@@ -389,8 +390,8 @@ describe("last-turn activity", () => {
     await screen.findByText("second reply");
     const activityRows = view.container.querySelectorAll(".inline-transcript-activity");
     expect(activityRows).toHaveLength(2);
-    expect(activityRows[0]?.textContent).toContain("Completed");
-    expect(activityRows[1]?.textContent).toContain("1 failed");
+    expect(activityRows[0]?.textContent).not.toContain("Completed");
+    expect(activityRows[1]?.textContent).not.toContain("1 failed");
     expect(activityRows[0]?.textContent).toContain("Used 1 tool");
     expect(activityRows[1]?.textContent).toContain("Used 1 tool");
   });

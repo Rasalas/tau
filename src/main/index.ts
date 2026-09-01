@@ -12,6 +12,7 @@ import { selectRuntimeAdapter } from "./runtime-adapters.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
+import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { rebuildWorkbench } from "./workbench-build.js";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -162,6 +163,11 @@ function installIpc(): void {
   ipcMain.handle("tau:recover-thread", async () => (await requireHostReady()).recoverThread());
   ipcMain.handle("tau:rename-thread", async (_event, title: string, expectedSessionId?: string) => (await requireHostReady()).renameThread(title, expectedSessionId));
   ipcMain.handle("tau:copy-text", (_event, text: string) => clipboard.writeText(text));
+  ipcMain.handle("tau:copy-image", (_event, dataUrl: unknown) => {
+    const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
+    if (image.isEmpty()) throw new Error("Invalid image data.");
+    clipboard.writeImage(image);
+  });
   ipcMain.handle("tau:read-tool-output", async (_event, sessionId: string, toolCallId: string) => (await requireHostReady()).readToolOutput(sessionId, toolCallId));
   ipcMain.handle("tau:copy-thread-markdown", async (_event, expectedSessionId?: string) => {
     clipboard.writeText(await (await requireHostReady()).exportThreadMarkdown(expectedSessionId));

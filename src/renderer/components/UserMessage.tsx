@@ -53,6 +53,8 @@ export function UserMessage({
 
   return (
     <div className="message-shell user">
+      <PersistedMessageImages images={persistedImages} />
+      {hasLocalImages ? <MessageImages text={message.text} /> : null}
       <article className="message user">
         <div className="message-text">
           <div
@@ -67,8 +69,6 @@ export function UserMessage({
                 : <Markdown inlineStart={Boolean(message.skill)}>{visibleText}</Markdown>
               : hasLocalImages && persistedImages.length === 0 ? <span className="image-placeholder">Image attached</span> : null}
           </div>
-          <PersistedMessageImages images={persistedImages} />
-          {hasLocalImages ? <MessageImages text={message.text} /> : null}
         </div>
         {long ? (
           <button

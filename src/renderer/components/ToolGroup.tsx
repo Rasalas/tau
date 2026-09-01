@@ -187,7 +187,7 @@ export function ToolGroup({
   streaming?: boolean;
   /** This thread has an open question, so its running tool is waiting on you. */
   waiting?: boolean;
-  /** Durable result for a historical group; live groups derive it from props. */
+  /** Retained for durable activity compatibility; settled result badges are intentionally not shown. */
   activityStatus?: UiTurnActivityEntry["status"];
   /** Closes tool calls left dangling by a turn that died, so the thread works again. */
   onRecover?(): void;
@@ -213,16 +213,6 @@ export function ToolGroup({
         : streaming
           ? `Working · ${activity.replace(/^Using /u, "")}`
           : activity;
-  const resultStatus: UiTurnActivityEntry["status"] = activityStatus
-    ?? (waiting && live > 0
-      ? "running"
-      : stalled && live > 0
-        ? "interrupted"
-        : streaming || live > 0
-          ? "running"
-          : tools.some((tool) => tool.status === "error")
-            ? "error"
-            : "completed");
   const visibleTools = previewTool
     ? [previewTool]
     : live > 0
@@ -239,17 +229,6 @@ export function ToolGroup({
       >
         {(live > 0 || streaming) && !stalled ? <span className="spinner acid small" /> : <Hammer size={16} strokeWidth={1.7} />}
         <span>{summary}</span>
-        {!waiting && resultStatus !== "running" ? (
-          <span
-            className={`tool-activity-result ${resultStatus}`}
-            role="status"
-            aria-label={resultStatus === "error" ? "Activity failed" : resultStatus === "interrupted" ? "Activity interrupted" : "Activity completed"}
-          >
-            {resultStatus === "error"
-              ? `${tools.filter((tool) => tool.status === "error").length || 1} failed`
-              : resultStatus === "interrupted" ? "Interrupted" : "Completed"}
-          </span>
-        ) : null}
         <ChevronRight className="activity-chevron" size={14} />
       </button>
       {expanded ? (
