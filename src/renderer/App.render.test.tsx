@@ -517,8 +517,8 @@ describe("App render isolation", () => {
       messages: [{ id: "old", role: "user", text: "older request", timestamp: 0 }],
       hasMore: false,
     });
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("1 older turn loaded"));
-    expect(screen.getByText("older request")).toBeTruthy();
+    expect(await screen.findByText("older request")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByLabelText("Transcript history")).toBeNull());
   });
 
   it("keeps a new-thread draft and attachments when host preflight rejects", async () => {

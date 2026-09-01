@@ -15,6 +15,8 @@ const run = (script, args) => execFileSync(process.execPath, [join(nodeModules, 
 
 const started = performance.now();
 run("typescript/bin/tsc", ["-p", "tsconfig.electron.json"]);
+run("../scripts/build-preload.mjs", []);
+run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cjs"]);
 run("vite/bin/vite.js", ["build"]);
 const buildTimeMs = Math.round(performance.now() - started);
 const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs });

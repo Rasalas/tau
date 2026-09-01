@@ -6,7 +6,7 @@
   "description": "THROWAWAY prototype: a Neovim-like desktop host for Pi",
   "main": "dist-electron/main/index.js",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on tcp:5173 file:dist-electron/main/index.js file:dist-electron/preload/index.cjs && TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently -k \"vite\" \"tsc -p tsconfig.electron.json --watch\" \"node scripts/build-preload.mjs --watch\" \"wait-on tcp:5173 file:dist-electron/main/index.js file:dist-electron/preload/bundle.cjs && TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "dev:web": "vite",
     "build": "node scripts/build.mjs",
     "build:report": "node scripts/build-report.mjs",

@@ -16,7 +16,7 @@ describe("TranscriptHistoryControl", () => {
     expect(onLoad).toHaveBeenCalledOnce();
   });
 
-  it("makes loading, retry, and the end of history explicit", () => {
+  it("shows loading and retry without leaving an end-of-history block", () => {
     const onLoad = vi.fn();
     const olderCursor = asHostTranscriptCursor("opaque:20");
     const view = render(<TranscriptHistoryControl olderCursor={olderCursor} loading onLoad={onLoad} />);
@@ -28,35 +28,32 @@ describe("TranscriptHistoryControl", () => {
     expect((screen.getByRole("button", { name: "Retry loading older turns" }) as HTMLButtonElement).disabled).toBe(false);
 
     view.rerender(<TranscriptHistoryControl loading={false} status={{ state: "success", loadedTurns: 20 }} onLoad={onLoad} />);
-    expect(screen.getByRole("status").textContent).toContain("Beginning of history");
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByLabelText("Transcript history")).toBeNull();
   });
 
-  it("does not claim the beginning when history availability is unknown", () => {
+  it("renders no history area when there is nothing to load", () => {
+    render(<TranscriptHistoryControl loading={false} onLoad={vi.fn()} />);
+    expect(screen.queryByLabelText("Transcript history")).toBeNull();
+  });
+
+  it("does not reserve space when history availability is unknown", () => {
     render(<TranscriptHistoryControl
       loading={false}
       historyCompleteness="unknown"
       onLoad={vi.fn()}
     />);
 
-    const status = screen.getByRole("status");
-    expect(status.textContent).toContain("availability cannot be determined");
-    expect(status.textContent).toContain("for this connection");
-    expect(status.textContent).not.toContain("Beginning of history");
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByLabelText("Transcript history")).toBeNull();
   });
 
-  it("uses neutral language when the connection cannot determine availability", () => {
+  it("keeps the unknown state visually empty after a successful load", () => {
     render(<TranscriptHistoryControl
       loading={false}
       historyCompleteness="unknown"
+      status={{ state: "success", loadedTurns: 20 }}
       onLoad={vi.fn()}
     />);
 
-    const text = screen.getByRole("status").textContent ?? "";
-    expect(text).toContain("availability cannot be determined");
-    expect(text).toContain("for this connection");
-    expect(text).not.toContain("Beginning of history");
-    expect(text).not.toContain("Upgrade");
+    expect(screen.queryByLabelText("Transcript history")).toBeNull();
   });
 });
