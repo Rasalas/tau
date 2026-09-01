@@ -180,6 +180,7 @@ const SHUTDOWN_ABORT_MS = 3_000;
 /** How long a typed answer waits for the extension's follow-up input prompt. */
 const TYPED_ANSWER_TTL_MS = 10_000;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
+const VISIBLE_DOT_DIRECTORIES = new Set([".pi", ".scratch"]);
 
 function claudeThreadPath(threadId: string): string {
   return `${CLAUDE_SESSION_PATH_PREFIX}${threadId}`;
@@ -5535,7 +5536,7 @@ export class PiHost {
     const nodes: FileNode[] = [];
     for (const entry of entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))) {
       if (budget.count++ > 320) break;
-      if (entry.name.startsWith(".") && entry.name !== ".pi") continue;
+      if (entry.name.startsWith(".") && !VISIBLE_DOT_DIRECTORIES.has(entry.name)) continue;
       if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
       const fullPath = join(path, entry.name);
       const node: FileNode = {

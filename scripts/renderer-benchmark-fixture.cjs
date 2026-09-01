@@ -3,7 +3,7 @@ const path = require("node:path");
 
 const scenario = process.argv[2];
 if (!scenario) throw new Error("renderer benchmark scenario is required");
-const scenarioConfig = JSON.parse(process.argv[3] || "{}");
+const scenarioConfig = process.argv[3] ? JSON.parse(process.argv[3]) : {};
 app.commandLine.appendSwitch("enable-precise-memory-info");
 
 app.whenReady().then(async () => {
