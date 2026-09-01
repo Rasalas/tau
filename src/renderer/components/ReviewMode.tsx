@@ -6,8 +6,9 @@ import {
   ExternalLink,
   GitCommitHorizontal,
   MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
+  MessagesSquare,
+  PanelRightClose,
+  PanelRightOpen,
   Search,
   X,
 } from "lucide-react";
@@ -206,7 +207,7 @@ export function ReviewMode({
     resizeCleanupRef.current?.();
     const startX = event.clientX;
     const startWidth = sidebarWidth;
-    const onMove = (moveEvent: PointerEvent) => setSidebarWidth(startWidth + moveEvent.clientX - startX);
+    const onMove = (moveEvent: PointerEvent) => setSidebarWidth(startWidth - (moveEvent.clientX - startX));
     const onUp = () => resizeCleanupRef.current?.();
     const cleanup = () => {
       document.removeEventListener("pointermove", onMove);
@@ -330,72 +331,14 @@ export function ReviewMode({
     </header>
 
     <div className="review-body">
-      {sidebarOpen ? <aside className="review-list" style={{ width: sidebarWidth }}>
-        <header>
-          <h2>{scopeTitle}</h2>
-          <small>{visibleChanges.baseRef ? `from ${visibleChanges.baseRef}` : visibleChanges.branch ?? "detached"}</small>
-          <span className="spacer" />
-          <span className="stat-add">+{visibleChanges.added}</span>
-          <span className="stat-del">−{visibleChanges.removed}</span>
-        </header>
-        <label className="review-filter">
-          <Search size={13} />
-          <input
-            type="search"
-            aria-label="Filter changed files"
-            placeholder="Filter files"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          />
-          {filter ? <button aria-label="Clear file filter" onClick={() => setFilter("")}><X size={12} /></button> : null}
-        </label>
-        {!readOnly ? <div className="review-progress">
-          <span>{visibleReadCount}/{paged.fileCount} viewed</span>
-          <i><b style={{ width: `${paged.fileCount ? Math.min(100, visibleReadCount / paged.fileCount * 100) : 0}%` }} /></i>
-        </div> : null}
-        <div className="review-files">
-          {visibleChanges.completeness === "partial" ? <p className="file-tree-error changed-files-warning">
-            {visibleChanges.incompleteReason ?? "Snapshot coverage is partial; some workspace changes may be omitted."}
-          </p> : null}
-          {filteredFiles.length > 0 ? <ReviewFileTree
-            files={filteredFiles}
-            activePath={selectedPath}
-            viewedPaths={readPaths}
-            readOnly={readOnly}
-            onOpen={onSelect}
-            onToggleViewed={toggleRead}
-          /> : <p className="empty-copy">{filter ? "No matching changed files." : "No changes in this scope."}</p>}
-          {loadFiles && paged.hasMore ? <div className="changed-files-more-row">
-            <button className="text-button" disabled={paged.loading} onClick={() => void paged.loadNextPage()}>
-              {paged.loading ? "Loading…" : `Load more (${Math.max(0, paged.fileCount - paged.files.length)} remaining)`}
-            </button>
-            {paged.error ? <small className="file-tree-error">{paged.error}</small> : null}
-          </div> : null}
-          {paged.fileCount > 0 && !readOnly && scope === "worktree" ? <div className="commit-proposal">
-            Commit message: {editingMessage ? null : <em>“{message || "none"}”</em>}
-            {editingMessage ? <textarea autoFocus value={message} onChange={(event) => setMessage(event.target.value)} onBlur={() => setEditingMessage(false)} /> : null}
-            <div className="commit-actions">
-              <button className="primary" disabled={busy || message.trim().length === 0} onClick={() => onCommit(message, false)}>Commit</button>
-              <button onClick={() => setEditingMessage((value) => !value)}>{editingMessage ? "Done" : "Edit"}</button>
-            </div>
-          </div> : null}
-        </div>
-        <div className="review-sidebar-resizer" role="separator" aria-orientation="vertical" onPointerDown={startSidebarResize} />
-      </aside> : null}
-
       <main className="review-stage" ref={stageRef}>
         <header className="review-toolbar">
-          <button
-            className={`icon-button review-sidebar-toggle ${sidebarOpen ? "active" : ""}`}
-            title="Toggle file tree"
-            aria-label="Toggle file tree"
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >{sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}</button>
-          {!sidebarOpen ? <span className="review-collapsed-meta">
+          <span className="review-scope-summary">
             <strong>{scopeTitle}</strong>
-            <small>{selectedFilteredIndex >= 0 ? selectedFilteredIndex + 1 : 0}/{filteredFiles.length}</small>
-          </span> : null}
+            <small>{visibleChanges.baseRef ? `from ${visibleChanges.baseRef}` : visibleChanges.branch ?? "detached"}</small>
+            <span className="stat-add">+{visibleChanges.added}</span>
+            <span className="stat-del">−{visibleChanges.removed}</span>
+          </span>
           <div className="review-file-navigation">
             <button className="icon-button" aria-label="Previous changed file" disabled={filteredFiles.length === 0} onClick={() => cycleFile(-1)}><ChevronLeft size={15} /></button>
             <button className="icon-button" aria-label="Next changed file" disabled={filteredFiles.length === 0} onClick={() => cycleFile(1)}><ChevronRight size={15} /></button>
@@ -406,7 +349,7 @@ export function ReviewMode({
             setDraftBody("");
           }}><MessageSquare size={12} /> Comment</button> : null}
           {!readOnly ? <button className={`text-button review-notes-action ${notesOpen ? "active" : ""}`} onClick={() => setNotesOpen((open) => !open)}>
-            {reviewState.comments.filter((comment) => !comment.resolved).length} notes
+            <MessagesSquare size={12} /> {reviewState.comments.filter((comment) => !comment.resolved).length} notes
           </button> : null}
           <div className="toggle-group" aria-label="Diff context">
             <button disabled={!selectedPath} className={contextMode === "collapse" ? "active" : ""} onClick={() => setContextMode("collapse")}>Diff only</button>
@@ -419,6 +362,13 @@ export function ReviewMode({
           {editor && selectedPath ? <button className="text-button review-editor-action" onClick={() => onOpenInEditor(selectedPath)}>
             Open in {editor.name} <ExternalLink size={11} />
           </button> : null}
+          <button
+            className={`icon-button review-sidebar-toggle ${sidebarOpen ? "active" : ""}`}
+            title="Toggle file tree"
+            aria-label="Toggle file tree"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >{sidebarOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}</button>
         </header>
 
         {selectedFile ? <div className="review-file-header">
@@ -453,6 +403,7 @@ export function ReviewMode({
                   diff={diff}
                   mode={effectiveMode}
                   annotationCounts={annotationCounts}
+                  onExpandContext={() => setContextMode("expand")}
                   onAnnotate={!readOnly ? (line) => {
                     setDraft({ path: selectedPath, line });
                     setDraftBody("");
@@ -476,6 +427,58 @@ export function ReviewMode({
           </aside> : null}
         </div>
       </main>
+
+      {sidebarOpen ? <aside className="review-list" style={{ width: sidebarWidth }}>
+        <div className="review-sidebar-resizer" role="separator" aria-orientation="vertical" onPointerDown={startSidebarResize} />
+        <label className="review-filter">
+          <Search size={13} />
+          <input
+            type="search"
+            aria-label="Filter changed files"
+            placeholder="Filter files"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+          />
+          {filter ? <button aria-label="Clear file filter" onClick={() => setFilter("")}><X size={12} /></button> : null}
+        </label>
+        <div className="review-sidebar-meta">
+          <strong>{paged.fileCount} {paged.fileCount === 1 ? "changed file" : "changed files"}</strong>
+          <span className="spacer" />
+          <span className="stat-add">+{visibleChanges.added}</span>
+          <span className="stat-del">−{visibleChanges.removed}</span>
+        </div>
+        {!readOnly ? <div className="review-progress">
+          <span>{visibleReadCount}/{paged.fileCount} viewed</span>
+          <i><b style={{ width: `${paged.fileCount ? Math.min(100, visibleReadCount / paged.fileCount * 100) : 0}%` }} /></i>
+        </div> : null}
+        <div className="review-files">
+          {visibleChanges.completeness === "partial" ? <p className="file-tree-error changed-files-warning">
+            {visibleChanges.incompleteReason ?? "Snapshot coverage is partial; some workspace changes may be omitted."}
+          </p> : null}
+          {filteredFiles.length > 0 ? <ReviewFileTree
+            files={filteredFiles}
+            activePath={selectedPath}
+            viewedPaths={readPaths}
+            readOnly={readOnly}
+            onOpen={onSelect}
+            onToggleViewed={toggleRead}
+          /> : <p className="empty-copy">{filter ? "No matching changed files." : "No changes in this scope."}</p>}
+          {loadFiles && paged.hasMore ? <div className="changed-files-more-row">
+            <button className="text-button" disabled={paged.loading} onClick={() => void paged.loadNextPage()}>
+              {paged.loading ? "Loading…" : `Load more (${Math.max(0, paged.fileCount - paged.files.length)} remaining)`}
+            </button>
+            {paged.error ? <small className="file-tree-error">{paged.error}</small> : null}
+          </div> : null}
+          {paged.fileCount > 0 && !readOnly && scope === "worktree" ? <div className="commit-proposal">
+            Commit message: {editingMessage ? null : <em>“{message || "none"}”</em>}
+            {editingMessage ? <textarea autoFocus value={message} onChange={(event) => setMessage(event.target.value)} onBlur={() => setEditingMessage(false)} /> : null}
+            <div className="commit-actions">
+              <button className="primary" disabled={busy || message.trim().length === 0} onClick={() => onCommit(message, false)}>Commit</button>
+              <button onClick={() => setEditingMessage((value) => !value)}>{editingMessage ? "Done" : "Edit"}</button>
+            </div>
+          </div> : null}
+        </div>
+      </aside> : null}
     </div>
   </div>;
 }
