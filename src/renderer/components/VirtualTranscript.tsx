@@ -134,8 +134,10 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   }, [anchorRef, measureThrough, messages.length]);
   const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
   const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
-  const messageIndexes = useRef(new Map<string, number>());
-  messageIndexes.current = new Map(messages.map((message, index) => [message.id, index]));
+  // The transcript index already owns this mapping. Reusing it avoids a second
+  // full message scan and map allocation on every render of a long transcript.
+  const messageIndexes = useRef<Map<string, number>>(messageIndex.positions);
+  messageIndexes.current = messageIndex.positions;
   useLayoutEffect(() => {
     if (expandedState.sessionKey === sessionKey) return;
     setExpandedState({ sessionKey, ids: new Set() });
@@ -160,10 +162,13 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 180,
     getItemKey: (index) => messages[index]?.id ?? index,
-    initialRect: { width: 780, height: 600 },
+    // The first pass only needs a small window. The real scroll element is
+    // measured immediately after mount and expands the range on the next
+    // frame, while this keeps the mount-critical work bounded for long logs.
+    initialRect: { width: 780, height: messages.length >= 200 ? 360 : 600 },
     // Keep the initial/current-turn window small enough that long active turns
     // remain bounded without paying for a large hidden DOM on every update.
-    overscan: 3,
+    overscan: messages.length >= 200 ? 0 : 3,
     rangeExtractor,
     useAnimationFrameWithResizeObserver: true,
   });
