@@ -266,14 +266,28 @@ export interface UiChangedFile {
   status: ChangeStatus;
   added: number;
   removed: number;
+  /** At least one index-side change exists for this path. */
+  staged?: boolean;
   /** Why a historical diff cannot be opened for this entry, when applicable. */
   note?: string;
 }
 
 export type WorkspaceChangesCompleteness = "complete" | "partial";
+export type WorkspaceDiffScope = "worktree" | "branch";
+
+export interface WorkspaceChangesQuery {
+  scope?: WorkspaceDiffScope;
+  /** Optional comparison ref. The host resolves its merge base with HEAD. */
+  baseRef?: string;
+}
 
 export interface UiWorkspaceChanges {
   branch?: string;
+  scope?: WorkspaceDiffScope;
+  /** Resolved comparison ref for branch-wide changes. */
+  baseRef?: string;
+  /** Resolved merge-base commit reused by lazy per-file diffs. */
+  baseCommit?: string;
   /** Last refresh outcome; stale data may remain visible after a failed scan. */
   refreshStatus?: { state: "ready" | "refreshing" | "error"; message?: string };
   files: UiChangedFile[];
@@ -339,6 +353,9 @@ export interface DiffLoadOptions {
   /** Zero-based hunk page. The host still enforces its byte and line ceilings. */
   hunkOffset?: number;
   hunkLimit?: number;
+  scope?: WorkspaceDiffScope;
+  baseRef?: string;
+  baseCommit?: string;
 }
 
 export interface UiFileDiff {
@@ -674,8 +691,12 @@ export interface TauDesktopApi {
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   getFileTree(path?: string): Promise<FileNode[]>;
-  getChanges(): Promise<UiWorkspaceChanges>;
+  getChanges(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  stageFile(path: string): Promise<UiWorkspaceChanges>;
+  unstageFile(path: string): Promise<UiWorkspaceChanges>;
+  stageAll(): Promise<UiWorkspaceChanges>;
+  revertFile(path: string): Promise<UiWorkspaceChanges>;
   readFile(path: string): Promise<UiFileContent>;
   /** Loads the immutable diff captured for one completed turn. */
   getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;

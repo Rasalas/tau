@@ -8,6 +8,7 @@ import type {
   UiTurnCheckpoint,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
+  WorkspaceChangesQuery,
 } from "../shared/contracts";
 
 /**
@@ -155,6 +156,8 @@ export interface ReviewContributionProps {
   onOpenInEditor(path: string): void;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+  loadChanges?(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
+  workspaceKey?: string;
   readOnly?: boolean;
   checkpointTitle?: string;
 }

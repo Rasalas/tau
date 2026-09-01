@@ -53,6 +53,7 @@ import type {
   UiTurnActivityEntry,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
+  WorkspaceChangesQuery,
   WorkspaceInfo,
   NewThreadRequestId,
   ThreadBackendKind,
@@ -3188,13 +3189,38 @@ export class PiHost {
     return this.readTree(root, 0, { count: 0 });
   }
 
-  async getChanges(): Promise<UiWorkspaceChanges> {
+  async getChanges(query: WorkspaceChangesQuery = {}): Promise<UiWorkspaceChanges> {
+    if (query.scope === "branch") return workspaceGit.getBranchChanges(this.cwd, query);
     return this.gitCoordinator.getChanges(this.cwd);
   }
 
   async getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff> {
     await assertWorkspacePath(this.cwd, path);
     return workspaceGit.getFileDiff(this.cwd, path, options);
+  }
+
+  async stageFile(path: string): Promise<UiWorkspaceChanges> {
+    await workspaceGit.stageFile(this.cwd, path);
+    this.gitCoordinator.invalidate(this.cwd);
+    return this.gitCoordinator.getChanges(this.cwd);
+  }
+
+  async unstageFile(path: string): Promise<UiWorkspaceChanges> {
+    await workspaceGit.unstageFile(this.cwd, path);
+    this.gitCoordinator.invalidate(this.cwd);
+    return this.gitCoordinator.getChanges(this.cwd);
+  }
+
+  async stageAll(): Promise<UiWorkspaceChanges> {
+    await workspaceGit.stageAll(this.cwd);
+    this.gitCoordinator.invalidate(this.cwd);
+    return this.gitCoordinator.getChanges(this.cwd);
+  }
+
+  async revertFile(path: string): Promise<UiWorkspaceChanges> {
+    await workspaceGit.revertFile(this.cwd, path);
+    this.gitCoordinator.invalidate(this.cwd);
+    return this.gitCoordinator.getChanges(this.cwd);
   }
 
   async readFile(path: string): Promise<UiFileContent> {
