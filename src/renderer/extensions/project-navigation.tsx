@@ -534,7 +534,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           setNavigationIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length);
         }}
       >
-        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", flexShrink: 0 }}>
           {rowVirtualizer.getVirtualItems().map((item) => {
             const row = navigationRows[item.index];
             if (!row) return null;
