@@ -497,7 +497,7 @@ describe("PiHost.generateThreadTitle", () => {
     expect(internals.threads.active?.threadId).toBe("warm-live-thread");
   });
 
-  it("does not accept a new-thread submission before prompt preflight settles", async () => {
+  it("accepts a new-thread submission after activation without holding the composer for prompt preflight", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as Record<string, any>;
     const thread = makeActivationThread("new-thread", "/new.jsonl");
@@ -513,9 +513,7 @@ describe("PiHost.generateThreadTitle", () => {
     const preflight = new Promise<void>((resolve) => { acceptPrompt = resolve; });
     internals.prompt = vi.fn(async () => preflight);
 
-    let settled = false;
-    const creation = host.newSession("start the work", [], "/repo")
-      .finally(() => { settled = true; });
+    const creation = host.newSession("start the work", [], "/repo");
     await vi.waitFor(() => expect(internals.prompt).toHaveBeenCalledWith(
       "start the work",
       [],
@@ -523,14 +521,65 @@ describe("PiHost.generateThreadTitle", () => {
       undefined,
       undefined,
     ));
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
+    const outcome = await Promise.race([
+      creation.then((result) => "submission" in result
+        && (result as { submission?: { accepted?: boolean } }).submission?.accepted
+        ? "accepted" as const
+        : "rejected" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 50)),
+    ]);
     acceptPrompt();
-    await expect(creation).resolves.toMatchObject({ submission: { accepted: true } });
+    await creation;
+
+    expect(outcome).toBe("accepted");
   });
 
-  it("reports a rejected new-thread preflight without accepting an interrupted turn", async () => {
+  it("keeps cold thread switching responsive while new-thread preflight is pending", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const newThread = makeActivationThread("new-thread", "/new.jsonl");
+    const coldThread = makeActivationThread("cold-thread", "/cold.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => newThread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    let acceptPrompt!: () => void;
+    const preflight = new Promise<void>((resolve) => { acceptPrompt = resolve; });
+    internals.prompt = vi.fn(async () => preflight);
+
+    const creation = host.newSession("start the work", [], "/repo");
+    await vi.waitFor(() => expect(internals.prompt).toHaveBeenCalled());
+
+    internals.sessions = [{
+      id: "cold-thread",
+      path: "/cold.jsonl",
+      title: "Cold thread",
+      modifiedAt: 1,
+      projectPath: "/repo",
+      projectName: "repo",
+      messageCount: 1,
+    }];
+    internals.attachAvailableBridge = async () => false;
+    internals.recoverPendingRestoreTransactions = async () => {};
+    internals.openThreadForPath = async () => coldThread;
+    internals.activateThread = async () => true;
+
+    const switching = host.switchSession("/cold.jsonl");
+    const outcome = await Promise.race([
+      switching.then(() => "switched" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 50)),
+    ]);
+    acceptPrompt();
+    await Promise.all([creation, switching]);
+
+    expect(outcome).toBe("switched");
+  });
+
+  it("reconciles a rejected detached new-thread preflight without interrupting the lifecycle", async () => {
     const emit = vi.fn();
     const host = new PiHost("/repo", emit, {} as never, true, false);
     const internals = host as unknown as Record<string, any>;
@@ -546,9 +595,16 @@ describe("PiHost.generateThreadTitle", () => {
     const rejection = new Error("prompt preflight rejected");
     internals.prompt = vi.fn(async () => { throw rejection; });
 
-    await expect(host.newSession("start the work", [], "/repo")).resolves.toMatchObject({
-      submission: { accepted: false, message: "prompt preflight rejected" },
-    });
+    await expect(host.newSession("start the work", [], "/repo", {
+      clientTurnId: "turn",
+      clientMessageId: "message",
+    })).resolves.toMatchObject({ submission: { accepted: true } });
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: "user-message-failed",
+      sessionId: "new-thread",
+      clientMessageId: "message",
+      message: "prompt preflight rejected",
+    })));
     expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
   });
 });

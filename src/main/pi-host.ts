@@ -1948,16 +1948,33 @@ export class PiHost {
           this.retitleShell(thread.threadId, firstSentence(visiblePrompt));
         }
         if (initialPrompt || attachments.length > 0) {
-          const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
-          const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
-            ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
-              ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
-              : undefined)
-            : prepared;
-          // A new thread is not accepted until the runtime accepts its first
-          // prompt. Waiting only for preflight keeps creation fast while
-          // preventing a rejected prompt from becoming an interrupted turn.
-          await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
+          // Creation owns only runtime activation. Prompt preparation can wait
+          // on a checkpoint lease, so it must neither hold the lifecycle queue
+          // nor keep the captured composer draft in a pending submission.
+          void (async () => {
+            try {
+              const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
+              const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
+                ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
+                  ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
+                  : undefined)
+                : prepared;
+              await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
+            } catch (error) {
+              // prompt() normally reconciles the optimistic message through its
+              // marker. Re-preparation can fail before that marker exists, so
+              // the detached boundary also publishes the correlated failure.
+              if (clientMessageId) {
+                this.emit({
+                  type: "user-message-failed",
+                  sessionId: thread.threadId,
+                  clientMessageId,
+                  message: this.errorMessage(error),
+                });
+              }
+              this.log("prompt.rejected", this.errorMessage(error));
+            }
+          })();
         }
       } catch (error) {
         // A pure validation failure leaves an untouched spare available. Once
