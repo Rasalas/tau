@@ -537,9 +537,10 @@ button > svg { pointer-events: none; }
 .conversation-start-project > svg { flex: none; color: var(--faint); }
 .conversation-column.conversation-start .conversation-start-content > .conversation-composer-host { padding-top: 14px; }
 .conversation-column.conversation-start .conversation-start-content > .conversation-composer-host > .composer-zone { padding: 0; }
-.conversation-start-content .composer-frame { max-width: none; }
-.conversation-start-content .workspace-bar,
-.conversation-start-content .composer-queue { max-width: none; }
+.conversation-column.conversation-start .conversation-start-content .composer-surface { max-width: none; }
+.conversation-column.conversation-start .conversation-start-content .composer-frame { max-width: none; }
+.conversation-column.conversation-start .conversation-start-content .workspace-bar,
+.conversation-column.conversation-start .conversation-start-content .composer-queue { max-width: none; }
 .conversation-column:not(.conversation-start) .conversation-start-screen,
 .conversation-column:not(.conversation-start) .conversation-start-content { display: contents; }
 .conversation-column.conversation-start .conversation-thread { display: none; }
@@ -1011,6 +1012,7 @@ button > svg { pointer-events: none; }
 /* ------------------------------------------------------------- composer */
 
 .composer-zone { flex: none; padding: 14px 32px 16px; }
+.composer-surface { width: 100%; max-width: 780px; margin: 0 auto; }
 .composer-queue {
   max-width: 780px; margin: 0 auto; padding: 0 6px;
 }

@@ -359,6 +359,7 @@ export function Composer({
 
   return (
     <footer className="composer-zone">
+      <div className="composer-surface" data-composer-surface="true">
       {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
       {prompt ? (
         <ExtensionPrompt
@@ -687,6 +688,7 @@ export function Composer({
         onCreateWorktree={onCreateWorktree}
         onSwitchRef={onSwitchRef}
       />
+      </div>
     </footer>
   );
 }

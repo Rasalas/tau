@@ -12,7 +12,7 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { isCurrentTranscriptSubmission, latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App, { ComposerHost, isCurrentTranscriptSubmission, latestActivityAnchor, measureComposerGeometry, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 
@@ -309,6 +309,78 @@ describe("App render isolation", () => {
     expect(screen.getByPlaceholderText(/Direct the agent/u)).toBe(composer);
     expect(document.activeElement).toBe(composer);
     expect(composer.closest(".conversation-composer-host")?.classList.contains("docked")).toBe(true);
+  });
+
+  it("uses the visible composer surface for a dynamic dock geometry", () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const originalRaf = window.requestAnimationFrame;
+    const originalCancelRaf = window.cancelAnimationFrame;
+    const callbacks: FrameRequestCallback[] = [];
+    let startSurfaceHeight = 180;
+    const dockedSurfaceHeight = 240;
+    let showHint = false;
+    const rect = (left: number, top: number, width: number, height: number) => ({
+      x: left,
+      y: top,
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const isStart = this.closest(".conversation-composer-host")?.classList.contains("start") ?? true;
+      if (this.matches("[data-composer-surface]")) {
+        return isStart
+          ? rect(110, showHint ? 160 : 240, 780, startSurfaceHeight)
+          : rect(110, 500, 780, dockedSurfaceHeight);
+      }
+      if (this.classList.contains("conversation-composer-host")) {
+        return isStart ? rect(70, 100, 900, 300) : rect(0, 480, 1000, 260);
+      }
+      return originalRect.call(this);
+    };
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = (() => undefined) as typeof window.cancelAnimationFrame;
+
+    const surface = () => (
+      <div data-composer-surface="true">
+        <textarea autoFocus defaultValue="draft" />
+        {showHint ? <small>Current project hint</small> : null}
+      </div>
+    );
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      view = render(<ComposerHost start>{surface()}</ComposerHost>);
+      const composer = screen.getByRole("textbox");
+      composer.focus();
+      expect(measureComposerGeometry(composer.closest(".conversation-composer-host")!)).toMatchObject({ left: 110, width: 780, height: 180 });
+
+      showHint = true;
+      startSurfaceHeight = 280;
+      view.rerender(<ComposerHost start>{surface()}</ComposerHost>);
+      expect(measureComposerGeometry(composer.closest(".conversation-composer-host")!)).toMatchObject({ left: 110, top: 160, height: 280 });
+
+      view.rerender(<ComposerHost start={false}>{surface()}</ComposerHost>);
+      const host = composer.closest(".conversation-composer-host") as HTMLDivElement;
+      expect(host.style.transform).toBe("translate3d(0px, -340px, 0)");
+      expect(host.style.transform).not.toContain("-70px");
+      expect(screen.getByRole("textbox")).toBe(composer);
+      expect(document.activeElement).toBe(composer);
+      callbacks[0]?.(performance.now());
+      expect(host.style.transform).toBe("translate3d(0, 0, 0)");
+    } finally {
+      view?.unmount();
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      window.requestAnimationFrame = originalRaf;
+      window.cancelAnimationFrame = originalCancelRaf;
+    }
   });
 
   it("carries a draft and supported attachments across a pre-send project switch", async () => {

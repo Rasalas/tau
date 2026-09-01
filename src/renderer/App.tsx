@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode, type RefObject } from "react";
+import { Component, createRef, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode, type RefObject } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
   ClientTurnIdentity,
@@ -333,38 +333,57 @@ function LiveStatus({ startedAt, label = "Pi is working" }: { startedAt?: number
  * Animate the measured position change with FLIP; reduced-motion users get a
  * single immediate placement instead.
  */
-function ComposerHost({ start, children }: { start: boolean; children: ReactNode }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const previousRectRef = useRef<DOMRect | undefined>(undefined);
-  const previousModeRef = useRef(start);
-  const frameRef = useRef<number | undefined>(undefined);
-  const cleanupRef = useRef<number | undefined>(undefined);
+export function measureComposerGeometry(host: HTMLElement): DOMRect {
+  return host.querySelector<HTMLElement>("[data-composer-surface]")?.getBoundingClientRect()
+    ?? host.getBoundingClientRect();
+}
 
-  useLayoutEffect(() => {
-    const node = hostRef.current;
-    if (!node) return undefined;
-    if (frameRef.current !== undefined) window.cancelAnimationFrame(frameRef.current);
-    if (cleanupRef.current !== undefined) window.clearTimeout(cleanupRef.current);
-    frameRef.current = undefined;
-    cleanupRef.current = undefined;
+interface ComposerHostProps {
+  start: boolean;
+  children: ReactNode;
+}
 
-    const previous = previousRectRef.current;
-    const current = node.getBoundingClientRect();
-    previousRectRef.current = current;
-    const modeChanged = previousModeRef.current !== start;
-    previousModeRef.current = start;
+export class ComposerHost extends Component<ComposerHostProps, Record<string, never>, DOMRect | undefined> {
+  private readonly hostRef = createRef<HTMLDivElement>();
+  private previousRect: DOMRect | undefined;
+  private frame: number | undefined;
+  private cleanupTimer: number | undefined;
+
+  componentDidMount(): void {
+    this.previousRect = this.measure();
+  }
+
+  getSnapshotBeforeUpdate(): DOMRect | undefined {
+    return this.measure();
+  }
+
+  componentDidUpdate(previousProps: ComposerHostProps, _previousState: Record<string, never>, beforeLayout?: DOMRect): void {
+    const current = this.measure();
+    const previous = beforeLayout ?? this.previousRect;
+    this.previousRect = current;
+    if (previousProps.start !== this.props.start) this.animate(previous, current);
+  }
+
+  componentWillUnmount(): void {
+    this.clearAnimation();
+  }
+
+  private measure(): DOMRect | undefined {
+    const host = this.hostRef.current;
+    return host ? measureComposerGeometry(host) : undefined;
+  }
+
+  private animate(previous: DOMRect | undefined, current: DOMRect | undefined): void {
+    const node = this.hostRef.current;
+    this.clearAnimation();
+    if (!node || !previous || !current) return;
     const reduceMotion = typeof window.matchMedia === "function"
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!modeChanged || !previous || reduceMotion) {
-      node.style.transition = "";
-      node.style.transform = "";
-      node.style.willChange = "";
-      return undefined;
-    }
+    if (reduceMotion) return;
 
     const deltaX = previous.left - current.left;
     const deltaY = previous.top - current.top;
-    if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return undefined;
+    if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return;
 
     node.style.transition = "none";
     node.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
@@ -372,29 +391,35 @@ function ComposerHost({ start, children }: { start: boolean; children: ReactNode
     // Force the inverse transform to be painted before releasing it, otherwise
     // browsers are free to collapse the two geometry states into one frame.
     void node.offsetWidth;
-    frameRef.current = window.requestAnimationFrame(() => {
-      frameRef.current = undefined;
+    this.frame = window.requestAnimationFrame(() => {
+      this.frame = undefined;
       node.style.transition = "transform 220ms cubic-bezier(.2, .8, .2, 1)";
       node.style.transform = "translate3d(0, 0, 0)";
-      cleanupRef.current = window.setTimeout(() => {
-        cleanupRef.current = undefined;
+      this.cleanupTimer = window.setTimeout(() => {
+        this.cleanupTimer = undefined;
         node.style.transition = "";
         node.style.transform = "";
         node.style.willChange = "";
       }, 240);
     });
-    return () => {
-      if (frameRef.current !== undefined) window.cancelAnimationFrame(frameRef.current);
-      if (cleanupRef.current !== undefined) window.clearTimeout(cleanupRef.current);
-      frameRef.current = undefined;
-      cleanupRef.current = undefined;
+  }
+
+  private clearAnimation(): void {
+    const node = this.hostRef.current;
+    if (this.frame !== undefined) window.cancelAnimationFrame(this.frame);
+    if (this.cleanupTimer !== undefined) window.clearTimeout(this.cleanupTimer);
+    this.frame = undefined;
+    this.cleanupTimer = undefined;
+    if (node) {
       node.style.transition = "";
       node.style.transform = "";
       node.style.willChange = "";
-    };
-  }, [start]);
+    }
+  }
 
-  return <div ref={hostRef} className={`conversation-composer-host ${start ? "start" : "docked"}`}>{children}</div>;
+  render(): ReactNode {
+    return <div ref={this.hostRef} className={`conversation-composer-host ${this.props.start ? "start" : "docked"}`}>{this.props.children}</div>;
+  }
 }
 
 export function useTailScroll(
