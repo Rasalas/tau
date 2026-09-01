@@ -643,6 +643,12 @@ function assertImageInputCapability(session: AgentSession, attachments: readonly
   }
 }
 
+function assertBridgeImageInputCapability(snapshot: PiBridgeSnapshot | undefined, attachments: readonly UiPromptAttachment[]): void {
+  if (attachments.length === 0) return;
+  if (snapshot?.supportsImageInput !== true) throw new Error("The active model does not support image input.");
+  promptImages(attachments);
+}
+
 function firstSentence(value: string): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   if (!normalized) return "Untitled thread";
@@ -1888,8 +1894,10 @@ export class PiHost {
     if (backendKind === "pi" && this.bridge && (!cwd || cwd === this.cwd)) {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       const bridgeRequestId = requestId ?? createNewThreadRequestId(randomUUID());
-      if (attachments.length > 0) {
-        return this.newThreadResult([], { accepted: false, message: "Image attachments are not supported while Tau is attached to Pi." }, bridgeRequestId);
+      try {
+        assertBridgeImageInputCapability(this.bridgeSnapshot, attachments);
+      } catch (error) {
+        return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, bridgeRequestId);
       }
       if (prepared) this.assertBridgePreparedPrompt(initialPrompt ?? "", prepared);
       let resolveBridgeSession: ((snapshot: PiBridgeSnapshot) => void) | undefined;
@@ -1911,6 +1919,7 @@ export class PiHost {
         const response = await this.bridgeCommand({
           command: "new_session",
           initialPrompt,
+          ...(attachments.length > 0 ? { attachments } : {}),
           requestId: bridgeRequestId,
           ...(identity ?? {}),
           ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
@@ -2102,7 +2111,7 @@ export class PiHost {
       const targetCwd = cwd ?? this.cwd;
       const generation = ++this.preparedThreadCapabilityGeneration;
       if (this.bridge && (!cwd || cwd === this.cwd)) {
-        return { cwd: targetCwd, generation, supportsImageInput: false };
+        return { cwd: targetCwd, generation, supportsImageInput: this.bridgeSnapshot?.supportsImageInput ?? false };
       }
       if (!this.spare || this.spare.cwd !== targetCwd) this.scheduleSpareThread(targetCwd, true);
       const spare = this.spare?.cwd === targetCwd ? this.spare : undefined;
@@ -2783,19 +2792,16 @@ export class PiHost {
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
     if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) {
-        const error = new Error("Image attachments are not supported while Tau is attached to Pi.");
-        onPreflightResult?.({ accepted: false, error });
-        throw error;
-      }
-      if (prepared) this.assertBridgePreparedPrompt(text, prepared, this.bridgeSnapshot?.sessionId);
-      // Pi's bridge extension is the runtime owner and performs this
+      // Pi's bridge extension is the runtime owner and performs prompt
       // normalization against its current command registry exactly once.
       try {
+        assertBridgeImageInputCapability(this.bridgeSnapshot, attachments);
+        if (prepared) this.assertBridgePreparedPrompt(text, prepared, this.bridgeSnapshot?.sessionId);
         if (identity) this.clientTurns.enqueue(this.bridgeSnapshot?.sessionId, identity);
         await this.bridge!.command({
           command: "prompt",
           text,
+          ...(attachments.length > 0 ? { attachments } : {}),
           ...(identity ?? {}),
           ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
         });
@@ -2951,13 +2957,14 @@ export class PiHost {
     const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
     const clientMessageId = identity?.clientMessageId;
     if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      assertBridgeImageInputCapability(this.bridgeSnapshot, attachments);
       if (prepared) this.assertBridgePreparedPrompt(text, prepared, this.bridgeSnapshot?.sessionId);
       try {
         if (identity) this.clientTurns.enqueue(this.bridgeSnapshot?.sessionId, identity);
         await this.bridge!.command({
           command: "prompt",
           text,
+          ...(attachments.length > 0 ? { attachments } : {}),
           deliverAs: "steer",
           ...(identity ?? {}),
           ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
@@ -3015,13 +3022,14 @@ export class PiHost {
     const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
     const clientMessageId = identity?.clientMessageId;
     if (this.bridgeOwns(sessionId)) {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported while Tau is attached to Pi.");
+      assertBridgeImageInputCapability(this.bridgeSnapshot, attachments);
       if (prepared) this.assertBridgePreparedPrompt(text, prepared, this.bridgeSnapshot?.sessionId);
       try {
         if (identity) this.clientTurns.enqueue(this.bridgeSnapshot?.sessionId, identity);
         await this.bridge!.command({
           command: "prompt",
           text,
+          ...(attachments.length > 0 ? { attachments } : {}),
           deliverAs: "followUp",
           ...(identity ?? {}),
           ...(prepared ? { prepared: this.piBridgePreparedPrompt(prepared) } : {}),
@@ -4550,7 +4558,7 @@ export class PiHost {
       serviceTier: "standard",
       serviceTierAvailable: false,
       supportsCheckpointRestore: false,
-      supportsImageInput: false,
+      supportsImageInput: snapshot.supportsImageInput,
       contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
         ? { tokens: snapshot.contextUsage.tokens, contextWindow: snapshot.contextUsage.contextWindow, percent: snapshot.contextUsage.percent }
         : undefined,

@@ -8,7 +8,7 @@ import tauSessionBridge, {
   buildTranscriptView,
   createNewSessionRequestTracker,
   InvalidBridgeTranscriptCursorError,
-  PI_BRIDGE_SUPPORTS_IMAGE_INPUT,
+  bridgeSupportsImageInput,
   BridgeClientTurnLedger,
   bridgeSnapshotMessages,
   decorateBridgeUserMessage,
@@ -86,8 +86,10 @@ describe("Tau bridge tool-output read seam", () => {
 });
 
 describe("Tau Pi bridge capability", () => {
-  it("declares that the bridge cannot send image prompt input", () => {
-    expect(PI_BRIDGE_SUPPORTS_IMAGE_INPUT).toBe(false);
+  it("derives image support from the active model", () => {
+    expect(bridgeSupportsImageInput({ input: ["text", "image"] })).toBe(true);
+    expect(bridgeSupportsImageInput({ input: ["text"] })).toBe(false);
+    expect(bridgeSupportsImageInput(undefined)).toBe(false);
   });
 
   it("keeps a ready request token until the exact host acknowledgement", () => {
@@ -241,6 +243,35 @@ afterEach(async () => {
 });
 
 describe("Tau session bridge handler", () => {
+  it("advertises and delivers image input for an image-capable model", async () => {
+    const bridge = fakeBridge();
+    await bridge.events.get("session_start")?.({}, bridge.context);
+    (bridge.context as { model?: unknown }).model = {
+      provider: "test",
+      id: "vision",
+      name: "Vision",
+      input: ["text", "image"],
+    };
+    const descriptor = await findPiBridge(bridge.context.cwd);
+    const client = new PiBridgeClient(descriptor as PiBridgeDescriptor);
+    cleanups.push(async () => {
+      await bridge.events.get("session_shutdown")?.({}, bridge.context);
+      client.close();
+    });
+
+    const ready = await client.open();
+    expect(ready.supportsImageInput).toBe(true);
+    await expect(client.command({
+      command: "prompt",
+      text: "describe this",
+      attachments: [{ kind: "image", name: "pixel.png", mimeType: "image/png", data: "AQ==", size: 1 }],
+    } as never)).resolves.toMatchObject({ accepted: true });
+    expect(bridge.pi.sendUserMessage).toHaveBeenCalledWith([
+      { type: "text", text: "describe this" },
+      { type: "image", mimeType: "image/png", data: "AQ==" },
+    ], expect.objectContaining({ expandPromptTemplates: true }));
+  });
+
   it("normalizes a real prompt command and propagates its client id", async () => {
     const bridge = fakeBridge();
     await bridge.events.get("session_start")?.({}, bridge.context);

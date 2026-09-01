@@ -207,7 +207,7 @@ describe("PiHost skill delivery", () => {
         timestamp: 1,
       }],
       isStreaming: false,
-      supportsImageInput: false,
+      supportsImageInput: true,
       model: { provider: "anthropic", id: "model" },
       runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
       models: [],
@@ -218,9 +218,12 @@ describe("PiHost skill delivery", () => {
       composerCommands: commands,
     };
 
-    expect(internals.bridgeHostSnapshot().messages[0]).toMatchObject({
-      text: "fix it",
-      skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd fix it" },
+    expect(internals.bridgeHostSnapshot()).toMatchObject({
+      supportsImageInput: true,
+      messages: [{
+        text: "fix it",
+        skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd fix it" },
+      }],
     });
   });
 
@@ -346,6 +349,36 @@ describe("PiHost skill delivery", () => {
       [{ command: "prompt", text: "$tdd follow it", deliverAs: "followUp" }],
       [expect.objectContaining({ command: "new_session", initialPrompt: "$tdd start it" })],
     ]);
+  });
+
+  it("validates and forwards image attachments to the Pi bridge", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false, {
+      runtimeAdapter: { id: "pi", capabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities },
+    });
+    const command = vi.fn(async () => undefined);
+    const internals = host as unknown as {
+      bridge: { command: typeof command };
+      bridgeSnapshot: PiBridgeSnapshot;
+    };
+    internals.bridge = { command };
+    internals.bridgeSnapshot = {
+      sessionId: "bridge",
+      sessionFile: "/tmp/bridge.jsonl",
+      cwd: "/repo",
+      messages: [],
+      isStreaming: false,
+      supportsImageInput: true,
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      activeTools: [],
+      allTools: [],
+    };
+    const attachment = { kind: "image" as const, name: "pixel.png", mimeType: "image/png", data: "AQ==", size: 1 };
+
+    await host.prompt("describe this", [attachment], "bridge");
+
+    expect(command).toHaveBeenCalledWith({ command: "prompt", text: "describe this", attachments: [attachment] });
   });
 
   it("formats the bridge's full normalized transcript instead of trusting raw markdown", async () => {

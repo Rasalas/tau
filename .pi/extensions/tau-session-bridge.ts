@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
-import type { ClientTurnIdentity, NewThreadRequestId } from "../../src/shared/contracts.js";
+import type { ClientTurnIdentity, NewThreadRequestId, UiPromptAttachment } from "../../src/shared/contracts.js";
 import { ClientTurnLedgerStore, type ClientTurnLedgerObservation } from "../../src/shared/client-turn-ledger.js";
 import { clientIdentityMatches, hasExplicitClientIdentity, resolveClientTurnIdentity } from "../../src/shared/transcript-turn.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
@@ -28,6 +28,7 @@ import type { DiffLoadOptions, UiFileDiff } from "../../src/shared/contracts.js"
 import { WorkspaceCheckpointLeaseManager } from "../../src/main/workspace-checkpoint-lease.js";
 import { tauOwnsRuntime } from "../../src/main/tau-runtime-owner.js";
 import { assistantAnchorForMessage } from "../../src/main/pi-turn-checkpoint-extension.js";
+import { promptImages } from "../../src/main/prompt-attachments.js";
 import {
   checkpointsForBranch,
   cloneTurnCheckpoint,
@@ -353,8 +354,19 @@ function transcriptView(ctx: ExtensionContext, policy: TranscriptViewPolicy): Tr
   return buildTranscriptView(branchMessages, policy);
 }
 
-/** The Pi TUI bridge deliberately rejects image prompt payloads. */
-export const PI_BRIDGE_SUPPORTS_IMAGE_INPUT = false as const;
+export function bridgeSupportsImageInput(model: { input?: readonly string[] } | undefined): boolean {
+  return model?.input?.includes("image") === true;
+}
+
+function bridgePromptContent(text: string, attachments: readonly UiPromptAttachment[] = []) {
+  const images = promptImages(attachments).map((image) => ({
+    type: "image" as const,
+    mimeType: image.mimeType,
+    data: image.data,
+  }));
+  if (images.length === 0) return text;
+  return [...(text ? [{ type: "text" as const, text }] : []), ...images];
+}
 
 /** Encode the registered command used by the socket side of the bridge.
  *
@@ -367,13 +379,14 @@ export function bridgeNewSessionCommand(
   requestId?: NewThreadRequestId,
   clientMessageIdOrIdentity?: string | ClientTurnIdentity,
   prepared?: PiBridgePreparedPrompt,
+  attachments?: UiPromptAttachment[],
 ): string {
   const identity = typeof clientMessageIdOrIdentity === "string"
     ? { clientTurnId: clientMessageIdOrIdentity, clientMessageId: clientMessageIdOrIdentity }
     : clientMessageIdOrIdentity;
-  if (initialPrompt === undefined && requestId === undefined && identity === undefined && prepared === undefined) return "/tau-bridge-new";
-  const value = requestId || identity || prepared
-    ? { initialPrompt, requestId, ...(identity ?? {}), prepared }
+  if (initialPrompt === undefined && requestId === undefined && identity === undefined && prepared === undefined && attachments === undefined) return "/tau-bridge-new";
+  const value = requestId || identity || prepared || attachments
+    ? { initialPrompt, requestId, ...(identity ?? {}), prepared, attachments }
     : initialPrompt;
   return `/tau-bridge-new ${Buffer.from(JSON.stringify(value), "utf8").toString("base64url")}`;
 }
@@ -443,6 +456,8 @@ export function createNewSessionRequestTracker(): NewSessionRequestTracker {
 
 const MAX_BRIDGE_CATALOG_ITEMS = 64;
 const MAX_BRIDGE_CATALOG_TEXT = 8 * 1024;
+/** Preserve the pre-image transport ceiling for snapshots, events, and reads. */
+const MAX_BRIDGE_OUTBOUND_FRAME_BYTES = 8 * 1024 * 1024;
 
 function boundedCatalogText(value: unknown): string {
   const text = typeof value === "string" ? value : String(value ?? "");
@@ -729,7 +744,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const payload = typeof decoded === "string"
         ? { initialPrompt: decoded }
         : decoded && typeof decoded === "object"
-          ? decoded as { initialPrompt?: unknown; requestId?: unknown; clientTurnId?: unknown; clientMessageId?: unknown; prepared?: unknown }
+          ? decoded as { initialPrompt?: unknown; requestId?: unknown; clientTurnId?: unknown; clientMessageId?: unknown; prepared?: unknown; attachments?: unknown }
           : {};
       const initialPrompt = typeof payload.initialPrompt === "string" ? payload.initialPrompt : undefined;
       const requestId = typeof payload.requestId === "string" ? payload.requestId as NewThreadRequestId : undefined;
@@ -737,11 +752,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       const clientMessageId = typeof payload.clientMessageId === "string" ? payload.clientMessageId : undefined;
       const clientIdentity = resolveClientTurnIdentity({ clientTurnId, clientMessageId });
       const prepared = payload.prepared && typeof payload.prepared === "object" ? payload.prepared as PiBridgePreparedPrompt : undefined;
+      const attachments = Array.isArray(payload.attachments) ? payload.attachments as UiPromptAttachment[] : [];
+      if (attachments.length > 0 && !bridgeSupportsImageInput(ctx.model)) throw new Error("The active model does not support image input.");
       // Legacy bridge callers may submit a request-correlated prompt without
       // the skill preflight fields. Preserve that wire path; skill-aware
       // callers always provide a client id or prepared payload and are checked
       // against Pi's live registry.
-      const resolved = initialPrompt && (clientMessageId || prepared)
+      const resolved = initialPrompt !== undefined && (clientMessageId || prepared)
         ? resolvePreparedPrompt(initialPrompt, prepared)
         : undefined;
       if (clientIdentity && initialPrompt !== undefined) bridgeTurns.enqueueAny(clientIdentity, initialPrompt);
@@ -752,17 +769,17 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           newSessionRequests.begin(requestId);
         }
         const result = await ctx.newSession({
-          ...(initialPrompt ? {
+          ...(initialPrompt !== undefined || attachments.length > 0 ? {
             // `setup` is the only replacement-session hook with a writable
             // SessionManager. Keep the marker in the new session before its
             // first user message is dispatched.
             setup: async (sessionManager) => {
               appendNewSessionEntry = (customType, data) => { sessionManager.appendCustomEntry(customType, data); };
-              marker = appendClientMessageMarker(appendNewSessionEntry, clientMessageId, initialPrompt, resolved?.sourceFingerprint);
+              marker = appendClientMessageMarker(appendNewSessionEntry, clientMessageId, initialPrompt ?? "", resolved?.sourceFingerprint);
             },
             withSession: async (fresh) => {
               try {
-                await fresh.sendUserMessage(resolved?.runtimeText ?? initialPrompt, { expandPromptTemplates: true });
+                await fresh.sendUserMessage(bridgePromptContent(resolved?.runtimeText ?? initialPrompt ?? "", attachments), { expandPromptTemplates: true });
               } catch (error) {
                 if (marker && appendNewSessionEntry) failClientMessageIfUnpersisted(fresh, clientMessageId, appendNewSessionEntry);
                 if (clientIdentity) bridgeTurns.cancelAny(clientIdentity);
@@ -968,7 +985,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
       activeTools: pi.getActiveTools(),
       allTools: pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
-      supportsImageInput: PI_BRIDGE_SUPPORTS_IMAGE_INPUT,
+      supportsImageInput: bridgeSupportsImageInput(ctx.model),
       activityMessages: boundedBridgeValue(bridgePage.activityMessages),
       turnActivityHistory: boundedBridgeValue(bridgePage.turnActivityHistory),
       turnActivityHistoryComplete: bridgePage.turnActivityHistoryComplete,
@@ -1067,7 +1084,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       epoch: descriptor.epoch,
       seq: ++sequence,
       sessionId: descriptor.sessionId,
-      event: boundedBridgePayload(decorateEvent(event, ctx), PI_BRIDGE_MAX_FRAME_BYTES - 64 * 1024),
+      event: boundedBridgePayload(decorateEvent(event, ctx), MAX_BRIDGE_OUTBOUND_FRAME_BYTES - 64 * 1024),
     };
     for (const client of clients) if (client.authenticated) send(client, frame);
   };
@@ -1098,7 +1115,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   const respond = (client: ClientState, id: string, ok: boolean, result?: unknown) => {
     if (!descriptor) return;
     send(client, ok
-      ? { protocolVersion: PI_BRIDGE_PROTOCOL_VERSION, type: "response", id, epoch: descriptor.epoch, ok: true, result: boundedBridgePayload(result, PI_BRIDGE_MAX_FRAME_BYTES - 64 * 1024) }
+      ? { protocolVersion: PI_BRIDGE_PROTOCOL_VERSION, type: "response", id, epoch: descriptor.epoch, ok: true, result: boundedBridgePayload(result, MAX_BRIDGE_OUTBOUND_FRAME_BYTES - 64 * 1024) }
       : { protocolVersion: PI_BRIDGE_PROTOCOL_VERSION, type: "response", id, epoch: descriptor.epoch, ok: false, error: String(result) });
   };
 
@@ -1152,6 +1169,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         }
         case "prompt": {
           const resolved = resolvePreparedPrompt(frame.text, frame.prepared);
+          if ((frame.attachments?.length ?? 0) > 0 && !bridgeSupportsImageInput(ctx.model)) {
+            throw new Error("The active model does not support image input.");
+          }
           const wasIdle = ctx.isIdle();
           const commandName = resolved.runtimeText.startsWith("/")
             ? resolved.runtimeText.slice(1).split(/[ \t\r\n]/u, 1)[0]
@@ -1179,7 +1199,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
             : appendClientMessageMarker(appendMarker, frame.clientMessageId, frame.text, resolved.sourceFingerprint);
           if (!isExtensionCommand && clientIdentity) bridgeTurns.enqueue(ctx.sessionManager.getSessionId(), clientIdentity, frame.text);
           try {
-            pi.sendUserMessage(resolved.runtimeText, {
+            pi.sendUserMessage(bridgePromptContent(resolved.runtimeText, frame.attachments), {
               ...(wasIdle ? {} : { deliverAs: frame.deliverAs ?? "followUp" }),
               expandPromptTemplates: true,
             });
@@ -1213,7 +1233,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
         case "export_markdown": {
           const messages = ctx.sessionManager.getBranch()
             .flatMap((entry) => entry.type === "message" ? [normalizedTranscriptMessage(entry.message)] : []);
-          if (Buffer.byteLength(JSON.stringify(messages), "utf8") > PI_BRIDGE_MAX_FRAME_BYTES - 1024) {
+          if (Buffer.byteLength(JSON.stringify(messages), "utf8") > MAX_BRIDGE_OUTBOUND_FRAME_BYTES - 1024) {
             throw new Error("This thread is too large to copy through the Tau bridge.");
           }
           respond(client, frame.id, true, {
@@ -1235,7 +1255,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           // Only a registered command receives ExtensionCommandContext. The
           // socket callback deliberately dispatches that command instead of
           // pretending its event context has command-only session methods.
-          pi.sendUserMessage(bridgeNewSessionCommand(frame.initialPrompt, frame.requestId, frame.clientMessageId, frame.prepared), { expandPromptTemplates: true });
+          if ((frame.attachments?.length ?? 0) > 0 && !bridgeSupportsImageInput(ctx.model)) {
+            throw new Error("The active model does not support image input.");
+          }
+          const identity = resolveClientTurnIdentity(frame) ?? frame.clientMessageId;
+          pi.sendUserMessage(bridgeNewSessionCommand(frame.initialPrompt, frame.requestId, identity, frame.prepared, frame.attachments), { expandPromptTemplates: true });
           respond(client, frame.id, true, { accepted: true, requestId: frame.requestId ?? frame.id });
           break;
         }

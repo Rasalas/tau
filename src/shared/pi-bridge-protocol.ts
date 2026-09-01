@@ -5,6 +5,7 @@ import type {
   NewThreadRequestId,
   RuntimeCapabilities,
   UiComposerCommand,
+  UiPromptAttachment,
   UiSkillInvocation,
   UiTaskProgress,
   UiTaskProgressEntry,
@@ -14,7 +15,8 @@ import type {
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
-export const PI_BRIDGE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
+/** Allows the composer's 24 MB decoded image budget plus base64 and JSON overhead. */
+export const PI_BRIDGE_MAX_FRAME_BYTES = 40 * 1024 * 1024;
 
 /** Optional v1 capabilities negotiated by the hello/ready exchange. */
 export interface PiBridgeCapabilities {
@@ -72,8 +74,8 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
   thinkingLevels: string[];
   activeTools: string[];
   allTools: Array<{ name: string; description: string }>;
-  /** Bridge-controlled Pi TUI currently cannot receive image prompt input. */
-  supportsImageInput: false;
+  /** Whether the active Pi model accepts image prompt input. */
+  supportsImageInput: boolean;
   /** Optional for compatibility with Pi instances running an older bridge. */
   composerCommands?: UiComposerCommand[];
   /** Raw records for restoring completed tool activity; the transcript page is mapped separately. */
@@ -129,6 +131,7 @@ export type PiBridgeCommand =
       /** Renderer submission correlation retained by the bridge handoff flow. */
       clientMessageId?: string;
       deliverAs?: "steer" | "followUp";
+      attachments?: UiPromptAttachment[];
       prepared?: PiBridgePreparedPrompt;
     }
       & Partial<ClientTurnIdentity>
@@ -139,7 +142,7 @@ export type PiBridgeCommand =
   | { command: "reload" }
   | { command: "set_session_name"; name: string }
   | { command: "fork"; entryId: string }
-  | { command: "new_session"; initialPrompt?: string; requestId?: NewThreadRequestId; clientMessageId?: string; prepared?: PiBridgePreparedPrompt }
+  | ({ command: "new_session"; initialPrompt?: string; attachments?: UiPromptAttachment[]; requestId?: NewThreadRequestId; prepared?: PiBridgePreparedPrompt } & Partial<ClientTurnIdentity>)
   | { command: "new_session_ack"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "new_session_abort"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "transcript_page"; cursor?: string }
