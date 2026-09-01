@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type RefObject } from "react";
+import { Component, createRef, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode, type RefObject } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
   ClientTurnIdentity,
@@ -325,6 +325,101 @@ function LiveStatus({ startedAt, label = "Pi is working" }: { startedAt?: number
     return () => window.clearInterval(timer);
   }, [startedAt]);
   return <div className="live-status"><span className="spinner" /><span>{label}{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
+}
+
+/**
+ * The composer owns transient editor state (selection, menus and focus), so
+ * its host stays mounted while the surrounding conversation changes mode.
+ * Animate the measured position change with FLIP; reduced-motion users get a
+ * single immediate placement instead.
+ */
+export function measureComposerGeometry(host: HTMLElement): DOMRect {
+  return host.querySelector<HTMLElement>("[data-composer-surface]")?.getBoundingClientRect()
+    ?? host.getBoundingClientRect();
+}
+
+interface ComposerHostProps {
+  start: boolean;
+  children: ReactNode;
+}
+
+export class ComposerHost extends Component<ComposerHostProps, Record<string, never>, DOMRect | undefined> {
+  private readonly hostRef = createRef<HTMLDivElement>();
+  private previousRect: DOMRect | undefined;
+  private frame: number | undefined;
+  private cleanupTimer: number | undefined;
+
+  componentDidMount(): void {
+    this.previousRect = this.measure();
+  }
+
+  getSnapshotBeforeUpdate(): DOMRect | undefined {
+    return this.measure();
+  }
+
+  componentDidUpdate(previousProps: ComposerHostProps, _previousState: Record<string, never>, beforeLayout?: DOMRect): void {
+    const current = this.measure();
+    const previous = beforeLayout ?? this.previousRect;
+    this.previousRect = current;
+    if (previousProps.start !== this.props.start) this.animate(previous, current);
+  }
+
+  componentWillUnmount(): void {
+    this.clearAnimation();
+  }
+
+  private measure(): DOMRect | undefined {
+    const host = this.hostRef.current;
+    return host ? measureComposerGeometry(host) : undefined;
+  }
+
+  private animate(previous: DOMRect | undefined, current: DOMRect | undefined): void {
+    const node = this.hostRef.current;
+    this.clearAnimation();
+    if (!node || !previous || !current) return;
+    const reduceMotion = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) return;
+
+    const deltaX = previous.left - current.left;
+    const deltaY = previous.top - current.top;
+    if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return;
+
+    node.style.transition = "none";
+    node.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+    node.style.willChange = "transform";
+    // Force the inverse transform to be painted before releasing it, otherwise
+    // browsers are free to collapse the two geometry states into one frame.
+    void node.offsetWidth;
+    this.frame = window.requestAnimationFrame(() => {
+      this.frame = undefined;
+      node.style.transition = "transform 220ms cubic-bezier(.2, .8, .2, 1)";
+      node.style.transform = "translate3d(0, 0, 0)";
+      this.cleanupTimer = window.setTimeout(() => {
+        this.cleanupTimer = undefined;
+        node.style.transition = "";
+        node.style.transform = "";
+        node.style.willChange = "";
+      }, 240);
+    });
+  }
+
+  private clearAnimation(): void {
+    const node = this.hostRef.current;
+    if (this.frame !== undefined) window.cancelAnimationFrame(this.frame);
+    if (this.cleanupTimer !== undefined) window.clearTimeout(this.cleanupTimer);
+    this.frame = undefined;
+    this.cleanupTimer = undefined;
+    if (node) {
+      node.style.transition = "";
+      node.style.transform = "";
+      node.style.willChange = "";
+    }
+  }
+
+  render(): ReactNode {
+    return <div ref={this.hostRef} className={`conversation-composer-host ${this.props.start ? "start" : "docked"}`}>{this.props.children}</div>;
+  }
 }
 
 export function useTailScroll(
@@ -1383,11 +1478,19 @@ export default function App() {
   }, [applyActionResult, requireHost]);
 
   const createThreadInProject = useCallback((project: UiProject) => {
-    const draft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
+    const nextDraft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
+    const sourceScope = activeDraftKey;
+    const destinationScope = draftKey(undefined, nextDraft);
+    const sourceSnapshot = sourceScope ? composerScopeStore.getSnapshot(sourceScope) : undefined;
+    if (sourceScope && destinationScope) composerScopeStore.moveScope(sourceScope, destinationScope);
+    // A new project is a new draft scope, but changing projects before the
+    // first send should not discard what the user already composed. Attachments
+    // stay memory-only and move with the scope; text also survives a reload.
+    const draft = sourceSnapshot?.draft ? { ...nextDraft, draft: sourceSnapshot.draft } : nextDraft;
     beginNewThread(draft);
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [beginNewThread]);
+  }, [activeDraftKey, beginNewThread, composerScopeStore]);
 
   const browseForNewThread = useCallback(async () => {
     setNewThreadOpen(false);
@@ -1851,11 +1954,9 @@ export default function App() {
           skillDraft,
         );
       } catch (error) {
-        const draftKeyForFailure = pendingNewThread
-          ? draftKey(undefined, pendingNewThread)
-          : activeDraftKey;
-        writeComposerDraft(window.localStorage, draftKeyForFailure, text);
-        setComposerSeed(text);
+        // ComposerScopeStore keeps the captured draft when a submission is
+        // rejected, including edits made while preflight was in flight.
+        // Re-seeding here would overwrite those newer edits.
         setNotice(String(error));
         return { accepted: false, message: errorMessage(error) };
       }
@@ -1938,8 +2039,6 @@ export default function App() {
           cancelTranscriptTurn();
           setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           if (currentSubmission) {
-            writeComposerDraft(window.localStorage, activeDraftKey, text);
-            setComposerSeed(text);
             setNotice(String(error));
           }
           return { accepted: false, message: errorMessage(error) };
@@ -1961,8 +2060,6 @@ export default function App() {
             return index < 0 ? current : current.filter((_, at) => at !== index);
           });
           if (currentSubmission) {
-            writeComposerDraft(window.localStorage, activeDraftKey, text);
-            setComposerSeed(text);
             setNotice(String(error));
           }
           return { accepted: false, message: errorMessage(error) };
@@ -2049,8 +2146,6 @@ export default function App() {
         cancelTranscriptTurn();
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         if (currentSubmission) {
-          writeComposerDraft(window.localStorage, pendingKey, text);
-          setComposerSeed(text);
           setNotice(String(error));
         }
         return { accepted: false, message: errorMessage(error) };
@@ -2073,8 +2168,6 @@ export default function App() {
         cancelTranscriptTurn();
         setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         if (currentSubmission) {
-          writeComposerDraft(window.localStorage, activeDraftKey, text);
-          setComposerSeed(text);
           setNotice(String(error));
         }
         return { accepted: false, message: errorMessage(error) };
@@ -2520,30 +2613,37 @@ export default function App() {
                   </div>
                 </div>
               ) : null}
-              {showStartScreen ? (
-                <section className="conversation-start-screen" aria-labelledby="start-screen-title">
-                  <div className="conversation-start-content">
-                    <h1 id="start-screen-title">What do you want to build?</h1>
-                    <button
-                      type="button"
-                      className="conversation-start-project"
-                      aria-label={`Change project, current project ${startProjectName}`}
-                      onClick={() => setNewThreadOpen(true)}
-                    >
-                      <i><Folder size={17} /></i>
-                      <span>
-                        <small>Current project</small>
-                        <strong>{startProjectName}</strong>
-                        <code title={startProjectPath}>{displayPath(startProjectPath)}</code>
-                      </span>
-                      <b>Change</b>
-                      <ChevronDown size={15} />
-                    </button>
-                    {conversationComposer}
-                  </div>
-                </section>
-              ) : (
-                <>
+              <section
+                className="conversation-start-screen"
+                aria-labelledby={showStartScreen ? "start-screen-title" : undefined}
+              >
+                <div className="conversation-start-content">
+                  {showStartScreen ? (
+                    <>
+                      <h1 id="start-screen-title">What do you want to build?</h1>
+                      <button
+                        type="button"
+                        className="conversation-start-project"
+                        aria-label={`Change project, current project ${startProjectName}`}
+                        onClick={() => setNewThreadOpen(true)}
+                      >
+                        <i><Folder size={17} /></i>
+                        <span>
+                          <small>Current project</small>
+                          <strong>{startProjectName}</strong>
+                          <code title={startProjectPath}>{displayPath(startProjectPath)}</code>
+                        </span>
+                        <b>Change</b>
+                        <ChevronDown size={15} />
+                      </button>
+                    </>
+                  ) : null}
+                  <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
+                </div>
+              </section>
+              <div className="conversation-thread">
+                {!showStartScreen ? (
+                  <>
               <header className="conversation-header">
                 <ThreadTitleMenu
                   title={conversationSnapshot?.sessionTitle || "Untitled thread"}
@@ -2599,9 +2699,9 @@ export default function App() {
                   <ChangesComponent changes={turnChanges} onOpenDiff={openReview} />
                 </div>
               ) : null}
-              {conversationComposer}
                 </>
-              )}
+                ) : null}
+              </div>
             </main>
 
             {panels.length > 0 ? (

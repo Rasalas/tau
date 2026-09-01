@@ -12,7 +12,7 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { isCurrentTranscriptSubmission, latestActivityAnchor, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App, { ComposerHost, isCurrentTranscriptSubmission, latestActivityAnchor, measureComposerGeometry, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 
@@ -276,6 +276,165 @@ describe("App render isolation", () => {
     const prompt = screen.getByText("Build the first screen");
     expect(prompt.closest(".transcript-current-row")).toBeTruthy();
     expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeTruthy();
+  });
+
+  it("keeps the same focused composer mounted while the first prompt docks", async () => {
+    const sendPrompt = vi.fn(async () => undefined);
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    composer.focus();
+    fireEvent.change(composer, { target: { value: "dock this prompt\nwith a second line" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    expect(screen.getByPlaceholderText(/Direct the agent/u)).toBe(composer);
+    expect(document.activeElement).toBe(composer);
+    expect(composer.closest(".conversation-composer-host")?.classList.contains("docked")).toBe(true);
+  });
+
+  it("uses the visible composer surface for a dynamic dock geometry", () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const originalRaf = window.requestAnimationFrame;
+    const originalCancelRaf = window.cancelAnimationFrame;
+    const callbacks: FrameRequestCallback[] = [];
+    let startSurfaceHeight = 180;
+    const dockedSurfaceHeight = 240;
+    let showHint = false;
+    const rect = (left: number, top: number, width: number, height: number) => ({
+      x: left,
+      y: top,
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const isStart = this.closest(".conversation-composer-host")?.classList.contains("start") ?? true;
+      if (this.matches("[data-composer-surface]")) {
+        return isStart
+          ? rect(110, showHint ? 160 : 240, 780, startSurfaceHeight)
+          : rect(110, 500, 780, dockedSurfaceHeight);
+      }
+      if (this.classList.contains("conversation-composer-host")) {
+        return isStart ? rect(70, 100, 900, 300) : rect(0, 480, 1000, 260);
+      }
+      return originalRect.call(this);
+    };
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = (() => undefined) as typeof window.cancelAnimationFrame;
+
+    const surface = () => (
+      <div data-composer-surface="true">
+        <textarea autoFocus defaultValue="draft" />
+        {showHint ? <small>Current project hint</small> : null}
+      </div>
+    );
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      view = render(<ComposerHost start>{surface()}</ComposerHost>);
+      const composer = screen.getByRole("textbox");
+      composer.focus();
+      expect(measureComposerGeometry(composer.closest(".conversation-composer-host")!)).toMatchObject({ left: 110, width: 780, height: 180 });
+
+      showHint = true;
+      startSurfaceHeight = 280;
+      view.rerender(<ComposerHost start>{surface()}</ComposerHost>);
+      expect(measureComposerGeometry(composer.closest(".conversation-composer-host")!)).toMatchObject({ left: 110, top: 160, height: 280 });
+
+      view.rerender(<ComposerHost start={false}>{surface()}</ComposerHost>);
+      const host = composer.closest(".conversation-composer-host") as HTMLDivElement;
+      expect(host.style.transform).toBe("translate3d(0px, -340px, 0)");
+      expect(host.style.transform).not.toContain("-70px");
+      expect(screen.getByRole("textbox")).toBe(composer);
+      expect(document.activeElement).toBe(composer);
+      callbacks[0]?.(performance.now());
+      expect(host.style.transform).toBe("translate3d(0, 0, 0)");
+    } finally {
+      view?.unmount();
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      window.requestAnimationFrame = originalRaf;
+      window.cancelAnimationFrame = originalCancelRaf;
+    }
+  });
+
+  it("carries a draft and supported attachments across a pre-send project switch", async () => {
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
+    const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [
+          { path: "/project", name: "project", lastOpenedAt: 2 },
+          { path: "/other", name: "other", lastOpenedAt: 1 },
+        ], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      getPreparedThreadCapability,
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const firstDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(firstDialog).getByRole("option", { name: /project/u }));
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/project"));
+
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "carry this draft" } });
+    const attachment = new File([new Uint8Array([137, 80, 78, 71])], "carry.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [attachment] } });
+    await screen.findByRole("button", { name: "Preview carry.png" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const secondDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(secondDialog).getByRole("option", { name: /other/u }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy());
+    expect(composer.value).toBe("carry this draft");
+    expect(screen.getByRole("button", { name: "Preview carry.png" })).toBeTruthy();
+
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "carry this draft",
+      [expect.objectContaining({ name: "carry.png" })],
+      "/other",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+    ));
   });
 
   it("keeps an in-flight history load when a same-thread action returns detail", async () => {

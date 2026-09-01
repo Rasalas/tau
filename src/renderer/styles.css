@@ -457,6 +457,13 @@ button > svg { pointer-events: none; }
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   position: relative; background: var(--stage);
 }
+.conversation-thread {
+  order: 1; display: flex; flex: 1; min-width: 0; min-height: 0;
+  flex-direction: column;
+}
+.conversation-composer-host {
+  order: 2; flex: none; min-width: 0; width: 100%;
+}
 .conversation-drop-overlay {
   position: absolute; inset: 0; z-index: 40; pointer-events: none;
   display: grid; place-items: center; padding: 32px;
@@ -528,10 +535,17 @@ button > svg { pointer-events: none; }
 }
 .conversation-start-project > b { color: var(--ink-3); font: 550 11.5px var(--sans); }
 .conversation-start-project > svg { flex: none; color: var(--faint); }
-.conversation-start-content > .composer-zone { padding: 14px 0 0; }
-.conversation-start-content .composer-frame { max-width: none; }
-.conversation-start-content .workspace-bar,
-.conversation-start-content .composer-queue { max-width: none; }
+.conversation-column.conversation-start .conversation-start-content > .conversation-composer-host { padding-top: 14px; }
+.conversation-column.conversation-start .conversation-start-content > .conversation-composer-host > .composer-zone { padding: 0; }
+.conversation-column.conversation-start .conversation-start-content .composer-surface { max-width: none; }
+.conversation-column.conversation-start .conversation-start-content .composer-frame { max-width: none; }
+.conversation-column.conversation-start .conversation-start-content .workspace-bar,
+.conversation-column.conversation-start .conversation-start-content .composer-queue { max-width: none; }
+.conversation-column:not(.conversation-start) .conversation-start-screen,
+.conversation-column:not(.conversation-start) .conversation-start-content { display: contents; }
+.conversation-column.conversation-start .conversation-thread { display: none; }
+.conversation-column:not(.conversation-start) .conversation-composer-host { order: 2; }
+.conversation-column:not(.conversation-start) .conversation-thread { order: 1; }
 @keyframes start-screen-enter {
   from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: none; }
@@ -623,7 +637,9 @@ button > svg { pointer-events: none; }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .transcript-jump { animation: none; }
+  .transcript-jump,
+  .conversation-start-content { animation: none; }
+  .conversation-composer-host { transition: none !important; }
 }
 .renderer-benchmark { width: 100%; height: 100%; overflow: auto; padding: 24px; display: flex; flex-direction: column; }
 .renderer-benchmark .transcript-viewport { flex: none; height: 800px; }
@@ -1004,6 +1020,7 @@ button > svg { pointer-events: none; }
 /* ------------------------------------------------------------- composer */
 
 .composer-zone { flex: none; padding: 14px 32px 16px; }
+.composer-surface { width: 100%; max-width: 780px; margin: 0 auto; }
 .composer-queue {
   max-width: 780px; margin: 0 auto; padding: 0 6px;
 }
@@ -2002,4 +2019,18 @@ button > svg { pointer-events: none; }
 @media (max-width: 1040px) {
   .app-shell { grid-template-columns: var(--sidebar-width) minmax(320px, 1fr) 46px; --dock-width: 0px; }
   .panel-stage { display: none; }
+}
+@media (max-width: 700px) {
+  .conversation-start-screen { padding-inline: 16px; }
+  .composer-zone { padding-inline: 12px; }
+  .conversation-column.conversation-start .conversation-start-content > .conversation-composer-host > .composer-zone { padding-inline: 0; }
+  .composer-toolbar { gap: 4px; padding-inline: 8px; }
+  .composer-toolbar > .spacer { display: none; }
+  .composer-toolbar > .runtime-chip,
+  .composer-toolbar > .composer-runtime-menu-anchor { flex: 1 1 0; min-width: 0; }
+  .composer-toolbar > .runtime-chip,
+  .composer-toolbar > .composer-runtime-menu-anchor > .runtime-chip {
+    width: 100%; min-width: 0; overflow: hidden; padding-inline: 4px;
+    gap: 4px; text-overflow: ellipsis; white-space: nowrap;
+  }
 }
