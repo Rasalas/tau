@@ -38,6 +38,7 @@ import {
   createWorkspaceKitCheckpointMaintenance,
 } from "../../src/main/workspace-kit-checkpoints.js";
 import { bridgeTranscriptPage, boundedBridgePayload, boundedBridgeValue } from "../../src/shared/bridge-transcript-pager.js";
+import { TOOL_OUTPUT_READ_PAGE_CHARACTERS, toolOutputByteLength } from "../../src/shared/tool-output.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -49,6 +50,7 @@ import {
   type PiBridgeServerFrame,
   type PiBridgeAwaitingInput,
   type PiBridgeSnapshot,
+  type PiBridgeToolOutputPage,
   type PiBridgeTranscriptPage,
   type PiBridgeTurnFilesPage,
 } from "../../src/shared/pi-bridge-protocol.js";
@@ -460,6 +462,31 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+/** Return one bounded page from the durable branch for the host read seam. */
+export function toolOutputPageForMessages(
+  messages: readonly unknown[],
+  toolCallId: string,
+  offset = 0,
+): PiBridgeToolOutputPage | undefined {
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Invalid tool output cursor.");
+  const record = [...messages].reverse().find((message) => {
+    if (!message || typeof message !== "object") return false;
+    const value = message as { role?: unknown; toolCallId?: unknown };
+    return value.role === "toolResult" && value.toolCallId === toolCallId;
+  });
+  if (!record || typeof record !== "object") return undefined;
+  const output = textFromContent((record as { content?: unknown }).content);
+  if (offset > output.length) throw new Error("Invalid tool output cursor.");
+  const end = Math.min(output.length, offset + TOOL_OUTPUT_READ_PAGE_CHARACTERS);
+  return {
+    toolCallId,
+    offset,
+    output: output.slice(offset, end),
+    totalBytes: toolOutputByteLength(output),
+    ...(end < output.length ? { nextOffset: end } : {}),
+  };
+}
+
 export default function tauSessionBridge(pi: ExtensionAPI) {
   const bridgeTurns = new BridgeClientTurnLedger();
   const newSessionRequests = createNewSessionRequestTracker();
@@ -659,6 +686,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       return [record];
     });
   };
+
+  const readToolOutputPage = (ctx: ExtensionContext, toolCallId: string, offset = 0): PiBridgeToolOutputPage | undefined =>
+    toolOutputPageForMessages(branchMessages(ctx), toolCallId, offset);
 
   const normalizedTranscriptMessage = (message: unknown): { role: "user" | "assistant"; content: unknown } | undefined => {
     if (!message || typeof message !== "object") return undefined;
@@ -935,6 +965,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       allTools: pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
       supportsImageInput: PI_BRIDGE_SUPPORTS_IMAGE_INPUT,
       activityMessages: boundedBridgeValue(bridgePage.activityMessages),
+      turnActivityHistory: boundedBridgeValue(bridgePage.turnActivityHistory),
+      turnActivityHistoryComplete: bridgePage.turnActivityHistoryComplete,
       // A snapshot exposes only the bounded raw tail; older cards travel with
       // their own transcript page.
       turnCheckpoints: checkpointsForRawMessages(ctx, visibleMessages),
@@ -968,6 +1000,8 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       sessionId: ctx.sessionManager.getSessionId(),
       ...boundedBridgeValue(bridged.page),
       activityMessages: boundedBridgeValue(bridged.activityMessages),
+      turnActivityHistory: boundedBridgeValue(bridged.turnActivityHistory),
+      turnActivityHistoryComplete: bridged.turnActivityHistoryComplete,
       turnCheckpoints: checkpointsForRawMessages(ctx, bridged.page.messages),
       taskHistory: taskProgressHistoryFromMessages(bridged.activityMessages.concat(bridged.page.messages)),
     } satisfies PiBridgeTranscriptPage;
@@ -1227,6 +1261,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
             break;
           }
           respond(client, frame.id, true, transcriptPage(ctx, frame.cursor));
+          break;
+        case "read_tool_output":
+          respond(client, frame.id, true, readToolOutputPage(ctx, frame.toolCallId, frame.offset));
           break;
         case "fork": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before forking this thread.");

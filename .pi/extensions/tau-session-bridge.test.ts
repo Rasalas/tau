@@ -12,6 +12,7 @@ import tauSessionBridge, {
   BridgeClientTurnLedger,
   bridgeSnapshotMessages,
   decorateBridgeUserMessage,
+  toolOutputPageForMessages,
 } from "./tau-session-bridge.js";
 import { createNewThreadRequestId } from "../../src/shared/contracts.js";
 
@@ -42,6 +43,45 @@ describe("Tau bridge transcript cursor validation", () => {
     expect(view.visibleMessages).toHaveLength(40);
     expect(view.hasMore).toBe(true);
     expect(view.olderCursor).toBe("10");
+  });
+});
+
+describe("Tau bridge tool-output read seam", () => {
+  it("returns the durable output in bounded pages", () => {
+    const output = `${"x".repeat(128 * 1024)}\nfinal line`;
+    const messages = [{ role: "toolResult", toolCallId: "call", content: output }];
+    const first = toolOutputPageForMessages(messages, "call");
+    expect(first?.offset).toBe(0);
+    expect(first?.nextOffset).toBeDefined();
+    expect(first?.totalBytes).toBe(Buffer.byteLength(output, "utf8"));
+
+    let offset = first?.offset ?? 0;
+    let combined = "";
+    let page = first;
+    while (page) {
+      combined += page.output;
+      if (page.nextOffset === undefined) break;
+      offset = page.nextOffset;
+      page = toolOutputPageForMessages(messages, "call", offset);
+    }
+    expect(combined).toBe(output);
+    expect(toolOutputPageForMessages(messages, "missing")).toBeUndefined();
+  });
+
+  it("keeps the suffix reachable beyond the former eight MiB read ceiling", () => {
+    const output = `${"x".repeat(8 * 1024 * 1024 + 17)}\nFULL-SUFFIX`;
+    const messages = [{ role: "toolResult", toolCallId: "large-call", content: output }];
+    let offset = 0;
+    let combined = "";
+    for (;;) {
+      const page = toolOutputPageForMessages(messages, "large-call", offset);
+      expect(page).toBeDefined();
+      combined += page?.output ?? "";
+      if (page?.nextOffset === undefined) break;
+      offset = page.nextOffset;
+    }
+    expect(combined).toBe(output);
+    expect(combined.endsWith("FULL-SUFFIX")).toBe(true);
   });
 });
 

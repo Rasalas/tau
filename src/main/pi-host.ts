@@ -49,6 +49,7 @@ import type {
   UiToolRun,
   UiTurnCheckpoint,
   UiTurnActivity,
+  UiTurnActivityEntry,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
   WorkspaceInfo,
@@ -65,6 +66,7 @@ import {
   messageHasCheckpointAnchor,
   normalizeTranscriptCursorBoundaries,
   taskHistoryForMessages,
+  turnActivityHistoryForMessages,
   type HostActionResult,
   type HostUpdate,
   type NewThreadResult,
@@ -97,9 +99,11 @@ import {
   type PiBridgePreparedPrompt,
   type PiBridgeServerFrame,
   type PiBridgeSnapshot,
+  type PiBridgeToolOutputPage,
   type PiBridgeTranscriptPage,
   type PiBridgeTurnFilesPage,
 } from "../shared/pi-bridge-protocol.js";
+import { completeToolOutputRead, TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
 import { inferUnavailableTranscriptCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import {
@@ -419,6 +423,15 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
   if (page.taskHistory !== undefined && !Array.isArray(page.taskHistory)) {
     throw new Error("Pi returned an invalid transcript activity history.");
   }
+  if (page.activityMessages !== undefined && !Array.isArray(page.activityMessages)) {
+    throw new Error("Pi returned an invalid transcript activity records list.");
+  }
+  if (page.turnActivityHistory !== undefined && !Array.isArray(page.turnActivityHistory)) {
+    throw new Error("Pi returned an invalid turn activity history.");
+  }
+  if (page.turnActivityHistoryComplete !== undefined && typeof page.turnActivityHistoryComplete !== "boolean") {
+    throw new Error("Pi returned an invalid turn activity completeness flag.");
+  }
   const turnCheckpoints = Array.isArray(page.turnCheckpoints)
     ? page.turnCheckpoints.filter((checkpoint): checkpoint is UiTurnCheckpoint => Boolean(checkpoint && typeof checkpoint === "object"))
     : undefined;
@@ -427,6 +440,9 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
     messages,
     hasMore,
     ...(page.taskHistory !== undefined ? { taskHistory: page.taskHistory } : {}),
+    ...(page.activityMessages !== undefined ? { activityMessages: page.activityMessages } : {}),
+    ...(page.turnActivityHistory !== undefined ? { turnActivityHistory: page.turnActivityHistory } : {}),
+    ...(page.turnActivityHistoryComplete !== undefined ? { turnActivityHistoryComplete: page.turnActivityHistoryComplete } : {}),
     ...(messagesOffset !== undefined ? { messagesOffset } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     ...(historyCompleteness !== undefined ? { historyCompleteness } : {}),
@@ -439,6 +455,10 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
   const page = bridgeTranscriptPage(value, sessionId);
   const messages = mapBridgeMessages(page.messages, page.messagesOffset, { checkpoints: page.turnCheckpoints });
   const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
+  const turnActivityHistory = turnActivityHistoryForMessages(
+    page.turnActivityHistory ?? turnActivityHistoryFromMessages(page.activityMessages ?? page.messages),
+    messages,
+  );
   const firstUserMessage = messages.find((message) => message.role === "user");
   const olderCursor = page.olderCursor === undefined
     ? undefined
@@ -453,6 +473,8 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
     messages,
     transcriptWindow: "bounded",
     ...(taskHistory ? { taskHistory } : {}),
+    ...(turnActivityHistory ? { turnActivityHistory } : {}),
+    ...(page.turnActivityHistoryComplete !== undefined ? { turnActivityHistoryComplete: page.turnActivityHistoryComplete } : {}),
     ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     ...(cursorBoundaries ? { cursorBoundaries } : {}),
@@ -490,44 +512,78 @@ function nextVisibleMessageId(
   return undefined;
 }
 
-export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivity | undefined {
-  let turnStart = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index] as { role?: string } | undefined;
-    if (message?.role === "user") {
-      turnStart = index;
-      break;
-    }
-  }
-  if (turnStart < 0) return undefined;
-
-  const tools: UiToolRun[] = [];
-  const toolIndexes = new Map<string, number>();
-  let anchorMessageId: string | undefined;
+/**
+ * Reconstructs every tool group from the raw branch, preserving the user-turn
+ * boundary that the renderer needs for chronological placement.  Keeping this
+ * derivation host-side means the renderer receives bounded, typed activity
+ * rather than the provider's hidden tool-result records.
+ */
+export function turnActivityHistoryFromMessages(messages: unknown[]): UiTurnActivityEntry[] {
+  const history: UiTurnActivityEntry[] = [];
+  let active: {
+    id: string;
+    anchorMessageId?: string;
+    tools: UiToolRun[];
+    interrupted: boolean;
+    error: boolean;
+  } | undefined;
+  let toolIndexes = new Map<string, number>();
   let lastVisibleMessageId: string | undefined;
 
-  for (let index = turnStart; index < messages.length; index += 1) {
-    const raw = messages[index];
-    if (!raw || typeof raw !== "object") continue;
+  const finish = () => {
+    if (!active || active.tools.length === 0) {
+      active = undefined;
+      toolIndexes = new Map();
+      lastVisibleMessageId = undefined;
+      return;
+    }
+    const hasError = active.error || active.tools.some((tool) => tool.status === "error");
+    const hasRunning = active.tools.some((tool) => tool.status === "running");
+    history.push({
+      id: active.id,
+      ...(active.anchorMessageId ? { anchorMessageId: active.anchorMessageId } : {}),
+      tools: active.tools,
+      status: hasError ? "error" : active.interrupted ? "interrupted" : hasRunning ? "running" : "completed",
+    });
+    active = undefined;
+    toolIndexes = new Map();
+    lastVisibleMessageId = undefined;
+  };
+
+  messages.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object") return;
     const message = raw as {
       role?: string;
       content?: unknown;
       timestamp?: number;
+      tauEntryId?: string;
       toolCallId?: string;
       toolName?: string;
       isError?: boolean;
+      stopReason?: string;
     };
+    if (message.role === "user") {
+      finish();
+      const mapped = mapMessage(message, index);
+      const id = mapped?.id ?? `user-${message.timestamp ?? index}-${index}`;
+      active = { id: `turn-activity-${id}`, anchorMessageId: mapped?.id ?? id, tools: [], interrupted: false, error: false };
+      lastVisibleMessageId = mapped?.id ?? id;
+      return;
+    }
+    if (!active) return;
     const mapped = mapMessage(message, index);
     if (mapped && (mapped.role === "user" || mapped.text.trim())) lastVisibleMessageId = mapped.id;
+    if (message.stopReason === "aborted" || message.stopReason === "cancelled") active.interrupted = true;
+    if (message.stopReason === "error") active.error = true;
 
     if (message.role === "assistant" && Array.isArray(message.content)) {
       for (const part of message.content) {
         if (!part || typeof part !== "object") continue;
         const call = part as { type?: string; id?: string; name?: string; arguments?: unknown };
         if (call.type !== "toolCall" || !call.id || !call.name) continue;
-        anchorMessageId ??= lastVisibleMessageId;
-        toolIndexes.set(call.id, tools.length);
-        tools.push({
+        active.anchorMessageId ??= lastVisibleMessageId;
+        toolIndexes.set(call.id, active.tools.length);
+        active.tools.push({
           id: call.id,
           name: call.name,
           args: call.arguments && typeof call.arguments === "object" ? call.arguments as Record<string, unknown> : {},
@@ -539,20 +595,27 @@ export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivit
 
     if (message.role === "toolResult" && message.toolCallId) {
       const toolIndex = toolIndexes.get(message.toolCallId);
-      if (toolIndex === undefined) continue;
-      const tool = tools[toolIndex];
+      if (toolIndex === undefined) return;
+      const tool = active.tools[toolIndex];
       const output = textFromContent(message.content);
-      tools[toolIndex] = {
+      const preview = boundedToolOutput(output);
+      active.tools[toolIndex] = {
         ...tool,
         name: message.toolName ?? tool.name,
         status: message.isError ? "error" : "done",
-        output: output.length > 8_192 ? `${output.slice(0, 8_192)}\n[Restored output truncated]` : output,
+        output: preview,
+        ...(preview !== output ? { outputTruncated: true, fullOutputAvailable: true } : {}),
         endedAt: message.timestamp ?? tool.startedAt,
       };
     }
-  }
+  });
+  finish();
+  return history;
+}
 
-  return tools.length > 0 ? { tools, anchorMessageId } : undefined;
+export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivity | undefined {
+  const latest = turnActivityHistoryFromMessages(messages).at(-1);
+  return latest ? { tools: latest.tools, ...(latest.anchorMessageId ? { anchorMessageId: latest.anchorMessageId } : {}) } : undefined;
 }
 
 function mapModel(model: { provider: string; id: string; name?: string }): UiModel {
@@ -1312,7 +1375,14 @@ export class PiHost {
     const snapshot = await this.snapshot();
     const result = cursor !== undefined
       ? (() => {
-        const page = this.transcriptPage(snapshot.sessionId, snapshot.messages, snapshot.taskHistory, cursor);
+        const page = this.transcriptPage(
+          snapshot.sessionId,
+          snapshot.messages,
+          snapshot.taskHistory,
+          snapshot.turnActivityHistory,
+          snapshot.turnActivityHistoryComplete,
+          cursor,
+        );
         return { ...page, turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, page.messages) };
       })()
       : this.detailForSnapshot(snapshot);
@@ -1331,7 +1401,14 @@ export class PiHost {
       // Older Pi bridge extensions expose a bounded snapshot but no paging
       // command. Keep that compatibility path local to the retained window.
       const snapshot = this.bridgeHostSnapshot();
-      result = this.transcriptPage(sessionId, snapshot.messages, snapshot.taskHistory, cursor);
+      result = this.transcriptPage(
+        sessionId,
+        snapshot.messages,
+        snapshot.taskHistory,
+        snapshot.turnActivityHistory,
+        snapshot.turnActivityHistoryComplete,
+        cursor,
+      );
     } else {
       const thread = this.requireThread(sessionId);
       const rawMessages = this.branchMessagesWithEntryIds(thread);
@@ -1339,6 +1416,8 @@ export class PiHost {
         sessionId,
         this.messageSnapshot(thread),
         taskProgressHistoryFromMessages(rawMessages),
+        turnActivityHistoryFromMessages(rawMessages),
+        true,
         cursor,
       );
     }
@@ -1353,10 +1432,95 @@ export class PiHost {
     return page;
   }
 
+  /**
+   * Read persisted tool output on demand. The transcript and live event
+   * payloads intentionally keep only bounded previews; this seam is the only
+   * path used by the renderer's deliberate "copy full output" action.
+   */
+  async readToolOutput(sessionId: string, toolCallId: string): Promise<import("../shared/contracts.js").UiToolOutputReadResult | undefined> {
+    if (!toolCallId) throw new Error("A tool call id is required.");
+    const result = this.bridgeOwns(sessionId)
+      ? await this.readBridgeToolOutput(toolCallId)
+      : this.readLocalToolOutput(sessionId, toolCallId);
+    this.lifecycleMetrics.recordIpc(result);
+    return result;
+  }
+
+  private readLocalToolOutput(sessionId: string, toolCallId: string): import("../shared/contracts.js").UiToolOutputReadResult | undefined {
+    const thread = this.requireThread(sessionId);
+    const raw = [...this.branchMessagesWithEntryIds(thread)].reverse().find((message) => {
+      if (!message || typeof message !== "object") return false;
+      const value = message as { role?: unknown; toolCallId?: unknown };
+      return value.role === "toolResult" && value.toolCallId === toolCallId;
+    });
+    if (!raw || typeof raw !== "object") return undefined;
+    return completeToolOutputRead(toolCallId, textFromContent((raw as { content?: unknown }).content));
+  }
+
+  private async readBridgeToolOutput(toolCallId: string): Promise<import("../shared/contracts.js").UiToolOutputReadResult | undefined> {
+    let offset = 0;
+    let totalBytes: number | undefined;
+    let output = "";
+    for (let pageCount = 0; ; pageCount += 1) {
+      // The bridge reports the durable byte count on the first page. Use it
+      // only to reject a malformed cursor stream; there is no arbitrary byte
+      // ceiling that could hide a valid suffix from this deliberate read.
+      if (totalBytes !== undefined && pageCount > Math.ceil(totalBytes / TOOL_OUTPUT_READ_PAGE_CHARACTERS) + 1) {
+        throw new Error("Pi returned too many tool output pages for one deliberate read.");
+      }
+      const raw = await this.bridgeCommand({
+        command: "read_tool_output",
+        toolCallId,
+        ...(offset > 0 ? { offset } : {}),
+      });
+      if (raw === undefined) return undefined;
+      const page = this.parseToolOutputPage(raw, toolCallId, offset);
+      if (totalBytes === undefined) totalBytes = page.totalBytes;
+      if (page.totalBytes !== totalBytes) throw new Error("Pi returned inconsistent tool output metadata.");
+      output += page.output;
+      if (page.nextOffset === undefined) {
+        if (this.toolOutputByteLength(output) !== totalBytes) {
+          throw new Error("Pi returned an incomplete tool output page.");
+        }
+        return { toolCallId, output, totalBytes, truncated: false };
+      }
+      if (page.nextOffset <= offset || page.output.length === 0) {
+        throw new Error("Pi returned an invalid tool output cursor.");
+      }
+      offset = page.nextOffset;
+    }
+  }
+
+  private parseToolOutputPage(value: unknown, toolCallId: string, offset: number): PiBridgeToolOutputPage {
+    if (!value || typeof value !== "object") throw new Error("Pi returned an invalid tool output page.");
+    const page = value as Partial<PiBridgeToolOutputPage>;
+    const output = page.output;
+    const totalBytes = page.totalBytes;
+    const nextOffset = page.nextOffset;
+    if (page.toolCallId !== toolCallId || page.offset !== offset || typeof output !== "string"
+      || typeof totalBytes !== "number" || !Number.isSafeInteger(totalBytes) || totalBytes < 0
+      || (nextOffset !== undefined && (!Number.isSafeInteger(nextOffset) || nextOffset < 0))) {
+      throw new Error("Pi returned an invalid tool output page.");
+    }
+    return {
+      toolCallId,
+      offset,
+      output,
+      totalBytes,
+      ...(nextOffset !== undefined ? { nextOffset } : {}),
+    };
+  }
+
+  private toolOutputByteLength(value: string): number {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
   private transcriptPage(
     sessionId: string,
     messages: readonly UiMessage[],
     taskHistory: readonly UiTaskProgressEntry[] | undefined,
+    turnActivityHistory: readonly UiTurnActivityEntry[] | undefined,
+    turnActivityHistoryComplete: boolean | undefined,
     cursor?: HostTranscriptCursor,
   ): TranscriptPage {
     const page = TranscriptPager.pageFor(
@@ -1367,6 +1531,7 @@ export class PiHost {
       localTranscriptCursorPolicy,
     );
     const visibleHistory = taskHistoryForMessages(taskHistory, page.messages);
+    const visibleActivityHistory = turnActivityHistoryForMessages(turnActivityHistory, page.messages);
     const firstUserMessage = page.messages.find((message) => message.role === "user");
     const cursorBoundaries = normalizeTranscriptCursorBoundaries(
       page.cursorBoundaries,
@@ -1378,6 +1543,8 @@ export class PiHost {
       ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
       ...(cursorBoundaries ? { cursorBoundaries } : {}),
       ...(visibleHistory ? { taskHistory: visibleHistory } : {}),
+      ...(visibleActivityHistory ? { turnActivityHistory: visibleActivityHistory } : {}),
+      ...(turnActivityHistoryComplete !== undefined ? { turnActivityHistoryComplete } : {}),
     };
   }
 
@@ -3686,6 +3853,9 @@ export class PiHost {
       snapshot.taskHistory,
       taskProgressHistoryFromMessages(snapshot.messages),
     );
+    const activityHistory = snapshot.turnActivityHistory
+      ?? turnActivityHistoryFromMessages(snapshot.activityMessages ?? snapshot.messages);
+    const latestActivity = activityHistory.at(-1);
     const historyCompleteness = historyCompletenessForBridgeSnapshot(snapshot);
     const olderCursor = !transcriptPagingNegotiated(snapshot.capabilities) || snapshot.olderCursor === undefined
       ? undefined
@@ -3717,7 +3887,13 @@ export class PiHost {
       historyCompleteness,
       isStreaming: snapshot.isStreaming,
       activeTools: snapshot.activeTools,
-      turnActivity: lastTurnActivityFromMessages(snapshot.activityMessages ?? snapshot.messages),
+      turnActivity: latestActivity
+        ? { tools: latestActivity.tools, ...(latestActivity.anchorMessageId ? { anchorMessageId: latestActivity.anchorMessageId } : {}) }
+        : lastTurnActivityFromMessages(snapshot.activityMessages ?? snapshot.messages),
+      turnActivityHistory: activityHistory,
+      ...(snapshot.turnActivityHistoryComplete !== undefined
+        ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
+        : {}),
       turnCheckpoints: checkpointsForMessages(checkpoints, messages),
       taskProgress: snapshot.taskProgress ?? taskProgressFromMessages(snapshot.messages),
       taskHistory,
@@ -3814,6 +3990,15 @@ export class PiHost {
           if (!isThreadRuntime(thread) || thread.backend.isIdle()) this.clientTurns.settle(sessionId);
           this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
           this.emit({ type: "agent-status", sessionId, running: false });
+          // The lifecycle event only says that the runtime stopped. Publish a
+          // fresh detail from the durable branch so the renderer can replace
+          // any transient missing-frame view with the actual tool result.
+          if (isThreadRuntime(thread)) {
+            void this.snapshot().then((snapshot) => {
+              if (snapshot.sessionId !== sessionId || snapshot.isStreaming) return;
+              this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) });
+            }).catch((error) => this.fail(error, sessionId));
+          }
           this.log("agent.settled", sessionId.slice(0, 8));
           break;
         case "message_start":
@@ -3913,12 +4098,15 @@ export class PiHost {
           // Never let a delayed batch arrive after the terminal event.
           this.toolOutputBatcher.flushId(event.toolCallId);
           const previous = thread.tools.get(event.toolCallId);
+          const output = resultText(event.result);
+          const preview = boundedToolOutput(output);
           const tool: UiToolRun = {
             id: event.toolCallId,
             name: event.toolName,
             args: (previous?.args ?? {}) as Record<string, unknown>,
             status: event.isError ? "error" : "done",
-            output: boundedToolOutput(resultText(event.result)),
+            output: preview,
+            ...(preview !== output ? { outputTruncated: true, fullOutputAvailable: true } : {}),
             startedAt: previous?.startedAt ?? Date.now(),
             endedAt: Date.now(),
           };
@@ -4469,6 +4657,7 @@ export class PiHost {
       isStreaming: thread.backend.isStreaming() || thread.adapterStreaming,
       activeTools: thread.backend.activeToolNames(),
       turnActivity: this.turnActivity(thread, branchMessages),
+      turnActivityHistory: turnActivityHistoryFromMessages(branchMessages),
       turnCheckpoints: this.turnCheckpoints(thread),
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),

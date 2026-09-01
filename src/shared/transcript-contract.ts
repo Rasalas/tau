@@ -1,4 +1,4 @@
-import type { UiMessage, UiTaskProgressEntry } from "./contracts.js";
+import type { UiMessage, UiTaskProgressEntry, UiTurnActivityEntry } from "./contracts.js";
 import type { TranscriptHistoryCompleteness } from "./transcript-completeness.js";
 import type { HostTranscriptCursor } from "./transcript-cursor.js";
 
@@ -16,6 +16,10 @@ export interface TranscriptCursorBoundary<TCursor extends string = HostTranscrip
 export interface TranscriptBundle<TMessage = UiMessage, TCursor extends string = HostTranscriptCursor> {
   messages: TMessage[];
   taskHistory?: UiTaskProgressEntry[];
+  /** Historical tool activity anchored to the turns in this bounded window. */
+  turnActivityHistory?: UiTurnActivityEntry[];
+  /** Whether every activity for the exposed turns is represented. */
+  turnActivityHistoryComplete?: boolean;
   /** Opaque host-owned cursor for the next older page. */
   olderCursor?: TCursor;
   /** Message at the beginning of the current bounded window. */

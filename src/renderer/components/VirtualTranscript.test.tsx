@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createRef, useRef, type ReactNode } from "react";
+import { createRef, useRef, useState, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
@@ -140,6 +140,30 @@ function RealVirtualizerFixture({ messages }: { messages: UiMessage[] }) {
   </div>;
 }
 
+function ToggleActivity() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" onClick={() => setOpen((value) => !value)}>{open ? "Close activity" : "Open activity"}</button>
+    {open ? <div className="activity-expanded">Expanded activity details</div> : null}
+  </>;
+}
+
+function ActivityViewportFixture() {
+  const ref = useRef<HTMLDivElement>(null);
+  return <div ref={ref} className="activity-viewport-test" style={{ height: 600, overflow: "auto" }}>
+    <VirtualTranscript
+      messages={[
+        { id: "activity-owner", role: "user", text: "Request", timestamp: 1 },
+        { id: "reading-anchor", role: "assistant", text: "Current reading position", timestamp: 2 },
+      ]}
+      scrollRef={ref}
+      isStreaming={false}
+      activity={<ToggleActivity />}
+      activityAfterMessageId="activity-owner"
+    />
+  </div>;
+}
+
 describe("virtual transcript", () => {
   it("places aggregated tool activity between its anchor and the later reply", async () => {
     const messages: UiMessage[] = [
@@ -175,6 +199,38 @@ describe("virtual transcript", () => {
       expect.stringContaining("Finished first"),
       expect.stringMatching(/Second.*0\/1 tasks/u),
     ]);
+  });
+
+  it("keeps the reading anchor stable when an activity row opens", async () => {
+    const harness = installDelayedMeasurementHarness({
+      rowHeight: (node) => node.querySelector(".activity-expanded") ? 500 : 300,
+      scrollHeight: (node) => node.classList.contains("activity-viewport-test") ? 1_200 : 0,
+      getBoundingClientRect: (node) => {
+        if (!node.classList.contains("virtual-transcript-row")) return testDomRect({ top: 0, bottom: 600, height: 600 });
+        const rows = [...node.parentElement!.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
+        const index = rows.indexOf(node);
+        const scrollTop = node.parentElement?.parentElement?.scrollTop ?? 0;
+        const top = rows.slice(0, index).reduce((total, previous) => total + (previous.querySelector(".activity-expanded") ? 500 : 300), 0) - scrollTop;
+        const height = node.querySelector(".activity-expanded") ? 500 : 300;
+        return testDomRect({ top, bottom: top + height, height, y: top });
+      },
+    });
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      view = render(<ActivityViewportFixture />);
+      const container = view.container.querySelector<HTMLDivElement>(".activity-viewport-test")!;
+      container.scrollTop = 100;
+      await waitFor(() => expect(screen.getByRole("button", { name: "Open activity" })).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: "Open activity" }));
+      const activityRow = container.querySelector<HTMLElement>(".virtual-transcript-row")!;
+      harness.trigger(activityRow, 500);
+      await harness.flushFrames();
+      expect(container.scrollTop).toBe(300);
+      expect(container.querySelector(".virtual-transcript-row:last-child")?.getBoundingClientRect().top).toBe(200);
+    } finally {
+      view?.unmount();
+      harness.restore();
+    }
   });
 
   it("resolves persisted entry anchors after message ids are remapped", async () => {

@@ -159,6 +159,7 @@ function installIpc(): void {
   ipcMain.handle("tau:recover-thread", async () => (await requireHostReady()).recoverThread());
   ipcMain.handle("tau:rename-thread", async (_event, title: string, expectedSessionId?: string) => (await requireHostReady()).renameThread(title, expectedSessionId));
   ipcMain.handle("tau:copy-text", (_event, text: string) => clipboard.writeText(text));
+  ipcMain.handle("tau:read-tool-output", async (_event, sessionId: string, toolCallId: string) => (await requireHostReady()).readToolOutput(sessionId, toolCallId));
   ipcMain.handle("tau:copy-thread-markdown", async (_event, expectedSessionId?: string) => {
     clipboard.writeText(await (await requireHostReady()).exportThreadMarkdown(expectedSessionId));
   });

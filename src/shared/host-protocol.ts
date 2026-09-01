@@ -8,6 +8,7 @@ import type {
   UiModel,
   UiTaskProgress,
   UiTaskProgressEntry,
+  UiTurnActivityEntry,
   UiTurnCheckpoint,
   UiToolRun,
   UiTurnActivity,
@@ -173,7 +174,9 @@ function validTranscriptBundlePayload(payload: Record<string, unknown>, requireH
       historyCompleteness: payload.historyCompleteness,
       requireHasMore,
     })
-    && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory));
+    && (payload.taskHistory === undefined || Array.isArray(payload.taskHistory))
+    && (payload.turnActivityHistory === undefined || Array.isArray(payload.turnActivityHistory))
+    && (payload.turnActivityHistoryComplete === undefined || typeof payload.turnActivityHistoryComplete === "boolean");
 }
 
 export function isHostUpdate(value: unknown): value is HostUpdate {
@@ -215,6 +218,16 @@ export function taskHistoryForMessages(
 ): UiTaskProgressEntry[] | undefined {
   if (!history) return undefined;
   const ids = new Set(messages.map((message) => message.id));
+  return history.filter((entry) => !entry.anchorMessageId || ids.has(entry.anchorMessageId));
+}
+
+/** Keep historical tool groups attached only to rows exposed by this page. */
+export function turnActivityHistoryForMessages(
+  history: readonly UiTurnActivityEntry[] | undefined,
+  messages: readonly UiMessage[],
+): UiTurnActivityEntry[] | undefined {
+  if (!history) return undefined;
+  const ids = new Set(messages.flatMap((message) => [message.id, ...(message.sourceEntryId ? [message.sourceEntryId] : [])]));
   return history.filter((entry) => !entry.anchorMessageId || ids.has(entry.anchorMessageId));
 }
 
@@ -262,6 +275,10 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, snapshot.messages),
     taskProgress: snapshot.taskProgress,
     taskHistory: snapshot.taskHistory,
+    turnActivityHistory: turnActivityHistoryForMessages(snapshot.turnActivityHistory, snapshot.messages),
+    ...(snapshot.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
+      : {}),
     contextUsage: snapshot.contextUsage,
     olderCursor: snapshot.olderCursor,
     cursorBeforeMessageId: snapshot.cursorBeforeMessageId,
@@ -285,6 +302,10 @@ export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: Thr
     sessionId: detail.sessionId,
     messages: detail.messages,
     taskHistory: detail.taskHistory,
+    turnActivityHistory: detail.turnActivityHistory,
+    ...(detail.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: detail.turnActivityHistoryComplete }
+      : {}),
     olderCursor: detail.olderCursor,
     cursorBeforeMessageId: detail.cursorBeforeMessageId,
     cursorBoundaries,
@@ -311,6 +332,10 @@ export function detailFromSnapshot(
     activeTools: [...snapshot.activeTools],
     turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, snapshot.messages),
     taskHistory: taskHistoryForMessages(snapshot.taskHistory, snapshot.messages),
+    turnActivityHistory: turnActivityHistoryForMessages(snapshot.turnActivityHistory, snapshot.messages),
+    ...(snapshot.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
+      : {}),
     hasMore: snapshot.olderCursor !== undefined,
     historyCompleteness: resolveTranscriptHistoryCompleteness(
       snapshot.historyCompleteness,
@@ -337,6 +362,10 @@ export function detailFromSnapshot(
     turnActivity: snapshot.turnActivity,
     taskProgress: snapshot.taskProgress,
     taskHistory: taskHistoryForMessages(snapshot.taskHistory, page.messages),
+    turnActivityHistory: turnActivityHistoryForMessages(snapshot.turnActivityHistory, page.messages),
+    ...(snapshot.turnActivityHistoryComplete !== undefined
+      ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
+      : {}),
     contextUsage: snapshot.contextUsage,
     ...(olderCursor ? { olderCursor } : {}),
     ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),

@@ -103,6 +103,10 @@ export interface UiToolRun {
   args: Record<string, unknown>;
   status: "running" | "done" | "error";
   output?: string;
+  /** The visible output is a preview of a durable result. */
+  outputTruncated?: boolean;
+  /** A deliberate host read can retrieve the complete durable result. */
+  fullOutputAvailable?: boolean;
   startedAt: number;
   endedAt?: number;
 }
@@ -404,10 +408,30 @@ export interface ShellActionResult {
   truncated: boolean;
 }
 
+/** Result of a deliberate, bounded read of a persisted tool result. */
+export interface UiToolOutputReadResult {
+  toolCallId: string;
+  output: string;
+  totalBytes: number;
+  truncated: boolean;
+}
+
 export interface UiTurnActivity {
   tools: UiToolRun[];
   /** Last visible message rendered before the first tool call in this turn. */
   anchorMessageId?: string;
+}
+
+/**
+ * Historical activity for one user turn.  The host keeps this separate from
+ * the live activity payload so a bounded transcript can render each turn at
+ * its own anchor without replaying the entire raw Pi branch in the renderer.
+ */
+export interface UiTurnActivityEntry extends UiTurnActivity {
+  /** Stable id derived from the owning turn and safe to use as a React key. */
+  id: string;
+  /** Result of the activity group as a whole, not just its newest tool call. */
+  status: "running" | "completed" | "interrupted" | "error";
 }
 
 export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
@@ -621,6 +645,8 @@ export interface TauDesktopApi {
   cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
   renameThread(title: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   copyText(text: string): Promise<void>;
+  /** Reads the persisted tool result, rather than the bounded transcript preview. */
+  readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;

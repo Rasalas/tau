@@ -4,10 +4,11 @@ import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
-import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost } from "./pi-host.js";
+import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost, turnActivityHistoryFromMessages } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
+import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
 
 describe("cleanThreadTitle", () => {
   it("removes Markdown and title-model framing", () => {
@@ -54,7 +55,7 @@ function piPromptThread(session: {
     },
     isStreaming: () => session.isStreaming,
     isIdle: () => !session.isStreaming,
-    branchEntries: () => [],
+    branchEntries: (): unknown[] => [],
     appendCustomEntry: () => undefined,
   };
   return {
@@ -191,6 +192,92 @@ describe("PiHost prompt preflight", () => {
     } finally {
       process.off("unhandledRejection", unhandled);
     }
+  });
+});
+
+describe("PiHost deliberate tool-output reads", () => {
+  it("reads the persisted result instead of the bounded 128 KiB preview", async () => {
+    const output = `${"x".repeat(128 * 1024)}\nfinal line`;
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: vi.fn(),
+    };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const thread = piPromptThread(session);
+    thread.backend.branchEntries = () => [
+      { type: "message", id: "user", message: { role: "user", content: "inspect" } },
+      { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
+      { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
+    ];
+    const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+
+    await expect(host.readToolOutput("session", "call")).resolves.toEqual({
+      toolCallId: "call",
+      output,
+      totalBytes: Buffer.byteLength(output, "utf8"),
+      truncated: false,
+    });
+  });
+
+  it("returns the complete local result beyond eight MiB", async () => {
+    const output = `${"x".repeat(8 * 1024 * 1024 + 17)}\nFULL-SUFFIX`;
+    const session = {
+      sessionId: "session",
+      model: { input: ["text"] },
+      isStreaming: false,
+      prompt: vi.fn(),
+    };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const thread = piPromptThread(session);
+    thread.backend.branchEntries = () => [
+      { type: "message", id: "user", message: { role: "user", content: "inspect" } },
+      { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
+      { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
+    ];
+    const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+
+    await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
+      toolCallId: "call",
+      output,
+      totalBytes: Buffer.byteLength(output, "utf8"),
+      truncated: false,
+    });
+  });
+
+  it("assembles a complete bridge result beyond eight MiB", async () => {
+    const output = `${"x".repeat(8 * 1024 * 1024 + 17)}\nFULL-SUFFIX`;
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const bridgeCommand = vi.fn(async (command: { command: string; toolCallId: string; offset?: number }) => {
+      const offset = command.offset ?? 0;
+      const end = Math.min(output.length, offset + TOOL_OUTPUT_READ_PAGE_CHARACTERS);
+      return {
+        toolCallId: command.toolCallId,
+        offset,
+        output: output.slice(offset, end),
+        totalBytes: Buffer.byteLength(output, "utf8"),
+        ...(end < output.length ? { nextOffset: end } : {}),
+      };
+    });
+    const internals = host as unknown as {
+      bridge: object;
+      bridgeSnapshot: PiBridgeSnapshot;
+      bridgeCommand: typeof bridgeCommand;
+    };
+    internals.bridge = {};
+    internals.bridgeSnapshot = { sessionId: "session" } as PiBridgeSnapshot;
+    internals.bridgeCommand = bridgeCommand;
+
+    await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
+      toolCallId: "call",
+      output,
+      totalBytes: Buffer.byteLength(output, "utf8"),
+      truncated: false,
+    });
+    expect(bridgeCommand.mock.calls.length).toBeGreaterThan(1_000);
   });
 });
 
@@ -393,6 +480,76 @@ describe("lastTurnActivityFromMessages", () => {
         endedAt: 5,
       }],
     });
+  });
+});
+
+describe("turnActivityHistoryFromMessages", () => {
+  it("keeps completed tool groups anchored to each turn in chronological order", () => {
+    const history = turnActivityHistoryFromMessages([
+      { role: "user", tauEntryId: "user-1", content: "inspect", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } }], timestamp: 2 },
+      { role: "toolResult", toolCallId: "read-1", toolName: "read", content: "first output", isError: false, timestamp: 3 },
+      { role: "assistant", content: [{ type: "text", text: "first answer" }], timestamp: 4 },
+      { role: "user", tauEntryId: "user-2", content: "change", timestamp: 5 },
+      { role: "assistant", content: [{ type: "toolCall", id: "edit-2", name: "edit", arguments: { path: "b.ts" } }], timestamp: 6 },
+      { role: "toolResult", toolCallId: "edit-2", toolName: "edit", content: "permission denied", isError: true, timestamp: 7 },
+    ]);
+
+    expect(history).toEqual([
+      {
+        id: "turn-activity-user-1",
+        anchorMessageId: "user-1",
+        status: "completed",
+        tools: [{
+          id: "read-1",
+          name: "read",
+          args: { path: "a.ts" },
+          status: "done",
+          output: "first output",
+          startedAt: 2,
+          endedAt: 3,
+        }],
+      },
+      {
+        id: "turn-activity-user-2",
+        anchorMessageId: "user-2",
+        status: "error",
+        tools: [{
+          id: "edit-2",
+          name: "edit",
+          args: { path: "b.ts" },
+          status: "error",
+          output: "permission denied",
+          startedAt: 6,
+          endedAt: 7,
+        }],
+      },
+    ]);
+  });
+
+  it("retains an interrupted running call as an honest historical state", () => {
+    expect(turnActivityHistoryFromMessages([
+      { role: "user", tauEntryId: "user", content: "run", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "call", name: "bash", arguments: { command: "npm test" } }], timestamp: 2 },
+      { role: "assistant", content: [{ type: "text", text: "stopped" }], stopReason: "aborted", timestamp: 3 },
+    ])).toMatchObject([{
+      id: "turn-activity-user",
+      anchorMessageId: "user",
+      status: "interrupted",
+      tools: [{ id: "call", status: "running" }],
+    }]);
+  });
+
+  it("classifies an agent-level error even when no tool result was written", () => {
+    expect(turnActivityHistoryFromMessages([
+      { role: "user", tauEntryId: "user", content: "run", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "call", name: "bash", arguments: {} }], timestamp: 2 },
+      { role: "assistant", content: [{ type: "text", text: "failed" }], stopReason: "error", timestamp: 3 },
+    ])).toMatchObject([{
+      id: "turn-activity-user",
+      status: "error",
+      tools: [{ id: "call", status: "running" }],
+    }]);
   });
 });
 

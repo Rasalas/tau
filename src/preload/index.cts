@@ -28,6 +28,7 @@ const api: TauDesktopApi = {
   syncExtensionUi: () => ipcRenderer.invoke("tau:sync-extension-ui"),
   renameThread: (title, expectedSessionId) => ipcRenderer.invoke("tau:rename-thread", title, expectedSessionId),
   copyText: (text) => ipcRenderer.invoke("tau:copy-text", text),
+  readToolOutput: (sessionId, toolCallId) => ipcRenderer.invoke("tau:read-tool-output", sessionId, toolCallId),
   copyThreadMarkdown: (expectedSessionId) => ipcRenderer.invoke("tau:copy-thread-markdown", expectedSessionId),
   readImagePreview: (path) => ipcRenderer.invoke("tau:read-image-preview", path),
   generateThreadTitle: (provider, modelId, force, expectedSessionId) => ipcRenderer.invoke("tau:generate-thread-title", provider, modelId, force, expectedSessionId),

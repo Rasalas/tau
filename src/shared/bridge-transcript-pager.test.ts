@@ -97,6 +97,53 @@ describe("bridge transcript paging", () => {
     expect(Array.isArray((payload as { messages?: unknown }).messages)).toBe(true);
   });
 
+  it("keeps a hundred tool pairs complete even when raw activity records are capped", () => {
+    const records: unknown[] = [
+      { role: "user", content: "inspect", tauEntryId: "user", timestamp: 1 },
+      ...Array.from({ length: 100 }, (_, index) => [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: `call-${index}`, name: "read", arguments: { path: `file-${index}.ts` } }],
+          timestamp: index * 2 + 2,
+        },
+        {
+          role: "toolResult",
+          toolCallId: `call-${index}`,
+          toolName: "read",
+          content: `result-${index}`,
+          isError: false,
+          timestamp: index * 2 + 3,
+        },
+      ]).flat(),
+      { role: "assistant", content: [{ type: "text", text: "done" }], tauEntryId: "assistant", timestamp: 203 },
+    ];
+
+    const result = bridgeTranscriptPage(records);
+    expect(result.activityMessages).toHaveLength(BRIDGE_MAX_TRANSCRIPT_RECORDS + 1);
+    expect(result.activityMessages.at(-1)).toMatchObject({ type: "tau-bridge-truncated" });
+    expect(result.turnActivityHistoryComplete).toBe(true);
+    expect(result.turnActivityHistory).toHaveLength(1);
+    expect(result.turnActivityHistory[0]?.status).toBe("completed");
+    expect(result.turnActivityHistory[0]?.tools).toHaveLength(100);
+    expect(result.turnActivityHistory[0]?.tools.map((tool) => tool.id)).toEqual(
+      Array.from({ length: 100 }, (_, index) => `call-${index}`),
+    );
+    expect(result.turnActivityHistory[0]?.tools.every((tool) => tool.status === "done")).toBe(true);
+  });
+
+  it("marks an 131084-byte bridge preview as clipped while retaining full-read availability", () => {
+    const suffix = "\nFULL-SUFFIX";
+    const output = `${"x".repeat(131084 - Buffer.byteLength(suffix, "utf8"))}${suffix}`;
+    const result = bridgeTranscriptPage([
+      { role: "user", content: "inspect", tauEntryId: "user", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", id: "large-call", name: "read", arguments: {} }], timestamp: 2 },
+      { role: "toolResult", toolCallId: "large-call", content: output, isError: false, timestamp: 3 },
+    ]);
+    const tool = result.turnActivityHistory[0]?.tools[0];
+    expect(tool?.output).not.toContain("FULL-SUFFIX");
+    expect(tool).toMatchObject({ outputTruncated: true, fullOutputAvailable: true });
+  });
+
   it("keeps the mapped page and duplicated activity payload below one byte budget", () => {
     const records = Array.from({ length: 40 }, (_, index) => [
       { role: "user", content: `question ${index}`, tauEntryId: `user-${index}` },
