@@ -721,6 +721,104 @@ describe("PiHost.generateThreadTitle", () => {
     })));
     expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
   });
+
+  it("commits detached delivery only after the prompt is accepted", async () => {
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    let acceptPrompt!: () => void;
+    const delivery = new Promise<void>((resolve) => { acceptPrompt = resolve; });
+    internals.prompt = vi.fn(async () => { await delivery; });
+
+    await expect(host.newSession("start the work", [], "/repo", {
+      clientTurnId: "turn",
+      clientMessageId: "message",
+    })).resolves.toMatchObject({ submission: { accepted: true }, sessionId: "new-thread" });
+    // Session allocation is not the commit: the client must still hold its draft.
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "new-thread-delivery-settled" }));
+
+    acceptPrompt();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith({
+      type: "new-thread-delivery-settled",
+      sessionId: "new-thread",
+      clientMessageId: "message",
+      accepted: true,
+      userTurn: true,
+    }));
+  });
+
+  it("settles an accepted extension command without a user turn or a later failure", async () => {
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("new-thread", "/new.jsonl");
+    thread.backend.composerCommands = () => [{ name: "extension-command", source: "extension" }];
+    internals.rememberProject = async () => {};
+    internals.refreshThreadShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.takePreparedThread = async () => undefined;
+    internals.openThread = async () => thread;
+    internals.logReplacement = () => {};
+    internals.scheduleSpareThread = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    // The real prompt() runs here so the marker bookkeeping is exercised.
+    thread.backend.prompt = async (options: { promptOptions?: { preflightResult?: (success: boolean) => void } }) => {
+      options.promptOptions?.preflightResult?.(true);
+    };
+    thread.backend.preparePrompt = async (text: string) => ({ runtimeText: text, visibleText: text });
+    internals.assertPreparedPrompt = () => {};
+    internals.appendClientMessageMarker = () => true;
+
+    await host.newSession("/extension-command", [], "/repo", { clientTurnId: "turn", clientMessageId: "message" });
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith({
+      type: "new-thread-delivery-settled",
+      sessionId: "new-thread",
+      clientMessageId: "message",
+      accepted: true,
+      userTurn: false,
+    }));
+
+    // agent_settled must not report the cleared marker as a lost user message.
+    internals.handleSessionEvent({ type: "agent_settled", messages: [] }, thread, "new-thread", "/repo");
+    expect(thread.pendingClientMessageIds).toEqual([]);
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "user-message-failed" }));
+  });
+});
+
+describe("PiHost project index", () => {
+  it("keeps linked worktrees of every saved repository out of the project list", async () => {
+    const history = {
+      list: () => [
+        { path: "/repos/alpha", name: "alpha", lastOpenedAt: 4 },
+        { path: "/repos/alpha-worktrees/feat", name: "alpha", lastOpenedAt: 3 },
+        { path: "/repos/beta", name: "beta", lastOpenedAt: 2 },
+        { path: "/repos/beta-worktrees/fix", name: "beta", lastOpenedAt: 1 },
+      ],
+      isHidden: () => false,
+    };
+    const host = new PiHost("/repos/alpha", () => undefined, history as never, false, false);
+    const internals = host as unknown as Record<string, any>;
+    const worktrees = new Set(["/repos/alpha-worktrees/feat", "/repos/beta-worktrees/fix"]);
+
+    // Nothing is offered before the checkouts have been classified.
+    expect(internals.threadIndexSnapshot().projects).toEqual([]);
+
+    await Promise.all([...history.list()].map(async (project) => {
+      internals.knownWorktreeProjects.set(project.path, worktrees.has(project.path));
+    }));
+
+    expect(internals.threadIndexSnapshot().projects.map((project: { path: string }) => project.path))
+      .toEqual(["/repos/alpha", "/repos/beta"]);
+  });
 });
 
 describe("lastTurnActivityFromMessages", () => {

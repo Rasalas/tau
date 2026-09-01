@@ -17,7 +17,6 @@ export interface NewThreadPromotionContext {
   pending: NewThreadDraft;
   scope: DraftKey | undefined;
   requestId: NewThreadRequestId;
-  prompt: string;
 }
 
 export interface NewThreadMessagePromotion {
@@ -31,7 +30,7 @@ export function useNewThreadController(storage: Storage) {
   const pendingRef = useRef(pendingNewThread);
   pendingRef.current = pendingNewThread;
   const requestRef = useRef<NewThreadRequestId>(newRequestIdentity());
-  const awaitingPromotionRef = useRef<{ scope: DraftKey; requestId: NewThreadRequestId; prompt: string } | undefined>(undefined);
+  const awaitingPromotionRef = useRef<{ scope: DraftKey; requestId: NewThreadRequestId } | undefined>(undefined);
 
   const begin = useCallback((draft: NewThreadDraft) => {
     requestRef.current = newRequestIdentity();
@@ -56,17 +55,21 @@ export function useNewThreadController(storage: Storage) {
 
   const markAwaitingPromotion = useCallback((context: NewThreadPromotionContext) => {
     if (!isCurrent(context.pending, context.scope, context.requestId)) return false;
-    awaitingPromotionRef.current = { scope: createDraftKey(context.scope), requestId: context.requestId, prompt: context.prompt };
+    awaitingPromotionRef.current = { scope: createDraftKey(context.scope), requestId: context.requestId };
     return true;
   }, [isCurrent]);
 
-  const promoteFromHostReport = useCallback((sessionId: string, projectPath: string, prompt: string, requestId?: NewThreadRequestId): boolean => {
+  /**
+   * The request id is the authoritative correlation for a host-reported
+   * thread. Prompt text is not compared: skill and template expansion can
+   * change what the runtime persists.
+   */
+  const promoteFromHostReport = useCallback((sessionId: string, projectPath: string, requestId?: NewThreadRequestId): boolean => {
     const current = pendingRef.current;
     const awaiting = awaitingPromotionRef.current;
     if (!current || !awaiting || current.projectPath !== projectPath || current.sessionId) return false;
     if (awaiting.requestId !== requestRef.current
       || awaiting.scope !== createDraftKey(draftKey(undefined, current))
-      || prompt !== awaiting.prompt
       || requestId !== awaiting.requestId) return false;
     awaitingPromotionRef.current = undefined;
     writeNewThreadDraft(storage);

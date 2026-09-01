@@ -599,6 +599,26 @@ export type ThreadHostEvent =
   | { type: "assistant-thinking"; sessionId: string; id: string; delta: string }
   | { type: "assistant-end"; sessionId: string; message: UiMessage }
   | { type: "user-message"; sessionId: string; message: UiMessage }
+  /**
+   * Detached new-thread delivery reached its authoritative outcome. This is the
+   * commit point for a draft: session allocation happens earlier and the agent
+   * run ends later.
+   */
+  | {
+      type: "new-thread-delivery-settled";
+      sessionId: string;
+      clientMessageId: string;
+      accepted: true;
+      /** False when an extension command handled the prompt without a user turn. */
+      userTurn: boolean;
+    }
+  | {
+      type: "new-thread-delivery-settled";
+      sessionId: string;
+      clientMessageId: string;
+      accepted: false;
+      message: string;
+    }
   | { type: "user-message-failed"; sessionId: string; clientMessageId: string; message: string }
   | { type: "tool-start"; sessionId: string; tool: UiToolRun }
   | { type: "tool-update"; sessionId: string; id: string; output: string }

@@ -37,41 +37,4 @@ describe("ProjectPicker large catalogs", () => {
     fireEvent.keyDown(window, { key: "Delete", shiftKey: true });
     expect(onRemove).toHaveBeenLastCalledWith(projects[1]);
   });
-
-  it("does not offer linked worktrees as new-thread projects", () => {
-    const main = { path: "/repos/tau", name: "tau", lastOpenedAt: 2 };
-    const worktree = { path: "/repos/tau-worktrees/feat-input", name: "tau", lastOpenedAt: 3 };
-
-    render(<ProjectPicker
-      open
-      projects={[worktree, main]}
-      worktreePaths={new Set([worktree.path])}
-      onBrowse={() => {}}
-      onClose={() => {}}
-      onRemove={() => {}}
-      onSelect={() => {}}
-    />);
-
-    expect(screen.getByRole("option", { name: /\/repos\/tau$/u })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: /feat-input/u })).toBeNull();
-  });
-
-  it("fails closed while the workspace filter is not ready", () => {
-    const onSelect = vi.fn();
-    render(<ProjectPicker
-      open
-      projects={projects.slice(0, 2)}
-      worktreeFilterReady={false}
-      onBrowse={() => {}}
-      onClose={() => {}}
-      onRemove={() => {}}
-      onSelect={onSelect}
-    />);
-
-    expect(screen.queryByRole("option")).toBeNull();
-    expect(screen.getByText("Loading workspace…")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add project/u }).hasAttribute("disabled")).toBe(true);
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
-    expect(onSelect).not.toHaveBeenCalled();
-  });
 });

@@ -1079,26 +1079,31 @@ describe("App render isolation", () => {
       projectName: "project",
       messageCount: 2,
     };
-    const newSession = vi.fn(async () => ({
-      version: 1 as const,
-      updates: [
-        { version: 1 as const, type: "thread-shell" as const, update: { sessionId: "created", shell } },
-        {
-          version: 1 as const,
-          type: "thread-detail" as const,
-          detail: {
-            sessionId: "created",
-            messages: [
-              { id: "user", role: "user" as const, text: "Name this thread", timestamp: 1 },
-              { id: "assistant", role: "assistant" as const, text: "Done", timestamp: 2 },
-            ],
-            isStreaming: false,
-            activeTools: [],
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      const identity = args[3] as { clientTurnId: string; clientMessageId: string };
+      return {
+        version: 1 as const,
+        updates: [
+          { version: 1 as const, type: "thread-shell" as const, update: { sessionId: "created", shell } },
+          {
+            version: 1 as const,
+            type: "thread-detail" as const,
+            detail: {
+              sessionId: "created",
+              messages: [
+                // The persisted prompt carries the submission's identity, which
+                // is what commits the detached delivery.
+                { id: "user", clientTurnId: identity.clientTurnId, clientMessageId: identity.clientMessageId, role: "user" as const, text: "Name this thread", timestamp: 1 },
+                { id: "assistant", role: "assistant" as const, text: "Done", timestamp: 2 },
+              ],
+              isStreaming: false,
+              activeTools: [],
+            },
           },
-        },
-      ],
-      submission: { accepted: true as const },
-    }));
+        ],
+        submission: { accepted: true as const },
+      };
+    });
     const generateThreadTitle = vi.fn(async () => ({
       version: 1 as const,
       updates: [{
@@ -1152,14 +1157,18 @@ describe("App render isolation", () => {
     expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
   });
 
-  it("promotes and settles an extension command when no user-message event is emitted", async () => {
-    const newSession = vi.fn(async () => ({
-      version: 1 as const,
-      updates: [] as never[],
-      sessionId: "extension-session",
-      terminal: true,
-      submission: { accepted: true as const },
-    }));
+  it("promotes and settles an extension command that creates no user turn", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let clientMessageId: string | undefined;
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
+      return {
+        version: 1 as const,
+        updates: [] as never[],
+        sessionId: "extension-session",
+        submission: { accepted: true as const },
+      };
+    });
     window.tau = {
       bootstrap: async () => ({
         version: 1,
@@ -1179,7 +1188,7 @@ describe("App render isolation", () => {
         },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       listEditors: async () => [{ id: "code", name: "VS Code" }],
       getChanges: async () => ({ files: [], added: 0, removed: 0 }),
       getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
@@ -1197,8 +1206,22 @@ describe("App render isolation", () => {
     fireEvent.keyDown(composer, { key: "Enter" });
 
     await waitFor(() => expect(newSession).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false);
+    if (!clientMessageId) throw new Error("newSession did not receive a client message id");
+    // Session allocation alone leaves the draft in flight.
+    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
+
+    publish?.({
+      type: "new-thread-delivery-settled",
+      sessionId: "extension-session",
+      clientMessageId,
+      accepted: true,
+      userTurn: false,
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
     expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+    // No user turn was persisted, so the optimistic prompt must not linger.
+    expect(screen.queryByText("/extension-command")).toBeNull();
   });
 
   it("promotes a draft from its correlated user message before the IPC result", async () => {
@@ -1256,19 +1279,20 @@ describe("App render isolation", () => {
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
     expect(screen.getAllByText("start in the detached runtime").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
+    // The persisted prompt is the delivery commit. The agent run continues, but
+    // the draft no longer holds the workspace or thread navigation.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: /Untitled thread/u }));
     fireEvent.click(screen.getByRole("menuitem", { name: "New thread" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /other/u }));
-    expect(screen.getByRole("dialog", { name: "Search projects" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close project picker" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull());
     resolveNewSession({ version: 1, updates: [], submission: { accepted: true } });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
-    publish?.({ type: "agent-status", sessionId: "created", running: false });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
+    // A settled record cannot be reopened by the runtime's late reports.
     publish?.({ type: "user-message-failed", sessionId: "created", clientMessageId: identity.clientMessageId, message: "late failure" });
     expect(screen.queryByText("late failure")).toBeNull();
+    expect(generateThreadTitle).toHaveBeenCalledOnce();
   });
 
   it("binds a generated session id on detached failure so retry uses sendPrompt", async () => {
@@ -1318,6 +1342,176 @@ describe("App render isolation", () => {
       undefined,
     ));
     expect(newSession).toHaveBeenCalledOnce();
+    // sendPrompt resolves at the runtime's delivery acceptance, so the retry
+    // commits with it and stops holding the workspace.
+    await waitFor(() => expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull());
+  });
+
+  it("restores the draft and runs no prompt hooks when detached delivery is rejected", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let clientMessageId: string | undefined;
+    const generateThreadTitle = vi.fn(async () => ({ version: 1 as const, updates: [] as never[] }));
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
+      return { version: 1 as const, updates: [] as never[], sessionId: "allocated", submission: { accepted: true as const } };
+    });
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "old", models: [{ provider: "provider", id: "model", name: "Model" }], model: { provider: "provider", id: "model", name: "Model" }, thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+      generateThreadTitle,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "delivery is refused" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    if (!clientMessageId) throw new Error("newSession did not receive a client message id");
+
+    publish?.({
+      type: "new-thread-delivery-settled",
+      sessionId: "allocated",
+      clientMessageId,
+      accepted: false,
+      message: "the runtime refused the prompt",
+    });
+
+    await waitFor(() => expect(composer.value).toBe("delivery is refused"));
+    expect(screen.getByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
+    // The prompt never reached the runtime, so no afterPrompt hook may run.
+    expect(generateThreadTitle).not.toHaveBeenCalled();
+    // A retry reuses the allocated runtime rather than leaking another one.
+    expect(JSON.parse(localStorage.getItem("tau.active-new-thread.v1") ?? "{}").sessionId).toBe("allocated");
+  });
+
+  it("keeps every authoritative update from an acknowledgement that lands after promotion", async () => {
+    let resolveNewSession!: (result: unknown) => void;
+    let publish: ((event: HostEvent) => void) | undefined;
+    let clientMessageId: string | undefined;
+    const newSession = vi.fn((...args: unknown[]) => {
+      clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
+      return new Promise((resolve) => { resolveNewSession = resolve as (result: unknown) => void; });
+    });
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      listEditors: async () => [],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "start the bridge thread" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    if (!clientMessageId) throw new Error("newSession did not receive a client message id");
+
+    publish?.({
+      type: "user-message",
+      sessionId: "bridge-created",
+      message: { id: "persisted", clientMessageId, role: "user", text: "start the bridge thread", timestamp: Date.now() },
+    });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+
+    resolveNewSession({
+      version: 1,
+      updates: [{
+        version: 1,
+        type: "thread-shell",
+        update: {
+          sessionId: "bridge-created",
+          shell: { id: "bridge-created", path: "/bridge.jsonl", title: "Named by the bridge", modifiedAt: 3, projectPath: "/project", projectName: "project", messageCount: 1 },
+        },
+      }],
+      sessionId: "bridge-created",
+      submission: { accepted: true },
+    });
+
+    expect(await screen.findByText("Named by the bridge")).toBeTruthy();
+  });
+
+  it("promotes a bridge draft whose persisted prompt text was expanded", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let requestId: string | undefined;
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      requestId = (args[3] as { newThreadRequestId?: string }).newThreadRequestId;
+      return { version: 1 as const, updates: [] as never[], requestId, submission: { accepted: true as const } };
+    });
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "old", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], serviceTier: "standard" as const, serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      listEditors: async () => [{ id: "code", name: "VS Code" }],
+      getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getFileTree: async () => [],
+      setAccessLevel: async () => {},
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "/skill review" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    if (!requestId) throw new Error("newSession did not receive a new-thread request id");
+
+    // Skill expansion changes what the runtime persists; only the request id
+    // and the client identity may decide this promotion.
+    publish?.({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "thread-detail",
+        detail: {
+          sessionId: "bridge-created",
+          requestId: createNewThreadRequestId(requestId),
+          messages: [{ id: "bridge-user", role: "user", text: "Run the review skill against the working tree.", timestamp: Date.now() }],
+          isStreaming: true,
+          activeTools: [],
+        },
+      },
+    });
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
+    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
   });
 
   it("prepends a failed prompt to newer text and keeps both attachments persisted", async () => {

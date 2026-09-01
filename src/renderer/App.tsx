@@ -335,19 +335,22 @@ interface NewThreadSubmissionCompletion {
   scope: DraftKey | undefined;
   requestId: NewThreadRequestId;
   result?: HostActionResult;
+  /** Present when an event may already have run this submission's hooks. */
+  recovery?: NewThreadSubmissionRecovery;
 }
 
 interface NewThreadSubmissionRecovery {
   pending: NewThreadDraft;
+  requestId: NewThreadRequestId;
   scopeRef: ComposerScopeReference;
   draft: string;
   attachments: PendingAttachment[];
+  optimistic: UiMessage;
   /** The IPC call is still running; a failure must remain observable to it. */
   ipcPending: boolean;
   /** The host assigned a runtime session before the first prompt was durable. */
   sessionId?: string;
   promoted?: boolean;
-  terminal?: boolean;
   /** Prompt hooks are shared by IPC and event promotion; run them once. */
   notified?: boolean;
   failed?: string;
@@ -722,16 +725,6 @@ export default function App() {
   } = newThreadController;
   const pendingNewThreadRef = useRef(pendingNewThread);
   pendingNewThreadRef.current = pendingNewThread;
-  const newThreadWorktreePaths = useMemo(
-    () => new Set(!workspaceBusy && workspace !== undefined
-      && workspace.root === (pendingNewThread?.projectPath ?? snapshot?.cwd)
-      ? workspace.worktrees.filter((worktree) => !worktree.isMain).map((worktree) => worktree.path)
-      : []),
-    [pendingNewThread, snapshot?.cwd, workspace, workspaceBusy],
-  );
-  const newThreadWorktreeFilterReady = !workspaceBusy
-    && workspace !== undefined
-    && workspace.root === (pendingNewThread?.projectPath ?? snapshot?.cwd);
   const allowWorkspaceMutation = useCallback((what: string): boolean => {
     if (!pendingNewThreadRef.current && newThreadRecoveryRef.current.size === 0) return true;
     setNotice(`${what} is unavailable until this draft becomes a thread.`);
@@ -763,6 +756,10 @@ export default function App() {
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
   const newThreadRecoveryRef = useRef(new Map<string, NewThreadSubmissionRecovery>());
+  // Promotion applies host details and host details can promote. The recovery
+  // side of that pair is reached through this ref so neither has to be declared
+  // inside the other's initializer.
+  const promoteRecoveryRef = useRef<(clientMessageId: string, sessionId: string, message?: UiMessage) => boolean>(() => false);
   const [, setNewThreadRecoveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread || newThreadRecoveryRef.current.size > 0);
   const [notice, setNotice] = useState<string>();
@@ -830,8 +827,7 @@ export default function App() {
     const current = recovery ?? newThreadRecoveryRef.current.get(clientMessageId);
     if (!current) return;
     current.ipcPending = false;
-    if (current.terminal) releaseNewThreadRecovery(clientMessageId);
-  }, [releaseNewThreadRecovery]);
+  }, []);
   const transcriptScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
   const transcriptScope = useMemo(
     () => transcriptNavigationScope(snapshot, pendingNewThread),
@@ -1026,10 +1022,28 @@ export default function App() {
         }
       }
       detailStoreRef.current.set(detailForRender);
-      const reportedPrompt = detailForRender.messages.find((message) => message.role === "user")?.text;
-      if (isCorrelatedCandidate && reportedPrompt !== undefined && pendingNewThreadRef.current) {
+      const reportedMessage = detailForRender.messages.find((message) => message.role === "user");
+      if (isCorrelatedCandidate && reportedMessage && pendingNewThreadRef.current) {
         const pending = pendingNewThreadRef.current;
-        if (promoteFromHostReport(detail.sessionId, shell?.projectPath ?? pending.projectPath, reportedPrompt, detail.requestId)) {
+        // Either identity correlates this report to a detached delivery: the
+        // persisted client message, or the new-thread request it belongs to.
+        const recoveryEntry = detail.requestId
+          ? [...newThreadRecoveryRef.current.entries()].find(([, recovery]) => recovery.requestId === detail.requestId)
+          : undefined;
+        const reportedClientMessageId = reportedMessage.clientMessageId;
+        const recoveryClientMessageId = reportedClientMessageId !== undefined
+          && newThreadRecoveryRef.current.has(reportedClientMessageId)
+          ? reportedClientMessageId
+          : recoveryEntry?.[0];
+        const promotedRecovery = recoveryClientMessageId
+          ? promoteRecoveryRef.current(recoveryClientMessageId, detail.sessionId, reportedMessage)
+          : false;
+        const promotedByReport = promotedRecovery || promoteFromHostReport(
+          detail.sessionId,
+          shell?.projectPath ?? pending.projectPath,
+          detail.requestId,
+        );
+        if (promotedByReport) {
           composerScopeStore.moveScope(
             createDraftKey(draftKey(undefined, pending)),
             createDraftKey(draftKey(detail.sessionId)),
@@ -1142,38 +1156,52 @@ export default function App() {
     }, currentActions).catch((error) => setNotice(errorMessage(error)));
   }, [registry]);
 
+  /**
+   * Commit a detached new-thread delivery: the draft becomes the created
+   * thread, prompt hooks run once and the recovery scope is released, which is
+   * what unblocks thread switching while the agent keeps running. `message` is
+   * the persisted user turn, or undefined when the delivery produced none.
+   */
   const promoteRecoveryToSession = useCallback((
     clientMessageId: string,
     sessionId: string,
-    message: UiMessage,
-    terminal = false,
+    message?: UiMessage,
   ): boolean => {
     const recovery = newThreadRecoveryRef.current.get(clientMessageId);
-    if (!recovery || recovery.failed || recovery.sessionId) return false;
+    if (!recovery || recovery.failed) return false;
+    if (recovery.sessionId && recovery.sessionId !== sessionId) return false;
     const promotion = promoteFromUserMessage(sessionId, recovery.pending.projectPath);
-    if (!promotion) return false;
+    // A correlated host detail may have already cleared the controller's
+    // pending draft. The recovery record is still the authoritative scope for
+    // this detached delivery, so allow that already-promoted path to finish.
+    if (!promotion && recovery.sessionId !== sessionId) return false;
     recovery.sessionId = sessionId;
     recovery.promoted = true;
-    recovery.terminal = terminal;
-    composerScopeStore.moveScope(promotion.scope, createDraftKey(draftKey(sessionId)));
-    setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === clientMessageId
-      ? { ...entry, scope: `session:${sessionId}` }
-      : entry));
+    if (promotion) composerScopeStore.moveScope(promotion.scope, createDraftKey(draftKey(sessionId)));
+    setOptimisticMessages((current) => message
+      ? current.map((entry) => entry.message.clientMessageId === clientMessageId
+        ? { ...entry, scope: `session:${sessionId}` }
+        : entry)
+      : current.filter((entry) => entry.message.clientMessageId !== clientMessageId));
 
     const turnStart = transcriptTurnStartRef.current;
     if (turnStart?.clientMessageId === clientMessageId) {
-      setTranscriptTurnStart({
+      setTranscriptTurnStart(message ? {
         ...turnStart,
         sessionId,
         scope: { kind: "session", projectPath: recovery.pending.projectPath, sessionId },
         scopeKey: transcriptNavigationScopeKey({ cwd: recovery.pending.projectPath, sessionId }),
-      }, turnStart.turnId);
+      } : undefined, turnStart.turnId);
     }
 
-    // A blank detail may have arrived before this event. Feed the confirmed
-    // message through the normal detail path so the history coordinator and
-    // the active snapshot move together even when no catalog is available.
-    if (!detailStoreRef.current.get(sessionId)?.messages.some((entry) => isSameUserMessage(entry, message))) {
+    if (!message) {
+      // An extension command answered the prompt without a user turn and
+      // without an agent run. The thread exists; nothing is in flight in it.
+      threadStore.setActiveThread(sessionId, false);
+    } else if (!detailStoreRef.current.get(sessionId)?.messages.some((entry) => isSameUserMessage(entry, message))) {
+      // A blank detail may have arrived before this event. Feed the confirmed
+      // message through the normal detail path so the history coordinator and
+      // the active snapshot move together even when no catalog is available.
       transcriptHistory.prepareActionDetail(sessionId);
       applyHostUpdate({
         version: 1,
@@ -1181,23 +1209,21 @@ export default function App() {
         detail: {
           sessionId,
           messages: [message],
-          isStreaming: !terminal,
+          isStreaming: true,
           activeTools: [],
         },
       });
     } else {
-      threadStore.setActiveThread(sessionId, !terminal);
+      threadStore.setActiveThread(sessionId, true);
     }
-    notifyNewThreadPromptSubmitted(recovery.pending, sessionId, message.text || recovery.draft, recovery);
-    if (!recovery.ipcPending && recovery.terminal) releaseNewThreadRecovery(clientMessageId);
+    notifyNewThreadPromptSubmitted(recovery.pending, sessionId, message?.text || recovery.draft, recovery);
+    // Delivery acceptance is the commit point. The later IPC acknowledgement
+    // must not keep thread navigation blocked and is safe because this record
+    // is already promoted before the result can arrive.
+    releaseNewThreadRecovery(clientMessageId);
     return true;
   }, [applyHostUpdate, composerScopeStore, notifyNewThreadPromptSubmitted, promoteFromUserMessage, releaseNewThreadRecovery, setTranscriptTurnStart, threadStore, transcriptHistory]);
-
-  const promoteRecoveryFromUserMessage = useCallback((
-    clientMessageId: string,
-    sessionId: string,
-    message: UiMessage,
-  ): boolean => promoteRecoveryToSession(clientMessageId, sessionId, message), [promoteRecoveryToSession]);
+  promoteRecoveryRef.current = promoteRecoveryToSession;
 
   const restoreFailedNewThreadRecovery = useCallback((recovery: NewThreadSubmissionRecovery, sessionId: string) => {
     recovery.sessionId = sessionId || recovery.sessionId;
@@ -1226,6 +1252,34 @@ export default function App() {
     }
     restoreNewThreadSubmission(recovery);
   }, [composerScopeStore, restoreNewThreadSubmission, setPendingNewThread, threadStore]);
+
+  const settleNewThreadDelivery = useCallback((
+    clientMessageId: string,
+    sessionId: string,
+    settlement: { accepted: true; userTurn: boolean } | { accepted: false; message: string },
+  ): boolean => {
+    const recovery = newThreadRecoveryRef.current.get(clientMessageId);
+    if (!recovery) return false;
+    if (settlement.accepted) {
+      return promoteRecoveryToSession(
+        clientMessageId,
+        sessionId,
+        settlement.userTurn ? recovery.optimistic : undefined,
+      );
+    }
+    recovery.failed = settlement.message || "The runtime rejected the message.";
+    // Nothing was delivered, so the submission leaves no turn behind. The
+    // paired user-message-failed event is a duplicate of this cleanup, not the
+    // other half of it.
+    setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== clientMessageId));
+    const turnStart = transcriptTurnStartRef.current;
+    if (turnStart?.clientMessageId === clientMessageId) setTranscriptTurnStart(undefined, turnStart.turnId);
+    restoreFailedNewThreadRecovery(recovery, sessionId);
+    // A failed delivery is safe to release once its IPC acknowledgement has
+    // arrived; until then the late accepted result must not clear recovery.
+    if (!recovery.ipcPending) releaseNewThreadRecovery(clientMessageId);
+    return true;
+  }, [promoteRecoveryToSession, releaseNewThreadRecovery, restoreFailedNewThreadRecovery, setTranscriptTurnStart]);
 
   const addEvent = useCallback((label: string, detail?: string, timestamp = Date.now()) => {
     setEvents((current) => [...current.slice(-99), { id: `${timestamp}-${Math.random()}`, label, detail, timestamp }]);
@@ -1294,11 +1348,8 @@ export default function App() {
       // detached new-thread prompt. It may arrive before newSession's IPC
       // response, so promote from this event instead of waiting for the
       // catalog/detail publication path.
-      if (clientMessageId) {
-        const recovery = newThreadRecoveryRef.current.get(clientMessageId);
-        if (recovery) {
-          promoteRecoveryFromUserMessage(clientMessageId, event.sessionId, event.message);
-        }
+      if (clientMessageId && newThreadRecoveryRef.current.has(clientMessageId)) {
+        promoteRecoveryToSession(clientMessageId, event.sessionId, event.message);
       }
       const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
       const known = active
@@ -1308,6 +1359,11 @@ export default function App() {
         preferences.unsettle(event.sessionId);
       }
     }
+    if (event.type === "new-thread-delivery-settled") {
+      settleNewThreadDelivery(event.clientMessageId, event.sessionId, event.accepted
+        ? { accepted: true, userTurn: event.userTurn }
+        : { accepted: false, message: event.message });
+    }
     // Recovered run status alone must not undo an explicit settled choice.
     if (event.type === "user-message-failed") {
       // Bridge commands acknowledge dispatch before the runtime completes. A
@@ -1316,27 +1372,11 @@ export default function App() {
       setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
       const recovery = newThreadRecoveryRef.current.get(event.clientMessageId);
       if (recovery) {
-        recovery.failed = event.message;
-        recovery.terminal = true;
-        restoreFailedNewThreadRecovery(recovery, event.sessionId);
-        // Keep the record until the in-flight newSession/sendPrompt call has
-        // observed the failure. Otherwise its late accepted result can clear
-        // the just-restored draft again.
-        if (!recovery.ipcPending) releaseNewThreadRecovery(event.clientMessageId);
+        settleNewThreadDelivery(event.clientMessageId, event.sessionId, { accepted: false, message: event.message });
       }
       if (event.sessionId === threadStore.getSnapshot().activeThreadId
         || recovery?.scopeRef.scope === activeDraftKeyRef.current) setNotice(event.message);
       return;
-    }
-    if (event.type === "agent-status" && !event.running) {
-      // A detached delivery is terminal only once its runtime reports idle.
-      // Hold the recovery scope (and therefore project mutations) until then,
-      // while still releasing it when an earlier IPC call is finally settled.
-      for (const [clientMessageId, recovery] of newThreadRecoveryRef.current) {
-        if (recovery.sessionId !== event.sessionId) continue;
-        recovery.terminal = true;
-        if (!recovery.ipcPending) releaseNewThreadRecovery(clientMessageId);
-      }
     }
     // Every thread streams from its own runtime. Transcript and tool events for a
     // thread that is not on screen are dropped here; its persisted state is
@@ -1593,7 +1633,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, promoteRecoveryFromUserMessage, queueAssistantDelta, queueToolUpdate, refreshChanges, releaseNewThreadRecovery, replaceTranscriptMessages, restoreFailedNewThreadRecovery, threadStore, updateTranscriptMessages]);
+  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, refreshChanges, replaceTranscriptMessages, settleNewThreadDelivery, threadStore, updateTranscriptMessages]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -2366,7 +2406,7 @@ export default function App() {
   actionsRef.current = actions;
 
   const completeNewThreadSubmission = useCallback((completion: NewThreadSubmissionCompletion) => {
-    const { pending, sessionId, optimisticId, prompt, scope, requestId, result } = completion;
+    const { pending, sessionId, optimisticId, prompt, scope, requestId, result, recovery } = completion;
     if (!isCurrentNewThreadRequest(pending, scope, requestId)) return;
     setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
       ? { ...entry, scope: `session:${sessionId}` }
@@ -2378,7 +2418,7 @@ export default function App() {
     setPendingNewThread(undefined);
     if (result) acceptWorkspace(result);
     threadStore.markRead(sessionId);
-    notifyNewThreadPromptSubmitted(pending, sessionId, prompt);
+    notifyNewThreadPromptSubmitted(pending, sessionId, prompt, recovery);
   }, [acceptWorkspace, composerScopeStore, isCurrentNewThreadRequest, notifyNewThreadPromptSubmitted, setPendingNewThread, threadStore]);
 
   const submit = useCallback(async (
@@ -2529,6 +2569,7 @@ export default function App() {
       const recovery: NewThreadSubmissionRecovery | undefined = submittedDraftKey
         ? {
           pending,
+          requestId: newThreadRequestId,
           scopeRef: composerScopeStore.createScopeReference(submittedDraftKey),
           draft: text,
           attachments: attachments.map((attachment) => ({
@@ -2536,6 +2577,7 @@ export default function App() {
             id: allocateAttachmentId(),
             previewUrl: `data:${attachment.mimeType};base64,${attachment.data}`,
           })),
+          optimistic,
           ipcPending: true,
         }
         : undefined;
@@ -2554,24 +2596,32 @@ export default function App() {
             releaseNewThreadRecovery(clientMessageId);
             return { accepted: false, message: recovery.failed };
           }
-          completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId });
+          // Unlike newSession, this call resolves at the runtime's own delivery
+          // acceptance, so returning from it is the commit. A correlated user
+          // message may have committed it first; then there is nothing to do.
+          if (!recovery?.promoted) {
+            completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId, recovery });
+          }
           releaseNewThreadRecovery(clientMessageId);
           return { accepted: true };
         }
         const result = await window.tau.newSession(text, attachments, pending.projectPath, clientTurn, prepared);
         settleNewThreadRecoveryIpc(clientMessageId, recovery);
-        if (result.submission.accepted && result.sessionId && recovery && !recovery.promoted) {
-          promoteRecoveryToSession(clientMessageId, result.sessionId, optimistic, result.terminal === true);
-        }
         if (recovery?.failed) {
           releaseNewThreadRecovery(clientMessageId);
           return { accepted: false, message: recovery.failed };
         }
-        // A correlated user-message may have promoted the draft while the
+        // A session id is only the runtime binding, never the delivery commit.
+        // Record it so a late failure retries in this session instead of
+        // allocating a second runtime.
+        if (recovery && result.sessionId) recovery.sessionId = result.sessionId;
+        // A correlated user message may have promoted the draft while the
         // newSession IPC call was still pending. Its scope and active thread
-        // are already correct; never let the late empty result allocate or
-        // clear another draft.
+        // are already correct, but the result still carries authoritative
+        // shell, detail, catalog and project updates that must not be dropped.
+        // They pass through the normal race guard rather than being forced.
         if (recovery?.promoted && result.submission.accepted) {
+          result.updates.forEach((update) => applyHostUpdate(update));
           return { accepted: true };
         }
         if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) {
@@ -2582,7 +2632,7 @@ export default function App() {
         if (result.submission.accepted
           && created?.type !== "thread-detail"
           && result.requestId === newThreadRequestId) {
-          markAwaitingPromotion({ pending, scope: submittedDraftKey, requestId: newThreadRequestId, prompt: text });
+          markAwaitingPromotion({ pending, scope: submittedDraftKey, requestId: newThreadRequestId });
         }
         applyActionResult(result);
         if (!result.submission.accepted) {
@@ -2633,6 +2683,13 @@ export default function App() {
               scopeKey: transcriptNavigationScopeKey({ cwd: pending.projectPath, sessionId }),
             };
             setTranscriptTurnStart(nextTurnStart, logicalTurnId);
+          }
+          if (recovery) {
+            // Delivery is detached from this acknowledgement. A prompt already
+            // persisted in the result is itself the commit; otherwise the
+            // host's settlement event completes the submission.
+            if (persistedPrompt) promoteRecoveryToSession(clientMessageId, sessionId, persistedPrompt);
+            return { accepted: true };
           }
           completeNewThreadSubmission({ pending, sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId, result });
           return { accepted: true };
@@ -3023,8 +3080,6 @@ export default function App() {
       <ProjectPicker
         open={newThreadOpen}
         projects={projects}
-        worktreePaths={newThreadWorktreePaths}
-        worktreeFilterReady={newThreadWorktreeFilterReady}
         onBrowse={() => void browseForNewThread()}
         onClose={() => setNewThreadOpen(false)}
         onRemove={removeProject}

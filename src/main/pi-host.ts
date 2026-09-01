@@ -1078,6 +1078,10 @@ export class PiHost {
   private readonly branchRefreshes = new Map<string, Promise<void>>();
   /** A linked worktree keeps the repository's project name instead of becoming a new project. */
   private readonly knownProjectNames = new Map<string, string>();
+  /** Which known project paths are linked worktrees. Unclassified paths stay absent. */
+  private readonly knownWorktreeProjects = new Map<string, boolean>();
+  private readonly worktreeClassifications = new Map<string, Promise<void>>();
+  private pendingIndexPublish?: ReturnType<typeof setTimeout>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   private accessLevel: AccessLevel = "full";
   private serviceTier: ServiceTier = "standard";
@@ -1352,6 +1356,9 @@ export class PiHost {
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
         await this.rememberProject(this.cwd);
+        // Classify saved projects while the runtime opens. Each answer is a
+        // single git call, so it is ready long before bootstrap reads the list.
+        for (const project of this.projectHistory.list()) this.classifyWorktreeInBackground(project.path);
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
@@ -1390,6 +1397,9 @@ export class PiHost {
   }
 
   async bootstrap(): Promise<HostBootstrap> {
+    // The project list is withheld while a checkout is unclassified. Bootstrap
+    // is the one publication the client cannot miss, so settle it here.
+    await Promise.allSettled([...this.worktreeClassifications.values()]);
     const host = { ...this.snapshotSync(await this.ensureModels()), branch: this.projectBranch };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
@@ -1603,14 +1613,12 @@ export class PiHost {
     submission: SubmissionResult,
     requestId?: NewThreadRequestId,
     sessionId?: string,
-    terminal?: boolean,
   ): NewThreadResult {
     return {
       ...this.actionResult(updates),
       submission,
       ...(requestId ? { requestId } : {}),
       ...(sessionId ? { sessionId } : {}),
-      ...(terminal ? { terminal } : {}),
     };
   }
 
@@ -2025,8 +2033,6 @@ export class PiHost {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
-      const terminalWithoutAgentRun = isPiBackend(thread)
-        && this.isExtensionCommand(thread, prepared?.runtimeText ?? initialPrompt ?? "");
       void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
         // Delivery is intentionally detached from acceptance. AgentSession may
@@ -2041,23 +2047,45 @@ export class PiHost {
                 : undefined)
               : prepared;
             await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
+            if (clientMessageId) {
+              // An extension command is answered without a user turn, so the
+              // client must drop its optimistic message instead of waiting for
+              // one that will never be persisted.
+              const userTurn = !(isPiBackend(thread)
+                && this.isExtensionCommand(thread, deliveryPrepared?.runtimeText ?? initialPrompt ?? ""));
+              this.emit({
+                type: "new-thread-delivery-settled",
+                sessionId: thread.threadId,
+                clientMessageId,
+                accepted: true,
+                userTurn,
+              });
+            }
           } catch (error) {
             // prompt() normally reconciles the optimistic message through its
             // marker. Re-preparation can fail before that marker exists, so
             // the detached boundary also publishes the correlated failure.
             if (clientMessageId) {
+              const message = this.errorMessage(error);
+              this.emit({
+                type: "new-thread-delivery-settled",
+                sessionId: thread.threadId,
+                clientMessageId,
+                accepted: false,
+                message,
+              });
               this.emit({
                 type: "user-message-failed",
                 sessionId: thread.threadId,
                 clientMessageId,
-                message: this.errorMessage(error),
+                message,
               });
             }
             this.log("prompt.rejected", this.errorMessage(error));
           }
         })();
       }
-      return this.newThreadResult([], { accepted: true }, requestId, thread.sessionId, terminalWithoutAgentRun);
+      return this.newThreadResult([], { accepted: true }, requestId, thread.sessionId);
     });
   }
 
@@ -2860,9 +2888,20 @@ export class PiHost {
       if (identity) this.clientTurns.cancel(thread.threadId, identity);
       reportPreflight({ accepted: false, error });
     }
+    // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;
     // Extension commands can be handled without creating a user message or an
-    // agent run. Do not leave their marker to label the next turn.
+    // agent run. Do not leave their marker or client identity behind: it would
+    // label the next turn, and agent_settled would report it as a failure.
+    if (isExtensionCommand && markerActive) {
+      if (clientMessageId && this.persistedClientMessageIds(thread).has(clientMessageId)) {
+        this.forgetClientMessageId(thread, clientMessageId);
+      } else {
+        this.cancelClientMessageMarker(thread, clientMessageId);
+      }
+      if (identity) this.clientTurns.cancel(thread.threadId, identity);
+      markerActive = false;
+    }
     if ((!wasStreaming || isExtensionCommand) && markerActive && (preflightState as PromptPreflightState) !== "accepted") failUnpersistedMarker();
     this.log("prompt.accepted", `${text.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
   }
@@ -3477,6 +3516,8 @@ export class PiHost {
       this.toolOutputBatcher.dispose();
       if (this.activeIndexPublish) clearTimeout(this.activeIndexPublish);
       this.activeIndexPublish = undefined;
+      if (this.pendingIndexPublish) clearTimeout(this.pendingIndexPublish);
+      this.pendingIndexPublish = undefined;
       if (this.indexRecoveryTimer) clearInterval(this.indexRecoveryTimer);
       this.indexRecoveryTimer = undefined;
       if (this.prewarmTimer) clearTimeout(this.prewarmTimer);
@@ -5159,7 +5200,56 @@ export class PiHost {
       knownPaths.add(thread.projectPath);
     }
     projects.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
-    return { projects, sessions: this.sessions };
+    return { projects: projects.filter((project) => this.isProjectRoot(project.path)), sessions: this.sessions };
+  }
+
+  /**
+   * A linked worktree is a checkout of a repository that is already a project,
+   * so it is never offered as one of its own; the workspace bar switches
+   * worktrees within a project instead. Git is never awaited here: an
+   * unclassified path is withheld until the background answer republishes the
+   * index, so an unknown checkout is never offered by mistake.
+   */
+  private isProjectRoot(cwd: string): boolean {
+    const isWorktree = this.knownWorktreeProjects.get(cwd);
+    if (isWorktree === undefined) {
+      this.classifyWorktreeInBackground(cwd);
+      return false;
+    }
+    return !isWorktree;
+  }
+
+  private classifyWorktreeInBackground(cwd: string): void {
+    if (this.worktreeClassifications.has(cwd)) return;
+    const startedAt = performance.now();
+    const pending = workspaceGit.isLinkedWorktree(cwd).then((isWorktree) => {
+      if (this.knownWorktreeProjects.get(cwd) === isWorktree) return;
+      this.knownWorktreeProjects.set(cwd, isWorktree);
+      this.publishThreadIndexSoon();
+    }).catch(() => {
+      // A path that is not a repository at all is simply not a worktree.
+      if (this.knownWorktreeProjects.has(cwd)) return;
+      this.knownWorktreeProjects.set(cwd, false);
+      this.publishThreadIndexSoon();
+    }).finally(() => {
+      this.recordBackgroundLifecycle("worktree-classification", startedAt);
+      this.worktreeClassifications.delete(cwd);
+    });
+    this.worktreeClassifications.set(cwd, pending);
+  }
+
+  /** Coalesce the republications that background project classification triggers. */
+  private publishThreadIndexSoon(): void {
+    if (this.pendingIndexPublish !== undefined) return;
+    this.pendingIndexPublish = setTimeout(() => {
+      this.pendingIndexPublish = undefined;
+      this.emitUpdate({
+        version: HOST_PROTOCOL_VERSION,
+        type: "thread-index",
+        index: this.threadIndexSnapshot(),
+      });
+    }, 0);
+    this.pendingIndexPublish.unref?.();
   }
 
   private branchMessagesWithEntryIds(thread: ThreadRuntime): unknown[] {
