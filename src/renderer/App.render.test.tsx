@@ -233,6 +233,13 @@ describe("App render isolation", () => {
     expect(getFileTree).not.toHaveBeenCalled();
   });
 
+  it("keeps the virtual thread canvas from shrinking inside the scroll rail", async () => {
+    render(<App />);
+    const navigation = await screen.findByRole("navigation", { name: "Threads" });
+    const canvas = navigation.firstElementChild as HTMLElement;
+    expect(canvas.style.flexShrink).toBe("0");
+  });
+
   it("uses a focused start screen until the first message is sent", async () => {
     const sendPrompt = vi.fn(async () => undefined);
     window.tau = {
