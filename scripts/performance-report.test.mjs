@@ -1,10 +1,16 @@
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { classifyAsset, evaluateBuildBudgets } from "./build-report.mjs";
 import { evaluateStartBudgets } from "./start-report.mjs";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 import { evaluateHostBudgets } from "./host-budget.mjs";
 import { evaluateGitBudgets } from "./git-budget.mjs";
+import { buildRendererComparisonReproduction } from "./renderer-comparison-commands.mjs";
 
 describe("performance report checks", () => {
   it("separates entry assets from demand-loaded chunks", () => {
@@ -112,17 +118,68 @@ describe("performance report checks", () => {
       id: "regression",
       longTaskObserverSupported: true,
       frameIntervalsMs: { p95: 40 },
+      mountDurationsMs: { median: 998, p95: 999, maximum: 999 },
       longTasksMs: { maximum: 80 },
       commitDurationsMs: { p95: 30 },
       domNodes: 9_000,
     }] };
     const failures = evaluateRendererBudgets(report, {
       rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
       rendererLongTaskMs: 50,
       rendererCommitP95Ms: 24,
       rendererDomNodes: 5_000,
     });
-    expect(failures).toHaveLength(4);
+    expect(failures).toHaveLength(5);
+  });
+
+  it("keeps documented renderer budgets aligned with the release gate", async () => {
+    const [budgetText, documentation] = await Promise.all([
+      readFile(new URL("./performance-budgets.json", import.meta.url), "utf8"),
+      readFile(new URL("../docs/PERFORMANCE.md", import.meta.url), "utf8"),
+    ]);
+    const budgets = JSON.parse(budgetText);
+    expect(documentation).toContain(`${budgets.rendererFrameP95Ms} ms frame p95`);
+    expect(documentation).toContain(`${budgets.rendererMountP95Ms} ms mount p95`);
+    expect(documentation).toContain(`${budgets.rendererLongTaskMs} ms`);
+    expect(budgets.rendererScenarioBudgets["long-user-message"]).toBeUndefined();
+    expect(budgets.rendererScenarioBudgets["transcript-1000-turns"].mountP95Ms).toBe(40);
+    expect(budgets.rendererScenarioBudgets["transcript-1000-turns"].commitP95Ms).toBeUndefined();
+  });
+
+  it("keeps the documented renderer table generated from the checked-in report", async () => {
+    const [reportText, documentation] = await Promise.all([
+      readFile(new URL("../reports/renderer-report.json", import.meta.url), "utf8"),
+      readFile(new URL("../docs/PERFORMANCE.md", import.meta.url), "utf8"),
+    ]);
+    const report = JSON.parse(reportText);
+    const labels = new Map([
+      ["markdown-code-stream-150kb", "markdown code stream (150 KB)"],
+      ["markdown-plain-stream-150kb", "markdown plain stream (150 KB)"],
+      ["tool-output-1mb", "tool output (1 MB)"],
+      ["transcript-1000-turns", "transcript (1,000 turns)"],
+      ["diff-2mb", "diff (2 MB)"],
+      ["thread-shells-10000", "thread shells (10,000)"],
+      ["workspace-files-10000", "workspace files (10,000)"],
+      ["picker-catalog-10000", "picker catalog (10,000)"],
+      ["long-user-message", "long user message (12 KB)"],
+    ]);
+    const format = (value) => value.toFixed(1);
+    const number = new Intl.NumberFormat("en-US");
+    for (const scenario of report.scenarios) {
+      const row = [
+        labels.get(scenario.id),
+        ["frameIntervalsMs", "mountDurationsMs", "updateDurationsMs", "longTasksMs"].map((metric) => {
+          const values = scenario[metric];
+          return `${format(values.median)} / ${format(values.p95)} / ${format(values.maximum)}`;
+        }),
+        number.format(scenario.domNodes),
+      ];
+      expect(documentation).toContain(`| ${row[0]} | ${row[1][0]} | ${row[1][1]} | ${row[1][2]} | ${row[1][3]} | ${row[2]} |`);
+      for (const metric of ["frameIntervalsMs", "mountDurationsMs", "updateDurationsMs", "longTasksMs", "heapBytes"]) {
+        expect(scenario[metric].p95).toBeLessThanOrEqual(scenario[metric].maximum);
+      }
+    }
   });
 
   it("supports explicit scenario budgets for one-time transcript mounting", () => {
@@ -130,17 +187,59 @@ describe("performance report checks", () => {
       id: "transcript-1000-turns",
       longTaskObserverSupported: true,
       frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { median: 22, p95: 32, maximum: 32 },
       longTasksMs: { maximum: 0 },
       commitDurationsMs: { median: 22, p95: 32, maximum: 32 },
       domNodes: 100,
     }] };
     expect(evaluateRendererBudgets(report, {
       rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
       rendererLongTaskMs: 50,
       rendererCommitP95Ms: 24,
       rendererDomNodes: 5_000,
-      rendererScenarioBudgets: { "transcript-1000-turns": { commitP95Ms: 40 } },
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, commitP95Ms: 40 } },
     })).toEqual([]);
+  });
+
+  it("enforces the transcript mount budget independently from update work", () => {
+    const failures = evaluateRendererBudgets({ scenarios: [{
+      id: "transcript-1000-turns",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { median: 900, p95: 999, maximum: 999 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { median: 1, p95: 2, maximum: 2 },
+      domNodes: 100,
+    }] }, {
+      rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
+      rendererLongTaskMs: 50,
+      rendererCommitP95Ms: 24,
+      rendererDomNodes: 5_000,
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, longTaskMs: 60 } },
+    });
+    expect(failures.some((failure) => failure.includes("mount p95 999.0ms > 40ms"))).toBe(true);
+  });
+
+  it("keeps transcript updates on the strict global 24 ms budget", () => {
+    const failures = evaluateRendererBudgets({ scenarios: [{
+      id: "transcript-1000-turns",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { p95: 38 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { median: 25, p95: 32, maximum: 32 },
+      domNodes: 100,
+    }] }, {
+      rendererFrameP95Ms: 24,
+      rendererMountP95Ms: 24,
+      rendererLongTaskMs: 50,
+      rendererCommitP95Ms: 24,
+      rendererDomNodes: 5_000,
+      rendererScenarioBudgets: { "transcript-1000-turns": { mountP95Ms: 40, longTaskMs: 60 } },
+    });
+    expect(failures.some((failure) => failure.includes("commit p95 32.0ms > 24ms"))).toBe(true);
   });
 
   it("rejects missing renderer scenarios and measurements", () => {
@@ -151,6 +250,134 @@ describe("performance report checks", () => {
       rendererDomNodes: 5_000,
       rendererRequiredScenarios: ["required"],
     });
-    expect(failures).toHaveLength(6);
+    expect(failures).toHaveLength(7);
+  });
+
+  it("parses a dry-run renderer comparison recipe with all explicit inputs", () => {
+    const subjectRoot = "/tmp/tau renderer subject";
+    const currentRoot = "/tmp/tau renderer measured";
+    const reproduction = buildRendererComparisonReproduction({
+      currentRoot,
+      subjectRoot,
+      baselineCommit: "baseline-commit",
+      currentCommit: "subject-commit",
+      baselinePatch: `${subjectRoot}/reports/renderer-transcript-legacy-baseline.patch`,
+    });
+    const aggregateCommand = reproduction.aggregation.command;
+    expect((aggregateCommand.match(/--baseline /gu) ?? [])).toHaveLength(3);
+    expect((aggregateCommand.match(/--current /gu) ?? [])).toHaveLength(3);
+    expect(aggregateCommand).toContain('--baseline-root "$BASELINE_ROOT"');
+    expect(aggregateCommand).toContain('--current-root "$CURRENT_ROOT"');
+    expect(aggregateCommand).toContain('--baseline-commit "$BASELINE_COMMIT"');
+    expect(aggregateCommand).toContain('--current-commit "$CURRENT_COMMIT"');
+    expect(aggregateCommand).toContain('--baseline-patch "$BASELINE_PATCH"');
+    expect(aggregateCommand).toContain('--baseline "$SUBJECT_ROOT/reports/renderer-transcript-baseline-run-01.json"');
+    expect(aggregateCommand).toContain('--current "$SUBJECT_ROOT/reports/renderer-transcript-current-run-03.json"');
+    expect(aggregateCommand).not.toContain("...");
+    expect(reproduction.subject.currentCommit).toBe("subject-commit");
+    expect(reproduction.subject.currentRoot).toBe(subjectRoot);
+    expect(reproduction.subject.measuredCurrentRoot).toBe("$CURRENT_ROOT");
+    expect(reproduction.current.worktreeVariable).toBe("$CURRENT_ROOT");
+    expect(reproduction.shell).toContain('git -C "$SUBJECT_ROOT" worktree add --detach "$CURRENT_ROOT" "$CURRENT_COMMIT"');
+    expect(reproduction.shell).toContain('git -C "$BASELINE_ROOT" apply "$BASELINE_PATCH"');
+    expect(reproduction.shell).toContain('npm --prefix "$CURRENT_ROOT" run build');
+    expect(reproduction.shell).not.toContain('npm --prefix "$SUBJECT_ROOT" run build');
+    execFileSync("/bin/sh", ["-n"], { input: reproduction.shell, encoding: "utf8" });
+
+    const dryRun = JSON.parse(execFileSync(process.execPath, [
+      "scripts/renderer-comparison-aggregate.mjs",
+      "--dry-run",
+      "--current-root",
+      currentRoot,
+      "--subject-root",
+      subjectRoot,
+      "--baseline-commit",
+      "baseline-commit",
+      "--current-commit",
+      "subject-commit",
+      "--baseline-patch",
+      `${subjectRoot}/reports/renderer-transcript-legacy-baseline.patch`,
+    ], { encoding: "utf8" }));
+    expect(dryRun.aggregation.command).toBe(aggregateCommand);
+    expect(dryRun.baseline.commands).toContain('git -C "$SUBJECT_ROOT" worktree add --detach "$BASELINE_ROOT" "$BASELINE_COMMIT"');
+  });
+
+  it("hashes artifacts from the pinned detached current root", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "tau-renderer-aggregate-"));
+    const subjectRoot = join(fixtureRoot, "subject");
+    const baselineRoot = join(fixtureRoot, "baseline");
+    const currentRoot = join(fixtureRoot, "current");
+    const reports = [
+      "renderer-transcript-baseline-run-01.json",
+      "renderer-transcript-baseline-run-02.json",
+      "renderer-transcript-baseline-run-03.json",
+      "renderer-transcript-current-run-01.json",
+      "renderer-transcript-current-run-02.json",
+      "renderer-transcript-current-run-03.json",
+    ];
+    try {
+      await Promise.all([
+        mkdir(join(subjectRoot, "reports"), { recursive: true }),
+        mkdir(join(subjectRoot, "dist"), { recursive: true }),
+        mkdir(join(baselineRoot, "dist"), { recursive: true }),
+        mkdir(join(currentRoot, "dist"), { recursive: true }),
+      ]);
+      await Promise.all([
+        writeFile(join(subjectRoot, "dist", "artifact.js"), "subject artifact"),
+        writeFile(join(baselineRoot, "dist", "artifact.js"), "baseline artifact"),
+        writeFile(join(currentRoot, "dist", "artifact.js"), "current artifact"),
+        writeFile(join(subjectRoot, "reports", "renderer-transcript-legacy-baseline.patch"), ""),
+        ...reports.map(async (name) => writeFile(
+          join(subjectRoot, "reports", name),
+          await readFile(new URL(`../reports/${name}`, import.meta.url)),
+        )),
+      ]);
+
+      for (const root of [baselineRoot, currentRoot]) {
+        execFileSync("git", ["init", "--quiet", root], { stdio: "ignore" });
+        execFileSync("git", ["-C", root, "add", "."], { stdio: "ignore" });
+        execFileSync("git", [
+          "-C", root,
+          "-c", "user.name=Renderer Test",
+          "-c", "user.email=renderer-test@example.invalid",
+          "commit", "--quiet", "-m", "fixture",
+        ], { stdio: "ignore" });
+      }
+      const gitHead = (root) => execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      const baselineCommit = gitHead(baselineRoot);
+      const currentCommit = gitHead(currentRoot);
+      execFileSync("git", ["-C", baselineRoot, "checkout", "--quiet", "--detach", "HEAD"], { stdio: "ignore" });
+
+      const aggregateArgs = [
+        fileURLToPath(new URL("./renderer-comparison-aggregate.mjs", import.meta.url)),
+        ...reports.slice(0, 3).flatMap((name) => ["--baseline", join(subjectRoot, "reports", name)]),
+        ...reports.slice(3).flatMap((name) => ["--current", join(subjectRoot, "reports", name)]),
+        "--baseline-root", baselineRoot,
+        "--current-root", currentRoot,
+        "--baseline-commit", baselineCommit,
+        "--current-commit", currentCommit,
+        "--baseline-patch", join(subjectRoot, "reports", "renderer-transcript-legacy-baseline.patch"),
+        "--output", join(subjectRoot, "reports", "aggregate.json"),
+        "--subject-root", subjectRoot,
+      ];
+      let detachedFailure;
+      try {
+        execFileSync(process.execPath, aggregateArgs, { encoding: "utf8" });
+      } catch (error) {
+        detachedFailure = error;
+      }
+      expect(`${detachedFailure?.message ?? ""}${detachedFailure?.stderr ?? ""}`).toMatch(/must be detached/u);
+
+      execFileSync("git", ["-C", currentRoot, "checkout", "--quiet", "--detach", "HEAD"], { stdio: "ignore" });
+      execFileSync(process.execPath, aggregateArgs, { encoding: "utf8" });
+      const aggregate = JSON.parse(await readFile(join(subjectRoot, "reports", "aggregate.json"), "utf8"));
+      const expectedCurrentHash = createHash("sha256").update("dist/artifact.js\0current artifact\0").digest("hex");
+      const baselineHash = createHash("sha256").update("dist/artifact.js\0baseline artifact\0").digest("hex");
+      expect(aggregate.current.buildArtifactSha256).toBe(expectedCurrentHash);
+      expect(aggregate.current.buildArtifactSha256).not.toBe(baselineHash);
+      expect(aggregate.reproduction.current.measuredRoot).toBe("$CURRENT_ROOT");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 });

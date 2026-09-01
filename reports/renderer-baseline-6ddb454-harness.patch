@@ -1,0 +1,553 @@
+diff --git a/benchmarks/renderer-fixtures.json b/benchmarks/renderer-fixtures.json
+index 1154c4f..0235a01 100644
+--- a/benchmarks/renderer-fixtures.json
++++ b/benchmarks/renderer-fixtures.json
+@@ -12,8 +12,9 @@
+-    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript" },
+-    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600 },
+-    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576 },
+-    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000 },
+-    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152 },
+-    { "id": "thread-shells-10000", "kind": "list", "items": 10000 },
+-    { "id": "workspace-files-10000", "kind": "list", "items": 10000 },
+-    { "id": "picker-catalog-10000", "kind": "list", "items": 10000 }
++    { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript", "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000, "sanity": { "minDomNodes": 50, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "diff-2mb", "kind": "diff", "bytes": 2097152, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "thread-shells-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "workspace-files-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "picker-catalog-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
++    { "id": "long-user-message", "kind": "message", "bytes": 12000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } }
+diff --git a/scripts/machine-class.mjs b/scripts/machine-class.mjs
+new file mode 100644
+index 0000000..dc2f56d
+--- /dev/null
++++ b/scripts/machine-class.mjs
+@@ -0,0 +1,28 @@
++import { execFileSync } from "node:child_process";
++import { cpus, totalmem } from "node:os";
++
++function sysctl(name) {
++  return execFileSync("sysctl", ["-n", name], { encoding: "utf8" }).trim();
++}
++
++/** Return stable, non-identifying hardware facts suitable for benchmark evidence. */
++export function machineClass() {
++  const processors = cpus();
++  const machine = {
++    platform: process.platform,
++    architecture: process.arch,
++    chip: processors[0]?.model || "unknown",
++    memoryGiB: Math.round(totalmem() / 1024 ** 3),
++    logicalCores: processors.length,
++  };
++  if (process.platform === "darwin") {
++    return {
++      ...machine,
++      modelIdentifier: sysctl("hw.model"),
++      chip: sysctl("machdep.cpu.brand_string"),
++      memoryGiB: Math.round(Number(sysctl("hw.memsize")) / 1024 ** 3),
++      logicalCores: Number(sysctl("hw.ncpu")),
++    };
++  }
++  return machine;
++}
+diff --git a/scripts/performance-budgets.json b/scripts/performance-budgets.json
+index 7afa1c1..863d666 100644
+--- a/scripts/performance-budgets.json
++++ b/scripts/performance-budgets.json
+@@ -12,0 +13 @@
++  "rendererMountP95Ms": 24,
+@@ -16 +17 @@
+-    "transcript-1000-turns": { "commitP95Ms": 40 }
++    "transcript-1000-turns": { "mountP95Ms": 40, "longTaskMs": 60 }
+@@ -33 +34,2 @@
+-    "picker-catalog-10000"
++    "picker-catalog-10000",
++    "long-user-message"
+diff --git a/scripts/renderer-benchmark-fixture.cjs b/scripts/renderer-benchmark-fixture.cjs
+index 86cab23..7260f4c 100644
+--- a/scripts/renderer-benchmark-fixture.cjs
++++ b/scripts/renderer-benchmark-fixture.cjs
+@@ -5,0 +6 @@ if (!scenario) throw new Error("renderer benchmark scenario is required");
++const scenarioConfig = JSON.parse(process.argv[3] || "{}");
+@@ -17 +18 @@ app.whenReady().then(async () => {
+-      query: { rendererBenchmark: "1", scenario },
++      query: { rendererBenchmark: "1", scenario, config: JSON.stringify(scenarioConfig) },
+@@ -26,0 +28,7 @@ app.whenReady().then(async () => {
++    result.electronVersion = process.versions.electron;
++    result.gpuFeatureStatus = app.getGPUFeatureStatus();
++    try {
++      result.gpuInfo = await app.getGPUInfo("complete");
++    } catch {
++      result.gpuInfo = undefined;
++    }
+diff --git a/scripts/renderer-benchmark.mjs b/scripts/renderer-benchmark.mjs
+index 2420729..4eac3a9 100644
+--- a/scripts/renderer-benchmark.mjs
++++ b/scripts/renderer-benchmark.mjs
+@@ -1 +1,3 @@
+-import { spawnSync } from "node:child_process";
++import { execFileSync, spawnSync } from "node:child_process";
++import { createHash } from "node:crypto";
++import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+@@ -3 +5,2 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
+-import { dirname, join } from "node:path";
++import os from "node:os";
++import { dirname, isAbsolute, join, resolve } from "node:path";
+@@ -5,0 +9 @@ import { evaluateRendererBudgets } from "./renderer-budget.mjs";
++import { machineClass } from "./machine-class.mjs";
+@@ -15 +19,8 @@ const outputArg = args.find((arg) => !arg.startsWith("--"));
+-const outputPath = join(ROOT, outputArg ?? "reports/renderer-report.json");
++const outputPath = outputArg ? (isAbsolute(outputArg) ? outputArg : join(ROOT, outputArg)) : join(ROOT, "reports/renderer-report.json");
++const seriesId = process.env.TAU_BENCHMARK_SERIES_ID ?? null;
++const seriesSide = process.env.TAU_BENCHMARK_SERIES_SIDE ?? null;
++const archivePath = process.env.TAU_BENCHMARK_ARCHIVE ? resolve(process.env.TAU_BENCHMARK_ARCHIVE) : null;
++const archiveSequenceOffset = Number(process.env.TAU_BENCHMARK_SEQUENCE_OFFSET ?? 0);
++if (!Number.isInteger(archiveSequenceOffset) || archiveSequenceOffset < 0) throw new Error("benchmark archive sequence offset is malformed");
++let archiveSequence = archiveSequenceOffset;
++if (archivePath && (!seriesId || !seriesSide)) throw new Error("benchmark archive requires a series ID and side");
+@@ -30,0 +42,60 @@ function run(command, commandArgs) {
++function commitSha() {
++  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
++}
++
++function requireSha(value, label, length) {
++  if (!new RegExp(`^[0-9a-f]{${length}}$`).test(value ?? "")) throw new Error(`${label} is missing or malformed`);
++  return value;
++}
++
++function loadMetadata() {
++  return {
++    logicalCores: os.cpus().length,
++    loadAverage1m: os.loadavg()[0],
++    loadAverage5m: os.loadavg()[1],
++  };
++}
++
++const reportCommit = requireSha(commitSha(), "report commit", 40);
++
++function buildArtifactSha256() {
++  const files = [];
++  const visit = (directory) => {
++    for (const name of readdirSync(directory).sort()) {
++      const file = join(directory, name);
++      if (statSync(file).isDirectory()) visit(file);
++      else files.push(file);
++    }
++  };
++  visit(join(ROOT, "dist"));
++  return createHash("sha256")
++    .update(files.map((file) => `${file.slice(ROOT.length)}\0${readFileSync(file)}`).join("\0"))
++    .digest("hex");
++}
++
++const harnessFiles = [
++  "benchmarks/renderer-fixtures.json",
++  "scripts/renderer-benchmark.mjs",
++  "scripts/renderer-benchmark-fixture.cjs",
++  "scripts/machine-class.mjs",
++  "scripts/renderer-budget.mjs",
++  "scripts/performance-budgets.json",
++  "src/renderer/RendererBenchmark.tsx",
++];
++const harnessFileSha256 = Object.fromEntries(harnessFiles.map((file) => [file, createHash("sha256").update(readFileSync(join(ROOT, file))).digest("hex")]));
++const harnessSourceSha256 = createHash("sha256")
++  .update(harnessFiles.map((file) => `${file}\0${harnessFileSha256[file]}`).join("\0"))
++  .digest("hex");
++const harnessPatchFile = process.env.TAU_BENCHMARK_HARNESS_PATCH_FILE ?? "reports/renderer-baseline-6ddb454-harness.patch";
++const harnessPatchPath = join(ROOT, harnessPatchFile);
++const harnessPatchSha256 = process.env.TAU_BENCHMARK_HARNESS_PATCH_SHA256
++  ?? (existsSync(harnessPatchPath)
++    ? createHash("sha256").update(readFileSync(harnessPatchPath)).digest("hex")
++    : harnessSourceSha256);
++const subjectCommit = process.env.TAU_BENCHMARK_SUBJECT_COMMIT ?? reportCommit;
++const harnessCommit = process.env.TAU_BENCHMARK_HARNESS_COMMIT ?? reportCommit;
++requireSha(subjectCommit, "subject commit", 40);
++requireSha(harnessCommit, "harness commit", 40);
++requireSha(harnessPatchSha256, "harness patch SHA-256", 64);
++const harnessBundleSha256 = createHash("sha256").update(`${harnessSourceSha256}\0${harnessPatchSha256}\0${harnessFiles.join("\0")}`).digest("hex");
++
+@@ -36 +107,2 @@ function sampleScenario(scenario) {
+-    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id]);
++    const startedAt = new Date().toISOString();
++    const stdout = run(ELECTRON, [join(ROOT, "scripts", "renderer-benchmark-fixture.cjs"), scenario.id, JSON.stringify(scenario)]);
+@@ -39 +111,61 @@ function sampleScenario(scenario) {
+-    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(JSON.parse(line));
++    const result = JSON.parse(line);
++    const sanity = scenario.sanity ?? {};
++    if (result.ready !== true || result.scenario !== scenario.id) {
++      throw new Error(`renderer fixture returned an invalid readiness marker for ${scenario.id}`);
++    }
++    if (result.profilerMountCaptured !== true || !Array.isArray(result.mountDurationsMs) || result.mountDurationsMs.length === 0 || result.mountDurationsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture did not capture a valid Profiler mount for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.updateDurationsMs) || result.updateDurationsMs.length === 0 || result.updateDurationsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture did not capture a valid Profiler update for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.frameIntervalsMs) || result.frameIntervalsMs.length < (sanity.minFrames ?? 1) || result.frameIntervalsMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture returned invalid frame measurements for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.longTasksMs) || result.longTasksMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture returned invalid Long Task measurements for ${scenario.id}`);
++    }
++    if (!Array.isArray(result.startupLongTasksMs) || result.startupLongTasksMs.some((value) => !Number.isFinite(value) || value <= 0)) {
++      throw new Error(`renderer fixture returned invalid startup Long Task measurements for ${scenario.id}`);
++    }
++    if (!/^\d+\.\d+\.\d+$/.test(result.electronVersion ?? "") || result.gpuFeatureStatus === null || typeof result.gpuFeatureStatus !== "object" || Object.keys(result.gpuFeatureStatus).length === 0) {
++      throw new Error(`renderer fixture returned incomplete Electron/GPU metadata for ${scenario.id}`);
++    }
++    const activeGpu = result.gpuInfo?.gpuDevice?.find((device) => device.active && typeof device.deviceString === "string" && device.deviceString.length > 0);
++    const softwareGpu = result.gpuFeatureStatus.gpu_compositing === "disabled_software";
++    if (!activeGpu && !softwareGpu) throw new Error(`renderer fixture returned no verified GPU adapter/backend for ${scenario.id}`);
++    if (!Number.isFinite(result.heapBytes) || result.heapBytes <= 0) {
++      throw new Error(`renderer fixture returned invalid heap measurement for ${scenario.id}`);
++    }
++    if (!Number.isFinite(result.domNodes) || result.domNodes < (sanity.minDomNodes ?? 1) || result.domNodes > (sanity.maxDomNodes ?? Number.POSITIVE_INFINITY)) {
++      throw new Error(`renderer fixture returned implausible DOM node count for ${scenario.id}: ${result.domNodes}`);
++    }
++    if (!Number.isInteger(result.commits) || result.commits < (sanity.minCommits ?? 1)) {
++      throw new Error(`renderer fixture returned too few commits for ${scenario.id}: ${result.commits}`);
++    }
++    if (scenario.id === "diff-2mb" && (!Number.isFinite(result.payloadBytes) || result.payloadBytes < scenario.bytes)) {
++      throw new Error(`renderer fixture did not render the configured diff payload for ${scenario.id}: ${result.payloadBytes}`);
++    }
++    if (scenario.id === "long-user-message" && (!result.longMessageInteraction || !["expand", "prop-update"].includes(result.longMessageInteraction.mode) || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
++      throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
++    }
++    if (archivePath) {
++      const archiveRecord = {
++        event: "sample",
++        seriesId,
++        side: seriesSide,
++        sequence: archiveSequence++,
++        runId: `${seriesId}:${seriesSide}:${scenario.id}:${runIndex}`,
++        scenario: scenario.id,
++        scenarioIndex: fixture.scenarios.findIndex((candidate) => candidate.id === scenario.id),
++        runIndex,
++        phase: runIndex < fixture.startConditions.warmupRuns ? "warmup" : "sample",
++        startedAt,
++        finishedAt: new Date().toISOString(),
++        load: loadMetadata(),
++        result,
++      };
++      mkdirSync(dirname(archivePath), { recursive: true });
++      appendFileSync(archivePath, `${JSON.stringify(archiveRecord)}\n`);
++    }
++    if (runIndex >= fixture.startConditions.warmupRuns) samples.push(result);
+@@ -43 +175,3 @@ function sampleScenario(scenario) {
+-  const commitDurations = samples.flatMap((sample) => sample.commitDurationsMs);
++  const startupLongTasks = samples.flatMap((sample) => sample.startupLongTasksMs);
++  const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
++  const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
+@@ -44,0 +179,3 @@ function sampleScenario(scenario) {
++  if (samples.length === 0 || frames.length === 0 || mountDurations.length === 0 || updateDurations.length === 0) {
++    throw new Error(`renderer fixture produced no accepted measurements for ${scenario.id}`);
++  }
+@@ -48,0 +186,5 @@ function sampleScenario(scenario) {
++    environment: {
++      electronVersion: samples[0].electronVersion,
++      gpuFeatureStatus: samples[0].gpuFeatureStatus,
++      gpuInfo: samples[0].gpuInfo ?? null,
++    },
+@@ -52 +194,3 @@ function sampleScenario(scenario) {
+-    commitDurationsMs: { median: percentile(commitDurations, 0.5), p95: percentile(commitDurations, 0.95), maximum: Math.max(0, ...commitDurations) },
++    startupLongTasksMs: { count: startupLongTasks.length, median: percentile(startupLongTasks, 0.5), p95: percentile(startupLongTasks, 0.95), maximum: Math.max(0, ...startupLongTasks) },
++    mountDurationsMs: { median: percentile(mountDurations, 0.5), p95: percentile(mountDurations, 0.95), maximum: Math.max(0, ...mountDurations) },
++    updateDurationsMs: { median: percentile(updateDurations, 0.5), p95: percentile(updateDurations, 0.95), maximum: Math.max(0, ...updateDurations) },
+@@ -55,0 +200,14 @@ function sampleScenario(scenario) {
++    ...(scenario.id === "diff-2mb" ? { payloadBytes: Math.min(...samples.map((sample) => sample.payloadBytes)) } : {}),
++    ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.map((sample) => sample.longMessageInteraction?.mode), interactionModes: [...new Set(samples.map((sample) => sample.longMessageInteraction?.mode))] } : {}),
++    rawSamples: samples.map((sample) => ({
++      frameIntervalsMs: sample.frameIntervalsMs,
++      longTasksMs: sample.longTasksMs,
++      startupLongTasksMs: sample.startupLongTasksMs,
++      mountDurationsMs: sample.mountDurationsMs,
++      updateDurationsMs: sample.updateDurationsMs,
++      commits: sample.commits,
++      domNodes: sample.domNodes,
++      heapBytes: sample.heapBytes,
++      payloadBytes: sample.payloadBytes,
++      longMessageInteraction: sample.longMessageInteraction,
++    })),
+@@ -61,0 +220,19 @@ const report = {
++  commitSha: reportCommit,
++  subjectCommit,
++  harnessCommit,
++  harnessSourceSha256,
++  harnessFileSha256,
++  harnessPatchSha256,
++  harnessBundleSha256,
++  reproducibilityScript: "scripts/reproduce-renderer-baseline.mjs",
++  buildArtifactSha256: buildArtifactSha256(),
++  execution: {
++    electronExecutable: "node_modules/.bin/electron",
++    gpu: { mode: "default" },
++    parallelRuns: 1,
++    harnessFiles,
++    harnessPatchFile,
++    ...(archivePath ? { seriesId, seriesSide, archivePath, archiveSequenceCount: archiveSequence } : {}),
++    caveats: "Scenarios run sequentially in hidden production Electron windows; reports are invalidated before write when fixture sanity checks fail.",
++  },
++  machine: machineClass(),
+@@ -62,0 +240 @@ const report = {
++  aggregation: { warmupRuns: fixture.startConditions.warmupRuns, sampleRuns: fixture.startConditions.sampleRuns, percentile: "nearest-rank", rawSamples: true },
+@@ -64,0 +243,13 @@ const report = {
++report.execution.gpu = {
++  mode: "default",
++  featureStatus: report.scenarios[0]?.environment.gpuFeatureStatus ?? {},
++  info: report.scenarios[0]?.environment.gpuInfo ?? null,
++};
++report.execution.electronVersion = report.scenarios[0]?.environment.electronVersion ?? "unknown";
++for (const scenario of report.scenarios) delete scenario.environment;
++for (const scenario of report.scenarios) {
++  for (const metric of ["frameIntervalsMs", "longTasksMs", "startupLongTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
++    const distribution = scenario[metric];
++    if (distribution && distribution.p95 > distribution.maximum) throw new Error(`${scenario.id} ${metric} p95 exceeds maximum`);
++  }
++}
+diff --git a/scripts/renderer-budget.mjs b/scripts/renderer-budget.mjs
+index e27e327..ee27965 100644
+--- a/scripts/renderer-budget.mjs
++++ b/scripts/renderer-budget.mjs
+@@ -19,2 +19,3 @@ export function evaluateRendererBudgets(report, budgets) {
+-      ["long task", scenario.longTasksMs?.maximum, budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
+-      ["commit p95", scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.commitDurationsMs],
++      ["mount p95", scenario.mountDurationsMs?.p95, scenarioBudget.mountP95Ms ?? budgets.rendererMountP95Ms, "ms", scenario.mountDurationsMs],
++      ["long task", scenario.longTasksMs?.maximum, scenarioBudget.longTaskMs ?? budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
++      ["commit p95", scenario.updateDurationsMs?.p95 ?? scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.updateDurationsMs ?? scenario.commitDurationsMs],
+diff --git a/src/renderer/RendererBenchmark.tsx b/src/renderer/RendererBenchmark.tsx
+index 5e0a161..e0c14e8 100644
+--- a/src/renderer/RendererBenchmark.tsx
++++ b/src/renderer/RendererBenchmark.tsx
+@@ -1 +1 @@
+-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
++import { Profiler, useEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
+@@ -10,0 +11,2 @@ interface BenchmarkResult {
++  ready: true;
++  scenario: string;
+@@ -12,0 +15 @@ interface BenchmarkResult {
++  startupLongTasksMs: number[];
+@@ -14 +17,3 @@ interface BenchmarkResult {
+-  commitDurationsMs: number[];
++  profilerMountCaptured: boolean;
++  mountDurationsMs: number[];
++  updateDurationsMs: number[];
+@@ -17,0 +23,2 @@ interface BenchmarkResult {
++  payloadBytes?: number;
++  longMessageInteraction?: { mode: "expand" | "prop-update"; expanded: boolean; contentBytes: number };
+@@ -23,0 +31,16 @@ declare global {
++const longTaskCapture = (() => {
++  const entries: Array<{ startTime: number; duration: number }> = [];
++  if (typeof PerformanceObserver === "undefined") return { entries, supported: false, observer: undefined };
++  try {
++    const observer = new PerformanceObserver((entryList) => {
++      entryList.getEntries().forEach((entry) => entries.push({ startTime: entry.startTime, duration: entry.duration }));
++    });
++    // This module is loaded before the benchmark component mounts, so mount
++    // work is observed consistently instead of being lost in useEffect setup.
++    observer.observe({ type: "longtask", buffered: true });
++    return { entries, supported: true, observer };
++  } catch {
++    return { entries, supported: false, observer: undefined };
++  }
++})();
++
+@@ -41,8 +64,25 @@ function makeTranscript(turns: number): UiMessage[] {
+-function makeDiff(): UiFileDiff {
+-  const lines = Array.from({ length: 10_000 }, (_, index) => ({
+-    kind: index % 3 === 0 ? "added" as const : index % 3 === 1 ? "removed" as const : "context" as const,
+-    oldLine: index % 3 === 0 ? undefined : index + 1,
+-    newLine: index % 3 === 1 ? undefined : index + 1,
+-    text: `benchmark diff line ${index}`,
+-  }));
+-  return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
++function makeDiff(targetBytes: number): UiFileDiff {
++  const lines: UiFileDiff["hunks"][number]["lines"] = [];
++  const payload = () => ({
++    path: "benchmark.ts",
++    added: lines.filter((line) => line.kind === "added").length,
++    removed: lines.filter((line) => line.kind === "removed").length,
++    hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }],
++    truncated: true,
++    nextHunkOffset: 1,
++  });
++  const lineBytes = Math.max(180, Math.ceil(targetBytes / 1_000));
++  for (let index = 0; index < 1_000; index += 1) {
++    const text = `benchmark diff line ${index} ${"x".repeat(lineBytes)}`;
++    lines.push({
++      kind: index % 3 === 0 ? "added" : index % 3 === 1 ? "removed" : "context",
++      oldLine: index % 3 === 0 ? undefined : index + 1,
++      newLine: index % 3 === 1 ? undefined : index + 1,
++      text,
++    });
++  }
++  return payload();
++}
++
++function makeLongUserMessage(bytes: number, revision: number): UiMessage {
++  return { id: "benchmark-long-user-message", role: "user", text: `${"x".repeat(bytes)}${revision}`, timestamp: revision };
+@@ -54 +94,2 @@ export default function RendererBenchmark() {
+-  const targetBytes = scenario === "tool-output-1mb" ? 1_048_576 : 153_600;
++  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number };
++  const targetBytes = scenarioConfig.bytes ?? 0;
+@@ -58 +99,7 @@ export default function RendererBenchmark() {
+-  const commits = useRef<number[]>([]);
++  const mountDurations = useRef<number[]>([]);
++  const updateDurations = useRef<number[]>([]);
++  const mountStartedAt = useRef(performance.now());
++  const updateStartedAt = useRef<number | undefined>(undefined);
++  const interactionStartedAt = useRef<number | undefined>(undefined);
++  const profilerReportedMount = useRef(false);
++  const profilerReportedUpdate = useRef(false);
+@@ -60 +107,4 @@ export default function RendererBenchmark() {
+-  const longTasks = useRef<number[]>([]);
++  const [benchmarkPulse, setBenchmarkPulse] = useState(0);
++  const [longUserRevision, setLongUserRevision] = useState(0);
++  const payloadBytes = useRef(0);
++  const longMessageInteraction = useRef<BenchmarkResult["longMessageInteraction"]>(undefined);
+@@ -63 +113 @@ export default function RendererBenchmark() {
+-  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
++  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(scenarioConfig.turns ?? 0) : [], [scenario, scenarioConfig.turns]);
+@@ -65,2 +115,2 @@ export default function RendererBenchmark() {
+-    () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
+-    [scenario],
++    () => scenario.endsWith("-10000") ? Array.from({ length: scenarioConfig.items ?? 0 }, (_, index) => `Benchmark item ${index}`) : [],
++    [scenario, scenarioConfig.items],
+@@ -69 +119,7 @@ export default function RendererBenchmark() {
+-  const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
++  const diff = useMemo(() => {
++    if (scenario !== "diff-2mb") return undefined;
++    const value = makeDiff(targetBytes);
++    payloadBytes.current = new TextEncoder().encode(JSON.stringify(value)).byteLength;
++    return value;
++  }, [scenario, targetBytes]);
++  const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage(targetBytes, longUserRevision) : undefined, [scenario, targetBytes, longUserRevision]);
+@@ -71,3 +127,9 @@ export default function RendererBenchmark() {
+-  // Fixture construction is setup, not renderer commit work. Start timing only
+-  // after the scenario-specific input exists, matching production data flow.
+-  const updateStartedAt = useRef(performance.now());
++  const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
++    if (phase === "mount") {
++      profilerReportedMount.current = true;
++      mountDurations.current.push(actualDuration);
++    } else {
++      profilerReportedUpdate.current = true;
++      updateDurations.current.push(actualDuration);
++    }
++  };
+@@ -75,3 +137,7 @@ export default function RendererBenchmark() {
+-  useLayoutEffect(() => {
+-    commits.current.push(performance.now() - updateStartedAt.current);
+-  }, [listQuery, text, toolOutput]);
++  useEffect(() => {
++    // Production React may omit Profiler callbacks. Keep the same commit
++    // boundary in that mode while retaining the Profiler instrumentation.
++    if (!profilerReportedMount.current && mountDurations.current.length === 0) {
++      mountDurations.current.push(performance.now() - mountStartedAt.current);
++    }
++  }, []);
+@@ -79,0 +146,8 @@ export default function RendererBenchmark() {
++    if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
++    updateDurations.current.push(performance.now() - updateStartedAt.current);
++  }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
++
++  useEffect(() => {
++    // Mark the interaction before any scheduled task can execute. This keeps
++    // the first scenario update out of startup Long Task measurements.
++    interactionStartedAt.current = performance.now();
+@@ -89,13 +162,0 @@ export default function RendererBenchmark() {
+-    let longTaskObserverSupported = typeof PerformanceObserver !== "undefined";
+-    let observer: PerformanceObserver | undefined;
+-    try {
+-      observer = new PerformanceObserver((entries) => {
+-        entries.getEntries().forEach((entry) => longTasks.current.push(entry.duration));
+-      });
+-      observer.observe({ type: "longtask", buffered: true });
+-    } catch {
+-      longTaskObserverSupported = false;
+-      observer?.disconnect();
+-      observer = undefined;
+-    }
+-
+@@ -108 +169 @@ export default function RendererBenchmark() {
+-        observer?.disconnect();
++        longTaskCapture.observer?.disconnect();
+@@ -110,0 +172,2 @@ export default function RendererBenchmark() {
++          ready: true,
++          scenario,
+@@ -112,4 +175,11 @@ export default function RendererBenchmark() {
+-          longTasksMs: longTasks.current,
+-          longTaskObserverSupported,
+-          commitDurationsMs: commits.current,
+-          commits: commits.current.length,
++        longTasksMs: longTaskCapture.entries
++          .filter((entry) => interactionStartedAt.current !== undefined && entry.startTime >= interactionStartedAt.current)
++          .map((entry) => entry.duration),
++        startupLongTasksMs: longTaskCapture.entries
++          .filter((entry) => interactionStartedAt.current === undefined || entry.startTime < interactionStartedAt.current)
++          .map((entry) => entry.duration),
++          longTaskObserverSupported: longTaskCapture.supported,
++          profilerMountCaptured: mountDurations.current.length > 0,
++          mountDurationsMs: mountDurations.current,
++          updateDurationsMs: updateDurations.current,
++          commits: updateDurations.current.length,
+@@ -117,0 +188,2 @@ export default function RendererBenchmark() {
++          payloadBytes: payloadBytes.current || undefined,
++          longMessageInteraction: longMessageInteraction.current,
+@@ -127,0 +200 @@ export default function RendererBenchmark() {
++        interactionStartedAt.current ??= updateStartedAt.current;
+@@ -139,0 +213 @@ export default function RendererBenchmark() {
++        interactionStartedAt.current ??= updateStartedAt.current;
+@@ -151,0 +226 @@ export default function RendererBenchmark() {
++        interactionStartedAt.current ??= updateStartedAt.current;
+@@ -155,0 +231,30 @@ export default function RendererBenchmark() {
++    } else if (scenario === "long-user-message") {
++      interactionStartedAt.current = performance.now();
++      requestAnimationFrame(() => {
++        updateStartedAt.current = performance.now();
++        setLongUserRevision((revision) => revision + 1);
++        requestAnimationFrame(() => {
++          const button = document.querySelector<HTMLButtonElement>(".message-expand");
++          if (!button) {
++            const content = document.querySelector<HTMLElement>(".message-text-content") ?? document.body;
++            longMessageInteraction.current = {
++              mode: "prop-update",
++              expanded: false,
++              contentBytes: new TextEncoder().encode(content.textContent ?? "").byteLength,
++            };
++            finish();
++            return;
++          }
++          updateStartedAt.current = performance.now();
++          button.click();
++          requestAnimationFrame(() => {
++            const content = document.querySelector<HTMLElement>(".message-text-content");
++            longMessageInteraction.current = {
++              mode: "expand",
++              expanded: button.getAttribute("aria-expanded") === "true",
++              contentBytes: new TextEncoder().encode(content?.textContent ?? "").byteLength,
++            };
++            finish();
++          });
++        });
++      });
+@@ -157 +262,6 @@ export default function RendererBenchmark() {
+-      requestAnimationFrame(finish);
++      requestAnimationFrame(() => {
++        updateStartedAt.current = performance.now();
++        interactionStartedAt.current ??= updateStartedAt.current;
++        setBenchmarkPulse((pulse) => pulse + 1);
++        finish();
++      });
+@@ -159 +269 @@ export default function RendererBenchmark() {
+-    return () => { stopped = true; observer?.disconnect(); };
++    return () => { stopped = true; longTaskCapture.observer?.disconnect(); };
+@@ -179,0 +290,2 @@ export default function RendererBenchmark() {
++  } else if (scenario === "long-user-message") {
++    content = <Message message={longUserMessage!} />;
+@@ -184 +296 @@ export default function RendererBenchmark() {
+-  return <main className="renderer-benchmark">{content}</main>;
++  return <main className="renderer-benchmark"><Profiler id={scenario} onRender={onRender}>{content}</Profiler></main>;

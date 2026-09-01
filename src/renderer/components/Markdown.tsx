@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo, useState, type ReactElement, type ReactNode }
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import hljs from "highlight.js/lib/core";
 import type { LanguageFn } from "highlight.js";
 type LanguageDefinition = LanguageFn;
@@ -28,6 +30,8 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   sh: "shell", zsh: "shell", html: "xml", xhtml: "xml", yml: "yaml",
 };
 const languagePromises = new Map<string, Promise<void>>();
+/** The same block grammar used by the renderer, kept synchronous for layout decisions. */
+const markdownBlockParser = unified().use(remarkParse).use(remarkGfm).use(remarkBreaks);
 
 export function canonicalHighlightLanguage(language: string): string {
   return LANGUAGE_ALIASES[language] ?? language;
@@ -167,9 +171,16 @@ const COMPONENTS: Components = {
  * Renders agent and user text. Raw HTML is deliberately not enabled, so anything
  * HTML-shaped in a model response stays inert text.
  */
-const MarkdownTree = memo(function MarkdownTree({ children }: { children: string }) {
+const INLINE_COMPONENTS: Components = {
+  ...COMPONENTS,
+  p({ children }) {
+    return <span className="md-inline-paragraph">{children}</span>;
+  },
+};
+
+const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS }: { children: string; components?: Components }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={COMPONENTS}>
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
       {children}
     </ReactMarkdown>
   );
@@ -189,8 +200,31 @@ function StreamingTail({ children }: { children: string }) {
   return <pre className="streaming-tail">{chunks.map((chunk, index) => <StreamingChunk key={index}>{chunk}</StreamingChunk>)}</pre>;
 }
 
+/** Block Markdown must keep its block DOM; only a simple inline instruction can sit beside a chip. */
+export function isInlineMarkdown(text: string): boolean {
+  try {
+    const tree = markdownBlockParser.parse(text);
+    // A chip can share a line only with a single paragraph. This lets the
+    // actual GFM AST classify tables (including one-column tables), lists,
+    // fenced/indented code, block quotes, HTML blocks, and thematic breaks;
+    // none can accidentally end up inside a span wrapper.
+    if (tree.children.length !== 1 || tree.children[0]?.type !== "paragraph") return false;
+    // CommonMark treats indentation after a non-blank paragraph as a lazy
+    // continuation. Keep it block-shaped anyway so the user's source
+    // indentation remains visible rather than collapsing in an inline span.
+    return !text.split(/\r?\n/u).some((line, index) => index > 0 && /^ {4}/u.test(line));
+  } catch {
+    // A parser failure must preserve valid DOM structure: block rendering is
+    // the safe fallback and never places unknown content in a span.
+    return false;
+  }
+}
+
 /** Keep the mutable tail cheap and parse each completed block only once. */
-export const Markdown = memo(function Markdown({ children, streaming = false }: { children: string; streaming?: boolean }) {
+export const Markdown = memo(function Markdown({ children, streaming = false, inlineStart = false }: { children: string; streaming?: boolean; inlineStart?: boolean }) {
+  if (inlineStart && !streaming && isInlineMarkdown(children)) {
+    return <span className="markdown markdown-inline"><MarkdownTree components={INLINE_COMPONENTS}>{children}</MarkdownTree></span>;
+  }
   if (!streaming || children.length < 512) {
     return <div className="markdown"><MarkdownTree>{children}</MarkdownTree></div>;
   }

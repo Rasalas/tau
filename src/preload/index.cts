@@ -1,17 +1,23 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DiffLoadOptions, HostEvent, TauDesktopApi } from "../shared/contracts.js";
+import { isHostUpdate } from "../shared/host-protocol.js";
 
 const api: TauDesktopApi = {
   platform: process.platform,
   bootstrap: () => ipcRenderer.invoke("tau:bootstrap"),
   loadTranscript: (sessionId, cursor) => ipcRenderer.invoke("tau:transcript-page", sessionId, cursor),
-  sendPrompt: (text, attachments, sessionId) => ipcRenderer.invoke("tau:prompt", text, attachments, sessionId),
+  preparePrompt: (text, sessionId, skill) => ipcRenderer.invoke("tau:prepare-prompt", text, sessionId, skill),
+  sendPrompt: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) => ipcRenderer.invoke("tau:prompt", text, attachments, sessionId, clientMessageIdOrIdentity, prepared),
   runShellAction: (command, includeInContext, expectedCwd) => ipcRenderer.invoke("tau:run-shell-action", command, includeInContext, expectedCwd),
-  steer: (text, attachments, sessionId) => ipcRenderer.invoke("tau:steer", text, attachments, sessionId),
-  followUp: (text, attachments, sessionId) => ipcRenderer.invoke("tau:follow-up", text, attachments, sessionId),
+  steer: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) => ipcRenderer.invoke("tau:steer", text, attachments, sessionId, clientMessageIdOrIdentity, prepared),
+  followUp: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) => ipcRenderer.invoke("tau:follow-up", text, attachments, sessionId, clientMessageIdOrIdentity, prepared),
   abort: (sessionId) => ipcRenderer.invoke("tau:abort", sessionId),
-  newSession: (initialPrompt, attachments, cwd) => ipcRenderer.invoke("tau:new-session", initialPrompt, attachments, cwd),
+  newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared) => ipcRenderer.invoke("tau:new-session", initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared),
+  getPreparedThreadCapability: (cwd) => ipcRenderer.invoke("tau:prepared-thread-capability", cwd),
   forkThread: (entryId, expectedSessionId) => ipcRenderer.invoke("tau:fork-thread", entryId, expectedSessionId),
+  canRestoreCheckpoint: (sessionId, checkpointId) => ipcRenderer.invoke("tau:can-restore-checkpoint", sessionId, checkpointId),
+  getRestorePreview: (sessionId, checkpointId) => ipcRenderer.invoke("tau:restore-preview", sessionId, checkpointId),
+  restoreCheckpoint: (sessionId, checkpointId) => ipcRenderer.invoke("tau:restore-checkpoint", sessionId, checkpointId),
   switchSession: (path) => ipcRenderer.invoke("tau:switch-session", path),
   setModel: (provider, id) => ipcRenderer.invoke("tau:set-model", provider, id),
   setThinkingLevel: (level) => ipcRenderer.invoke("tau:set-thinking", level),
@@ -25,6 +31,7 @@ const api: TauDesktopApi = {
   syncExtensionUi: () => ipcRenderer.invoke("tau:sync-extension-ui"),
   renameThread: (title, expectedSessionId) => ipcRenderer.invoke("tau:rename-thread", title, expectedSessionId),
   copyText: (text) => ipcRenderer.invoke("tau:copy-text", text),
+  readToolOutput: (sessionId, toolCallId) => ipcRenderer.invoke("tau:read-tool-output", sessionId, toolCallId),
   copyThreadMarkdown: (expectedSessionId) => ipcRenderer.invoke("tau:copy-thread-markdown", expectedSessionId),
   readImagePreview: (path) => ipcRenderer.invoke("tau:read-image-preview", path),
   generateThreadTitle: (provider, modelId, force, expectedSessionId) => ipcRenderer.invoke("tau:generate-thread-title", provider, modelId, force, expectedSessionId),
@@ -37,6 +44,8 @@ const api: TauDesktopApi = {
   getChanges: () => ipcRenderer.invoke("tau:changes"),
   getFileDiff: (path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:file-diff", path, options),
   readFile: (path) => ipcRenderer.invoke("tau:read-file", path),
+  getTurnFileDiff: (sessionId, checkpointId, path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:turn-file-diff", sessionId, checkpointId, path, options),
+  getTurnFiles: (sessionId, checkpointId, cursor, limit) => ipcRenderer.invoke("tau:turn-files", sessionId, checkpointId, cursor, limit),
   commit: (message, push) => ipcRenderer.invoke("tau:commit", message, push),
   push: () => ipcRenderer.invoke("tau:push"),
   getWorkspaceInfo: () => ipcRenderer.invoke("tau:workspace-info"),
@@ -48,7 +57,12 @@ const api: TauDesktopApi = {
   rebuildWorkbench: () => ipcRenderer.invoke("tau:rebuild-workbench"),
   relaunchWorkbench: () => ipcRenderer.invoke("tau:relaunch-workbench"),
   onHostEvent: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: HostEvent) => listener(payload);
+    const handler = (_event: Electron.IpcRendererEvent, payload: HostEvent) => {
+      // IPC payloads are untrusted. In particular, never let a contradictory
+      // cursor/hasMore/completeness tuple enter the renderer state machine.
+      if (payload?.type === "host-update" && !isHostUpdate(payload.update)) return;
+      listener(payload);
+    };
     ipcRenderer.on("tau:host-event", handler);
     return () => ipcRenderer.removeListener("tau:host-event", handler);
   },

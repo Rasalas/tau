@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../../shared/contracts";
 import { ExtensionRegistry } from "../extension-system";
 import { bundledExtensions } from "../extensions";
-import { ToolGroup } from "./ToolGroup";
+import { TOOL_PREVIEW_MIN_MS, ToolGroup } from "./ToolGroup";
 
 function registryWithBundledExtensions(): ExtensionRegistry {
   const registry = new ExtensionRegistry();
@@ -80,6 +80,17 @@ describe("ToolGroup computer-use presentation", () => {
     expect(document.querySelector(".tool-activity-summary .spinner")).toBeTruthy();
   });
 
+  it("does not auto-collapse live activity while the turn is still streaming", () => {
+    vi.useFakeTimers();
+    const settled: UiToolRun = { id: "read", name: "read", args: { path: "README.md" }, status: "done", startedAt: 0, endedAt: 10 };
+    render(<ToolGroup tools={[settled]} registry={registryWithBundledExtensions()} streaming />);
+
+    act(() => vi.advanceTimersByTime(TOOL_PREVIEW_MIN_MS + 1_000));
+
+    expect(screen.getByRole("button", { name: /Working/u }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("README.md")).toBeTruthy();
+  });
+
   it("summarizes settled tools and commands behind one expandable row", () => {
     const tools: UiToolRun[] = [
       { id: "read", name: "read", args: { path: "README.md" }, status: "done", startedAt: 0, endedAt: 10 },
@@ -94,5 +105,101 @@ describe("ToolGroup computer-use presentation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/ }));
     expect(screen.getByText("README.md")).toBeTruthy();
+  });
+
+  it("keeps the full settled output behind an explicit tool-row action", () => {
+    const output = Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n");
+    const view = render(<ToolGroup
+      tools={[{ id: "bash", name: "bash", args: { command: "verbose" }, status: "done", output, startedAt: 0, endedAt: 10 }]}
+      registry={registryWithBundledExtensions()}
+      activityStatus="completed"
+    />);
+
+    expect(screen.getByText("Completed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Ran 1 command/u }));
+    expect(view.container.querySelector(".tool-output")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 0");
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 39");
+  });
+
+  it("delegates clipped output to the deliberate full-output reader", async () => {
+    const tool: UiToolRun = {
+      id: "bash",
+      name: "bash",
+      args: { command: "verbose" },
+      status: "done",
+      output: "preview tail",
+      startedAt: 0,
+      endedAt: 10,
+    };
+    const readFullOutput = vi.fn().mockResolvedValue(undefined);
+    const fullOutput = Array.from({ length: 40 }, (_, index) => `line ${index} ${"x".repeat(1_024)}`).join("\n");
+    const view = render(<ToolGroup
+      tools={[{ ...tool, output: fullOutput }]}
+      registry={registryWithBundledExtensions()}
+      onCopyOutput={readFullOutput}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Ran 1 command/u }));
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    fireEvent.click(screen.getByRole("button", { name: /copy full output/u }));
+    await act(async () => undefined);
+    expect(readFullOutput).toHaveBeenCalledWith(expect.objectContaining({ id: "bash" }));
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 39");
+  });
+
+  it("shows the full-output action for a bridge preview clipped below the renderer limit", () => {
+    const readFullOutput = vi.fn();
+    render(<ToolGroup
+      tools={[{
+        id: "bridge-call",
+        name: "bash",
+        args: { command: "verbose" },
+        status: "done",
+        output: "preview tail",
+        outputTruncated: true,
+        fullOutputAvailable: true,
+        startedAt: 0,
+        endedAt: 10,
+      }]}
+      registry={registryWithBundledExtensions()}
+      onCopyOutput={readFullOutput}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Ran 1 command/u }));
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    expect(screen.getByRole("button", { name: /copy full output/u })).toBeTruthy();
+    expect(readFullOutput).not.toHaveBeenCalled();
+  });
+
+  it("keeps waiting, interrupted, and failed results distinct in collapsed summaries", () => {
+    const registry = registryWithBundledExtensions();
+    const { rerender } = render(<ToolGroup
+      tools={[{ id: "waiting", name: "read", args: { path: "question.ts" }, status: "running", startedAt: 0 }]}
+      registry={registry}
+      streaming
+      waiting
+    />);
+    expect(screen.getByText("Waiting for your answer")).toBeTruthy();
+    expect(screen.getByText("waiting for you")).toBeTruthy();
+
+    rerender(<ToolGroup
+      tools={[{ id: "interrupted", name: "read", args: { path: "stopped.ts" }, status: "running", startedAt: 0 }]}
+      registry={registry}
+      streaming={false}
+      activityStatus="interrupted"
+    />);
+    expect(screen.getByText("Interrupted")).toBeTruthy();
+    expect(screen.getByText("interrupted")).toBeTruthy();
+
+    rerender(<ToolGroup
+      tools={[{ id: "failed", name: "read", args: { path: "failed.ts" }, status: "error", startedAt: 0, endedAt: 1 }]}
+      registry={registry}
+      activityStatus="error"
+    />);
+    expect(screen.getByText("1 failed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Used 1 tool/u }));
+    expect(screen.getByText("failed.ts")).toBeTruthy();
   });
 });

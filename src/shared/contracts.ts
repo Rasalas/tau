@@ -1,4 +1,13 @@
 import type { HostActionResult } from "./host-protocol.js";
+import type { TranscriptBundle } from "./transcript-contract.js";
+import type { HostTranscriptCursor } from "./transcript-cursor.js";
+
+declare const newThreadRequestIdBrand: unique symbol;
+/** Opaque identity for one new-thread request across renderer, host, and bridge. */
+export type NewThreadRequestId = string & { readonly [newThreadRequestIdBrand]: true };
+export function createNewThreadRequestId(value: string): NewThreadRequestId {
+  return value as NewThreadRequestId;
+}
 
 export type UiRole = "user" | "assistant" | "notice";
 
@@ -8,12 +17,47 @@ export interface UiMessageImage {
   data: string;
 }
 
+/** Skill dialect selected by the runtime adapter, never inferred from a model id. */
+export type SkillInvocationDialect = "pi" | "claude-code";
+
+/** The owner of a thread's lifecycle and transcript. This is not a model provider. */
+export type ThreadBackendKind = "pi" | "claude-code";
+
+/** Capabilities supplied by the runtime owner at the host/adapter boundary. */
+export interface RuntimeCapabilities {
+  skillInvocationDialect: SkillInvocationDialect;
+}
+
+/** Host-resolved metadata for a user skill invocation. */
+export interface UiSkillInvocation {
+  name: string;
+  /** Runtime-adapter-supported command spelling, without the user instruction. */
+  command: string;
+  /** Compact text safe to copy back into this runtime. */
+  copyText: string;
+}
+
+/**
+ * Correlates one renderer submission with the user message Pi eventually
+ * writes. Pi may expand a skill or prompt template before that message is
+ * emitted, so the correlation must not depend on the submitted text.
+ */
+export interface ClientTurnIdentity {
+  clientTurnId: string;
+  clientMessageId: string;
+}
+
 export interface UiMessage {
   id: string;
   /** Persisted Pi session entry used for exact branch/fork operations. */
   sourceEntryId?: string;
+  /** Stable renderer-to-runtime correlation id for this user turn. */
+  clientTurnId?: string;
+  clientMessageId?: string;
   role: UiRole;
   text: string;
+  /** Present only when the host recognized a known skill invocation. */
+  skill?: UiSkillInvocation;
   thinking?: string;
   images?: readonly UiMessageImage[];
   timestamp: number;
@@ -59,6 +103,10 @@ export interface UiToolRun {
   args: Record<string, unknown>;
   status: "running" | "done" | "error";
   output?: string;
+  /** The visible output is a preview of a durable result. */
+  outputTruncated?: boolean;
+  /** A deliberate host read can retrieve the complete durable result. */
+  fullOutputAvailable?: boolean;
   startedAt: number;
   endedAt?: number;
 }
@@ -75,6 +123,37 @@ export interface UiComposerCommand {
   description?: string;
   argumentHint?: string;
   source: "extension" | "prompt" | "skill";
+  /** Host/runtime-resolved command spelling for a selectable skill. */
+  skillCommand?: string;
+}
+
+/** Structured renderer-to-host skill selection; no runtime wrapper crosses IPC. */
+export interface UiSkillDraft {
+  /** The composer can submit only a catalogued skill, never an extension/prompt command. */
+  source: "skill";
+  name: string;
+  visibleText: string;
+  /** Already resolved by the selected runtime adapter; the renderer never derives it. */
+  command: string;
+}
+
+/** Opaque host-prepared prompt data returned before an optimistic render. */
+export interface PreparedPrompt {
+  /** Canonical Tau thread owner. Undefined means a new thread. */
+  tauThreadId?: string;
+  /** Provider-owned session id, when the selected backend has one. */
+  providerSessionId?: string;
+  /** @deprecated v1 wire alias for the Tau thread id; never a provider id. */
+  sessionId?: string;
+  backendKind: ThreadBackendKind;
+  runtimeCapabilities: RuntimeCapabilities;
+  /** Text safe to render in the timeline; line whitespace is preserved. */
+  visibleText: string;
+  /** Runtime-owned text. Renderer passes this back as an opaque value. */
+  runtimeText: string;
+  skill?: UiSkillInvocation;
+  /** Prevents a prepared result from being replayed for another input. */
+  sourceFingerprint: string;
 }
 
 export interface UiSession {
@@ -86,6 +165,8 @@ export interface UiSession {
   projectName: string;
   branch?: string;
   messageCount: number;
+  /** Lifecycle owner; older index entries default to Pi. */
+  backendKind?: ThreadBackendKind;
 }
 
 export interface UiProject {
@@ -185,17 +266,59 @@ export interface UiChangedFile {
   status: ChangeStatus;
   added: number;
   removed: number;
+  /** Why a historical diff cannot be opened for this entry, when applicable. */
+  note?: string;
 }
+
+export type WorkspaceChangesCompleteness = "complete" | "partial";
 
 export interface UiWorkspaceChanges {
   branch?: string;
   /** Last refresh outcome; stale data may remain visible after a failed scan. */
   refreshStatus?: { state: "ready" | "refreshing" | "error"; message?: string };
   files: UiChangedFile[];
+  /** Optional total when `files` is only a bounded preview. */
+  fileCount?: number;
+  /** Partial means the snapshot backend could not inspect the complete workspace. */
+  completeness?: WorkspaceChangesCompleteness;
+  /** Human-readable bounded explanation for omitted or content-unavailable files. */
+  incompleteReason?: string;
+  /** Number of files known to be omitted from the snapshot scan. */
+  omittedFileCount?: number;
   added: number;
   removed: number;
   /** Derived from the changed paths — a starting point, not a generated message. */
   proposedMessage?: string;
+}
+
+/**
+ * Immutable workspace summary captured when one accepted user turn reaches its
+ * final assistant boundary. The id is generated once for that client turn and
+ * is reused as the durable identity after reload.
+ */
+export interface UiTurnCheckpoint extends UiWorkspaceChanges {
+  id: string;
+  turnId: string;
+  sessionId: string;
+  /** Persisted message-entry id used to place the card below the answer. */
+  anchorMessageId: string;
+  /** Immutable Git tree/ref captured immediately before this turn. */
+  beforeSnapshotId: string;
+  /** Immutable Git tree/ref captured when this turn settled. */
+  afterSnapshotId: string;
+  startedAt: number;
+  endedAt: number;
+}
+
+/** A lazy page of files belonging to one immutable turn snapshot pair. */
+export interface UiWorkspaceChangesPage extends UiWorkspaceChanges {
+  /** Total number of changed files across all pages. */
+  fileCount: number;
+  /** Cursor used to request this page. */
+  cursor?: string;
+  /** Cursor for the next page, when more files remain. */
+  nextCursor?: string;
+  hasMore: boolean;
 }
 
 export type DiffLineKind = "context" | "added" | "removed";
@@ -299,26 +422,55 @@ export interface ShellActionResult {
   truncated: boolean;
 }
 
+/** Result of a deliberate, bounded read of a persisted tool result. */
+export interface UiToolOutputReadResult {
+  toolCallId: string;
+  output: string;
+  totalBytes: number;
+  truncated: boolean;
+}
+
 export interface UiTurnActivity {
   tools: UiToolRun[];
   /** Last visible message rendered before the first tool call in this turn. */
   anchorMessageId?: string;
 }
 
-export interface HostSnapshot {
+/**
+ * Historical activity for one user turn.  The host keeps this separate from
+ * the live activity payload so a bounded transcript can render each turn at
+ * its own anchor without replaying the entire raw Pi branch in the renderer.
+ */
+export interface UiTurnActivityEntry extends UiTurnActivity {
+  /** Stable id derived from the owning turn and safe to use as a React key. */
+  id: string;
+  /** Result of the activity group as a whole, not just its newest tool call. */
+  status: "running" | "completed" | "interrupted" | "error";
+}
+
+export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
   cwd: string;
-  branch?: string;
+  /** Canonical Tau thread owner. `sessionId` remains for v1 renderer clients. */
+  threadId?: string;
+  /** Provider-owned runtime session id; it is not used for Tau indexing. */
+  providerSessionId?: string;
+  /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
+  branch?: string;
   sessionName?: string;
   sessionTitle: string;
   model?: UiModel;
+  /** Dialect supplied by the selected runtime adapter, never by model.provider. */
+  runtimeCapabilities?: RuntimeCapabilities;
+  backendKind?: ThreadBackendKind;
   models: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
-  messages: UiMessage[];
+  /** Cursor for the next page when this snapshot already contains a bounded window. */
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
+  turnCheckpoints?: UiTurnCheckpoint[];
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
   allTools: Array<{ name: string; description: string }>;
@@ -328,6 +480,19 @@ export interface HostSnapshot {
   serviceTier: ServiceTier;
   /** False when the active model's API has no priority tier to ask for. */
   serviceTierAvailable: boolean;
+  /** Whether the active host/runtime adapter accepts image prompt input. */
+  /** Optional for protocol-v1 compatibility; missing means unsupported. */
+  supportsImageInput?: boolean;
+  /** Whether completed turn checkpoints can safely restore this thread; missing means unsupported. */
+  supportsCheckpointRestore?: boolean;
+}
+
+/** Capability of the runtime prepared for a not-yet-created thread. */
+export interface PreparedThreadCapability {
+  cwd: string;
+  generation: number;
+  /** Optional for protocol-v1 compatibility; missing means unsupported. */
+  supportsImageInput?: boolean;
 }
 
 export interface ThreadIndexSnapshot {
@@ -335,23 +500,38 @@ export interface ThreadIndexSnapshot {
   sessions: UiSession[];
 }
 
+export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
+  /** Canonical Tau thread owner; sessionId remains the v1 wire alias. */
+  threadId?: string;
+  /** Provider-owned runtime session id, when available. */
+  providerSessionId?: string;
+  sessionId: string;
+  /** Runtime lifecycle owner; omitted by older peers. */
+  backendKind?: ThreadBackendKind;
+  isStreaming: boolean;
+  activeTools: string[];
+  turnActivity?: UiTurnActivity;
+  turnCheckpoints?: UiTurnCheckpoint[];
+  taskProgress?: UiTaskProgress;
+  taskHistory?: UiTaskProgressEntry[];
+  contextUsage?: UiContextUsage;
+  /** Older v1 clients may omit this derived flag. */
+  hasMore?: boolean;
+  /** Whether completed turn checkpoints can safely restore this thread; missing means unsupported. */
+  supportsCheckpointRestore?: boolean;
+}
+
 export interface HostBootstrap {
   threadIndex: ThreadIndexSnapshot;
   version: 1;
-  detail: {
-    sessionId: string;
-    messages: UiMessage[];
-    isStreaming: boolean;
-    activeTools: string[];
-    turnActivity?: UiTurnActivity;
-    taskProgress?: UiTaskProgress;
-    taskHistory?: UiTaskProgressEntry[];
-    contextUsage?: UiContextUsage;
-    olderCursor?: string;
-  };
+  detail: HostBootstrapDetail;
   catalog: {
+    sessionId?: string;
+    /** Lifecycle owner for the active thread; old bootstrap payloads omit it. */
+    backendKind?: ThreadBackendKind;
     models: UiModel[];
     model?: UiModel;
+    runtimeCapabilities?: RuntimeCapabilities;
     thinkingLevel: string;
     thinkingLevels: string[];
     serviceTier: ServiceTier;
@@ -359,14 +539,38 @@ export interface HostBootstrap {
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;
+    /** Optional for protocol-v1 compatibility; missing means unsupported. */
+    supportsImageInput?: boolean;
   };
   project: { cwd: string; branch?: string };
 }
 
-export type HostEvent =
+export type GlobalHostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
+  | { type: "error"; message: string; sessionId?: undefined }
+  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
+
+/** Events emitted by a runtime always carry the owning session explicitly. */
+export type ThreadHostEvent =
   | { type: "agent-status"; sessionId: string; running: boolean }
+  | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
+  | {
+      type: "turn-checkpoint-status";
+      sessionId: string;
+      turnId: string;
+      status: "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
+    }
+  /** Adds the persisted session-entry id to a row emitted optimistically at message_end. */
+  | {
+      type: "assistant-anchor";
+      sessionId: string;
+      id: string;
+      sourceEntryId: string;
+      timestamp: number;
+      /** Next transcript-visible row in branch order, when one is loaded. */
+      beforeMessageId?: string;
+    }
   // Every thread has its own runtime, so live events name the thread they belong
   // to; the renderer applies them only to the thread it is showing.
   | { type: "assistant-start"; sessionId: string; id: string; timestamp: number }
@@ -374,16 +578,24 @@ export type HostEvent =
   | { type: "assistant-thinking"; sessionId: string; id: string; delta: string }
   | { type: "assistant-end"; sessionId: string; message: UiMessage }
   | { type: "user-message"; sessionId: string; message: UiMessage }
+  | { type: "user-message-failed"; sessionId: string; clientMessageId: string; message: string }
   | { type: "tool-start"; sessionId: string; tool: UiToolRun }
   | { type: "tool-update"; sessionId: string; id: string; output: string }
   | { type: "tool-end"; sessionId: string; tool: UiToolRun }
   | { type: "queue"; sessionId: string; steering: string[]; followUp: string[] }
-  | { type: "tool-approval"; request: ToolApprovalRequest }
-  | { type: "extension-ui-prompt"; prompt: ExtensionUiPrompt }
-  | { type: "extension-ui-resolved"; id: string }
-  | { type: "notice"; message: string; level: "info" | "warning" | "error" }
-  | { type: "error"; message: string }
-  | { type: "event-log"; label: string; detail?: string; timestamp: number };
+  | { type: "tool-approval"; sessionId: string; request: ToolApprovalRequest }
+  | { type: "extension-ui-prompt"; sessionId: string; prompt: ExtensionUiPrompt }
+  | { type: "extension-ui-resolved"; id: string; sessionId: string }
+  | { type: "notice"; message: string; level: "info" | "warning" | "error"; sessionId: string }
+  | { type: "error"; message: string; sessionId: string }
+  | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId: string };
+
+export type HostEvent = GlobalHostEvent | ThreadHostEvent;
+
+/** The single result shape used by host, scoped composer store, and renderer. */
+export type SubmissionResult =
+  | { accepted: true }
+  | { accepted: false; message: string };
 
 /** A desktop extension compiled by the host, ready for the renderer to import. */
 export interface DesktopExtensionBundle {
@@ -419,16 +631,23 @@ export interface TauDesktopApi {
   /** Host platform, so the title bar can leave room for native window controls. */
   readonly platform: string;
   bootstrap(): Promise<HostBootstrap>;
-  loadTranscript(sessionId: string, cursor?: string): Promise<import("./host-protocol.js").TranscriptPage>;
+  loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<import("./host-protocol.js").TranscriptPage>;
+  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt>;
   /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
-  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
-  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
-  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string): Promise<void>;
+  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
+  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
+  getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  /** Ref and workspace integrity check used before showing Restore. */
+  canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
+  /** Exact live-workspace delta that restoring a checkpoint would replace. */
+  getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
+  restoreCheckpoint(sessionId: string, checkpointId: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
   setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;
@@ -449,6 +668,8 @@ export interface TauDesktopApi {
   cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
   renameThread(title: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   copyText(text: string): Promise<void>;
+  /** Reads the persisted tool result, rather than the bounded transcript preview. */
+  readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   generateThreadTitle(provider: string, modelId: string, force?: boolean, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
@@ -456,6 +677,10 @@ export interface TauDesktopApi {
   getChanges(): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   readFile(path: string): Promise<UiFileContent>;
+  /** Loads the immutable diff captured for one completed turn. */
+  getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** Loads one bounded page of files from an immutable turn snapshot pair. */
+  getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
   getWorkspaceInfo(): Promise<WorkspaceInfo>;

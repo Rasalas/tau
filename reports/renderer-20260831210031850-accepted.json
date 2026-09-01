@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted",
+  "seriesId": "renderer-20260831210031850",
+  "order": [
+    "base",
+    "current"
+  ],
+  "subjectCommit": "6ddb4541b02410fa8c462dca4b9bb3b9969d5756",
+  "startConditions": {
+    "build": "npm run build",
+    "mode": "production renderer",
+    "viewport": "1440x900",
+    "throttle": "none",
+    "warmupRuns": 2,
+    "sampleRuns": 5
+  },
+  "scenarioIds": [
+    "markdown-code-stream-150kb",
+    "markdown-plain-stream-150kb",
+    "tool-output-1mb",
+    "transcript-1000-turns",
+    "diff-2mb",
+    "thread-shells-10000",
+    "workspace-files-10000",
+    "picker-catalog-10000",
+    "long-user-message"
+  ],
+  "loadPolicy": {
+    "maxLoadAverage1mFactor": 2,
+    "minimumMaxLoadAverage1m": 4,
+    "measuredBeforeEachSide": true,
+    "invalidatePairSymmetrically": true
+  },
+  "retryPolicy": "never",
+  "cherryPickPolicy": "never",
+  "archiveFile": "reports/renderer-20260831210031850.jsonl",
+  "reports": {
+    "base": {
+      "path": "reports/renderer-20260831210031850-base.json",
+      "sha256": "ab6f4217dd52c64d50b7a518d3098cda176c975ee04b47f7eeaf529299f45319"
+    },
+    "current": {
+      "path": "reports/renderer-20260831210031850-current.json",
+      "sha256": "760070d01a36728d4e9de6782ff0ffb74b4ef1866c53d8fb8b5376253848c8b1"
+    }
+  },
+  "failure": "Command failed: node scripts/verify-renderer-pair.mjs /path/to/tau-worktrees/thread-view-improvements/issue-07/reports/renderer-20260831210031850.json",
+  "archiveSha256": "f0012a4aa03abcf50e2ffc78db8e17f4a2596fc9a498a1cb3651f9e6268554ae",
+  "finalizedFrom": "reports/renderer-20260831210031850.json",
+  "finalization": "path-normalization-only"
+}

@@ -1,8 +1,9 @@
 import type { ThreadDetail } from "./host-protocol.js";
 
 /**
- * Session detail cache. Entries are deliberately whole-record values; callers
- * replace one session without invalidating records for other sessions.
+ * Thread detail cache. Entries are deliberately whole-record values; callers
+ * replace one thread without invalidating records for other threads. The key is
+ * the persisted runtime session ID because that is the host's stable identity.
  */
 export class ThreadDetailStore {
   private readonly entries = new Map<string, ThreadDetail>();

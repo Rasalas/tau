@@ -1,25 +1,51 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
 import { DiffView } from "./components/DiffView";
 import { Message } from "./components/Message";
 import { ToolGroup } from "./components/ToolGroup";
+import { TranscriptViewport } from "./components/TranscriptViewport";
+import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
+import { TranscriptMessageIndex } from "../shared/transcript-index";
 
 interface BenchmarkResult {
+  ready: true;
+  scenario: string;
   frameIntervalsMs: number[];
   longTasksMs: number[];
+  startupLongTasksMs: number[];
   longTaskObserverSupported: boolean;
-  commitDurationsMs: number[];
+  profilerMountCaptured: boolean;
+  mountDurationsMs: number[];
+  updateDurationsMs: number[];
   commits: number;
   domNodes: number;
   heapBytes?: number;
+  payloadBytes?: number;
+  longMessageInteraction?: { mode: "expand" | "prop-update"; expanded: boolean; contentBytes: number };
 }
 
 declare global {
   interface Window { __TAU_RENDERER_BENCHMARK__?: BenchmarkResult; }
 }
+
+const longTaskCapture = (() => {
+  const entries: Array<{ startTime: number; duration: number }> = [];
+  if (typeof PerformanceObserver === "undefined") return { entries, supported: false, observer: undefined };
+  try {
+    const observer = new PerformanceObserver((entryList) => {
+      entryList.getEntries().forEach((entry) => entries.push({ startTime: entry.startTime, duration: entry.duration }));
+    });
+    // This module is loaded before the benchmark component mounts, so mount
+    // work is observed consistently instead of being lost in useEffect setup.
+    observer.observe({ type: "longtask", buffered: true });
+    return { entries, supported: true, observer };
+  } catch {
+    return { entries, supported: false, observer: undefined };
+  }
+})();
 
 function codeChunk(index: number): string {
   return Array.from({ length: 48 }, (_, line) => `const value${index}_${line} = ${line}; // streamed benchmark line\n`).join("");
@@ -38,45 +64,175 @@ function makeTranscript(turns: number): UiMessage[] {
   }));
 }
 
-function makeDiff(): UiFileDiff {
-  const lines = Array.from({ length: 10_000 }, (_, index) => ({
-    kind: index % 3 === 0 ? "added" as const : index % 3 === 1 ? "removed" as const : "context" as const,
-    oldLine: index % 3 === 0 ? undefined : index + 1,
-    newLine: index % 3 === 1 ? undefined : index + 1,
-    text: `benchmark diff line ${index}`,
-  }));
-  return { path: "benchmark.ts", added: 3_334, removed: 3_333, hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }], truncated: true, nextHunkOffset: 1 };
+function StreamingTranscriptScenario({
+  activities,
+  onTick,
+}: {
+  activities: readonly TranscriptActivity[];
+  onTick(tick: number): void;
+}) {
+  const indexRef = useRef<TranscriptMessageIndex | undefined>(undefined);
+  if (!indexRef.current) indexRef.current = new TranscriptMessageIndex(makeTranscript(1_000));
+  const activeMessageId = "turn-999";
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let tick = 0;
+    let stopped = false;
+    const update = () => {
+      if (stopped) return;
+      const delta = `\nstreaming delta ${tick}`;
+      indexRef.current!.update(activeMessageId, (message) => ({ ...message, text: message.text + delta }));
+      onTick(tick);
+      tick += 1;
+      if (tick < 36) requestAnimationFrame(update);
+    };
+    requestAnimationFrame(update);
+    return () => { stopped = true; };
+  }, [onTick]);
+
+  const messages = indexRef.current.messages;
+  const anchor = messages[8];
+  return <TranscriptViewport
+    messages={messages}
+    scrollRef={scrollRef}
+    sessionId="renderer-benchmark"
+    revision={indexRef.current.revision}
+    lookupRevision={indexRef.current.lookupRevision}
+    turnStart={anchor ? {
+      turnId: "benchmark-streaming-turn",
+      sessionId: "renderer-benchmark",
+      messageId: anchor.id,
+      text: anchor.text,
+      timestamp: anchor.timestamp,
+    } : undefined}
+    isStreaming
+    activities={activities}
+    liveStatus={<div className="live-status">Streaming current turn</div>}
+  />;
+}
+
+function makeDiff(targetBytes: number): UiFileDiff {
+  const lines: UiFileDiff["hunks"][number]["lines"] = [];
+  const payload = () => ({
+    path: "benchmark.ts",
+    added: lines.filter((line) => line.kind === "added").length,
+    removed: lines.filter((line) => line.kind === "removed").length,
+    hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }],
+    truncated: true,
+    nextHunkOffset: 1,
+  });
+  const lineBytes = Math.max(180, Math.ceil(targetBytes / 1_000));
+  for (let index = 0; index < 1_000; index += 1) {
+    const text = `benchmark diff line ${index} ${"x".repeat(lineBytes)}`;
+    lines.push({
+      kind: index % 3 === 0 ? "added" : index % 3 === 1 ? "removed" : "context",
+      oldLine: index % 3 === 0 ? undefined : index + 1,
+      newLine: index % 3 === 1 ? undefined : index + 1,
+      text,
+    });
+  }
+  return payload();
+}
+
+function makeLongUserMessage(bytes: number, revision: number): UiMessage {
+  return { id: "benchmark-long-user-message", role: "user", text: `${"x".repeat(bytes)}${revision}`, timestamp: revision };
 }
 
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
-  const targetBytes = scenario === "tool-output-1mb" ? 1_048_576 : 153_600;
+  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number };
+  const targetBytes = scenarioConfig.bytes ?? 0;
   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
   const [toolOutput, setToolOutput] = useState("");
+  const [streamingTick, setStreamingTick] = useState(0);
   const [listQuery, setListQuery] = useState("");
-  const commits = useRef<number[]>([]);
+  const mountDurations = useRef<number[]>([]);
+  const updateDurations = useRef<number[]>([]);
+  const mountStartedAt = useRef(performance.now());
+  const updateStartedAt = useRef<number | undefined>(undefined);
+  const interactionStartedAt = useRef<number | undefined>(undefined);
+  const profilerReportedMount = useRef(false);
+  const profilerReportedUpdate = useRef(false);
   const frames = useRef<number[]>([]);
-  const longTasks = useRef<number[]>([]);
+  const [benchmarkPulse, setBenchmarkPulse] = useState(0);
+  const [longUserRevision, setLongUserRevision] = useState(0);
+  const payloadBytes = useRef(0);
+  const longMessageInteraction = useRef<BenchmarkResult["longMessageInteraction"]>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
-  const transcript = useMemo(() => scenario === "transcript-1000-turns" ? makeTranscript(1_000) : [], [scenario]);
+  const transcript = useMemo(() => (
+    scenario === "transcript-1000-turns"
+      || scenario === "transcript-legacy-comparison-1000-turns"
+      || scenario === "transcript-viewport-anchored-1000-turns"
+      || scenario === "transcript-viewport-streaming-1000-turns"
+      ? makeTranscript(1_000)
+      : []
+  ), [scenario]);
+  const transcriptTurn = transcript[8];
+  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => scenario === "transcript-legacy-comparison-1000-turns"
+    || scenario === "transcript-viewport-anchored-1000-turns"
+    || scenario === "transcript-viewport-streaming-1000-turns"
+    ? transcript.slice(0, 128).map((message, index) => ({
+      id: `benchmark-activity-${index}`,
+      afterMessageId: message.id,
+      content: <span>Activity {index}</span>,
+    }))
+    : [], [scenario, transcript]);
   const listItems = useMemo(
-    () => scenario.endsWith("-10000") ? Array.from({ length: 10_000 }, (_, index) => `Benchmark item ${index}`) : [],
-    [scenario],
+    () => scenario.endsWith("-10000") ? Array.from({ length: scenarioConfig.items ?? 0 }, (_, index) => `Benchmark item ${index}`) : [],
+    [scenario, scenarioConfig.items],
   );
   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
-  const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff() : undefined, [scenario]);
+  const diff = useMemo(() => {
+    if (scenario !== "diff-2mb") return undefined;
+    const value = makeDiff(targetBytes);
+    payloadBytes.current = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    return value;
+  }, [scenario, targetBytes]);
+  const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage(targetBytes, longUserRevision) : undefined, [scenario, targetBytes, longUserRevision]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
+  const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
+    if (phase === "mount") {
+      profilerReportedMount.current = true;
+      mountDurations.current.push(actualDuration);
+    } else if (actualDuration > 0) {
+      profilerReportedUpdate.current = true;
+      updateDurations.current.push(actualDuration);
+    }
+  };
   // Fixture construction is setup, not renderer commit work. Start timing only
   // after the scenario-specific input exists, matching production data flow.
-  const updateStartedAt = useRef(performance.now());
+  const onStreamingTick = useCallback((tick: number) => {
+    updateStartedAt.current = performance.now();
+    setStreamingTick(tick);
+  }, []);
 
   useLayoutEffect(() => {
-    commits.current.push(performance.now() - updateStartedAt.current);
-  }, [listQuery, text, toolOutput]);
+    if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
+    const duration = performance.now() - updateStartedAt.current;
+    if (duration > 0) updateDurations.current.push(duration);
+  }, [listQuery, streamingTick, text, toolOutput]);
 
   useEffect(() => {
+    // Production React may omit Profiler callbacks. Keep the same commit
+    // boundary in that mode while retaining the Profiler instrumentation.
+    if (!profilerReportedMount.current && mountDurations.current.length === 0) {
+      mountDurations.current.push(performance.now() - mountStartedAt.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
+    const duration = performance.now() - updateStartedAt.current;
+    if (duration > 0) updateDurations.current.push(duration);
+  }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
+
+  useEffect(() => {
+    // Mark the interaction before any scheduled task can execute. This keeps
+    // the first scenario update out of startup Long Task measurements.
+    interactionStartedAt.current = performance.now();
     let frame = 0;
     let previous = performance.now();
     let stopped = false;
@@ -86,35 +242,33 @@ export default function RendererBenchmark() {
       if (!stopped) requestAnimationFrame(observeFrame);
     };
     requestAnimationFrame(observeFrame);
-    let longTaskObserverSupported = typeof PerformanceObserver !== "undefined";
-    let observer: PerformanceObserver | undefined;
-    try {
-      observer = new PerformanceObserver((entries) => {
-        entries.getEntries().forEach((entry) => longTasks.current.push(entry.duration));
-      });
-      observer.observe({ type: "longtask", buffered: true });
-    } catch {
-      longTaskObserverSupported = false;
-      observer?.disconnect();
-      observer = undefined;
-    }
-
     const finish = () => {
       let settleFrames = 0;
       const settle = () => {
         settleFrames += 1;
         if (settleFrames < 8) { requestAnimationFrame(settle); return; }
         stopped = true;
-        observer?.disconnect();
+        longTaskCapture.observer?.disconnect();
         const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
         window.__TAU_RENDERER_BENCHMARK__ = {
+          ready: true,
+          scenario,
           frameIntervalsMs: frames.current.slice(2),
-          longTasksMs: longTasks.current,
-          longTaskObserverSupported,
-          commitDurationsMs: commits.current,
-          commits: commits.current.length,
+        longTasksMs: longTaskCapture.entries
+          .filter((entry) => interactionStartedAt.current !== undefined && entry.startTime >= interactionStartedAt.current)
+          .map((entry) => entry.duration),
+        startupLongTasksMs: longTaskCapture.entries
+          .filter((entry) => interactionStartedAt.current === undefined || entry.startTime < interactionStartedAt.current)
+          .map((entry) => entry.duration),
+          longTaskObserverSupported: longTaskCapture.supported,
+          profilerMountCaptured: mountDurations.current.length > 0,
+          mountDurationsMs: mountDurations.current,
+          updateDurationsMs: updateDurations.current,
+          commits: updateDurations.current.length,
           domNodes: document.getElementsByTagName("*").length,
           heapBytes: memory.memory?.usedJSHeapSize,
+          payloadBytes: payloadBytes.current || undefined,
+          longMessageInteraction: longMessageInteraction.current,
         };
       };
       requestAnimationFrame(settle);
@@ -125,6 +279,7 @@ export default function RendererBenchmark() {
         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
         frame += 1;
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setText((current) => {
           const remaining = targetBytes - current.length;
           return remaining > 0 ? current + chunk.slice(0, remaining) : current;
@@ -137,6 +292,7 @@ export default function RendererBenchmark() {
       const chunk = "tool output benchmark line\n".repeat(640);
       const append = () => {
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setToolOutput((current) => current + chunk.slice(0, targetBytes - current.length));
         frame += 1;
         if (frame * chunk.length < targetBytes) requestAnimationFrame(append);
@@ -149,14 +305,58 @@ export default function RendererBenchmark() {
         const query = queries.shift();
         if (query === undefined) { finish(); return; }
         updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
         setListQuery(query);
         requestAnimationFrame(update);
       };
       requestAnimationFrame(update);
+    } else if (scenario === "long-user-message") {
+      interactionStartedAt.current = performance.now();
+      requestAnimationFrame(() => {
+        updateStartedAt.current = performance.now();
+        setLongUserRevision((revision) => revision + 1);
+        requestAnimationFrame(() => {
+          const button = document.querySelector<HTMLButtonElement>(".message-expand");
+          if (!button) {
+            const content = document.querySelector<HTMLElement>(".message-text-content") ?? document.body;
+            longMessageInteraction.current = {
+              mode: "prop-update",
+              expanded: false,
+              contentBytes: new TextEncoder().encode(content.textContent ?? "").byteLength,
+            };
+            finish();
+            return;
+          }
+          updateStartedAt.current = performance.now();
+          button.click();
+          requestAnimationFrame(() => {
+            const content = document.querySelector<HTMLElement>(".message-text-content");
+            longMessageInteraction.current = {
+              mode: "expand",
+              expanded: button.getAttribute("aria-expanded") === "true",
+              contentBytes: new TextEncoder().encode(content?.textContent ?? "").byteLength,
+            };
+            finish();
+          });
+        });
+      });
+    } else if (scenario === "transcript-viewport-streaming-1000-turns") {
+      let settleFrames = 0;
+      const waitForStreaming = () => {
+        settleFrames += 1;
+        if (settleFrames < 48) requestAnimationFrame(waitForStreaming);
+        else finish();
+      };
+      requestAnimationFrame(waitForStreaming);
     } else {
-      requestAnimationFrame(finish);
+      requestAnimationFrame(() => {
+        updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
+        setBenchmarkPulse((pulse) => pulse + 1);
+        finish();
+      });
     }
-    return () => { stopped = true; observer?.disconnect(); };
+    return () => { stopped = true; longTaskCapture.observer?.disconnect(); };
   }, [scenario, targetBytes]);
 
   let content;
@@ -169,6 +369,34 @@ export default function RendererBenchmark() {
     content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
       <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />
     </div></div>;
+  } else if (scenario === "transcript-legacy-comparison-1000-turns") {
+    content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
+      <VirtualTranscript
+        messages={transcript}
+        scrollRef={scrollRef}
+        isStreaming={false}
+        activities={transcriptActivities}
+        activeTurnStartId={transcriptTurn?.id}
+      />
+    </div></div>;
+  } else if (scenario === "transcript-viewport-anchored-1000-turns") {
+    content = <TranscriptViewport
+      messages={transcript}
+      scrollRef={scrollRef}
+      sessionId="renderer-benchmark"
+      turnStart={transcriptTurn ? {
+        turnId: "benchmark-turn",
+        sessionId: "renderer-benchmark",
+        messageId: transcriptTurn.id,
+        text: transcriptTurn.text,
+        timestamp: transcriptTurn.timestamp,
+      } : undefined}
+      isStreaming={false}
+      activities={transcriptActivities}
+      liveStatus={<div className="live-status">Current turn activity</div>}
+    />;
+  } else if (scenario === "transcript-viewport-streaming-1000-turns") {
+    content = <StreamingTranscriptScenario activities={transcriptActivities} onTick={onStreamingTick} />;
   } else if (scenario.endsWith("-10000")) {
     content = <VirtualList
       items={filteredListItems}
@@ -177,9 +405,11 @@ export default function RendererBenchmark() {
       className="benchmark-large-list"
       renderItem={(item) => <div key={item} className="benchmark-list-row">{item}</div>}
     />;
+  } else if (scenario === "long-user-message") {
+    content = <Message message={longUserMessage!} />;
   } else {
     content = <DiffView diff={diff!} mode="unified" />;
   }
 
-  return <main className="renderer-benchmark">{content}</main>;
+  return <main className="renderer-benchmark"><Profiler id={scenario} onRender={onRender}>{content}</Profiler></main>;
 }

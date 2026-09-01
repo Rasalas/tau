@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "6ddb4541b02410fa8c462dca4b9bb3b9969d5756",
+  "component": "VirtualTranscript",
+  "fixture": {
+    "id": "transcript-legacy-comparison-1000-turns",
+    "turns": 1000,
+    "anchorTurn": 8,
+    "activities": 128,
+    "dataSha256": "2fbcf2f4c19bed4e22a3c9919e4d5a999c93f683e22c8b039073fe266774f3ec"
+  },
+  "startConditions": {
+    "build": "npm run build",
+    "mode": "production renderer",
+    "viewport": "1440x900",
+    "throttle": "none",
+    "warmupRuns": 2,
+    "sampleRuns": 5
+  },
+  "harness": {
+    "patch": "reports/renderer-transcript-legacy-baseline.patch",
+    "patchSha256": "18db74026f965371e85bca488bafa456ddfc10307c24022da21aedbb1964c98d",
+    "sourceSha256": "e2da2498932f4aacc3906806a80b464d2177a347bfda960fd7d6774c410d0b9f"
+  },
+  "buildArtifactSha256": "0ef2329205347d6e8ec9ca7defd62859331cc6753f679c8533a3488e22145fb2",
+  "rendererReport": "reports/renderer-transcript-legacy-baseline-report.json",
+  "rendererReportSha256": "488f9a6eea057ed529e1a754c546f8578e8678b4afff6a9ac00082f772f78019",
+  "metrics": {
+    "frameIntervalsMs": { "median": 16.7, "p95": 18.2, "maximum": 18.7 },
+    "commitDurationsMs": { "median": 21.7, "p95": 23.9, "maximum": 23.9 },
+    "domNodes": 137,
+    "heapBytes": { "median": 8740247, "p95": 8762015, "maximum": 8762015 },
+    "longTaskObserverSupported": true,
+    "longTasksMs": { "count": 0, "median": 0, "p95": 0, "maximum": 0 }
+  }
+}

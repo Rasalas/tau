@@ -37,4 +37,35 @@ describe("ChangedFiles", () => {
     expect(view.container.querySelector(".changed-files-preview")).toBeNull();
     expect(view.container.querySelector(".changed-files-list")).not.toBeNull();
   });
+
+  it("renders a card when coverage is partial even with no listed files", () => {
+    const view = render(<ChangedFiles
+      changes={{
+        files: [],
+        fileCount: 0,
+        added: 0,
+        removed: 0,
+        completeness: "partial",
+        incompleteReason: "Snapshot coverage is partial: file-count limit.",
+        omittedFileCount: 4,
+      }}
+      onOpenDiff={vi.fn()}
+    />);
+
+    expect(view.container.querySelector(".transcript-card")).not.toBeNull();
+    expect(view.getByText(/file-count limit/)).toBeTruthy();
+    expect(view.getByText(/4 files omitted/)).toBeTruthy();
+  });
+
+  it("keeps a verified no-change checkpoint actionable for restore", () => {
+    const onRestore = vi.fn();
+    const view = render(<ChangedFiles
+      changes={{ files: [], fileCount: 0, added: 0, removed: 0 }}
+      onOpenDiff={vi.fn()}
+      onRestore={onRestore}
+    />);
+
+    fireEvent.click(view.getByText("Restore"));
+    expect(onRestore).toHaveBeenCalledOnce();
+  });
 });

@@ -239,6 +239,16 @@ Protocol version 1 rejects malformed or unknown update types at the preload boun
 - model and extension catalog updates
 - project and Git metadata updates
 
+The Pi socket bridge also negotiates transcript paging explicitly inside wire
+version 1. A host advertises `transcriptPaging` in `hello`; only a bridge that
+echoes the capability may receive `transcript_page`. The legacy path keeps the
+pre-paging snapshot contract for older hosts, while the paged path bounds both
+the initial user-turn window and the activity history transported with each
+page. The host preserves an explicit history-completeness state: `complete`,
+`has-more`, or `unknown`. A capped legacy window is rendered as limited when
+its availability cannot be determined; it is never labelled as the beginning
+of history. Unsupported commands return an explicit error.
+
 Switching threads does not relist every session or model. Branch lookups, model availability, session indexes, and Git state have independent caches and invalidation rules.
 
 ### Extension interface
@@ -256,6 +266,7 @@ Initial local targets:
 - local host switch confirmed within 150 ms at p95
 - one transcript commit per animation frame while streaming
 - 150 KB plain-text and fenced-code streams below 24 ms frame p95 after initial block parsing
+- renderer mount work below 24 ms mount p95, with the transcript setup exception documented below
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
 - unchanged sidebar rows do not rerender when another row changes
@@ -311,7 +322,25 @@ The report schema includes each asset's uncompressed and gzip size and classifie
 
 ### Renderer and host budget evidence
 
-`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. The current development-machine report (`reports/renderer-report.json`) records 17.4–17.6 ms frame p95 across 150 KB highlighted and plain Markdown streams, 1 MB tool output, 1,000 transcript turns, a large diff, and 10,000-item thread, workspace, and picker fixtures. Streaming and interactive commit p95 stays below 24 ms; the one-time 1,000-turn mount has an explicit 40 ms budget and measured 20.9 ms. The Long Task observer was available and observed no long task, and the largest DOM count was 1,717 nodes.
+`npm run benchmark:renderer:check` runs a hidden production Electron renderer with warm-up and five samples per scenario. Long-task collection starts before the benchmark component mounts, and mount timing is recorded separately from update-pulse timing, so the report preserves both the initial render and steady-state work. Startup long tasks remain separately recorded as `startupLongTasksMs`; only tasks beginning at the first scenario interaction are evaluated against the steady-state long-task budget. Using the same fixture on 2026-08-31, the current side of pair series `renderer-20260831210031850` (`reports/renderer-20260831210031850-current.json`, generated at `2026-08-31T21:01:42.636Z`, subject `d218cc9c91bb05758ea230fda85866629cf910ab`) records the following `median / p95 / max` timings in milliseconds. The machine class is Apple `Mac16,10`, Apple M4, 16 GiB RAM, 10 logical cores, arm64; no user or host name is recorded. Electron `36.9.5` reported an active Apple M4 ANGLE Metal adapter with GPU compositing enabled; the complete feature status and adapter response are retained in the JSON. The built artifact SHA-256 is `91582f0cc378fac3568ff2e4dabb23a6708c1271c2378386844d4b1f9506ff4f`. On Linux, the same report fields are populated from Node's CPU and memory APIs.
+
+| scenario | frame | mount | update | long task | DOM |
+| --- | ---: | ---: | ---: | ---: |
+| markdown code stream (150 KB) | 16.7 / 17.4 / 17.8 | 9.3 / 10.0 / 10.0 | 3.6 / 5.8 / 8.0 | 0.0 / 0.0 / 0.0 | 38 |
+| markdown plain stream (150 KB) | 16.7 / 17.0 / 17.7 | 1.1 / 1.2 / 1.2 | 3.7 / 7.1 / 12.6 | 0.0 / 0.0 / 0.0 | 1,718 |
+| tool output (1 MB) | 16.7 / 17.6 / 17.7 | 8.2 / 9.1 / 9.1 | 1.4 / 2.6 / 7.5 | 0.0 / 0.0 / 0.0 | 29 |
+| transcript (1,000 turns) | 16.7 / 17.5 / 17.6 | 22.9 / 24.0 / 24.0 | 1.3 / 1.5 / 1.5 | 0.0 / 0.0 / 0.0 | 136 |
+| diff (2 MB) | 16.7 / 17.6 / 17.7 | 22.4 / 23.7 / 23.7 | 1.1 / 3.0 / 3.0 | 0.0 / 0.0 / 0.0 | 168 |
+| thread shells (10,000) | 16.7 / 17.6 / 17.6 | 5.8 / 8.2 / 8.2 | 1.1 / 2.4 / 2.5 | 0.0 / 0.0 / 0.0 | 38 |
+| workspace files (10,000) | 16.7 / 17.6 / 17.6 | 5.6 / 5.8 / 5.8 | 1.2 / 2.0 / 2.8 | 0.0 / 0.0 / 0.0 | 38 |
+| picker catalog (10,000) | 16.7 / 17.6 / 17.7 | 5.8 / 6.7 / 6.7 | 1.3 / 1.7 / 1.7 | 0.0 / 0.0 / 0.0 | 38 |
+| long user message (12 KB) | 16.7 / 17.5 / 17.6 | 16.4 / 18.7 / 18.7 | 1.1 / 9.3 / 9.3 | 0.0 / 0.0 / 0.0 | 23 |
+
+The five accepted samples per scenario are independent Electron runs; p95 uses the declared nearest-rank aggregation and every raw sample is retained in each report. The current run exercises the production expand button (`interactionModes: ["expand"]`), while the unchanged Base production component uses the neutral prop-update adapter (`interactionModes: ["prop-update"]`). This is intentionally an old-versus-new product comparison with one unchanged workload and harness, not a Base worktree patched with Issue-07 UI code. The pair archive also retains every warmup in execution order with a run ID, start timestamp, and load metadata.
+
+For a reproducible before/after comparison, commit `6ddb454` was detached into a temporary worktree, built with the same production command, and measured before Current in pair series `renderer-20260831210031850` with the same nine-scenario workload and current neutral harness on this same machine class. The accepted pair manifest is `reports/renderer-20260831210031850-accepted.json`; its append-only raw archive is `reports/renderer-20260831210031850.jsonl`, and the Base/Current reports are `reports/renderer-20260831210031850-base.json` and `reports/renderer-20260831210031850-current.json`. The evidence includes subject commit, harness commit `d218cc9c91bb05758ea230fda85866629cf910ab`, source and patch SHA-256 fingerprints (patch `c71da37080ffab6b40a9e716b7a84a7dc0b8eae7fb45668ac81b77589042b2fb`), the exact harness file list and per-file hashes, reproducibility script, fixture, build mode, machine metadata, Electron/GPU response, and every warmup/sample's order, run ID, start timestamp, and load metadata. The patch contains only neutral benchmark files, so Base runs its original production components while Current runs the new production components against the same workload. The pair manifest enforces Base→Current order, one symmetric load-contamination rule, and machine-checked `retryPolicy: never` / `cherryPickPolicy: never`; a failed load check invalidates the whole pair rather than repeating one side. The 1,000-turn transcript's one-time mount has the explicit 40 ms p95 setup exception; its update p95 remains on the strict 24 ms gate, and long-user-message has no relaxed budget. Both artifacts record the relative Electron executable, default GPU mode, sequential (non-parallel) scenario load, and the caveat that a failed fixture sanity check never writes an accepted report. The valid production fixture rejects missing readiness markers, wrong scenario IDs, implausible DOM counts, insufficient commits, insufficient frames, missing Profiler/fallback mount or update measurements, absent verified GPU metadata, and payloads that do not meet their configured byte size before a report is written. Startup and interaction Long Task distributions are retained separately.
+
+The anchored transcript comparison is also retained in `reports/renderer-transcript-comparison-aggregate.json`. It records three complete sequential runs per side for the deterministic 1,000-turn fixture with anchor turn 8, 128 activities, and 36 streaming deltas. The report includes the baseline and current subjects, harness and build hashes, machine metadata, all raw runs, and an executable reproduction recipe that creates detached worktrees with `git -C`, applies the neutral baseline patch, and names all six raw reports. The legacy comparison reports frame `16.7 / 18.5 / 18.6` to `16.7 / 17.7 / 17.7` ms, commit `26.0 / 35.3 / 35.3` to `24.3 / 64.4 / 64.4` ms, and DOM `137` to `108`; the anchored and streaming scenarios remain separate evidence. These are local development-machine measurements, not capacity guarantees.
 
 `npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. Branch resolution no longer blocks first content: against the same local fixture, Full Mode bootstrap fell from 2,350.7 ms to 1,601.7 ms, while the current Safe Mode bootstrap is 87.3 ms. CI rejects a critical-path branch phase and requires its duration to remain visible as background work. Full Mode cold switching now prepares a fresh isolated runtime before activation and defers retirement until after the focused response; the complete-run measurement fell from 2,175.8 ms to 1,630.4 ms without skipping Extension startup or shutdown hooks. The current report records Safe Mode warm-switch p95 at 85.9 ms and Full Mode warm-switch p95 at 19.7 ms. Full Mode prewarming took 430–1,173 ms and deferred extension retirement took 190–902 ms during the complete release run. Those extension-owned costs remain reported rather than being skipped or moved back into the interactive switch path. A focused `PI_TIMING=1` run attributed 1,404 ms of cold startup to configured Extension module imports and factories. A three-process Node compile-cache experiment measured resource phases of 1,494 ms, 1,530 ms, and 1,501 ms, so Tau does not enable that cache: it produced no repeatable improvement. Parallel imports were rejected because changing top-level Extension execution order would violate Extension ownership and can change behavior.
 

@@ -1,6 +1,6 @@
 import { ChevronRight, Hammer, Square } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
-import type { UiToolRun } from "../../shared/contracts";
+import type { UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
 
@@ -14,6 +14,7 @@ const ToolRun = memo(function ToolRun({
   waiting,
   stalled,
   onStop,
+  onCopyOutput,
 }: {
   tool: UiToolRun;
   registry: ExtensionRegistry;
@@ -23,10 +24,16 @@ const ToolRun = memo(function ToolRun({
   stalled?: boolean;
   /** Stops a live tool's run, or closes a stalled call so the thread works again. */
   onStop?(): void;
+  /** Reads the unbounded result through the host when a preview is clipped. */
+  onCopyOutput?(tool: UiToolRun): Promise<void> | void;
 }) {
   const running = tool.status === "running" && !stalled;
-  // A running tool shows its live tail without needing a click.
-  const [collapsed, setCollapsed] = useState(false);
+  // A running tool shows its live tail without needing a click. Settled output
+  // is deliberately hidden until the row itself is opened.
+  const [outputOpen, setOutputOpen] = useState(running);
+  useEffect(() => {
+    setOutputOpen(running);
+  }, [running]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!running) return;
@@ -38,9 +45,22 @@ const ToolRun = memo(function ToolRun({
   const liveLines = running ? bounded.text.split("\n") : [];
   const liveOutputClipped = running && liveLines.length > 5;
   const visibleOutput = liveOutputClipped ? liveLines.slice(-5).join("\n") : bounded.text;
-  const showOutput = view.output !== "hidden" && Boolean(visibleOutput) && (running ? !collapsed : collapsed);
-  const copyFullOutput = () => {
-    if (tool.output) void navigator.clipboard?.writeText(tool.output);
+  const outputNeedsFullRead = tool.fullOutputAvailable === true
+    || tool.outputTruncated === true
+    || bounded.truncated
+    || liveOutputClipped;
+  const showOutput = view.output !== "hidden" && Boolean(visibleOutput) && outputOpen;
+  const [copying, setCopying] = useState(false);
+  const copyFullOutput = async () => {
+    if (copying) return;
+    setCopying(true);
+    try {
+      // A preview is never a safe fallback: only the host seam can retrieve
+      // the persisted result behind this deliberate action.
+      if (onCopyOutput) await onCopyOutput(tool);
+    } finally {
+      setCopying(false);
+    }
   };
   // A call that is still open — live, waiting on you, or left behind by a dead
   // turn — offers one way out, on hover, right where it sits.
@@ -49,7 +69,12 @@ const ToolRun = memo(function ToolRun({
 
   return (
     <div className={`tool-run tone-${view.tone}${running ? " running" : ""}${stoppable ? " stoppable" : ""}`}>
-      <button className="tool-run-line" onClick={() => setCollapsed((value) => !value)}>
+      <button
+        type="button"
+        className="tool-run-line"
+        aria-expanded={showOutput}
+        onClick={() => setOutputOpen((value) => !value)}
+      >
         <span className="tool-run-glyph">{view.glyph}</span>
         <span className="tool-run-name">{view.title}</span>
         <span className="tool-run-detail" title={view.detail}>{view.detail}</span>
@@ -78,9 +103,9 @@ const ToolRun = memo(function ToolRun({
       ) : null}
       {showOutput ? (
         <pre className="tool-output">
-          {bounded.truncated || liveOutputClipped ? (
-            <button className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); copyFullOutput(); }}>
-              … earlier output hidden · copy full output
+          {outputNeedsFullRead ? (
+            <button type="button" className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); void copyFullOutput(); }}>
+              {copying ? "… loading full output" : "… earlier output hidden · copy full output"}
             </button>
           ) : null}
           {visibleOutput}
@@ -116,7 +141,7 @@ function useToolPreview(tools: UiToolRun[], keepLatest: boolean): UiToolRun | un
 
     const currentRunning = tools.some((tool) => tool.id === currentId && tool.status === "running");
     const successor = nextCandidate?.id !== currentId ? nextCandidate : undefined;
-    if (!successor && currentRunning) return;
+    if (!successor && (currentRunning || keepLatest)) return;
 
     const remaining = TOOL_PREVIEW_MIN_MS - (Date.now() - shownAtRef.current);
     if (remaining <= 0) {
@@ -151,8 +176,10 @@ export function ToolGroup({
   registry,
   streaming,
   waiting,
+  activityStatus,
   onRecover,
   onStop,
+  onCopyOutput,
 }: {
   tools: UiToolRun[];
   registry: ExtensionRegistry;
@@ -160,10 +187,14 @@ export function ToolGroup({
   streaming?: boolean;
   /** This thread has an open question, so its running tool is waiting on you. */
   waiting?: boolean;
+  /** Durable result for a historical group; live groups derive it from props. */
+  activityStatus?: UiTurnActivityEntry["status"];
   /** Closes tool calls left dangling by a turn that died, so the thread works again. */
   onRecover?(): void;
   /** Stops the run this thread has in flight. */
   onStop?(): void;
+  /** Reads a complete tool result through the host instead of copying its preview. */
+  onCopyOutput?(tool: UiToolRun): Promise<void> | void;
 }) {
   // Only claim interruption when the caller actually knows no run is in flight;
   // an unknown streaming state must not turn live tools into "interrupted".
@@ -179,9 +210,19 @@ export function ToolGroup({
     ? "Waiting for your answer"
     : stalled && live > 0
       ? `${live} tool ${live === 1 ? "call" : "calls"} interrupted`
-      : streaming
-        ? `Working · ${activity.replace(/^Using /u, "")}`
-        : activity;
+        : streaming
+          ? `Working · ${activity.replace(/^Using /u, "")}`
+          : activity;
+  const resultStatus: UiTurnActivityEntry["status"] = activityStatus
+    ?? (waiting && live > 0
+      ? "running"
+      : stalled && live > 0
+        ? "interrupted"
+        : streaming || live > 0
+          ? "running"
+          : tools.some((tool) => tool.status === "error")
+            ? "error"
+            : "completed");
   const visibleTools = previewTool
     ? [previewTool]
     : live > 0
@@ -198,6 +239,17 @@ export function ToolGroup({
       >
         {(live > 0 || streaming) && !stalled ? <span className="spinner acid small" /> : <Hammer size={16} strokeWidth={1.7} />}
         <span>{summary}</span>
+        {!waiting && resultStatus !== "running" ? (
+          <span
+            className={`tool-activity-result ${resultStatus}`}
+            role="status"
+            aria-label={resultStatus === "error" ? "Activity failed" : resultStatus === "interrupted" ? "Activity interrupted" : "Activity completed"}
+          >
+            {resultStatus === "error"
+              ? `${tools.filter((tool) => tool.status === "error").length || 1} failed`
+              : resultStatus === "interrupted" ? "Interrupted" : "Completed"}
+          </span>
+        ) : null}
         <ChevronRight className="activity-chevron" size={14} />
       </button>
       {expanded ? (
@@ -210,6 +262,7 @@ export function ToolGroup({
               waiting={tool.status === "running" && Boolean(waiting)}
               stalled={tool.status === "running" && stalled}
               onStop={stalled ? onRecover : onStop}
+              onCopyOutput={onCopyOutput}
             />
           ))}
         </div>

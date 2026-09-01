@@ -52,23 +52,6 @@ export function clearCachedTurnActivity(storage: Storage, sessionId: string): vo
   }
 }
 
-function fileEqual(left: UiChangedFile | undefined, right: UiChangedFile): boolean {
-  return Boolean(left
-    && left.status === right.status
-    && left.added === right.added
-    && left.removed === right.removed);
-}
-
-function turnStats(before: UiChangedFile | undefined, after: UiChangedFile): { added: number; removed: number } {
-  if (!before) return { added: after.added, removed: after.removed };
-  const addedDelta = after.added - before.added;
-  const removedDelta = after.removed - before.removed;
-  return {
-    added: Math.max(0, addedDelta) + Math.max(0, -removedDelta),
-    removed: Math.max(0, removedDelta) + Math.max(0, -addedDelta),
-  };
-}
-
 /** Net worktree changes made after an agent run began. */
 function pathFromTool(tool: UiToolRun): string | undefined {
   if (!/^(?:edit|write)$/u.test(tool.name)) return undefined;
@@ -94,8 +77,15 @@ export function changesSinceTurn(
   const beforeByPath = new Map(baseline.files.map((file) => [file.path, file]));
   const files = current.files.flatMap((file) => {
     const before = beforeByPath.get(file.path);
-    if (fileEqual(before, file)) return [];
-    return [{ ...file, ...turnStats(before, file) }];
+    if (before && before.status === file.status && before.added === file.added && before.removed === file.removed) return [];
+    if (!before) return [{ ...file }];
+    const addedDelta = file.added - before.added;
+    const removedDelta = file.removed - before.removed;
+    return [{
+      ...file,
+      added: Math.max(0, addedDelta) + Math.max(0, -removedDelta),
+      removed: Math.max(0, removedDelta) + Math.max(0, -addedDelta),
+    }];
   });
   return {
     branch: current.branch,

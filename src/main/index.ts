@@ -5,8 +5,10 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } fr
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { AccessLevel, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
+import type { AccessLevel, ClientTurnIdentity, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { PiHost } from "./pi-host.js";
+import { selectRuntimeAdapter } from "./runtime-adapters.js";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
@@ -17,6 +19,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
+const runtimeAdapter = selectRuntimeAdapter(undefined, { safeMode });
 const execFileAsync = promisify(execFile);
 
 async function rendererImagePreview(path: string) {
@@ -119,7 +122,7 @@ async function requireHostReady(): Promise<PiHost> {
 function installIpc(): void {
   ipcMain.handle("tau:bootstrap", async () => {
     if (!host) {
-      host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode);
+      host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, { runtimeAdapter });
       host.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
       hostReady = host.start();
       return hostReady;
@@ -127,17 +130,23 @@ function installIpc(): void {
     await hostReady;
     return host.bootstrap();
   });
-  ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: string) => (await requireHostReady()).loadTranscript(sessionId, cursor));
-  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).prompt(text, attachments, sessionId));
+  ipcMain.handle("tau:transcript-page", async (_event, sessionId: string, cursor?: HostTranscriptCursor) => (await requireHostReady()).loadTranscript(sessionId, cursor));
+  ipcMain.handle("tau:prepare-prompt", async (_event, text: string, sessionId?: string, skill?: import("../shared/contracts.js").UiSkillDraft) => (await requireHostReady()).preparePrompt(text, sessionId, skill));
+  ipcMain.handle("tau:prompt", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: import("../shared/contracts.js").PreparedPrompt) => (await requireHostReady()).prompt(text, attachments, sessionId, clientMessageIdOrIdentity, prepared));
   ipcMain.handle("tau:run-shell-action", async (_event, command: string, includeInContext?: boolean, expectedCwd?: string) => (await requireHostReady()).runShellAction(command, includeInContext, expectedCwd));
-  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).steer(text, attachments, sessionId));
-  ipcMain.handle("tau:follow-up", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string) => (await requireHostReady()).followUp(text, attachments, sessionId));
+  ipcMain.handle("tau:steer", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: import("../shared/contracts.js").PreparedPrompt) => (await requireHostReady()).steer(text, attachments, sessionId, clientMessageIdOrIdentity, prepared));
+  ipcMain.handle("tau:follow-up", async (_event, text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: import("../shared/contracts.js").PreparedPrompt) => (await requireHostReady()).followUp(text, attachments, sessionId, clientMessageIdOrIdentity, prepared));
   // Stopping must not queue behind host readiness: a thread stuck on a question
   // is exactly what the user is trying to get out of.
   ipcMain.handle("tau:abort", async (_event, sessionId?: string) => host?.abort(sessionId));
-  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string) =>
-    (await requireHostReady()).newSession(initialPrompt, attachments, cwd));
+  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: import("../shared/contracts.js").PreparedPrompt) =>
+    (await requireHostReady()).newSession(initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared));
+  ipcMain.handle("tau:prepared-thread-capability", async (_event, cwd?: string) =>
+    (await requireHostReady()).getPreparedThreadCapability(cwd));
   ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));
+  ipcMain.handle("tau:can-restore-checkpoint", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).canRestoreCheckpoint(sessionId, checkpointId));
+  ipcMain.handle("tau:restore-preview", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).getRestorePreview(sessionId, checkpointId));
+  ipcMain.handle("tau:restore-checkpoint", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).restoreCheckpoint(sessionId, checkpointId));
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));
   ipcMain.handle("tau:set-thinking", async (_event, level: string) => (await requireHostReady()).setThinkingLevel(level));
@@ -153,6 +162,7 @@ function installIpc(): void {
   ipcMain.handle("tau:recover-thread", async () => (await requireHostReady()).recoverThread());
   ipcMain.handle("tau:rename-thread", async (_event, title: string, expectedSessionId?: string) => (await requireHostReady()).renameThread(title, expectedSessionId));
   ipcMain.handle("tau:copy-text", (_event, text: string) => clipboard.writeText(text));
+  ipcMain.handle("tau:read-tool-output", async (_event, sessionId: string, toolCallId: string) => (await requireHostReady()).readToolOutput(sessionId, toolCallId));
   ipcMain.handle("tau:copy-thread-markdown", async (_event, expectedSessionId?: string) => {
     clipboard.writeText(await (await requireHostReady()).exportThreadMarkdown(expectedSessionId));
   });
@@ -162,6 +172,10 @@ function installIpc(): void {
   ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());
   ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));
   ipcMain.handle("tau:read-file", async (_event, path: string) => (await requireHostReady()).readFile(path));
+  ipcMain.handle("tau:turn-file-diff", async (_event, sessionId: string, checkpointId: string, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) =>
+    (await requireHostReady()).getTurnFileDiff(sessionId, checkpointId, path, options));
+  ipcMain.handle("tau:turn-files", async (_event, sessionId: string, checkpointId: string, cursor?: string, limit?: number) =>
+    (await requireHostReady()).getTurnFiles(sessionId, checkpointId, cursor, limit));
   ipcMain.handle("tau:commit", async (_event, message: string, push: boolean) => (await requireHostReady()).commit(message, push));
   ipcMain.handle("tau:push", async () => (await requireHostReady()).push());
   ipcMain.handle("tau:workspace-info", async () => (await requireHostReady()).getWorkspaceInfo());
@@ -214,7 +228,7 @@ app.whenReady().then(async () => {
   await projectHistory.load();
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
-  host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode);
+  host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, { runtimeAdapter });
   hostReady = host.start();
   installIpc();
   await createWindow();

@@ -7,13 +7,13 @@ function registry(maxLive = 3) {
   const disposed: string[] = [];
   const reg = new ThreadRuntimeRegistry<Fake>({
     maxLive,
-    dispose: async (record) => { disposed.push(record.sessionId); },
+    dispose: async (record) => { disposed.push(record.threadId); },
   });
   return { reg, disposed };
 }
 
-const record = (sessionId: string) => ({
-  sessionId, cwd: `/w/${sessionId}`, runtime: { name: sessionId }, isolation: "in-process" as const,
+const record = (threadId: string) => ({
+  threadId, cwd: `/w/${threadId}`, runtime: { name: threadId }, isolation: "in-process" as const,
 });
 
 describe("thread runtime registry", () => {
@@ -98,8 +98,8 @@ describe("thread runtime registry", () => {
     const busy = new Set(["a"]);
     const reg = new ThreadRuntimeRegistry<Fake>({
       maxLive: 1,
-      dispose: async (record) => { disposed.push(record.sessionId); },
-      canEvict: (record) => !busy.has(record.sessionId),
+      dispose: async (record) => { disposed.push(record.threadId); },
+      canEvict: (record) => !busy.has(record.threadId),
     });
     await reg.adopt(record("a"));
     await reg.adopt(record("b"));

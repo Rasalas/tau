@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
   encodePiBridgeFrame,
+  PI_BRIDGE_CLIENT_CAPABILITIES,
   isPiBridgeDescriptor,
   PI_BRIDGE_MAX_FRAME_BYTES,
   PI_BRIDGE_PROTOCOL_VERSION,
@@ -118,6 +119,7 @@ export class PiBridgeClient {
         epoch: this.descriptor.epoch,
         token: this.descriptor.token,
         expectedSessionId: this.descriptor.sessionId,
+        capabilities: PI_BRIDGE_CLIENT_CAPABILITIES,
       }));
     });
     this.snapshot = ready;

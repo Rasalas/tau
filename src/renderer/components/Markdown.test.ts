@@ -4,6 +4,7 @@ import {
   clearHighlightCache,
   highlightCacheSize,
   highlightedCode,
+  isInlineMarkdown,
   loadHighlightLanguage,
 } from "./Markdown";
 
@@ -18,5 +19,16 @@ describe("streaming markdown cache", () => {
       highlightedCode(`const value = ${index}`, "typescript");
     }
     expect(highlightCacheSize()).toBe(HIGHLIGHT_CACHE_LIMIT);
+  });
+
+  it("keeps GFM tables and indented code as block Markdown beside a skill chip", () => {
+    expect(isInlineMarkdown("| name | value |\n| --- | --- |\n| tdd | ready |\n"))
+      .toBe(false);
+    expect(isInlineMarkdown("| skill |\n| --- |\n| tdd |\n"))
+      .toBe(false);
+    expect(isInlineMarkdown("Review **the parser**"))
+      .toBe(true);
+    expect(isInlineMarkdown("Review this:\n    preserve code"))
+      .toBe(false);
   });
 });
