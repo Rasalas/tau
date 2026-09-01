@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DiffLoadOptions, HostEvent, TauDesktopApi } from "../shared/contracts.js";
+import type { DiffLoadOptions, HostEvent, TauDesktopApi, WorkspaceChangesQuery } from "../shared/contracts.js";
 import { isHostUpdate } from "../shared/host-protocol.js";
 
 const api: TauDesktopApi = {
@@ -41,8 +41,12 @@ const api: TauDesktopApi = {
   removeProject: (path) => ipcRenderer.invoke("tau:remove-project", path),
   cloneProject: (repositoryUrl) => ipcRenderer.invoke("tau:clone-project", repositoryUrl),
   getFileTree: (path) => ipcRenderer.invoke("tau:file-tree", path),
-  getChanges: () => ipcRenderer.invoke("tau:changes"),
+  getChanges: (query?: WorkspaceChangesQuery) => ipcRenderer.invoke("tau:changes", query),
   getFileDiff: (path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:file-diff", path, options),
+  stageFile: (path) => ipcRenderer.invoke("tau:stage-file", path),
+  unstageFile: (path) => ipcRenderer.invoke("tau:unstage-file", path),
+  stageAll: () => ipcRenderer.invoke("tau:stage-all"),
+  revertFile: (path) => ipcRenderer.invoke("tau:revert-file", path),
   readFile: (path) => ipcRenderer.invoke("tau:read-file", path),
   getTurnFileDiff: (sessionId, checkpointId, path, options?: DiffLoadOptions) => ipcRenderer.invoke("tau:turn-file-diff", sessionId, checkpointId, path, options),
   getTurnFiles: (sessionId, checkpointId, cursor, limit) => ipcRenderer.invoke("tau:turn-files", sessionId, checkpointId, cursor, limit),

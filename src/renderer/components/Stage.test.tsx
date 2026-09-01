@@ -111,6 +111,10 @@ function changesValue(overrides: Partial<ChangesContextValue> = {}): ChangesCont
     refreshChanges: async () => undefined,
     openReview: () => undefined,
     openDiff: () => undefined,
+    stageFile: async () => undefined,
+    unstageFile: async () => undefined,
+    stageAll: async () => undefined,
+    revertFile: async () => undefined,
     commit: async () => undefined,
     ...overrides,
   };
@@ -119,22 +123,25 @@ function changesValue(overrides: Partial<ChangesContextValue> = {}): ChangesCont
 describe("ChangesPanel", () => {
   it("opens a changed file as a diff and commits the edited message", () => {
     const openDiff = vi.fn();
+    const stageAll = vi.fn(async () => undefined);
     const commit = vi.fn(async () => undefined);
     render(
-      <ChangesContext.Provider value={changesValue({ openDiff, commit, canPush: true })}>
+      <ChangesContext.Provider value={changesValue({ openDiff, stageAll, commit, canPush: true })}>
         <ChangesPanel active extensionName="Review Kit" />
       </ChangesContext.Provider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /a\.ts/u }));
+    fireEvent.click(screen.getByTitle("src/a.ts"));
     expect(openDiff).toHaveBeenCalledWith("src/a.ts");
+    fireEvent.click(screen.getByRole("button", { name: "Stage all" }));
+    expect(stageAll).toHaveBeenCalled();
 
     const message = screen.getByPlaceholderText("Commit message");
     expect(message).toHaveProperty("value", "Update a");
     fireEvent.change(message, { target: { value: "feat: a" } });
-    fireEvent.click(screen.getByRole("button", { name: "Commit & push" }));
+    fireEvent.click(screen.getByRole("button", { name: "Commit all & push" }));
     expect(commit).toHaveBeenCalledWith("feat: a", true);
-    fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Commit all" }));
     expect(commit).toHaveBeenCalledWith("feat: a", false);
   });
 
@@ -145,8 +152,8 @@ describe("ChangesPanel", () => {
       </ChangesContext.Provider>,
     );
 
-    expect(screen.getByRole("button", { name: /a\.ts/u }).className).toContain("active");
-    expect(screen.getByRole("button", { name: "Commit & push" }).className).toContain("primary");
+    expect(screen.getByTitle("src/a.ts").parentElement?.className).toContain("active");
+    expect(screen.getByRole("button", { name: "Commit all & push" }).className).toContain("primary");
   });
 });
 

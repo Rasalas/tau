@@ -1494,15 +1494,12 @@ export default function App() {
   const openDiff = useCallback((relativePath: string) => {
     if (snapshot?.cwd) openFile(`${snapshot.cwd}/${relativePath}`, { view: "diff" });
   }, [openFile, snapshot?.cwd]);
-  // Review = the Changes panel for the list and commit plus the diff as a stage tab.
   const openReview = useCallback((path?: string, pushPrimary = Boolean(workspace?.upstream)) => {
     void refreshChanges();
     setCommitPushPrimary(pushPrimary);
-    setCommitFocusToken((token) => token + 1);
-    openPanel("changes");
     const target = path ?? changes.files[0]?.path;
-    if (target) openDiff(target);
-  }, [changes.files, openDiff, openPanel, refreshChanges, workspace?.upstream]);
+    setReview({ path: target, primaryPush: pushPrimary });
+  }, [changes.files, refreshChanges, workspace?.upstream]);
   const loadFile = useCallback(async (path: string): Promise<UiFileContent> => window.tau
     ? window.tau.readFile(path)
     : { path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require the Electron host." }, []);
@@ -1810,6 +1807,30 @@ export default function App() {
       setCommitting(false);
     }
   }, [addEvent, refreshWorkspace, requireHost]);
+
+  const stageFile = useCallback(async (path: string) => {
+    if (!requireHost("Staging changes")) return;
+    try { setChanges(await window.tau!.stageFile(path)); }
+    catch (error) { setNotice(errorMessage(error)); }
+  }, [requireHost]);
+
+  const unstageFile = useCallback(async (path: string) => {
+    if (!requireHost("Unstaging changes")) return;
+    try { setChanges(await window.tau!.unstageFile(path)); }
+    catch (error) { setNotice(errorMessage(error)); }
+  }, [requireHost]);
+
+  const stageAll = useCallback(async () => {
+    if (!requireHost("Staging changes")) return;
+    try { setChanges(await window.tau!.stageAll()); }
+    catch (error) { setNotice(errorMessage(error)); }
+  }, [requireHost]);
+
+  const revertFile = useCallback(async (path: string) => {
+    if (!requireHost("Reverting changes")) return;
+    try { setChanges(await window.tau!.revertFile(path)); }
+    catch (error) { setNotice(errorMessage(error)); }
+  }, [requireHost]);
 
   const pushWorkspace = useCallback(async () => {
     if (!requireHost("Pushing")) return;
@@ -2449,8 +2470,8 @@ export default function App() {
   );
   const canPush = Boolean(workspace?.upstream);
   const changesContextValue = useMemo(
-    () => ({ changes, snapshot: panelProject, activePath: stageFilePath, committing, pushPrimary: commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, commit }),
-    [changes, panelProject, stageFilePath, committing, commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, commit],
+    () => ({ changes, snapshot: panelProject, activePath: stageFilePath, committing, pushPrimary: commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, stageFile, unstageFile, stageAll, revertFile, commit }),
+    [changes, panelProject, stageFilePath, committing, commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, stageFile, unstageFile, stageAll, revertFile, commit],
   );
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
   const reviewChanges = review?.checkpointId
@@ -2734,6 +2755,8 @@ export default function App() {
                         onOpenInEditor={(path) => void openInEditor(path)}
                         readOnly={Boolean(review.checkpointId)}
                         checkpointTitle={review.checkpointId ? "Turn changes" : undefined}
+                        workspaceKey={snapshot?.cwd}
+                        loadChanges={!review.checkpointId && window.tau ? (query) => window.tau!.getChanges(query) : undefined}
                         loadFiles={review.checkpointId && window.tau
                           ? (cursor, limit) => window.tau!.getTurnFiles(
                             review.sessionId ?? snapshot?.sessionId ?? "",

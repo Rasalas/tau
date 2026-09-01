@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Maximize2 } from "lucide-react";
 import type { FileNode } from "../../shared/contracts";
 import { VirtualList } from "../components/VirtualList";
 import { FileKindIcon } from "../components/FileKindIcon";
+import { ChangesTree } from "../components/ChangesTree";
 import type { PanelProps } from "../extension-system";
 import { useChanges, useFiles } from "../workbench-context";
 
@@ -97,7 +98,7 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
 }
 
 export function ChangesPanel({ active, extensionName }: PanelProps) {
-  const { changes, refreshChanges, openDiff, commit, committing, pushPrimary, canPush, activePath, commitFocusToken, snapshot } = useChanges();
+  const { changes, refreshChanges, openReview, openDiff, stageFile, unstageFile, stageAll, revertFile, commit, committing, pushPrimary, canPush, activePath, commitFocusToken, snapshot } = useChanges();
   useEffect(() => { if (active) void refreshChanges(); }, [active, refreshChanges, snapshot?.cwd]);
   const [message, setMessage] = useState(changes.proposedMessage ?? "");
   const [dirty, setDirty] = useState(false);
@@ -107,6 +108,8 @@ export function ChangesPanel({ active, extensionName }: PanelProps) {
   useEffect(() => { if (commitFocusToken > 0 && active) messageRef.current?.focus(); }, [active, commitFocusToken]);
 
   const canCommit = !committing && changes.files.length > 0 && message.trim().length > 0;
+  const stagedCount = changes.files.filter((file) => file.staged).length;
+  const allStaged = stagedCount === changes.files.length;
   const submit = (push: boolean) => { if (canCommit) void commit(message, push).then(() => setDirty(false)); };
   const leadPush = pushPrimary && canPush;
   const activeRelative = activePath && snapshot?.cwd && activePath.startsWith(`${snapshot.cwd}/`) ? activePath.slice(snapshot.cwd.length + 1) : undefined;
@@ -117,10 +120,12 @@ export function ChangesPanel({ active, extensionName }: PanelProps) {
       <small>{changes.branch ?? extensionName.toLowerCase()}</small>
       <span className="spacer" />
       {changes.refreshStatus?.state === "error" ? <small title={changes.refreshStatus.message}>stale · refresh failed</small> : null}
+      <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><Maximize2 size={14} /></button>
       <button className="text-button" onClick={() => void refreshChanges()}>rescan</button>
     </header>
     {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : <>
       <div className="commit-box">
+        <div className="commit-selection"><small>{stagedCount}/{changes.files.length} staged</small>{!allStaged ? <button className="text-button" disabled={committing} onClick={() => void stageAll()}>Stage all</button> : <span>All staged</span>}</div>
         <textarea
           ref={messageRef}
           placeholder="Commit message"
@@ -131,27 +136,17 @@ export function ChangesPanel({ active, extensionName }: PanelProps) {
         />
         <div className="commit-actions">
           <button className={leadPush ? "" : "primary"} disabled={!canCommit} onClick={() => submit(false)}>
-            {committing && !leadPush ? "Working…" : "Commit"}
+            {committing && !leadPush ? "Working…" : stagedCount ? "Commit staged" : "Commit all"}
           </button>
           {canPush ? (
             <button className={leadPush ? "primary" : ""} disabled={!canCommit} onClick={() => submit(true)}>
-              {committing && leadPush ? "Working…" : "Commit & push"}
+              {committing && leadPush ? "Working…" : stagedCount ? "Commit staged & push" : "Commit all & push"}
             </button>
           ) : null}
-          <small>{changes.files.length} {changes.files.length === 1 ? "file" : "files"} · <span className="stat-add">+{changes.added}</span> <span className="stat-del">−{changes.removed}</span></small>
+          <small><span className="stat-add">+{changes.added}</span> <span className="stat-del">−{changes.removed}</span></small>
         </div>
       </div>
-      <VirtualList
-        items={changes.files}
-        itemHeight={43}
-        className="review-files"
-        renderItem={(file) => <button className={`review-file ${file.path === activeRelative ? "active" : ""}`} key={file.path} onClick={() => openDiff(file.path)}>
-          <i>{file.status.charAt(0).toUpperCase()}</i>
-          <span className="meta"><strong>{file.name}</strong><small>{file.directory || "."}</small></span>
-          <span className="stat-add">+{file.added}</span>
-          <span className="stat-del">−{file.removed}</span>
-        </button>}
-      />
+      <ChangesTree key={snapshot?.cwd} files={changes.files} activePath={activeRelative} onOpen={openDiff} onStage={stageFile} onUnstage={unstageFile} onRevert={revertFile} />
     </>}
   </section>;
 }

@@ -4,7 +4,7 @@ import type { DiffLoadOptions } from "./contracts.js";
 export function normalizeDiffLoadOptions(
   options: DiffLoadOptions | undefined,
   maxHunks: number,
-): Required<DiffLoadOptions> {
+): Required<Pick<DiffLoadOptions, "hunkOffset" | "hunkLimit">> {
   const offset = Number.isFinite(options?.hunkOffset) ? Math.max(0, Math.floor(options?.hunkOffset ?? 0)) : 0;
   const limit = Number.isFinite(options?.hunkLimit)
     ? Math.min(maxHunks, Math.max(1, Math.floor(options?.hunkLimit ?? maxHunks)))

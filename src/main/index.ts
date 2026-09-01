@@ -169,8 +169,12 @@ function installIpc(): void {
   ipcMain.handle("tau:read-image-preview", async (_event, path: string) => rendererImagePreview(path));
   ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean, expectedSessionId?: string) => (await requireHostReady()).generateThreadTitle(provider, modelId, force, expectedSessionId));
   ipcMain.handle("tau:file-tree", async (_event, path?: string) => (await requireHostReady()).getFileTree(path));
-  ipcMain.handle("tau:changes", async () => (await requireHostReady()).getChanges());
+  ipcMain.handle("tau:changes", async (_event, query?: import("../shared/contracts.js").WorkspaceChangesQuery) => (await requireHostReady()).getChanges(query));
   ipcMain.handle("tau:file-diff", async (_event, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) => (await requireHostReady()).getFileDiff(path, options));
+  ipcMain.handle("tau:stage-file", async (_event, path: string) => (await requireHostReady()).stageFile(path));
+  ipcMain.handle("tau:unstage-file", async (_event, path: string) => (await requireHostReady()).unstageFile(path));
+  ipcMain.handle("tau:stage-all", async () => (await requireHostReady()).stageAll());
+  ipcMain.handle("tau:revert-file", async (_event, path: string) => (await requireHostReady()).revertFile(path));
   ipcMain.handle("tau:read-file", async (_event, path: string) => (await requireHostReady()).readFile(path));
   ipcMain.handle("tau:turn-file-diff", async (_event, sessionId: string, checkpointId: string, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) =>
     (await requireHostReady()).getTurnFileDiff(sessionId, checkpointId, path, options));

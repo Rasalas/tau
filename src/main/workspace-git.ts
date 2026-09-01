@@ -18,6 +18,7 @@ import type {
   UiWorktree,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
+  WorkspaceChangesQuery,
   WorkspaceInfo,
 } from "../shared/contracts.js";
 import {
@@ -842,8 +843,10 @@ function describe(path: string): Pick<UiChangedFile, "name" | "directory"> {
  * `git status --porcelain -z` emits `XY path\0`, and for renames a second
  * `\0`-terminated field holding the original path.
  */
-function parseStatus(stdout: string): Map<string, ChangeStatus> {
-  const statuses = new Map<string, ChangeStatus>();
+interface ParsedStatus { status: ChangeStatus; staged: boolean }
+
+function parseStatus(stdout: string): Map<string, ParsedStatus> {
+  const statuses = new Map<string, ParsedStatus>();
   const tokens = stdout.split("\0");
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -851,7 +854,7 @@ function parseStatus(stdout: string): Map<string, ChangeStatus> {
     const code = token.slice(0, 2);
     const path = token.slice(3);
     if (!path) continue;
-    statuses.set(path, statusFromCode(code));
+    statuses.set(path, { status: statusFromCode(code), staged: code !== "??" && code[0] !== " " });
     if (code.includes("R") || code.includes("C")) index += 1;
   }
   return statuses;
@@ -1866,7 +1869,7 @@ export async function readProjectGitState(
     const statuses = parseStatus(statusOut);
     const counts = parseNumstat(numstatOut);
     const files: UiChangedFile[] = [];
-    const untracked = [...statuses].filter(([, status]) => status === "untracked");
+    const untracked = [...statuses].filter(([, value]) => value.status === "untracked");
     const stats = new Map<string, number>();
     const limit = 4;
     for (let index = 0; index < untracked.length; index += limit) {
@@ -1874,10 +1877,11 @@ export async function readProjectGitState(
         stats.set(path, await countUntrackedLines(cwd, path, options.untrackedStats));
       }));
     }
-    for (const [path, status] of statuses) {
+    for (const [path, value] of statuses) {
+      const { status, staged } = value;
       const counted = counts.get(path);
       const added = counted?.added ?? (status === "untracked" ? stats.get(path) ?? 0 : 0);
-      files.push({ path, ...describe(path), status, added, removed: counted?.removed ?? 0 });
+      files.push({ path, ...describe(path), status, added, removed: counted?.removed ?? 0, staged });
     }
     files.sort((left, right) => left.path.localeCompare(right.path));
     const changes: UiWorkspaceChanges = {
@@ -2105,8 +2109,12 @@ async function streamFilePatch(
 export async function getFileDiff(cwd: string, path: string, options: DiffLoadOptions = {}): Promise<UiFileDiff> {
   const empty = (note: string): UiFileDiff => ({ path, added: 0, removed: 0, hunks: [], note });
   try {
-    let streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", "-U3", "HEAD", "--", path], options);
+    const branchBase = options.scope === "branch"
+      ? options.baseCommit ? { ref: options.baseRef ?? options.baseCommit, mergeBase: options.baseCommit } : await resolveBranchBase(cwd, options.baseRef)
+      : undefined;
+    let streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", "-U3", branchBase?.mergeBase ?? "HEAD", ...(branchBase ? ["HEAD"] : []), "--", path], options);
     if (!streamed.patch.trim()) {
+      if (branchBase) return empty("No textual changes.");
       // Untracked files have no HEAD side; diff them against an empty tree.
       streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", "-U3", "--no-index", "--", "/dev/null", path], options, true);
     }
@@ -2125,6 +2133,65 @@ export async function getFileDiff(cwd: string, path: string, options: DiffLoadOp
     return result;
   } catch {
     return empty("Could not read this diff.");
+  }
+}
+
+async function resolveBranchBase(cwd: string, requested?: string, runGit: GitRunner = git): Promise<{ ref: string; mergeBase: string }> {
+  const remoteDefault = requested ? "" : (await runGit(cwd, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).catch(() => "")).trim();
+  const upstream = requested ? "" : (await runGit(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).catch(() => "")).trim();
+  const candidates = requested
+    ? [requested]
+    : [
+        remoteDefault,
+        "origin/main",
+        "main",
+        "origin/master",
+        "master",
+        "origin/develop",
+        "develop",
+        upstream,
+      ].filter(Boolean);
+  for (const candidate of candidates) {
+    const exists = await runGit(cwd, ["rev-parse", "--verify", "--quiet", candidate]).then(() => true).catch(() => false);
+    if (!exists) continue;
+    const mergeBase = (await runGit(cwd, ["merge-base", candidate, "HEAD"]).catch(() => "")).trim();
+    if (mergeBase) return { ref: candidate, mergeBase };
+  }
+  throw new Error("No branch comparison base is available.");
+}
+
+export async function getBranchChanges(
+  cwd: string,
+  query: WorkspaceChangesQuery = {},
+  runGit: GitRunner = git,
+): Promise<UiWorkspaceChanges> {
+  const branch = (await runGit(cwd, ["branch", "--show-current"]).catch(() => "")).trim() || undefined;
+  const base = await resolveBranchBase(cwd, query.baseRef, runGit);
+  const changes = await diffGitTrees(cwd, base.mergeBase, "HEAD", branch, runGit);
+  return { ...changes, scope: "branch", baseRef: base.ref, baseCommit: base.mergeBase };
+}
+
+export async function stageFile(cwd: string, path: string, runGit: GitRunner = git): Promise<void> {
+  await assertWorkspacePath(cwd, path);
+  await runGit(cwd, ["add", "--", path]);
+}
+
+export async function unstageFile(cwd: string, path: string, runGit: GitRunner = git): Promise<void> {
+  await assertWorkspacePath(cwd, path);
+  await runGit(cwd, ["restore", "--staged", "--", path]);
+}
+
+export async function stageAll(cwd: string, runGit: GitRunner = git): Promise<void> {
+  await runGit(cwd, ["add", "-A"]);
+}
+
+export async function revertFile(cwd: string, path: string, runGit: GitRunner = git): Promise<void> {
+  await assertWorkspacePath(cwd, path);
+  const tracked = await runGit(cwd, ["ls-files", "--error-unmatch", "--", path]).then(() => true).catch(() => false);
+  if (tracked) {
+    await runGit(cwd, ["restore", "--source=HEAD", "--staged", "--worktree", "--", path]);
+  } else {
+    await runGit(cwd, ["clean", "-fd", "--", path]);
   }
 }
 
@@ -2214,7 +2281,8 @@ export async function commit(
 ): Promise<CommitResult> {
   const subject = message.trim();
   if (!subject) throw new Error("A commit message is required.");
-  await git(cwd, ["add", "-A"]);
+  const staged = (await git(cwd, ["diff", "--cached", "--name-only"])).trim();
+  if (!staged) await git(cwd, ["add", "-A"]);
   await git(cwd, ["commit", "-m", subject]);
   const committed = (await git(cwd, ["rev-parse", "--short", "HEAD"])).trim();
   let pushed = false;

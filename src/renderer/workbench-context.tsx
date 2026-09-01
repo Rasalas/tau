@@ -59,6 +59,10 @@ export interface ChangesContextValue {
   openReview(path?: string): void;
   /** Repo-relative path → diff tab in the stage. */
   openDiff(path: string): void;
+  stageFile(path: string): Promise<void>;
+  unstageFile(path: string): Promise<void>;
+  stageAll(): Promise<void>;
+  revertFile(path: string): Promise<void>;
   commit(message: string, push: boolean): Promise<void>;
 }
 

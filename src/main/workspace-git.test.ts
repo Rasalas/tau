@@ -11,8 +11,10 @@ import {
   cleanupOrphanTurnCheckpointRefs,
   cleanupTurnCheckpointRefs,
   cloneTurnCheckpointRefs,
+  commit as commitWorkspace,
   diffWorkspaceSnapshots,
   diffWorkspaceSnapshotPage,
+  getBranchChanges,
   getFileDiff,
   getSnapshotFileDiff,
   MAX_DIFF_BYTES,
@@ -21,14 +23,89 @@ import {
   push,
   previewWorkspaceRestore,
   readProjectGitState,
+  revertFile,
   restoreWorkspaceSnapshot,
   repositoryDisplayName,
   runGitCommand,
+  stageFile,
+  unstageFile,
   validateWorkspaceSnapshotRefs,
 } from "./workspace-git.js";
 import { turnSnapshotRef, type StoredTurnCheckpoint } from "../shared/turn-checkpoint-codec.js";
 import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+
+describe("selective workspace changes", () => {
+  it("stages, unstages, and reverts one exact path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-selective-changes-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "tracked.txt"), "base\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      await writeFile(join(cwd, "tracked.txt"), "changed\n");
+
+      expect((await readProjectGitState(cwd)).changes.files[0]).toMatchObject({ path: "tracked.txt", staged: false });
+      await stageFile(cwd, "tracked.txt");
+      expect((await readProjectGitState(cwd)).changes.files[0]).toMatchObject({ path: "tracked.txt", staged: true });
+      await unstageFile(cwd, "tracked.txt");
+      expect((await readProjectGitState(cwd)).changes.files[0]).toMatchObject({ path: "tracked.txt", staged: false });
+      await revertFile(cwd, "tracked.txt");
+      expect((await readProjectGitState(cwd)).changes.files).toHaveLength(0);
+
+      await writeFile(join(cwd, "new.txt"), "new\n");
+      await revertFile(cwd, "new.txt");
+      await expect(readFile(join(cwd, "new.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  }, 30_000);
+
+  it("compares committed branch changes from the merge base", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-branch-changes-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "base.txt"), "base\n");
+      execFileSync("git", ["add", "."], { cwd });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd });
+      execFileSync("git", ["branch", "-M", "main"], { cwd });
+      execFileSync("git", ["switch", "-qc", "feat/review"], { cwd });
+      await writeFile(join(cwd, "branch.txt"), "branch\n");
+      execFileSync("git", ["add", "."], { cwd });
+      execFileSync("git", ["commit", "-qm", "branch"], { cwd });
+      await writeFile(join(cwd, "worktree-only.txt"), "draft\n");
+
+      const changes = await getBranchChanges(cwd, { baseRef: "main" });
+      expect(changes).toMatchObject({ branch: "feat/review", scope: "branch", baseRef: "main" });
+      expect(changes.files.map((file) => file.path)).toEqual(["branch.txt"]);
+      const diff = await getFileDiff(cwd, "branch.txt", { scope: "branch", baseRef: "main" });
+      expect(diff.hunks.flatMap((hunk) => hunk.lines)).toContainEqual(expect.objectContaining({ kind: "added", text: "branch" }));
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  }, 30_000);
+
+  it("commits only the staged selection when the index is not empty", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-selective-commit-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "a.txt"), "base\n");
+      await writeFile(join(cwd, "b.txt"), "base\n");
+      execFileSync("git", ["add", "."], { cwd });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd });
+      await writeFile(join(cwd, "a.txt"), "selected\n");
+      await writeFile(join(cwd, "b.txt"), "left behind\n");
+      await stageFile(cwd, "a.txt");
+
+      await commitWorkspace(cwd, "selected change", false);
+
+      expect(execFileSync("git", ["show", "--pretty=format:", "--name-only", "HEAD"], { cwd, encoding: "utf8" }).trim()).toBe("a.txt");
+      expect((await readProjectGitState(cwd)).changes.files).toEqual([expect.objectContaining({ path: "b.txt", staged: false })]);
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  }, 30_000);
+});
 
 describe("large diff bounds", () => {
   it("pages hunks and marks the bounded payload", () => {
