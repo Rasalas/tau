@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
@@ -172,6 +172,40 @@ describe("workspace checkpoint leases", () => {
         turnId: "new-turn",
         now: () => 1_000,
         processAlive: () => false,
+      });
+      expect(JSON.parse(await readFile(lockPath, "utf8"))).toMatchObject({ ownerId: lease.ownerId });
+      await lease.release();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims a dead same-host owner without waiting out its heartbeat window", async () => {
+    const cwd = await repository("tau-lease-dead-owner-");
+    try {
+      const staleAfterMs = 60_000;
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs });
+      const key = await manager.canonicalKey(cwd);
+      const lockPath = join(key, "tau-turn-checkpoint.lock");
+      await mkdir(key, { recursive: true });
+      // A host that was killed leaves a fresh heartbeat behind. Its PID is the
+      // proof that nobody will ever release it.
+      await writeFile(lockPath, `${JSON.stringify({
+        ownerId: "killed-owner",
+        pid: 999_999,
+        host: hostname(),
+        cwd,
+        sessionId: "killed-session",
+        turnId: "killed-turn",
+        acquiredAt: Date.now(),
+        heartbeatAt: Date.now(),
+      })}\n`);
+
+      const lease = await manager.acquire(cwd, {
+        sessionId: "next-session",
+        turnId: "next-turn",
+        timeoutMs: 2_000,
+        processAlive: (pid) => pid !== 999_999,
       });
       expect(JSON.parse(await readFile(lockPath, "utf8"))).toMatchObject({ ownerId: lease.ownerId });
       await lease.release();

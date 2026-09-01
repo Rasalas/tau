@@ -97,6 +97,7 @@ import { readBoundedFileContent } from "./file-content.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
+import { markTauHostRuntime } from "./tau-runtime-owner.js";
 import {
   transcriptPagingNegotiated,
   type PiBridgePreparedPrompt,
@@ -1227,6 +1228,7 @@ export class PiHost {
       : new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(this.agentDir) });
     this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? configured.id;
     this.runtimeCommands = options.runtimeCommands ?? [];
+    markTauHostRuntime();
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
       emit(event);

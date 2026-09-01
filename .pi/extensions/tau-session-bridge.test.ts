@@ -216,6 +216,25 @@ function fakeBridge(): FakeBridge {
   return { events, commands, context, pi };
 }
 
+describe("Tau bridge runtime ownership", () => {
+  it("registers nothing when Tau's host already owns the runtime", () => {
+    const previous = process.env.TAU_HOST_RUNTIME;
+    process.env.TAU_HOST_RUNTIME = "1";
+    try {
+      const on = vi.fn();
+      const addCommand = vi.fn();
+      // Loading the bridge here would run a second checkpoint feature against
+      // the workspace lease the host already holds for the same turn.
+      tauSessionBridge({ on, addCommand } as never);
+      expect(on).not.toHaveBeenCalled();
+      expect(addCommand).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.TAU_HOST_RUNTIME;
+      else process.env.TAU_HOST_RUNTIME = previous;
+    }
+  });
+});
+
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()?.();

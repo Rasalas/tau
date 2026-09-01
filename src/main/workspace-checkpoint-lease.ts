@@ -174,10 +174,12 @@ function isStale(
   isAlive: (pid: number) => boolean,
 ): boolean {
   if (!metadata || !Number.isFinite(metadata.heartbeatAt)) return true;
-  if (now - metadata.heartbeatAt < staleAfterMs) return false;
-  // A PID is meaningful only on the same host. A crashed remote process leaves
-  // no reliable liveness probe, so its heartbeat age is the recovery signal.
-  return metadata.host !== hostname() || !isAlive(metadata.pid);
+  // A PID is meaningful only on the same host, and there it is the better
+  // signal: an owner that died without releasing must not hold the queue for a
+  // heartbeat window. A crashed remote process leaves no liveness probe, so
+  // only its heartbeat age can recover it.
+  if (metadata.host === hostname()) return !isAlive(metadata.pid);
+  return now - metadata.heartbeatAt >= staleAfterMs;
 }
 
 export interface LiveWorkspaceLeaseOptions {
@@ -276,10 +278,14 @@ async function cleanupStaleTickets(
   now: () => number,
   staleAfterMs: number,
   isAlive: (pid: number) => boolean,
+  ownTicketPath?: string,
 ): Promise<void> {
   const entries = await readdir(queuePath, { withFileTypes: true }).catch(() => []);
   await Promise.all(entries.filter((entry) => entry.isFile() && TICKET_FILE_PATTERN.test(entry.name)).map(async (entry) => {
     const path = join(queuePath, entry.name);
+    // A waiter is by definition alive, whatever a liveness probe reports about
+    // it. Reclaiming its own ticket would abort the wait it is performing.
+    if (path === ownTicketPath) return;
     const metadata = metadataFromFile(await readFile(path, "utf8").catch(() => ""));
     const stale = metadata
       ? isStale(metadata, now(), staleAfterMs, isAlive)
@@ -374,7 +380,7 @@ async function waitForFilesystemTicket(
     if (options.timeoutMs !== undefined && now() - startedWaitingAt >= options.timeoutMs) {
       throw new Error("Timed out waiting for the workspace checkpoint lease.");
     }
-    await cleanupStaleTickets(queuePath, now, staleAfterMs, isAlive);
+    await cleanupStaleTickets(queuePath, now, staleAfterMs, isAlive, ticket.path);
     const tickets = await readTicketEntries(queuePath);
     if (!tickets.some((candidate) => candidate.path === ticket.path)) {
       throw new Error("Workspace checkpoint lease ticket was reclaimed before admission.");

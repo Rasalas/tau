@@ -26,6 +26,7 @@ import type { UiSkillDraft } from "../../src/shared/contracts.js";
 import { validatePreparedPrompt } from "../../src/shared/prepared-prompt.js";
 import type { DiffLoadOptions, UiFileDiff } from "../../src/shared/contracts.js";
 import { WorkspaceCheckpointLeaseManager } from "../../src/main/workspace-checkpoint-lease.js";
+import { tauOwnsRuntime } from "../../src/main/tau-runtime-owner.js";
 import { assistantAnchorForMessage } from "../../src/main/pi-turn-checkpoint-extension.js";
 import {
   checkpointsForBranch,
@@ -488,6 +489,10 @@ export function toolOutputPageForMessages(
 }
 
 export default function tauSessionBridge(pi: ExtensionAPI) {
+  // This extension exists so a Pi TUI session can be exposed to Tau. Inside
+  // Tau's own runtime it would run a second checkpoint feature against the same
+  // workspace lease as the host's, and the turn would deadlock behind itself.
+  if (tauOwnsRuntime()) return;
   const bridgeTurns = new BridgeClientTurnLedger();
   const newSessionRequests = createNewSessionRequestTracker();
   const correlationSkillNames = (): Set<string> => knownSkillNames(pi.getCommands());
