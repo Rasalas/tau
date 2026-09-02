@@ -90,8 +90,10 @@ export class RuntimeExtensions {
         if (next.some((entry) => entry.extension.id === extension.id)) {
           throw new Error(`extension id ${extension.id} is already taken by another loaded extension`);
         }
+        extension.permissions = bundle.permissions;
+        extension.granted = bundle.granted;
         this.registry.addKnown(extension);
-        if (this.host.isEnabled(extension.id)) this.registry.activate(extension);
+        if (bundle.granted !== false && this.host.isEnabled(extension.id)) this.registry.activate(extension);
         next.push({ extension, bundle });
         this.host.log("desktop-extension.loaded", `${extension.name} · ${bundle.scope} · ${bundle.path}`);
       } catch (error) {

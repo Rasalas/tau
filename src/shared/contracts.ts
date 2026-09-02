@@ -419,6 +419,9 @@ export interface ExtensionPackageSummary {
   name: string;
   version?: string;
   engines?: Record<string, string>;
+  permissions?: string[];
+  granted?: boolean;
+  source?: { url: string; commit?: string };
   scope: "global" | "project";
   directory: string;
   desktop: boolean;
@@ -441,6 +444,9 @@ export interface DesktopExtensionBundle {
   projectPath?: string;
   /** Self-contained ES module; shared libraries come from `globalThis.__tauShared`. */
   code: string;
+  permissions: readonly string[];
+  granted?: boolean;
+  source?: { url: string; commit?: string };
 }
 
 export interface DesktopExtensionLoadResult {
@@ -542,6 +548,8 @@ export interface TauDesktopApi {
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   /** Turns the host half of an extension package off or on; bundled kits stay as they are. */
   setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
+  /** Grants or revokes permissions for an extension package. */
+  grantExtension(id: string, grant: boolean): Promise<void>;
   /** Rebuilds the workbench from source without leaving the app. */
   rebuildWorkbench(): Promise<WorkbenchBuildResult>;
   /** Restarts the app so a rebuilt main process takes effect. */

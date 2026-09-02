@@ -8,6 +8,8 @@ import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { HostExtension } from "./host-extensions.js";
 import type { ExtensionInspection } from "../shared/contracts.js";
 import { assertEngineRanges, describeIncompatibility, parseVersion, type ExtensionEngines, type ExtensionHostVersions } from "../shared/extension-compat.js";
+import { isExtensionPermission } from "../shared/extension-permissions.js";
+import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
@@ -25,6 +27,10 @@ export interface ExtensionManifest {
   version?: string;
   /** Ranges of Tau, Pi and the extension API the package runs on; a miss keeps it off. */
   engines?: ExtensionEngines;
+  /** Permissions the package requests from the host. Missing means []. */
+  permissions?: string[];
+  /** Upstream source repository and commit for provenance. */
+  source?: { url: string; commit?: string };
   /** Relative path of the desktop entry (a module default-exporting a DesktopExtension). */
   desktop?: string;
   /** Relative path of the host entry (a module default-exporting a HostExtension or `activate`). */
@@ -55,16 +61,43 @@ function relativeEntry(directory: string, value: unknown, key: string): string |
   return path;
 }
 
+function parsePermissions(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`"permissions" must be an array of strings`);
+  for (const item of value) {
+    if (typeof item !== "string" || !isExtensionPermission(item)) {
+      throw new Error(`unknown permission "${String(item)}"`);
+    }
+  }
+  return [...new Set(value as string[])].sort();
+}
+
+function parseSource(value: unknown): { url: string; commit?: string } | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`"source" must be an object`);
+  const { url, commit } = value as Record<string, unknown>;
+  if (typeof url !== "string" || !url.trim()) throw new Error(`"source.url" must be a non-empty string`);
+  if (commit !== undefined && (typeof commit !== "string" || !commit.trim())) {
+    throw new Error(`"source.commit" must be a non-empty string`);
+  }
+  return {
+    url: url.trim(),
+    ...(typeof commit === "string" && commit.trim() ? { commit: commit.trim() } : {}),
+  };
+}
+
 /** Parses and validates one manifest; entries are resolved but not read. */
 export function parseExtensionManifest(directory: string, source: string): { manifest: ExtensionManifest; desktopEntry?: string; hostEntry?: string } {
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, version, engines, desktop, host } = raw as Record<string, unknown>;
+  const { id, name, version, engines, permissions, source: manifestSource, desktop, host } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
   if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
   const parsedEngines = parseEngines(engines);
+  const parsedPermissions = parsePermissions(permissions);
+  const parsedSource = parseSource(manifestSource);
   const desktopEntry = relativeEntry(directory, desktop, "desktop");
   const hostEntry = relativeEntry(directory, host, "host");
   if (!desktopEntry && !hostEntry) throw new Error(`${MANIFEST_FILE} names neither a "desktop" nor a "host" entry`);
@@ -74,6 +107,8 @@ export function parseExtensionManifest(directory: string, source: string): { man
       name: name.trim(),
       ...(typeof version === "string" ? { version: version.trim() } : {}),
       ...(parsedEngines ? { engines: parsedEngines } : {}),
+      permissions: parsedPermissions,
+      ...(parsedSource ? { source: parsedSource } : {}),
       ...(typeof desktop === "string" ? { desktop } : {}),
       ...(typeof host === "string" ? { host } : {}),
     },
@@ -156,8 +191,11 @@ export async function listExtensionPackages(
 }
 
 /** What the settings inspector shows about the package folders: no code is loaded. */
-export async function inspectExtensionPackages(cwd: string, agentDir: string, options: PackageScanOptions & { versions: ExtensionHostVersions }): Promise<ExtensionInspection> {
-  const scan = await listExtensionPackages(cwd, agentDir, options);
+export async function inspectExtensionPackages(cwd: string, agentDir: string, options: PackageScanOptions & { versions: ExtensionHostVersions; grantsFilePath?: string }): Promise<ExtensionInspection> {
+  const [scan, grantsFile] = await Promise.all([
+    listExtensionPackages(cwd, agentDir, options),
+    readExtensionGrants(options.grantsFilePath),
+  ]);
   return {
     versions: options.versions,
     directories: extensionPackageDirectories(cwd, options.home),
@@ -166,6 +204,9 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       name: pkg.manifest.name,
       ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
       ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
+      permissions: pkg.manifest.permissions ?? [],
+      granted: isPackageGranted(pkg.manifest, grantsFile.grants),
+      ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
       scope: pkg.scope,
       directory: pkg.directory,
       desktop: Boolean(pkg.desktopEntry),
@@ -221,7 +262,7 @@ export async function importHostExtension(code: string, manifest: ExtensionManif
   const id = (candidate as { id?: unknown }).id;
   if (id !== undefined && id !== manifest.id) throw new Error(`the module's id "${String(id)}" differs from the manifest id "${manifest.id}"`);
   const name = (candidate as { name?: unknown }).name;
-  return { id: manifest.id, name: typeof name === "string" && name.trim() ? name : manifest.name, activate: (context) => candidate.activate(context) };
+  return { id: manifest.id, name: typeof name === "string" && name.trim() ? name : manifest.name, permissions: manifest.permissions ?? [], activate: (context) => candidate.activate(context) };
 }
 
 export interface HostPackageLoadResult {

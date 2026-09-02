@@ -89,23 +89,89 @@ function ExtensionPage({
     onChanged();
   };
 
+  const handleGrant = async (allow: boolean) => {
+    try {
+      await window.tau?.grantExtension(summary.id, allow);
+      if (allow) {
+        preferences.setExtensionEnabled(summary.id, true);
+        registry.setActive(summary.id, true);
+        await window.tau?.setHostExtensionActive(summary.id, true);
+      } else {
+        preferences.setExtensionEnabled(summary.id, false);
+        registry.setActive(summary.id, false);
+        await window.tau?.setHostExtensionActive(summary.id, false);
+      }
+      onChanged();
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <div className="settings-page">
       <div className="extension-head">
         <span>
           <strong>{summary.name}</strong>
-          <small>{summary.contributes ? `contributes ${summary.contributes}` : "no contributions"}</small>
+          <small>
+            {summary.granted === false
+              ? "wartet auf Freigabe"
+              : summary.contributes
+                ? `contributes ${summary.contributes}`
+                : "no contributions"}
+          </small>
         </span>
-        <button
-          className={`switch ${summary.active ? "on" : ""}`}
-          role="switch"
-          aria-checked={summary.active}
-          aria-label={`${summary.active ? "Disable" : "Enable"} ${summary.name}`}
-          onClick={toggleExtension}
-        >
-          <i />
-        </button>
+        {summary.granted === false ? null : (
+          <button
+            className={`switch ${summary.active ? "on" : ""}`}
+            role="switch"
+            aria-checked={summary.active}
+            aria-label={`${summary.active ? "Disable" : "Enable"} ${summary.name}`}
+            onClick={toggleExtension}
+          >
+            <i />
+          </button>
+        )}
       </div>
+
+      {summary.granted === false ? (
+        <div className="extension-grant-box settings-note" style={{ padding: "12px", border: "1px solid var(--border)", borderRadius: "6px", margin: "12px 0" }}>
+          <div className="settings-label" style={{ marginBottom: "6px" }}>FREIGABE ERFORDERLICH</div>
+          <p style={{ margin: "0 0 8px 0" }}>Dieses Paket wartet auf Freigabe der angeforderten Rechte:</p>
+          {summary.permissions && summary.permissions.length > 0 ? (
+            <ul style={{ margin: "0 0 12px 16px", padding: 0 }}>
+              {summary.permissions.map((perm) => (
+                <li key={perm}><code>{perm}</code></li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ margin: "0 0 12px 0" }}>Keine speziellen Rechte angefordert.</p>
+          )}
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              className="grant-button allow"
+              style={{ padding: "4px 12px", background: "var(--accent, #2563eb)", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+              onClick={() => void handleGrant(true)}
+            >
+              Erlauben
+            </button>
+            <button
+              type="button"
+              className="grant-button deny"
+              style={{ padding: "4px 12px", background: "transparent", color: "inherit", border: "1px solid var(--border)", borderRadius: "4px", cursor: "pointer" }}
+              onClick={() => void handleGrant(false)}
+            >
+              Ablehnen
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {summary.permissions && summary.permissions.length > 0 && summary.granted !== false ? (
+        <div className="settings-note">
+          Rechte: {summary.permissions.join(", ")}
+        </div>
+      ) : null}
 
       {summary.options.length > 0 ? (
         <>
@@ -221,13 +287,15 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
       ))}
       {packages.length > 0 ? (
         <table className="inspector-table" aria-label="Extension packages">
-          <thead><tr><th>Package</th><th>Entries</th><th>Engines</th><th>Folder</th></tr></thead>
+          <thead><tr><th>Package</th><th>Entries</th><th>Engines</th><th>Permissions</th><th>Source</th><th>Folder</th></tr></thead>
           <tbody>
             {packages.map((pkg) => (
               <tr key={pkg.directory}>
                 <td><strong>{pkg.name}</strong><small>{pkg.id}{pkg.version ? ` · ${pkg.version}` : ""}</small></td>
                 <td>{[pkg.desktop ? "desktop" : "", pkg.host ? "host" : ""].filter(Boolean).join(" + ")}</td>
                 <td>{pkg.engines ? Object.entries(pkg.engines).map(([engine, range]) => `${engine} ${range}`).join(", ") : "any"}</td>
+                <td>{pkg.permissions && pkg.permissions.length > 0 ? pkg.permissions.join(", ") : "none"}</td>
+                <td>{pkg.source ? `${pkg.source.url}${pkg.source.commit ? ` (${pkg.source.commit.slice(0, 7)})` : ""}` : "—"}</td>
                 <td><code title={pkg.directory}>{pkg.directory.split("/").pop()}</code></td>
               </tr>
             ))}

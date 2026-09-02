@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { bundledHostExtensions } from "./extensions/index.js";
 import { PiHost } from "./pi-host.js";
@@ -18,8 +21,8 @@ describe("PiHost safe mode", () => {
 
   it("loads every bundled kit outside safe mode, each removable on its own", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: bundledHostExtensions() });
+    await (host as unknown as Internals).activateHostExtensions();
     const internals = host as unknown as Internals;
-    await internals.activateHostExtensions();
     const summaries = host.listHostExtensions();
     expect(summaries.map((summary) => summary.id).sort()).toEqual(bundledHostExtensions().map((extension) => extension.id).sort());
     expect(summaries.filter((summary) => !summary.active)).toEqual([]);
@@ -35,16 +38,26 @@ describe("PiHost extension packages", () => {
   });
 
   it("activates packaged host halves outside safe mode and never in safe mode", async () => {
-    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader });
-    await (host as unknown as Internals).activateHostExtensions();
-    expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
-    await expect(host.invokeHostExtension("acme.pkg", "ping")).resolves.toBe("pong");
-    await host.setHostExtensionActive("acme.pkg", false);
-    expect(host.listHostExtensions()[0]?.active).toBe(false);
-    await host.setHostExtensionActive("acme.pkg", true);
-    expect(host.listHostExtensions()[0]?.active).toBe(true);
-    const safe = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: [], hostExtensionPackages: loader });
-    await (safe as unknown as Internals).activateHostExtensions();
-    expect(safe.listHostExtensions()).toEqual([]);
+    const scratch = await mkdtemp(join(tmpdir(), "tau-safe-mode-"));
+    try {
+      const grantsFilePath = join(scratch, "grants.json");
+      const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
+      await (host as unknown as Internals).activateHostExtensions();
+      // Initially ungranted, so active is false.
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [] }]);
+      // Granting it activates it.
+      await host.grantExtension("acme.pkg", true);
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
+      await expect(host.invokeHostExtension("acme.pkg", "ping")).resolves.toBe("pong");
+      await host.setHostExtensionActive("acme.pkg", false);
+      expect(host.listHostExtensions()[0]?.active).toBe(false);
+      await host.setHostExtensionActive("acme.pkg", true);
+      expect(host.listHostExtensions()[0]?.active).toBe(true);
+      const safe = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
+      await (safe as unknown as Internals).activateHostExtensions();
+      expect(safe.listHostExtensions()).toEqual([]);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
   });
 });

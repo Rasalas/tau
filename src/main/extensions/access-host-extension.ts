@@ -12,6 +12,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
   return {
     id: ACCESS_HOST_EXTENSION_ID,
     name: "Access Kit",
+    permissions: ["runtime:extend", "sessions"],
     activate(context: HostExtensionContext) {
       let level = initialLevel;
       const { services } = context;

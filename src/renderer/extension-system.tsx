@@ -344,6 +344,8 @@ export interface DesktopExtensionContext {
 export interface DesktopExtension {
   id: string;
   name: string;
+  permissions?: readonly string[];
+  granted?: boolean;
   activate(context: DesktopExtensionContext): void | (() => void);
 }
 
@@ -354,6 +356,8 @@ export interface ExtensionSummary {
   /** Human-readable list of what this extension contributed, e.g. "sidebar · files · changes". */
   contributes: string;
   options: ExtensionOption[];
+  permissions?: readonly string[];
+  granted?: boolean;
 }
 
 interface ToolRenderer {
@@ -746,6 +750,8 @@ export class ExtensionRegistry {
       active: this.activeExtensions.has(extension.id),
       contributes: (this.contributionKinds.get(extension.id) ?? []).join(" · "),
       options: this.options.get(extension.id) ?? [],
+      permissions: extension.permissions,
+      granted: extension.granted,
     }));
   }
 

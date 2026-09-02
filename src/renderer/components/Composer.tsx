@@ -14,6 +14,7 @@ import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { ExtensionPrompt } from "./ExtensionPrompt";
+import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
 import {
   attachmentPolicyMessage,
@@ -155,6 +156,7 @@ export function Composer({
   onCancelPrompt,
   onCompactContext,
   held = false,
+  onNotify,
 }: {
   snapshot?: HostSnapshot;
   scopeStore: ComposerScopeStore;
@@ -180,6 +182,7 @@ export function Composer({
   onCompactContext(): void;
   /** An extension is changing the workspace; submitting would target the wrong thread. */
   held?: boolean;
+  onNotify?(message: string): void;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const attachmentScope = createDraftKey(draftStorageKey);
@@ -403,14 +406,23 @@ export function Composer({
       ) : null}
       {prompt ? (() => {
         // An extension that recognises the prompt draws it; core draws the four dialogs.
-        const Renderer = registry?.getPromptRenderer(prompt)?.Component ?? ExtensionPrompt;
+        const promptRenderer = registry?.getPromptRenderer(prompt);
+        const Renderer = promptRenderer?.Component ?? ExtensionPrompt;
         return (
-          <Renderer
-            prompt={prompt}
-            pending={promptsPending}
-            onAnswer={(value, typed) => { onAnswerPrompt?.(value, typed); updateDraft(""); }}
-            onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
-          />
+          <LazyFeatureBoundary
+            label={prompt.id}
+            extensionId={promptRenderer?.extensionId}
+            extensionName={promptRenderer?.extensionName}
+            registry={registry}
+            onNotify={onNotify}
+          >
+            <Renderer
+              prompt={prompt}
+              pending={promptsPending}
+              onAnswer={(value, typed) => { onAnswerPrompt?.(value, typed); updateDraft(""); }}
+              onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
+            />
+          </LazyFeatureBoundary>
         );
       })() : null}
       <div
@@ -610,7 +622,18 @@ export function Composer({
             ) : null}
           </span>
 
-          {composerControls.filter((control) => control.placement !== "footer").map((control) => <control.Component key={control.id} snapshot={snapshot} />)}
+          {composerControls.filter((control) => control.placement !== "footer").map((control) => (
+            <LazyFeatureBoundary
+              key={control.id}
+              label={control.id}
+              extensionId={control.extensionId}
+              extensionName={control.extensionName}
+              registry={registry}
+              onNotify={onNotify}
+            >
+              <control.Component snapshot={snapshot} />
+            </LazyFeatureBoundary>
+          ))}
 
           </div>
           <span className="spacer" />
@@ -672,7 +695,18 @@ export function Composer({
         />
       ) : null}
 
-      {composerControls.filter((control) => control.placement === "footer").map((control) => <control.Component key={control.id} snapshot={snapshot} />)}
+      {composerControls.filter((control) => control.placement === "footer").map((control) => (
+        <LazyFeatureBoundary
+          key={control.id}
+          label={control.id}
+          extensionId={control.extensionId}
+          extensionName={control.extensionName}
+          registry={registry}
+          onNotify={onNotify}
+        >
+          <control.Component snapshot={snapshot} />
+        </LazyFeatureBoundary>
+      ))}
       </div>
     </footer>
   );

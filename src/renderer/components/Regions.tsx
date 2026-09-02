@@ -18,7 +18,14 @@ export function Region({ registry, placement, snapshot, actions }: RegionHostPro
   return (
     <div className={`workbench-region region-${placement}`} data-placement={placement} role="group">
       {regions.map((region) => (
-        <LazyFeatureBoundary key={region.id} label={region.id}>
+        <LazyFeatureBoundary
+          key={region.id}
+          label={region.id}
+          extensionId={region.extensionId}
+          extensionName={region.extensionName}
+          registry={registry}
+          onNotify={actions.notify}
+        >
           <Suspense fallback={<LazyFeatureFallback label={region.id} />}>
             <region.Component snapshot={snapshot} actions={actions} />
           </Suspense>
@@ -36,7 +43,14 @@ export function StatusLine({ registry, snapshot, actions }: Omit<RegionHostProps
   const side = (align: "left" | "right") => items
     .filter((item) => (item.align ?? "left") === align)
     .map((item) => (
-      <LazyFeatureBoundary key={item.id} label={item.id}>
+      <LazyFeatureBoundary
+        key={item.id}
+        label={item.id}
+        extensionId={item.extensionId}
+        extensionName={item.extensionName}
+        registry={registry}
+        onNotify={actions.notify}
+      >
         <Suspense fallback={null}>
           <span className="status-item"><item.Component snapshot={snapshot} actions={actions} /></span>
         </Suspense>

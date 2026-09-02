@@ -40,19 +40,31 @@ const LazySettingsModal = lazy(() => import("./components/SettingsModal").then((
 
 const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
 
-export const MountedPanel = memo(function MountedPanel({
+export const MountedPanel = memo(function ExtensionPanel({
   Component,
   active,
   label,
+  extensionId,
   extensionName,
+  registry,
+  onNotify,
 }: {
   Component: ComponentType<{ active: boolean; extensionName: string }>;
   active: boolean;
   label: string;
+  extensionId?: string;
   extensionName: string;
+  registry?: ExtensionRegistry;
+  onNotify?: (message: string) => void;
 }) {
   return <div className={active ? "panel active" : "panel"}>
-    <LazyFeatureBoundary label={label.toLowerCase()}>
+    <LazyFeatureBoundary
+      label={label.toLowerCase()}
+      extensionId={extensionId}
+      extensionName={extensionName}
+      registry={registry}
+      onNotify={onNotify}
+    >
       <Suspense fallback={<LazyFeatureFallback label={label.toLowerCase()} />}>
         <Component active={active} extensionName={extensionName} />
       </Suspense>
@@ -2548,6 +2560,7 @@ export default function App() {
       }}
       onCompactContext={() => void compactContext()}
       held={composerHolds > 0}
+      onNotify={actions.notify}
     />
   );
 
@@ -2618,7 +2631,13 @@ export default function App() {
         <WorkbenchShellContext.Provider value={shellContextValue}>
           <WorkbenchContext.Provider value={contextValue}>
                 <ObservatoryContext.Provider value={observatoryContextValue}>
-                  <LazyFeatureBoundary label={activeOverlay.id}>
+                  <LazyFeatureBoundary
+                    label={activeOverlay.id}
+                    extensionId={activeOverlay.extensionId}
+                    extensionName={activeOverlay.extensionName}
+                    registry={registry}
+                    onNotify={actions.notify}
+                  >
                     <Suspense fallback={<LazyFeatureFallback label={activeOverlay.id} />}>
                       <activeOverlay.Component actions={actions} onClose={() => setActiveOverlayId(undefined)} />
                     </Suspense>
@@ -2647,7 +2666,14 @@ export default function App() {
             />
 
             {sidebarContributions.map((contribution) => (
-              <LazyFeatureBoundary key={contribution.id} label="sidebar">
+              <LazyFeatureBoundary
+                key={contribution.id}
+                label="sidebar"
+                extensionId={contribution.extensionId}
+                extensionName={contribution.extensionName}
+                registry={registry}
+                onNotify={actions.notify}
+              >
                 <Suspense fallback={<LazyFeatureFallback label="sidebar" />}>
                   <contribution.Component actions={actions} />
                 </Suspense>
@@ -2791,7 +2817,10 @@ export default function App() {
                         Component={panel.Component}
                         active={activePanel === panel.id}
                         label={panel.label}
+                        extensionId={panel.extensionId}
                         extensionName={panel.extensionName}
+                        registry={registry}
+                        onNotify={actions.notify}
                       />
                     ) : null)}
                   </div>

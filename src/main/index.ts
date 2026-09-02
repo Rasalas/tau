@@ -180,6 +180,7 @@ function installIpc(): void {
   ipcMain.handle("tau:host-extensions", async () => (await requireHostReady()).listHostExtensions());
   ipcMain.handle("tau:inspect-extensions", async (_event, cwd: string) => inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }));
   ipcMain.handle("tau:host-extension-active", async (_event, id: string, active: boolean) => (await requireHostReady()).setHostExtensionActive(id, active));
+  ipcMain.handle("tau:extension-grant", async (_event, id: string, grant: boolean) => (await requireHostReady()).grantExtension(id, grant));
   ipcMain.handle("tau:desktop-extensions", async (_event, cwd: string, sharedExports: Record<string, string[]>) =>
     loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions }));
   ipcMain.handle("tau:rebuild-workbench", async () => {

@@ -11,6 +11,7 @@ export function createQuestionnaireHostExtension(): HostExtension {
   return {
     id: QUESTIONNAIRE_HOST_EXTENSION_ID,
     name: "Questionnaires",
+    permissions: ["runtime:extend"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       /** Questionnaires announced per thread, and how many of their questions were asked so far. */

@@ -4,7 +4,8 @@ import { basename, dirname, extname, join } from "node:path";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
-import { MANIFEST_FILE, manifestIncompatibility, parseExtensionManifest } from "./extension-packages.js";
+import { MANIFEST_FILE, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
+import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import type { ExtensionHostVersions } from "../shared/extension-compat.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
@@ -22,22 +23,27 @@ export function desktopExtensionDirectories(cwd: string, home = homedir()): Arra
   ];
 }
 
-/** Every file or `<name>/index.*` in the folder that can be an extension entry. */
-export async function listDesktopExtensionEntries(directory: string, options: DesktopEntryOptions = {}): Promise<string[]> {
+export interface DesktopEntryDetailed {
+  path: string;
+  manifest?: ExtensionManifest;
+}
+
+/** Every file or `<name>/index.*` in the folder that can be an extension entry, with manifest if it's a package. */
+export async function listDesktopExtensionEntriesDetailed(directory: string, options: DesktopEntryOptions = {}): Promise<DesktopEntryDetailed[]> {
   let names: string[];
   try {
     names = await readdir(directory);
   } catch {
     return [];
   }
-  const entries: string[] = [];
+  const entries: DesktopEntryDetailed[] = [];
   for (const name of names.sort()) {
     if (name.startsWith(".") || name.startsWith("_") || name === "node_modules") continue;
     const path = join(directory, name);
     const info = await stat(path).catch(() => undefined);
     if (!info) continue;
     if (info.isFile()) {
-      if (SOURCE_EXTENSIONS.has(extname(name)) && !/\.(test|spec|d)\.[cm]?[jt]sx?$/u.test(name)) entries.push(path);
+      if (SOURCE_EXTENSIONS.has(extname(name)) && !/\.(test|spec|d)\.[cm]?[jt]sx?$/u.test(name)) entries.push({ path });
       continue;
     }
     if (!info.isDirectory()) continue;
@@ -46,7 +52,9 @@ export async function listDesktopExtensionEntries(directory: string, options: De
     if (manifest !== undefined) {
       try {
         const parsed = parseExtensionManifest(path, manifest);
-        if (parsed.desktopEntry && !manifestIncompatibility(parsed.manifest, options.versions)) entries.push(parsed.desktopEntry);
+        if (parsed.desktopEntry && !manifestIncompatibility(parsed.manifest, options.versions)) {
+          entries.push({ path: parsed.desktopEntry, manifest: parsed.manifest });
+        }
       } catch {
         // The host reports manifest errors when it loads packages; the desktop side stays quiet.
       }
@@ -55,12 +63,18 @@ export async function listDesktopExtensionEntries(directory: string, options: De
     for (const index of ["index.tsx", "index.ts", "index.jsx", "index.js", "index.mjs"]) {
       const candidate = join(path, index);
       if (await stat(candidate).then((s) => s.isFile()).catch(() => false)) {
-        entries.push(candidate);
+        entries.push({ path: candidate });
         break;
       }
     }
   }
   return entries;
+}
+
+/** Every file or `<name>/index.*` in the folder that can be an extension entry. */
+export async function listDesktopExtensionEntries(directory: string, options: DesktopEntryOptions = {}): Promise<string[]> {
+  const detailed = await listDesktopExtensionEntriesDetailed(directory, options);
+  return detailed.map((entry) => entry.path);
 }
 
 function isIdentifier(name: string): boolean {
@@ -103,6 +117,9 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
     jsx: "automatic",
     sourcemap: "inline",
     logLevel: "silent",
+    define: {
+      "window.tau": "undefined",
+    },
     plugins: [{
       name: "tau-shared-modules",
       setup(api) {
@@ -128,14 +145,16 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
 export async function loadDesktopExtensions(
   cwd: string,
   agentDir: string,
-  options: BundleOptions & DesktopEntryOptions & { home?: string; trusted?: (cwd: string) => boolean },
+  options: BundleOptions & DesktopEntryOptions & { home?: string; grantsFilePath?: string; trusted?: (cwd: string) => boolean },
 ): Promise<DesktopExtensionLoadResult> {
   const bundles: DesktopExtensionBundle[] = [];
   const errors: DesktopExtensionLoadResult["errors"] = [];
   const skipped: DesktopExtensionLoadResult["skipped"] = [];
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
+  const grantsFile = await readExtensionGrants(options.grantsFilePath);
+
   for (const { scope, directory } of desktopExtensionDirectories(cwd, options.home)) {
-    const entries = await listDesktopExtensionEntries(directory, { versions: options.versions });
+    const entries = await listDesktopExtensionEntriesDetailed(directory, { versions: options.versions });
     if (entries.length === 0) continue;
     if (scope === "project" && !trusted(cwd)) {
       skipped.push({ directory, reason: "The project is not trusted in Pi, so its desktop extensions stay off." });
@@ -143,10 +162,20 @@ export async function loadDesktopExtensions(
     }
     for (const entry of entries) {
       try {
-        const code = await bundleDesktopExtension(entry, options);
-        bundles.push({ path: entry, scope, projectPath: scope === "project" ? cwd : undefined, code });
+        const code = await bundleDesktopExtension(entry.path, options);
+        const permissions = entry.manifest?.permissions ?? [];
+        const granted = entry.manifest ? isPackageGranted(entry.manifest, grantsFile.grants) : true;
+        bundles.push({
+          path: entry.path,
+          scope,
+          projectPath: scope === "project" ? cwd : undefined,
+          code,
+          permissions,
+          granted,
+          ...(entry.manifest?.source ? { source: entry.manifest.source } : {}),
+        });
       } catch (error) {
-        errors.push({ path: entry, message: error instanceof Error ? error.message : String(error) });
+        errors.push({ path: entry.path, message: error instanceof Error ? error.message : String(error) });
       }
     }
   }

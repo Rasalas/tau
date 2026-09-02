@@ -28,6 +28,7 @@ export function createComputerUseHostExtension(): HostExtension {
   return {
     id: COMPUTER_USE_HOST_EXTENSION_ID,
     name: "Computer Use",
+    permissions: ["runtime:extend"],
     activate(context: HostExtensionContext) {
       context.services.registerRuntimeExtension("tau-computer-use", computerUseExtension, {
         enabledFor: (settings) =>

@@ -14,6 +14,7 @@ import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protoc
 import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { ThreadRuntimeBackend } from "./thread-runtime-backend.js";
+import { HOST_SERVICE_PERMISSIONS } from "../shared/extension-permissions.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -318,7 +319,35 @@ export interface HostExtensionContext {
 export interface HostExtension {
   id: string;
   name: string;
+  permissions?: readonly string[];
   activate(context: HostExtensionContext): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
+}
+
+export function guardedServices(
+  services: HostExtensionServices,
+  permissions?: readonly string[],
+  extensionId: string = "unknown",
+): HostExtensionServices {
+  if (permissions === undefined) return services;
+  const allowed = new Set(permissions);
+
+  return new Proxy(services, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && prop in HOST_SERVICE_PERMISSIONS) {
+        const required = HOST_SERVICE_PERMISSIONS[prop];
+        if (required && !allowed.has(required)) {
+          const message = `Extension ${extensionId} lacks permission ${required}`;
+          services.log("host-extension.denied", message);
+          throw new Error(message);
+        }
+      }
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value === "function") {
+        return value.bind(target);
+      }
+      return value;
+    },
+  });
 }
 
 const COMMAND_NAME = /^[a-z][a-z0-9-]*$/u;
@@ -330,15 +359,25 @@ interface ActiveHostExtension {
   disposers: Array<() => void | Promise<void>>;
 }
 
+export interface HostExtensionRegistryOptions {
+  commandTimeoutMs?: number;
+}
+
 export class HostExtensionRegistry {
   private readonly active = new Map<string, ActiveHostExtension>();
   private readonly known = new Map<string, HostExtension>();
   private readonly failures = new Map<string, string>();
+  private readonly consecutiveFailures = new Map<string, number>();
 
   constructor(
     private readonly services: HostExtensionServices,
     private readonly publish: (event: GlobalHostEvent) => void,
+    private readonly options: HostExtensionRegistryOptions = {},
   ) {}
+
+  addKnown(extension: HostExtension): void {
+    this.known.set(extension.id, extension);
+  }
 
   /** Activates one extension; a failure is recorded and reported, never thrown. */
   async activate(extension: HostExtension): Promise<boolean> {
@@ -349,10 +388,12 @@ export class HostExtensionRegistry {
     await this.deactivate(extension.id);
     this.known.set(extension.id, extension);
     this.failures.delete(extension.id);
+    this.consecutiveFailures.set(extension.id, 0);
     const record: ActiveHostExtension = { extension, commands: new Map(), disposers: [] };
+    const guarded = guardedServices(this.services, extension.permissions, extension.id);
     const context: HostExtensionContext = {
       id: extension.id,
-      services: this.services,
+      services: guarded,
       registerCommand: (name, handler) => {
         if (!COMMAND_NAME.test(name)) throw new Error(`Host extension ${extension.id}: invalid command name "${name}"`);
         if (record.commands.has(name)) throw new Error(`Host extension ${extension.id}: command "${name}" registered twice`);
@@ -393,6 +434,7 @@ export class HostExtensionRegistry {
     await this.deactivate(id);
     this.known.delete(id);
     this.failures.delete(id);
+    this.consecutiveFailures.delete(id);
   }
 
   async deactivate(id: string): Promise<void> {
@@ -406,6 +448,24 @@ export class HostExtensionRegistry {
     return this.active.has(id);
   }
 
+  private async runWithTimeout<T>(fn: () => T | Promise<T>, timeoutMs: number, command: string): Promise<T> {
+    const signal = AbortSignal.timeout(timeoutMs);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      if (signal.aborted) {
+        reject(new Error(`Command "${command}" timed out after ${timeoutMs}ms`));
+        return;
+      }
+      signal.addEventListener("abort", () => {
+        reject(new Error(`Command "${command}" timed out after ${timeoutMs}ms`));
+      }, { once: true });
+    });
+
+    return Promise.race([
+      Promise.resolve().then(() => fn()),
+      timeoutPromise,
+    ]);
+  }
+
   async invoke(extensionId: string, command: string, input?: unknown): Promise<unknown> {
     const record = this.active.get(extensionId);
     if (!record) {
@@ -416,7 +476,27 @@ export class HostExtensionRegistry {
     }
     const handler = record.commands.get(command);
     if (!handler) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
-    return handler(input);
+
+    const timeoutMs = this.options.commandTimeoutMs ?? 30_000;
+    try {
+      const result = await this.runWithTimeout(() => handler(input), timeoutMs, command);
+      this.consecutiveFailures.set(extensionId, 0);
+      return result;
+    } catch (error) {
+      const isTimeout = error instanceof Error && error.message.includes(`timed out after ${timeoutMs}ms`);
+      const failures = (this.consecutiveFailures.get(extensionId) ?? 0) + 1;
+      this.consecutiveFailures.set(extensionId, failures);
+
+      if (isTimeout || failures >= 3) {
+        const reason = isTimeout
+          ? `Host extension ${record.extension.name} command "${command}" timed out after ${timeoutMs}ms`
+          : `Host extension ${record.extension.name} deactivated after 3 consecutive failures: ${error instanceof Error ? error.message : String(error)}`;
+        this.failures.set(extensionId, reason);
+        this.services.log("host-extension.failed", `${record.extension.name}: ${reason}`);
+        await this.deactivate(extensionId);
+      }
+      throw error;
+    }
   }
 
   summaries(): HostExtensionSummary[] {

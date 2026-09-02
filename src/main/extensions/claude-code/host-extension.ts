@@ -50,6 +50,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
   return {
     id: CLAUDE_CODE_HOST_EXTENSION_ID,
     name: "Claude Code",
+    permissions: ["process", "sessions", "runtime:extend"],
     activate(context) {
       const agentDir = options.agentDir ?? getAgentDir();
       const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ agentDir });

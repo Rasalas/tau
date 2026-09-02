@@ -69,18 +69,18 @@ Completion check: a separately packaged extension can be installed, enabled, dis
 
 ## Phase 3: define trust and isolation
 
-Dynamic code needs an explicit security model before third-party distribution.
+Dynamic code needs an explicit security model before third-party distribution. See `docs/adr/0009-extension-permissions.md`.
 
-Planned work:
+Work completed:
 
-- define permissions for filesystem, process, network, credentials, projects, and host commands
-- separate trusted in-process extensions from isolated extensions
-- show requested permissions before activation
-- isolate renderer UI and validate every host command
-- define package provenance, update, and revocation behavior
-- add recovery paths for crashing or unresponsive extensions
+- define permissions for filesystem, process, network, credentials, projects, and host commands (done: `EXTENSION_PERMISSIONS` vocabulary in `src/shared/extension-permissions.ts`, proxy guard on `HostExtensionServices`)
+- separate trusted in-process extensions from isolated extensions (done: bundled kits declare permissions, third-party packages default to none and require user grant; desktop bundles isolate IPC via `window.tau = undefined`)
+- show requested permissions before activation (done: ungranted packages show "wartet auf Freigabe" in Settings with "Erlauben" / "Ablehnen" actions, persisted in `~/.tau/extension-grants.json`)
+- isolate renderer UI and validate every host command (done: `guardedServices` validates every method/property call against declared permissions; `LazyFeatureBoundary` wraps all UI slots)
+- define package provenance, update, and revocation behavior (done: `source.url` and `source.commit` manifest fields; revoking via grant removal or settings toggle)
+- add recovery paths for crashing or unresponsive extensions (done: 30s command timeout and 3-strike failure deactivation on the host; automatic boundary catch, deactivation, and toast notifications on the renderer)
 
-Completion check: Tau can explain what an extension may access, enforce that decision, and recover when the extension fails.
+Completion check: Tau can explain what an extension may access, enforce that decision, and recover when the extension fails. (Satisfied by Phase 3 implementation in Ticket 17).
 
 ## Phase 4: make the host transportable
 

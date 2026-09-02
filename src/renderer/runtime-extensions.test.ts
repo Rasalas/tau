@@ -11,7 +11,16 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
     log,
     notify,
     host: {
-      load: async () => ({ bundles: bundles.map((entry) => ({ path: entry.path, scope: "global" as const, code: "" })), errors: [], skipped: [] }),
+      load: async () => ({
+        bundles: bundles.map((entry) => ({
+          path: entry.path,
+          scope: "global" as const,
+          code: "",
+          permissions: [],
+        })),
+        errors: [],
+        skipped: [],
+      }),
       importModule: async (_code: string, path: string) => modules.get(path),
       isEnabled: () => true,
       notify,
@@ -43,6 +52,36 @@ describe("runtime desktop extensions", () => {
     await new RuntimeExtensions(registry, h).sync("/project");
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("broken.tsx"));
     expect(registry.getExtensionSummaries()).toHaveLength(0);
+  });
+
+  it("keeps an ungranted bundle inactive while registering it as known", async () => {
+    const registry = new ExtensionRegistry();
+    const activate = vi.fn();
+    const h = {
+      load: async () => ({
+        bundles: [{
+          path: "/x/ungranted.tsx",
+          scope: "global" as const,
+          code: "",
+          permissions: ["workspace:read"],
+          granted: false,
+        }],
+        errors: [],
+        skipped: [],
+      }),
+      importModule: async () => ({ default: { id: "x.ungranted", name: "Ungranted", activate } }),
+      isEnabled: () => true,
+      notify: vi.fn(),
+      log: vi.fn(),
+    };
+    await new RuntimeExtensions(registry, h).sync("/project");
+    expect(activate).not.toHaveBeenCalled();
+    const summaries = registry.getExtensionSummaries();
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].id).toBe("x.ungranted");
+    expect(summaries[0].active).toBe(false);
+    expect(summaries[0].granted).toBe(false);
+    expect(summaries[0].permissions).toEqual(["workspace:read"]);
   });
 
   it("validates the extension shape and lists shared exports", () => {
