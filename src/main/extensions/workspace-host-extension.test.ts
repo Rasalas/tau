@@ -36,6 +36,7 @@ async function client(cwd: string) {
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
     setPermissionPolicy: () => undefined,
+    presentUi: () => () => undefined,
     git: new GitCoordinator(),
   };
   const registry = new HostExtensionRegistry(services, () => undefined);

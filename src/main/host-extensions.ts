@@ -2,6 +2,7 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { DiffLoadOptions, ExtensionUiPrompt, GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, ThreadHostEvent, UiFileDiff, UiMessage, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
+import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { GitCoordinator } from "./git-coordinator.js";
 import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
 
@@ -69,6 +70,18 @@ export interface HostThread {
 }
 
 /**
+ * Terminal surfaces of Pi's `ctx.ui` a host extension may draw somewhere.
+ * A call no presenter handles is reported to the thread log as unsupported.
+ */
+export interface HostUiPresenter {
+  setStatus?(sessionId: string, key: string, text: string | undefined): void;
+  setWidget?(sessionId: string, key: string, lines: string[] | undefined, placement: PiUiWidgetPlacement): void;
+  setWorkingMessage?(sessionId: string, message: string | undefined): void;
+  /** The thread's runtime went away; forget what it drew. */
+  clear?(sessionId: string): void;
+}
+
+/**
  * Host-side extension seam. Core owns the workspace, the thread lifecycle and
  * the event channel; a host extension owns a feature and reaches the renderer
  * through commands and events routed by id, never through a core IPC entry.
@@ -101,6 +114,8 @@ export interface HostExtensionServices {
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** Which permission policy external runtimes launch with; `undefined` restores full access. */
   setPermissionPolicy(provider: (() => RuntimePermissionPolicy) | undefined): void;
+  /** Draws what Pi extensions put on terminal surfaces (status, widgets, working message). */
+  presentUi(presenter: HostUiPresenter): () => void;
 }
 
 export type HostExtensionCommandHandler = (input: unknown) => unknown;

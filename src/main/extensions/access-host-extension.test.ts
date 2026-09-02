@@ -28,6 +28,7 @@ function harness() {
       return () => { runtimeExtensions.splice(runtimeExtensions.findIndex((entry) => entry.factory === factory), 1); };
     },
     setPermissionPolicy: (provider) => { policy = provider; },
+    presentUi: () => () => undefined,
   };
   const registry = new HostExtensionRegistry(services, (event) => events.push(event));
   return { registry, events, runtimeExtensions, policy: () => policy?.() };

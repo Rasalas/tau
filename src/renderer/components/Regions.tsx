@@ -43,7 +43,7 @@ export function StatusLine({ registry, snapshot, actions }: Omit<RegionHostProps
       </LazyFeatureBoundary>
     ));
   return (
-    <footer className="status-line" role="status">
+    <footer className="status-line" aria-label="Status line">
       <span className="status-side">{side("left")}</span>
       <span className="spacer" />
       <span className="status-side">{side("right")}</span>

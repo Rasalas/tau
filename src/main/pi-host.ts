@@ -78,7 +78,7 @@ import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
 import { GitCoordinator } from "./git-coordinator.js";
-import { HostExtensionRegistry, type CheckpointHostEvent, type HostExtension, type HostExtensionServices, type HostPlatform, type HostThread, type RuntimeExtensionContribution } from "./host-extensions.js";
+import { HostExtensionRegistry, type CheckpointHostEvent, type HostExtension, type HostExtensionServices, type HostPlatform, type HostThread, type HostUiPresenter, type RuntimeExtensionContribution } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
@@ -998,6 +998,7 @@ export class PiHost {
   private readonly runtimeExtensionContributions: RuntimeExtensionContribution[] = [];
   private permissionPolicyProvider: (() => RuntimePermissionPolicy) | undefined;
   private readonly uiPromptDecorators = new Set<(prompt: ExtensionUiPrompt) => void>();
+  private readonly uiPresenters = new Set<HostUiPresenter>();
   private readonly checkpointListeners = new Set<(event: CheckpointHostEvent) => void>();
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
@@ -1216,7 +1217,23 @@ export class PiHost {
         };
       },
       setPermissionPolicy: (provider) => { this.permissionPolicyProvider = provider; },
+      presentUi: (presenter) => {
+        this.uiPresenters.add(presenter);
+        return () => { this.uiPresenters.delete(presenter); };
+      },
     };
+  }
+
+  /** Offers a ctx.ui drawing to every presenter; false when none handles that surface. */
+  private presentUi<K extends keyof HostUiPresenter>(method: K, ...args: Parameters<NonNullable<HostUiPresenter[K]>>): boolean {
+    let handled = false;
+    for (const presenter of this.uiPresenters) {
+      const draw = presenter[method] as ((...params: typeof args) => void) | undefined;
+      if (!draw) continue;
+      try { draw.apply(presenter, args); } catch (error) { this.log("extension-ui.presenter-failed", `${method}: ${this.errorMessage(error)}`); }
+      handled = true;
+    }
+    return handled;
   }
 
   private hostThread(sessionId?: string): HostThread | undefined {
@@ -3565,6 +3582,9 @@ export class PiHost {
           if (!thread.deferTitle(title)) this.onWindowTitle?.(title);
         },
         unsupported: (method) => this.logForThread(thread, "extension-ui.unsupported", method),
+        setStatus: (key, text) => this.presentUi("setStatus", thread.threadId, key, text),
+        setWidget: (key, lines, placement) => this.presentUi("setWidget", thread.threadId, key, lines, placement),
+        setWorkingMessage: (message) => this.presentUi("setWorkingMessage", thread.threadId, message),
       }),
       mode: "rpc",
       onError: (error) => this.fail(error, thread.threadId, thread),
@@ -3810,6 +3830,7 @@ export class PiHost {
   private async disposeThread(thread: ThreadRuntime): Promise<void> {
     this.clientTurns.settle(thread.threadId);
     this.cancelUiPromptsFor(thread.threadId);
+    this.presentUi("clear", thread.threadId);
     thread.adapterAbortGeneration ??= 0;
     thread.adapterAbortGeneration += 1;
     thread.unsubscribe?.();

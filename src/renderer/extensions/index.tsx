@@ -23,6 +23,7 @@ import { workspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
+import { piUiExtension } from "./pi-ui";
 
 let lastDocumentState: { changes: import("../../shared/contracts").UiWorkspaceChanges; editor?: import("../../shared/contracts").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
@@ -256,5 +257,6 @@ export const bundledExtensions = [
   observatoryExtension,
   computerUsePresentationExtension,
   titleGeneratorExtension,
+  piUiExtension,
   settingsExtension,
 ];

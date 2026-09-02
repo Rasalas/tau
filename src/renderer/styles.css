@@ -2420,6 +2420,8 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   padding: 10px 14px; cursor: pointer; animation: centered-modal-enter .16s ease;
 }
 .toast b { font: 500 10px var(--mono); color: var(--working); letter-spacing: .1em; }
+.toast[data-level="warning"] b { color: var(--warn, #b7791f); }
+.toast[data-level="error"] b { color: var(--danger, #c0392b); }
 .toast span { font-size: 12px; max-width: 460px; }
 .toast i { color: var(--faint); font-style: normal; }
 
@@ -2481,4 +2483,11 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 }
 .status-line .status-side { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
 .status-line .status-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.pi-ui-status { opacity: 0.9; }
+.pi-ui-working { font-style: italic; }
+.pi-ui-widget {
+  margin: 0 0 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+  font: 12px/1.45 var(--mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; color: var(--ink); opacity: 0.85;
+}
+.region-composer-below .pi-ui-widget { margin: 6px 0 0; }
 .region-title-bar { flex-direction: row; align-items: center; gap: 8px; }

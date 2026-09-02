@@ -21,6 +21,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
     setPermissionPolicy: () => undefined,
+    presentUi: () => () => undefined,
     git: {} as never,
   };
 }

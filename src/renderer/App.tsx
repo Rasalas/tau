@@ -742,7 +742,12 @@ export default function App() {
   const promoteRecoveryRef = useRef<(clientMessageId: string, sessionId: string, message?: UiMessage) => boolean>(() => false);
   const [, setNewThreadRecoveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread || newThreadRecoveryRef.current.size > 0);
-  const [notice, setNotice] = useState<string>();
+  const [notice, setNoticeText] = useState<string>();
+  const [noticeLevel, setNoticeLevel] = useState<"info" | "warning" | "error">("info");
+  const setNotice = useCallback((message?: string, level: "info" | "warning" | "error" = "info") => {
+    setNoticeLevel(level);
+    setNoticeText(message);
+  }, []);
   const [dockOpen, setDockOpen] = useState(true);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
@@ -1572,7 +1577,7 @@ export default function App() {
         }
         break;
       case "notice":
-        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
+        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message, event.level);
         break;
       case "queue":
         setQueue([...event.steering, ...event.followUp]);
@@ -2668,8 +2673,8 @@ export default function App() {
         </LazyFeatureBoundary>
       ) : null}
       {notice ? (
-        <button className="toast" onClick={() => setNotice(undefined)}>
-          <b>NOTICE</b><span>{notice}</span><i>×</i>
+        <button className="toast" data-level={noticeLevel} onClick={() => setNotice(undefined)}>
+          <b>{noticeLevel === "info" ? "NOTICE" : noticeLevel.toUpperCase()}</b><span>{notice}</span><i>×</i>
         </button>
       ) : null}
     </>

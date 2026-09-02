@@ -21,7 +21,7 @@ describe("Region and StatusLine", () => {
     } });
     expect(await screen.findByText("widget")).toBeTruthy();
     expect(screen.queryByText("footer")).toBeNull();
-    const status = await screen.findByRole("status");
+    const status = await screen.findByLabelText("Status line");
     expect(status.textContent).toContain("~/project");
     expect(status.textContent).toContain("1.2k tokens");
   });

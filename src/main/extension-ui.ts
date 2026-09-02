@@ -9,6 +9,10 @@ export interface ExtensionUiBridge {
   setWindowTitle(title: string): void;
   /** Reports a capability Tau cannot render, instead of failing silently. */
   unsupported(method: string): void;
+  /** Terminal surfaces; each returns false when nothing in the host draws it. */
+  setStatus?(key: string, text: string | undefined): boolean;
+  setWidget?(key: string, lines: string[] | undefined, placement: "aboveEditor" | "belowEditor"): boolean;
+  setWorkingMessage?(message: string | undefined): boolean;
 }
 
 interface DialogOptions {
@@ -83,11 +87,17 @@ export function createExtensionUiContext(bridge: ExtensionUiBridge): ExtensionUI
       return undefined as T;
     },
     onTerminalInput: () => { unsupported("ui.onTerminalInput"); return () => {}; },
-    setWidget: () => unsupported("ui.setWidget"),
+    // Text widgets, statuses and the working message go to whoever presents
+    // them; component factories need a terminal and stay unsupported.
+    setWidget: (key: string, content: unknown, options?: { placement?: "aboveEditor" | "belowEditor" }) => {
+      if (typeof content === "function") { unsupported("ui.setWidget(component)"); return; }
+      const lines = Array.isArray(content) ? content.map(String) : undefined;
+      if (!bridge.setWidget?.(key, lines, options?.placement ?? "aboveEditor")) unsupported("ui.setWidget");
+    },
     setFooter: () => unsupported("ui.setFooter"),
     setHeader: () => unsupported("ui.setHeader"),
-    setStatus: () => unsupported("ui.setStatus"),
-    setWorkingMessage: () => unsupported("ui.setWorkingMessage"),
+    setStatus: (key: string, text: string | undefined) => { if (!bridge.setStatus?.(key, text)) unsupported("ui.setStatus"); },
+    setWorkingMessage: (message?: string) => { if (!bridge.setWorkingMessage?.(message)) unsupported("ui.setWorkingMessage"); },
     setWorkingVisible: () => unsupported("ui.setWorkingVisible"),
     setWorkingIndicator: () => unsupported("ui.setWorkingIndicator"),
     setHiddenThinkingLabel: () => unsupported("ui.setHiddenThinkingLabel"),
