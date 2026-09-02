@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiComposerCommand } from "../shared/contracts.js";
-import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./pi-host.js";
+import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./host-messages.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { createClaudeCodeRuntimeAdapter } from "./extensions/claude-code/runtime-adapter.js";

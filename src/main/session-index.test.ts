@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { UiSession } from "../shared/contracts.js";
-import { mapSessions, mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates } from "./pi-host.js";
+import { mapSessions, mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates } from "./host-messages.js";
 import { prioritizeRestoreTargetSession } from "./extensions/workspace-kit-lifecycle.js";
 import { buildTitleConversation } from "./extensions/thread-titles-host-extension.js";
 

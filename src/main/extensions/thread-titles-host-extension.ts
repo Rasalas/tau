@@ -1,7 +1,7 @@
 import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../shared/thread-titles-protocol.js";
 import { parseSkillEnvelope } from "../../shared/skill-envelope.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
-import { cleanThreadTitle, textFromContent, visibleTitleText } from "../pi-host.js";
+import { cleanThreadTitle, textFromContent, visibleTitleText } from "../host-messages.js";
 
 interface TitleMessage {
   role?: string;

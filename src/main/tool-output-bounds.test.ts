@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boundedToolOutput, MAX_HOST_TOOL_OUTPUT_BYTES } from "./pi-host.js";
+import { boundedToolOutput, MAX_HOST_TOOL_OUTPUT_BYTES } from "./host-messages.js";
 
 describe("host tool output bounds", () => {
   it("keeps cumulative IPC payloads bounded and marks truncation", () => {
