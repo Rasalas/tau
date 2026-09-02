@@ -31,12 +31,12 @@ describe("Access Kit desktop extension", () => {
     const { registry } = activate();
     const [control] = registry.getComposerControls();
     expect(control?.id).toBe("access.level");
-    const snapshot = { backendKind: "claude-code" } as unknown as HostSnapshot;
+    const snapshot = { backendKind: "claude-code", runtimeCapabilities: { skillInvocationDialect: "claude-code", interactiveApprovals: false } } as unknown as HostSnapshot;
     render(<control.Component snapshot={snapshot} />);
     fireEvent.click(screen.getByRole("button", { name: /full access/u }));
     const ask = screen.getByRole("menuitem", { name: /ask before edits/u });
     expect(ask).toHaveProperty("disabled", true);
-    expect(ask.getAttribute("title")).toContain("interactive approvals");
+    expect(ask.getAttribute("title")).toContain("cannot stop for an approval");
     fireEvent.click(screen.getAllByRole("menuitem", { name: /read-only/u })[0]!);
     expect(preferences.value("tau.access", "level")).toBe("read-only");
   });

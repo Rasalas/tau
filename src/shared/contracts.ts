@@ -18,14 +18,20 @@ export interface UiMessageImage {
 }
 
 /** Skill dialect selected by the runtime adapter, never inferred from a model id. */
-export type SkillInvocationDialect = "pi" | "claude-code";
+/** How a runtime spells a skill command: Pi as `/skill:name`, any other runtime as `/name`. */
+export type SkillInvocationDialect = "pi" | (string & {});
 
 /** The owner of a thread's lifecycle and transcript. This is not a model provider. */
-export type ThreadBackendKind = "pi" | "claude-code";
+/** Which runtime owns a thread: Pi in process, or a backend a host extension registered. */
+export type ThreadBackendKind = "pi" | (string & {});
 
 /** Capabilities supplied by the runtime owner at the host/adapter boundary. */
 export interface RuntimeCapabilities {
   skillInvocationDialect: SkillInvocationDialect;
+  /** The runtime picks model and reasoning itself; the composer offers no pickers. */
+  ownsModelSelection?: boolean;
+  /** False when the runtime cannot stop for an approval; the access gate then offers no "ask". */
+  interactiveApprovals?: boolean;
 }
 
 /** Host-resolved metadata for a user skill invocation. */

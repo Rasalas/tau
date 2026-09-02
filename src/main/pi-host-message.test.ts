@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { UiComposerCommand } from "../shared/contracts.js";
 import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./pi-host.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
-import { createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { createClaudeCodeRuntimeAdapter } from "./extensions/claude-code/runtime-adapter.js";
 import { bridgeTranscriptPage } from "../shared/bridge-transcript-pager.js";
 
 const skillCommands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill" }];

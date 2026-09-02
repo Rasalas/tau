@@ -2,10 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiComposerCommand } from "../shared/contracts.js";
-import { ClaudeRuntimeSessionStore } from "./claude-runtime-store.js";
-import { ClaudeThreadRuntimeBackend } from "./thread-runtime-backend.js";
-import { createClaudeCodeRuntimeAdapter } from "./runtime-adapters.js";
+import type { UiComposerCommand } from "../../../shared/contracts.js";
+import { ClaudeRuntimeSessionStore } from "./session-store.js";
+import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
+import { createClaudeCodeRuntimeAdapter } from "./runtime-adapter.js";
 
 const directories: string[] = [];
 const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", description: "Test first" }];
@@ -27,7 +27,7 @@ describe("thread runtime backends", () => {
       store,
       commands,
       projectName: "repo",
-      permissionPolicy: () => ({ permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] }),
+      permissionLevel: () => "full",
     });
 
     await first.create();
@@ -77,7 +77,7 @@ describe("thread runtime backends", () => {
       store,
       commands,
       projectName: "repo",
-      permissionPolicy: () => ({ permissionMode: "manual", tools: ["default"] }),
+      permissionLevel: () => "ask",
     });
     await backend.create();
     await expect(backend.preparePrompt("$tdd inspect", { source: "skill", name: "tdd", command: "/tdd", visibleText: "inspect" })).rejects.toThrow("manual approvals are unsupported");

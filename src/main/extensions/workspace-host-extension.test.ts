@@ -46,7 +46,8 @@ async function client(cwd: string) {
     pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
-    setPermissionPolicy: () => undefined,
+    setPermissionLevel: () => undefined,
+    registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
   };
   const registry = new HostExtensionRegistry(services, () => undefined);

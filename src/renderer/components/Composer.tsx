@@ -269,9 +269,10 @@ export function Composer({
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const supportsImageInput = snapshot?.supportsImageInput ?? false;
   const streaming = Boolean(snapshot?.isStreaming);
-  const claudeCode = snapshot?.backendKind === "claude-code";
-  const modelSelectionAvailable = !claudeCode && (snapshot?.models.length ?? 0) > 0;
-  const thinkingSelectionAvailable = !claudeCode && (snapshot?.thinkingLevels.length ?? 0) > 1;
+  // An external runtime may pick model and reasoning itself; the pickers then only show what it reports.
+  const runtimeOwnsModel = snapshot?.runtimeCapabilities?.ownsModelSelection === true;
+  const modelSelectionAvailable = !runtimeOwnsModel && (snapshot?.models.length ?? 0) > 0;
+  const thinkingSelectionAvailable = !runtimeOwnsModel && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
@@ -559,14 +560,14 @@ export function Composer({
           <button
             className="runtime-chip"
             disabled={!modelSelectionAvailable}
-            title={modelSelectionAvailable ? "Select model" : claudeCode ? "Claude Code selects its model in the Claude runtime." : "No models are available for this runtime."}
+            title={modelSelectionAvailable ? "Select model" : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime."}
             aria-label={modelSelectionAvailable
               ? `Select model: ${snapshot?.model?.name ?? "current model"}`
               : "Model selection unavailable"}
             onClick={() => { if (modelSelectionAvailable) setModelPickerOpen(true); }}
           >
             <Sparkles size={13} className="accent" />
-            {snapshot?.model?.name ?? (claudeCode ? "Claude Code model" : "select model")}
+            {snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}
             {modelSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
           </button>
 
@@ -574,7 +575,7 @@ export function Composer({
             <button
               className="runtime-chip"
               disabled={!thinkingSelectionAvailable}
-              title={thinkingSelectionAvailable ? "Reasoning" : claudeCode ? "Claude Code does not expose Pi thinking levels." : "Reasoning controls are unavailable."}
+              title={thinkingSelectionAvailable ? "Reasoning" : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable."}
               aria-label={thinkingSelectionAvailable ? "Reasoning" : "Reasoning controls unavailable"}
               onClick={() => {
                 if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
@@ -596,7 +597,7 @@ export function Composer({
                       badge: level === DEFAULT_THINKING ? "Default" : undefined,
                       selected: level === snapshot?.thinkingLevel,
                       disabled: !thinkingSelectionAvailable,
-                      description: !thinkingSelectionAvailable && claudeCode ? "Claude Code controls reasoning in its own runtime." : undefined,
+                      description: !thinkingSelectionAvailable && runtimeOwnsModel ? "This runtime controls reasoning itself." : undefined,
                     })),
                   },
                 ]}

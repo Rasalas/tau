@@ -2,7 +2,6 @@ import type { AccessLevel } from "../../shared/access-kit-protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_EVENT, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "../../shared/access-kit-protocol.js";
 import { createAccessExtension } from "../access-extension.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
-import { runtimePermissionPolicy } from "../runtime-adapters.js";
 
 /**
  * Access Kit's host entry. It owns the access level, contributes the Pi gate
@@ -20,7 +19,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
         level: () => level,
         onBlocked: (toolName, reason) => services.log("access.blocked", `${toolName}: ${reason}`),
       }));
-      services.setPermissionPolicy(() => runtimePermissionPolicy(level));
+      services.setPermissionLevel(() => level);
       context.registerCommand("level", () => level);
       context.registerCommand("set-level", (input) => {
         const requested = input && typeof input === "object" ? (input as { level?: unknown }).level : undefined;
@@ -32,7 +31,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
         }
         return level;
       });
-      return () => { services.setPermissionPolicy(undefined); };
+      return () => { services.setPermissionLevel(undefined); };
     },
   };
 }

@@ -19,7 +19,7 @@ function readLevel(): AccessLevel { return storedLevel(); }
 function AccessControl({ snapshot }: ComposerControlProps) {
   const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
   const [open, setOpen] = useState(false);
-  const claudeCode = snapshot?.backendKind === "claude-code";
+  const noInteractiveApprovals = snapshot?.runtimeCapabilities?.interactiveApprovals === false;
   const label = ACCESS_LEVELS.find((entry) => entry.id === level)?.label ?? level;
   return (
     <span className="menu-anchor composer-runtime-menu-anchor">
@@ -36,9 +36,9 @@ function AccessControl({ snapshot }: ComposerControlProps) {
             id: entry.id,
             label: entry.label,
             selected: entry.id === level,
-            disabled: claudeCode && entry.id === "ask",
-            description: claudeCode && entry.id === "ask"
-              ? "Claude Code print mode cannot surface interactive approvals; choose read-only or full access."
+            disabled: noInteractiveApprovals && entry.id === "ask",
+            description: noInteractiveApprovals && entry.id === "ask"
+              ? "This runtime cannot stop for an approval; choose read-only or full access."
               : undefined,
           }))}
           onSelect={(id) => preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, id)}

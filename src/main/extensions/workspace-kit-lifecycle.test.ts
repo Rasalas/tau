@@ -101,7 +101,8 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     pinTranscriptEntries: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
     decorateUiPrompt: () => () => undefined,
-    setPermissionPolicy: () => undefined,
+    setPermissionLevel: () => undefined,
+    registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
     ...overrides,
   };

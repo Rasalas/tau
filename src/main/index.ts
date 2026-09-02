@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { ClientTurnIdentity, ExtensionUiAnswer, HostEvent, UiPromptAttachment } from "../shared/contracts.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { PiHost } from "./pi-host.js";
-import { selectRuntimeAdapter } from "./runtime-adapters.js";
+import { selectDefaultBackend } from "./runtime-adapters.js";
 import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
 import { validateImageDataUrl } from "./image-clipboard.js";
@@ -17,9 +17,9 @@ import { loadHostExtensionPackages } from "./extension-packages.js";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
-const runtimeAdapter = selectRuntimeAdapter(undefined, { safeMode });
 const hostOptions = {
-  runtimeAdapter,
+  // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
+  defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
   hostExtensions: safeMode ? [] : bundledHostExtensions(),
   hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir()),
   platform: {

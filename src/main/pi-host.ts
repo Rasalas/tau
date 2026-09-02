@@ -83,6 +83,7 @@ import {
   type HostExtensionServices,
   type HostPlatform,
   type HostPreparedThread,
+  type HostRuntimeBackendProvider,
   type HostSessionFile,
   type HostThread,
   type HostUiPresenter,
@@ -142,28 +143,28 @@ import {
 } from "./skill-invocation.js";
 import { knownSkillNames, parseSkillEnvelope } from "../shared/skill-envelope.js";
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
-import { assertClaudePermissionPolicySupported, assertRuntimeAdapter, createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter, type RuntimePermissionPolicy } from "./runtime-adapters.js";
-import { ClaudeRuntimeSessionStore, type ClaudeTitleSource } from "./claude-runtime-store.js";
-import { ClaudeThreadRuntimeBackend, PiThreadRuntimeBackend, type ThreadRuntimeBackend } from "./thread-runtime-backend.js";
+import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
+import { PiThreadRuntimeBackend, type ThreadRuntimeBackend, type ThreadTitleSource } from "./thread-runtime-backend.js";
 import { assistantAnchorForBranch } from "./session-entries.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
-/** Virtual shell paths keep app-data-owned Claude sessions addressable without
- * pretending their transcript is a Pi JSONL file. */
-const CLAUDE_SESSION_PATH_PREFIX = "tau-claude-session:";
+/** Threads of an external backend get a virtual shell path, since they have no Pi session file. */
+const EXTERNAL_THREAD_PATH_PREFIX = "tau-thread:";
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
 const SHUTDOWN_ABORT_MS = 3_000;
 /** How long a typed answer waits for the extension's follow-up input prompt. */
 const TYPED_ANSWER_TTL_MS = 10_000;
 
-function claudeThreadPath(threadId: string): string {
-  return `${CLAUDE_SESSION_PATH_PREFIX}${threadId}`;
+function externalThreadPath(kind: ThreadBackendKind, threadId: string): string {
+  return `${EXTERNAL_THREAD_PATH_PREFIX}${kind}:${threadId}`;
 }
 
-function claudeThreadIdFromPath(path: string): string | undefined {
-  return path.startsWith(CLAUDE_SESSION_PATH_PREFIX)
-    ? path.slice(CLAUDE_SESSION_PATH_PREFIX.length) || undefined
-    : undefined;
+function externalThreadFromPath(path: string): { kind: ThreadBackendKind; threadId: string } | undefined {
+  if (!path.startsWith(EXTERNAL_THREAD_PATH_PREFIX)) return undefined;
+  const rest = path.slice(EXTERNAL_THREAD_PATH_PREFIX.length);
+  const split = rest.indexOf(":");
+  if (split <= 0 || split === rest.length - 1) return undefined;
+  return { kind: rest.slice(0, split), threadId: rest.slice(split + 1) };
 }
 
 type Emit = (event: HostEvent) => void;
@@ -255,11 +256,9 @@ export interface MessageMappingOptions {
 }
 
 export interface PiHostOptions {
-  /** Legacy default adapter. Existing Pi sessions are still always opened by Pi. */
+  /** The Pi adapter; tests substitute one. Other backends register through the seam. */
   runtimeAdapter?: AgentRuntimeAdapter;
-  /** Explicit adapters available to per-thread backend selection. */
-  runtimeAdapters?: Partial<Record<ThreadBackendKind, AgentRuntimeAdapter>>;
-  /** Backend for a newly created thread when no existing session metadata applies. */
+  /** Backend for a newly created thread when no existing session metadata applies; a non-Pi kind needs its extension. */
   defaultBackendKind?: ThreadBackendKind;
   /** Commands available to the non-Pi backend; Pi discovers its own resources. */
   runtimeCommands?: readonly UiComposerCommand[];
@@ -825,7 +824,7 @@ class ThreadRuntime implements LiveTurnState {
   readonly inFlightClientMessageIds = new Set<string>();
   adapterMessages: UiMessage[] = [];
   adapterTitle?: string;
-  adapterTitleSource?: ClaudeTitleSource;
+  adapterTitleSource?: ThreadTitleSource;
   adapterStreaming = false;
   adapterPending = 0;
   adapterAbortGeneration = 0;
@@ -918,7 +917,7 @@ function isThreadRuntime(thread: LiveTurnState | undefined): thread is ThreadRun
 
 function threadBackendKind(thread: ThreadRuntime | LiveTurnState | undefined): ThreadBackendKind {
   if (thread && "backend" in thread && thread.backend) return thread.backend.kind;
-  return thread && "runtimeAdapter" in thread && thread.runtimeAdapter.id === "claude-code" ? "claude-code" : "pi";
+  return thread && "runtimeAdapter" in thread ? thread.runtimeAdapter.id : "pi";
 }
 
 function isPiBackend(thread: ThreadRuntime | LiveTurnState | undefined): boolean {
@@ -931,11 +930,11 @@ function samePath(left: string | undefined, right: string | undefined): boolean 
 
 export class PiHost {
   private cwd: string;
-  /** Adapters are selected once, then each thread permanently owns one backend. */
-  private readonly runtimeAdapters: Record<ThreadBackendKind, AgentRuntimeAdapter>;
+  /** Pi is the built-in backend; every other kind comes from a registered provider. */
+  private readonly piAdapter: AgentRuntimeAdapter;
+  private readonly backends = new Map<ThreadBackendKind, HostRuntimeBackendProvider>();
   private readonly defaultBackendKind: ThreadBackendKind;
   private readonly runtimeCommands: readonly UiComposerCommand[];
-  private readonly claudeStore: ClaudeRuntimeSessionStore;
   private emit: Emit;
   /** Correlates raw Pi user-message events with renderer sends. */
   private readonly clientTurns = new ClientTurnLedger();
@@ -966,7 +965,7 @@ export class PiHost {
   private readonly platform: HostPlatform;
   /** Pi extensions host extensions contribute; loaded into every runtime created afterwards. */
   private readonly runtimeExtensionContributions: RuntimeExtensionContribution[] = [];
-  private permissionPolicyProvider: (() => RuntimePermissionPolicy) | undefined;
+  private permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
   private readonly uiPromptDecorators = new Set<(prompt: ExtensionUiPrompt) => void>();
   private readonly uiPresenters = new Set<HostUiPresenter>();
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
@@ -1100,23 +1099,9 @@ export class PiHost {
     options: PiHostOptions = {},
   ) {
     this.cwd = cwd;
-    const selectedAdapter = this.safeMode ? PI_AGENT_RUNTIME_ADAPTER : options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER;
-    const configured = assertRuntimeAdapter(selectedAdapter);
-    const configuredAdapters = options.runtimeAdapters ?? {};
-    const piAdapter = assertRuntimeAdapter(configuredAdapters.pi ?? PI_AGENT_RUNTIME_ADAPTER);
-    const configuredClaude = configuredAdapters["claude-code"]
-      ? assertRuntimeAdapter(configuredAdapters["claude-code"])
-      : configured.id === "claude-code" ? configured : undefined;
-    if (configuredClaude && configuredClaude.id !== "claude-code") throw new Error("Claude backend requires the Claude Code runtime adapter.");
-    this.runtimeAdapters = {
-      pi: piAdapter,
-      "claude-code": configuredClaude ?? createClaudeCodeRuntimeAdapter(),
-    };
-    const claude = this.runtimeAdapters["claude-code"];
-    this.claudeStore = claude.id === "claude-code" && claude.sessionStore
-      ? claude.sessionStore
-      : new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(this.agentDir) });
-    this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? configured.id;
+    this.piAdapter = assertRuntimeAdapter(this.safeMode ? PI_AGENT_RUNTIME_ADAPTER : options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER);
+    if (this.piAdapter.id !== "pi") throw new Error("The host's own runtime adapter must be Pi; other backends come from host extensions.");
+    this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? "pi";
     this.runtimeCommands = options.runtimeCommands ?? [];
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
     this.hostExtensionPackages = this.safeMode ? undefined : options.hostExtensionPackages;
@@ -1186,7 +1171,15 @@ export class PiHost {
           if (index >= 0) this.runtimeExtensionContributions.splice(index, 1);
         };
       },
-      setPermissionPolicy: (provider) => { this.permissionPolicyProvider = provider; },
+      setPermissionLevel: (provider) => { this.permissionLevelProvider = provider; },
+      registerRuntimeBackend: (provider) => {
+        if (provider.kind === "pi" || !provider.kind) throw new Error(`Runtime backend kind "${provider.kind}" is reserved.`);
+        if (this.backends.has(provider.kind)) throw new Error(`Runtime backend "${provider.kind}" is already registered.`);
+        assertRuntimeAdapter(provider.adapter);
+        if (provider.adapter.id !== provider.kind) throw new Error(`Runtime backend "${provider.kind}" must carry an adapter of the same kind.`);
+        this.backends.set(provider.kind, provider);
+        return () => { if (this.backends.get(provider.kind) === provider) this.backends.delete(provider.kind); };
+      },
       presentUi: (presenter) => {
         this.uiPresenters.add(presenter);
         return () => { this.uiPresenters.delete(presenter); };
@@ -1316,8 +1309,15 @@ export class PiHost {
   }
 
   /** External runtimes launch with this; without an access extension everything is allowed. */
-  private permissionPolicy(): RuntimePermissionPolicy {
-    return this.permissionPolicyProvider?.() ?? runtimePermissionPolicy("full");
+  private permissionLevel(): RuntimePermissionLevel {
+    return this.permissionLevelProvider?.() ?? "full";
+  }
+
+  /** The provider behind a non-Pi backend kind. */
+  private requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider {
+    const provider = this.backends.get(kind);
+    if (!provider) throw new Error(`Runtime backend "${kind}" is not installed; enable its extension or choose the Pi runtime.`);
+    return provider;
   }
 
   private async activateHostExtensions(): Promise<void> {
@@ -1369,7 +1369,7 @@ export class PiHost {
   }
 
   private adapterFor(kind: ThreadBackendKind): AgentRuntimeAdapter {
-    return this.runtimeAdapters[kind];
+    return kind === "pi" ? this.piAdapter : this.requireBackend(kind).adapter;
   }
 
   // ---------------------------------------------------------------------------
@@ -1431,10 +1431,10 @@ export class PiHost {
 
   private liveThreadForPath(path: string | undefined): ThreadRuntime | undefined {
     if (!path) return undefined;
-    const storedThreadId = claudeThreadIdFromPath(path);
-    if (storedThreadId) return this.threads.get(storedThreadId)?.runtime;
+    const external = externalThreadFromPath(path);
+    if (external) return this.threads.get(external.threadId)?.runtime;
     const indexed = this.sessions.find((session) => session.path === path);
-    if (indexed?.backendKind === "claude-code") return this.threads.get(indexed.id)?.runtime;
+    if (indexed?.backendKind && indexed.backendKind !== "pi") return this.threads.get(indexed.id)?.runtime;
     return this.threads.list().find((record) => samePath(record.runtime.backend.sessionFile(), path))?.runtime;
   }
 
@@ -1442,18 +1442,17 @@ export class PiHost {
     return new Set(this.threads.list().map((record) => record.threadId));
   }
 
-  private claudeSessionStore(): ClaudeRuntimeSessionStore | undefined {
-    return this.claudeStore;
-  }
-
   private async initialSessionManager(cwd: string): Promise<SessionManager> {
     return SessionManager.continueRecent(cwd);
   }
 
   private async openInitialThread(cwd: string): Promise<ThreadRuntime> {
-    if (this.defaultBackendKind === "claude-code") {
-      const latest = (await this.claudeStore.list(cwd))[0];
-      return this.openClaudeThread(latest?.tauThreadId ?? randomUUID(), cwd, { resume: Boolean(latest) });
+    if (this.defaultBackendKind !== "pi") {
+      const kind = this.defaultBackendKind;
+      const latest = (await this.requireBackend(kind).listThreads())
+        .filter((record) => record.cwd === cwd)
+        .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+      return this.openExternalThread(kind, latest?.threadId ?? randomUUID(), cwd, { resume: Boolean(latest) });
     }
     return this.openThread(await this.initialSessionManager(cwd), undefined);
   }
@@ -1834,7 +1833,7 @@ export class PiHost {
     this.detachBridge();
     await this.threadLifecycle.beforeWorkspace(cwd);
     const startedAt = performance.now();
-    const thread = this.defaultBackendKind === "claude-code"
+    const thread = this.defaultBackendKind !== "pi"
       ? await this.openInitialThread(cwd)
       : await (async () => {
         const manager = await this.initialSessionManager(cwd);
@@ -1968,7 +1967,7 @@ export class PiHost {
     const identity = clientIdentityForRequest(clientMessageIdOrRequestId);
     const clientMessageId = identity?.clientMessageId;
     const backendKind = prepared?.backendKind ?? this.defaultBackendKind;
-    if (prepared && backendKind !== "pi" && backendKind !== "claude-code") {
+    if (prepared && backendKind !== "pi" && !this.backends.has(backendKind)) {
       throw new Error("Prepared prompt names an unsupported runtime backend.");
     }
     if (backendKind === "pi" && this.bridge && (!cwd || cwd === this.cwd)) {
@@ -2055,8 +2054,8 @@ export class PiHost {
     // backend is created; only an owner-less preflight can be validated here.
     if (prepared && prepared.tauThreadId === undefined && prepared.sessionId === undefined) {
       const adapter = this.adapterFor(backendKind);
-      const commands = backendKind === "claude-code"
-        ? this.claudeComposerCommands(cwd ?? this.cwd)
+      const commands = backendKind !== "pi"
+        ? this.externalComposerCommands(backendKind, cwd ?? this.cwd)
         : this.runtimeCommands;
       validatePreparedPrompt(initialPrompt ?? "", prepared, {
         backendKind,
@@ -2071,8 +2070,8 @@ export class PiHost {
       this.detachBridge();
       const spare = backendKind === "pi" ? await this.takePreparedThread(targetCwd) : undefined;
       const thread = spare
-        ?? (backendKind === "claude-code"
-          ? await this.openClaudeThread(randomUUID(), targetCwd, { resume: false })
+        ?? (backendKind !== "pi"
+          ? await this.openExternalThread(backendKind, randomUUID(), targetCwd, { resume: false })
           : await this.openThread(
             SessionManager.create(targetCwd),
             { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
@@ -2220,7 +2219,7 @@ export class PiHost {
       if (expectedSessionId && thread.threadId !== expectedSessionId) {
         throw new Error("The selected thread changed before it could be forked.");
       }
-      if (!isPiBackend(thread)) throw new Error("Claude Code threads cannot be forked by the Pi session manager.");
+      if (!isPiBackend(thread)) throw new Error("Only Pi threads can be forked.");
       if (thread.backend.isStreaming()) throw new Error("Wait for the active run before forking this thread.");
       const sourceFile = thread.sessionFile;
       if (!sourceFile || !existsSync(sourceFile)) {
@@ -2259,7 +2258,7 @@ export class PiHost {
     return this.runLifecycle(async () => {
       const thread = this.requireActive();
       if (expectedSessionId && thread.threadId !== expectedSessionId) throw new Error("The selected thread changed before it could be moved.");
-      if (!isPiBackend(thread)) throw new Error("Claude Code threads have no session tree to move in.");
+      if (!isPiBackend(thread)) throw new Error("Only Pi threads have a session tree.");
       if (thread.backend.isStreaming()) throw new Error("Wait for the active run before moving this thread.");
       const result = await thread.backend.navigateTree(entryId, options);
       if (result.cancelled) return { ...this.actionResult([]), cancelled: true };
@@ -2502,8 +2501,8 @@ export class PiHost {
       );
     }
     const adapter = this.adapterFor(this.defaultBackendKind);
-    const commands = adapter.id === "claude-code"
-      ? this.claudeComposerCommands(this.cwd)
+    const commands = this.defaultBackendKind !== "pi"
+      ? this.externalComposerCommands(this.defaultBackendKind, this.cwd)
       : this.runtimeCommands;
     return this.preparePromptForAdapter(text, skill, adapter, commands, undefined, this.defaultBackendKind);
   }
@@ -2516,7 +2515,7 @@ export class PiHost {
     threadId: string | undefined,
     backendKind: ThreadBackendKind,
   ): PreparedPrompt {
-    if (adapter.id === "claude-code") assertClaudePermissionPolicySupported(this.permissionPolicy());
+    if (adapter.id !== "pi") this.requireBackend(adapter.id).assertPromptAllowed?.(this.permissionLevel());
     const effectiveCommands = commands;
     const prepared = prepareSkillPrompt(text, adapter, effectiveCommands, skill);
     const skillNames = [...knownSkillNames(effectiveCommands)];
@@ -2566,12 +2565,10 @@ export class PiHost {
 
   async switchSession(path: string): Promise<HostActionResult> {
     const activationEpoch = this.beginActivation();
-    // The index carries the lifecycle owner. The virtual Claude path remains
-    // a compatibility fallback for older indexes, but a real entry wins so a
-    // future backend can use a non-file path without being mistaken for Pi.
+    // The index carries the lifecycle owner; the virtual path of an external
+    // thread is the fallback for entries that predate the index.
     const indexedSession = this.sessions.find((session) => session.path === path);
-    const backendKind = indexedSession?.backendKind
-      ?? (claudeThreadIdFromPath(path) ? "claude-code" : undefined);
+    const backendKind = indexedSession?.backendKind ?? externalThreadFromPath(path)?.kind;
     // A thread whose runtime is already live switches immediately and outside
     // the lifecycle queue: nothing is created, aborted or replaced.
     const live = this.bridge ? undefined : this.liveThreadForPath(path);
@@ -2584,7 +2581,7 @@ export class PiHost {
     return this.runLifecycle(async () => {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       const startedAt = performance.now();
-      if (backendKind !== "claude-code" && this.defaultBackendKind === "pi" && await this.attachAvailableBridge(dirname(path), path, {}, activationEpoch)) {
+      if ((backendKind ?? "pi") === "pi" && this.defaultBackendKind === "pi" && await this.attachAvailableBridge(dirname(path), path, {}, activationEpoch)) {
         if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
         this.cwd = this.bridgeSnapshot!.cwd;
         await this.rememberProject(this.cwd);
@@ -2613,7 +2610,7 @@ export class PiHost {
   async prewarmSession(path: string): Promise<void> {
     if (this.bridge || this.safeMode || this.liveThreadForPath(path)) return;
     const backendKind = this.sessions.find((session) => session.path === path)?.backendKind
-      ?? (claudeThreadIdFromPath(path) ? "claude-code" : undefined);
+      ?? externalThreadFromPath(path)?.kind;
     const startedAt = performance.now();
     try {
       await this.openThreadForPath(path, "resume", true, backendKind);
@@ -2774,7 +2771,7 @@ export class PiHost {
       }
       return this.requireActive();
     });
-    if (!isPiBackend(thread)) throw new Error("Project actions are unavailable for Claude Code threads; run them through the Claude runtime.");
+    if (!isPiBackend(thread)) throw new Error("Project actions are unavailable for threads of an external runtime.");
     if (thread.backend.isBashRunning()) throw new Error("Another project action is already running.");
     const result = await thread.backend.executeBash(shellCommand, includeInContext);
     if (this.threads.get(thread.threadId)?.runtime === thread) await this.refreshThreadShell(thread, true);
@@ -3046,7 +3043,7 @@ export class PiHost {
         return;
       }
       const thread = this.requireActive();
-      if (thread.backend.kind !== "pi") throw new Error("Claude Code runtime resources are managed by the Claude backend and cannot be reloaded as Pi extensions.");
+      if (thread.backend.kind !== "pi") throw new Error("Only the Pi runtime reloads its extensions; an external runtime manages its own resources.");
       if (thread.backend.isStreaming()) throw new Error("Wait for the active run before reloading Pi.");
       await thread.backend.reload();
       this.modelCatalogCache.invalidate();
@@ -3142,26 +3139,19 @@ export class PiHost {
   // Thread runtime lifecycle
   // ---------------------------------------------------------------------------
 
-  /** Opens a Claude-owned thread without allocating a Pi AgentSession carrier. */
-  private async openClaudeThread(
+  /** Opens a thread of a registered backend; no Pi session is allocated for it. */
+  private async openExternalThread(
+    kind: ThreadBackendKind,
     threadId: string,
     cwd: string,
     options: { background?: boolean; adopt?: boolean; resume?: boolean } = {},
   ): Promise<ThreadRuntime> {
-    if (this.safeMode) throw new Error("Claude Code threads are disabled in Tau safe mode; choose the Pi runtime.");
-    const adapter = this.adapterFor("claude-code");
-    if (adapter.id !== "claude-code") throw new Error("Claude Code is not configured for this host.");
-    const store = this.claudeSessionStore();
-    if (!store) throw new Error("Claude Code backend has no durable session store.");
-    const backend = new ClaudeThreadRuntimeBackend(threadId, cwd, {
-      adapter,
-      store,
-      // Resolve the external runtime's command catalog once at its owner
-      // boundary. The host never substitutes a Pi resource loader later.
-      commands: this.claudeComposerCommands(cwd),
+    if (this.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
+    const provider = this.requireBackend(kind);
+    const backend = await provider.open(threadId, cwd, { resume: options.resume !== false }, {
       projectName: this.projectNameFor(cwd),
-      branch: this.knownLabels.get(cwd),
-      permissionPolicy: () => this.permissionPolicy(),
+      projectLabel: this.knownLabels.get(cwd),
+      permissionLevel: () => this.permissionLevel(),
       onMessage: (message) => {
         const thread = this.threads.get(threadId)?.runtime;
         if (thread) {
@@ -3172,12 +3162,11 @@ export class PiHost {
         }
       },
     });
-    if (options.resume === false) await backend.create();
-    else await backend.resume();
     const thread = new ThreadRuntime(backend);
     thread.adapterMessages = await backend.transcript();
-    thread.adapterTitle = (await store.get(threadId))?.title;
-    thread.adapterTitleSource = (await store.get(threadId))?.titleSource;
+    const detail = await backend.detail();
+    thread.adapterTitle = detail.title;
+    thread.adapterTitleSource = detail.titleSource;
     if (options.adopt !== false) await this.adoptThread(thread);
     return thread;
   }
@@ -3277,18 +3266,18 @@ export class PiHost {
     let pending = this.openingThreads.get(path);
     if (!pending) {
       pending = (async () => {
-        const storedThreadId = claudeThreadIdFromPath(path);
+        const external = externalThreadFromPath(path);
         const indexedSession = this.sessions.find((session) => session.path === path);
-        const owner = backendKind ?? indexedSession?.backendKind ?? (storedThreadId ? "claude-code" : "pi");
-        if (owner === "claude-code") {
-          if (this.safeMode) throw new Error("Claude Code threads are disabled in Tau safe mode; choose the Pi runtime.");
-          const threadId = storedThreadId ?? indexedSession?.id;
-          if (!threadId) throw new Error("The Claude Code thread has no durable Tau thread id.");
-          const record = await this.claudeSessionStore()?.get(threadId);
-          if (!record) throw new Error("The selected Claude Code session is no longer available.");
-          return this.openClaudeThread(record.tauThreadId, record.cwd, { background });
+        const owner = backendKind ?? indexedSession?.backendKind ?? external?.kind ?? "pi";
+        if (owner !== "pi") {
+          if (this.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
+          const threadId = external?.threadId ?? indexedSession?.id;
+          if (!threadId) throw new Error("The thread has no durable Tau thread id.");
+          const record = await this.requireBackend(owner).lookup(threadId);
+          if (!record) throw new Error("The selected thread is no longer available in its runtime.");
+          return this.openExternalThread(owner, record.threadId, record.cwd, { background });
         }
-        if (storedThreadId) throw new Error("The selected Claude Code thread is owned by another runtime backend.");
+        if (external) throw new Error("The selected thread is owned by another runtime backend.");
         let manager: SessionManager;
         manager = SessionManager.open(path);
         return this.openThread(
@@ -4204,23 +4193,29 @@ export class PiHost {
 
   private async externalSessionShells(): Promise<UiSession[]> {
     if (this.safeMode) return [];
-    const store = this.claudeSessionStore();
-    if (!store) return [];
-    const records = await store.list();
-    return records.map((record) => {
-      const firstUser = record.messages.find((message) => message.role === "user");
-      return {
-        id: record.tauThreadId,
-        path: claudeThreadPath(record.tauThreadId),
-        title: cleanThreadTitle(safeSessionTitle(record.title) || firstSentence(visibleTitleText(firstUser?.text ?? ""))),
-        modifiedAt: record.updatedAt,
-        projectPath: record.cwd,
-        projectName: this.projectNameFor(record.cwd),
-        projectLabel: this.labelFor(record.cwd),
-        messageCount: record.messages.length,
-        backendKind: "claude-code",
-      };
-    });
+    const shells: UiSession[] = [];
+    for (const provider of this.backends.values()) {
+      let records: Awaited<ReturnType<HostRuntimeBackendProvider["listThreads"]>>;
+      try { records = await provider.listThreads(); } catch (error) {
+        this.log("runtime-backend.list.failed", `${provider.kind}: ${this.errorMessage(error)}`);
+        continue;
+      }
+      for (const record of records) {
+        const firstUser = record.messages.find((message) => message.role === "user");
+        shells.push({
+          id: record.threadId,
+          path: externalThreadPath(provider.kind, record.threadId),
+          title: cleanThreadTitle(safeSessionTitle(record.title) || firstSentence(visibleTitleText(firstUser?.text ?? ""))),
+          modifiedAt: record.updatedAt,
+          projectPath: record.cwd,
+          projectName: this.projectNameFor(record.cwd),
+          projectLabel: this.labelFor(record.cwd),
+          messageCount: record.messages.length,
+          backendKind: provider.kind,
+        });
+      }
+    }
+    return shells;
   }
 
   private async refreshThreadIndex(publish: boolean): Promise<ThreadIndexSnapshot> {
@@ -4300,9 +4295,8 @@ export class PiHost {
   }
 
   private sessionShellPath(thread: ThreadRuntime): string {
-    return threadBackendKind(thread) === "claude-code"
-      ? claudeThreadPath(thread.threadId)
-      : thread.sessionFile ?? thread.threadId;
+    const kind = threadBackendKind(thread);
+    return kind !== "pi" ? externalThreadPath(kind, thread.threadId) : thread.sessionFile ?? thread.threadId;
   }
 
   private async refreshThreadShell(thread: ThreadRuntime, touch: boolean): Promise<void> {
@@ -4619,25 +4613,11 @@ export class PiHost {
     return thread.backend.composerCommands();
   }
 
-  /** Claude gets only skill metadata from the shared skill directories. It
-   * never creates a Pi resource loader or imports Pi transcript/context state. */
-  private claudeComposerCommands(cwd: string): UiComposerCommand[] {
-    if (this.runtimeCommands.length > 0) {
-      // Runtime command catalogs can originate from the embedded Pi loader,
-      // whose skillCommand may still be `/skill:name`. Re-project every skill
-      // through the selected Claude adapter before exposing the catalog.
-      return this.composerCommandsForAdapter(this.runtimeCommands, this.adapterFor("claude-code"));
-    }
-    const result = loadSkills({ cwd, agentDir: this.agentDir, skillPaths: [], includeDefaults: true });
-    return result.skills
-      .filter((skill) => /^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(skill.name))
-      .map((skill) => ({
-        name: `skill:${skill.name}`,
-        description: skill.description,
-        source: "skill" as const,
-        skillCommand: skillInvocationCommand(skill.name, this.adapterFor("claude-code")),
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name));
+  /** Commands of an external backend; a supplied catalog is re-spelled in the backend's dialect. */
+  private externalComposerCommands(kind: ThreadBackendKind, cwd: string): UiComposerCommand[] {
+    const provider = this.requireBackend(kind);
+    if (this.runtimeCommands.length > 0) return this.composerCommandsForAdapter(this.runtimeCommands, provider.adapter);
+    return provider.composerCommands(cwd);
   }
 
   private isExtensionCommand(thread: ThreadRuntime, text: string): boolean {

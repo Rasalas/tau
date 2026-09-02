@@ -32,7 +32,8 @@ function services(): HostExtensionServices & { logs: string[] } {
     pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
-    setPermissionPolicy: () => undefined,
+    setPermissionLevel: () => undefined,
+    registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
   };
 }

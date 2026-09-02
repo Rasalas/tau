@@ -15,7 +15,7 @@ export function canonicalPreparedSkillName(name: string): string {
 }
 
 export function runtimeSkillCommand(name: string, capabilities: RuntimeCapabilities): string {
-  return capabilities.skillInvocationDialect === "claude-code" ? `/${name}` : `/skill:${name}`;
+  return capabilities.skillInvocationDialect === "pi" ? `/skill:${name}` : `/${name}`;
 }
 
 function isSkill(value: unknown): value is UiSkillInvocation {

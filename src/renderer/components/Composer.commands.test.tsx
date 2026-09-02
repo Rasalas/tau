@@ -173,7 +173,7 @@ describe("Composer command menu", () => {
     renderComposer(vi.fn(), false, {
       ...snapshot,
       backendKind: "claude-code",
-      runtimeCapabilities: { skillInvocationDialect: "claude-code" },
+      runtimeCapabilities: { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false },
       models: [],
       model: undefined,
       thinkingLevel: "off",

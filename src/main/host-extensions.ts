@@ -5,13 +5,15 @@ import type {
   HostExtensionSummary,
   ThreadBackendKind,
   ThreadHostEvent,
+  UiComposerCommand,
   UiMessage,
   UiToolRun,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
-import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
+import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
+import type { ThreadRuntimeBackend } from "./thread-runtime-backend.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -22,6 +24,44 @@ export interface DirectoryPickerOptions {
 /** What the platform (Electron main, later a remote host) lends to extensions. */
 export interface HostPlatform {
   pickDirectory?(options?: DirectoryPickerOptions): Promise<string | undefined>;
+}
+
+/** A thread an external backend persisted, as the index lists it. */
+export interface HostBackendThreadRecord {
+  threadId: string;
+  cwd: string;
+  title?: string;
+  updatedAt: number;
+  /** Visible messages, enough for a title and a count. */
+  messages: ReadonlyArray<Pick<UiMessage, "role" | "text">>;
+}
+
+/** What core hands a backend when it opens a thread. */
+export interface HostBackendOpenContext {
+  projectName: string;
+  projectLabel?: string;
+  permissionLevel(): RuntimePermissionLevel;
+  /** Delivers a message the backend produced (user echo or assistant result) to the transcript. */
+  onMessage(message: UiMessage): void;
+}
+
+/**
+ * A runtime backend an extension supplies for threads it owns (ADR 0005).
+ * Core creates, resumes, lists and prompts such threads through it and never
+ * learns which program answers.
+ */
+export interface HostRuntimeBackendProvider {
+  readonly kind: ThreadBackendKind;
+  readonly adapter: AgentRuntimeAdapter;
+  /** Every thread the backend persisted, for the index. */
+  listThreads(): Promise<HostBackendThreadRecord[]>;
+  lookup(threadId: string): Promise<HostBackendThreadRecord | undefined>;
+  /** Opens a thread's backend; `resume` false creates it. */
+  open(threadId: string, cwd: string, options: { resume: boolean }, context: HostBackendOpenContext): Promise<ThreadRuntimeBackend>;
+  /** Commands the composer offers for threads of this backend. */
+  composerCommands(cwd: string): UiComposerCommand[];
+  /** Rejects a prompt the backend cannot serve at this access level. */
+  assertPromptAllowed?(level: RuntimePermissionLevel): void;
 }
 
 /**
@@ -255,8 +295,10 @@ export interface HostExtensionServices {
   registerRuntimeExtension(name: string, factory: RuntimeExtensionFactory, options?: RuntimeExtensionOptions): () => void;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
-  /** Which permission policy external runtimes launch with; `undefined` restores full access. */
-  setPermissionPolicy(provider: (() => RuntimePermissionPolicy) | undefined): void;
+  /** What the user lets external runtimes do; `undefined` restores full access. */
+  setPermissionLevel(provider: (() => RuntimePermissionLevel) | undefined): void;
+  /** Adds a runtime backend threads can be created with (ADR 0005); its kind names the backend. */
+  registerRuntimeBackend(provider: HostRuntimeBackendProvider): () => void;
   /** Draws what Pi extensions put on terminal surfaces (status, widgets, working message). */
   presentUi(presenter: HostUiPresenter): () => void;
 }

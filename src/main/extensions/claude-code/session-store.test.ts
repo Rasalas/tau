@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { formatChatTranscript } from "../shared/chat-transcript.js";
-import type { UiMessage } from "../shared/contracts.js";
-import { ClaudeRuntimeSessionStore } from "./claude-runtime-store.js";
+import { formatChatTranscript } from "../../../shared/chat-transcript.js";
+import type { UiMessage } from "../../../shared/contracts.js";
+import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 const temporaryDirectories: string[] = [];
 

@@ -40,7 +40,8 @@ function harness(thread?: Partial<HostThread>) {
     pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: (decorator) => { decorators.push(decorator); return () => undefined; },
     registerRuntimeExtension: (name, factory, options) => { runtimeExtensions.push({ name, factory, ...options }); return () => undefined; },
-    setPermissionPolicy: () => undefined,
+    setPermissionLevel: () => undefined,
+    registerRuntimeBackend: () => () => undefined,
     presentUi: (presenter) => { presenters.push(presenter); return () => undefined; },
   };
   return { registry: new HostExtensionRegistry(services, (event) => events.push(event)), events, runtimeExtensions, decorators, presenters };

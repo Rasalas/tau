@@ -15,6 +15,7 @@ const FORBIDDEN: Array<{ label: string; test: RegExp }> = [
   { label: "title generation", test: /titleGenerat|generateTitle|ThreadTitle|completeTitle/iu },
   { label: "tier", test: /(^|[^a-z])tier($|[^a-z])|Tier[A-Z]|[a-z]Tier/u },
   { label: "access", test: /access/iu },
+  { label: "claude", test: /claude/iu },
 ];
 
 const KNOWN_DEBT: Record<string, Record<string, string>> = {
@@ -31,8 +32,8 @@ function words(source: string): string[] {
 }
 
 /** The host keeps thread and title handling; only the moved features are checked there. */
-const HOST_RULES = new Set(["checkpoint", "git", "editor", "tier", "access"]);
-const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-kit-checkpoints", "pi-turn-checkpoint-extension", "turn-checkpoint-codec"];
+const HOST_RULES = new Set(["checkpoint", "git", "editor", "tier", "access", "claude"]);
+const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-kit-checkpoints", "pi-turn-checkpoint-extension", "turn-checkpoint-codec", "claude-code/"];
 
 describe("core boundary", () => {
   it("src/main/pi-host.ts names no moved feature and imports no feature module", () => {

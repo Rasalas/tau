@@ -1,8 +1,8 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import type { UiMessage, UiSkillInvocation } from "../shared/contracts.js";
-import { parseSkillEnvelope } from "../shared/skill-envelope.js";
+import type { UiMessage, UiSkillInvocation } from "../../../shared/contracts.js";
+import { parseSkillEnvelope } from "../../../shared/skill-envelope.js";
 
 /** Large messages are represented as UTF-8-safe chunks on disk, never dropped. */
 const TEXT_CHUNK_BYTES = 256 * 1024;
@@ -11,7 +11,9 @@ const MAX_ID_LENGTH = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 
-export type ClaudeTitleSource = "derived" | "generated" | "renamed";
+import type { ThreadTitleSource } from "../../thread-runtime-backend.js";
+
+export type ClaudeTitleSource = ThreadTitleSource;
 
 export interface ClaudeStoredMessage {
   role: "user" | "assistant";

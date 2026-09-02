@@ -2,25 +2,28 @@ import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertRuntimeAdapter, claudeCodeArgs, createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, selectRuntimeAdapter } from "./runtime-adapters.js";
+import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, selectDefaultBackend } from "../../runtime-adapters.js";
+import { claudeCodeArgs, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy } from "./runtime-adapter.js";
 
 describe("runtime adapter selection", () => {
-  it("selects the embedded Pi transport by default", () => {
-    expect(selectRuntimeAdapter("pi")).toBe(PI_AGENT_RUNTIME_ADAPTER);
-    expect(selectRuntimeAdapter("pi").capabilities.skillInvocationDialect).toBe("pi");
-    expect(selectRuntimeAdapter("pi").transport).toBeUndefined();
+  it("runs Pi unless the environment names another backend", () => {
+    expect(selectDefaultBackend("pi")).toBe("pi");
+    expect(selectDefaultBackend(undefined)).toBe("pi");
+    expect(PI_AGENT_RUNTIME_ADAPTER.capabilities.skillInvocationDialect).toBe("pi");
+    expect(PI_AGENT_RUNTIME_ADAPTER.transport).toBeUndefined();
   });
 
-  it("selects a real Claude Code transport explicitly", () => {
-    const adapter = selectRuntimeAdapter("claude-code");
+  it("names the Claude Code backend explicitly and builds its transport", () => {
+    expect(selectDefaultBackend(" Claude-Code ")).toBe("claude-code");
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude-test" });
     expect(adapter.id).toBe("claude-code");
-    expect(adapter.capabilities.skillInvocationDialect).toBe("claude-code");
-    expect(adapter.transport?.sendPrompt).toBeTypeOf("function");
-    expect(createClaudeCodeRuntimeAdapter({ command: "claude-test" }).id).toBe("claude-code");
+    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false });
+    expect(adapter.transport.sendPrompt).toBeTypeOf("function");
+    expect(assertRuntimeAdapter(adapter)).toBe(adapter);
   });
 
   it("forces Pi in safe mode even when Claude was requested", () => {
-    expect(selectRuntimeAdapter("claude-code", { safeMode: true })).toBe(PI_AGENT_RUNTIME_ADAPTER);
+    expect(selectDefaultBackend("claude-code", { safeMode: true })).toBe("pi");
   });
 
   it("builds an explicit Tau permission policy and terminates options before prompt text", () => {
@@ -131,14 +134,12 @@ describe("runtime adapter selection", () => {
     }
   });
 
-  it("rejects an accidental provider-shaped adapter selection", () => {
-    expect(() => selectRuntimeAdapter("anthropic")).toThrow("TAU_RUNTIME_ADAPTER");
-  });
-
-  it("rejects a dialect that does not match the selected adapter", () => {
+  it("rejects an adapter whose shape does not fit its kind", () => {
     expect(() => assertRuntimeAdapter({ id: "pi", capabilities: { skillInvocationDialect: "claude-code" } })).toThrow("must declare");
     expect(() => assertRuntimeAdapter({ id: "claude-code", capabilities: { skillInvocationDialect: "claude-code" } })).toThrow("requires");
-    expect(() => assertRuntimeAdapter({ id: "anthropic" as never, capabilities: { skillInvocationDialect: "pi" } })).toThrow("Unsupported runtime adapter");
+    // A provider name is not a backend; without a transport it is refused where it would be used.
+    expect(() => assertRuntimeAdapter({ id: "anthropic", capabilities: { skillInvocationDialect: "pi" } })).toThrow("requires a configured transport");
+    expect(() => assertRuntimeAdapter({ id: "", capabilities: { skillInvocationDialect: "pi" } })).toThrow("Unsupported runtime adapter");
   });
 
   it.skipIf(process.platform === "win32")("rejects unsupported manual policy before spawning Claude", async () => {
@@ -154,7 +155,7 @@ describe("runtime adapter selection", () => {
         tauThreadId: "manual-session",
         sessionId: "provider-manual",
         text: "must reject",
-        permissionPolicy: runtimePermissionPolicy("ask"),
+        permissionLevel: "ask",
       })).rejects.toThrow("manual approvals are unsupported");
       await expect(access(marker)).rejects.toThrow();
     } finally {

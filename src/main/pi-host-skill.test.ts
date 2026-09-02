@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiComposerCommand } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
+import { createClaudeCodeHostExtension } from "./extensions/claude-code/host-extension.js";
+import type { ClaudeCodeAgentRuntimeAdapter } from "./extensions/claude-code/runtime-adapter.js";
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { prepareSkillPrompt } from "./skill-invocation.js";
@@ -156,31 +158,37 @@ function localHost(adapter: AgentRuntimeAdapter) {
         );
         return {};
       }
-      await adapter.transport.sendPrompt({
+      await adapter.transport!.sendPrompt({
         cwd: "/repo",
         tauThreadId: "session",
         sessionId: "session",
         text: input.prepared?.runtimeText
           ?? (input.text.startsWith("$tdd ") ? `/tdd ${input.text.slice("$tdd ".length)}` : input.text),
         delivery: input.delivery,
-        permissionPolicy: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
+        permissionLevel: "full",
       });
       return {};
     },
-    abort: async () => { if (adapter.id === "claude-code") await adapter.transport.abort?.("session"); },
+    abort: async () => { if (adapter.id === "claude-code") await adapter.transport?.abort?.("session"); },
   };
-  const host = new PiHost("/repo", (event) => emitted.push(event), {} as never, false, false, { runtimeAdapter: adapter });
+  // A non-Pi adapter reaches the host the way it does in production: as a registered backend.
+  const host = new PiHost("/repo", (event) => emitted.push(event), {} as never, false, false, adapter.id === "pi"
+    ? { runtimeAdapter: adapter }
+    : { defaultBackendKind: adapter.id, hostExtensions: [createClaudeCodeHostExtension({ adapter: adapter as ClaudeCodeAgentRuntimeAdapter })] });
   const internals = host as unknown as {
     threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
-    branchFor: () => undefined;
+    labelFor: () => undefined;
     publishThreadShellSoon: () => void;
+    activateHostExtensions(): Promise<void>;
   };
-  internals.branchFor = () => undefined;
+  internals.labelFor = () => undefined;
   internals.publishThreadShellSoon = () => undefined;
-  return { host, session, thread, internals, emitted };
+  const ready = adapter.id === "pi" ? Promise.resolve() : internals.activateHostExtensions();
+  return { host, session, thread, internals, emitted, ready };
 }
 
 async function adopt(host: ReturnType<typeof localHost>): Promise<void> {
+  await host.ready;
   await host.internals.threads.adopt({
     threadId: host.thread.threadId,
     cwd: host.thread.cwd,
@@ -282,22 +290,24 @@ describe("PiHost skill delivery", () => {
     expect(transport.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
       text: "/tdd fix it",
       sessionId: "session",
-      permissionPolicy: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
+      permissionLevel: "full",
     }));
   });
 
-  it("reprojects supplied skill catalogs through the selected Claude dialect", () => {
-    const adapter: AgentRuntimeAdapter = {
+  it("reprojects supplied skill catalogs through the selected Claude dialect", async () => {
+    const adapter = {
       id: "claude-code",
-      capabilities: { skillInvocationDialect: "claude-code" },
+      capabilities: { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false },
       transport: { sendPrompt: vi.fn(async () => ({})) },
-    };
+    } as unknown as ClaudeCodeAgentRuntimeAdapter;
     const host = new PiHost("/repo", () => undefined, {} as never, false, false, {
-      runtimeAdapter: adapter,
+      defaultBackendKind: "claude-code",
+      hostExtensions: [createClaudeCodeHostExtension({ adapter })],
       runtimeCommands: [{ ...commands[0], skillCommand: "/skill:tdd" }],
     });
-    const claudeCommands = (host as unknown as { claudeComposerCommands(cwd: string): UiComposerCommand[] }).claudeComposerCommands("/repo");
-    expect(claudeCommands).toEqual([{ ...commands[0], skillCommand: "/tdd" }]);
+    const internals = host as unknown as { activateHostExtensions(): Promise<void>; externalComposerCommands(kind: string, cwd: string): UiComposerCommand[] };
+    await internals.activateHostExtensions();
+    expect(internals.externalComposerCommands("claude-code", "/repo")).toEqual([{ ...commands[0], skillCommand: "/tdd" }]);
   });
 
   it("routes abort through the selected adapter and never calls Pi abort", async () => {

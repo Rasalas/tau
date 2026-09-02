@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices, type RuntimeExtensionContribution } from "../host-extensions.js";
-import type { RuntimePermissionPolicy } from "../runtime-adapters.js";
+import type { RuntimePermissionLevel } from "../runtime-adapters.js";
 import { createAccessHostExtension } from "./access-host-extension.js";
 
 function harness() {
   const events: GlobalHostEvent[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
-  let policy: (() => RuntimePermissionPolicy) | undefined;
+  let level: (() => RuntimePermissionLevel) | undefined;
   const services: HostExtensionServices = {
     cwd: () => "/project",
     safeMode: false,
@@ -38,11 +38,12 @@ function harness() {
       runtimeExtensions.push({ name, factory });
       return () => { runtimeExtensions.splice(runtimeExtensions.findIndex((entry) => entry.factory === factory), 1); };
     },
-    setPermissionPolicy: (provider) => { policy = provider; },
+    setPermissionLevel: (provider) => { level = provider; },
+    registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
   };
   const registry = new HostExtensionRegistry(services, (event) => events.push(event));
-  return { registry, events, runtimeExtensions, policy: () => policy?.() };
+  return { registry, events, runtimeExtensions, policy: () => level?.() };
 }
 
 describe("Access Kit host extension", () => {
@@ -51,14 +52,14 @@ describe("Access Kit host extension", () => {
     await registry.activate(createAccessHostExtension());
     expect(runtimeExtensions.map((entry) => entry.name)).toEqual(["tau-access"]);
     await expect(registry.invoke("tau.access", "level")).resolves.toBe("full");
-    expect(policy()?.permissionMode).toBe("auto");
+    expect(policy()).toBe("full");
   });
 
   it("changes the level, the external permission policy, and tells the desktop side", async () => {
     const { registry, events, policy } = harness();
     await registry.activate(createAccessHostExtension());
     await expect(registry.invoke("tau.access", "set-level", { level: "read-only" })).resolves.toBe("read-only");
-    expect(policy()?.permissionMode).toBe("plan");
+    expect(policy()).toBe("read-only");
     expect(events).toEqual([{ type: "extension-event", extensionId: "tau.access", name: "level", payload: "read-only" }]);
     await registry.invoke("tau.access", "set-level", { level: "read-only" });
     expect(events).toHaveLength(1);
@@ -69,7 +70,7 @@ describe("Access Kit host extension", () => {
     await registry.activate(createAccessHostExtension());
     await expect(registry.invoke("tau.access", "set-level", { level: "root" })).rejects.toThrow("Access level must be read-only, ask or full.");
     await registry.invoke("tau.access", "set-level", { level: "ask" });
-    expect(policy()?.permissionMode).toBe("manual");
+    expect(policy()).toBe("ask");
     await registry.deactivate("tau.access");
     expect(policy()).toBeUndefined();
   });
