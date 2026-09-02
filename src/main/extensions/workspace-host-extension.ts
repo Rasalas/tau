@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { DiffLoadOptions, FileNode, WorkspaceChangesQuery } from "../../shared/contracts.js";
-import { WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "../../shared/workspace-kit-protocol.js";
+import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "../../shared/workspace-kit-protocol.js";
 import { assertAllowedCloneSource } from "../clone-source.js";
 import { readBoundedFileContent } from "../file-content.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
@@ -195,6 +195,31 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       });
+      // Turn checkpoints: the kit owns the wire; core still owns the lifecycle
+      // (see HostCheckpointServices).
+      const checkpointRef = (input: unknown) => ({ sessionId: requiredString(input, "sessionId"), checkpointId: requiredString(input, "checkpointId") });
+      context.registerCommand("can-restore", (input) => {
+        const { sessionId, checkpointId } = checkpointRef(input);
+        return services.checkpoints.canRestore(sessionId, checkpointId);
+      });
+      context.registerCommand("restore-preview", (input) => {
+        const { sessionId, checkpointId } = checkpointRef(input);
+        return services.checkpoints.restorePreview(sessionId, checkpointId);
+      });
+      context.registerCommand("restore", (input) => {
+        const { sessionId, checkpointId } = checkpointRef(input);
+        return services.checkpoints.restore(sessionId, checkpointId);
+      });
+      context.registerCommand("turn-file-diff", (input) => {
+        const { sessionId, checkpointId } = checkpointRef(input);
+        return services.checkpoints.turnFileDiff(sessionId, checkpointId, requiredString(input, "path"), record(input).options as DiffLoadOptions | undefined);
+      });
+      context.registerCommand("turn-files", (input) => {
+        const { sessionId, checkpointId } = checkpointRef(input);
+        const limit = record(input).limit;
+        return services.checkpoints.turnFiles(sessionId, checkpointId, optionalString(input, "cursor"), typeof limit === "number" ? limit : undefined);
+      });
+      const unsubscribe = services.checkpoints.subscribe((event) => context.emit(CHECKPOINT_EVENT, event));
       context.registerCommand("list-editors", () => workspaceGit.listEditors());
       context.registerCommand("open-in-editor", async (input) => {
         const project = cwd();
@@ -203,6 +228,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (path) await workspaceGit.assertWorkspacePath(project, path);
         await workspaceGit.openInEditor(project, editorId, path);
       });
+      return unsubscribe;
     },
   };
 }

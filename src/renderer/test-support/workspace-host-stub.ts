@@ -37,6 +37,11 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     createWorktree: unsupported("createWorktree"),
     switchRef: unsupported("switchRef"),
     openInEditor: unsupported("openInEditor"),
+    canRestoreCheckpoint: async () => false,
+    getRestorePreview: unsupported("getRestorePreview"),
+    restoreCheckpoint: unsupported("restoreCheckpoint"),
+    getTurnFileDiff: unsupported("getTurnFileDiff"),
+    getTurnFiles: unsupported("getTurnFiles"),
     ...overrides,
   };
   const field = <T,>(input: unknown, key: string): T | undefined =>
@@ -66,6 +71,11 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();
       case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "path"));
+      case "can-restore": return client.canRestoreCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
+      case "restore-preview": return client.getRestorePreview(field(input, "sessionId")!, field(input, "checkpointId")!);
+      case "restore": return client.restoreCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
+      case "turn-file-diff": return client.getTurnFileDiff(field(input, "sessionId")!, field(input, "checkpointId")!, field(input, "path")!, field(input, "options"));
+      case "turn-files": return client.getTurnFiles(field(input, "sessionId")!, field(input, "checkpointId")!, field(input, "cursor"), field(input, "limit"));
       default: throw new Error(`Host extension Workspace Kit has no command "${command}".`);
     }
   };

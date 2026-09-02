@@ -39,7 +39,7 @@ These exist today, some still inside core files. They are extension work, and Ph
 | Feature | Owner today | Belongs to |
 |---|---|---|
 | Git status, staging, commit, push, worktrees, file tree, file reading, editors | `src/main/extensions/workspace-host-extension.ts` on the host; orchestration still in `App.tsx` | Workspace Kit |
-| Turn checkpoints and restore | `PiHost`, `host-protocol.ts`, `App.tsx` | Workspace Kit |
+| Turn checkpoints and restore | wire and UI: Workspace Kit (`src/renderer/extensions/workspace-checkpoints.tsx`, host commands); lifecycle still in `PiHost` behind `services.checkpoints`, summaries still in `thread-detail` because transcript anchors depend on them | Workspace Kit |
 | Review mode, diff viewer, changed-files dock | `App.tsx` state, Review Kit views | Review Kit |
 | Stage tabs, file viewer | `App.tsx` | Workspace Kit |
 | Thread title generation | Thread Title Generator: `src/main/extensions/thread-titles-host-extension.ts` and `src/renderer/extensions/title-generator.tsx` | Thread Title Generator |

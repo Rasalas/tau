@@ -21,6 +21,7 @@ function harness() {
     runtimeOwner: () => "tau" as const,
     thread: () => undefined,
     setThreadTitle: async () => undefined,
+    checkpoints: { canRestore: async () => false, restorePreview: async () => ({ files: [], added: 0, removed: 0 }), restore: async () => ({ version: 1 as const, updates: [] }), turnFileDiff: async () => ({ path: "", added: 0, removed: 0, hunks: [] }), turnFiles: async () => ({ sessionId: "", checkpointId: "", files: [], added: 0, removed: 0, fileCount: 0, hasMore: false }), subscribe: () => () => undefined },
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: (name, factory) => {
       runtimeExtensions.push({ name, factory });

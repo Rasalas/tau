@@ -45,8 +45,6 @@ export type {
   PromptSubmittedEvent,
   ChangesContribution,
   ChangesContributionProps,
-  TurnCheckpointContribution,
-  TurnCheckpointContributionProps,
   ReviewContribution,
   ReviewContributionKind,
   ReviewContributionProps,

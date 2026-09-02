@@ -78,7 +78,7 @@ import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
 import { GitCoordinator } from "./git-coordinator.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostPlatform, type HostThread, type RuntimeExtensionContribution } from "./host-extensions.js";
+import { HostExtensionRegistry, type CheckpointHostEvent, type HostExtension, type HostExtensionServices, type HostPlatform, type HostThread, type RuntimeExtensionContribution } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
@@ -998,6 +998,7 @@ export class PiHost {
   private readonly runtimeExtensionContributions: RuntimeExtensionContribution[] = [];
   private permissionPolicyProvider: (() => RuntimePermissionPolicy) | undefined;
   private readonly uiPromptDecorators = new Set<(prompt: ExtensionUiPrompt) => void>();
+  private readonly checkpointListeners = new Set<(event: CheckpointHostEvent) => void>();
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
   private readonly threads = new ThreadRuntimeRegistry<ThreadRuntime>({
@@ -1161,6 +1162,11 @@ export class PiHost {
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
       emit(event);
+      if (event.type === "turn-checkpoint" || event.type === "turn-checkpoint-status") {
+        for (const listener of [...this.checkpointListeners]) {
+          try { listener(event); } catch (error) { this.log("host-extension.listener.failed", this.errorMessage(error)); }
+        }
+      }
     };
     this.toolOutputBatcher = new ToolOutputBatcher((updates) => {
       for (const [id, output] of updates) {
@@ -1186,6 +1192,17 @@ export class PiHost {
       runtimeOwner: () => this.bridge ? "pi" : "tau",
       thread: (sessionId) => this.hostThread(sessionId),
       setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
+      checkpoints: {
+        canRestore: (sessionId, checkpointId) => this.canRestoreCheckpoint(sessionId, checkpointId),
+        restorePreview: (sessionId, checkpointId) => this.getRestorePreview(sessionId, checkpointId),
+        restore: (sessionId, checkpointId) => this.restoreCheckpoint(sessionId, checkpointId),
+        turnFileDiff: (sessionId, checkpointId, path, options) => this.getTurnFileDiff(sessionId, checkpointId, path, options),
+        turnFiles: (sessionId, checkpointId, cursor, limit) => this.getTurnFiles(sessionId, checkpointId, cursor, limit),
+        subscribe: (listener) => {
+          this.checkpointListeners.add(listener);
+          return () => { this.checkpointListeners.delete(listener); };
+        },
+      },
       decorateUiPrompt: (decorator) => {
         this.uiPromptDecorators.add(decorator);
         return () => { this.uiPromptDecorators.delete(decorator); };

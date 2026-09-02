@@ -6,7 +6,9 @@ import type {
   UiEditor,
   UiFileContent,
   UiFileDiff,
+  UiTurnCheckpoint,
   UiWorkspaceChanges,
+  UiWorkspaceChangesPage,
   WorkspaceChangesQuery,
   WorkspaceInfo,
 } from "./contracts.js";
@@ -47,7 +49,21 @@ export interface WorkspaceHostCommands {
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   "open-in-editor": { input: { editorId: string; path?: string }; output: void };
+  /** Ref and workspace integrity check used before showing Restore. */
+  "can-restore": { input: { sessionId: string; checkpointId: string }; output: boolean };
+  /** Exact live-workspace delta that restoring a checkpoint would replace. */
+  "restore-preview": { input: { sessionId: string; checkpointId: string }; output: UiWorkspaceChanges };
+  "restore": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
+  /** Immutable diff captured for one completed turn; never the live workspace. */
+  "turn-file-diff": { input: { sessionId: string; checkpointId: string; path: string; options?: DiffLoadOptions }; output: UiFileDiff };
+  "turn-files": { input: { sessionId: string; checkpointId: string; cursor?: string; limit?: number }; output: UiWorkspaceChangesPage };
 }
+
+/** Published for every checkpoint the host records or whose capture status changes. */
+export const CHECKPOINT_EVENT = "checkpoint";
+export type CheckpointEvent =
+  | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
+  | { type: "turn-checkpoint-status"; sessionId: string; turnId: string; status: "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed" };
 
 export type WorkspaceHostCommand = keyof WorkspaceHostCommands;
 
@@ -72,6 +88,11 @@ export interface WorkspaceHostClient {
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, path?: string): Promise<void>;
+  canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
+  getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
+  restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
+  getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
 }
 
 /** Typed view over the untyped invoke channel, shared by the desktop entry and by tests. */
@@ -97,5 +118,10 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, path) => call("open-in-editor", { editorId, path }),
+    canRestoreCheckpoint: (sessionId, checkpointId) => call("can-restore", { sessionId, checkpointId }),
+    getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),
+    restoreCheckpoint: (sessionId, checkpointId) => call("restore", { sessionId, checkpointId }),
+    getTurnFileDiff: (sessionId, checkpointId, path, options) => call("turn-file-diff", { sessionId, checkpointId, path, options }),
+    getTurnFiles: (sessionId, checkpointId, cursor, limit) => call("turn-files", { sessionId, checkpointId, cursor, limit }),
   };
 }

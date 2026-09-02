@@ -1,0 +1,207 @@
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import type { DiffLoadOptions, UiTurnCheckpoint, UiWorkspaceChanges } from "../../shared/contracts";
+import { CHECKPOINT_EVENT, type CheckpointEvent } from "../../shared/workspace-kit-protocol";
+import type { DesktopExtensionContext, OverlayProps, RegionProps, TranscriptRow, WorkbenchActions } from "../extension-system";
+import { useWorkbench } from "../workbench-context";
+import { RestoreCheckpointDialog } from "../components/RestoreCheckpointDialog";
+import { errorMessage } from "../error-message";
+import { workspaceKit } from "./workspace-kit-client";
+import { WorkspaceCheckpointCard } from "./workspace-checkpoint-card";
+
+const LazyReview = lazy(() => import("../components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
+
+export const CHECKPOINT_REVIEW_OVERLAY = "workspace.checkpoint-review";
+
+interface RestoreRequest {
+  checkpoint: UiTurnCheckpoint;
+  laterTurns: number;
+  workspaceChanges: UiWorkspaceChanges;
+}
+
+interface CheckpointState {
+  /** Checkpoints announced live for the thread on screen, keyed by id. */
+  live: Map<string, UiTurnCheckpoint>;
+  restorable: ReadonlySet<string>;
+  restore?: RestoreRequest;
+  restoreBusy: boolean;
+  review?: { checkpoint: UiTurnCheckpoint; path?: string };
+}
+
+/** The kit's own checkpoint state; App knows none of it. */
+class CheckpointStore {
+  private state: CheckpointState = { live: new Map(), restorable: new Set(), restoreBusy: false };
+  private listeners = new Set<() => void>();
+  getSnapshot = () => this.state;
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  update(patch: Partial<CheckpointState>): void {
+    this.state = { ...this.state, ...patch };
+    this.listeners.forEach((listener) => listener());
+  }
+  resetThread(): void { this.update({ live: new Map(), restorable: new Set(), restore: undefined, review: undefined }); }
+  announce(checkpoint: UiTurnCheckpoint): void {
+    const live = new Map(this.state.live);
+    live.set(checkpoint.id, checkpoint);
+    this.update({ live });
+  }
+}
+
+function mergeCheckpoints(persisted: readonly UiTurnCheckpoint[] | undefined, live: Map<string, UiTurnCheckpoint>): UiTurnCheckpoint[] {
+  const byId = new Map<string, UiTurnCheckpoint>();
+  for (const checkpoint of persisted ?? []) byId.set(checkpoint.id, checkpoint);
+  for (const checkpoint of live.values()) byId.set(checkpoint.id, checkpoint);
+  return [...byId.values()].sort((left, right) => left.endedAt - right.endedAt);
+}
+
+/**
+ * Invisible region that turns the thread's checkpoints into transcript rows,
+ * verifies which ones restore safely, and hosts the restore dialog.
+ */
+function createController(store: CheckpointStore, rows: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>) {
+  return function CheckpointController({ snapshot, actions }: RegionProps) {
+    const { snapshot: workbenchSnapshot } = useWorkbench();
+    const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+    const sessionId = workbenchSnapshot?.sessionId;
+    const streaming = Boolean(workbenchSnapshot?.isStreaming);
+    const restoreSupported = workbenchSnapshot?.supportsCheckpointRestore === true;
+    const checkpoints = useMemo(() => mergeCheckpoints(workbenchSnapshot?.turnCheckpoints, state.live), [workbenchSnapshot?.turnCheckpoints, state.live]);
+
+    // Verify restorability once per thread and checkpoint set; the host checks refs and workspace.
+    useEffect(() => {
+      if (!sessionId || !restoreSupported || !window.tau) { store.update({ restorable: new Set() }); return; }
+      let cancelled = false;
+      void Promise.all(checkpoints.map(async (checkpoint) => {
+        if (checkpoint.completeness === "partial") return undefined;
+        try { return await workspaceKit.canRestoreCheckpoint(sessionId, checkpoint.id) ? checkpoint.id : undefined; }
+        catch { return undefined; }
+      })).then((ids) => {
+        if (!cancelled) store.update({ restorable: new Set(ids.filter((id): id is string => Boolean(id))) });
+      });
+      return () => { cancelled = true; };
+    }, [sessionId, restoreSupported, checkpoints]);
+
+    const requestRestore = useCallback(async (checkpoint: UiTurnCheckpoint) => {
+      if (checkpoint.completeness === "partial") { actions.notify("This checkpoint is incomplete and cannot be restored safely. Use Fork instead."); return; }
+      if (streaming) { actions.notify("Wait for the active turn to finish before restoring a checkpoint."); return; }
+      if (!restoreSupported) { actions.notify("Restore is unavailable for this runtime. Use Fork to keep the current workspace unchanged."); return; }
+      if (!state.restorable.has(checkpoint.id)) { actions.notify("This checkpoint could not be verified and is not available for restore. Use Fork instead."); return; }
+      if (!sessionId) return;
+      store.update({ restoreBusy: true });
+      actions.notify("Verifying checkpoint and workspace…");
+      try {
+        const workspaceChanges = await workspaceKit.getRestorePreview(sessionId, checkpoint.id);
+        store.update({
+          restore: {
+            checkpoint,
+            laterTurns: checkpoints.filter((entry) => entry.endedAt > checkpoint.endedAt).length,
+            workspaceChanges: { ...workspaceChanges, files: workspaceChanges.files.map((file) => ({ ...file })) },
+          },
+        });
+      } catch (error) {
+        actions.notify(errorMessage(error));
+      } finally {
+        store.update({ restoreBusy: false });
+      }
+    }, [actions, checkpoints, restoreSupported, sessionId, state.restorable, streaming]);
+
+    const confirmRestore = useCallback(async () => {
+      const request = store.getSnapshot().restore;
+      if (!request || !sessionId) return;
+      if (streaming) { store.update({ restore: undefined }); actions.notify("The turn started before restore was confirmed. No changes were made."); return; }
+      store.update({ restoreBusy: true });
+      actions.notify("Creating a restore backup…");
+      try {
+        actions.applyHostResult(await workspaceKit.restoreCheckpoint(sessionId, request.checkpoint.id));
+        store.update({ restore: undefined });
+        actions.notify("Restored checkpoint. The previous conversation and workspace are available in the backup thread.");
+      } catch (error) {
+        actions.notify(errorMessage(error));
+      } finally {
+        store.update({ restoreBusy: false });
+      }
+    }, [actions, sessionId, streaming]);
+
+    // Rows: one card per checkpoint whose anchor the transcript can place.
+    useEffect(() => {
+      if (!sessionId) return;
+      const visible = checkpoints.filter((checkpoint) => checkpoint.completeness === "partial"
+        || (checkpoint.fileCount ?? checkpoint.files.length) > 0
+        || restoreSupported);
+      const list: TranscriptRow[] = visible.map((checkpoint) => ({
+        id: checkpoint.id,
+        afterMessageId: checkpoint.anchorMessageId,
+        content: (
+          <WorkspaceCheckpointCard
+            checkpoint={checkpoint}
+            onOpenDiff={(path) => { store.update({ review: { checkpoint, path } }); actions.openOverlay(CHECKPOINT_REVIEW_OVERLAY); }}
+            onRestore={restoreSupported && checkpoint.completeness !== "partial" && state.restorable.has(checkpoint.id) && !streaming
+              ? () => void requestRestore(checkpoint)
+              : undefined}
+            loadFiles={window.tau ? (cursor, limit) => workspaceKit.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}
+          />
+        ),
+      }));
+      rows.setRows(sessionId, list);
+    }, [actions, checkpoints, requestRestore, restoreSupported, sessionId, state.restorable, streaming]);
+
+    void snapshot;
+    if (!state.restore) return null;
+    return (
+      <RestoreCheckpointDialog
+        checkpoint={state.restore.checkpoint}
+        laterTurns={state.restore.laterTurns}
+        workspaceChanges={state.restore.workspaceChanges}
+        busy={state.restoreBusy}
+        onCancel={() => { if (!store.getSnapshot().restoreBusy) store.update({ restore: undefined }); }}
+        onConfirm={() => void confirmRestore()}
+      />
+    );
+  };
+}
+
+/** Read-only review of one immutable turn, opened from a checkpoint card. */
+function createReviewOverlay(store: CheckpointStore) {
+  return function CheckpointReviewOverlay({ onClose }: OverlayProps) {
+    const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+    const [path, setPath] = useState(state.review?.path);
+    const review = state.review;
+    useEffect(() => { setPath(review?.path ?? review?.checkpoint.files[0]?.path); }, [review]);
+    if (!review) return null;
+    const { checkpoint } = review;
+    const loadDiff = (filePath: string, options?: DiffLoadOptions) => window.tau
+      ? workspaceKit.getTurnFileDiff(checkpoint.sessionId, checkpoint.id, filePath, options)
+      : Promise.resolve({ path: filePath, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." });
+    return (
+      <Suspense fallback={null}>
+        <LazyReview
+          changes={checkpoint}
+          selectedPath={path}
+          busy={false}
+          primaryPush={false}
+          onSelect={setPath}
+          onBack={() => { store.update({ review: undefined }); onClose(); }}
+          onCommit={() => undefined}
+          onOpenInEditor={() => undefined}
+          readOnly
+          checkpointTitle="Turn changes"
+          loadDiff={loadDiff}
+          loadFiles={window.tau ? (cursor, limit) => workspaceKit.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}
+        />
+      </Suspense>
+    );
+  };
+}
+
+/** Wires checkpoint rows, live updates, the restore dialog and the review overlay into the kit. */
+export function registerCheckpoints(plugin: DesktopExtensionContext): void {
+  const store = new CheckpointStore();
+  const rows = plugin.registerTranscriptRows("checkpoints", 20);
+  plugin.events.on("active-thread-changed", () => store.resetThread());
+  plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
+    const event = payload as CheckpointEvent;
+    if (event?.type === "turn-checkpoint") store.announce(event.checkpoint);
+  });
+  plugin.registerRegion({ id: "workspace.checkpoints", placement: "transcript-header", order: 100, Component: createController(store, rows) });
+  plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, Component: createReviewOverlay(store) });
+}
+
+export type { WorkbenchActions };

@@ -74,7 +74,6 @@ import { transcriptNavigationScopesEqual, type TranscriptNavigationScope, type T
 import type { TranscriptActivity } from "./components/transcript-activity";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
-import { RestoreCheckpointDialog } from "./components/RestoreCheckpointDialog";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
@@ -682,8 +681,6 @@ export default function App() {
   const [turnCheckpoints, setTurnCheckpoints] = useState<UiTurnCheckpoint[]>(cachedBootstrap?.snapshot.turnCheckpoints ?? []);
   const turnCheckpointsRef = useRef(turnCheckpoints);
   turnCheckpointsRef.current = turnCheckpoints;
-  const [restorableCheckpointIds, setRestorableCheckpointIds] = useState<ReadonlySet<string>>(() => new Set());
-  const restoreVerificationGenerationRef = useRef(0);
   const [toolAnchorId, setToolAnchorId] = useState<string>();
   const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -747,15 +744,7 @@ export default function App() {
   const [review, setReview] = useState<{
     path?: string;
     primaryPush: boolean;
-    checkpointId?: string;
-    sessionId?: string;
   }>();
-  const [restoreRequest, setRestoreRequest] = useState<{
-    checkpoint: UiTurnCheckpoint;
-    laterTurns: number;
-    workspaceChanges: UiWorkspaceChanges;
-  }>();
-  const [restoreBusy, setRestoreBusy] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
@@ -1738,30 +1727,6 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  useEffect(() => {
-    const host = window.tau;
-    const sessionId = snapshot?.sessionId;
-    const generation = ++restoreVerificationGenerationRef.current;
-    if (!host || typeof host.canRestoreCheckpoint !== "function" || snapshot?.supportsCheckpointRestore !== true || !sessionId) {
-      setRestorableCheckpointIds(new Set());
-      return;
-    }
-    let cancelled = false;
-    setRestorableCheckpointIds(new Set());
-    void Promise.all(turnCheckpoints.map(async (checkpoint) => {
-      if (checkpoint.completeness === "partial") return undefined;
-      try {
-        return await host.canRestoreCheckpoint(sessionId, checkpoint.id) ? checkpoint.id : undefined;
-      } catch {
-        return undefined;
-      }
-    })).then((ids) => {
-      if (cancelled || generation !== restoreVerificationGenerationRef.current) return;
-      setRestorableCheckpointIds(new Set(ids.filter((id): id is string => Boolean(id))));
-    });
-    return () => { cancelled = true; };
-  }, [snapshot?.sessionId, snapshot?.supportsCheckpointRestore, turnCheckpoints]);
-
   const panels = registry.getPanels();
   useEffect(() => {
     if (panels.length === 0) { setActivePanel(""); return; }
@@ -1821,62 +1786,6 @@ export default function App() {
     ? workspaceKit.getFileDiff(path, options)
     : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }, []);
 
-  const openCheckpointReview = useCallback((checkpointId: string, path?: string) => {
-    const checkpoint = turnCheckpoints.find((entry) => entry.id === checkpointId);
-    if (!checkpoint) {
-      setNotice("This turn checkpoint is no longer available.");
-      return;
-    }
-    setReview({ path, primaryPush: false, checkpointId, sessionId: checkpoint.sessionId });
-  }, [turnCheckpoints]);
-
-  const requestRestoreCheckpoint = useCallback(async (checkpointId: string) => {
-    const checkpoint = turnCheckpoints.find((entry) => entry.id === checkpointId);
-    if (!checkpoint) {
-      setNotice("This turn checkpoint is no longer available.");
-      return;
-    }
-    if (checkpoint.completeness === "partial") {
-      setNotice("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
-      return;
-    }
-    if (visibleStreaming) {
-      setNotice("Wait for the active turn to finish before restoring a checkpoint.");
-      return;
-    }
-    if (snapshot?.supportsCheckpointRestore !== true) {
-      setNotice("Restore is unavailable for this runtime. Use Fork to keep the current workspace unchanged.");
-      return;
-    }
-    if (!restorableCheckpointIds.has(checkpoint.id)) {
-      setNotice("This checkpoint could not be verified and is not available for restore. Use Fork instead.");
-      return;
-    }
-    if (!window.tau || typeof window.tau.getRestorePreview !== "function") {
-      setNotice("Restore preview is unavailable in this host. Use Fork instead.");
-      return;
-    }
-    const sessionId = snapshot.sessionId;
-    setRestoreBusy(true);
-    setNotice("Verifying checkpoint and workspace…");
-    try {
-      const workspaceChanges = await window.tau.getRestorePreview(sessionId, checkpoint.id);
-      if (snapshot?.sessionId !== sessionId) return;
-      setRestoreRequest({
-        checkpoint,
-        laterTurns: turnCheckpoints.filter((entry) => entry.endedAt > checkpoint.endedAt).length,
-        workspaceChanges: {
-          ...workspaceChanges,
-          files: workspaceChanges.files.map((file) => ({ ...file })),
-        },
-      });
-    } catch (error) {
-      setNotice(errorMessage(error));
-    } finally {
-      setRestoreBusy(false);
-    }
-  }, [restorableCheckpointIds, snapshot, turnCheckpoints, visibleStreaming]);
-
   const acceptWorkspace = useCallback((result: HostActionResult) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
     applyActionResult(result);
@@ -1894,27 +1803,6 @@ export default function App() {
     setNotice(`${what} requires the Electron host`);
     return false;
   }, []);
-
-  const confirmRestoreCheckpoint = useCallback(async () => {
-    if (!restoreRequest || !snapshot?.sessionId || !requireHost("Checkpoint restore")) return;
-    if (visibleStreaming) {
-      setRestoreRequest(undefined);
-      setNotice("The turn started before restore was confirmed. No changes were made.");
-      return;
-    }
-    setRestoreBusy(true);
-    setNotice("Creating a restore backup…");
-    try {
-      const result = await window.tau!.restoreCheckpoint(snapshot.sessionId, restoreRequest.checkpoint.id);
-      acceptWorkspace(result);
-      setRestoreRequest(undefined);
-      setNotice("Restored checkpoint. The previous conversation and workspace are available in the backup thread.");
-    } catch (error) {
-      setNotice(errorMessage(error));
-    } finally {
-      setRestoreBusy(false);
-    }
-  }, [acceptWorkspace, requireHost, restoreRequest, snapshot?.sessionId, visibleStreaming]);
 
   const openWorkspace = useCallback(async (path: string): Promise<boolean> => {
     if (!allowWorkspaceAction("Project switching")) return false;
@@ -2345,12 +2233,13 @@ export default function App() {
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
+    applyHostResult: acceptWorkspace,
     openOverlay: (id) => setActiveOverlayId(id),
     closeOverlay: () => setActiveOverlayId(undefined),
     openWorkspace,
     activeThread: () => snapshot ? { sessionId: snapshot.sessionId, model: snapshot.model } : undefined,
   }), [
-    openPanel,
+    acceptWorkspace, openPanel,
     activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,
   ]);
   actionsRef.current = actions;
@@ -2732,42 +2621,7 @@ export default function App() {
   );
   const changesContributions = registry.getChangesContributions();
   const ChangesComponent = changesContributions[0]?.Component;
-  const checkpointContributions = registry.getTurnCheckpointContributions();
-  const CheckpointComponent = checkpointContributions[0]?.Component;
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
-  const loadedMessageIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const message of messages) {
-      ids.add(message.id);
-      if (message.sourceEntryId) ids.add(message.sourceEntryId);
-    }
-    return ids;
-  }, [messages]);
-  const checkpointActivities = useMemo(() => (!CheckpointComponent || pendingNewThread ? [] : turnCheckpoints)
-    // A persisted checkpoint may belong to a page that is not loaded yet. Do
-    // not send it to the transcript with a tail fallback; it becomes visible at
-    // its original position as soon as that page is fetched.
-    .filter((checkpoint) => (checkpoint.completeness === "partial"
-      || (checkpoint.fileCount ?? checkpoint.files.length) > 0
-      || snapshot?.supportsCheckpointRestore === true) && loadedMessageIds.has(checkpoint.anchorMessageId))
-    .map((checkpoint) => ({
-      id: `turn-checkpoint-${checkpoint.id}`,
-      afterMessageId: checkpoint.anchorMessageId,
-      content: (
-        <CheckpointComponent
-            checkpoint={checkpoint}
-            onOpenDiff={(path) => openCheckpointReview(checkpoint.id, path)}
-            onRestore={snapshot?.supportsCheckpointRestore === true && checkpoint.completeness !== "partial"
-              && restorableCheckpointIds.has(checkpoint.id) && !visibleStreaming
-              ? () => requestRestoreCheckpoint(checkpoint.id)
-              : undefined}
-            loadFiles={window.tau
-              ? (cursor, limit) => window.tau!.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit)
-              : undefined}
-          />
-      ),
-      })), [CheckpointComponent, loadedMessageIds, openCheckpointReview, pendingNewThread, requestRestoreCheckpoint, restorableCheckpointIds, snapshot?.supportsCheckpointRestore, turnCheckpoints, visibleStreaming]);
-
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
     if (!usage) return { messages: 0, toolOutput: 0, system: 0 };
@@ -2800,10 +2654,8 @@ export default function App() {
     [changes, panelProject, stageFilePath, committing, commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, stageFile, unstageFile, stageAll, revertFile, commit],
   );
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
-  const reviewChanges = review?.checkpointId
-    ? turnCheckpoints.find((checkpoint) => checkpoint.id === review.checkpointId) ?? NO_CHANGES
-    : changes;
-  const reviewContribution = registry.getReviewContributions(review?.checkpointId ? "historical" : "workspace")[0];
+  const reviewChanges = changes;
+  const reviewContribution = registry.getReviewContributions("workspace")[0];
   const ReviewComponent = reviewContribution?.Component;
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
@@ -2907,7 +2759,6 @@ export default function App() {
       fallbackToTail: true,
       content: liveTaskProgress,
     }] : []),
-    ...checkpointActivities,
     // Rows extensions publish for this thread; the transcript anchors them itself.
     ...registry.getTranscriptRows(conversationSnapshot?.sessionId),
     ...(conversationActivityTools.length > 0 ? [{
@@ -2924,7 +2775,7 @@ export default function App() {
         onCopyOutput={copyToolOutput}
       />,
     }] : []),
-  ], [checkpointActivities, conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, snapshot?.sessionId, visibleToolAnchorId]);
+  ], [conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, snapshot?.sessionId, visibleToolAnchorId]);
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
@@ -2999,16 +2850,6 @@ export default function App() {
 
   const overlays = (
     <>
-      {restoreRequest ? (
-        <RestoreCheckpointDialog
-          checkpoint={restoreRequest.checkpoint}
-          laterTurns={restoreRequest.laterTurns}
-          workspaceChanges={restoreRequest.workspaceChanges}
-          busy={restoreBusy}
-          onCancel={() => { if (!restoreBusy) setRestoreRequest(undefined); }}
-          onConfirm={() => void confirmRestoreCheckpoint()}
-        />
-      ) : null}
       <LazyFeatureBoundary label="command palette">
         <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
           <LazyCommandPalette
@@ -3099,28 +2940,10 @@ export default function App() {
                         onBack={() => setReview(undefined)}
                         onCommit={(message, push) => void commit(message, push)}
                         onOpenInEditor={(path) => void openInEditor(path)}
-                        readOnly={Boolean(review.checkpointId)}
-                        checkpointTitle={review.checkpointId ? "Turn changes" : undefined}
                         workspaceKey={snapshot?.cwd}
-                        loadChanges={!review.checkpointId && window.tau ? (query) => workspaceKit.getChanges(query) : undefined}
-                        loadFiles={review.checkpointId && window.tau
-                          ? (cursor, limit) => window.tau!.getTurnFiles(
-                            review.sessionId ?? snapshot?.sessionId ?? "",
-                            review.checkpointId!,
-                            cursor,
-                            limit,
-                          )
-                          : undefined}
+                        loadChanges={window.tau ? (query) => workspaceKit.getChanges(query) : undefined}
                         loadDiff={async (path, options) => {
                           if (!window.tau) return { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." };
-                          if (review.checkpointId) {
-                            return window.tau.getTurnFileDiff(
-                              review.sessionId ?? snapshot?.sessionId ?? "",
-                              review.checkpointId,
-                              path,
-                              options,
-                            );
-                          }
                           return workspaceKit.getFileDiff(path, options);
                         }}
                       />

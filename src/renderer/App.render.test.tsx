@@ -1065,8 +1065,8 @@ describe("App render isolation", () => {
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }),
         getFileTree: async () => [],
+        getTurnFileDiff,
       }),
-      getTurnFileDiff,
     } as unknown as typeof window.tau;
 
     render(<App />);

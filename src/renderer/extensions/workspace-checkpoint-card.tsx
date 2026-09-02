@@ -1,8 +1,16 @@
-import type { TurnCheckpointContributionProps } from "../extension-system";
+import type { UiTurnCheckpoint, UiWorkspaceChangesPage } from "../../shared/contracts";
 import { ChangedFiles } from "../components/ChangedFiles";
 
 /** Workspace Kit's optional transcript contribution for immutable turn changes. */
-export function WorkspaceCheckpointCard({ checkpoint, onOpenDiff, onRestore, loadFiles }: TurnCheckpointContributionProps) {
+export interface WorkspaceCheckpointCardProps {
+  checkpoint: UiTurnCheckpoint;
+  onOpenDiff(path?: string): void;
+  /** Starts the explicit confirmation flow for destructive restore. */
+  onRestore?(): void;
+  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+}
+
+export function WorkspaceCheckpointCard({ checkpoint, onOpenDiff, onRestore, loadFiles }: WorkspaceCheckpointCardProps) {
   return (
     <div className="turn-checkpoint-card" data-checkpoint-id={checkpoint.id}>
       <ChangedFiles

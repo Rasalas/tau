@@ -1,5 +1,5 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { ExtensionUiPrompt, GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, UiMessage } from "../shared/contracts.js";
+import type { DiffLoadOptions, ExtensionUiPrompt, GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, ThreadHostEvent, UiFileDiff, UiMessage, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { GitCoordinator } from "./git-coordinator.js";
 import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
@@ -13,6 +13,22 @@ export interface DirectoryPickerOptions {
 /** What the platform (Electron main, later a remote host) lends to extensions. */
 export interface HostPlatform {
   pickDirectory?(options?: DirectoryPickerOptions): Promise<string | undefined>;
+}
+
+export type CheckpointHostEvent = Extract<ThreadHostEvent, { type: "turn-checkpoint" | "turn-checkpoint-status" }>;
+
+/**
+ * Turn checkpoints still live in core because thread opening, project
+ * switching, forking and transcript anchors depend on them. This facade is the
+ * wire Workspace Kit owns until that lifecycle coupling is unwound.
+ */
+export interface HostCheckpointServices {
+  canRestore(sessionId: string, checkpointId: string): Promise<boolean>;
+  restorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
+  restore(sessionId: string, checkpointId: string): Promise<HostActionResult>;
+  turnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  turnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+  subscribe(listener: (event: CheckpointHostEvent) => void): () => void;
 }
 
 export interface RuntimeSettingsView {
@@ -75,6 +91,7 @@ export interface HostExtensionServices {
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** Loads a Pi extension into every runtime the host creates from now on. */
   registerRuntimeExtension(name: string, factory: ExtensionFactory, options?: RuntimeExtensionOptions): () => void;
+  readonly checkpoints: HostCheckpointServices;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** Which permission policy external runtimes launch with; `undefined` restores full access. */

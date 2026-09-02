@@ -134,9 +134,6 @@ function installIpc(): void {
   ipcMain.handle("tau:prepared-thread-capability", async (_event, cwd?: string) =>
     (await requireHostReady()).getPreparedThreadCapability(cwd));
   ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));
-  ipcMain.handle("tau:can-restore-checkpoint", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).canRestoreCheckpoint(sessionId, checkpointId));
-  ipcMain.handle("tau:restore-preview", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).getRestorePreview(sessionId, checkpointId));
-  ipcMain.handle("tau:restore-checkpoint", async (_event, sessionId: string, checkpointId: string) => (await requireHostReady()).restoreCheckpoint(sessionId, checkpointId));
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));
   ipcMain.handle("tau:set-thinking", async (_event, level: string) => (await requireHostReady()).setThinkingLevel(level));
@@ -159,10 +156,6 @@ function installIpc(): void {
     clipboard.writeText(await (await requireHostReady()).exportThreadMarkdown(expectedSessionId));
   });
   ipcMain.handle("tau:read-image-preview", async (_event, path: string) => rendererImagePreview(path));
-  ipcMain.handle("tau:turn-file-diff", async (_event, sessionId: string, checkpointId: string, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) =>
-    (await requireHostReady()).getTurnFileDiff(sessionId, checkpointId, path, options));
-  ipcMain.handle("tau:turn-files", async (_event, sessionId: string, checkpointId: string, cursor?: string, limit?: number) =>
-    (await requireHostReady()).getTurnFiles(sessionId, checkpointId, cursor, limit));
   // Host extensions reach the renderer through this single channel; core does
   // not grow an IPC entry per feature.
   ipcMain.handle("tau:host-extension", async (_event, extensionId: string, command: string, input?: unknown) =>

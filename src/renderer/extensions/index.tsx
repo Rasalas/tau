@@ -6,8 +6,7 @@ import type { DesktopExtension } from "../extension-system";
 // actually rendered.
 const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ ChangesPanel }) => ({ default: ChangesPanel })));
 const LazyChangedFiles = lazy(() => import("../components/ChangedFiles").then(({ ChangedFiles }) => ({ default: ChangedFiles })));
-const LazyWorkspaceCheckpointCard = lazy(() => import("./workspace-checkpoint-card").then(({ WorkspaceCheckpointCard }) => ({ default: WorkspaceCheckpointCard })));
-const LazyHistoricalReview = lazy(() => import("../components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
+const LazyReview = lazy(() => import("../components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
 const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
@@ -16,6 +15,7 @@ const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ W
 import { accessKitExtension } from "./access-kit";
 import { preferences } from "../preferences";
 import { workspaceKit } from "./workspace-kit-client";
+import { registerCheckpoints } from "./workspace-checkpoints";
 import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
@@ -46,8 +46,7 @@ export const workspaceExtension: DesktopExtension = {
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.
     plugin.registerChanges({ id: "workspace.changed-files", order: 10, Component: LazyChangedFiles });
-    plugin.registerTurnCheckpoint({ id: "workspace.turn-checkpoint", order: 10, Component: LazyWorkspaceCheckpointCard });
-    plugin.registerReview({ id: "workspace.historical-review", kind: "historical", order: 10, Component: LazyHistoricalReview });
+    registerCheckpoints(plugin);
     plugin.registerOptions([
       { id: "group-by-project", kind: "toggle", label: "Group threads by project instead of recency", defaultValue: false },
       { id: "show-settled", kind: "toggle", label: "Show settled shelf", defaultValue: true },
@@ -92,7 +91,7 @@ export const reviewExtension: DesktopExtension = {
   name: "Review Kit",
   activate(plugin) {
     plugin.registerPanel({ id: "changes", label: "Changes", glyph: "changes", order: 20, Component: LazyChangesPanel });
-    plugin.registerReview({ id: "review.workspace-review", kind: "workspace", order: 10, Component: LazyHistoricalReview });
+    plugin.registerReview({ id: "review.workspace-review", kind: "workspace", order: 10, Component: LazyReview });
     plugin.registerOptions([
       { id: "split-diff", kind: "toggle", label: "Open diffs in split view", defaultValue: false },
       { id: "propose-message", kind: "toggle", label: "Propose a commit message from the diff", defaultValue: true },

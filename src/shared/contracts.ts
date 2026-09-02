@@ -666,11 +666,6 @@ export interface TauDesktopApi {
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
-  /** Ref and workspace integrity check used before showing Restore. */
-  canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
-  /** Exact live-workspace delta that restoring a checkpoint would replace. */
-  getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
-  restoreCheckpoint(sessionId: string, checkpointId: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
   setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;
@@ -691,10 +686,6 @@ export interface TauDesktopApi {
   readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
-  /** Loads the immutable diff captured for one completed turn. */
-  getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
-  /** Loads one bounded page of files from an immutable turn snapshot pair. */
-  getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   /**
    * Compiles the desktop extensions for a workspace. `sharedExports` names what the
    * renderer publishes on `globalThis.__tauShared`, so bundles can bind to it.
