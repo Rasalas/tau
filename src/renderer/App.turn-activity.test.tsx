@@ -373,6 +373,50 @@ describe("last-turn activity", () => {
     expect(screen.getByText("use this now")).toBeTruthy();
   });
 
+  it("keeps settled commands with their original turn while the next prompt waits to start", async () => {
+    const oldCommand: UiToolRun = {
+      id: "old-command",
+      name: "bash",
+      args: { command: "npm test" },
+      status: "done",
+      startedAt: 1,
+      endedAt: 2,
+    };
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          messages: [
+            { id: "old-user", role: "user" as const, text: "old request", timestamp: 1 },
+            { id: "old-reply", role: "assistant" as const, text: "old reply", timestamp: 2 },
+          ],
+          turnActivity: { anchorMessageId: "old-user", tools: [oldCommand] },
+          turnActivityHistory: [{
+            id: "turn-activity-old-user",
+            anchorMessageId: "old-user",
+            status: "completed" as const,
+            tools: [oldCommand],
+          }],
+        },
+      };
+    };
+    window.tau!.sendPrompt = vi.fn(() => new Promise<void>(() => {}));
+
+    render(<App />);
+    await screen.findByText("old reply");
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "new request" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    const newPrompt = (await screen.findAllByText("new request")).find((element) => element.tagName === "P");
+    expect(newPrompt).toBeDefined();
+    expect(newPrompt?.closest(".virtual-transcript-row")?.textContent).not.toContain("Ran 1 command");
+    expect(screen.getByText("old request").closest(".virtual-transcript-row")?.textContent).toContain("Ran 1 command");
+  });
+
   it("aggregates steering into the current run and resets on the next run", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });

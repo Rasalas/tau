@@ -2367,7 +2367,9 @@ export default function App() {
   [messages, pendingNewThread, unconfirmedOptimisticMessages]);
   const visibleToolAnchorId = visibleStreaming
     ? latestActivityAnchor(conversationMessages)
-    : latestActivityAnchor(conversationMessages, toolAnchorId);
+    // A submitted prompt is visible before its run starts. Keep the previous
+    // settled group on its original turn until agent-status opens new work.
+    : toolAnchorId ?? latestActivityAnchor(conversationMessages);
   const conversationSnapshot = useMemo(() => pendingNewThread && snapshot ? {
     ...snapshot,
     cwd: pendingNewThread.projectPath,
