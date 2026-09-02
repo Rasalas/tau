@@ -6,8 +6,9 @@ import { assertClaudePermissionPolicySupported, createClaudeCodeRuntimeAdapter, 
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
 
-export const CLAUDE_CODE_HOST_EXTENSION_ID = "tau.claude-code";
-export const CLAUDE_CODE_BACKEND_KIND = "claude-code";
+import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "../../../shared/claude-code-protocol.js";
+
+export { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID };
 
 export interface ClaudeCodeHostExtensionOptions {
   /** A prepared adapter (tests inject a fake transport); the CLI adapter otherwise. */

@@ -1316,7 +1316,7 @@ export class PiHost {
   /** The provider behind a non-Pi backend kind. */
   private requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider {
     const provider = this.backends.get(kind);
-    if (!provider) throw new Error(`Runtime backend "${kind}" is not installed; enable its extension or choose the Pi runtime.`);
+    if (!provider) throw new Error(`Runtime backend "${kind}" is not installed; enable its extension or unset TAU_RUNTIME_ADAPTER.`);
     return provider;
   }
 
@@ -1463,6 +1463,8 @@ export class PiHost {
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
         await this.activateHostExtensions();
+        // A default backend nobody registered is a configuration error; say so now, not at the first thread.
+        if (this.defaultBackendKind !== "pi") this.requireBackend(this.defaultBackendKind);
         await this.rememberProject(this.cwd);
         // Classify saved projects while the runtime opens. Each answer is a
         // single git call, so it is ready long before bootstrap reads the list.

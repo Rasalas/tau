@@ -111,12 +111,20 @@ async function requireHostReady(): Promise<PiHost> {
   return host;
 }
 
+/** A host that cannot start (a misconfigured backend, say) says so in a dialog instead of a silent "starting host…". */
+function watchHostStart<T>(ready: Promise<T>): Promise<T> {
+  ready.catch((error: unknown) => {
+    dialog.showErrorBox("Tau could not start its runtime", error instanceof Error ? error.message : String(error));
+  });
+  return ready;
+}
+
 function installIpc(): void {
   ipcMain.handle("tau:bootstrap", async () => {
     if (!host) {
       host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
       host.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
-      hostReady = host.start();
+      hostReady = watchHostStart(host.start());
       return hostReady;
     }
     await hostReady;
@@ -190,7 +198,7 @@ app.whenReady().then(async () => {
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
   host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
-  hostReady = host.start();
+  hostReady = watchHostStart(host.start());
   installIpc();
   await createWindow();
 });

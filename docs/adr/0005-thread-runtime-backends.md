@@ -39,8 +39,8 @@ paths are virtual (`tau-thread:<kind>:<id>`).
 Claude Code is the first such provider, bundled as the host extension
 `tau.claude-code` under `src/main/extensions/claude-code/` (adapter, thread
 backend, session store, tests). Removing that extension leaves Pi as the only
-backend; `TAU_RUNTIME_ADAPTER=claude-code` then fails at the first thread with
-a message naming the missing extension. What the renderer needs to know about
+backend; `TAU_RUNTIME_ADAPTER=claude-code` then stops the host start with a message
+naming the missing extension. What the renderer needs to know about
 a backend travels as runtime capabilities (`ownsModelSelection`,
 `interactiveApprovals`, the skill dialect), not as a backend name; the user's
 access level reaches a backend as `read-only`, `ask` or `full`, and the
