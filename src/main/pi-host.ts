@@ -73,6 +73,7 @@ import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
 import { createExtensionUiContext } from "./extension-ui.js";
+import type { HostPackageLoadResult } from "./extension-packages.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
@@ -275,6 +276,8 @@ export interface PiHostOptions {
   hostExtensions?: readonly HostExtension[];
   /** Platform services (native dialogs) host extensions may use. */
   platform?: HostPlatform;
+  /** Host halves of extension packages on disk for a workspace; synced at start, on project switch and on reload. */
+  hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
 }
 
 export function mapMessage(message: unknown, index: number, options: MessageMappingOptions = {}): UiMessage | undefined {
@@ -992,6 +995,8 @@ export class PiHost {
   private readonly gitCoordinator = new GitCoordinator({ onSubprocess: () => this.lifecycleMetrics.countSubprocess() });
   private readonly hostExtensions: HostExtensionRegistry;
   private readonly pendingHostExtensions: readonly HostExtension[];
+  private readonly hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
+  private packagedHostExtensionIds = new Set<string>();
   private readonly platform: HostPlatform;
   /** Pi extensions host extensions contribute; loaded into every runtime created afterwards. */
   private readonly runtimeExtensionContributions: RuntimeExtensionContribution[] = [];
@@ -1156,6 +1161,7 @@ export class PiHost {
     this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? configured.id;
     this.runtimeCommands = options.runtimeCommands ?? [];
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
+    this.hostExtensionPackages = this.safeMode ? undefined : options.hostExtensionPackages;
     this.platform = options.platform ?? {};
     this.hostExtensions = new HostExtensionRegistry(this.hostExtensionServices(), (event) => this.emit(event));
     markTauHostRuntime();
@@ -1268,6 +1274,42 @@ export class PiHost {
 
   private async activateHostExtensions(): Promise<void> {
     for (const extension of this.pendingHostExtensions) await this.hostExtensions.activate(extension);
+    await this.syncHostExtensionPackages();
+  }
+
+  /** Replaces the host halves of extension packages with what the workspace's folders hold now. */
+  private async syncHostExtensionPackages(): Promise<void> {
+    if (!this.hostExtensionPackages) return;
+    let loaded: HostPackageLoadResult;
+    try {
+      loaded = await this.hostExtensionPackages(this.cwd);
+    } catch (error) {
+      this.log("host-extension.packages.failed", this.errorMessage(error));
+      return;
+    }
+    for (const failure of loaded.errors) this.log("host-extension.package.failed", `${failure.path}: ${failure.message}`);
+    for (const skip of loaded.skipped) this.log("host-extension.package.skipped", `${skip.directory}: ${skip.reason}`);
+    const next = new Set(loaded.extensions.map((entry) => entry.extension.id));
+    for (const id of this.packagedHostExtensionIds) {
+      if (!next.has(id)) await this.hostExtensions.remove(id).catch((error) => this.log("host-extension.remove.failed", `${id}: ${this.errorMessage(error)}`));
+    }
+    for (const { extension, package: pkg } of loaded.extensions) {
+      if (this.pendingHostExtensions.some((bundled) => bundled.id === extension.id)) {
+        this.log("host-extension.package.failed", `${pkg.directory}: id ${extension.id} belongs to a bundled kit`);
+        continue;
+      }
+      await this.hostExtensions.activate(extension);
+      this.log("host-extension.package.loaded", `${extension.name} · ${pkg.scope} · ${pkg.directory}`);
+    }
+    this.packagedHostExtensionIds = next;
+  }
+
+  /** Turns a known host extension off or on again; the desktop toggle calls this for a package's host half. */
+  async setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]> {
+    if (active) await this.hostExtensions.activateKnown(id);
+    else await this.hostExtensions.deactivate(id);
+    this.log(active ? "host-extension.enabled" : "host-extension.disabled", id);
+    return this.listHostExtensions();
   }
 
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown> {
@@ -3293,6 +3335,7 @@ export class PiHost {
         }
       }
       this.extensionCount = thread.backend.extensionCount();
+      await this.syncHostExtensionPackages();
       this.log("runtime.reloaded");
       const snapshot = await this.snapshot();
       for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);

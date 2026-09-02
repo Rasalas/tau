@@ -202,6 +202,20 @@ export class HostExtensionRegistry {
     }
   }
 
+  /** Re-activates an extension the registry knows, after `deactivate`. */
+  async activateKnown(id: string): Promise<boolean> {
+    const extension = this.known.get(id);
+    if (!extension) throw new Error(`Host extension ${id} is not installed.`);
+    return this.activate(extension);
+  }
+
+  /** Forgets an extension entirely, e.g. when its package left the disk. */
+  async remove(id: string): Promise<void> {
+    await this.deactivate(id);
+    this.known.delete(id);
+    this.failures.delete(id);
+  }
+
   async deactivate(id: string): Promise<void> {
     const record = this.active.get(id);
     if (!record) return;

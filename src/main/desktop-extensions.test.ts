@@ -58,3 +58,18 @@ describe("desktop extension bundling", () => {
     expect(trusted.errors[0]?.path).toContain("broken.ts");
   }, 20_000);
 });
+
+describe("desktop extension packages", () => {
+  it("takes a package folder's desktop entry from its manifest and skips host-only packages", async () => {
+    const dir = await scratch();
+    await mkdir(join(dir, "pkg"));
+    await writeFile(join(dir, "pkg", "tau-extension.json"), JSON.stringify({ id: "acme.pkg", name: "Pkg", desktop: "./ui/main.tsx", host: "./host.ts" }));
+    await mkdir(join(dir, "pkg", "ui"));
+    await writeFile(join(dir, "pkg", "ui", "main.tsx"), "export default {}");
+    await writeFile(join(dir, "pkg", "index.tsx"), "export default {}");
+    await mkdir(join(dir, "host-only"));
+    await writeFile(join(dir, "host-only", "tau-extension.json"), JSON.stringify({ id: "acme.host", name: "Host", host: "./host.ts" }));
+    await writeFile(join(dir, "host-only", "index.tsx"), "export default {}");
+    expect(await listDesktopExtensionEntries(dir)).toEqual([join(dir, "pkg", "ui", "main.tsx")]);
+  });
+});

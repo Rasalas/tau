@@ -4,6 +4,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
+import { MANIFEST_FILE, parseExtensionManifest } from "./extension-packages.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 
@@ -34,6 +35,17 @@ export async function listDesktopExtensionEntries(directory: string): Promise<st
       continue;
     }
     if (!info.isDirectory()) continue;
+    // A package folder names its desktop entry in its manifest; without one it has no desktop half.
+    const manifest = await readFile(join(path, MANIFEST_FILE), "utf8").catch(() => undefined);
+    if (manifest !== undefined) {
+      try {
+        const { desktopEntry } = parseExtensionManifest(path, manifest);
+        if (desktopEntry) entries.push(desktopEntry);
+      } catch {
+        // The host reports manifest errors when it loads packages; the desktop side stays quiet.
+      }
+      continue;
+    }
     for (const index of ["index.tsx", "index.ts", "index.jsx", "index.js", "index.mjs"]) {
       const candidate = join(path, index);
       if (await stat(candidate).then((s) => s.isFile()).catch(() => false)) {

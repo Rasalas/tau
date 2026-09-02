@@ -26,3 +26,25 @@ describe("PiHost safe mode", () => {
     expect(internals.runtimeExtensionsFor(settings).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-computer-use", "tau-questionnaire", "tau-service-tier"]);
   });
 });
+
+describe("PiHost extension packages", () => {
+  const loader = async () => ({
+    extensions: [{ extension: { id: "acme.pkg", name: "Package", activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } }, package: { scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest: { id: "acme.pkg", name: "Package", host: "./host.ts" } } }],
+    errors: [],
+    skipped: [],
+  });
+
+  it("activates packaged host halves outside safe mode and never in safe mode", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader });
+    await (host as unknown as Internals).activateHostExtensions();
+    expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
+    await expect(host.invokeHostExtension("acme.pkg", "ping")).resolves.toBe("pong");
+    await host.setHostExtensionActive("acme.pkg", false);
+    expect(host.listHostExtensions()[0]?.active).toBe(false);
+    await host.setHostExtensionActive("acme.pkg", true);
+    expect(host.listHostExtensions()[0]?.active).toBe(true);
+    const safe = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: [], hostExtensionPackages: loader });
+    await (safe as unknown as Internals).activateHostExtensions();
+    expect(safe.listHostExtensions()).toEqual([]);
+  });
+});

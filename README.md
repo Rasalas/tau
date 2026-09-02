@@ -48,6 +48,14 @@ The Pi TUI is the sole writer while attached. Tau will not fall back to writing 
 
 Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) file in `~/.tau/extensions/`, or in `<project>/.tau/extensions/` for a project Pi trusts, and run `/reload`. The file default-exports a `DesktopExtension` and may import `react`, `lucide-react` and `tau` (the workbench hooks and types); the host compiles it with esbuild and the renderer binds those imports to its own copies. `examples/desktop-extensions/hello-panel.tsx` is a complete example; `tau.d.ts` next to it gives an editor the types.
 
+An extension with a host half is a package: a folder under one of those two directories with a `tau-extension.json` manifest.
+
+```json
+{ "id": "acme.hello", "name": "Hello", "desktop": "./desktop.tsx", "host": "./host.ts" }
+```
+
+`id` is shared by both halves (lowercase, dot-separated) and must equal the id the desktop module exports; `desktop` and `host` are relative entry paths, either may be omitted. The desktop entry is loaded like a plain desktop extension. The host entry runs in the Electron main process: the host compiles it with esbuild (Node builtins and Electron stay external, everything else is bundled), imports it and activates the default export, a `HostExtension` (`{ id?, name?, activate(context) }`) or a factory returning one; `context.services` is the same facade the bundled kits use (see `docs/adr/0006-host-extensions-own-host-features.md`), `context.registerCommand` and `context.emit` reach the desktop half through `context.host`. Packages are synced when Tau starts, when the project changes and on `/reload`, so installing, updating or removing a folder never needs a rebuild. A project's packages load only where Pi trusts the project; an activation failure is shown on the extension's settings page, not thrown. The settings toggle of a package turns both halves off and on.
+
 Tau's own source can be changed from inside Tau too. `/rebuild` runs the production build without leaving the app and reloads the renderer; when the main process or preload changed, it says so and `/restart` relaunches the app. Both are also in the command palette.
 
 ## Prototype surface

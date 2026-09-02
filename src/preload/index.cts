@@ -37,6 +37,7 @@ const api: TauDesktopApi = {
   loadDesktopExtensions: (cwd, sharedExports) => ipcRenderer.invoke("tau:desktop-extensions", cwd, sharedExports),
   invokeHostExtension: (extensionId, command, input) => ipcRenderer.invoke("tau:host-extension", extensionId, command, input),
   listHostExtensions: () => ipcRenderer.invoke("tau:host-extensions"),
+  setHostExtensionActive: (id, active) => ipcRenderer.invoke("tau:host-extension-active", id, active),
   rebuildWorkbench: () => ipcRenderer.invoke("tau:rebuild-workbench"),
   relaunchWorkbench: () => ipcRenderer.invoke("tau:relaunch-workbench"),
   onHostEvent: (listener) => {

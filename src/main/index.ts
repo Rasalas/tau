@@ -12,6 +12,7 @@ import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { rebuildWorkbench } from "./workbench-build.js";
 import { bundledHostExtensions } from "./extensions/index.js";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { loadHostExtensionPackages } from "./extension-packages.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
@@ -20,6 +21,7 @@ const runtimeAdapter = selectRuntimeAdapter(undefined, { safeMode });
 const hostOptions = {
   runtimeAdapter,
   hostExtensions: safeMode ? [] : bundledHostExtensions(),
+  hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir()),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
@@ -164,6 +166,7 @@ function installIpc(): void {
   ipcMain.handle("tau:host-extension", async (_event, extensionId: string, command: string, input?: unknown) =>
     (await requireHostReady()).invokeHostExtension(extensionId, command, input));
   ipcMain.handle("tau:host-extensions", async () => (await requireHostReady()).listHostExtensions());
+  ipcMain.handle("tau:host-extension-active", async (_event, id: string, active: boolean) => (await requireHostReady()).setHostExtensionActive(id, active));
   ipcMain.handle("tau:desktop-extensions", async (_event, cwd: string, sharedExports: Record<string, string[]>) =>
     loadDesktopExtensions(cwd, getAgentDir(), { sharedExports }));
   ipcMain.handle("tau:rebuild-workbench", async () => {

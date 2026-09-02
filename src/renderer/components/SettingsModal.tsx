@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Plus, Sliders, Sparkles, X } from "lucide-react";
-import type { HostSnapshot } from "../../shared/contracts";
+import type { HostExtensionSummary, HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { preferences } from "../preferences";
 import { ModelPicker, modelKey } from "./ModelPicker";
@@ -60,17 +60,32 @@ function ExtensionPage({
   summary,
   registry,
   onChanged,
+  onNotify,
 }: {
   summary: ExtensionSummary;
   registry: ExtensionRegistry;
   onChanged(): void;
+  onNotify(message: string): void;
 }) {
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  // The host half of the same package, if the package has one.
+  const [hostHalves, setHostHalves] = useState<HostExtensionSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    window.tau?.listHostExtensions().then((summaries) => { if (!cancelled) setHostHalves(summaries); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [summary.id]);
+  const hostHalf = hostHalves.find((entry) => entry.id === summary.id);
 
   const toggleExtension = () => {
     const next = !summary.active;
     preferences.setExtensionEnabled(summary.id, next);
     registry.setActive(summary.id, next);
+    if (hostHalf) {
+      window.tau?.setHostExtensionActive(summary.id, next).then(setHostHalves).catch((error: unknown) => {
+        onNotify(error instanceof Error ? error.message : String(error));
+      });
+    }
     onChanged();
   };
 
@@ -125,6 +140,11 @@ function ExtensionPage({
         </>
       ) : null}
 
+      {hostHalf ? (
+        <div className="settings-note" data-host-status={hostHalf.error ? "failed" : hostHalf.active ? "active" : "off"}>
+          Host entry: {hostHalf.error ? `failed to start (${hostHalf.error})` : hostHalf.active ? `active${hostHalf.commands.length ? `, commands ${hostHalf.commands.join(", ")}` : ""}` : "off"}.
+        </div>
+      ) : null}
       <div className="settings-note">
         Extensions declare options when they activate; Tau renders this page from that declaration.
         Extensions without options show only the toggle.
@@ -237,7 +257,7 @@ export function SettingsModal({
               <div className="settings-note">Pi's <code>~/.pi/agent/keybindings.json</code> rebinds the runtime commands (app.session.new, app.interrupt, app.model.select, app.thinking.toggle) and the shortcuts Pi extensions register; run /reload after editing it.</div>
             </div>
           ) : active ? (
-            <ExtensionPage summary={active} registry={registry} onChanged={() => onSetPage(active.id)} />
+            <ExtensionPage summary={active} registry={registry} onChanged={() => onSetPage(active.id)} onNotify={onNotify} />
           ) : (
             <div className="settings-page"><p className="lede">Select a page.</p></div>
           )}

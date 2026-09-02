@@ -523,6 +523,8 @@ export interface TauDesktopApi {
    */
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
   listHostExtensions(): Promise<HostExtensionSummary[]>;
+  /** Turns the host half of an extension package off or on; bundled kits stay as they are. */
+  setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
   /** Rebuilds the workbench from source without leaving the app. */
   rebuildWorkbench(): Promise<WorkbenchBuildResult>;
   /** Restarts the app so a rebuilt main process takes effect. */
