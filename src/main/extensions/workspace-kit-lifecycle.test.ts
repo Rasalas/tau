@@ -88,6 +88,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     attachedRuntime: () => undefined,
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
+    findCommand: () => undefined,
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no such session"); },
@@ -155,7 +156,7 @@ describe("Workspace Kit checkpoint lifecycle", () => {
   it("carries the source's checkpoints into a fork whose branch holds their anchors", async () => {
     const upkeep = maintenance();
     const open = vi.fn(() => sessionFile());
-    const kit = createWorkspaceKitLifecycle(services({ sessions: { list: async () => [], open, prepare: async () => { throw new Error("none"); }, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }), { emit: () => undefined, maintenance: upkeep });
+    const kit = createWorkspaceKitLifecycle(services({ sessions: { list: async () => [], open, prepare: async () => { throw new Error("none"); }, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }), { emit: () => undefined, maintenance: upkeep, hasSnapshotRefs: async () => true });
     const target = sessionFile({ path: "/sessions/fork.jsonl", sessionId: "fork", entries: () => [branch[0]!] });
     await kit.lifecycle.afterFork!(thread(), target);
     expect(open).toHaveBeenCalledWith("/sessions/session.jsonl");
@@ -168,6 +169,19 @@ describe("Workspace Kit checkpoint lifecycle", () => {
     upkeep.calls.rehomeFork.mockClear();
     await kit.lifecycle.afterFork!(thread(), sessionFile({ sessionId: "empty", entries: () => [] }));
     expect(upkeep.calls.rehomeFork).not.toHaveBeenCalled();
+  });
+
+  it("forks without a checkpoint whose snapshot refs were pruned", async () => {
+    const upkeep = maintenance();
+    const logs: string[] = [];
+    const open = vi.fn(() => sessionFile());
+    const kit = createWorkspaceKitLifecycle(
+      services({ log: (label, detail) => { logs.push(`${label} ${detail ?? ""}`); }, sessions: { list: async () => [], open, prepare: async () => { throw new Error("none"); }, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }),
+      { emit: () => undefined, maintenance: upkeep, hasSnapshotRefs: async () => false },
+    );
+    await kit.lifecycle.afterFork!(thread(), sessionFile({ path: "/sessions/fork.jsonl", sessionId: "fork", entries: () => [branch[0]!] }));
+    expect(upkeep.calls.rehomeFork).not.toHaveBeenCalled();
+    expect(logs).toEqual([expect.stringContaining("fork.checkpoint.skipped turn-1")]);
   });
 
   it("sweeps every workspace it knows and drops the refs of deleted sessions", async () => {

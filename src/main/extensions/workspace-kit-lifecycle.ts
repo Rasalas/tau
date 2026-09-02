@@ -14,7 +14,7 @@ import {
   turnRestoreTransactionsFromEntries,
   turnSnapshotRef,
 } from "../../shared/turn-checkpoint-codec.js";
-import type { TurnRestoreTransaction } from "../../shared/turn-checkpoint-types.js";
+import type { StoredTurnCheckpoint, TurnRestoreTransaction } from "../../shared/turn-checkpoint-types.js";
 import type { CheckpointEvent, WorkspaceCheckpointList } from "../../shared/workspace-kit-protocol.js";
 import { WORKSPACE_HOST_EXTENSION_ID } from "../../shared/workspace-kit-protocol.js";
 import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/workspace-kit-types.js";
@@ -49,6 +49,8 @@ export interface WorkspaceKitLifecycleOptions {
   git?: { invalidate(cwd: string): void };
   /** Last known branch of a workspace, presentation metadata only. */
   branch?(cwd: string): string | undefined;
+  /** Whether a checkpoint's snapshot refs still exist in the workspace; Git by default. */
+  hasSnapshotRefs?(cwd: string, checkpoint: StoredTurnCheckpoint): Promise<boolean>;
 }
 
 /** The checkpoint side of Workspace Kit's host entry: capture, restore, recovery and ref upkeep. */
@@ -635,6 +637,24 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     return { thread, checkpoint, feature };
   };
 
+  // A checkpoint whose refs were pruned (a fresh clone, a manual `git update-ref -d`)
+  // cannot be inherited; the fork goes on without it instead of failing.
+  const hasSnapshotRefs = options.hasSnapshotRefs ?? (async (cwd: string, checkpoint: StoredTurnCheckpoint) => {
+    try {
+      await workspaceGit.validateWorkspaceSnapshotRefs(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const withSnapshotRefs = async (cwd: string, checkpoints: readonly StoredTurnCheckpoint[]): Promise<StoredTurnCheckpoint[]> => {
+    const kept: StoredTurnCheckpoint[] = [];
+    for (const checkpoint of checkpoints) {
+      if (await hasSnapshotRefs(cwd, checkpoint)) kept.push(checkpoint);
+      else services.log("fork.checkpoint.skipped", `${checkpoint.id}: its snapshot refs are gone from ${cwd}`);
+    }
+    return kept;
+  };
   const lifecycle: HostThreadLifecycle = {
     beforeWorkspace: (cwd) => recoverPendingRestoreTransactions(cwd),
     beforeOpen: async (session) => {
@@ -656,7 +676,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       await features.get(source.sessionId)?.feature.close();
       if (!source.sessionFile) return;
       const sourceCheckpoints = checkpointsOf(services.sessions.open(source.sessionFile).entries(), source.sessionId);
-      const inherited = checkpointsForBranch(target.entries(), sourceCheckpoints);
+      const inherited = await withSnapshotRefs(source.cwd, checkpointsForBranch(target.entries(), sourceCheckpoints));
       if (inherited.length === 0) return;
       await maintenance.rehomeFork({
         cwd: source.cwd,
