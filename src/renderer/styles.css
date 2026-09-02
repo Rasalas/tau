@@ -2481,3 +2481,4 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 }
 .status-line .status-side { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
 .status-line .status-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.region-title-bar { flex-direction: row; align-items: center; gap: 8px; }

@@ -5,11 +5,12 @@ import type {
   GlobalHostEvent,
   HostEvent,
   HostSnapshot,
+  ShellActionResult,
+  UiFileContent,
   UiEditor,
   UiFileDiff,
   UiToolRun,
   UiWorkspaceChanges,
-  UiWorkspaceChangesPage,
   WorkspaceChangesQuery,
 } from "../shared/contracts";
 
@@ -21,7 +22,6 @@ export interface WorkbenchActions {
   openPanel(id: string): void;
   openCommandPalette(): void;
   openSettings(page?: string): void;
-  openReview(): void;
   newSession(): void;
   switchSession(path: string): Promise<boolean>;
   settleActiveThread(): void;
@@ -35,8 +35,17 @@ export interface WorkbenchActions {
   /** Opens the list of project sources extensions registered. */
   openProjectSources(): void;
   openWorkspace(path: string): Promise<boolean>;
-  /** The thread on screen and its model, for commands that act on it. */
-  activeThread(): { sessionId?: string; model?: { provider: string; id: string } } | undefined;
+  /**
+   * The thread on screen: its id and model, the project it runs in (a pending
+   * draft's project while the thread does not exist yet), and whether that draft is still pending.
+   */
+  activeThread(): { sessionId?: string; cwd?: string; model?: { provider: string; id: string }; draftPending: boolean } | undefined;
+  /** Opens a document in the stage, as source or as its working-tree diff. */
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
+  /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
+  runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
+  /** Keeps the composer from submitting until the returned release is called. */
+  holdComposer(): () => void;
   /** Applies a host action result the way core actions do, refreshing what it touched. */
   applyHostResult(result: HostActionResult): void;
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
@@ -110,7 +119,7 @@ export interface TranscriptRowsHandle {
  * content: above or below the composer (Pi's widgets), at the head or foot of
  * the transcript, or as the status line at the bottom, Pi's footer.
  */
-export type RegionPlacement = "composer-above" | "composer-below" | "transcript-header" | "transcript-footer";
+export type RegionPlacement = "title-bar" | "composer-above" | "composer-below" | "transcript-header" | "transcript-footer";
 
 export interface RegionProps {
   snapshot?: HostSnapshot;
@@ -162,6 +171,8 @@ export interface ComposerControlProps {
 export interface ComposerControlContribution {
   id: string;
   order?: number;
+  /** `toolbar` sits beside model and thinking; `footer` spans the row below the editor. */
+  placement?: "toolbar" | "footer";
   Component: ComponentType<ComposerControlProps>;
 }
 
@@ -201,47 +212,14 @@ export interface PromptHookContribution {
   afterPrompt(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
 }
 
-/** Props for a changes card rendered in a transcript or workspace dock. */
-export interface ChangesContributionProps {
-  changes: UiWorkspaceChanges;
-  onOpenDiff(path?: string): void;
-  label?: string;
-  /** Loads the next immutable file-list page, when the source is paged. */
-  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
-}
-
-export interface ChangesContribution {
+/** Who loads the stage's documents and knows which are changed. One at a time. */
+export interface DocumentSourceContribution {
   id: string;
-  order?: number;
-  Component: ComponentType<ChangesContributionProps>;
-}
-
-export type ReviewContributionKind = "workspace" | "historical";
-
-/** Complete review slot owned by an extension; App only supplies generic data/actions. */
-export interface ReviewContributionProps {
-  changes: UiWorkspaceChanges;
-  selectedPath?: string;
-  editor?: UiEditor;
-  busy: boolean;
-  primaryPush: boolean;
-  onSelect(path: string): void;
-  onBack(): void;
-  onCommit(message: string, push: boolean): void;
-  onOpenInEditor(path: string): void;
+  loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
-  loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
-  loadChanges?(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
-  workspaceKey?: string;
-  readOnly?: boolean;
-  checkpointTitle?: string;
-}
-
-export interface ReviewContribution {
-  id: string;
-  kind: ReviewContributionKind;
-  order?: number;
-  Component: ComponentType<ReviewContributionProps>;
+  openInEditor(path: string): void;
+  getState(): { changes: UiWorkspaceChanges; editor?: UiEditor };
+  subscribe(listener: () => void): () => void;
 }
 
 export interface ToolPresentation {
@@ -289,8 +267,8 @@ export interface DesktopExtensionContext {
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
-  registerChanges(contribution: ChangesContribution): () => void;
-  registerReview(contribution: ReviewContribution): () => void;
+  /** The stage shows documents; one extension says how to load them and which are changed. */
+  registerDocumentSource(source: DocumentSourceContribution): () => void;
   registerOptions(options: ExtensionOption[]): () => void;
   registerToolRenderer(
     id: string,
@@ -349,8 +327,7 @@ export class ExtensionRegistry {
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
-  private changesContributions = new Map<string, Owned<ChangesContribution>>();
-  private reviewContributions = new Map<string, Owned<ReviewContribution>>();
+  private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
   private options = new Map<string, ExtensionOption[]>();
   private contributionKinds = new Map<string, string[]>();
@@ -458,13 +435,9 @@ export class ExtensionRegistry {
         note("prompt hooks");
         return this.register(this.promptHooks, hook.id, { ...hook, ...owner }, disposers);
       },
-      registerChanges: (contribution) => {
-        note("changes");
-        return this.register(this.changesContributions, contribution.id, { ...contribution, ...owner }, disposers);
-      },
-      registerReview: (contribution) => {
-        note(contribution.kind === "historical" ? "historical review" : "review");
-        return this.register(this.reviewContributions, contribution.id, { ...contribution, ...owner }, disposers);
+      registerDocumentSource: (source) => {
+        note("documents");
+        return this.register(this.documentSources, source.id, { ...source, ...owner }, disposers);
       },
       registerToolRenderer: (id, match, render) => {
         note("tool renderers");
@@ -583,13 +556,8 @@ export class ExtensionRegistry {
     return this.getCommands().filter((command) => command.surfaces?.includes(surface));
   }
 
-  getChangesContributions(): Array<Owned<ChangesContribution>> {
-    return this.sorted("changes", this.changesContributions);
-  }
-
-  getReviewContributions(kind?: ReviewContributionKind): Array<Owned<ReviewContribution>> {
-    const contributions = this.sorted("review", this.reviewContributions);
-    return kind ? contributions.filter((contribution) => contribution.kind === kind) : contributions;
+  getDocumentSource(): Owned<DocumentSourceContribution> | undefined {
+    return this.sorted("documents", this.documentSources)[0];
   }
 
   getExtensionSummaries(): ExtensionSummary[] {

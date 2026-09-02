@@ -4,12 +4,13 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiFileContent, UiWorkspaceChanges } from "../../shared/contracts";
 import { activateTab, closeTab, EMPTY_STAGE, openFileTab, pinTab, setFileView, type StageState } from "../stage";
-import { ChangesContext, FilesContext, type ChangesContextValue } from "../workbench-context";
+import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context";
+import { workspaceStore } from "../extensions/workspace-store";
 import { ChangesPanel, FilesPanel } from "../extensions/workspace-panels";
 import { Stage } from "./Stage";
 import type { ChatTab } from "./StageTabs";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const CWD = "/repo";
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
@@ -100,35 +101,33 @@ describe("Stage", () => {
   });
 });
 
-function changesValue(overrides: Partial<ChangesContextValue> = {}): ChangesContextValue {
+function workbench(overrides: Partial<WorkbenchContextValue> = {}): WorkbenchContextValue {
   return {
-    changes: CHANGED,
-    snapshot: { cwd: CWD },
-    committing: false,
-    pushPrimary: false,
-    canPush: false,
-    commitFocusToken: 0,
-    refreshChanges: async () => undefined,
-    openReview: () => undefined,
-    openDiff: () => undefined,
-    stageFile: async () => undefined,
-    unstageFile: async () => undefined,
-    stageAll: async () => undefined,
-    revertFile: async () => undefined,
-    commit: async () => undefined,
+    tools: [],
+    events: [],
+    registry: {} as never,
+    openFile: () => undefined,
+    applySnapshot: () => undefined,
+    handleHostEvent: () => undefined,
     ...overrides,
   };
 }
 
+function kitState(patch: Parameters<typeof workspaceStore.update>[0] = {}) {
+  workspaceStore.update({ cwd: CWD, draftPending: false, changes: CHANGED, workspace: undefined, committing: false, pushPrimary: false, commitFocusToken: 0, fileTree: [], ...patch });
+}
+
 describe("ChangesPanel", () => {
   it("opens a changed file as a diff and commits the edited message", () => {
-    const openDiff = vi.fn();
-    const stageAll = vi.fn(async () => undefined);
-    const commit = vi.fn(async () => undefined);
+    kitState({ workspace: { root: CWD, isRepo: true, isDirty: true, upstream: "origin/main", worktrees: [], refs: [], worktreeParent: "/" } });
+    const openDiff = vi.spyOn(workspaceStore, "openDiff").mockImplementation(() => undefined);
+    const stageAll = vi.spyOn(workspaceStore, "stageAll").mockResolvedValue(undefined);
+    const commit = vi.spyOn(workspaceStore, "commit").mockResolvedValue(undefined);
+    vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
     render(
-      <ChangesContext.Provider value={changesValue({ openDiff, stageAll, commit, canPush: true })}>
+      <WorkbenchContext.Provider value={workbench()}>
         <ChangesPanel active extensionName="Review Kit" />
-      </ChangesContext.Provider>,
+      </WorkbenchContext.Provider>,
     );
 
     fireEvent.click(screen.getByTitle("src/a.ts"));
@@ -146,10 +145,12 @@ describe("ChangesPanel", () => {
   });
 
   it("marks the file shown in the stage and leads with push when asked", () => {
+    kitState({ pushPrimary: true, workspace: { root: CWD, isRepo: true, isDirty: true, upstream: "origin/main", worktrees: [], refs: [], worktreeParent: "/" } });
+    vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
     render(
-      <ChangesContext.Provider value={changesValue({ activePath: `${CWD}/src/a.ts`, canPush: true, pushPrimary: true })}>
+      <WorkbenchContext.Provider value={workbench({ activeDocumentPath: `${CWD}/src/a.ts` })}>
         <ChangesPanel active extensionName="Review Kit" />
-      </ChangesContext.Provider>,
+      </WorkbenchContext.Provider>,
     );
 
     expect(screen.getByTitle("src/a.ts").parentElement?.className).toContain("active");
@@ -160,19 +161,12 @@ describe("ChangesPanel", () => {
 describe("FilesPanel", () => {
   it("opens a file on click and pins it on double-click", () => {
     const openFile = vi.fn();
+    kitState({ changes: NO_CHANGES, fileTree: [{ name: "a.ts", path: `${CWD}/a.ts`, kind: "file" }] });
+    vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
     render(
-      <ChangesContext.Provider value={changesValue({ changes: NO_CHANGES })}>
-        <FilesContext.Provider value={{
-          fileTree: [{ name: "a.ts", path: `${CWD}/a.ts`, kind: "file" }],
-          snapshot: { cwd: CWD },
-          activePath: `${CWD}/a.ts`,
-          refreshFiles: async () => undefined,
-          loadFiles: async () => [],
-          openFile,
-        }}>
-          <FilesPanel active extensionName="Workspace" />
-        </FilesContext.Provider>
-      </ChangesContext.Provider>,
+      <WorkbenchContext.Provider value={workbench({ openFile, activeDocumentPath: `${CWD}/a.ts` })}>
+        <FilesPanel active extensionName="Workspace" />
+      </WorkbenchContext.Provider>,
     );
 
     const row = screen.getByTitle(`${CWD}/a.ts`);

@@ -1,12 +1,11 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
-import { WorkspaceBar } from "./WorkspaceBar";
 import { TaskProgress } from "./TaskProgress";
 import {
   attachmentPolicyMessage,
@@ -149,11 +148,7 @@ export function Composer({
   promptChoices,
   onPreselectQuestion,
   onCompactContext,
-  workspace,
-  workspaceBusy,
-  onOpenWorktree,
-  onCreateWorktree,
-  onSwitchRef,
+  held = false,
 }: {
   snapshot?: HostSnapshot;
   scopeStore: ComposerScopeStore;
@@ -180,11 +175,8 @@ export function Composer({
   promptChoices?: Record<number, QuestionnaireChoice>;
   onPreselectQuestion?(index: number, labels: string[]): void;
   onCompactContext(): void;
-  workspace?: WorkspaceInfo;
-  workspaceBusy: boolean;
-  onOpenWorktree(path: string): Promise<boolean>;
-  onCreateWorktree(branch: string, baseRef: string): Promise<boolean>;
-  onSwitchRef(ref: string): Promise<boolean>;
+  /** An extension is changing the workspace; submitting would target the wrong thread. */
+  held?: boolean;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const attachmentScope = createDraftKey(draftStorageKey);
@@ -322,7 +314,7 @@ export function Composer({
 
   const answerable = prompt && prompt.answerElsewhere !== true;
   const submitCurrent = (delivery?: "followUp" | "steer") => {
-    if (workspaceBusy) return;
+    if (held) return;
     if (activeScopeSnapshot.submissionPending) return;
     if (answerable && prompt) {
       if (!text.trim()) return;
@@ -593,7 +585,7 @@ export function Composer({
             ) : null}
           </span>
 
-          {composerControls.map((control) => <control.Component key={control.id} snapshot={snapshot} />)}
+          {composerControls.filter((control) => control.placement !== "footer").map((control) => <control.Component key={control.id} snapshot={snapshot} />)}
 
           </div>
           <span className="spacer" />
@@ -627,7 +619,7 @@ export function Composer({
               title="Send"
               aria-label="Send"
               aria-busy={activeScopeSnapshot.submissionPending}
-              disabled={workspaceBusy || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0)}
+              disabled={held || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0)}
               onClick={() => submitCurrent()}
             >
               <ArrowUp size={16} />
@@ -655,13 +647,7 @@ export function Composer({
         />
       ) : null}
 
-      <WorkspaceBar
-        info={workspace}
-        busy={workspaceBusy}
-        onOpenWorktree={onOpenWorktree}
-        onCreateWorktree={onCreateWorktree}
-        onSwitchRef={onSwitchRef}
-      />
+      {composerControls.filter((control) => control.placement === "footer").map((control) => <control.Component key={control.id} snapshot={snapshot} />)}
       </div>
     </footer>
   );

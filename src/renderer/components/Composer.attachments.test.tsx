@@ -33,10 +33,6 @@ function renderComposer(
       onSetModel={() => {}}
       onSetThinking={() => {}}
       onCompactContext={() => {}}
-      workspaceBusy={false}
-      onOpenWorktree={async () => true}
-      onCreateWorktree={async () => true}
-      onSwitchRef={async () => true}
     />
   );
   const view = render(element(draftStorageKey));

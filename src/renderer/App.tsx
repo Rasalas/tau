@@ -1,27 +1,29 @@
 import { Component, createRef, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode, type RefObject } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
-  DiffLoadOptions,
   ClientTurnIdentity,
+  DiffLoadOptions,
+  ExtensionUiAnswer,
+  ExtensionUiPrompt,
   FileNode,
   HostEvent,
   HostSnapshot,
+  NewThreadRequestId,
+  PreparedPrompt,
+  ShellActionResult,
   ThreadIndexSnapshot,
   UiEditor,
   UiFileContent,
+  UiFileDiff,
   UiMessage,
   UiProject,
   UiPromptAttachment,
-  UiSkillDraft,
   UiSession,
-  PreparedPrompt,
-  ExtensionUiAnswer,
-  ExtensionUiPrompt,
+  UiSkillDraft,
   UiToolRun,
   UiTurnCheckpoint,
   UiWorkspaceChanges,
   WorkspaceInfo,
-  NewThreadRequestId,
 } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { ChangedFiles } from "./components/ChangedFiles";
@@ -78,9 +80,14 @@ import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences } from "./preferences";
-import { workspaceKit } from "./extensions/workspace-kit-client";
 import { ProjectSourcesModal } from "./components/ProjectSources";
 import { Region, StatusLine } from "./components/Regions";
+
+const noopSubscribe = () => () => {};
+const EMPTY_DOCUMENTS: { changes: UiWorkspaceChanges; editor?: UiEditor } = { changes: { files: [], added: 0, removed: 0 } };
+const emptyDocumentState = () => EMPTY_DOCUMENTS;
+const loadFileUnavailable = async (path: string): Promise<UiFileContent> => ({ path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require a document source." });
+const loadDiffUnavailable = async (path: string): Promise<UiFileDiff> => ({ path, added: 0, removed: 0, hunks: [], note: "Diffs require a document source." });
 import { createNewThreadDraft, draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
@@ -98,8 +105,6 @@ import {
   ThreadStoreContext,
   WorkbenchContext,
   WorkbenchShellContext,
-  FilesContext,
-  ChangesContext,
   ObservatoryContext,
   type TimelineEvent,
 } from "./workbench-context";
@@ -684,12 +689,6 @@ export default function App() {
   const [toolAnchorId, setToolAnchorId] = useState<string>();
   const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [fileTree, setFileTree] = useState<FileNode[]>([]);
-  const [changes, setChanges] = useState<UiWorkspaceChanges>(NO_CHANGES);
-  const [turnBaseline, setTurnBaseline] = useState<UiWorkspaceChanges>();
-  const [editors, setEditors] = useState<UiEditor[]>([]);
-  const [workspace, setWorkspace] = useState<WorkspaceInfo>();
-  const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
   const [checkpointStatus, setCheckpointStatus] = useState<CheckpointStatus>();
   const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
@@ -703,7 +702,6 @@ export default function App() {
   const [runStartedAt, setRunStartedAt] = useState<number>();
   // Legacy sessions may only have the old renderer cache. A settled run with
   // no durable checkpoint must not leave that stale cache looking current.
-  const [turnSettledWithoutCheckpoint, setTurnSettledWithoutCheckpoint] = useState(false);
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -724,13 +722,6 @@ export default function App() {
   } = newThreadController;
   const pendingNewThreadRef = useRef(pendingNewThread);
   pendingNewThreadRef.current = pendingNewThread;
-  // A draft can target a project the host has not opened yet. Actions that would
-  // otherwise run against the previous thread's workspace wait for the promotion.
-  const allowWorkspaceAction = useCallback((what: string): boolean => {
-    if (!pendingNewThreadRef.current && newThreadRecoveryRef.current.size === 0) return true;
-    setNotice(`${what} is unavailable until this draft becomes a thread.`);
-    return false;
-  }, []);
   const [transcriptTurnStart, setTranscriptTurnStartState] = useState<TranscriptTurnStart>();
   const [settingsPage, setSettingsPage] = useState<string>();
   const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
@@ -739,13 +730,7 @@ export default function App() {
   const [centerCompact, setCenterCompact] = useState(false);
   const [chatFocused, setChatFocused] = useState(false);
   const centerRef = useRef<HTMLDivElement>(null);
-  const [commitPushPrimary, setCommitPushPrimary] = useState(false);
-  const [commitFocusToken, setCommitFocusToken] = useState(0);
-  const [review, setReview] = useState<{
-    path?: string;
-    primaryPush: boolean;
-  }>();
-  const [committing, setCommitting] = useState(false);
+  const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
   const newThreadRecoveryRef = useRef(new Map<string, NewThreadSubmissionRecovery>());
@@ -764,11 +749,6 @@ export default function App() {
   const transcriptTurnSequenceRef = useRef(0);
   const transcriptTurnStartRef = useRef<TranscriptTurnStart | undefined>(undefined);
   const detailStoreRef = useRef(new ThreadDetailStore(5));
-  const activeWorkspaceRef = useRef(cachedBootstrap?.snapshot.cwd ?? "");
-  const changesRequestRef = useRef(0);
-  const changesRef = useRef(changes);
-  changesRef.current = changes;
-  const workspaceRequestRef = useRef(0);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const toolsRef = useRef(tools);
@@ -928,17 +908,14 @@ export default function App() {
     turnCheckpointsRef.current = next.turnCheckpoints ?? [];
     setTurnCheckpoints(turnCheckpointsRef.current);
     setCheckpointStatus(undefined);
-    setTurnSettledWithoutCheckpoint(false);
     const restoredActivity = next.turnActivity ?? cachedActivity;
     updateTools(restoredActivity?.tools ?? []);
     toolAnchorRef.current = restoredActivity?.anchorMessageId;
     setToolAnchorId(restoredActivity?.anchorMessageId);
     setTurnActivityHistory(next.turnActivityHistory ?? []);
-    setTurnBaseline(cachedActivity?.baseline);
     setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
     cachedSnapshotRef.current = next;
     writeBootstrapCache(next, cachedIndexRef.current);
-    activeWorkspaceRef.current = next.cwd;
     return true;
   }, [replaceTranscriptMessages, threadStore, transcriptHistory, updateTools]);
 
@@ -1049,7 +1026,6 @@ export default function App() {
       turnCheckpointsRef.current = detailForRender.turnCheckpoints ?? [];
       setTurnCheckpoints(turnCheckpointsRef.current);
       setCheckpointStatus(undefined);
-      setTurnSettledWithoutCheckpoint(false);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detailForRender.sessionId);
       const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
       updateTools(restoredActivity?.tools ?? []);
@@ -1057,7 +1033,6 @@ export default function App() {
       setToolAnchorId(restoredActivity?.anchorMessageId);
       const nextActivityHistory = detailForRender.turnActivityHistory ?? [];
       setTurnActivityHistory(nextActivityHistory);
-      setTurnBaseline(cachedActivity?.baseline);
       setTurnActivitySessionId(restoredActivity ? detailForRender.sessionId : undefined);
       setSnapshot((current) => {
         const next = application.snapshot ?? current;
@@ -1097,7 +1072,6 @@ export default function App() {
       return;
     }
     if (update.type === "project") {
-      activeWorkspaceRef.current = update.project.cwd;
       setSnapshot((current) => current ? { ...current, ...update.project } : current);
       return;
     }
@@ -1287,47 +1261,6 @@ export default function App() {
     void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, workspaceCwd]);
 
-  const refreshChanges = useCallback(async () => {
-    if (!window.tau) return;
-    const request = ++changesRequestRef.current;
-    const cwd = activeWorkspaceRef.current;
-    if (pendingNewThreadRef.current?.projectPath && pendingNewThreadRef.current.projectPath !== cwd) {
-      setChanges(NO_CHANGES);
-      return;
-    }
-    try {
-      const next = await workspaceKit.getChanges();
-      if (request === changesRequestRef.current && cwd === activeWorkspaceRef.current) setChanges(next);
-    } catch (error) {
-      if (request === changesRequestRef.current) setNotice(errorMessage(error));
-    }
-  }, []);
-
-  const refreshWorkspace = useCallback(async () => {
-    if (!window.tau) return;
-    const request = ++workspaceRequestRef.current;
-    const pendingPath = pendingNewThreadRef.current?.projectPath;
-    const cwd = pendingPath ?? activeWorkspaceRef.current;
-    setWorkspaceBusy(true);
-    try {
-      const next = pendingPath
-        ? await workspaceKit.getWorkspaceInfo(cwd)
-        : await workspaceKit.getWorkspaceInfo();
-      const currentCwd = pendingNewThreadRef.current?.projectPath ?? activeWorkspaceRef.current;
-      if (request === workspaceRequestRef.current && cwd === currentCwd) setWorkspace(next);
-    } catch (error) {
-      if (request === workspaceRequestRef.current) setNotice(errorMessage(error));
-    } finally {
-      if (request === workspaceRequestRef.current) setWorkspaceBusy(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!workspaceCwd || !window.tau) return;
-    void refreshChanges();
-    void refreshWorkspace();
-  }, [refreshChanges, refreshWorkspace, workspaceCwd]);
-
   const handleHostEvent = useCallback((event: HostEvent) => {
     // Extensions see a bounded subset of events, after core has no say in them.
     if (event.type === "tool-start" || event.type === "tool-end" || event.type === "agent-status"
@@ -1414,9 +1347,7 @@ export default function App() {
           updateTools([]);
           toolAnchorRef.current = undefined;
           setToolAnchorId(undefined);
-          setTurnBaseline(changesRef.current);
           setTurnActivitySessionId(event.sessionId);
-          setTurnSettledWithoutCheckpoint(false);
         }
         threadStore.setStreaming(event.running);
         setSnapshot((current) => {
@@ -1434,8 +1365,6 @@ export default function App() {
           const viewed = threadStore.getSnapshot().activeThreadId;
           if (finished && (finished !== viewed || document.hidden)) threadStore.markUnread(finished);
           runningThreadRef.current = "";
-          setTurnSettledWithoutCheckpoint(true);
-          void refreshChanges();
         }
         break;
       }
@@ -1448,7 +1377,6 @@ export default function App() {
           .sort((left, right) => left.endedAt - right.endedAt);
         turnCheckpointsRef.current = next;
         setTurnCheckpoints(next);
-        setTurnSettledWithoutCheckpoint(false);
         setSnapshot((current) => {
           if (!current || current.sessionId !== event.sessionId) return current;
           const updated = { ...current, turnCheckpoints: next };
@@ -1598,7 +1526,6 @@ export default function App() {
         pendingToolUpdatesRef.current.delete(event.tool.id);
         threadStore.toolEnded(event.tool.id);
         updateTools((current) => current.map((tool) => tool.id === event.tool.id ? event.tool : tool));
-        if (event.tool.name === "edit" || event.tool.name === "write") void refreshChanges();
         break;
       case "event-log":
         if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) {
@@ -1650,7 +1577,7 @@ export default function App() {
         addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
         break;
     }
-  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, refreshChanges, replaceTranscriptMessages, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, updateTranscriptMessages]);
+  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, replaceTranscriptMessages, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, updateTranscriptMessages]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -1683,19 +1610,16 @@ export default function App() {
           activeTools: [],
         }, bootstrap.detail);
         if (!applySnapshot(current, bootstrapRequest)) return;
-        void refreshChanges();
-        void refreshWorkspace();
       }).catch((error) => {
         if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
       });
-      workspaceKit.listEditors().then(setEditors).catch(() => setEditors([]));
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
     return unsubscribe;
-  }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, refreshChanges, refreshWorkspace, transcriptHistory]);
+  }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, transcriptHistory]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {
@@ -1719,7 +1643,7 @@ export default function App() {
     return window.tau.loadTranscript(sessionId, cursor);
   }, []);
 
-  useTailScroll(transcriptRef, [messages, tools, changes, turnBaseline], snapshot?.sessionId, transcriptHistory.preserveScrollRef);
+  useTailScroll(transcriptRef, [messages, tools], snapshot?.sessionId, transcriptHistory.preserveScrollRef);
 
   useEffect(() => {
     if (!notice) return;
@@ -1736,31 +1660,6 @@ export default function App() {
     }
   }, [activePanel, panels]);
 
-  const refreshFiles = useCallback(async () => {
-    if (window.tau) setFileTree((await workspaceKit.getFileTree()) ?? []);
-    else setFileTree([
-      { name: "src", path: "/workspace/tau/src", kind: "directory", children: [
-        { name: "renderer", path: "/workspace/tau/src/renderer", kind: "directory", children: [
-          { name: "thread-store.ts", path: "/workspace/tau/src/renderer/thread-store.ts", kind: "file" },
-          { name: "App.tsx", path: "/workspace/tau/src/renderer/App.tsx", kind: "file" },
-          { name: "extension-system.tsx", path: "/workspace/tau/src/renderer/extension-system.tsx", kind: "file" },
-        ] },
-      ] },
-      { name: "README.md", path: "/workspace/tau/README.md", kind: "file" },
-    ]);
-  }, []);
-
-  const loadFiles = useCallback(async (path: string): Promise<FileNode[]> => {
-    const children = window.tau ? ((await workspaceKit.getFileTree(path)) ?? []) : [];
-    setFileTree((current) => {
-      const attach = (nodes: FileNode[]): FileNode[] => nodes.map((node) => node.path === path
-        ? { ...node, children }
-        : node.children ? { ...node, children: attach(node.children) } : node);
-      return attach(current);
-    });
-    return children;
-  }, []);
-
   const openPanel = useCallback((id: string) => {
     setActivePanel(id);
     setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
@@ -1770,37 +1669,32 @@ export default function App() {
     setStage((current) => openFileTab(current, path, options));
     setChatFocused(false);
   }, []);
-  const openDiff = useCallback((relativePath: string) => {
-    if (snapshot?.cwd) openFile(`${snapshot.cwd}/${relativePath}`, { view: "diff" });
-  }, [openFile, snapshot?.cwd]);
-  const openReview = useCallback((path?: string, pushPrimary = Boolean(workspace?.upstream)) => {
-    void refreshChanges();
-    setCommitPushPrimary(pushPrimary);
-    const target = path ?? changes.files[0]?.path;
-    setReview({ path: target, primaryPush: pushPrimary });
-  }, [changes.files, refreshChanges, workspace?.upstream]);
-  const loadFile = useCallback(async (path: string): Promise<UiFileContent> => window.tau
-    ? workspaceKit.readFile(path)
-    : { path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require the Electron host." }, []);
-  const loadDiff = useCallback(async (path: string, options?: DiffLoadOptions) => window.tau
-    ? workspaceKit.getFileDiff(path, options)
-    : { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." }, []);
-
-  const acceptWorkspace = useCallback((result: HostActionResult) => {
+  /**
+   * Applies a host action result. A project change clears the stage, and a
+   * thread the result switches to inherits whatever was typed but not sent.
+   */
+  const applyHostResult = useCallback((result: HostActionResult) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
+    const pendingDraft = composerRef.current?.value ?? "";
     applyActionResult(result);
-    if (cwd && cwd !== snapshot?.cwd) {
-      setFileTree([]);
-      setChanges(NO_CHANGES);
-      setStage(EMPTY_STAGE);
+    if (cwd && cwd !== snapshot?.cwd) setStage(EMPTY_STAGE);
+    const detail = result.updates.find((update) => update.type === "thread-detail");
+    if (pendingDraft && detail?.type === "thread-detail") {
+      composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
     }
-    void refreshChanges();
-    void refreshWorkspace();
-  }, [applyActionResult, refreshChanges, refreshWorkspace, snapshot?.cwd]);
+  }, [applyActionResult, composerScopeStore, snapshot?.cwd]);
 
   const requireHost = useCallback((what: string): boolean => {
     if (window.tau) return true;
     setNotice(`${what} requires the Electron host`);
+    return false;
+  }, []);
+
+  // A draft can target a project the host has not opened yet. Switching
+  // projects under it would run against the previous thread's workspace.
+  const allowWorkspaceAction = useCallback((what: string): boolean => {
+    if (!pendingNewThreadRef.current && newThreadRecoveryRef.current.size === 0) return true;
+    setNotice(`${what} is unavailable until this draft becomes a thread.`);
     return false;
   }, []);
 
@@ -1809,13 +1703,13 @@ export default function App() {
     if (path === snapshot?.cwd) return true;
     if (!requireHost("Project switching")) return false;
     try {
-      acceptWorkspace(await window.tau!.openProject(path));
+      applyHostResult(await window.tau!.openProject(path));
       return true;
     } catch (error) {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [acceptWorkspace, allowWorkspaceAction, requireHost, snapshot?.cwd]);
+  }, [applyHostResult, allowWorkspaceAction, requireHost, snapshot?.cwd]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
@@ -1946,113 +1840,11 @@ export default function App() {
     }
   }, [applyActionResult, requireHost]);
 
-  const openInEditor = useCallback(async (path?: string, editorOverride?: string) => {
-    if (!allowWorkspaceAction("Opening an editor")) return;
-    const editorId = editorOverride ?? settings.editorId ?? editors[0]?.id;
-    if (!editorId) { setNotice("No supported editor found on PATH"); return; }
-    if (!requireHost("Opening an editor")) return;
-    try {
-      await workspaceKit.openInEditor(editorId, path);
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [allowWorkspaceAction, editors, requireHost, settings.editorId]);
-
-  const commit = useCallback(async (message: string, push: boolean) => {
-    if (!allowWorkspaceAction("Committing")) return;
-    if (!requireHost("Committing")) return;
-    setCommitting(true);
-    try {
-      const result = await workspaceKit.commit(message, push);
-      setChanges(result.changes);
-      setNotice(result.detail);
-      addEvent("git.commit", result.detail);
-      void refreshWorkspace();
-    } catch (error) {
-      setNotice(errorMessage(error));
-    } finally {
-      setCommitting(false);
-    }
-  }, [addEvent, allowWorkspaceAction, refreshWorkspace, requireHost]);
-
-  const stageFile = useCallback(async (path: string) => {
-    if (!allowWorkspaceAction("Staging changes")) return;
-    if (!requireHost("Staging changes")) return;
-    try { setChanges(await workspaceKit.stageFile(path)); }
-    catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceAction, requireHost]);
-
-  const unstageFile = useCallback(async (path: string) => {
-    if (!allowWorkspaceAction("Unstaging changes")) return;
-    if (!requireHost("Unstaging changes")) return;
-    try { setChanges(await workspaceKit.unstageFile(path)); }
-    catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceAction, requireHost]);
-
-  const stageAll = useCallback(async () => {
-    if (!allowWorkspaceAction("Staging changes")) return;
-    if (!requireHost("Staging changes")) return;
-    try { setChanges(await workspaceKit.stageAll()); }
-    catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceAction, requireHost]);
-
-  const revertFile = useCallback(async (path: string) => {
-    if (!allowWorkspaceAction("Reverting changes")) return;
-    if (!requireHost("Reverting changes")) return;
-    try { setChanges(await workspaceKit.revertFile(path)); }
-    catch (error) { setNotice(errorMessage(error)); }
-  }, [allowWorkspaceAction, requireHost]);
-
-  const pushWorkspace = useCallback(async () => {
-    if (!allowWorkspaceAction("Pushing")) return;
-    if (!requireHost("Pushing")) return;
-    setCommitting(true);
-    try {
-      const result = await workspaceKit.push();
-      setNotice(result.detail);
-      addEvent("git.push", result.detail);
-      await Promise.all([refreshChanges(), refreshWorkspace()]);
-    } catch (error) {
-      setNotice(errorMessage(error));
-    } finally {
-      setCommitting(false);
-    }
-  }, [addEvent, allowWorkspaceAction, refreshChanges, refreshWorkspace, requireHost]);
-
-  const runShellAction = useCallback(async (command: string, includeInContext: boolean, name: string) => {
-    if (!allowWorkspaceAction("Project actions")) return;
-    if (!requireHost("Project actions")) return;
-    try {
-      setNotice(`Running ${name}…`);
-      const result = await window.tau!.runShellAction(command, includeInContext, snapshot?.cwd);
-      const tail = result.output.trim().split("\n").at(-1);
-      setNotice(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`);
-      await Promise.all([refreshChanges(), refreshWorkspace()]);
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [allowWorkspaceAction, refreshChanges, refreshWorkspace, requireHost, snapshot?.cwd]);
-
-  const runWorkspaceAction = useCallback(async (action: () => Promise<HostActionResult>): Promise<boolean> => {
-    if (!allowWorkspaceAction("Worktree actions")) return false;
-    if (!requireHost("Worktrees")) return false;
-    setWorkspaceBusy(true);
-    try {
-      const result = await action();
-      const pendingDraft = composerRef.current?.value ?? "";
-      acceptWorkspace(result);
-      const detail = result.updates.find((update) => update.type === "thread-detail");
-      if (pendingDraft && detail?.type === "thread-detail") {
-        composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
-      }
-      return true;
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    } finally {
-      setWorkspaceBusy(false);
-    }
-  }, [acceptWorkspace, allowWorkspaceAction, composerScopeStore, requireHost]);
+  /** Pi's `!command` for extensions: runs in the active thread's project. */
+  const runShellAction = useCallback(async (command: string, includeInContext: boolean): Promise<ShellActionResult> => {
+    if (!window.tau) throw new Error("Project actions require the Electron host");
+    return window.tau.runShellAction(command, includeInContext, snapshot?.cwd);
+  }, [snapshot?.cwd]);
 
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -2222,7 +2014,6 @@ export default function App() {
     openPanel,
     openCommandPalette: () => setPaletteOpen(true),
     openSettings: (page) => setSettingsPage(page ?? "defaults"),
-    openReview: () => openReview(),
     newSession: () => setNewThreadOpen(true),
     switchSession,
     settleActiveThread,
@@ -2233,14 +2024,25 @@ export default function App() {
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
-    applyHostResult: acceptWorkspace,
+    applyHostResult,
     openOverlay: (id) => setActiveOverlayId(id),
     closeOverlay: () => setActiveOverlayId(undefined),
     openWorkspace,
-    activeThread: () => snapshot ? { sessionId: snapshot.sessionId, model: snapshot.model } : undefined,
+    activeThread: () => ({
+      sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
+      cwd: workspaceCwd,
+      model: snapshot?.model,
+      draftPending: newThreadDeliveryPending,
+    }),
+    openFile,
+    runShellAction,
+    holdComposer: () => {
+      setComposerHolds((count) => count + 1);
+      return () => setComposerHolds((count) => Math.max(0, count - 1));
+    },
   }), [
-    acceptWorkspace, openPanel,
-    activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,
+    applyHostResult, openPanel,
+    activeDraftKey, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,
   ]);
   actionsRef.current = actions;
 
@@ -2255,10 +2057,10 @@ export default function App() {
     }
     writeNewThreadDraft(window.localStorage);
     setPendingNewThread(undefined);
-    if (result) acceptWorkspace(result);
+    if (result) applyHostResult(result);
     threadStore.markRead(sessionId);
     notifyNewThreadPromptSubmitted(pending, sessionId, prompt, recovery);
-  }, [acceptWorkspace, composerScopeStore, isCurrentNewThreadRequest, notifyNewThreadPromptSubmitted, setPendingNewThread, threadStore]);
+  }, [applyHostResult, composerScopeStore, isCurrentNewThreadRequest, notifyNewThreadPromptSubmitted, setPendingNewThread, threadStore]);
 
   const submit = useCallback(async (
     value: string,
@@ -2584,7 +2386,7 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [acceptWorkspace, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -2592,7 +2394,6 @@ export default function App() {
       if (meta && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteOpen(true); }
       if (meta && event.key.toLowerCase() === "n") { event.preventDefault(); setNewThreadOpen(true); }
       if (meta && event.shiftKey && event.key.toLowerCase() === "s") { event.preventDefault(); settleActiveThread(); }
-      if (meta && event.shiftKey && event.key.toLowerCase() === "d") { event.preventDefault(); openReview(); }
       if (
         event.key === "Escape" &&
         visibleStreaming &&
@@ -2602,25 +2403,17 @@ export default function App() {
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [openReview, paletteOpen, settleActiveThread, threadStore, visibleStreaming]);
+  }, [paletteOpen, settleActiveThread, threadStore, visibleStreaming]);
 
   useEffect(() => {
     const sessionId = snapshot?.sessionId;
-    if (!sessionId || turnActivitySessionId !== sessionId || !turnBaseline) return;
+    if (!sessionId || turnActivitySessionId !== sessionId) return;
     writeCachedTurnActivity(window.localStorage, {
       sessionId,
-      baseline: turnBaseline,
       tools,
       anchorMessageId: toolAnchorId,
     });
-  }, [snapshot?.sessionId, toolAnchorId, tools, turnActivitySessionId, turnBaseline]);
-
-  const turnChanges = useMemo(
-    () => turnBaseline ? changesSinceTurn(turnBaseline, changes) : changesTouchedByTools(tools, changes),
-    [changes, tools, turnBaseline],
-  );
-  const changesContributions = registry.getChangesContributions();
-  const ChangesComponent = changesContributions[0]?.Component;
+  }, [snapshot?.sessionId, toolAnchorId, tools, turnActivitySessionId]);
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
   const contextBreakdown: ContextBreakdown = useMemo(() => {
     const usage = snapshot?.contextUsage;
@@ -2636,31 +2429,20 @@ export default function App() {
     };
   }, [snapshot?.contextUsage, tools, transcriptTokenEstimate]);
 
-  const contextValue = useMemo(
-    () => ({ snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, openFile, applySnapshot, handleHostEvent }),
-    [snapshot, tools, events, fileTree, changes, registry, refreshFiles, loadFiles, refreshChanges, openReview, openFile, applySnapshot, handleHostEvent],
-  );
-  const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
-  const panelProject = useMemo(() => snapshot ? { cwd: snapshot.cwd } : undefined, [snapshot?.cwd]);
   const stageTab = activeStageTab(stage);
   const stageFilePath = stageTab?.path;
-  const filesContextValue = useMemo(
-    () => ({ fileTree, snapshot: panelProject, activePath: stageFilePath, refreshFiles, loadFiles, openFile }),
-    [fileTree, panelProject, stageFilePath, refreshFiles, loadFiles, openFile],
+  const contextValue = useMemo(
+    () => ({ snapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
+    [snapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
   );
-  const canPush = Boolean(workspace?.upstream);
-  const changesContextValue = useMemo(
-    () => ({ changes, snapshot: panelProject, activePath: stageFilePath, committing, pushPrimary: commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, stageFile, unstageFile, stageAll, revertFile, commit }),
-    [changes, panelProject, stageFilePath, committing, commitPushPrimary, canPush, commitFocusToken, refreshChanges, openReview, openDiff, stageFile, unstageFile, stageAll, revertFile, commit],
-  );
+  const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
   const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
-  const reviewChanges = changes;
-  const reviewContribution = registry.getReviewContributions("workspace")[0];
-  const ReviewComponent = reviewContribution?.Component;
+  // The stage shows documents; whoever registered the document source loads them.
+  const documentSource = registry.getDocumentSource();
+  const documentState = useSyncExternalStore(documentSource?.subscribe ?? noopSubscribe, documentSource?.getState ?? emptyDocumentState, documentSource?.getState ?? emptyDocumentState);
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const titleCommands = registry.getCommandsFor("thread-title");
-  const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
   const scopedOptimisticMessages = useMemo(
     () => optimisticMessages.filter((entry) => entry.scope === activeDraftKey),
     [activeDraftKey, optimisticMessages],
@@ -2838,13 +2620,7 @@ export default function App() {
       promptChoices={promptChoices}
       onPreselectQuestion={preselectQuestion}
       onCompactContext={() => void compactContext()}
-      workspace={workspace}
-      workspaceBusy={workspaceBusy}
-      onOpenWorktree={(path) => path === workspaceCwd
-        ? Promise.resolve(true)
-        : runWorkspaceAction(() => window.tau!.openProject(path))}
-      onCreateWorktree={(branch, baseRef) => runWorkspaceAction(() => workspaceKit.createWorktree(branch, baseRef))}
-      onSwitchRef={(ref) => runWorkspaceAction(() => workspaceKit.switchRef(ref))}
+      held={composerHolds > 0}
     />
   );
 
@@ -2902,8 +2678,6 @@ export default function App() {
       <ThreadStoreContext.Provider value={threadStore}>
         <WorkbenchShellContext.Provider value={shellContextValue}>
           <WorkbenchContext.Provider value={contextValue}>
-            <FilesContext.Provider value={filesContextValue}>
-              <ChangesContext.Provider value={changesContextValue}>
                 <ObservatoryContext.Provider value={observatoryContextValue}>
                   <LazyFeatureBoundary label={activeOverlay.id}>
                     <Suspense fallback={<LazyFeatureFallback label={activeOverlay.id} />}>
@@ -2912,47 +2686,6 @@ export default function App() {
                   </LazyFeatureBoundary>
                   {overlays}
                 </ObservatoryContext.Provider>
-              </ChangesContext.Provider>
-            </FilesContext.Provider>
-          </WorkbenchContext.Provider>
-        </WorkbenchShellContext.Provider>
-      </ThreadStoreContext.Provider>
-    );
-  }
-
-  if (review) {
-    return (
-      <ThreadStoreContext.Provider value={threadStore}>
-        <WorkbenchShellContext.Provider value={shellContextValue}>
-          <WorkbenchContext.Provider value={contextValue}>
-            <FilesContext.Provider value={filesContextValue}>
-              <ChangesContext.Provider value={changesContextValue}>
-                <ObservatoryContext.Provider value={observatoryContextValue}>
-                  {ReviewComponent ? <LazyFeatureBoundary label="review">
-                    <Suspense fallback={<LazyFeatureFallback label="review" />}>
-                      <ReviewComponent
-                        changes={reviewChanges}
-                        selectedPath={review.path ?? reviewChanges.files[0]?.path}
-                        editor={activeEditor}
-                        busy={committing}
-                        primaryPush={review.primaryPush}
-                        onSelect={(path) => setReview((current) => current ? { ...current, path } : current)}
-                        onBack={() => setReview(undefined)}
-                        onCommit={(message, push) => void commit(message, push)}
-                        onOpenInEditor={(path) => void openInEditor(path)}
-                        workspaceKey={snapshot?.cwd}
-                        loadChanges={window.tau ? (query) => workspaceKit.getChanges(query) : undefined}
-                        loadDiff={async (path, options) => {
-                          if (!window.tau) return { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." };
-                          return workspaceKit.getFileDiff(path, options);
-                        }}
-                      />
-                    </Suspense>
-                  </LazyFeatureBoundary> : <div className="review-unavailable">The review extension is disabled.</div>}
-            {overlays}
-              </ObservatoryContext.Provider>
-              </ChangesContext.Provider>
-            </FilesContext.Provider>
           </WorkbenchContext.Provider>
         </WorkbenchShellContext.Provider>
       </ThreadStoreContext.Provider>
@@ -2963,24 +2696,14 @@ export default function App() {
     <ThreadStoreContext.Provider value={threadStore}>
       <WorkbenchShellContext.Provider value={shellContextValue}>
         <WorkbenchContext.Provider value={contextValue}>
-          <FilesContext.Provider value={filesContextValue}>
-            <ChangesContext.Provider value={changesContextValue}>
             <ObservatoryContext.Provider value={observatoryContextValue}>
           <div className={shellClassName}>
             <TitleBar
               cwd={workspaceCwd}
-              editors={editors}
-              activeEditor={activeEditor}
-              changes={changes}
-              workspace={workspace}
-              gitBusy={committing}
               dockOpen={dockOpen}
-              editorDisabled={newThreadDeliveryPending}
-              onOpenInEditor={(editorId) => void openInEditor(undefined, editorId)}
-              onChooseEditor={(id) => preferences.setEditor(id)}
-              onOpenReview={(push) => openReview(undefined, push)}
-              onPush={() => void pushWorkspace()}
-              onRunAction={(command, includeInContext, name) => void runShellAction(command, includeInContext, name)}
+              registry={registry}
+              snapshot={snapshot}
+              actions={actions}
               onToggleDock={() => setDockOpen((value) => !value)}
             />
 
@@ -3088,16 +2811,6 @@ export default function App() {
               />}
               </TranscriptHistoryBoundary>
 
-              {!pendingNewThread
-                && turnChanges.files.length > 0
-                && turnCheckpoints.length === 0
-                && !turnSettledWithoutCheckpoint
-                && ChangesComponent
-                ? (
-                <div className="conversation-files-dock">
-                  <ChangesComponent changes={turnChanges} onOpenDiff={openReview} />
-                </div>
-              ) : null}
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
                 </>
                 ) : null}
@@ -3111,16 +2824,16 @@ export default function App() {
                   <LazyStage
                     stage={stage}
                     cwd={snapshot?.cwd}
-                    changes={changes}
-                    editor={activeEditor}
+                    changes={documentState.changes}
+                    editor={documentState.editor}
                     chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: () => setChatFocused(true) } : undefined}
-                    loadFile={loadFile}
-                    loadDiff={loadDiff}
+                    loadFile={documentSource?.loadFile ?? loadFileUnavailable}
+                    loadDiff={documentSource?.loadDiff ?? loadDiffUnavailable}
                     onActivate={(id) => setStage((current) => activateStageTab(current, id))}
                     onClose={(id) => setStage((current) => closeStageTab(current, id))}
                     onPin={(id) => setStage((current) => pinStageTab(current, id))}
                     onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
-                    onOpenInEditor={(path) => void openInEditor(path)}
+                    onOpenInEditor={(path) => documentSource?.openInEditor(path)}
                   />
                 </Suspense>
               </LazyFeatureBoundary>
@@ -3168,8 +2881,6 @@ export default function App() {
           </div>
           {overlays}
             </ObservatoryContext.Provider>
-            </ChangesContext.Provider>
-          </FilesContext.Provider>
         </WorkbenchContext.Provider>
       </WorkbenchShellContext.Provider>
     </ThreadStoreContext.Provider>

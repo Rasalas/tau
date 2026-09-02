@@ -42,10 +42,6 @@ function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const 
     onSetModel={() => {}}
     onSetThinking={() => {}}
     onCompactContext={() => {}}
-    workspaceBusy={false}
-    onOpenWorktree={async () => true}
-    onCreateWorktree={async () => true}
-    onSwitchRef={async () => true}
   />);
   return onSubmit;
 }
@@ -126,10 +122,6 @@ describe("Composer command menu", () => {
       onSetThinking={() => {}}
       prompt={{ id: "question", sessionId: "session", kind: "input", title: "Choose the scope" }}
       onCompactContext={() => {}}
-      workspaceBusy={false}
-      onOpenWorktree={async () => true}
-      onCreateWorktree={async () => true}
-      onSwitchRef={async () => true}
     />);
 
     const stack = container.querySelector(".composer-surface");

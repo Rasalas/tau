@@ -5,7 +5,8 @@ import { VirtualList } from "../components/VirtualList";
 import { FileKindIcon } from "../components/FileKindIcon";
 import { ChangesTree } from "../components/ChangesTree";
 import type { PanelProps } from "../extension-system";
-import { useChanges, useFiles } from "../workbench-context";
+import { useWorkbench } from "../workbench-context";
+import { useWorkspaceKit, workspaceStore } from "./workspace-store";
 
 interface FlatNode { node: FileNode; depth: number; }
 
@@ -81,9 +82,12 @@ function FileTree({ nodes, changedPaths, cwd, activePath, loadFiles, openFile }:
 }
 
 export function FilesPanel({ active, extensionName }: PanelProps) {
-  const { fileTree, refreshFiles, loadFiles, openFile, activePath, snapshot } = useFiles();
-  const { changes } = useChanges();
-  useEffect(() => { if (active) void refreshFiles(); }, [active, refreshFiles, snapshot?.cwd]);
+  const { fileTree, changes, cwd } = useWorkspaceKit();
+  const { openFile, activeDocumentPath: activePath } = useWorkbench();
+  const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
+  const refreshFiles = () => workspaceStore.refreshFiles();
+  const loadFiles = (path: string) => workspaceStore.loadFiles(path);
+  useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd]);
   const changedPaths = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
 
   return <section className="panel-body">
@@ -98,8 +102,19 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
 }
 
 export function ChangesPanel({ active, extensionName }: PanelProps) {
-  const { changes, refreshChanges, openReview, openDiff, stageFile, unstageFile, stageAll, revertFile, commit, committing, pushPrimary, canPush, activePath, commitFocusToken, snapshot } = useChanges();
-  useEffect(() => { if (active) void refreshChanges(); }, [active, refreshChanges, snapshot?.cwd]);
+  const { changes, committing, pushPrimary, commitFocusToken, cwd, workspace } = useWorkspaceKit();
+  const { activeDocumentPath: activePath } = useWorkbench();
+  const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
+  const canPush = Boolean(workspace?.upstream);
+  const refreshChanges = () => workspaceStore.refreshChanges();
+  const openReview = (path?: string) => workspaceStore.openReview(path);
+  const openDiff = (path: string) => workspaceStore.openDiff(path);
+  const stageFile = (path: string) => workspaceStore.stageFile(path);
+  const unstageFile = (path: string) => workspaceStore.unstageFile(path);
+  const stageAll = () => workspaceStore.stageAll();
+  const revertFile = (path: string) => workspaceStore.revertFile(path);
+  const commit = (message: string, push: boolean) => workspaceStore.commit(message, push);
+  useEffect(() => { if (active) void workspaceStore.refreshChanges(); }, [active, cwd]);
   const [message, setMessage] = useState(changes.proposedMessage ?? "");
   const [dirty, setDirty] = useState(false);
   // Follow the host's proposal until the user types; a commit resets to following.

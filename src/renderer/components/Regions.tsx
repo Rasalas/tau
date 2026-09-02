@@ -16,7 +16,7 @@ export function Region({ registry, placement, snapshot, actions }: RegionHostPro
   const regions = registry.getRegions(placement);
   if (regions.length === 0) return null;
   return (
-    <div className={`workbench-region region-${placement}`} data-placement={placement}>
+    <div className={`workbench-region region-${placement}`} data-placement={placement} role="group">
       {regions.map((region) => (
         <LazyFeatureBoundary key={region.id} label={region.id}>
           <Suspense fallback={<LazyFeatureFallback label={region.id} />}>

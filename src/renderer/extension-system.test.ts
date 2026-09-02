@@ -47,19 +47,20 @@ describe("ExtensionRegistry contribution selectors", () => {
     expect(registry.isActive("broken")).toBe(false);
   });
 
-  it("owns changes and historical review slots by extension lifecycle", () => {
+  it("hands the stage one document source and drops it with its extension", () => {
     const registry = new ExtensionRegistry();
-    const component = () => null;
-    registry.activate({ id: "workspace", name: "Workspace Kit", activate(context) {
-      context.registerChanges({ id: "workspace.changes", Component: component });
-      context.registerReview({ id: "workspace.history", kind: "historical", Component: component });
-    } });
-    expect(registry.getChangesContributions().map((entry) => entry.id)).toEqual(["workspace.changes"]);
-    expect(registry.getReviewContributions("historical").map((entry) => entry.id)).toEqual(["workspace.history"]);
-
+    const source = {
+      id: "workspace.documents",
+      loadFile: async (path: string) => ({ path, name: "a", size: 0, kind: "text" as const, text: "" }),
+      loadDiff: async (path: string) => ({ path, added: 0, removed: 0, hunks: [] }),
+      openInEditor: () => undefined,
+      getState: () => ({ changes: { files: [], added: 0, removed: 0 } }),
+      subscribe: () => () => undefined,
+    };
+    registry.activate({ id: "workspace", name: "Workspace Kit", activate(context) { context.registerDocumentSource(source); } });
+    expect(registry.getDocumentSource()?.id).toBe("workspace.documents");
     registry.deactivate("workspace");
-    expect(registry.getChangesContributions()).toEqual([]);
-    expect(registry.getReviewContributions("historical")).toEqual([]);
+    expect(registry.getDocumentSource()).toBeUndefined();
   });
 });
 

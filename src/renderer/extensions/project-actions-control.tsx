@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Play, Plus, TerminalSquare, Trash2 } from "lucide-react";
-import { parseShellActionDraft } from "../title-bar-actions";
-import { Menu } from "./Menu";
+import { parseShellActionDraft } from "./workspace-actions";
+import { Menu } from "../components/Menu";
 
 interface ProjectAction {
   id: string;

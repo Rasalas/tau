@@ -38,10 +38,10 @@ These exist today, some still inside core files. They are extension work, and Ph
 
 | Feature | Owner today | Belongs to |
 |---|---|---|
-| Git status, staging, commit, push, worktrees, file tree, file reading, editors | `src/main/extensions/workspace-host-extension.ts` on the host; orchestration still in `App.tsx` | Workspace Kit |
+| Git status, staging, commit, push, worktrees, file tree, file reading, editors | Workspace Kit on both sides: host commands and `src/renderer/extensions/workspace-store.ts`; core lends the title-bar region, the composer footer, the transcript footer and the document source seam for the stage | Workspace Kit |
 | Turn checkpoints and restore | wire and UI: Workspace Kit (`src/renderer/extensions/workspace-checkpoints.tsx`, host commands); lifecycle still in `PiHost` behind `services.checkpoints`, summaries still in `thread-detail` because transcript anchors depend on them | Workspace Kit |
-| Review mode, diff viewer, changed-files dock | `App.tsx` state, Review Kit views | Review Kit |
-| Stage tabs, file viewer | `App.tsx` | Workspace Kit |
+| Review mode, diff viewer, changed-files dock | Review Kit overlay over Workspace Kit state; dock is a Workspace Kit region | Review Kit |
+| Stage tabs, file viewer | tabs and placement stay core (the document area); loading, changed markers and editors come from the registered document source | core placement, Workspace Kit content |
 | Thread title generation | Thread Title Generator: `src/main/extensions/thread-titles-host-extension.ts` and `src/renderer/extensions/title-generator.tsx` | Thread Title Generator |
 | Access gate (read-only, ask, full) | Access Kit: `src/main/extensions/access-host-extension.ts` and `src/renderer/extensions/access-kit.tsx` | Access Kit, on by default; approvals are Pi `ctx.ui.confirm` questions |
 | Service tier, questionnaire, computer use | host extensions under `src/main/extensions/`; questionnaire paging in the prompt renderer is still core | separate packages |

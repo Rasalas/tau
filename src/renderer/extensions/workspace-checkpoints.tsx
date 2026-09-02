@@ -7,6 +7,7 @@ import { RestoreCheckpointDialog } from "../components/RestoreCheckpointDialog";
 import { errorMessage } from "../error-message";
 import { workspaceKit } from "./workspace-kit-client";
 import { WorkspaceCheckpointCard } from "./workspace-checkpoint-card";
+import { workspaceStore } from "./workspace-store";
 
 const LazyReview = lazy(() => import("../components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 
@@ -198,7 +199,7 @@ export function registerCheckpoints(plugin: DesktopExtensionContext): void {
   plugin.events.on("active-thread-changed", () => store.resetThread());
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
-    if (event?.type === "turn-checkpoint") store.announce(event.checkpoint);
+    if (event?.type === "turn-checkpoint") { store.announce(event.checkpoint); workspaceStore.checkpointRecorded(event.sessionId); }
   });
   plugin.registerRegion({ id: "workspace.checkpoints", placement: "transcript-header", order: 100, Component: createController(store, rows) });
   plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, Component: createReviewOverlay(store) });

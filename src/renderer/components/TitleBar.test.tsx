@@ -1,116 +1,21 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UiWorkspaceChanges, WorkspaceInfo } from "../../shared/contracts";
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
 import { TitleBar } from "./TitleBar";
 
-const dirty: UiWorkspaceChanges = {
-  files: [{ path: "src/a.ts", name: "a.ts", directory: "src", status: "modified", added: 1, removed: 0 }],
-  added: 1,
-  removed: 0,
-};
+beforeEach(() => { window.tau = { platform: "darwin" } as typeof window.tau; });
+afterEach(() => { cleanup(); delete window.tau; });
 
-function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
-  return {
-    root: "/project",
-    isRepo: true,
-    isDirty: true,
-    branch: "main",
-    worktrees: [],
-    refs: [],
-    worktreeParent: "/worktrees",
-    ...patch,
-  };
-}
-
-function setup(workspaceInfo = workspace()) {
-  const handlers = {
-    onOpenInEditor: vi.fn(),
-    onChooseEditor: vi.fn(),
-    onOpenReview: vi.fn(),
-    onPush: vi.fn(),
-    onRunAction: vi.fn(),
-    onToggleDock: vi.fn(),
-  };
-  render(<TitleBar
-    cwd="/project"
-    editors={[{ id: "code", name: "VS Code" }, { id: "zed", name: "Zed" }]}
-    activeEditor={{ id: "code", name: "VS Code" }}
-    changes={dirty}
-    workspace={workspaceInfo}
-    gitBusy={false}
-    dockOpen
-    {...handlers}
-  />);
-  return handlers;
-}
-
-beforeEach(() => {
-  localStorage.clear();
-  window.tau = { platform: "darwin" } as typeof window.tau;
-});
-afterEach(() => {
-  cleanup();
-  delete window.tau;
-});
-
-describe("TitleBar actions", () => {
-  it("reserves the macOS traffic-light inset before the workspace title", () => {
-    setup();
+describe("TitleBar", () => {
+  it("reserves the macOS traffic-light inset before the workspace title and lends a region to extensions", () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerRegion({ id: "kit.actions", placement: "title-bar", Component: () => <button>Kit action</button> });
+    } });
+    const view = render(<TitleBar cwd="/project" dockOpen registry={registry} actions={{} as WorkbenchActions} onToggleDock={() => undefined} />);
     expect(document.querySelector(".title-bar > .window-controls-inset")).not.toBeNull();
-  });
-
-  it("opens the preferred editor and opens a selected editor from the split menu", () => {
-    const handlers = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    expect(handlers.onOpenInEditor).toHaveBeenCalledWith("code");
-
-    fireEvent.click(screen.getByRole("button", { name: "Choose editor" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Zed" }));
-    expect(handlers.onChooseEditor).toHaveBeenCalledWith("zed");
-    expect(handlers.onOpenInEditor).toHaveBeenCalledWith("zed");
-  });
-
-  it("disables editor actions while detached delivery is pending", () => {
-    render(<TitleBar
-      cwd="/project"
-      editors={[{ id: "code", name: "VS Code" }]}
-      activeEditor={{ id: "code", name: "VS Code" }}
-      changes={dirty}
-      workspace={workspace()}
-      gitBusy={false}
-      dockOpen
-      editorDisabled
-      onOpenInEditor={vi.fn()}
-      onChooseEditor={vi.fn()}
-      onOpenReview={vi.fn()}
-      onPush={vi.fn()}
-      onRunAction={vi.fn()}
-      onToggleDock={vi.fn()}
-    />);
-
-    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "Choose editor" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("chooses commit versus commit and push from upstream state", () => {
-    const withoutUpstream = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Commit" }));
-    expect(withoutUpstream.onOpenReview).toHaveBeenCalledWith(false);
-    cleanup();
-
-    const withUpstream = setup(workspace({ upstream: "origin/main" }));
-    fireEvent.click(screen.getByRole("button", { name: "Commit & push" }));
-    expect(withUpstream.onOpenReview).toHaveBeenCalledWith(true);
-  });
-
-  it("adds and runs a hidden Pi shell action", () => {
-    const handlers = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Add action" }));
-    fireEvent.change(screen.getByPlaceholderText("Test"), { target: { value: "Tests" } });
-    fireEvent.change(screen.getByPlaceholderText("!! npm test"), { target: { value: "!! npm test" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tests" }));
-    expect(handlers.onRunAction).toHaveBeenCalledWith("npm test", false, "Tests");
+    expect(view.getByText("Kit action")).toBeTruthy();
+    expect(view.getByText("project")).toBeTruthy();
   });
 });

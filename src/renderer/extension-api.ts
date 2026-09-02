@@ -6,8 +6,6 @@
 export {
   useWorkbench,
   useWorkbenchShell,
-  useFiles,
-  useChanges,
   useObservatory,
   useThreadStore,
 } from "./workbench-context";
@@ -43,19 +41,13 @@ export type {
   CommandSurface,
   PromptHookContribution,
   PromptSubmittedEvent,
-  ChangesContribution,
-  ChangesContributionProps,
-  ReviewContribution,
-  ReviewContributionKind,
-  ReviewContributionProps,
+  DocumentSourceContribution,
   ToolPresentation,
   ExtensionOption,
 } from "./extension-system";
 export type {
   WorkbenchContextValue,
   WorkbenchShellContextValue,
-  FilesContextValue,
-  ChangesContextValue,
   ObservatoryContextValue,
   TimelineEvent,
 } from "./workbench-context";

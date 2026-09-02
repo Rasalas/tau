@@ -4,7 +4,8 @@ const TURN_ACTIVITY_CACHE_KEY = "tau.turn-activity.v1";
 
 export interface CachedTurnActivity {
   sessionId: string;
-  baseline: UiWorkspaceChanges;
+  /** Kept for older caches; Workspace Kit stores its own baseline now. */
+  baseline?: UiWorkspaceChanges;
   tools: UiToolRun[];
   anchorMessageId?: string;
 }
