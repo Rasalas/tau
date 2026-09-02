@@ -13,6 +13,8 @@ function services(): HostExtensionServices & { logs: string[] } {
     knownWorkspacePath: async (path) => path,
     projectName: async () => "project",
     rememberProjectName: () => undefined,
+    registerRuntimeExtension: () => () => undefined,
+    setPermissionPolicy: () => undefined,
     git: {} as never,
   };
 }

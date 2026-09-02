@@ -18,7 +18,6 @@ import type {
   ExtensionUiAnswer,
   ExtensionUiPrompt,
   ServiceTier,
-  ToolApprovalRequest,
   UiToolRun,
   UiTurnCheckpoint,
   UiWorkspaceChanges,
@@ -69,7 +68,6 @@ export const MountedPanel = memo(function MountedPanel({
 });
 
 import { TitleBar } from "./components/TitleBar";
-import { ToolApproval } from "./components/ToolApproval";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
 import { TranscriptViewport } from "./components/TranscriptViewport";
@@ -81,7 +79,7 @@ import { RestoreCheckpointDialog } from "./components/RestoreCheckpointDialog";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
-import { preferences, type AccessLevel } from "./preferences";
+import { preferences } from "./preferences";
 import { createNewThreadDraft, draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
@@ -704,7 +702,6 @@ export default function App() {
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
   const [checkpointStatus, setCheckpointStatus] = useState<CheckpointStatus>();
-  const [approvals, setApprovals] = useState<ToolApprovalRequest[]>([]);
   const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
   const uiPromptsRef = useRef(uiPrompts);
   uiPromptsRef.current = uiPrompts;
@@ -1613,9 +1610,6 @@ export default function App() {
       case "error":
         if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
         break;
-      case "tool-approval":
-        setApprovals((current) => [...current, event.request]);
-        break;
       case "extension-ui-prompt": {
         const questionnaire = event.prompt.questionnaire;
         if (questionnaire) {
@@ -1706,20 +1700,6 @@ export default function App() {
     }
     return unsubscribe;
   }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, refreshChanges, refreshWorkspace, transcriptHistory]);
-
-  // Best-effort sync: while Pi owns the runtime the access gate lives there, so a
-  // refusal is expected on attach and must not surface as an error on every launch.
-  const accessSyncedRef = useRef<AccessLevel | undefined>(undefined);
-  useEffect(() => {
-    const previous = accessSyncedRef.current;
-    accessSyncedRef.current = settings.accessLevel;
-    void window.tau?.setAccessLevel(settings.accessLevel).then((result) => {
-      // Only speak up when the user actually changed it, not on the initial push.
-      if (result?.applied !== false) return;
-      if (previous === undefined || previous === settings.accessLevel) return;
-      setNotice(result.reason ?? "Access level could not be applied.");
-    }).catch(() => undefined);
-  }, [settings.accessLevel]);
 
   // Opening or switching a thread should leave you ready to type — but never
   // steal the caret out of the thread search or a dialog the user is using.
@@ -2282,11 +2262,6 @@ export default function App() {
     });
     return choices;
   }, [questionnaireChoices, threadPrompts]);
-
-  const resolveApproval = useCallback((id: string, allowed: boolean) => {
-    setApprovals((current) => current.filter((request) => request.id !== id));
-    void window.tau?.resolveToolApproval(id, allowed);
-  }, []);
 
   const settleActiveThread = useCallback(() => {
     const activeId = threadStore.getSnapshot().activeThreadId;
@@ -3036,7 +3011,6 @@ export default function App() {
       seed={composerSeed}
       draftStorageKey={activeDraftKey}
       queue={queue}
-      accessLevel={settings.accessLevel}
       contextUsage={snapshot?.contextUsage}
       contextBreakdown={contextBreakdown}
       textareaRef={composerRef}
@@ -3060,7 +3034,6 @@ export default function App() {
       }}
       promptChoices={promptChoices}
       onPreselectQuestion={preselectQuestion}
-      onSetAccess={(level: AccessLevel) => preferences.setAccessLevel(level)}
       onCompactContext={() => void compactContext()}
       workspace={workspace}
       workspaceBusy={workspaceBusy}
@@ -3082,13 +3055,6 @@ export default function App() {
           busy={restoreBusy}
           onCancel={() => { if (!restoreBusy) setRestoreRequest(undefined); }}
           onConfirm={() => void confirmRestoreCheckpoint()}
-        />
-      ) : null}
-      {approvals[0] ? (
-        <ToolApproval
-          request={approvals[0]}
-          pending={approvals.length - 1}
-          onResolve={resolveApproval}
         />
       ) : null}
       <LazyFeatureBoundary label="command palette">

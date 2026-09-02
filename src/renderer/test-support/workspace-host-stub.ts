@@ -38,6 +38,8 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}) {
     input && typeof input === "object" ? (input as Record<string, T>)[key] : undefined;
   const optional = <T,>(value: T | undefined): [] | [T] => value === undefined ? [] : [value];
   return async (extensionId: string, command: string, input?: unknown): Promise<unknown> => {
+    // Access Kit pushes its level on activation; tests that render App do not care.
+    if (extensionId === "tau.access") return command === "set-level" ? (input as { level?: unknown })?.level : "full";
     if (extensionId !== WORKSPACE_HOST_EXTENSION_ID) throw new Error(`Host extension ${extensionId} is not installed.`);
     switch (command) {
       case "file-tree": return client.getFileTree(...optional(field<string>(input, "path")));

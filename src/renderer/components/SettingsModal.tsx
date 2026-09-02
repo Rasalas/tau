@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Plus, Sliders, Sparkles, X } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
-import { ACCESS_LEVELS, preferences, type AccessLevel } from "../preferences";
+import { preferences } from "../preferences";
 import { ModelPicker, modelKey } from "./ModelPicker";
 
 const KEYBINDINGS: ReadonlyArray<{ label: string; keys: string; source: string }> = [
@@ -17,16 +17,12 @@ const KEYBINDINGS: ReadonlyArray<{ label: string; keys: string; source: string }
 
 function DefaultsPage({
   snapshot,
-  accessLevel,
   onSetModel,
   onSetThinking,
-  onSetAccess,
 }: {
   snapshot?: HostSnapshot;
-  accessLevel: AccessLevel;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
-  onSetAccess(level: AccessLevel): void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -66,25 +62,6 @@ function DefaultsPage({
         ))}
       </div>
 
-      <div className="settings-label">ACCESS</div>
-      <div className="segmented">
-        {ACCESS_LEVELS.map((level) => (
-          <button
-            key={level.id}
-            className={level.id === accessLevel ? "active" : ""}
-            onClick={() => onSetAccess(level.id)}
-          >
-            {level.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="settings-note">
-        Models, credentials, skills and Pi extensions come from <code>~/.pi/agent</code> — Tau reflects them,
-        Pi owns them. Pi has no permission model of its own, so <strong>full access</strong> is simply what it
-        does by default. The other two levels are enforced by an inline Pi extension Tau installs, which blocks
-        <code>edit</code>, <code>write</code>, <code>bash</code> and <code>powershell</code> before they run.
-      </div>
     </div>
   );
 }
@@ -245,10 +222,8 @@ export function SettingsModal({
           {page === "defaults" ? (
             <DefaultsPage
               snapshot={snapshot}
-              accessLevel={state.accessLevel}
               onSetModel={onSetModel}
               onSetThinking={onSetThinking}
-              onSetAccess={(level) => preferences.setAccessLevel(level)}
             />
           ) : page === "keybindings" ? (
             <div className="settings-page">

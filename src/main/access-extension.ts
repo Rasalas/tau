@@ -40,29 +40,32 @@ export function isMutatingToolCall(
   return true;
 }
 
-export interface AccessDecision {
-  allowed: boolean;
-  reason?: string;
+/** Short human-readable description of what a tool is about to do. */
+export function approvalSummary(toolName: string, input: Record<string, unknown>): string {
+  if (toolName === "bash" || toolName === "powershell") return String(input.command ?? "shell command");
+  const path = input.path;
+  if (typeof path === "string") return path;
+  return Object.keys(input).join(" · ") || toolName;
 }
 
 export interface AccessControl {
   level(): AccessLevel;
-  /** Asks the workbench; resolves false if nobody answers. */
-  requestApproval(toolCallId: string, toolName: string, input: Record<string, unknown>, sessionId: string): Promise<AccessDecision>;
   onBlocked(toolName: string, reason: string): void;
 }
 
 /**
- * Pi has no permission model of its own — every tool it is asked to run, runs.
- * This inline extension is what turns Tau's access setting into an actual gate,
- * using the `tool_call` hook, which is allowed to block.
+ * Pi has no permission model of its own; every tool it is asked to run, runs.
+ * This extension turns the access level into a gate on the `tool_call` hook, the
+ * one hook allowed to block. Approvals are ordinary `ctx.ui.confirm` questions,
+ * so whatever renders Pi's dialogs renders them; stopping the run cancels them.
  */
 export function createAccessExtension(control: AccessControl): ExtensionFactory {
   return (pi) => {
     pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | undefined> => {
       const level = control.level();
       if (level === "full") return undefined;
-      if (!isMutatingToolCall(event.toolName, event.input as Record<string, unknown>)) return undefined;
+      const input = event.input as Record<string, unknown>;
+      if (!isMutatingToolCall(event.toolName, input)) return undefined;
 
       if (level === "read-only") {
         const reason = `Blocked by Tau: this thread is read-only, so ${event.toolName} cannot run.`;
@@ -70,15 +73,14 @@ export function createAccessExtension(control: AccessControl): ExtensionFactory 
         return { block: true, reason };
       }
 
-      const decision = await control.requestApproval(
-        event.toolCallId,
-        event.toolName,
-        event.input as Record<string, unknown>,
-        ctx.sessionManager.getSessionId(),
+      const allowed = await ctx.ui.confirm(
+        `Approve ${event.toolName}?`,
+        approvalSummary(event.toolName, input),
+        { signal: ctx.signal },
       );
-      if (decision.allowed) return undefined;
+      if (allowed) return undefined;
 
-      const reason = decision.reason ?? `Blocked by Tau: ${event.toolName} was not approved.`;
+      const reason = `Blocked by Tau: ${event.toolName} was not approved.`;
       control.onBlocked(event.toolName, reason);
       return { block: true, reason };
     });

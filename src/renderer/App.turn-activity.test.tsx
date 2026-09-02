@@ -37,7 +37,6 @@ describe("last-turn activity", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
     } as unknown as TauDesktopApi;
   });
 

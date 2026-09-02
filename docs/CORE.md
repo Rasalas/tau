@@ -43,13 +43,13 @@ These exist today, some still inside core files. They are extension work, and Ph
 | Review mode, diff viewer, changed-files dock | `App.tsx` state, Review Kit views | Review Kit |
 | Stage tabs, file viewer | `App.tsx` | Workspace Kit |
 | Thread title generation | `PiHost` | Thread Title Generator |
-| Access gate (read-only, ask, full) | `PiHost`, injected Pi extension | open decision, see PLAN.md |
+| Access gate (read-only, ask, full) | Access Kit: `src/main/extensions/access-host-extension.ts` and `src/renderer/extensions/access-kit.tsx` | Access Kit, on by default; approvals are Pi `ctx.ui.confirm` questions |
 | Service tier, questionnaire, computer use | injected Pi extensions in `PiHost` | separate packages |
 | Claude Code backend | `PiHost`, runtime adapters | stays supported; its implementation becomes its own package behind the ADR 0005 seam |
 | Clone, project picker, markdown export, clipboard | `src/main/index.ts` | Workspace Kit or small packages |
 
 ## How to check
 
-- `start:safe` shows the core list and nothing more.
+- `start:safe` shows the core list and nothing more. That includes no access gate: safe mode runs tools the way Pi does.
 - Removing a bundled kit removes its behavior on both sides without editing core.
 - `src/shared/contracts.ts` and `src/main/index.ts` name no feature. Feature commands travel through `invokeHostExtension`.

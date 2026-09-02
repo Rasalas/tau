@@ -12,12 +12,15 @@ export {
   useThreadStore,
 } from "./workbench-context";
 export { preferences } from "./preferences";
+export { HostUnavailableError } from "./extension-system";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
   HostExtensionClient,
   HostExtensionBridge,
   ExtensionEvent,
+  ComposerControlContribution,
+  ComposerControlProps,
   WorkbenchActions,
   PanelContribution,
   PanelProps,

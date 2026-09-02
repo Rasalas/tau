@@ -249,15 +249,6 @@ export type ExtensionUiAnswer =
   | { value: string; typed?: boolean }
   | { confirmed: boolean };
 
-export interface ToolApprovalRequest {
-  id: string;
-  /** The thread whose run is blocked on this decision. */
-  sessionId: string;
-  toolName: string;
-  /** Short human-readable description of what the tool is about to do. */
-  summary: string;
-}
-
 export type ChangeStatus = "modified" | "added" | "deleted" | "renamed" | "untracked";
 
 export interface UiChangedFile {
@@ -618,7 +609,6 @@ export type ThreadHostEvent =
   | { type: "tool-update"; sessionId: string; id: string; output: string }
   | { type: "tool-end"; sessionId: string; tool: UiToolRun }
   | { type: "queue"; sessionId: string; steering: string[]; followUp: string[] }
-  | { type: "tool-approval"; sessionId: string; request: ToolApprovalRequest }
   | { type: "extension-ui-prompt"; sessionId: string; prompt: ExtensionUiPrompt }
   | { type: "extension-ui-resolved"; id: string; sessionId: string }
   | { type: "notice"; message: string; level: "info" | "warning" | "error"; sessionId: string }
@@ -701,8 +691,6 @@ export interface TauDesktopApi {
   /** Reload Pi resources first; the renderer then reloads its desktop extensions. */
   reloadRuntime(): Promise<void>;
   setServiceTier(tier: ServiceTier): Promise<import("./host-protocol.js").HostActionResult>;
-  setAccessLevel(level: AccessLevel): Promise<{ applied: boolean; reason?: string }>;
-  resolveToolApproval(id: string, allowed: boolean): Promise<void>;
   answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
   /** Re-announces questions raised before this renderer was listening. */
   syncExtensionUi(): Promise<void>;

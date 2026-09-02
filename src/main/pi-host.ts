@@ -18,7 +18,6 @@ import {
   type SessionInfo,
 } from "@earendil-works/pi-coding-agent";
 import type {
-  AccessLevel,
   ClientTurnIdentity,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -76,7 +75,6 @@ import { OLDER_TRANSCRIPT_TURN_LIMIT, TranscriptPager, type TranscriptCursorPoli
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
-import { createAccessExtension, type AccessDecision } from "./access-extension.js";
 import { computerUseExtensionFactories } from "./computer-use-extension.js";
 import { createServiceTierExtension, SERVICE_TIER_APIS } from "./service-tier-extension.js";
 import { createExtensionUiContext } from "./extension-ui.js";
@@ -85,7 +83,7 @@ import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
 import { createQuestionnaireExtension } from "./questionnaire-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type RuntimeExtensionContribution } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
@@ -140,7 +138,7 @@ import {
 } from "./skill-invocation.js";
 import { knownSkillNames, parseSkillEnvelope } from "../shared/skill-envelope.js";
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
-import { assertClaudePermissionPolicySupported, assertRuntimeAdapter, createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { assertClaudePermissionPolicySupported, assertRuntimeAdapter, createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter, type RuntimePermissionPolicy } from "./runtime-adapters.js";
 import { ClaudeRuntimeSessionStore, type ClaudeTitleSource } from "./claude-runtime-store.js";
 import { ClaudeThreadRuntimeBackend, PiThreadRuntimeBackend, type ThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
@@ -823,13 +821,6 @@ export async function assertWorkspacePath(cwd: string, path: string): Promise<vo
   return workspaceGit.assertWorkspacePath(cwd, path);
 }
 
-function approvalSummary(toolName: string, input: Record<string, unknown>): string {
-  if (toolName === "bash" || toolName === "powershell") return String(input.command ?? "shell command");
-  const path = input.path;
-  if (typeof path === "string") return path;
-  return Object.keys(input).join(" · ") || toolName;
-}
-
 function resultText(result: unknown): string {
   if (!result || typeof result !== "object") return "";
   const content = (result as { content?: unknown }).content;
@@ -1041,6 +1032,9 @@ export class PiHost {
   private readonly gitCoordinator = new GitCoordinator({ onSubprocess: () => this.lifecycleMetrics.countSubprocess() });
   private readonly hostExtensions: HostExtensionRegistry;
   private readonly pendingHostExtensions: readonly HostExtension[];
+  /** Pi extensions host extensions contribute; loaded into every runtime created afterwards. */
+  private readonly runtimeExtensionContributions: RuntimeExtensionContribution[] = [];
+  private permissionPolicyProvider: (() => RuntimePermissionPolicy) | undefined;
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
   private readonly threads = new ThreadRuntimeRegistry<ThreadRuntime>({
@@ -1086,9 +1080,7 @@ export class PiHost {
   private readonly knownWorktreeProjects = new Map<string, boolean>();
   private readonly worktreeClassifications = new Map<string, Promise<void>>();
   private readonly pendingShellUpdates = new Map<string, UiSession>();
-  private accessLevel: AccessLevel = "full";
   private serviceTier: ServiceTier = "standard";
-  private pendingApprovals = new Map<string, { sessionId: string; settle: (decision: AccessDecision) => void }>();
   private pendingUiPrompts = new Map<string, { sessionId: string; settle: (answer: ExtensionUiAnswer) => void }>();
   /** Prompts still awaiting an answer, kept so a late subscriber still sees them. */
   private openUiPrompts = new Map<string, ExtensionUiPrompt>();
@@ -1096,7 +1088,6 @@ export class PiHost {
   private typedAnswers = new Map<string, { text: string; expiresAt: number }>();
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
-  private approvalCounter = 0;
   private readonly toolOutputBatcher: ToolOutputBatcher;
   /** Filesystem leases coordinate every runtime that shares a checkout. */
   private readonly checkpointLeaseManager = new WorkspaceCheckpointLeaseManager();
@@ -1140,9 +1131,10 @@ export class PiHost {
       resourceLoaderOptions: {
         ...(cachedResources ? cachedResourceOptions(cachedResources) : {}),
         noExtensions: this.safeMode,
-        // Inline factories load even in safe mode, so the access gate is never bypassed.
+        // Inline factories load even in safe mode; host extensions add theirs
+        // through the services facade and are absent in safe mode.
         extensionFactories: [
-          { name: "tau-access", factory: this.accessExtension },
+          ...this.runtimeExtensionContributions,
           { name: "tau-service-tier", factory: this.serviceTierExtension },
           { name: "tau-questionnaire", factory: this.questionnaireExtension },
           ...(this.safeMode ? [] : [{
@@ -1175,12 +1167,6 @@ export class PiHost {
       diagnostics: services.diagnostics,
     };
   };
-
-  private readonly accessExtension = createAccessExtension({
-    level: () => this.accessLevel,
-    onBlocked: (toolName, reason) => this.log("access.blocked", `${toolName}: ${reason}`),
-    requestApproval: (toolCallId, toolName, input, sessionId) => this.requestApproval(toolCallId, toolName, input, sessionId),
-  });
 
   /** Questionnaires announced per thread, and how many of their questions were asked so far. */
   private readonly questionnaires = new Map<string, { questions: UiQuestionnaireQuestion[]; asked: number }>();
@@ -1255,7 +1241,21 @@ export class PiHost {
       projectName: (cwd) => this.loadProjectName(cwd),
       rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
       git: this.gitCoordinator,
+      registerRuntimeExtension: (name, factory) => {
+        const contribution = { name, factory };
+        this.runtimeExtensionContributions.push(contribution);
+        return () => {
+          const index = this.runtimeExtensionContributions.indexOf(contribution);
+          if (index >= 0) this.runtimeExtensionContributions.splice(index, 1);
+        };
+      },
+      setPermissionPolicy: (provider) => { this.permissionPolicyProvider = provider; },
     };
+  }
+
+  /** External runtimes launch with this; without an access extension everything is allowed. */
+  private permissionPolicy(): RuntimePermissionPolicy {
+    return this.permissionPolicyProvider?.() ?? runtimePermissionPolicy("full");
   }
 
   private async activateHostExtensions(): Promise<void> {
@@ -2695,7 +2695,7 @@ export class PiHost {
     threadId: string | undefined,
     backendKind: ThreadBackendKind,
   ): PreparedPrompt {
-    if (adapter.id === "claude-code") assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.accessLevel));
+    if (adapter.id === "claude-code") assertClaudePermissionPolicySupported(this.permissionPolicy());
     const effectiveCommands = commands;
     const prepared = prepareSkillPrompt(text, adapter, effectiveCommands, skill);
     const skillNames = [...knownSkillNames(effectiveCommands)];
@@ -3131,7 +3131,6 @@ export class PiHost {
    * question would otherwise hold that wait open indefinitely.
    */
   private async abortThread(thread: ThreadRuntime): Promise<void> {
-    this.settleApprovalsFor(thread.threadId, { allowed: false, reason: "Blocked by Tau: the run was stopped." });
     this.cancelUiPromptsFor(thread.threadId);
     if (!isPiBackend(thread)) {
       thread.adapterAbortGeneration ??= 0;
@@ -3251,36 +3250,6 @@ export class PiHost {
     };
     this.emitUpdate(update);
     return this.actionResult([update]);
-  }
-
-  setAccessLevel(level: AccessLevel): { applied: boolean; reason?: string } {
-    if (this.bridge) {
-      return { applied: false, reason: "Access controls stay with Pi while it owns this runtime." };
-    }
-    if (level === "ask" && this.active?.backend.kind === "claude-code") {
-      return {
-        applied: false,
-        reason: "Claude Code manual approvals are unsupported in non-interactive --print mode; choose read-only or full access before launching Claude.",
-      };
-    }
-    if (level === this.accessLevel) return { applied: true };
-    this.accessLevel = level;
-    this.log("access.level", level);
-    // Anything already waiting was queued under the previous rules; let it through
-    // only if the new level does not require asking.
-    if (level === "full") this.settleAllApprovals({ allowed: true });
-    if (level === "read-only") {
-      this.settleAllApprovals({ allowed: false, reason: "Blocked by Tau: switched to read-only." });
-    }
-    return { applied: true };
-  }
-
-  resolveToolApproval(id: string, allowed: boolean): void {
-    this.pendingApprovals.get(id)?.settle({
-      allowed,
-      reason: allowed ? undefined : "Blocked by Tau: you declined this tool call.",
-    });
-    this.pendingApprovals.delete(id);
   }
 
   async setServiceTier(tier: ServiceTier): Promise<HostActionResult> {
@@ -3480,7 +3449,7 @@ export class PiHost {
       commands: this.claudeComposerCommands(cwd),
       projectName: this.projectNameFor(cwd),
       branch: this.knownBranches.get(cwd),
-      permissionPolicy: () => runtimePermissionPolicy(this.accessLevel),
+      permissionPolicy: () => this.permissionPolicy(),
       onMessage: (message) => {
         const thread = this.threads.get(threadId)?.runtime;
         if (thread) {
@@ -3888,7 +3857,6 @@ export class PiHost {
 
   private async disposeThread(thread: ThreadRuntime): Promise<void> {
     this.clientTurns.settle(thread.threadId);
-    this.settleApprovalsFor(thread.threadId, { allowed: false, reason: "Blocked by Tau: the thread was closed." });
     this.cancelUiPromptsFor(thread.threadId);
     thread.adapterAbortGeneration ??= 0;
     thread.adapterAbortGeneration += 1;
@@ -4695,9 +4663,9 @@ export class PiHost {
     return runtimeResourceFingerprint({
       cwd,
       settings: settingsManager
-        ? { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings(), safeMode: this.safeMode, accessLevel: this.accessLevel }
-        : { safeMode: this.safeMode, accessLevel: this.accessLevel },
-      extensions: { enabled: !this.safeMode, accessGate: true },
+        ? { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings(), safeMode: this.safeMode }
+        : { safeMode: this.safeMode },
+      extensions: { enabled: !this.safeMode, hostExtensions: this.runtimeExtensionContributions.map((entry) => entry.name) },
       providerState: { agentDir: this.agentDir },
     });
   }
@@ -5487,32 +5455,6 @@ export class PiHost {
     };
   }
 
-  private requestApproval(
-    toolCallId: string,
-    toolName: string,
-    input: Record<string, unknown>,
-    sessionId: string,
-  ): Promise<AccessDecision> {
-    const id = `${toolCallId}-${(this.approvalCounter += 1)}`;
-    return new Promise<AccessDecision>((resolve) => {
-      let settled = false;
-      const settle = (decision: AccessDecision) => {
-        if (settled) return;
-        settled = true;
-        this.pendingApprovals.delete(id);
-        resolve(decision);
-      };
-      // No deadline: an unanswered approval is a paused thread, not a refusal.
-      // Only that thread waits, and stopping the run settles it.
-      this.pendingApprovals.set(id, { sessionId, settle });
-      this.emitForThread(this.threadFor(sessionId), {
-        type: "tool-approval",
-        sessionId,
-        request: { id, sessionId, toolName, summary: approvalSummary(toolName, input) },
-      });
-    });
-  }
-
   private askExtensionUi(prompt: ExtensionUiPrompt, thread?: ThreadRuntime): Promise<ExtensionUiAnswer> {
     // The user already typed the answer for the select before this; the
     // extension is only asking for it now in its own words.
@@ -5600,17 +5542,6 @@ export class PiHost {
   private cancelUiPromptsFor(sessionId: string): void {
     const pending = [...this.pendingUiPrompts.values()].filter((entry) => entry.sessionId === sessionId);
     pending.forEach((entry) => entry.settle({ cancelled: true }));
-  }
-
-  private settleApprovalsFor(sessionId: string, decision: AccessDecision): void {
-    const pending = [...this.pendingApprovals.values()].filter((entry) => entry.sessionId === sessionId);
-    pending.forEach((entry) => entry.settle(decision));
-  }
-
-  private settleAllApprovals(decision: AccessDecision): void {
-    const pending = [...this.pendingApprovals.values()];
-    this.pendingApprovals.clear();
-    pending.forEach((entry) => entry.settle(decision));
   }
 
   private resolveBranch(cwd: string): Promise<string | undefined> {

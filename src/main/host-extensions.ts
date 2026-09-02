@@ -1,6 +1,13 @@
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { GlobalHostEvent, HostExtensionSummary } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { GitCoordinator } from "./git-coordinator.js";
+import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
+
+export interface RuntimeExtensionContribution {
+  name: string;
+  factory: ExtensionFactory;
+}
 
 /**
  * Host-side extension seam. Core owns the workspace, the thread lifecycle and
@@ -20,6 +27,10 @@ export interface HostExtensionServices {
   rememberProjectName(cwd: string, name: string): void;
   /** Shared Git cache; core still reads branches from it for the thread index. */
   readonly git: GitCoordinator;
+  /** Loads a Pi extension into every runtime the host creates from now on. */
+  registerRuntimeExtension(name: string, factory: ExtensionFactory): () => void;
+  /** Which permission policy external runtimes launch with; `undefined` restores full access. */
+  setPermissionPolicy(provider: (() => RuntimePermissionPolicy) | undefined): void;
 }
 
 export type HostExtensionCommandHandler = (input: unknown) => unknown;

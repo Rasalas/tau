@@ -240,7 +240,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree,
       }),
-      setAccessLevel: async () => {},
     } as unknown as typeof window.tau;
     render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
@@ -271,7 +270,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       sendPrompt,
     } as unknown as typeof window.tau;
 
@@ -318,7 +316,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       sendPrompt,
     } as unknown as typeof window.tau;
 
@@ -371,7 +368,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       sendPrompt,
       newSession,
     } as unknown as typeof window.tau;
@@ -428,7 +424,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo,
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -532,7 +527,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       getPreparedThreadCapability,
       newSession,
     } as unknown as typeof window.tau;
@@ -629,7 +623,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       loadTranscript,
       setModel,
     } as unknown as typeof window.tau;
@@ -671,7 +664,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
     } as unknown as typeof window.tau;
@@ -721,7 +713,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
     } as unknown as typeof window.tau;
@@ -775,7 +766,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -861,7 +851,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -945,7 +934,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
       getPreparedThreadCapability,
     } as unknown as typeof window.tau;
@@ -1028,7 +1016,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -1086,7 +1073,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       getTurnFileDiff,
     } as unknown as typeof window.tau;
 
@@ -1168,7 +1154,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo,
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
       generateThreadTitle,
     } as unknown as typeof window.tau;
@@ -1226,7 +1211,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
     } as unknown as typeof window.tau;
 
@@ -1283,7 +1267,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
       generateThreadTitle,
     } as unknown as typeof window.tau;
@@ -1355,7 +1338,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
       sendPrompt,
     } as unknown as typeof window.tau;
@@ -1409,7 +1391,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
       generateThreadTitle,
     } as unknown as typeof window.tau;
@@ -1466,7 +1447,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
     } as unknown as typeof window.tau;
 
@@ -1526,7 +1506,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
     } as unknown as typeof window.tau;
 
@@ -1585,7 +1564,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
       getPreparedThreadCapability,
     } as unknown as typeof window.tau;
@@ -1656,7 +1634,6 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
         createWorktree: async () => creation,
       }),
-      setAccessLevel: async () => {},
       sendPrompt,
     } as unknown as typeof window.tau;
 
@@ -1735,7 +1712,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo,
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       openProject: async (path: string) => {
         cwd = path;
         return {
@@ -1787,7 +1763,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       sendPrompt,
     } as unknown as typeof window.tau;
 
@@ -1833,7 +1808,6 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
-      setAccessLevel: async () => {},
       newSession,
     } as unknown as typeof window.tau;
 
@@ -1893,7 +1867,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       copyText,
     } as unknown as typeof window.tau;
 
@@ -1926,7 +1899,6 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      setAccessLevel: async () => {},
       newSession,
     } as unknown as typeof window.tau;
     const view = render(<App />);

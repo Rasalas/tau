@@ -13,6 +13,7 @@ const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ Ob
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
+import { accessKitExtension } from "./access-kit";
 import { computerUsePresentationExtension } from "./computer-use";
 import { titleGeneratorExtension } from "./title-generator";
 
@@ -126,6 +127,7 @@ export const settingsExtension: DesktopExtension = {
 };
 
 export const bundledExtensions = [
+  accessKitExtension,
   workspaceExtension,
   reviewExtension,
   observatoryExtension,

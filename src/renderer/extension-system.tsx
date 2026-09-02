@@ -80,6 +80,17 @@ export type ProjectSourceContribution = ProjectSourceBase & (
     }
 );
 
+/** A control rendered in the composer's toolbar row, beside model and thinking. */
+export interface ComposerControlProps {
+  snapshot?: HostSnapshot;
+}
+
+export interface ComposerControlContribution {
+  id: string;
+  order?: number;
+  Component: ComponentType<ComposerControlProps>;
+}
+
 export interface PanelProps {
   active: boolean;
   /** Name of the extension that contributed this panel, for the panel header. */
@@ -203,6 +214,7 @@ export interface DesktopExtensionContext {
   /** This extension's host entry, if the package has one. */
   host: HostExtensionClient;
   registerPanel(panel: PanelContribution): () => void;
+  registerComposerControl(control: ComposerControlContribution): () => void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
@@ -241,10 +253,15 @@ interface ToolRenderer {
 
 type Owned<T> = T & ContributionOwner;
 
+/** Thrown when there is no host to route to, e.g. in the browser preview. */
+export class HostUnavailableError extends Error {
+  constructor() { super("The Electron host is not available."); this.name = "HostUnavailableError"; }
+}
+
 const desktopApiBridge: HostExtensionBridge = {
   invoke: (extensionId, command, input) => window.tau
     ? window.tau.invokeHostExtension(extensionId, command, input)
-    : Promise.reject(new Error("The Electron host is not available.")),
+    : Promise.reject(new HostUnavailableError()),
 };
 
 export class ExtensionRegistry {
@@ -253,6 +270,7 @@ export class ExtensionRegistry {
   constructor(private readonly hostBridge: HostExtensionBridge = desktopApiBridge) {}
 
   private panels = new Map<string, Owned<PanelContribution>>();
+  private composerControls = new Map<string, Owned<ComposerControlContribution>>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
@@ -299,6 +317,10 @@ export class ExtensionRegistry {
       registerPanel: (panel) => {
         note(panel.label.toLowerCase());
         return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
+      },
+      registerComposerControl: (control) => {
+        note("composer controls");
+        return this.register(this.composerControls, control.id, { ...control, ...owner }, disposers);
       },
       registerSidebar: (contribution) => {
         note("sidebar");
@@ -387,6 +409,10 @@ export class ExtensionRegistry {
 
   getPanels(): Array<Owned<PanelContribution>> {
     return this.sorted("panels", this.panels);
+  }
+
+  getComposerControls(): Array<Owned<ComposerControlContribution>> {
+    return this.sorted("composer-controls", this.composerControls);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {

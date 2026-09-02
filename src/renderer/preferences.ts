@@ -1,15 +1,4 @@
-import type { AccessLevel } from "../shared/contracts";
-
-export type { AccessLevel };
-
-export const ACCESS_LEVELS: ReadonlyArray<{ id: AccessLevel; label: string }> = [
-  { id: "read-only", label: "read-only" },
-  { id: "ask", label: "ask before edits" },
-  { id: "full", label: "full access" },
-];
-
 export interface PreferencesState {
-  accessLevel: AccessLevel;
   editorId?: string;
   settledThreadIds: readonly string[];
   pinnedThreadIds: readonly string[];
@@ -17,23 +6,21 @@ export interface PreferencesState {
   favouriteModels: readonly string[];
   /** Keyed `extensionId.optionId`. */
   extensionOptions: Readonly<Record<string, boolean>>;
+  /** Small per-extension values, keyed `extensionId.key`; extensions own their meaning. */
+  extensionValues: Readonly<Record<string, string>>;
   disabledExtensions: readonly string[];
 }
 
 const STORAGE_KEY = "tau.preferences";
 
 const DEFAULTS: PreferencesState = {
-  accessLevel: "full",
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
   extensionOptions: {},
+  extensionValues: {},
   disabledExtensions: [],
 };
-
-function isAccessLevel(value: unknown): value is AccessLevel {
-  return ACCESS_LEVELS.some((level) => level.id === value);
-}
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -46,13 +33,19 @@ function load(): PreferencesState {
     for (const [key, value] of Object.entries(raw.extensionOptions ?? {})) {
       if (typeof value === "boolean") options[key] = value;
     }
+    const values: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw.extensionValues ?? {})) {
+      if (typeof value === "string") values[key] = value;
+    }
+    // The access level lived in core before Access Kit owned it.
+    if (typeof raw.accessLevel === "string" && !("tau.access.level" in values)) values["tau.access.level"] = raw.accessLevel;
     return {
-      accessLevel: isAccessLevel(raw.accessLevel) ? raw.accessLevel : DEFAULTS.accessLevel,
       editorId: typeof raw.editorId === "string" ? raw.editorId : undefined,
       settledThreadIds: stringList(raw.settledThreadIds),
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
       extensionOptions: options,
+      extensionValues: values,
       disabledExtensions: stringList(raw.disabledExtensions),
     };
   } catch {
@@ -71,10 +64,6 @@ export class PreferencesStore {
     return () => this.listeners.delete(listener);
   };
 
-  setAccessLevel(accessLevel: AccessLevel): void {
-    this.update({ accessLevel });
-  }
-
   setEditor(editorId: string): void {
     this.update({ editorId });
   }
@@ -87,6 +76,15 @@ export class PreferencesStore {
     this.update({
       extensionOptions: { ...this.state.extensionOptions, [`${extensionId}.${optionId}`]: value },
     });
+  }
+
+  value(extensionId: string, key: string): string | undefined {
+    return this.state.extensionValues[`${extensionId}.${key}`];
+  }
+
+  setValue(extensionId: string, key: string, value: string): void {
+    if (this.state.extensionValues[`${extensionId}.${key}`] === value) return;
+    this.update({ extensionValues: { ...this.state.extensionValues, [`${extensionId}.${key}`]: value } });
   }
 
   isExtensionEnabled(extensionId: string): boolean {

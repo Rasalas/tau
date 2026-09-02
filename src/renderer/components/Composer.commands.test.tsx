@@ -36,7 +36,6 @@ function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const 
     scopeStore={scopeStore}
     snapshot={{ ...snapshotOverride, isStreaming: streaming }}
     queue={[]}
-    accessLevel="full"
     contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
     textareaRef={createRef<HTMLTextAreaElement>()}
     onSubmit={onSubmit}
@@ -45,7 +44,6 @@ function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const 
     onSetModel={() => {}}
     onSetThinking={() => {}}
     onSetServiceTier={() => {}}
-    onSetAccess={() => {}}
     onCompactContext={() => {}}
     workspaceBusy={false}
     onOpenWorktree={async () => true}
@@ -122,7 +120,6 @@ describe("Composer command menu", () => {
       snapshot={{ ...snapshot, isStreaming: true }}
       scopeStore={new ComposerScopeStore()}
       queue={["after this turn"]}
-      accessLevel="full"
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={createRef<HTMLTextAreaElement>()}
       onSubmit={async () => ({ accepted: true as const })}
@@ -132,7 +129,6 @@ describe("Composer command menu", () => {
       onSetThinking={() => {}}
       onSetServiceTier={() => {}}
       prompt={{ id: "question", sessionId: "session", kind: "input", title: "Choose the scope" }}
-      onSetAccess={() => {}}
       onCompactContext={() => {}}
       workspaceBusy={false}
       onOpenWorktree={async () => true}
@@ -199,10 +195,5 @@ describe("Composer command menu", () => {
 
     expect(screen.getByRole("button", { name: "Model selection unavailable" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Reasoning controls unavailable" })).toHaveProperty("disabled", true);
-
-    fireEvent.click(screen.getByRole("button", { name: /full access/u }));
-    const ask = screen.getByRole("menuitem", { name: /ask before edits/u });
-    expect(ask).toHaveProperty("disabled", true);
-    expect(ask.getAttribute("title")).toContain("interactive approvals");
   });
 });

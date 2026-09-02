@@ -5,7 +5,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } fr
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { AccessLevel, ClientTurnIdentity, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
+import type { ClientTurnIdentity, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { PiHost } from "./pi-host.js";
 import { selectRuntimeAdapter } from "./runtime-adapters.js";
@@ -155,8 +155,6 @@ function installIpc(): void {
   ipcMain.handle("tau:set-thinking", async (_event, level: string) => (await requireHostReady()).setThinkingLevel(level));
   ipcMain.handle("tau:compact-context", async () => (await requireHostReady()).compactContext());
   ipcMain.handle("tau:reload-runtime", async () => (await requireHostReady()).reloadRuntime());
-  ipcMain.handle("tau:set-access-level", async (_event, level: AccessLevel) => (await requireHostReady()).setAccessLevel(level));
-  ipcMain.handle("tau:resolve-tool-approval", async (_event, id: string, allowed: boolean) => (await requireHostReady()).resolveToolApproval(id, allowed));
   // Answering must never wait for a ready host: the host is blocked on this very
   // question, so requiring readiness here would deadlock startup.
   ipcMain.handle("tau:answer-extension-ui", (_event, id: string, answer: ExtensionUiAnswer) => host?.answerExtensionUi(id, answer));

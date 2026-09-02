@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ArrowUp, ChevronDown, CornerDownRight, Lock, LockOpen, Paperclip, Sparkles, X, Zap } from "lucide-react";
+import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { ArrowUp, ChevronDown, CornerDownRight, Paperclip, Sparkles, X, Zap } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft, WorkspaceInfo } from "../../shared/contracts";
-import { ACCESS_LEVELS, type AccessLevel } from "../preferences";
+import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
@@ -25,7 +25,10 @@ import {
 import { errorMessage } from "../error-message";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
 
-type OpenMenu = "thinking" | "access" | undefined;
+type OpenMenu = "thinking" | undefined;
+
+const noSubscribe = () => () => {};
+const noVersion = () => 0;
 
 /** Pi's out-of-the-box reasoning level; shown as the Default badge. */
 const DEFAULT_THINKING = "medium";
@@ -129,7 +132,6 @@ export function Composer({
   seed,
   draftStorageKey,
   queue,
-  accessLevel,
   contextUsage,
   contextBreakdown,
   textareaRef,
@@ -147,7 +149,6 @@ export function Composer({
   onCancelPrompt,
   promptChoices,
   onPreselectQuestion,
-  onSetAccess,
   onCompactContext,
   workspace,
   workspaceBusy,
@@ -161,7 +162,6 @@ export function Composer({
   seed?: string;
   draftStorageKey?: string;
   queue: string[];
-  accessLevel: AccessLevel;
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -181,7 +181,6 @@ export function Composer({
   /** Picks per question of the prompt's questionnaire, answered or waiting. */
   promptChoices?: Record<number, QuestionnaireChoice>;
   onPreselectQuestion?(index: number, labels: string[]): void;
-  onSetAccess(level: AccessLevel): void;
   onCompactContext(): void;
   workspace?: WorkspaceInfo;
   workspaceBusy: boolean;
@@ -259,7 +258,11 @@ export function Composer({
   const claudeCode = snapshot?.backendKind === "claude-code";
   const modelSelectionAvailable = !claudeCode && (snapshot?.models.length ?? 0) > 0;
   const thinkingSelectionAvailable = !claudeCode && (snapshot?.thinkingLevels.length ?? 0) > 1;
-  const accessLabel = ACCESS_LEVELS.find((level) => level.id === accessLevel)?.label ?? accessLevel;
+  // Extensions contribute the rest of the toolbar; outside the workbench shell
+  // (tests, previews) there are none.
+  const registry = useContext(WorkbenchShellContext)?.registry;
+  useSyncExternalStore(registry?.subscribe ?? noSubscribe, registry?.getVersion ?? noVersion, noVersion);
+  const composerControls = registry?.getComposerControls() ?? [];
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
   useEffect(() => {
@@ -616,30 +619,7 @@ export function Composer({
             ) : null}
           </span>
 
-          <span className="menu-anchor composer-runtime-menu-anchor">
-            <button className="runtime-chip" onClick={() => setMenu(menu === "access" ? undefined : "access")}>
-              {accessLevel === "full" ? <LockOpen size={13} /> : <Lock size={13} />}
-              {accessLabel}
-              <ChevronDown size={12} className="chev" />
-            </button>
-            {menu === "access" ? (
-              <Menu
-                placement="above"
-                heading="Access"
-                items={ACCESS_LEVELS.map((level) => ({
-                  id: level.id,
-                  label: level.label,
-                  selected: level.id === accessLevel,
-                  disabled: claudeCode && level.id === "ask",
-                  description: claudeCode && level.id === "ask"
-                    ? "Claude Code print mode cannot surface interactive approvals; choose read-only or full access."
-                    : undefined,
-                }))}
-                onSelect={(id) => onSetAccess(id as AccessLevel)}
-                onClose={() => setMenu(undefined)}
-              />
-            ) : null}
-          </span>
+          {composerControls.map((control) => <control.Component key={control.id} snapshot={snapshot} />)}
 
           </div>
           <span className="spacer" />

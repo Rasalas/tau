@@ -28,6 +28,8 @@ async function client(cwd: string) {
     knownWorkspacePath: async (path) => path,
     projectName: async () => "project",
     rememberProjectName: () => undefined,
+    registerRuntimeExtension: () => () => undefined,
+    setPermissionPolicy: () => undefined,
     git: new GitCoordinator(),
   };
   const registry = new HostExtensionRegistry(services, () => undefined);

@@ -24,7 +24,6 @@ function renderComposer(
       scopeStore={scopeStore}
       draftStorageKey={scope}
       queue={[]}
-      accessLevel="full"
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={createRef<HTMLTextAreaElement>()}
       attachmentRef={attachmentRef}
@@ -35,7 +34,6 @@ function renderComposer(
       onSetModel={() => {}}
       onSetThinking={() => {}}
       onSetServiceTier={() => {}}
-      onSetAccess={() => {}}
       onCompactContext={() => {}}
       workspaceBusy={false}
       onOpenWorktree={async () => true}
