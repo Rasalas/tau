@@ -2334,6 +2334,25 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .project-source-list button small { font-size: 11px; color: var(--muted); line-height: 1.45; }
 .project-source-list button > b { color: var(--faint); font-weight: 400; font-size: 12px; }
 .project-source-list > p { padding: 16px 12px; color: var(--faint); font-size: 12px; }
+.thread-tree { display: flex; flex-direction: column; max-height: min(70vh, 640px); }
+.thread-tree-list { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; flex: 1; min-height: 120px; }
+.thread-tree-list li { padding-right: 12px; }
+.thread-tree-node {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--ink); font: 12.5px var(--sans); text-align: left; cursor: pointer;
+}
+.thread-tree-node:hover:not(:disabled) { background: var(--hover, rgba(127, 127, 127, 0.12)); }
+.thread-tree-node:disabled { cursor: default; opacity: 0.55; }
+.thread-tree-node.leaf:disabled { opacity: 1; }
+.thread-tree-node.on-branch { color: var(--ink); }
+.thread-tree-node:not(.on-branch) { color: var(--faint); }
+.thread-tree-node > i { display: inline-flex; flex: none; opacity: 0.7; }
+.thread-tree-node > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-tree-node > small { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--working); font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.thread-tree-label { margin-right: 6px; padding: 1px 5px; border-radius: 4px; background: var(--accent-soft, rgba(127, 127, 127, 0.16)); font-weight: 600; font-size: 11px; }
+.thread-tree-error { margin: 0; padding: 8px 14px; color: var(--danger, #c0392b); font: 12px var(--sans); }
+.thread-tree-empty { padding: 14px; color: var(--faint); font: 12px var(--sans); }
+.thread-tree-summarize { display: inline-flex; align-items: center; gap: 6px; }
 .project-modal-help {
   display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 14px;
   border-top: 1px solid var(--line); color: var(--faint); font: 11px var(--sans);

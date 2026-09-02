@@ -21,7 +21,7 @@ describe("runtime settings slash commands", () => {
   it("offers /reload, /rebuild and /restart and reports a failed reload", async () => {
     const registry = new ExtensionRegistry();
     registry.activate(settingsExtension);
-    expect(registry.getSlashCommands().map((command) => command.name)).toEqual(["reload", "rebuild", "restart"]);
+    expect(registry.getSlashCommands().map((command) => command.name)).toEqual(["reload", "rebuild", "restart", "tree", "fork", "clone"]);
     const reloadRuntime = vi.fn(async () => false);
     const restartWorkbench = vi.fn();
     const actions = { reloadRuntime, restartWorkbench } as unknown as WorkbenchActions;

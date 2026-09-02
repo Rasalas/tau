@@ -28,6 +28,10 @@ export interface WorkbenchActions {
   /** Rebuilds the workbench from source and reloads it; a changed host still needs a restart. */
   rebuildWorkbench(): Promise<boolean>;
   restartWorkbench(): void;
+  /** Pi's /tree and /fork: the session tree of the active thread, to move in or fork from. */
+  openThreadTree(mode?: "navigate" | "fork"): void;
+  /** Pi's /clone: a new thread continuing from the active thread's current point. */
+  duplicateThread(): Promise<boolean>;
   focusComposer(seed?: string): void;
   notify(message: string): void;
   /** Opens the list of project sources extensions registered. */

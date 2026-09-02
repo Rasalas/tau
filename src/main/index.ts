@@ -134,6 +134,9 @@ function installIpc(): void {
   ipcMain.handle("tau:prepared-thread-capability", async (_event, cwd?: string) =>
     (await requireHostReady()).getPreparedThreadCapability(cwd));
   ipcMain.handle("tau:fork-thread", async (_event, entryId: string, expectedSessionId?: string) => (await requireHostReady()).forkThread(entryId, expectedSessionId));
+  ipcMain.handle("tau:thread-tree", async (_event, sessionId?: string) => (await requireHostReady()).threadTree(sessionId));
+  ipcMain.handle("tau:navigate-thread-tree", async (_event, entryId: string, options?: { summarize?: boolean }, expectedSessionId?: string) => (await requireHostReady()).navigateThreadTree(entryId, options, expectedSessionId));
+  ipcMain.handle("tau:duplicate-thread", async (_event, expectedSessionId?: string) => (await requireHostReady()).duplicateThread(expectedSessionId));
   ipcMain.handle("tau:switch-session", async (_event, path: string) => (await requireHostReady()).switchSession(path));
   ipcMain.handle("tau:set-model", async (_event, provider: string, id: string) => (await requireHostReady()).setModel(provider, id));
   ipcMain.handle("tau:set-thinking", async (_event, level: string) => (await requireHostReady()).setThinkingLevel(level));

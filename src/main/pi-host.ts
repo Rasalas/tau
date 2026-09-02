@@ -44,6 +44,8 @@ import type {
   NewThreadRequestId,
   ThreadBackendKind,
   PreparedPrompt,
+  ThreadTreeNavigationResult,
+  UiThreadTree,
 } from "../shared/contracts.js";
 import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/workspace-kit-types.js";
 import type { UiTurnCheckpoint } from "../shared/turn-checkpoint-types.js";
@@ -2215,6 +2217,41 @@ export class PiHost {
       this.logReplacement("fork", startedAt);
       return this.activeUpdates(activationEpoch);
     });
+  }
+
+  /** Pi's /tree: the session tree of a thread, for moving it to another point. */
+  async threadTree(sessionId?: string): Promise<UiThreadTree> {
+    if (this.bridgeOwns(sessionId)) throw new Error("The session tree is unavailable while Pi owns this thread. Use /tree in Pi.");
+    const thread = sessionId ? this.requireThread(sessionId) : this.requireActive();
+    return thread.backend.tree();
+  }
+
+  /** Moves the active thread to another entry of its tree, staying in the same session file. */
+  async navigateThreadTree(entryId: string, options: { summarize?: boolean } = {}, expectedSessionId?: string): Promise<ThreadTreeNavigationResult> {
+    if (this.bridge) throw new Error("Tree navigation is unavailable while Pi owns this thread. Use /tree in Pi.");
+    return this.runLifecycle(async () => {
+      const thread = this.requireActive();
+      if (expectedSessionId && thread.threadId !== expectedSessionId) throw new Error("The selected thread changed before it could be moved.");
+      if (!isPiBackend(thread)) throw new Error("Claude Code threads have no session tree to move in.");
+      if (thread.backend.isStreaming()) throw new Error("Wait for the active run before moving this thread.");
+      const result = await thread.backend.navigateTree(entryId, options);
+      if (result.cancelled) return { ...this.actionResult([]), cancelled: true };
+      this.log("thread.tree.navigated", entryId);
+      const snapshot = await this.snapshot();
+      const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
+      this.emitUpdate(update);
+      return { ...this.actionResult([update]), cancelled: false, ...(result.draftText ? { draftText: result.draftText } : {}) };
+    });
+  }
+
+  /** Pi's /clone: a new thread continuing from the active thread's current leaf. */
+  async duplicateThread(expectedSessionId?: string): Promise<HostActionResult> {
+    if (this.bridge) throw new Error("Duplicating is unavailable while Pi owns this thread. Use /clone in Pi.");
+    const thread = this.requireActive();
+    if (expectedSessionId && thread.threadId !== expectedSessionId) throw new Error("The selected thread changed before it could be duplicated.");
+    const leafId = thread.backend.leafEntryId();
+    if (!leafId) throw new Error("Nothing to duplicate yet. Send a first message before duplicating this thread.");
+    return this.forkThread(leafId, thread.threadId);
   }
 
   /**

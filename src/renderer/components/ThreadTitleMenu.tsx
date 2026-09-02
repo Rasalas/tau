@@ -8,6 +8,8 @@ export function ThreadTitleMenu({
   pinned,
   settled,
   onNewThread,
+  onOpenTree,
+  onDuplicate,
   onTogglePin,
   onToggleSettled,
   onRename,
@@ -21,6 +23,9 @@ export function ThreadTitleMenu({
   pinned: boolean;
   settled: boolean;
   onNewThread(): void;
+  /** Pi's /tree and /clone for this thread. */
+  onOpenTree(): void;
+  onDuplicate(): void;
   onTogglePin(): void;
   onToggleSettled(): void;
   onRename(title: string): Promise<boolean>;
@@ -50,6 +55,8 @@ export function ThreadTitleMenu({
     {
       items: [
         { id: "new", label: branch ? `New thread on ${branch}` : "New thread" },
+        { id: "tree", label: "Thread tree…" },
+        { id: "duplicate", label: "Duplicate thread" },
         { id: "pin", label: pinned ? "Unpin thread" : "Pin thread" },
         { id: "settle", label: settled ? "Un-settle thread" : "Settle thread" },
       ],
@@ -73,6 +80,8 @@ export function ThreadTitleMenu({
 
   const select = (id: string) => {
     if (id === "new") onNewThread();
+    if (id === "tree") onOpenTree();
+    if (id === "duplicate") onDuplicate();
     if (id === "pin") onTogglePin();
     if (id === "settle") onToggleSettled();
     if (id === "rename") setRenaming(true);

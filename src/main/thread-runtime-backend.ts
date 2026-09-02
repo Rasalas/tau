@@ -10,6 +10,8 @@ import type {
   UiSkillDraft,
   UiSkillInvocation,
   UiToolRun,
+  UiThreadTree,
+  UiThreadTreeNode,
 } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
@@ -109,6 +111,10 @@ export interface ThreadRuntimeBackend {
   isBashRunning(): boolean;
   executeBash(command: string, includeInContext: boolean): Promise<Awaited<ReturnType<AgentSession["executeBash"]>>>;
   createFork(entryId: string): string | undefined;
+  /** The session tree and the entry the thread continues from. */
+  tree(): UiThreadTree;
+  leafEntryId(): string | undefined;
+  navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }>;
   waitForIdle(): Promise<void>;
   completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
   modelApi(): string | undefined;
@@ -129,6 +135,39 @@ export interface ThreadRuntimeBackend {
 export interface PiThreadBackendOptions {
   mapMessages(messages: readonly unknown[]): UiMessage[];
   index(backend: PiThreadRuntimeBackend): Promise<UiSession>;
+}
+
+interface SessionTreeEntry {
+  type: string;
+  id: string;
+  timestamp?: string;
+  message?: { role?: string; content?: unknown };
+  summary?: string;
+}
+
+function entryText(content: unknown): string {
+  const text = typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.flatMap((part) => part && typeof part === "object" && (part as { type?: string }).type === "text" ? [String((part as { text?: unknown }).text ?? "")] : []).join("\n")
+      : "";
+  return text.trim().split("\n")[0]?.slice(0, 160) ?? "";
+}
+
+/** The entries Pi's tree selector shows: messages and summaries; everything else is structure only. */
+function treeNodeOf(entry: SessionTreeEntry, label: string | undefined): Omit<UiThreadTreeNode, "parentId" | "depth" | "onBranch" | "isLeaf"> | undefined {
+  const timestamp = entry.timestamp ? Date.parse(entry.timestamp) || 0 : 0;
+  if (entry.type === "message" && entry.message) {
+    const role = entry.message.role;
+    if (role !== "user" && role !== "assistant") return undefined;
+    const text = entryText(entry.message.content);
+    if (!text && role === "assistant") return undefined;
+    return { id: entry.id, kind: role, text: text || "(image)", ...(label ? { label } : {}), timestamp, forkable: role === "user" };
+  }
+  if (entry.type === "compaction" || entry.type === "branch_summary") {
+    return { id: entry.id, kind: "summary", text: entryText(entry.summary), ...(label ? { label } : {}), timestamp, forkable: false };
+  }
+  return undefined;
 }
 
 function modelOf(model: { provider: string; id: string; name?: string } | undefined): UiModel | undefined {
@@ -352,6 +391,35 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     return Array.isArray(content)
       ? content.map((part) => part && typeof part === "object" && "text" in part ? String((part as { text?: unknown }).text ?? "") : "").join("")
       : String(content ?? "");
+  }
+  tree(): UiThreadTree {
+    const manager = this.session.sessionManager;
+    const branch = (manager.getBranch() as Array<{ id?: string }>).map((entry) => entry.id).filter((id): id is string => typeof id === "string");
+    const onBranch = new Set(branch);
+    const nodes: UiThreadTreeNode[] = [];
+    const walk = (children: ReturnType<typeof manager.getTree>, depth: number, parentId: string | undefined) => {
+      for (const node of children) {
+        const shown = treeNodeOf(node.entry as SessionTreeEntry, node.label);
+        if (shown) {
+          nodes.push({ ...shown, parentId, depth, onBranch: onBranch.has(shown.id), isLeaf: false });
+          walk(node.children, depth + 1, shown.id);
+        } else {
+          // Model or thinking changes and labels stay invisible; their children hang off the last shown ancestor.
+          walk(node.children, depth, parentId);
+        }
+      }
+    };
+    walk(manager.getTree(), 0, undefined);
+    // The raw leaf is often a hidden entry (a marker, a label); the thread "is at" the last shown entry of its branch.
+    const shownIds = new Set(nodes.map((node) => node.id));
+    const leafId = [...branch].reverse().find((id) => shownIds.has(id)) ?? manager.getLeafId() ?? undefined;
+    for (const node of nodes) node.isLeaf = node.id === leafId;
+    return { sessionId: this.threadId, leafId, nodes };
+  }
+  leafEntryId(): string | undefined { return this.session.sessionManager.getLeafId() ?? undefined; }
+  async navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }> {
+    const result = await this.session.navigateTree(entryId, { summarize: options.summarize ?? false });
+    return { cancelled: result.cancelled, ...(result.editorText ? { draftText: result.editorText } : {}) };
   }
   modelApi(): string | undefined { return (this.session.model as { api?: string } | undefined)?.api; }
   private shortcutMap(userBindings: PiUserKeybindings) {
@@ -649,6 +717,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     throw new Error("Claude Code title generation is owned by the Claude runtime.");
   }
   modelApi(): string | undefined { return undefined; }
+  tree(): UiThreadTree { return { sessionId: this.threadId, nodes: [] }; }
+  leafEntryId(): string | undefined { return undefined; }
+  async navigateTree(): Promise<{ cancelled: boolean }> { throw new Error("Claude Code threads have no session tree to move in."); }
   shortcuts(): PiShortcut[] { return []; }
   async runShortcut(): Promise<boolean> { return false; }
   model(): UiModel | undefined { return undefined; }

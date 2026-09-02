@@ -21,7 +21,7 @@ Composer
 Threads
 
 - the thread index across projects, and one live runtime per open thread
-- new, resume, fork, rename, tree navigation, recovery of a broken thread
+- new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread
 - the current project (working directory) as Pi sees it
 
 Workbench

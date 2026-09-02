@@ -16,6 +16,7 @@ import type {
   UiSession,
   UiSkillDraft,
   UiToolRun,
+  UiThreadTree,
 } from "../shared/contracts";
 import type { DiffLoadOptions, FileNode, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges, WorkspaceInfo } from "../shared/workspace-kit-types";
 import type { UiTurnCheckpoint } from "../shared/turn-checkpoint-types";
@@ -73,6 +74,7 @@ import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences } from "./preferences";
 import { ProjectSourcesModal } from "./components/ProjectSources";
+import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
 import { Region, StatusLine } from "./components/Regions";
 
 const noopSubscribe = () => () => {};
@@ -1911,6 +1913,52 @@ export default function App() {
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
+  // Pi's /tree, /fork and /clone for the thread on screen.
+  const [threadTreeModal, setThreadTreeModal] = useState<{ mode: ThreadTreeMode; tree?: UiThreadTree; error?: string; busy: boolean }>();
+  const openThreadTree = useCallback((mode: ThreadTreeMode = "navigate") => {
+    if (!requireHost("Thread tree")) return;
+    setThreadTreeModal({ mode, busy: false });
+    window.tau!.threadTree(snapshot?.sessionId)
+      .then((tree) => setThreadTreeModal((current) => current && { ...current, tree }))
+      .catch((error) => setThreadTreeModal((current) => current && { ...current, error: errorMessage(error) }));
+  }, [requireHost, snapshot?.sessionId]);
+  const navigateThreadTree = useCallback(async (entryId: string, summarize: boolean) => {
+    setThreadTreeModal((current) => current && { ...current, busy: true, error: undefined });
+    try {
+      const result = await window.tau!.navigateThreadTree(entryId, { summarize }, snapshot?.sessionId);
+      if (result.cancelled) {
+        setThreadTreeModal((current) => current && { ...current, busy: false });
+        return;
+      }
+      applyActionResult(result);
+      setThreadTreeModal(undefined);
+      if (result.draftText) setComposerSeed(result.draftText);
+      composerRef.current?.focus();
+    } catch (error) {
+      setThreadTreeModal((current) => current && { ...current, busy: false, error: errorMessage(error) });
+    }
+  }, [applyActionResult, snapshot?.sessionId]);
+  const forkFromTree = useCallback(async (entryId: string) => {
+    setThreadTreeModal((current) => current && { ...current, busy: true, error: undefined });
+    try {
+      applyActionResult(await window.tau!.forkThread(entryId, snapshot?.sessionId));
+      setThreadTreeModal(undefined);
+    } catch (error) {
+      setThreadTreeModal((current) => current && { ...current, busy: false, error: errorMessage(error) });
+    }
+  }, [applyActionResult, snapshot?.sessionId]);
+  const duplicateThread = useCallback(async () => {
+    if (!requireHost("Duplicate thread")) return false;
+    try {
+      setNotice("Duplicating thread…");
+      applyActionResult(await window.tau!.duplicateThread(snapshot?.sessionId));
+      return true;
+    } catch (error) {
+      setNotice(errorMessage(error));
+      return false;
+    }
+  }, [applyActionResult, requireHost, snapshot?.sessionId]);
+
   const rebuildWorkbench = useCallback(async () => {
     if (!requireHost("Rebuilding")) return false;
     setNotice("Rebuilding Tau from source…");
@@ -1963,6 +2011,8 @@ export default function App() {
     reloadRuntime,
     rebuildWorkbench,
     restartWorkbench,
+    openThreadTree,
+    duplicateThread,
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
@@ -1985,6 +2035,7 @@ export default function App() {
   }), [
     applyHostResult, openPanel,
     activeDraftKey, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,
+    openThreadTree, duplicateThread,
   ]);
   actionsRef.current = actions;
 
@@ -2565,6 +2616,17 @@ export default function App() {
 
   const overlays = (
     <>
+      {threadTreeModal ? (
+        <ThreadTreeModal
+          tree={threadTreeModal.tree}
+          mode={threadTreeModal.mode}
+          busy={threadTreeModal.busy}
+          error={threadTreeModal.error}
+          onClose={() => setThreadTreeModal(undefined)}
+          onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)}
+          onFork={(entryId) => void forkFromTree(entryId)}
+        />
+      ) : null}
       <LazyFeatureBoundary label="command palette">
         <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
           <LazyCommandPalette
@@ -2712,6 +2774,8 @@ export default function App() {
                   pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
                   settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
                   onNewThread={() => setNewThreadOpen(true)}
+                  onOpenTree={() => openThreadTree("navigate")}
+                  onDuplicate={() => void duplicateThread()}
                   onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
                   onToggleSettled={settleActiveThread}
                   onRename={renameThread}

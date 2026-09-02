@@ -12,6 +12,8 @@ function props() {
     pinned: false,
     settled: false,
     onNewThread: vi.fn(),
+    onOpenTree: vi.fn(),
+    onDuplicate: vi.fn(),
     onTogglePin: vi.fn(),
     onToggleSettled: vi.fn(),
     onRename: vi.fn(async () => true),

@@ -443,6 +443,35 @@ export interface WorkbenchBuildResult {
   output: string;
 }
 
+/** One entry of a thread's session tree, flattened in preorder for display. */
+export interface UiThreadTreeNode {
+  id: string;
+  parentId?: string;
+  depth: number;
+  kind: "user" | "assistant" | "summary";
+  /** First line of the message or summary, bounded. */
+  text: string;
+  label?: string;
+  timestamp: number;
+  /** On the path the thread currently continues from. */
+  onBranch: boolean;
+  isLeaf: boolean;
+  /** A user message the thread can be forked through. */
+  forkable: boolean;
+}
+
+export interface UiThreadTree {
+  sessionId: string;
+  leafId?: string;
+  nodes: UiThreadTreeNode[];
+}
+
+export interface ThreadTreeNavigationResult extends HostActionResult {
+  cancelled: boolean;
+  /** The user message at the target, offered as the next draft the way Pi's /tree does. */
+  draftText?: string;
+}
+
 export interface TauDesktopApi {
   /** Host platform, so the title bar can leave room for native window controls. */
   readonly platform: string;
@@ -459,6 +488,10 @@ export interface TauDesktopApi {
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
+  /** Pi's /tree: the session tree, moving the thread to another point in it, and /clone. */
+  threadTree(sessionId?: string): Promise<UiThreadTree>;
+  navigateThreadTree(entryId: string, options?: { summarize?: boolean }, expectedSessionId?: string): Promise<ThreadTreeNavigationResult>;
+  duplicateThread(expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
   setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
   setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;
