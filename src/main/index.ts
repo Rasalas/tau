@@ -11,18 +11,21 @@ import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { rebuildWorkbench } from "./workbench-build.js";
 import { bundledHostExtensions } from "./extensions/index.js";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { loadHostExtensionPackages } from "./extension-packages.js";
+import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
+import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
+import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
+/** What a package's `engines` is checked against. */
+const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: PI_VERSION, api: EXTENSION_API_VERSION };
 const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
   hostExtensions: safeMode ? [] : bundledHostExtensions(),
-  hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir()),
+  hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
@@ -175,9 +178,10 @@ function installIpc(): void {
   ipcMain.handle("tau:host-extension", async (_event, extensionId: string, command: string, input?: unknown) =>
     (await requireHostReady()).invokeHostExtension(extensionId, command, input));
   ipcMain.handle("tau:host-extensions", async () => (await requireHostReady()).listHostExtensions());
+  ipcMain.handle("tau:inspect-extensions", async (_event, cwd: string) => inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }));
   ipcMain.handle("tau:host-extension-active", async (_event, id: string, active: boolean) => (await requireHostReady()).setHostExtensionActive(id, active));
   ipcMain.handle("tau:desktop-extensions", async (_event, cwd: string, sharedExports: Record<string, string[]>) =>
-    loadDesktopExtensions(cwd, getAgentDir(), { sharedExports }));
+    loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions }));
   ipcMain.handle("tau:rebuild-workbench", async () => {
     if (rebuild) return rebuild;
     rebuild = rebuildWorkbench(app.getAppPath(), {

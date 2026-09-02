@@ -6,9 +6,12 @@ import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { HostExtension } from "./host-extensions.js";
+import type { ExtensionInspection } from "../shared/contracts.js";
+import { assertEngineRanges, describeIncompatibility, parseVersion, type ExtensionEngines, type ExtensionHostVersions } from "../shared/extension-compat.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
+const ENGINE_NAMES = ["tau", "pi", "api"] as const;
 
 /**
  * `tau-extension.json` in a package folder under `~/.tau/extensions` or
@@ -18,6 +21,10 @@ const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 export interface ExtensionManifest {
   id: string;
   name: string;
+  /** The package's own version, semver. */
+  version?: string;
+  /** Ranges of Tau, Pi and the extension API the package runs on; a miss keeps it off. */
+  engines?: ExtensionEngines;
   /** Relative path of the desktop entry (a module default-exporting a DesktopExtension). */
   desktop?: string;
   /** Relative path of the host entry (a module default-exporting a HostExtension or `activate`). */
@@ -53,17 +60,46 @@ export function parseExtensionManifest(directory: string, source: string): { man
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, desktop, host } = raw as Record<string, unknown>;
+  const { id, name, version, engines, desktop, host } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
+  if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
+  const parsedEngines = parseEngines(engines);
   const desktopEntry = relativeEntry(directory, desktop, "desktop");
   const hostEntry = relativeEntry(directory, host, "host");
   if (!desktopEntry && !hostEntry) throw new Error(`${MANIFEST_FILE} names neither a "desktop" nor a "host" entry`);
   return {
-    manifest: { id, name: name.trim(), ...(typeof desktop === "string" ? { desktop } : {}), ...(typeof host === "string" ? { host } : {}) },
+    manifest: {
+      id,
+      name: name.trim(),
+      ...(typeof version === "string" ? { version: version.trim() } : {}),
+      ...(parsedEngines ? { engines: parsedEngines } : {}),
+      ...(typeof desktop === "string" ? { desktop } : {}),
+      ...(typeof host === "string" ? { host } : {}),
+    },
     ...(desktopEntry ? { desktopEntry } : {}),
     ...(hostEntry ? { hostEntry } : {}),
   };
+}
+
+function parseEngines(value: unknown): ExtensionEngines | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`"engines" must be an object with "tau", "pi" or "api" ranges`);
+  const engines: ExtensionEngines = {};
+  for (const [engine, range] of Object.entries(value as Record<string, unknown>)) {
+    if (!(ENGINE_NAMES as readonly string[]).includes(engine)) throw new Error(`"engines" knows only ${ENGINE_NAMES.map((e) => `"${e}"`).join(", ")}, not "${engine}"`);
+    if (typeof range !== "string" || !range.trim()) throw new Error(`"engines.${engine}" must be a version range like "^1.0.0"`);
+    engines[engine as keyof ExtensionEngines] = range.trim();
+  }
+  try { assertEngineRanges(engines); } catch (error) { throw new Error(`"engines": ${error instanceof Error ? error.message : String(error)}`); }
+  return engines;
+}
+
+/** Why a manifest cannot run on these versions, or undefined when it can. */
+export function manifestIncompatibility(manifest: ExtensionManifest, versions: ExtensionHostVersions | undefined): string | undefined {
+  if (!versions) return undefined;
+  const reason = describeIncompatibility(manifest.engines, versions);
+  return reason ? `${manifest.id}${manifest.version ? ` ${manifest.version}` : ""} ${reason}` : undefined;
 }
 
 export interface PackageScanResult {
@@ -72,11 +108,18 @@ export interface PackageScanResult {
   skipped: Array<{ directory: string; reason: string }>;
 }
 
+export interface PackageScanOptions {
+  home?: string;
+  trusted?: (cwd: string) => boolean;
+  /** Versions to check `engines` against; without them every package passes. */
+  versions?: ExtensionHostVersions;
+}
+
 /** Every package folder with a manifest; project folders only where Pi trusts the project. */
 export async function listExtensionPackages(
   cwd: string,
   agentDir: string,
-  options: { home?: string; trusted?: (cwd: string) => boolean } = {},
+  options: PackageScanOptions = {},
 ): Promise<PackageScanResult> {
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
   const result: PackageScanResult = { packages: [], errors: [], skipped: [] };
@@ -92,6 +135,8 @@ export async function listExtensionPackages(
       if (!info?.isFile()) continue;
       try {
         const parsed = parseExtensionManifest(packageDir, await readFile(manifestPath, "utf8"));
+        const incompatible = manifestIncompatibility(parsed.manifest, options.versions);
+        if (incompatible) throw new Error(incompatible);
         for (const entry of [parsed.desktopEntry, parsed.hostEntry]) {
           if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new Error(`entry ${entry} does not exist`);
         }
@@ -108,6 +153,27 @@ export async function listExtensionPackages(
     result.packages.push(...found);
   }
   return result;
+}
+
+/** What the settings inspector shows about the package folders: no code is loaded. */
+export async function inspectExtensionPackages(cwd: string, agentDir: string, options: PackageScanOptions & { versions: ExtensionHostVersions }): Promise<ExtensionInspection> {
+  const scan = await listExtensionPackages(cwd, agentDir, options);
+  return {
+    versions: options.versions,
+    directories: extensionPackageDirectories(cwd, options.home),
+    packages: scan.packages.map((pkg) => ({
+      id: pkg.manifest.id,
+      name: pkg.manifest.name,
+      ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
+      ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
+      scope: pkg.scope,
+      directory: pkg.directory,
+      desktop: Boolean(pkg.desktopEntry),
+      host: Boolean(pkg.hostEntry),
+    })),
+    errors: scan.errors,
+    skipped: scan.skipped,
+  };
 }
 
 /**
@@ -168,7 +234,7 @@ export interface HostPackageLoadResult {
 export async function loadHostExtensionPackages(
   cwd: string,
   agentDir: string,
-  options: { home?: string; trusted?: (cwd: string) => boolean; cacheDir?: string } = {},
+  options: PackageScanOptions & { cacheDir?: string } = {},
 ): Promise<HostPackageLoadResult> {
   const scan = await listExtensionPackages(cwd, agentDir, options);
   const result: HostPackageLoadResult = { extensions: [], errors: [...scan.errors], skipped: scan.skipped };

@@ -413,6 +413,27 @@ export interface HostExtensionSummary {
   error?: string;
 }
 
+/** One package folder as the settings inspector lists it; no code is loaded for this. */
+export interface ExtensionPackageSummary {
+  id: string;
+  name: string;
+  version?: string;
+  engines?: Record<string, string>;
+  scope: "global" | "project";
+  directory: string;
+  desktop: boolean;
+  host: boolean;
+}
+
+export interface ExtensionInspection {
+  /** What a package's `engines` is checked against. */
+  versions: { tau: string; pi: string; api: string };
+  directories: Array<{ scope: "global" | "project"; directory: string }>;
+  packages: ExtensionPackageSummary[];
+  errors: Array<{ path: string; message: string }>;
+  skipped: Array<{ directory: string; reason: string }>;
+}
+
 /** A desktop extension compiled by the host, ready for the renderer to import. */
 export interface DesktopExtensionBundle {
   path: string;
@@ -517,6 +538,8 @@ export interface TauDesktopApi {
    */
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
   listHostExtensions(): Promise<HostExtensionSummary[]>;
+  /** Scans the package folders a workspace sees, for the settings inspector. */
+  inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   /** Turns the host half of an extension package off or on; bundled kits stay as they are. */
   setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
   /** Rebuilds the workbench from source without leaving the app. */

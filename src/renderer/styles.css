@@ -1831,6 +1831,22 @@ button > svg { pointer-events: none; }
   color: var(--muted); font-size: 11.5px; line-height: 1.55;
 }
 .settings-note code { font: 10.5px var(--mono); }
+.settings-note[data-level="error"] { border-left-color: var(--removed); color: var(--ink-2); }
+.settings-note + .settings-note { margin-top: 8px; }
+
+.inspector-versions { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); }
+.inspector-versions b { font: 500 11.5px var(--mono); color: var(--ink-2); }
+.inspector-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.inspector-table th { text-align: left; padding: 0 8px 6px 0; font: 500 10px var(--mono); color: var(--faint); letter-spacing: .06em; }
+.inspector-table td { padding: 7px 8px 7px 0; border-top: 1px solid var(--line-soft); color: var(--ink-2); vertical-align: top; word-break: break-word; }
+.inspector-table td strong { display: block; font-weight: 500; }
+.inspector-table td small { display: block; font: 10px var(--mono); color: var(--faint); }
+.inspector-table td code { font: 10.5px var(--mono); }
+.inspector-table td[data-host-status="failed"] { color: var(--removed); }
+.inspector-folder { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; font-size: 11.5px; color: var(--muted); }
+.inspector-folder span { min-width: 52px; font: 500 10px var(--mono); color: var(--faint); letter-spacing: .06em; }
+.inspector-folder code { font: 10.5px var(--mono); color: var(--ink-2); word-break: break-all; }
+.inspector-folder + .inspector-table { margin-top: 10px; }
 
 .extension-head { display: flex; align-items: center; gap: 12px; max-width: 460px; }
 .extension-head > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }

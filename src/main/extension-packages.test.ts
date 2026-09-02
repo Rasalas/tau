@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
-import { bundleHostExtension, importHostExtension, listExtensionPackages, loadHostExtensionPackages, parseExtensionManifest } from "./extension-packages.js";
+import { bundleHostExtension, importHostExtension, inspectExtensionPackages, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest } from "./extension-packages.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -37,16 +37,51 @@ describe("extension packages", () => {
     expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: " Hello ", desktop: "./d.tsx" }))).toEqual({ manifest: { id: "a.b", name: "Hello", desktop: "./d.tsx" }, desktopEntry: "/p/d.tsx" });
   });
 
+  it("reads version and engines and refuses ranges it cannot check", () => {
+    const parsed = parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", version: "1.2.0", engines: { api: "^1.0.0", pi: ">=0.80 <1" }, host: "./h.ts" }));
+    expect(parsed.manifest).toEqual({ id: "a.b", name: "x", version: "1.2.0", engines: { api: "^1.0.0", pi: ">=0.80 <1" }, host: "./h.ts" });
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", version: "latest", host: "./h.ts" }))).toThrow('"version" must be a semver string');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", engines: { node: ">=20" }, host: "./h.ts" }))).toThrow('not "node"');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", engines: { api: "newest" }, host: "./h.ts" }))).toThrow('"engines": "newest" is not a version range');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", engines: ["api"], host: "./h.ts" }))).toThrow('"engines" must be an object');
+    const versions = { tau: "0.0.0", pi: "0.84.4", api: "1.0.0" };
+    expect(manifestIncompatibility(parsed.manifest, versions)).toBeUndefined();
+    expect(manifestIncompatibility(parsed.manifest, undefined)).toBeUndefined();
+    expect(manifestIncompatibility({ ...parsed.manifest, engines: { api: "^2" } }, versions)).toBe("a.b 1.2.0 needs the extension API ^2, this Tau has 1.0.0");
+  });
+
+  it("summarizes the package folders for the inspector without loading code", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    await writePackage(home, "hello", { id: "acme.hello", name: "Hello", version: "0.3.0", engines: { api: "^1" }, desktop: "./d.tsx", host: "./h.ts" }, { "d.tsx": "export default {}", "h.ts": "export default { activate() {} }" });
+    await writePackage(project, "local", { id: "acme.local", name: "Local", desktop: "./d.tsx" }, { "d.tsx": "export default {}" });
+    const versions = { tau: "0.0.0", pi: "0.84.4", api: "1.0.0" };
+    const inspection = await inspectExtensionPackages(project, "/agent", { home, trusted: () => false, versions });
+    expect(inspection.versions).toEqual(versions);
+    expect(inspection.directories.map((entry) => entry.scope)).toEqual(["global", "project"]);
+    expect(inspection.packages).toEqual([{ id: "acme.hello", name: "Hello", version: "0.3.0", engines: { api: "^1" }, scope: "global", directory: join(home, ".tau", "extensions", "hello"), desktop: true, host: true }]);
+    expect(inspection.skipped).toHaveLength(1);
+    expect(inspection.errors).toEqual([]);
+  });
+
   it("lists packages from both folders and keeps untrusted project packages off", async () => {
     const home = await scratch();
     const project = await scratch();
     await writePackage(home, "global-one", { id: "acme.global", name: "Global", host: "./host.ts" }, { "host.ts": "export default { activate() {} }" });
     await writePackage(project, "local-one", { id: "acme.local", name: "Local", desktop: "./desktop.tsx" }, { "desktop.tsx": "export default {}" });
     await writePackage(project, "broken", { id: "acme.broken", name: "Broken", host: "./missing.ts" }, {});
-    const trusted = await listExtensionPackages(project, "/agent", { home, trusted: () => true });
+    await writePackage(home, "future", { id: "acme.future", name: "Future", version: "3.0.0", engines: { api: "^2.0.0" }, host: "./host.ts" }, { "host.ts": "export default { activate() {} }" });
+    const versions = { tau: "0.0.0", pi: "0.84.4", api: "1.0.0" };
+    const trusted = await listExtensionPackages(project, "/agent", { home, trusted: () => true, versions });
     expect(trusted.packages.map((pkg) => [pkg.scope, pkg.manifest.id])).toEqual([["global", "acme.global"], ["project", "acme.local"]]);
-    expect(trusted.errors.map((error) => error.message)).toEqual([expect.stringContaining("does not exist")]);
-    const untrusted = await listExtensionPackages(project, "/agent", { home, trusted: () => false });
+    expect(trusted.errors.map((error) => error.message)).toEqual([
+      "acme.future 3.0.0 needs the extension API ^2.0.0, this Tau has 1.0.0",
+      expect.stringContaining("does not exist"),
+    ]);
+    // Without versions to check against, engines are not enforced.
+    const unchecked = await listExtensionPackages(project, "/agent", { home, trusted: () => true });
+    expect(unchecked.packages.map((pkg) => pkg.manifest.id)).toContain("acme.future");
+    const untrusted = await listExtensionPackages(project, "/agent", { home, trusted: () => false, versions });
     expect(untrusted.packages.map((pkg) => pkg.manifest.id)).toEqual(["acme.global"]);
     expect(untrusted.skipped).toHaveLength(1);
   });

@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Command, Plus, Sliders, Sparkles, X } from "lucide-react";
-import type { HostExtensionSummary, HostSnapshot } from "../../shared/contracts";
+import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
+import type { ExtensionInspection, HostExtensionSummary, HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { preferences } from "../preferences";
 import { ModelPicker, modelKey } from "./ModelPicker";
@@ -153,6 +153,99 @@ function ExtensionPage({
   );
 }
 
+/**
+ * Development view over every extension the workbench knows: the desktop
+ * registry, the host registry and the package folders on disk, with the
+ * versions a package's `engines` is checked against.
+ */
+function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: string }) {
+  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const [hostHalves, setHostHalves] = useState<HostExtensionSummary[]>([]);
+  const [inspection, setInspection] = useState<ExtensionInspection>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let cancelled = false;
+    window.tau?.listHostExtensions().then((summaries) => { if (!cancelled) setHostHalves(summaries); }).catch(() => undefined);
+    if (cwd) {
+      window.tau?.inspectExtensions(cwd)
+        .then((result) => { if (!cancelled) setInspection(result); })
+        .catch((failure: unknown) => { if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure)); });
+    }
+    return () => { cancelled = true; };
+  }, [cwd]);
+
+  const desktop = registry.getExtensionSummaries();
+  const ids = [...new Set([...desktop.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)])].sort();
+  const packages = inspection?.packages ?? [];
+  const hostStatus = (half: HostExtensionSummary | undefined) => !half ? "—" : half.error ? `failed: ${half.error}` : half.active ? `active${half.commands.length ? ` · ${half.commands.length} commands` : ""}` : "off";
+
+  return (
+    <div className="settings-page inspector-page">
+      <h3>Inspector</h3>
+      <p className="lede">Every extension both halves know, and the package folders on disk. Edit a package, then run /reload.</p>
+
+      <div className="settings-label">VERSIONS</div>
+      <div className="inspector-versions">
+        <span>Tau <b>{inspection?.versions.tau ?? "…"}</b></span>
+        <span>Pi <b>{inspection?.versions.pi ?? "…"}</b></span>
+        <span>Extension API <b>{inspection?.versions.api ?? "…"}</b></span>
+      </div>
+
+      <div className="settings-label">LOADED</div>
+      <table className="inspector-table" aria-label="Loaded extensions">
+        <thead><tr><th>Extension</th><th>Desktop</th><th>Host</th><th>Source</th></tr></thead>
+        <tbody>
+          {ids.map((id) => {
+            const desktopHalf = desktop.find((entry) => entry.id === id);
+            const hostHalf = hostHalves.find((entry) => entry.id === id);
+            const pkg = packages.find((entry) => entry.id === id);
+            return (
+              <tr key={id} data-extension-id={id}>
+                <td><strong>{desktopHalf?.name ?? hostHalf?.name ?? id}</strong><small>{id}{pkg?.version ? ` · ${pkg.version}` : ""}</small></td>
+                <td>{desktopHalf ? (desktopHalf.active ? `active${desktopHalf.contributes ? ` · ${desktopHalf.contributes}` : ""}` : "off") : "—"}</td>
+                <td data-host-status={hostHalf?.error ? "failed" : hostHalf?.active ? "active" : "off"}>{hostStatus(hostHalf)}</td>
+                <td>{pkg ? <span title={pkg.directory}>{pkg.scope} package</span> : "bundled"}</td>
+              </tr>
+            );
+          })}
+          {ids.length === 0 ? <tr><td colSpan={4}>No extension is loaded (safe mode).</td></tr> : null}
+        </tbody>
+      </table>
+
+      <div className="settings-label">PACKAGES ON DISK</div>
+      {inspection?.directories.map((entry) => (
+        <div className="inspector-folder" key={entry.directory}>
+          <span>{entry.scope}</span>
+          <code>{entry.directory}</code>
+        </div>
+      ))}
+      {packages.length > 0 ? (
+        <table className="inspector-table" aria-label="Extension packages">
+          <thead><tr><th>Package</th><th>Entries</th><th>Engines</th><th>Folder</th></tr></thead>
+          <tbody>
+            {packages.map((pkg) => (
+              <tr key={pkg.directory}>
+                <td><strong>{pkg.name}</strong><small>{pkg.id}{pkg.version ? ` · ${pkg.version}` : ""}</small></td>
+                <td>{[pkg.desktop ? "desktop" : "", pkg.host ? "host" : ""].filter(Boolean).join(" + ")}</td>
+                <td>{pkg.engines ? Object.entries(pkg.engines).map(([engine, range]) => `${engine} ${range}`).join(", ") : "any"}</td>
+                <td><code title={pkg.directory}>{pkg.directory.split("/").pop()}</code></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : inspection ? <div className="settings-note">No package folder carries a tau-extension.json.</div> : null}
+      {inspection?.errors.map((failure) => (
+        <div className="settings-note" data-level="error" key={failure.path}>{failure.path}: {failure.message}</div>
+      ))}
+      {inspection?.skipped.map((skip) => (
+        <div className="settings-note" key={skip.directory}>{skip.directory}: {skip.reason}</div>
+      ))}
+      {error ? <div className="settings-note" data-level="error">Could not scan the package folders: {error}</div> : null}
+      {!cwd ? <div className="settings-note">Open a project to scan its package folder.</div> : null}
+    </div>
+  );
+}
+
 export function SettingsModal({
   page,
   snapshot,
@@ -208,6 +301,9 @@ export function SettingsModal({
             <button className={page === "keybindings" ? "active" : ""} onClick={() => onSetPage("keybindings")}>
               <Command size={14} /><span>Keybindings</span>
             </button>
+            <button className={page === "inspector" ? "active" : ""} onClick={() => onSetPage("inspector")}>
+              <Puzzle size={14} /><span>Inspector</span>
+            </button>
             <div className="settings-nav-heading">EXTENSIONS</div>
             {summaries.map((summary) => (
               <button
@@ -256,6 +352,8 @@ export function SettingsModal({
               ))}
               <div className="settings-note">Pi's <code>~/.pi/agent/keybindings.json</code> rebinds the runtime commands (app.session.new, app.interrupt, app.model.select, app.thinking.toggle) and the shortcuts Pi extensions register; run /reload after editing it.</div>
             </div>
+          ) : page === "inspector" ? (
+            <InspectorPage registry={registry} cwd={snapshot?.cwd} />
           ) : active ? (
             <ExtensionPage summary={active} registry={registry} onChanged={() => onSetPage(active.id)} onNotify={onNotify} />
           ) : (

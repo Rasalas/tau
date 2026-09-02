@@ -4,9 +4,15 @@ import { basename, dirname, extname, join } from "node:path";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
-import { MANIFEST_FILE, parseExtensionManifest } from "./extension-packages.js";
+import { MANIFEST_FILE, manifestIncompatibility, parseExtensionManifest } from "./extension-packages.js";
+import type { ExtensionHostVersions } from "../shared/extension-compat.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
+
+export interface DesktopEntryOptions {
+  /** Versions a package's `engines` must accept; an incompatible package has no desktop half either. */
+  versions?: ExtensionHostVersions;
+}
 
 /** Where desktop extensions live: one folder for the user, one per project. */
 export function desktopExtensionDirectories(cwd: string, home = homedir()): Array<{ scope: "global" | "project"; directory: string }> {
@@ -17,7 +23,7 @@ export function desktopExtensionDirectories(cwd: string, home = homedir()): Arra
 }
 
 /** Every file or `<name>/index.*` in the folder that can be an extension entry. */
-export async function listDesktopExtensionEntries(directory: string): Promise<string[]> {
+export async function listDesktopExtensionEntries(directory: string, options: DesktopEntryOptions = {}): Promise<string[]> {
   let names: string[];
   try {
     names = await readdir(directory);
@@ -39,8 +45,8 @@ export async function listDesktopExtensionEntries(directory: string): Promise<st
     const manifest = await readFile(join(path, MANIFEST_FILE), "utf8").catch(() => undefined);
     if (manifest !== undefined) {
       try {
-        const { desktopEntry } = parseExtensionManifest(path, manifest);
-        if (desktopEntry) entries.push(desktopEntry);
+        const parsed = parseExtensionManifest(path, manifest);
+        if (parsed.desktopEntry && !manifestIncompatibility(parsed.manifest, options.versions)) entries.push(parsed.desktopEntry);
       } catch {
         // The host reports manifest errors when it loads packages; the desktop side stays quiet.
       }
@@ -122,14 +128,14 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
 export async function loadDesktopExtensions(
   cwd: string,
   agentDir: string,
-  options: BundleOptions & { home?: string; trusted?: (cwd: string) => boolean },
+  options: BundleOptions & DesktopEntryOptions & { home?: string; trusted?: (cwd: string) => boolean },
 ): Promise<DesktopExtensionLoadResult> {
   const bundles: DesktopExtensionBundle[] = [];
   const errors: DesktopExtensionLoadResult["errors"] = [];
   const skipped: DesktopExtensionLoadResult["skipped"] = [];
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
   for (const { scope, directory } of desktopExtensionDirectories(cwd, options.home)) {
-    const entries = await listDesktopExtensionEntries(directory);
+    const entries = await listDesktopExtensionEntries(directory, { versions: options.versions });
     if (entries.length === 0) continue;
     if (scope === "project" && !trusted(cwd)) {
       skipped.push({ directory, reason: "The project is not trusted in Pi, so its desktop extensions stay off." });

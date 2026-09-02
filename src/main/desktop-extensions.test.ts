@@ -72,4 +72,15 @@ describe("desktop extension packages", () => {
     await writeFile(join(dir, "host-only", "index.tsx"), "export default {}");
     expect(await listDesktopExtensionEntries(dir)).toEqual([join(dir, "pkg", "ui", "main.tsx")]);
   });
+
+  it("keeps the desktop half of a package off when its engines do not fit", async () => {
+    const dir = await scratch();
+    await mkdir(join(dir, "future"));
+    await writeFile(join(dir, "future", "tau-extension.json"), JSON.stringify({ id: "acme.future", name: "Future", engines: { api: "^2.0.0" }, desktop: "./main.tsx" }));
+    await writeFile(join(dir, "future", "main.tsx"), "export default {}");
+    const versions = { tau: "0.0.0", pi: "0.84.4", api: "1.0.0" };
+    expect(await listDesktopExtensionEntries(dir, { versions })).toEqual([]);
+    expect(await listDesktopExtensionEntries(dir, { versions: { ...versions, api: "2.1.0" } })).toEqual([join(dir, "future", "main.tsx")]);
+    expect(await listDesktopExtensionEntries(dir)).toEqual([join(dir, "future", "main.tsx")]);
+  });
 });
