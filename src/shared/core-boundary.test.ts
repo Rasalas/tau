@@ -19,14 +19,6 @@ const FORBIDDEN: Array<{ label: string; test: RegExp }> = [
 
 const KNOWN_DEBT: Record<string, Record<string, string>> = {
   "src/shared/contracts.ts": {
-    // Ticket 02 stage B: text-empty assistant messages stay visible because of their checkpoint anchor.
-    turnCheckpoints: "checkpoint summaries in thread detail and pages",
-    supportsCheckpointRestore: "checkpoint capability flag in thread detail",
-    UiTurnCheckpoint: "type of the two entries above",
-    "turn-checkpoint": "checkpoint host event the transcript anchors read",
-    checkpoint: "payload field of that event",
-    "turn-checkpoint-status": "live checkpoint status event",
-    "turn-checkpoint-types": "import path of the type above",
     // Pi's own dialog kinds; `editor` is ctx.ui.editor, not an external editor.
     editor: "Pi dialog kind",
   },

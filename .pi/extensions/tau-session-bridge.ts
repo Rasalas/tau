@@ -24,7 +24,8 @@ import { knownSkillNames } from "../../src/shared/skill-envelope.js";
 import { PI_RUNTIME_ADAPTER, prepareSkillPrompt, skillInvocationCommand, skillMessagePresentation } from "../../src/main/skill-invocation.js";
 import type { UiSkillDraft } from "../../src/shared/contracts.js";
 import { validatePreparedPrompt } from "../../src/shared/prepared-prompt.js";
-import type { DiffLoadOptions, UiFileDiff } from "../../src/shared/contracts.js";
+import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChangesPage } from "../../src/shared/workspace-kit-types.js";
+import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type CheckpointEvent, type WorkspaceCheckpointList } from "../../src/shared/workspace-kit-protocol.js";
 import { WorkspaceCheckpointLeaseManager } from "../../src/main/workspace-checkpoint-lease.js";
 import { tauOwnsRuntime } from "../../src/main/tau-runtime-owner.js";
 import { assistantAnchorForMessage } from "../../src/main/pi-turn-checkpoint-extension.js";
@@ -54,7 +55,7 @@ import {
   type PiBridgeSnapshot,
   type PiBridgeToolOutputPage,
   type PiBridgeTranscriptPage,
-  type PiBridgeTurnFilesPage,
+  type PiBridgeExtensionEvent,
 } from "../../src/shared/pi-bridge-protocol.js";
 
 interface ClientState {
@@ -884,7 +885,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       pi.appendEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
       if (!currentContext(ctx)) return;
       try {
-        broadcast({ type: "turn-checkpoint", checkpoint: cloneTurnCheckpoint(stored) }, ctx);
+        broadcastCheckpointEvent({ type: "turn-checkpoint", sessionId: ctx.sessionManager.getSessionId(), checkpoint: cloneTurnCheckpoint(stored) }, ctx);
         // The checkpoint may anchor an otherwise empty assistant message. A
         // bounded snapshot re-announces that exact raw entry so the renderer can
         // retain the anchor instead of inventing a tail activity row.
@@ -899,12 +900,12 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       if (ctx && currentContext(ctx)) {
         // Error details may contain prompt text or skill contents. Keep the
         // wire event useful without exposing those details to the renderer.
-        broadcast({ type: "turn-checkpoint-error", turnId: capture.id, message: "Turn checkpoint capture failed." }, ctx);
+        broadcastCheckpointEvent({ type: "turn-checkpoint-error", sessionId: ctx.sessionManager.getSessionId(), turnId: capture.id, message: "Turn checkpoint capture failed." }, ctx);
       }
     },
     onStatus: (status, capture) => {
       const ctx = contextForTurn(capture.id);
-      if (ctx && currentContext(ctx)) broadcast({ type: "turn-checkpoint-status", turnId: capture.id, status }, ctx);
+      if (ctx && currentContext(ctx)) broadcastCheckpointEvent({ type: "turn-checkpoint-status", sessionId: ctx.sessionManager.getSessionId(), turnId: capture.id, status }, ctx);
     },
     onReleased: (capture) => releaseTurnContext(capture.id),
   });
@@ -917,7 +918,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     return checkpointFeature.historicalDiff(ctx.cwd, checkpoint, path, options);
   };
 
-  const historicalFiles = async (ctx: ExtensionContext, checkpointId: string, cursor?: string, limit?: number): Promise<PiBridgeTurnFilesPage> => {
+  const historicalFiles = async (ctx: ExtensionContext, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage & { sessionId: string; checkpointId: string }> => {
     const checkpoint = turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId())
       .find((entry) => entry.id === checkpointId);
     if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
@@ -940,15 +941,32 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   const branchMessages = (ctx: ExtensionContext): unknown[] => ctx.sessionManager.getBranch()
     .flatMap((entry) => entry.type === "message" ? [{ ...entry.message, tauEntryId: entry.id }] : []);
 
-  const checkpointsForRawMessages = (ctx: ExtensionContext, messages: readonly unknown[]) => {
+  // Checkpoint cards anchor to assistant entries; a text-empty one stays visible when pinned.
+  const pinnedEntryIdsFor = (ctx: ExtensionContext, messages: readonly unknown[]): string[] => {
     const ids = new Set(messages.flatMap((message) => {
       if (!message || typeof message !== "object") return [];
       const id = (message as { tauEntryId?: unknown }).tauEntryId;
       return typeof id === "string" ? [id] : [];
     }));
     return turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId())
-      .filter((checkpoint) => ids.has(checkpoint.anchorMessageId))
-      .map(cloneTurnCheckpoint);
+      .map((checkpoint) => checkpoint.anchorMessageId)
+      .filter((id) => ids.has(id));
+  };
+  const checkpointList = (ctx: ExtensionContext): WorkspaceCheckpointList => ({
+    checkpoints: turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId()).map(cloneTurnCheckpoint),
+    restoreSupported: false,
+  });
+  // Commands of Workspace Kit's counterpart inside Pi, reached through the host's `extension` command.
+  const extensionCommands: Record<string, (ctx: ExtensionContext, input: Record<string, unknown>) => Promise<unknown>> = {
+    [`${WORKSPACE_HOST_EXTENSION_ID}/checkpoints`]: async (ctx) => checkpointList(ctx),
+    [`${WORKSPACE_HOST_EXTENSION_ID}/turn-file-diff`]: async (ctx, input) => {
+      if (typeof input.checkpointId !== "string" || typeof input.path !== "string") throw new Error("turn-file-diff needs checkpointId and path.");
+      return historicalDiff(ctx, input.checkpointId, input.path, (input.options ?? undefined) as DiffLoadOptions | undefined);
+    },
+    [`${WORKSPACE_HOST_EXTENSION_ID}/turn-files`]: async (ctx, input) => {
+      if (typeof input.checkpointId !== "string") throw new Error("turn-files needs checkpointId.");
+      return historicalFiles(ctx, input.checkpointId, typeof input.cursor === "string" ? input.cursor : undefined, typeof input.limit === "number" ? input.limit : undefined);
+    },
   };
 
   const snapshot = (ctx: ExtensionContext, paged = false): PiBridgeSnapshot => {
@@ -989,9 +1007,9 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       activityMessages: boundedBridgeValue(bridgePage.activityMessages),
       turnActivityHistory: boundedBridgeValue(bridgePage.turnActivityHistory),
       turnActivityHistoryComplete: bridgePage.turnActivityHistoryComplete,
-      // A snapshot exposes only the bounded raw tail; older cards travel with
+      // A snapshot exposes only the bounded raw tail; older anchors travel with
       // their own transcript page.
-      turnCheckpoints: checkpointsForRawMessages(ctx, visibleMessages),
+      pinnedEntryIds: pinnedEntryIdsFor(ctx, visibleMessages),
       composerCommands: pi.getCommands()
         .filter((command) => !command.name.startsWith("tau-bridge-"))
         .slice(0, MAX_BRIDGE_CATALOG_ITEMS)
@@ -1024,7 +1042,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       activityMessages: boundedBridgeValue(bridged.activityMessages),
       turnActivityHistory: boundedBridgeValue(bridged.turnActivityHistory),
       turnActivityHistoryComplete: bridged.turnActivityHistoryComplete,
-      turnCheckpoints: checkpointsForRawMessages(ctx, bridged.page.messages),
+      pinnedEntryIds: pinnedEntryIdsFor(ctx, bridged.page.messages),
       taskHistory: taskProgressHistoryFromMessages(bridged.activityMessages.concat(bridged.page.messages)),
     } satisfies PiBridgeTranscriptPage;
     return page;
@@ -1087,6 +1105,11 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       event: boundedBridgePayload(decorateEvent(event, ctx), MAX_BRIDGE_OUTBOUND_FRAME_BYTES - 64 * 1024),
     };
     for (const client of clients) if (client.authenticated) send(client, frame);
+  };
+
+  const broadcastCheckpointEvent = (event: CheckpointEvent, ctx: ExtensionContext): void => {
+    const frame: PiBridgeExtensionEvent = { type: "extension-event", extensionId: WORKSPACE_HOST_EXTENSION_ID, name: CHECKPOINT_EVENT, payload: event };
+    broadcast(frame, ctx);
   };
 
   const broadcastUserMessageFailure = (ctx: ExtensionContext, clientMessageId: string | undefined): void => {
@@ -1206,7 +1229,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           } catch (error) {
             if (!isExtensionCommand) {
               void checkpointRuntime.reject(clientTurnId);
-              broadcast({ type: "turn-checkpoint-error", turnId: clientTurnId, message: "Turn checkpoint capture failed." }, ctx);
+              broadcastCheckpointEvent({ type: "turn-checkpoint-error", sessionId: ctx.sessionManager.getSessionId(), turnId: clientTurnId, message: "Turn checkpoint capture failed." }, ctx);
             }
             if (clientIdentity) bridgeTurns.cancel(ctx.sessionManager.getSessionId(), clientIdentity);
             if (marker) failClientMessageIfUnpersisted(ctx, frame.clientMessageId);
@@ -1244,12 +1267,13 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
           });
           break;
         }
-        case "turn_file_diff":
-          respond(client, frame.id, true, await historicalDiff(ctx, frame.checkpointId, frame.path, frame));
+        case "extension": {
+          const handler = extensionCommands[`${frame.extensionId}/${frame.name}`];
+          if (!handler) throw new Error(`Pi has no "${frame.name}" command for extension ${frame.extensionId}.`);
+          const input = frame.input && typeof frame.input === "object" ? frame.input as Record<string, unknown> : {};
+          respond(client, frame.id, true, await handler(ctx, input));
           break;
-        case "turn_files_page":
-          respond(client, frame.id, true, await historicalFiles(ctx, frame.checkpointId, frame.cursor, frame.limit));
-          break;
+        }
         case "new_session": {
           if (!ctx.isIdle()) throw new Error("Wait for the active run before creating a new thread.");
           // Only a registered command receives ExtensionCommandContext. The

@@ -37,6 +37,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     createWorktree: unsupported("createWorktree"),
     switchRef: unsupported("switchRef"),
     openInEditor: unsupported("openInEditor"),
+    checkpoints: async () => ({ checkpoints: [], restoreSupported: false }),
     canRestoreCheckpoint: async () => false,
     getRestorePreview: unsupported("getRestorePreview"),
     restoreCheckpoint: unsupported("restoreCheckpoint"),
@@ -74,6 +75,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();
       case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "path"));
+      case "checkpoints": return client.checkpoints(field(input, "sessionId")!);
       case "can-restore": return client.canRestoreCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
       case "restore-preview": return client.getRestorePreview(field(input, "sessionId")!, field(input, "checkpointId")!);
       case "restore": return client.restoreCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);

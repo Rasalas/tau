@@ -1041,7 +1041,21 @@ describe("App render isolation", () => {
           ],
           isStreaming: false,
           activeTools: [],
-          turnCheckpoints: [{
+        },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project", branch: "main" },
+      }),
+      onHostEvent: () => () => {},
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }),
+        getFileTree: async () => [],
+        getTurnFileDiff,
+        // The kit lists a thread's checkpoints itself; the transcript only carries the anchor.
+        checkpoints: async () => ({
+          restoreSupported: false,
+          checkpoints: [{
             id: "turn-1",
             turnId: "turn-1",
             sessionId: "session",
@@ -1055,17 +1069,7 @@ describe("App render isolation", () => {
             removed: 0,
             branch: "main",
           }],
-        },
-        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
-        project: { cwd: "/project", branch: "main" },
-      }),
-      onHostEvent: () => () => {},
-      invokeHostExtension: workspaceHostStub({
-        listEditors: async () => [],
-        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-        getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }),
-        getFileTree: async () => [],
-        getTurnFileDiff,
+        }),
       }),
     } as unknown as typeof window.tau;
 

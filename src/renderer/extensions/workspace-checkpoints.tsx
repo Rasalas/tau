@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { DiffLoadOptions, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import type { UiTurnCheckpoint } from "../../shared/turn-checkpoint-types";
-import { CHECKPOINT_EVENT, type CheckpointEvent } from "../../shared/workspace-kit-protocol";
+import { CHECKPOINT_EVENT, type CheckpointEvent, type WorkspaceCheckpointList } from "../../shared/workspace-kit-protocol";
 import type { DesktopExtensionContext, OverlayProps, RegionProps, TranscriptRow, WorkbenchActions } from "../extension-system";
 import { useWorkbench } from "../workbench-context";
 import { RestoreCheckpointDialog } from "../components/RestoreCheckpointDialog";
@@ -21,17 +21,25 @@ interface RestoreRequest {
 }
 
 interface CheckpointState {
+  /** The thread whose checkpoints were loaded from the host. */
+  sessionId?: string;
+  /** Every checkpoint of the thread's branch, as the host last listed them. */
+  persisted: readonly UiTurnCheckpoint[];
+  /** Whether the host can restore one of them for this thread. */
+  restoreSupported: boolean;
   /** Checkpoints announced live for the thread on screen, keyed by id. */
   live: Map<string, UiTurnCheckpoint>;
   restorable: ReadonlySet<string>;
   restore?: RestoreRequest;
   restoreBusy: boolean;
   review?: { checkpoint: UiTurnCheckpoint; path?: string };
+  /** A capture failure the host reported; shown once. */
+  notice?: string;
 }
 
 /** The kit's own checkpoint state; App knows none of it. */
-class CheckpointStore {
-  private state: CheckpointState = { live: new Map(), restorable: new Set(), restoreBusy: false };
+export class CheckpointStore {
+  private state: CheckpointState = { persisted: [], restoreSupported: false, live: new Map(), restorable: new Set(), restoreBusy: false };
   private listeners = new Set<() => void>();
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -39,7 +47,12 @@ class CheckpointStore {
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((listener) => listener());
   }
-  resetThread(): void { this.update({ live: new Map(), restorable: new Set(), restore: undefined, review: undefined }); }
+  resetThread(): void {
+    this.update({ sessionId: undefined, persisted: [], restoreSupported: false, live: new Map(), restorable: new Set(), restore: undefined, review: undefined });
+  }
+  loaded(sessionId: string, list: WorkspaceCheckpointList): void {
+    this.update({ sessionId, persisted: list.checkpoints, restoreSupported: list.restoreSupported });
+  }
   announce(checkpoint: UiTurnCheckpoint): void {
     const live = new Map(this.state.live);
     live.set(checkpoint.id, checkpoint);
@@ -64,8 +77,27 @@ function createController(store: CheckpointStore, rows: ReturnType<DesktopExtens
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const sessionId = workbenchSnapshot?.sessionId;
     const streaming = Boolean(workbenchSnapshot?.isStreaming);
-    const restoreSupported = workbenchSnapshot?.supportsCheckpointRestore === true;
-    const checkpoints = useMemo(() => mergeCheckpoints(workbenchSnapshot?.turnCheckpoints, state.live), [workbenchSnapshot?.turnCheckpoints, state.live]);
+    const loaded = state.sessionId === sessionId;
+    const restoreSupported = loaded && state.restoreSupported;
+    const checkpoints = useMemo(() => mergeCheckpoints(loaded ? state.persisted : undefined, state.live), [loaded, state.persisted, state.live]);
+
+    // The host lists the thread's checkpoints once per thread; live events add
+    // to them. A thread reset (the active-thread event) empties the list, so it
+    // is loaded again whenever the store has nothing for the thread on screen.
+    useEffect(() => {
+      if (!sessionId || !window.tau || loaded) return;
+      let cancelled = false;
+      workspaceKit.checkpoints(sessionId)
+        .then((list) => { if (!cancelled) store.loaded(sessionId, list); })
+        .catch((error) => { if (!cancelled) actions.notify(errorMessage(error)); });
+      return () => { cancelled = true; };
+    }, [actions, loaded, sessionId]);
+
+    useEffect(() => {
+      if (!state.notice) return;
+      actions.notify(state.notice);
+      store.update({ notice: undefined });
+    }, [actions, state.notice]);
 
     // Verify restorability once per thread and checkpoint set; the host checks refs and workspace.
     useEffect(() => {
@@ -201,6 +233,10 @@ export function registerCheckpoints(plugin: DesktopExtensionContext): void {
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
     if (event?.type === "turn-checkpoint") { store.announce(event.checkpoint); workspaceStore.checkpointRecorded(event.sessionId); }
+    // The capture waits for the workspace lease before Pi starts; say so in place of the spinner.
+    else if (event?.type === "turn-checkpoint-status") {
+      plugin.setLiveStatus(event.sessionId, event.status === "queued" || event.status === "waiting" ? "Waiting for workspace…" : undefined);
+    } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
   plugin.registerRegion({ id: "workspace.checkpoints", placement: "transcript-header", order: 100, Component: createController(store, rows) });
   plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, Component: createReviewOverlay(store) });

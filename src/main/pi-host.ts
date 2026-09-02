@@ -47,15 +47,11 @@ import type {
   ThreadTreeNavigationResult,
   UiThreadTree,
 } from "../shared/contracts.js";
-import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/workspace-kit-types.js";
-import type { UiTurnCheckpoint } from "../shared/turn-checkpoint-types.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
   HOST_PROTOCOL_VERSION,
   catalogFromSnapshot,
-  checkpointsForMessages,
   detailFromSnapshot,
-  messageHasCheckpointAnchor,
   normalizeTranscriptCursorBoundaries,
   taskHistoryForMessages,
   turnActivityHistoryForMessages,
@@ -78,7 +74,21 @@ import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
 import { GitCoordinator } from "./git-coordinator.js";
-import { HostExtensionRegistry, type CheckpointHostEvent, type HostExtension, type HostExtensionServices, type HostPlatform, type HostThread, type HostUiPresenter, type RuntimeExtensionContribution } from "./host-extensions.js";
+import {
+  HostExtensionRegistry,
+  HostThreadLifecycleSet,
+  HostTurnObserverSet,
+  type HostAttachedRuntime,
+  type HostExtension,
+  type HostExtensionServices,
+  type HostPlatform,
+  type HostPreparedThread,
+  type HostSessionFile,
+  type HostThread,
+  type HostUiPresenter,
+  type RuntimeExtensionContribution,
+  type RuntimeSessionInfo,
+} from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
@@ -92,7 +102,7 @@ import {
   type PiBridgeSnapshot,
   type PiBridgeToolOutputPage,
   type PiBridgeTranscriptPage,
-  type PiBridgeTurnFilesPage,
+  type PiBridgeExtensionEvent,
 } from "../shared/pi-bridge-protocol.js";
 import { completeToolOutputRead, TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
 import { inferUnavailableTranscriptCompleteness, isTranscriptHistoryMetadataConsistent, parseTranscriptHistoryCompleteness, resolveTranscriptHistoryCompleteness, type TranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
@@ -136,28 +146,7 @@ import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { assertClaudePermissionPolicySupported, assertRuntimeAdapter, createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter, type RuntimePermissionPolicy } from "./runtime-adapters.js";
 import { ClaudeRuntimeSessionStore, type ClaudeTitleSource } from "./claude-runtime-store.js";
 import { ClaudeThreadRuntimeBackend, PiThreadRuntimeBackend, type ThreadRuntimeBackend } from "./thread-runtime-backend.js";
-import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
-import { assistantAnchorForBranch, assistantAnchorForMessage } from "./pi-turn-checkpoint-extension.js";
-import {
-  cloneTurnCheckpoint,
-  checkpointsForBranch,
-  TURN_CHECKPOINT_CUSTOM_TYPE,
-  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
-  TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
-  turnRestoreBackupsFromEntries,
-  turnRestoreTransactionsFromEntries,
-  turnCheckpointsFromEntries,
-  turnSnapshotRef,
-} from "../shared/turn-checkpoint-codec.js";
-import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
-import {
-  createWorkspaceKitCheckpointFeature,
-  createWorkspaceKitCheckpointMaintenance,
-  type WorkspaceKitCheckpointFeature,
-  type WorkspaceKitCheckpointRuntime,
-  type WorkspaceKitCheckpointMaintenance,
-  type WorkspaceKitLiveCheckpointSession,
-} from "./workspace-kit-checkpoints.js";
+import { assistantAnchorForBranch } from "./pi-turn-checkpoint-extension.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Virtual shell paths keep app-data-owned Claude sessions addressable without
@@ -257,10 +246,13 @@ function thinkingFromContent(content: unknown): string | undefined {
   return value || undefined;
 }
 
+const EMPTY_PINS: ReadonlySet<string> = new Set();
+
 export interface MessageMappingOptions {
   runtimeAdapter?: AgentRuntimeAdapter;
   skillCommands?: readonly UiComposerCommand[];
-  checkpoints?: readonly UiTurnCheckpoint[];
+  /** Entries extensions pinned; a text-empty assistant among them stays visible. */
+  pinned?: ReadonlySet<string>;
 }
 
 export interface PiHostOptions {
@@ -381,6 +373,13 @@ export function historyCompletenessForBridgeSnapshot(
   );
 }
 
+/** Text-empty assistant messages are omitted unless an extension pinned their entry. */
+export function isVisibleMessage(message: UiMessage | undefined, pinned?: ReadonlySet<string>): message is UiMessage {
+  if (!message) return false;
+  if (message.text || message.skill) return true;
+  return Boolean(pinned && (pinned.has(message.id) || (message.sourceEntryId !== undefined && pinned.has(message.sourceEntryId))));
+}
+
 /** Validate and map one bridge-owned raw page without exposing provider coordinates. */
 export function mapBridgeMessages(value: unknown, messagesOffsetValue?: unknown, options: MessageMappingOptions = {}): UiMessage[] {
   if (!Array.isArray(value)) throw new Error("Pi returned an invalid transcript message list.");
@@ -389,7 +388,7 @@ export function mapBridgeMessages(value: unknown, messagesOffsetValue?: unknown,
     // When the bridge gives us a raw offset, use it for fallback IDs too. A
     // bridge record without tauEntryId must still deduplicate across pages.
     const mapped = mapMessage(raw, rawMessageOffset === undefined ? index : rawMessageOffset + index, options);
-    return mapped && (mapped.text || mapped.skill || messageHasCheckpointAnchor(mapped, options.checkpoints)) ? [mapped] : [];
+    return isVisibleMessage(mapped, options.pinned) ? [mapped] : [];
   });
   return messages;
 }
@@ -434,8 +433,8 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
   if (page.turnActivityHistoryComplete !== undefined && typeof page.turnActivityHistoryComplete !== "boolean") {
     throw new Error("Pi returned an invalid turn activity completeness flag.");
   }
-  const turnCheckpoints = Array.isArray(page.turnCheckpoints)
-    ? page.turnCheckpoints.filter((checkpoint): checkpoint is UiTurnCheckpoint => Boolean(checkpoint && typeof checkpoint === "object"))
+  const pinnedEntryIds = Array.isArray(page.pinnedEntryIds)
+    ? page.pinnedEntryIds.filter((id): id is string => typeof id === "string")
     : undefined;
   return {
     sessionId,
@@ -448,14 +447,14 @@ function bridgeTranscriptPage(value: unknown, expectedSessionId: string): Valida
     ...(messagesOffset !== undefined ? { messagesOffset } : {}),
     ...(olderCursor !== undefined ? { olderCursor } : {}),
     ...(historyCompleteness !== undefined ? { historyCompleteness } : {}),
-    ...(turnCheckpoints ? { turnCheckpoints } : {}),
+    ...(pinnedEntryIds ? { pinnedEntryIds } : {}),
   };
 }
 
 /** Validate and map one bridge-owned transcript page at the host seam. */
 export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown): TranscriptPage {
   const page = bridgeTranscriptPage(value, sessionId);
-  const messages = mapBridgeMessages(page.messages, page.messagesOffset, { checkpoints: page.turnCheckpoints });
+  const messages = mapBridgeMessages(page.messages, page.messagesOffset, { pinned: new Set(page.pinnedEntryIds ?? []) });
   const taskHistory = taskHistoryForMessages(page.taskHistory, messages);
   const turnActivityHistory = turnActivityHistoryForMessages(
     page.turnActivityHistory ?? turnActivityHistoryFromMessages(page.activityMessages ?? page.messages),
@@ -482,20 +481,19 @@ export function mapBridgeTranscriptPageValue(sessionId: string, value: unknown):
     ...(cursorBoundaries ? { cursorBoundaries } : {}),
     historyCompleteness: resolveTranscriptHistoryCompleteness(page.historyCompleteness, page.hasMore),
     hasMore: page.hasMore,
-    turnCheckpoints: checkpointsForMessages(page.turnCheckpoints, messages),
   };
 }
 
 /**
  * Finds the next row that the renderer would expose after an assistant entry.
- * Empty assistant messages are deliberately omitted until their checkpoint is
- * durable, so an explicit insertion point keeps a late anchor beside its own
- * turn even when a queued user message has already arrived.
+ * Empty assistant messages are omitted until an extension pins them, so an
+ * explicit insertion point keeps a late anchor beside its own turn even when
+ * a queued user message has already arrived.
  */
 function nextVisibleMessageId(
   entries: readonly unknown[],
   sourceEntryId: string,
-  checkpoints: readonly UiTurnCheckpoint[] = [],
+  pinned?: ReadonlySet<string>,
 ): string | undefined {
   const sourceIndex = entries.findIndex((entry) => entry && typeof entry === "object"
     && (entry as { id?: unknown }).id === sourceEntryId);
@@ -509,7 +507,7 @@ function nextVisibleMessageId(
       ...(item.message && typeof item.message === "object" ? item.message : {}),
       tauEntryId: item.id,
     }, index);
-    if (message && (Boolean(message.text) || messageHasCheckpointAnchor(message, checkpoints))) return message.id;
+    if (isVisibleMessage(message, pinned)) return message.id;
   }
   return undefined;
 }
@@ -805,29 +803,9 @@ interface LiveAssistant {
   timestamp: number;
 }
 
-/**
- * A committed restore keeps its recovery thread discoverable without making
- * that thread the one resumed by `continueRecent` on the next launch.
- */
-export async function prioritizeRestoreTargetSession(targetPath: string, backupPath: string): Promise<void> {
-  const [target, backup] = await Promise.all([stat(targetPath), stat(backupPath)]);
-  // Keep a visible gap because findMostRecentSession compares millisecond
-  // timestamps while some filesystems expose coarser mtime resolution.
-  const targetTime = Math.max(Date.now() + 2_000, target.mtimeMs + 1_000, backup.mtimeMs + 2_000);
-  const backupTime = Math.max(0, targetTime - 1_000);
-  await utimes(backupPath, new Date(backupTime), new Date(backupTime));
-  await utimes(targetPath, new Date(targetTime), new Date(targetTime));
-}
-
-interface RestoreActivationTransaction {
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
-}
-
 /** In-flight state of one thread's current turn, whichever process runs it. */
 interface LiveTurnState {
   readonly tools: Map<string, UiToolRun>;
-  checkpointRuntime?: WorkspaceKitCheckpointRuntime;
   currentAssistantId?: string;
   /** Assistant text still streaming, so a thread opened mid-turn shows it. */
   liveAssistant?: LiveAssistant;
@@ -866,12 +844,7 @@ class ThreadRuntime implements LiveTurnState {
   constructor(
     readonly backend: ThreadRuntimeBackend,
     readonly runtime?: AgentSessionRuntime,
-    readonly checkpointFeature?: WorkspaceKitCheckpointFeature,
   ) {}
-
-  get checkpointRuntime(): WorkspaceKitCheckpointRuntime | undefined {
-    return this.checkpointFeature?.runtime;
-  }
 
   get runtimeAdapter(): AgentRuntimeAdapter { return this.backend.runtimeAdapter; }
   get threadId(): string { return this.backend.threadId; }
@@ -886,7 +859,6 @@ class ThreadRuntime implements LiveTurnState {
     this.pendingClientMessageFingerprints.clear();
     this.inFlightClientMessageIds.clear();
     this.adapterAbortControllers.clear();
-    void this.checkpointRuntime?.settle();
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
   }
@@ -1003,7 +975,6 @@ export class PiHost {
   private permissionPolicyProvider: (() => RuntimePermissionPolicy) | undefined;
   private readonly uiPromptDecorators = new Set<(prompt: ExtensionUiPrompt) => void>();
   private readonly uiPresenters = new Set<HostUiPresenter>();
-  private readonly checkpointListeners = new Set<(event: CheckpointHostEvent) => void>();
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
   private readonly threads = new ThreadRuntimeRegistry<ThreadRuntime>({
@@ -1014,7 +985,7 @@ export class PiHost {
       && !this.hasOpenUiPrompts(record.threadId)
       && record.runtime.adapterPending === 0
       && !record.runtime.adapterStreaming
-      && (record.runtime.checkpointRuntime?.pendingCount ?? 0) === 0
+      && this.turnObservers.pending(record.threadId) === 0
       // An external runtime owns its transcript in the app-data store rather
       // than in Pi's message array. It is therefore safe to release once its
       // own visible projection has been persisted.
@@ -1057,13 +1028,15 @@ export class PiHost {
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
-  /** Filesystem leases coordinate every runtime that shares a checkout. */
-  private readonly checkpointLeaseManager = new WorkspaceCheckpointLeaseManager();
-  /** Workspace Kit owns checkpoint persistence and maintenance; host code only adapts it. */
-  private readonly checkpointMaintenance: WorkspaceKitCheckpointMaintenance = createWorkspaceKitCheckpointMaintenance(this.checkpointLeaseManager);
   private readonly toolOwners = new Map<string, string>();
-  /** Lifecycle instances are created with each Pi runtime and shared with its inline adapter. */
-  private readonly checkpointFeatures = new WeakMap<object, WorkspaceKitCheckpointFeature>();
+  /** Extensions stepping into thread opening, forking, activation and the index sweep. */
+  private readonly threadLifecycle = new HostThreadLifecycleSet();
+  private readonly turnObservers = new HostTurnObserverSet();
+  /** Providers naming entries that keep a text-empty assistant visible. */
+  private readonly entryPinProviders = new Set<(thread: HostThread) => Iterable<string>>();
+  private readonly pinnedEntriesCache = new WeakMap<ThreadRuntime, { size: number; leaf: unknown; pinned: ReadonlySet<string> }>();
+  /** Session managers behind the session files extensions opened; a runtime prepared for one shares it. */
+  private readonly sessionFileManagers = new WeakMap<HostSessionFile, SessionManager>();
   private readonly createRuntime: CreateAgentSessionRuntimeFactory = async ({
     cwd,
     agentDir,
@@ -1090,7 +1063,6 @@ export class PiHost {
     const resourcesStartedAt = performance.now();
     const resourceKey = this.resourceFingerprint(cwd, settingsManager);
     const cachedResources = this.resourceDiscoveryCache.get(resourceKey);
-    const checkpointFeature = this.createWorkspaceKitCheckpointFeature(sessionManager, cwd);
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
@@ -1099,18 +1071,8 @@ export class PiHost {
       resourceLoaderOptions: {
         ...(cachedResources ? cachedResourceOptions(cachedResources) : {}),
         noExtensions: this.safeMode,
-        // Inline factories load even in safe mode; host extensions add theirs
-        // through the services facade and are absent in safe mode.
-        extensionFactories: [
-          ...this.runtimeExtensionsFor(settingsManager),
-          ...(this.safeMode ? [] : [{
-            name: "tau-turn-checkpoints",
-            factory: checkpointFeature.createPiExtension({
-              nextTurnId: randomUUID,
-              findAssistantAnchor: assistantAnchorForMessage,
-            }),
-          }]),
-        ],
+        // Host extensions add theirs through the services facade; none in safe mode.
+        extensionFactories: this.runtimeExtensionsFor(settingsManager, { sessionId: sessionManager.getSessionId(), cwd }),
       },
     });
     if (!cachedResources) this.resourceDiscoveryCache.set(resourceKey, captureResourceDiscovery(services.resourceLoader));
@@ -1168,11 +1130,6 @@ export class PiHost {
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
       emit(event);
-      if (event.type === "turn-checkpoint" || event.type === "turn-checkpoint-status") {
-        for (const listener of [...this.checkpointListeners]) {
-          try { listener(event); } catch (error) { this.log("host-extension.listener.failed", this.errorMessage(error)); }
-        }
-      }
     };
     this.toolOutputBatcher = new ToolOutputBatcher((updates) => {
       for (const [id, output] of updates) {
@@ -1198,16 +1155,28 @@ export class PiHost {
       runtimeOwner: () => this.bridge ? "pi" : "tau",
       thread: (sessionId) => this.hostThread(sessionId),
       setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
-      checkpoints: {
-        canRestore: (sessionId, checkpointId) => this.canRestoreCheckpoint(sessionId, checkpointId),
-        restorePreview: (sessionId, checkpointId) => this.getRestorePreview(sessionId, checkpointId),
-        restore: (sessionId, checkpointId) => this.restoreCheckpoint(sessionId, checkpointId),
-        turnFileDiff: (sessionId, checkpointId, path, options) => this.getTurnFileDiff(sessionId, checkpointId, path, options),
-        turnFiles: (sessionId, checkpointId, cursor, limit) => this.getTurnFiles(sessionId, checkpointId, cursor, limit),
-        subscribe: (listener) => {
-          this.checkpointListeners.add(listener);
-          return () => { this.checkpointListeners.delete(listener); };
+      attachedRuntime: (sessionId) => this.attachedRuntime(sessionId),
+      branch: (cwd) => this.knownBranches.get(cwd),
+      sessions: {
+        list: async () => (await SessionManager.listAll()).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
+        open: (path) => {
+          // Pi falls back to process.cwd() for a missing file; never hand that out.
+          if (!existsSync(path)) throw new Error(`No session file at ${path}.`);
+          return this.sessionFile(SessionManager.open(path));
         },
+        prepare: (session, options) => this.prepareThread(session, options),
+        exclusive: (work) => this.runLifecycle(work),
+        refreshIndex: async () => ({
+          version: HOST_PROTOCOL_VERSION,
+          type: "thread-index",
+          index: await this.refreshThreadIndex(false).catch(() => this.threadIndexSnapshot()),
+        }),
+      },
+      registerThreadLifecycle: (lifecycle) => this.threadLifecycle.add(lifecycle),
+      registerTurnObserver: (observer) => this.turnObservers.add(observer),
+      pinTranscriptEntries: (provider) => {
+        this.entryPinProviders.add(provider);
+        return () => { this.entryPinProviders.delete(provider); };
       },
       decorateUiPrompt: (decorator) => {
         this.uiPromptDecorators.add(decorator);
@@ -1243,12 +1212,18 @@ export class PiHost {
 
   private hostThread(sessionId?: string): HostThread | undefined {
     const thread = this.threadFor(sessionId);
-    if (!thread) return undefined;
+    return thread ? this.hostThreadFor(thread) : undefined;
+  }
+
+  private hostThreadFor(thread: ThreadRuntime): HostThread {
     return {
       sessionId: thread.threadId,
       cwd: thread.cwd,
       backendKind: thread.backend.kind,
-      isStreaming: () => thread.backend.isStreaming(),
+      get sessionFile() { return thread.sessionFile; },
+      isStreaming: () => thread.backend.isStreaming() || thread.adapterStreaming,
+      isIdle: () => !thread.backend.isStreaming() && thread.backend.isIdle() && !thread.adapterStreaming
+        && thread.adapterPending === 0 && !this.hasOpenUiPrompts(thread.threadId),
       waitForIdle: () => thread.backend.waitForIdle(),
       isCurrent: () => this.threads.get(thread.threadId)?.runtime === thread,
       sessionName: () => thread.backend.sessionName(),
@@ -1257,14 +1232,91 @@ export class PiHost {
       modelApi: () => thread.backend.modelApi(),
       shortcuts: (userBindings) => thread.backend.shortcuts(userBindings),
       runShortcut: (keys, userBindings) => thread.backend.runShortcut(keys, userBindings),
+      entries: () => thread.backend.branchEntries(),
+      appendEntry: (customType, data) => thread.backend.appendCustomEntry(customType, data),
     };
   }
 
-  private runtimeExtensionsFor(settingsManager: SettingsManager): Array<{ name: string; factory: import("@earendil-works/pi-coding-agent").ExtensionFactory }> {
+  /** The Pi terminal owning a thread while Tau is attached; its extensions answer through the bridge. */
+  private attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined {
+    if (!this.bridgeOwns(sessionId) || !this.bridgeSnapshot) return undefined;
+    return {
+      sessionId: this.bridgeSnapshot.sessionId,
+      invoke: (extensionId, name, input) => this.bridgeCommand({ command: "extension", extensionId, name, input }),
+    };
+  }
+
+  /** Wraps a session manager for extensions; a runtime prepared for the file later shares the manager. */
+  private sessionFile(manager: SessionManager): HostSessionFile {
+    const path = manager.getSessionFile();
+    if (!path) throw new Error("This session has no file yet.");
+    const file: HostSessionFile = {
+      path,
+      sessionId: manager.getSessionId(),
+      cwd: manager.getCwd(),
+      entries: () => manager.getBranch(),
+      leafId: () => manager.getLeafId() ?? undefined,
+      appendEntry: (customType, data) => { manager.appendCustomEntry(customType, data); },
+      appendInfo: (text) => { manager.appendSessionInfo(text); },
+      branch: (entryId) => {
+        // createBranchedSession turns this manager into the new session.
+        let path: string | undefined;
+        try { path = manager.createBranchedSession(entryId); } catch { return undefined; }
+        return path ? this.sessionFile(manager) : undefined;
+      },
+    };
+    this.sessionFileManagers.set(file, manager);
+    return file;
+  }
+
+  /** Opens a runtime for a session file an extension created; it stays off screen until activated. */
+  private async prepareThread(session: HostSessionFile, options: { previousSessionFile?: string } = {}): Promise<HostPreparedThread> {
+    const manager = this.sessionFileManagers.get(session) ?? SessionManager.open(session.path);
+    const runtime = await this.openThread(
+      manager,
+      { type: "session_start", reason: "resume", ...(options.previousSessionFile ? { previousSessionFile: options.previousSessionFile } : {}) },
+      { adopt: false, prepared: true },
+    );
+    let settled = false;
+    return {
+      sessionId: runtime.threadId,
+      session,
+      activate: async () => {
+        if (settled) throw new Error("This prepared thread was already used.");
+        const previous = this.active;
+        try {
+          await this.adoptThread(runtime);
+          if (!await this.activateThread(runtime, true)) throw new Error("The thread was superseded before it became active.");
+          settled = true;
+          runtime.releaseEventBarrier((event, thread, sessionId, cwd, error) => {
+            if (error) this.fail(error, sessionId);
+            else this.handleSessionEvent(event, thread, sessionId, cwd);
+          }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
+          return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
+        } catch (error) {
+          // The caller keeps the thread it had; the prepared runtime is theirs to discard.
+          if (!settled && previous && this.threads.active?.runtime === runtime) {
+            this.threads.setActive(previous.threadId);
+            this.cwd = previous.cwd;
+            this.extensionCount = previous.backend.extensionCount();
+          }
+          throw error;
+        }
+      },
+      discard: async () => {
+        if (settled) return;
+        settled = true;
+        if (this.threads.get(runtime.threadId)?.runtime === runtime) await this.threads.release(runtime.threadId);
+        else await this.disposeThread(runtime);
+      },
+    };
+  }
+
+  private runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): Array<{ name: string; factory: import("@earendil-works/pi-coding-agent").ExtensionFactory }> {
     const settings = { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings() };
     return this.runtimeExtensionContributions
       .filter((contribution) => contribution.enabledFor?.(settings) ?? true)
-      .map(({ name, factory }) => ({ name, factory }));
+      .map(({ name, factory }) => ({ name, factory: (pi) => factory(pi, session) }));
   }
 
   /** External runtimes launch with this; without an access extension everything is allowed. */
@@ -1322,37 +1374,6 @@ export class PiHost {
 
   private adapterFor(kind: ThreadBackendKind): AgentRuntimeAdapter {
     return this.runtimeAdapters[kind];
-  }
-
-  private createWorkspaceKitCheckpointFeature(
-    sessionManager: SessionManager,
-    cwd: string,
-  ): WorkspaceKitCheckpointFeature {
-    const sessionId = sessionManager.getSessionId();
-    const feature = createWorkspaceKitCheckpointFeature({
-      contextForTurn: () => ({ cwd, sessionId }),
-      branchForWorkspace: (workspace) => this.knownBranches.get(workspace),
-      leaseManager: this.checkpointLeaseManager,
-      maintenance: this.checkpointMaintenance,
-      appendCheckpoint: async (stored) => {
-        const branch = sessionManager.getBranch();
-        if (turnCheckpointsFromEntries(branch, sessionId).some((entry) => entry.id === stored.id)) return;
-        // Keep the lease until SessionManager has synchronously appended the
-        // custom entry. A write error is intentionally propagated so the
-        // lifecycle removes the provisional refs instead of releasing a
-        // checkpoint that only exists in memory.
-        sessionManager.appendCustomEntry(TURN_CHECKPOINT_CUSTOM_TYPE, stored);
-        // Persistence has completed at this point. Rendering is best effort:
-        // a broken subscriber or socket must never make the lifecycle delete a
-        // valid checkpoint's immutable refs.
-        try { this.emit({ type: "turn-checkpoint", sessionId, checkpoint: cloneTurnCheckpoint(stored) }); } catch { /* UI delivery is best effort */ }
-        try { this.log("turn.checkpoint.saved", `${stored.fileCount} ${stored.fileCount === 1 ? "file" : "files"}`); } catch { /* diagnostics are best effort */ }
-      },
-      onError: (error, capture) => this.log("turn.checkpoint.failed", `${capture.id}: ${this.errorMessage(error)}`),
-      onStatus: (status, capture) => this.emit({ type: "turn-checkpoint-status", sessionId, turnId: capture.id, status }),
-    });
-    this.checkpointFeatures.set(sessionManager, feature);
-    return feature;
   }
 
   // ---------------------------------------------------------------------------
@@ -1458,10 +1479,9 @@ export class PiHost {
         }
         if (this.defaultBackendKind !== "pi" || !(await this.attachAvailableBridge(this.cwd, undefined, {}, activationEpoch))) {
           if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
-          // A restore journal is written before any workspace mutation. Replay
-          // its safe backup target before opening a session so a crash cannot
-          // expose a half-restored checkout as a normal active thread.
-          await this.recoverPendingRestoreTransactions();
+          // Extensions repair what they keep beside sessions (a restore
+          // journal, say) before a session opens on this workspace.
+          await this.threadLifecycle.beforeWorkspace(this.cwd);
           if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
           const thread = await this.openInitialThread(this.cwd);
           if (!await this.activateThread(thread, false, activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
@@ -1509,17 +1529,14 @@ export class PiHost {
   async getThreadDetail(cursor?: HostTranscriptCursor): Promise<TranscriptPage | ThreadDetail> {
     const snapshot = await this.snapshot();
     const result = cursor !== undefined
-      ? (() => {
-        const page = this.transcriptPage(
-          snapshot.sessionId,
-          snapshot.messages,
-          snapshot.taskHistory,
-          snapshot.turnActivityHistory,
-          snapshot.turnActivityHistoryComplete,
-          cursor,
-        );
-        return { ...page, turnCheckpoints: checkpointsForMessages(snapshot.turnCheckpoints, page.messages) };
-      })()
+      ? this.transcriptPage(
+        snapshot.sessionId,
+        snapshot.messages,
+        snapshot.taskHistory,
+        snapshot.turnActivityHistory,
+        snapshot.turnActivityHistoryComplete,
+        cursor,
+      )
       : this.detailForSnapshot(snapshot);
     this.lifecycleMetrics.recordIpc(result);
     return result;
@@ -1556,15 +1573,8 @@ export class PiHost {
         cursor,
       );
     }
-    const page = {
-      ...result,
-      turnCheckpoints: checkpointsForMessages(
-        this.bridgeOwns(sessionId) ? this.bridgeHostSnapshot().turnCheckpoints : this.turnCheckpoints(this.requireThread(sessionId)),
-        result.messages,
-      ),
-    };
-    this.lifecycleMetrics.recordIpc(page);
-    return page;
+    this.lifecycleMetrics.recordIpc(result);
+    return result;
   }
 
   /**
@@ -1808,12 +1818,11 @@ export class PiHost {
 
   private async setWorkspaceNow(cwd: string, activationEpoch: number): Promise<HostActionResult> {
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
-    // Per-thread checkpoint preparation is owned by Pi's awaited event hook;
-    // workspace switching never waits on another thread's history work.
+    // Workspace switching never waits on another thread's history work.
     await this.rememberProject(cwd);
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     if (cwd === this.cwd && (this.bridge || this.active)) {
-      await this.recoverPendingRestoreTransactions(cwd);
+      await this.threadLifecycle.beforeWorkspace(cwd);
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       return this.activeUpdates(activationEpoch);
     }
@@ -1827,7 +1836,7 @@ export class PiHost {
     }
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     this.detachBridge();
-    await this.recoverPendingRestoreTransactions(cwd);
+    await this.threadLifecycle.beforeWorkspace(cwd);
     const startedAt = performance.now();
     const thread = this.defaultBackendKind === "claude-code"
       ? await this.openInitialThread(cwd)
@@ -2222,35 +2231,15 @@ export class PiHost {
         throw new Error("This thread has not been saved yet. Wait for the first assistant response before forking it.");
       }
       const startedAt = performance.now();
-      // Pi reports idle as soon as the agent boundary settles, while the
-      // checkpoint lifecycle deliberately persists in the background. Flush
-      // that per-thread journal before reading the source branch so a fork
-      // cannot miss the just-completed checkpoint.
-      await thread.checkpointRuntime?.close();
       // The fork is a new session file, so it gets a runtime of its own; the
       // source thread keeps running untouched.
-      const sourceManager = SessionManager.open(sourceFile);
-      const sourceCheckpoints = turnCheckpointsFromEntries(sourceManager.getBranch(), thread.sessionId);
-      const forkedPath = sourceManager.createBranchedSession(entryId);
-      if (!forkedPath) throw new Error("Failed to create the forked thread.");
-      const forkedManager = SessionManager.open(forkedPath);
-      const inheritedCheckpoints = checkpointsForBranch(forkedManager.getBranch(), sourceCheckpoints);
-      if (inheritedCheckpoints.length > 0) {
-        // Workspace Kit owns the lease across immutable ref cloning and the
-        // append-only re-home journal; the host supplies only SessionManager's
-        // durable custom-entry seam.
-        await this.checkpointMaintenance.rehomeFork({
-          cwd: thread.cwd,
-          sourceSessionId: thread.sessionId,
-          targetSessionId: forkedManager.getSessionId(),
-          checkpoints: inheritedCheckpoints,
-          appendEntry: (customType, data) => { forkedManager.appendCustomEntry(customType, data); },
-          committedCheckpoints: () => turnCheckpointsFromEntries(
-            forkedManager.getBranch(),
-            forkedManager.getSessionId(),
-          ),
-        });
-      }
+      // createBranchedSession turns this manager into the fork. A branch without
+      // an assistant message has no file until its first response, so the fork
+      // must keep this manager instead of reopening its path.
+      const forkedManager = SessionManager.open(sourceFile);
+      if (!forkedManager.createBranchedSession(entryId)) throw new Error("Failed to create the forked thread.");
+      // Extensions carry what they keep beside the source into the fork.
+      await this.threadLifecycle.afterFork(this.hostThreadFor(thread), this.sessionFile(forkedManager));
       const forked = await this.openThread(
         forkedManager,
         { type: "session_start", reason: "fork", previousSessionFile: sourceFile },
@@ -2294,255 +2283,6 @@ export class PiHost {
     const leafId = thread.backend.leafEntryId();
     if (!leafId) throw new Error("Nothing to duplicate yet. Send a first message before duplicating this thread.");
     return this.forkThread(leafId, thread.threadId);
-  }
-
-  /**
-   * Restores a completed local Pi turn through a new active branch. The source
-   * session is never truncated: a separately named backup preserves its
-   * current branch and workspace snapshot before the target workspace is
-   * changed. Fork therefore remains the non-destructive explicit alternative.
-   */
-  async restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult> {
-    if (this.bridge) {
-      throw new Error("Restore is unavailable while Pi owns this thread. Use Fork to keep the current workspace unchanged.");
-    }
-    return this.runLifecycle(async () => {
-      await this.recoverPendingRestoreTransactions(this.cwd);
-      const { sourceThread, sourceFile, sourceCheckpoints, checkpoint } = await this.verifiedRestoreCheckpoint(sessionId, checkpointId);
-
-      // Build and open the candidate target before taking the destructive
-      // workspace step. It is not adopted until the workspace transaction has
-      // succeeded, so a runtime-construction failure leaves the source active.
-      const targetSourceManager = SessionManager.open(sourceFile);
-      const targetPath = targetSourceManager.createBranchedSession(checkpoint.anchorMessageId);
-      if (!targetPath) throw new Error("Failed to create the restored thread.");
-      const targetManager = SessionManager.open(targetPath);
-      const targetThreadId = targetManager.getSessionId();
-      let targetRuntime: ThreadRuntime | undefined;
-      let backupPath: string | undefined;
-      let backupSessionId: string | undefined;
-      let backupTurnId: string | undefined;
-      let backupManager: SessionManager | undefined;
-      let restoreTransaction: TurnRestoreTransaction | undefined;
-      let backupDurable = false;
-      let restoreAttempted = false;
-      let restoreCommitted = false;
-      const startedAt = performance.now();
-      let lease: Awaited<ReturnType<WorkspaceCheckpointLeaseManager["acquire"]>> | undefined;
-      const cleanupTarget = async (): Promise<void> => {
-        if (targetRuntime) {
-          if (this.threads.get(targetRuntime.threadId)?.runtime === targetRuntime) {
-            await this.threads.release(targetRuntime.threadId).catch(() => undefined);
-          } else {
-            await this.disposeThread(targetRuntime).catch(() => undefined);
-          }
-          targetRuntime = undefined;
-        }
-        await workspaceGit.cleanupTurnCheckpointSessionRefs(sourceThread.cwd, targetThreadId).catch(() => undefined);
-        await rm(targetPath, { force: true }).catch(() => undefined);
-      };
-      const cleanupUncommittedBackup = async (): Promise<void> => {
-        if (!backupSessionId || backupDurable) return;
-        await workspaceGit.cleanupTurnCheckpointSessionRefs(sourceThread.cwd, backupSessionId).catch(() => undefined);
-        if (backupPath) await rm(backupPath, { force: true }).catch(() => undefined);
-      };
-
-      try {
-        targetRuntime = await this.openThread(
-          targetManager,
-          { type: "session_start", reason: "resume", previousSessionFile: sourceFile },
-          { adopt: false, prepared: true },
-        );
-        lease = await this.checkpointLeaseManager.acquire(sourceThread.cwd, {
-          sessionId: sourceThread.sessionId,
-          turnId: `restore-${randomUUID()}`,
-        });
-
-        // Create the backup from the source branch's current leaf. This is the
-        // first durable artifact and is complete before any workspace restore.
-        const backupSourceManager = SessionManager.open(sourceFile);
-        const sourceLeaf = backupSourceManager.getLeafId();
-        if (!sourceLeaf) throw new Error("This thread has no current conversation branch to back up.");
-        backupPath = backupSourceManager.createBranchedSession(sourceLeaf);
-        if (!backupPath) throw new Error("Failed to create the restore backup thread.");
-        const durableBackupManager = SessionManager.open(backupPath);
-        backupManager = durableBackupManager;
-        backupSessionId = durableBackupManager.getSessionId();
-        backupTurnId = `restore-backup-${randomUUID()}`;
-        await this.checkpointMaintenance.rehomeFork({
-          cwd: sourceThread.cwd,
-          sourceSessionId: sourceThread.sessionId,
-          targetSessionId: backupSessionId,
-          checkpoints: sourceCheckpoints,
-          lease,
-          appendEntry: (customType, data) => { durableBackupManager.appendCustomEntry(customType, data); },
-          committedCheckpoints: () => turnCheckpointsFromEntries(durableBackupManager.getBranch(), backupSessionId!),
-        });
-        const backupBefore = await workspaceGit.createTurnWorkspaceSnapshot(
-          sourceThread.cwd,
-          backupSessionId,
-          backupTurnId,
-          "before",
-        );
-        const backupAfter = await workspaceGit.createTurnWorkspaceSnapshot(
-          sourceThread.cwd,
-          backupSessionId,
-          backupTurnId,
-          "after",
-        );
-        if (backupBefore.complete === false || backupAfter.complete === false) {
-          throw new Error("The current workspace is only partially captured, so Tau cannot create a recoverable restore backup.");
-        }
-        await backupManager.appendSessionInfo(`Backup before restore to turn ${checkpoint.turnId.slice(0, 12)}`);
-        backupManager.appendCustomEntry(TURN_RESTORE_BACKUP_CUSTOM_TYPE, {
-          version: 1,
-          backupId: randomUUID(),
-          sessionId: backupSessionId,
-          turnId: backupTurnId,
-          sourceSessionId: sourceThread.sessionId,
-          sourceCheckpointId: checkpoint.id,
-          cwd: sourceThread.cwd,
-          beforeSnapshotId: backupBefore.id,
-          afterSnapshotId: backupAfter.id,
-          createdAt: Date.now(),
-        });
-        backupDurable = true;
-
-        const targetCheckpoints = checkpointsForBranch(targetManager.getBranch(), sourceCheckpoints);
-        await this.checkpointMaintenance.rehomeFork({
-          cwd: sourceThread.cwd,
-          sourceSessionId: sourceThread.sessionId,
-          targetSessionId: targetThreadId,
-          checkpoints: targetCheckpoints,
-          lease,
-          appendEntry: (customType, data) => { targetManager.appendCustomEntry(customType, data); },
-          committedCheckpoints: () => turnCheckpointsFromEntries(targetManager.getBranch(), targetThreadId),
-        });
-
-        const transactionId = randomUUID();
-        restoreTransaction = {
-          version: 1,
-          kind: "checkpoint-restore",
-          transactionId,
-          state: "prepared",
-          sessionId: backupSessionId,
-          backupSessionId,
-          backupTurnId,
-          sourceSessionId: sourceThread.sessionId,
-          sourceTurnId: checkpoint.turnId,
-          sourceCheckpointId: checkpoint.id,
-          targetSessionId: targetThreadId,
-          cwd: sourceThread.cwd,
-          targetAfterSnapshotId: checkpoint.afterSnapshotId,
-          backupAfterSnapshotId: backupAfter.id,
-          createdAt: Date.now(),
-        };
-        // This append is the durable intent point. A crash after it can be
-        // repaired on startup by replaying the complete backup pair.
-        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
-
-        restoreAttempted = true;
-        await workspaceGit.restoreWorkspaceSnapshot(
-          sourceThread.cwd,
-          checkpoint.afterSnapshotId,
-          {
-            target: { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
-            rollback: { sessionId: backupSessionId, turnId: backupTurnId },
-            onPhase: (phase) => {
-              if (!restoreTransaction || !backupManager) return;
-              const state = phase === "apply-started"
-                ? "applying"
-                : phase === "cleaned"
-                  ? "cleaned"
-                  : phase === "applied"
-                    ? "workspace-applied"
-                    : "rolling-back";
-              restoreTransaction = { ...restoreTransaction, state };
-              backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
-            },
-          },
-        );
-        this.gitCoordinator.invalidate(sourceThread.cwd);
-        restoreTransaction = { ...restoreTransaction, state: "workspace-applied" };
-        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
-
-        await this.adoptThread(targetRuntime);
-        await this.activateThread(targetRuntime, true);
-        // Keep the successfully restored branch as the most recent durable
-        // session. Restore backups remain indexed and discoverable, but a
-        // restart must resume the restored checkpoint rather than reopening
-        // the backup solely because its transaction journal was written last.
-        targetManager.appendSessionInfo(`Restored to turn ${checkpoint.turnId.slice(0, 12)}`);
-        restoreTransaction = { ...restoreTransaction, state: "committed" };
-        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
-        restoreCommitted = true;
-        await prioritizeRestoreTargetSession(targetPath, backupPath).catch((error) => {
-          // The content commit is already durable. A failed timestamp update
-          // must not roll it back; index recovery can still discover both
-          // sessions and the target remains the active runtime in this host.
-          this.log("restore.target-mtime.failed", this.errorMessage(error));
-        });
-        targetRuntime.releaseEventBarrier((event, runtime, eventSessionId, eventCwd, error) => {
-          if (error) this.fail(error, eventSessionId);
-          else this.handleSessionEvent(event, runtime, eventSessionId, eventCwd);
-        }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
-        this.logReplacement("restore", startedAt);
-        targetRuntime = undefined;
-      } catch (error) {
-        const recoveryErrors: unknown[] = [];
-        let recovered = false;
-        if (!restoreCommitted && restoreAttempted && backupSessionId && backupTurnId) {
-          try {
-            await workspaceGit.restoreWorkspaceSnapshot(
-              sourceThread.cwd,
-              turnSnapshotRef(backupSessionId, backupTurnId, "after"),
-              {
-                target: { sessionId: backupSessionId, turnId: backupTurnId },
-                rollback: { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
-              },
-            );
-            this.gitCoordinator.invalidate(sourceThread.cwd);
-            recovered = true;
-          } catch (recoveryError) {
-            recoveryErrors.push(recoveryError);
-          }
-        }
-        if (targetRuntime && this.threads.active?.runtime === targetRuntime) {
-          this.threads.setActive(sourceThread.threadId);
-          this.cwd = sourceThread.cwd;
-          this.extensionCount = sourceThread.backend.extensionCount();
-        }
-        await cleanupTarget();
-        if (recovered && restoreTransaction && backupManager) {
-          try {
-            backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, {
-              ...restoreTransaction,
-              state: "recovered",
-            });
-          } catch (journalError) {
-            recoveryErrors.push(journalError);
-          }
-        }
-        await cleanupUncommittedBackup();
-        const message = this.errorMessage(error);
-        if (recoveryErrors.length > 0) {
-          throw new AggregateError([error, ...recoveryErrors], `Restore failed and workspace rollback needs attention: ${message}`);
-        }
-        throw new Error(`Restore failed; the original thread and workspace were kept unchanged. ${message}`);
-      } finally {
-        await lease?.release();
-      }
-
-      // The backup must remain indexed as its own thread after the successful
-      // transaction. Refreshing after releasing the writer lease prevents a
-      // nested acquisition in the startup/pruning sweep.
-      const index = await this.refreshThreadIndex(false).catch(() => this.threadIndexSnapshot());
-      const active = await this.snapshot();
-      return this.actionResult([
-        { version: HOST_PROTOCOL_VERSION, type: "thread-index", index },
-        ...this.lifecycleUpdates(active),
-      ]);
-    });
   }
 
   async exportThreadMarkdown(expectedSessionId?: string): Promise<string> {
@@ -2859,7 +2599,7 @@ export class PiHost {
       }
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.detachBridge();
-      await this.recoverPendingRestoreTransactions(this.cwd);
+      await this.threadLifecycle.beforeWorkspace(this.cwd);
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
@@ -2939,15 +2679,13 @@ export class PiHost {
     this.assertPreparedPrompt(thread, text, resolvedPrepared, this.composerCommands(thread));
     const prompt = resolvedPrepared.runtimeText;
     const isExtensionCommand = this.isExtensionCommand(thread, prompt);
-    const checkpointRuntime = thread.checkpointRuntime;
     const preparedTurnId = isExtensionCommand ? undefined : randomUUID();
     const wasStreaming = thread.backend.isStreaming();
     if (preparedTurnId) {
-      checkpointRuntime?.acceptUserTurn(preparedTurnId, { deferBefore: wasStreaming });
-      // Idle prompts prepare before Pi starts. Queued prompts are prepared by
-      // the shared `input` adapter at their actual delivery boundary, after
-      // earlier tool work has settled.
-      if (!wasStreaming) await checkpointRuntime?.prepare(preparedTurnId);
+      this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: wasStreaming });
+      // Idle prompts prepare before Pi starts; queued prompts are prepared at
+      // their actual delivery boundary, after earlier tool work has settled.
+      if (!wasStreaming) await this.turnObservers.prepare(thread.threadId, preparedTurnId);
     }
     let markerActive = false;
     let preflightState: PromptPreflightState = "pending";
@@ -2970,7 +2708,7 @@ export class PiHost {
       if (result.accepted) resolvePreflight();
       else {
         failUnpersistedMarker();
-        if (preparedTurnId) void checkpointRuntime?.reject(preparedTurnId);
+        if (preparedTurnId) void this.turnObservers.cancelled(thread.threadId, preparedTurnId);
         rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
       }
     };
@@ -2993,22 +2731,18 @@ export class PiHost {
       });
       void run.then(async () => {
         if (preflightState === "pending") reportPreflight({ accepted: true });
-        if (preparedTurnId && !wasStreaming && !checkpointRuntime?.get(preparedTurnId)?.started) {
-          await checkpointRuntime?.reject(preparedTurnId);
-        }
+        if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.refreshThreadShell(thread, true);
       }).catch((error) => {
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
         else if (preflightState === "accepted") {
-          if (preparedTurnId && !checkpointRuntime?.get(preparedTurnId)?.started) {
-            void checkpointRuntime?.reject(preparedTurnId);
-          }
+          if (preparedTurnId) void this.turnObservers.ended(thread.threadId, preparedTurnId, "failed");
           if (!thread.deferError(error)) this.fail(error, thread.threadId);
         }
       });
     } catch (error) {
       if (this.threads.get(thread.threadId)?.runtime !== thread) return;
-      if (preparedTurnId) await checkpointRuntime?.reject(preparedTurnId);
+      if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
       if (identity) this.clientTurns.cancel(thread.threadId, identity);
       reportPreflight({ accepted: false, error });
     }
@@ -3097,10 +2831,9 @@ export class PiHost {
       if (thread.runtime) assertImageInputCapability(thread.runtime.session, attachments);
       const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
       this.assertPreparedPrompt(thread, text, resolvedPrepared, this.composerCommands(thread));
-      const checkpointRuntime = thread.checkpointRuntime;
       if (!this.isExtensionCommand(thread, resolvedPrepared.runtimeText)) {
         preparedTurnId = randomUUID();
-        checkpointRuntime?.acceptUserTurn(preparedTurnId, { deferBefore: true, expectsInput: false });
+        this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: true, expectsInput: false });
       }
       let markerActive = this.appendClientMessageMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
       try {
@@ -3111,12 +2844,12 @@ export class PiHost {
           markerActive = false;
         }
         if (identity) this.clientTurns.cancel(thread.threadId, identity);
-        await checkpointRuntime?.reject(preparedTurnId);
+        if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
         throw error;
       }
     } catch (error) {
       if (identity && thread && isPiBackend(thread)) this.clientTurns.cancel(thread.threadId, identity);
-      await thread?.checkpointRuntime?.reject(preparedTurnId);
+      if (thread && preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
       this.fail(error);
       throw error;
     }
@@ -3162,10 +2895,9 @@ export class PiHost {
       if (thread.runtime) assertImageInputCapability(thread.runtime.session, attachments);
       const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
       this.assertPreparedPrompt(thread, text, resolvedPrepared, this.composerCommands(thread));
-      const checkpointRuntime = thread.checkpointRuntime;
       if (!this.isExtensionCommand(thread, resolvedPrepared.runtimeText)) {
         preparedTurnId = randomUUID();
-        checkpointRuntime?.acceptUserTurn(preparedTurnId, { deferBefore: true, expectsInput: false });
+        this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: true, expectsInput: false });
       }
       let markerActive = this.appendClientMessageMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
       try {
@@ -3176,13 +2908,13 @@ export class PiHost {
           markerActive = false;
         }
         if (identity) this.clientTurns.cancel(thread.threadId, identity);
-        await checkpointRuntime?.reject(preparedTurnId);
+        if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
         throw error;
       }
     } catch (error) {
       if (identity && thread && isPiBackend(thread)) this.clientTurns.cancel(thread.threadId, identity);
       this.fail(error, sessionId);
-      await thread?.checkpointRuntime?.reject(preparedTurnId);
+      if (thread && preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
       throw error;
     }
   }
@@ -3329,7 +3061,7 @@ export class PiHost {
       for (const record of this.threads.list()) {
         if (record.runtime !== thread && isPiBackend(record.runtime)
           && record.runtime.backend.isIdle()
-          && (record.runtime.checkpointRuntime?.pendingCount ?? 0) === 0
+          && this.turnObservers.pending(record.threadId) === 0
           && !this.hasOpenUiPrompts(record.threadId)) {
           await this.threads.release(record.threadId);
         }
@@ -3361,68 +3093,6 @@ export class PiHost {
   async snapshot(): Promise<HostSnapshot> {
     const models = await this.ensureModels();
     return { ...this.snapshotSync(models), branch: this.branchFor(this.cwd) };
-  }
-
-  /**
-   * Returns the immutable diff captured when a completed turn settled. This
-   * deliberately never falls back to the live workspace: an old card must not
-   * change when a later turn edits the same file or commits the work.
-   */
-  async getTurnFileDiff(
-    sessionId: string,
-    checkpointId: string,
-    path: string,
-    options?: DiffLoadOptions,
-  ): Promise<UiFileDiff> {
-    if (this.bridgeOwns(sessionId)) {
-      await assertWorkspacePath(this.cwd, path);
-      const result = await this.bridgeCommand({
-        command: "turn_file_diff",
-        checkpointId,
-        path,
-        ...(options ?? {}),
-      });
-      if (result && typeof result === "object" && Array.isArray((result as { hunks?: unknown }).hunks)) {
-        return result as UiFileDiff;
-      }
-      return { path, added: 0, removed: 0, hunks: [], note: "Pi did not return this historical diff." };
-    }
-    const thread = this.requireThread(sessionId);
-    await assertWorkspacePath(thread.cwd, path);
-    const checkpoint = turnCheckpointsFromEntries(thread.backend.branchEntries(), sessionId)
-      .find((entry) => entry.id === checkpointId);
-    if (!checkpoint) {
-      return { path, added: 0, removed: 0, hunks: [], note: "This turn checkpoint is no longer available." };
-    }
-    if (!thread.checkpointFeature) {
-      return { path, added: 0, removed: 0, hunks: [], note: "Turn checkpoint history is unavailable." };
-    }
-    return thread.checkpointFeature.historicalDiff(thread.cwd, checkpoint, path, options);
-  }
-
-  /** Returns the lazy historical file-list page for one immutable checkpoint. */
-  async getTurnFiles(
-    sessionId: string,
-    checkpointId: string,
-    cursor?: string,
-    limit?: number,
-  ): Promise<UiWorkspaceChangesPage> {
-    if (this.bridgeOwns(sessionId)) {
-      const result = await this.bridgeCommand({ command: "turn_files_page", checkpointId, cursor, limit });
-      if (!result || typeof result !== "object") throw new Error("Pi did not return this historical file page.");
-      const page = result as Partial<PiBridgeTurnFilesPage>;
-      if (page.sessionId !== sessionId || page.checkpointId !== checkpointId
-        || !Array.isArray(page.files) || typeof page.fileCount !== "number" || typeof page.hasMore !== "boolean") {
-        throw new Error("Pi returned an invalid historical file page.");
-      }
-      return page as PiBridgeTurnFilesPage;
-    }
-    const thread = this.requireThread(sessionId);
-    const checkpoint = turnCheckpointsFromEntries(thread.backend.branchEntries(), sessionId)
-      .find((entry) => entry.id === checkpointId);
-    if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
-    if (!thread.checkpointFeature) throw new Error("Turn checkpoint history is unavailable.");
-    return thread.checkpointFeature.historicalFiles(thread.cwd, checkpoint, cursor, limit);
   }
 
   /** Workspace metadata is only exposed for projects already admitted by the host. */
@@ -3526,17 +3196,8 @@ export class PiHost {
     options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal } = {},
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
-    // A previous process may have died after publishing a snapshot ref but
-    // before appending its custom entry. Clean that incomplete phase before a
-    // runtime can start another turn in the same session.
-    if (manager.getSessionFile()) {
-      await this.checkpointMaintenance.cleanupOrphanRefs(
-        cwd,
-        manager.getSessionId(),
-        turnCheckpointsFromEntries(manager.getBranch(), manager.getSessionId()),
-        turnRestoreBackupsFromEntries(manager.getBranch(), manager.getSessionId()),
-      );
-    }
+    // Extensions repair what they keep beside a session before its runtime can start a turn.
+    if (manager.getSessionFile()) await this.threadLifecycle.beforeOpen(this.sessionFile(manager));
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
     let thread: ThreadRuntime | undefined;
@@ -3570,7 +3231,7 @@ export class PiHost {
           };
         },
       });
-      thread = new ThreadRuntime(backend, createdRuntime, this.checkpointFeatures.get(manager));
+      thread = new ThreadRuntime(backend, createdRuntime);
       const preparedThread = thread;
       if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
       const cancelPrepared = () => {
@@ -3690,158 +3351,11 @@ export class PiHost {
       thread.backend.unbind();
       this.clientTurns.settle(thread.threadId);
       thread.resetLiveState();
+      void this.turnObservers.reset(thread.threadId).catch((error) => this.log("turn-observer.reset.failed", this.errorMessage(error)));
     }, async () => {
       await this.bindThread(thread);
       if (this.active === thread) await this.publishActiveCatalog();
     });
-  }
-
-  /**
-   * A restore backup is a real recovery thread, not only a retention marker.
-   * Opening it replays its verified workspace pair while retaining a temporary
-   * rollback pair for the workspace that is currently on disk.
-   */
-  private async restoreBackupWorkspaceOnOpen(thread: ThreadRuntime): Promise<RestoreActivationTransaction | undefined> {
-    // Recovery is workspace-scoped, not backend-scoped. A normal project
-    // session can be the first thread opened after switching projects and
-    // still needs to repair a pending clean/read-tree transaction in its cwd.
-    await this.recoverPendingRestoreTransactions(thread.cwd);
-    if (!isPiBackend(thread)) return undefined;
-    const backup = turnRestoreBackupsFromEntries(thread.backend.branchEntries(), thread.sessionId).at(-1);
-    if (!backup) return undefined;
-    if (backup.cwd !== thread.cwd) throw new Error("This restore backup belongs to another workspace.");
-    if (!thread.backend.isIdle() || thread.adapterStreaming || thread.adapterPending > 0) {
-      throw new Error("Wait for the backup thread to become idle before restoring its workspace.");
-    }
-    const active = this.active;
-    if (active && active !== thread && (active.backend.isStreaming() || active.adapterStreaming || active.adapterPending > 0)) {
-      throw new Error("Wait for the active turn to finish before opening the restore backup.");
-    }
-    await workspaceGit.validateRestorableWorkspaceSnapshotRefs(
-      thread.cwd,
-      backup.beforeSnapshotId,
-      backup.afterSnapshotId,
-      { sessionId: backup.sessionId, turnId: backup.turnId },
-    );
-    const rollbackTurnId = `open-backup-${randomUUID()}`;
-    const lease = await this.checkpointLeaseManager.acquire(thread.cwd, {
-      sessionId: thread.sessionId,
-      turnId: rollbackTurnId,
-    });
-    let rollbackBefore: workspaceGit.WorkspaceSnapshot | undefined;
-    let rollbackAfter: workspaceGit.WorkspaceSnapshot | undefined;
-    let handedOff = false;
-    let transaction: TurnRestoreTransaction | undefined;
-    const cleanupRollback = async (): Promise<void> => {
-      if (!rollbackBefore && !rollbackAfter) return;
-      await workspaceGit.cleanupTurnCheckpointRefs(thread.cwd, [{ sessionId: thread.sessionId, turnId: rollbackTurnId }]);
-    };
-    const appendTransaction = (state: TurnRestoreTransaction["state"]): void => {
-      if (!transaction) return;
-      transaction = { ...transaction, state };
-      thread.backend.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, transaction);
-    };
-    try {
-      rollbackBefore = await workspaceGit.createTurnWorkspaceSnapshot(
-        thread.cwd,
-        thread.sessionId,
-        rollbackTurnId,
-        "before",
-      );
-      rollbackAfter = await workspaceGit.createTurnWorkspaceSnapshot(
-        thread.cwd,
-        thread.sessionId,
-        rollbackTurnId,
-        "after",
-      );
-      transaction = {
-        version: 1,
-        kind: "backup-open",
-        transactionId: randomUUID(),
-        state: "prepared",
-        sessionId: thread.sessionId,
-        backupSessionId: thread.sessionId,
-        backupTurnId: rollbackTurnId,
-        sourceSessionId: backup.sessionId,
-        sourceTurnId: backup.turnId,
-        sourceCheckpointId: backup.backupId,
-        targetSessionId: thread.sessionId,
-        ...(this.active && this.active.threadId !== thread.threadId ? { previousSessionId: this.active.threadId } : {}),
-        cwd: thread.cwd,
-        targetAfterSnapshotId: backup.afterSnapshotId,
-        backupAfterSnapshotId: rollbackAfter.id,
-        createdAt: Date.now(),
-      };
-      appendTransaction("prepared");
-      await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, backup.afterSnapshotId, {
-        target: { sessionId: backup.sessionId, turnId: backup.turnId },
-        rollback: { sessionId: thread.sessionId, turnId: rollbackTurnId },
-        onPhase: (phase) => {
-          const state = phase === "apply-started"
-            ? "applying"
-            : phase === "cleaned"
-              ? "cleaned"
-              : phase === "applied"
-                ? "workspace-applied"
-                : "rolling-back";
-          appendTransaction(state);
-        },
-      });
-      this.gitCoordinator.invalidate(thread.cwd);
-      appendTransaction("workspace-applied");
-      handedOff = true;
-      let finished = false;
-      const commit = async (): Promise<void> => {
-        if (finished) return;
-        appendTransaction("committed");
-        finished = true;
-        await cleanupRollback().catch(() => undefined);
-        await lease.release();
-      };
-      const rollback = async (): Promise<void> => {
-        if (finished) return;
-        try {
-          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter!.id, {
-            target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
-            rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
-          });
-          this.gitCoordinator.invalidate(thread.cwd);
-          appendTransaction("recovered");
-          finished = true;
-          await cleanupRollback().catch(() => undefined);
-        } finally {
-          await lease.release();
-        }
-      };
-      return { commit, rollback };
-    } catch (error) {
-      let recovered = false;
-      const recoveryErrors: unknown[] = [];
-      if (transaction && rollbackAfter) {
-        try {
-          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter.id, {
-            target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
-            rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
-          });
-          this.gitCoordinator.invalidate(thread.cwd);
-          appendTransaction("recovered");
-          recovered = true;
-        } catch (recoveryError) {
-          recoveryErrors.push(recoveryError);
-        }
-      }
-      if (recovered) await cleanupRollback().catch((error) => recoveryErrors.push(error));
-      const message = `The restore backup could not be applied safely; the selected thread was not opened. ${this.errorMessage(error)}`;
-      if (recoveryErrors.length > 0) {
-        throw new AggregateError([error, ...recoveryErrors], `${message} Workspace recovery needs attention.`);
-      }
-      throw new Error(message);
-    } finally {
-      // The lease remains held while activateThread publishes the selected
-      // thread. Pending transactions retain their temporary rollback pair
-      // until the next startup can recover it.
-      if (!handedOff) await lease.release();
-    }
   }
 
   /** Puts a live thread on screen. Cheap: it changes pointers and publishes state. */
@@ -3851,7 +3365,7 @@ export class PiHost {
     activationEpoch = this.activationEpoch,
   ): Promise<boolean> {
     if (!this.isCurrentActivation(activationEpoch)) return false;
-    const restore = await this.restoreBackupWorkspaceOnOpen(thread);
+    const restore = await this.threadLifecycle.beforeActivate(this.hostThreadFor(thread));
     let restoreCommitted = !restore;
     try {
       if (!this.isCurrentActivation(activationEpoch)) {
@@ -3925,12 +3439,11 @@ export class PiHost {
     }
     thread.backend.unbind();
     for (const id of thread.tools.keys()) this.toolOwners.delete(id);
-    // Stop Pi before closing the checkpoint lifecycle: closing first would
-    // discard a running capture and release its workspace lease while the
-    // provider could still mutate the checkout during the abort window.
+    // Stop Pi before observers close: closing first would drop work in
+    // flight while the provider could still mutate the checkout.
     const errors = thread.runtime ? await this.abortRuntime(thread.runtime) : [];
     try {
-      await thread.checkpointRuntime?.close();
+      await this.turnObservers.closed(thread.threadId);
     } catch (error) {
       errors.push(error);
     }
@@ -4396,18 +3909,13 @@ export class PiHost {
   private bridgeHostSnapshot(): HostSnapshot {
     const snapshot = this.bridgeSnapshot;
     if (!snapshot) throw new Error("Pi bridge snapshot is unavailable.");
-    const checkpoints = snapshot.turnCheckpoints ?? [];
-    const mapping = this.messageMappingOptions();
+    const mapping = { ...this.messageMappingOptions(), pinned: new Set(snapshot.pinnedEntryIds ?? []) };
     const runtimeAdapter = this.bridgeRuntimeAdapter();
     const composerCommands = this.composerCommandsForAdapter(snapshot.composerCommands ?? [], runtimeAdapter);
     const rawMessageOffset = bridgeMessagesOffset(snapshot.messagesOffset);
     const messages = snapshot.messages.flatMap((rawMessage, index) => {
-      const mapped = mapMessage(
-        rawMessage,
-        rawMessageOffset === undefined ? index : rawMessageOffset + index,
-        { ...mapping, checkpoints },
-      );
-      if (!mapped || !(mapped.text || mapped.skill || messageHasCheckpointAnchor(mapped, checkpoints))) return [];
+      const mapped = mapMessage(rawMessage, rawMessageOffset === undefined ? index : rawMessageOffset + index, mapping);
+      if (!isVisibleMessage(mapped, mapping.pinned)) return [];
       const raw = rawMessage && typeof rawMessage === "object" ? rawMessage : undefined;
       const identity = mapped.role === "user"
         ? resolveClientTurnIdentity(
@@ -4464,13 +3972,11 @@ export class PiHost {
       ...(snapshot.turnActivityHistoryComplete !== undefined
         ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
         : {}),
-      turnCheckpoints: checkpointsForMessages(checkpoints, messages),
       taskProgress: snapshot.taskProgress ?? taskProgressFromMessages(snapshot.messages),
       taskHistory,
       allTools: snapshot.allTools,
       composerCommands,
       extensionCount: 0,
-      supportsCheckpointRestore: false,
       supportsImageInput: snapshot.supportsImageInput,
       contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
         ? { tokens: snapshot.contextUsage.tokens, contextWindow: snapshot.contextUsage.contextWindow, percent: snapshot.contextUsage.percent }
@@ -4488,30 +3994,12 @@ export class PiHost {
 
   private handleBridgeSessionEvent(event: any, sessionId: string): void {
     if (this.bridgeTurn?.sessionId !== sessionId) this.bridgeTurn = { sessionId, tools: new Map() };
-    // The Pi extension is the bridge runtime's checkpoint owner. Replaying its
-    // events here is still useful for tools/streaming, but starting a second
-    // snapshot capture would duplicate Git work and could race the writer.
     const thread = this.bridgeTurn;
     if (!thread) return;
-    if (event && typeof event === "object" && event.type === "turn-checkpoint") {
-      const checkpoint = event.checkpoint as UiTurnCheckpoint | undefined;
-      const hasLoadedAnchor = Boolean(checkpoint && this.bridgeSnapshot?.messages.some((message) =>
-        message && typeof message === "object" && (message as { tauEntryId?: unknown }).tauEntryId === checkpoint.anchorMessageId));
-      // A live checkpoint is only rendered when the current bounded bridge page
-      // contains its exact assistant entry. The following snapshot still carries
-      // the durable record for a page that is not currently loaded.
-      if (checkpoint && hasLoadedAnchor) this.emit({ type: "turn-checkpoint", sessionId, checkpoint });
-      return;
-    }
-    if (event && typeof event === "object" && event.type === "turn-checkpoint-error") {
-      if (typeof event.message === "string") this.emit({ type: "error", message: event.message });
-      return;
-    }
-    if (event && typeof event === "object" && event.type === "turn-checkpoint-status") {
-      if (typeof event.turnId === "string"
-        && ["queued", "waiting", "capturing", "persisting", "ready", "failed"].includes(String(event.status))) {
-        this.emit({ type: "turn-checkpoint-status", sessionId, turnId: event.turnId, status: event.status as "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed" });
-      }
+    // Extensions inside Pi publish their own events; the host routes them by id.
+    if (event && typeof event === "object" && event.type === "extension-event") {
+      const { extensionId, name, payload } = event as Partial<PiBridgeExtensionEvent>;
+      if (typeof extensionId === "string" && typeof name === "string") this.emit({ type: "extension-event", extensionId, name, payload });
       return;
     }
     this.handleSessionEvent(event, thread, sessionId, this.cwd);
@@ -4604,8 +4092,8 @@ export class PiHost {
               message.id = thread.currentAssistantId ?? message.id;
               this.emit({ type: "assistant-end", sessionId, message });
               // Pi emits `message_end` before SessionManager appends the entry.
-              // Resolve the durable id in the next microtask so a checkpoint
-              // can be attached to the live row instead of creating a duplicate
+              // Resolve the durable id in the next microtask so an extension
+              // row can attach to the live row instead of creating a duplicate
               // synthetic assistant at the transcript tail.
               if (thread instanceof ThreadRuntime) {
                 const liveMessageId = message.id;
@@ -4618,7 +4106,7 @@ export class PiHost {
                     id: liveMessageId,
                     sourceEntryId,
                     timestamp: message.timestamp,
-                    beforeMessageId: nextVisibleMessageId(branch, sourceEntryId, this.turnCheckpoints(thread!)),
+                    beforeMessageId: nextVisibleMessageId(branch, sourceEntryId, this.pinnedEntries(thread!)),
                   });
                 });
               }
@@ -4755,8 +4243,7 @@ export class PiHost {
         const byId = new Map(scanned.map((session) => [session.id, session] as const));
         for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
         this.sessions = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds());
-        await this.cleanupCheckpointRefsForPersistedSessions(sessionInfos);
-        await this.cleanupDeletedSessionCheckpointRefs(previous, this.sessions);
+        await this.sweepSessions(sessionInfos, previous, this.sessions);
         return this.threadIndexSnapshot();
       })().finally(() => {
         this.threadIndexRefresh = undefined;
@@ -4790,273 +4277,23 @@ export class PiHost {
     for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
     const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds());
     this.sessions = next;
-    await this.cleanupCheckpointRefsForPersistedSessions(sessionInfos);
-    await this.cleanupDeletedSessionCheckpointRefs(previous, next);
+    await this.sweepSessions(sessionInfos, previous, next);
     for (const update of sessionIndexUpdates(previous, next)) this.emitUpdate(update);
   }
 
-  /** Runtime eviction keeps persisted history; only a missing session file is deletion. */
-  private async cleanupDeletedSessionCheckpointRefs(previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
+  /** Extensions reconcile what they keep beside sessions; a missing file is deletion, eviction is not. */
+  private async sweepSessions(sessionInfos: readonly SessionInfo[], previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
     const nextIds = new Set(next.map((session) => session.id));
     const liveIds = this.liveThreadIds();
-    const deleted = previous.filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path));
-    await Promise.allSettled(deleted.map(async (session) => {
-      await this.checkpointMaintenance.cleanupSessionRefs(session.projectPath, session.id);
-    }));
-  }
-
-  /**
-   * Finish restore transactions left behind by a process crash. The backup
-   * thread is the journal owner, so a prepared or workspace-applied marker is
-   * sufficient to identify the only safe recovery target without trusting the
-   * partially-created target runtime.
-   */
-  private async recoverPendingRestoreTransactions(workspaceCwd = this.cwd): Promise<void> {
-    if (this.bridge) return;
-    const sessionInfos = await SessionManager.listAll();
-    const byId = new Map(sessionInfos.map((info) => [info.id, info] as const));
-    const currentWorkspace = await realpath(workspaceCwd).catch(() => resolve(workspaceCwd));
-    for (const info of sessionInfos) {
-      let manager: SessionManager;
-      try {
-        manager = SessionManager.open(info.path);
-      } catch {
-        continue;
-      }
-      const transactions = turnRestoreTransactionsFromEntries(manager.getBranch(), info.id)
-        .filter((transaction) => transaction.state !== "committed" && transaction.state !== "recovered");
-      const committedTransactions = turnRestoreTransactionsFromEntries(manager.getBranch(), info.id)
-        .filter((transaction) => transaction.state === "committed" && transaction.kind === "checkpoint-restore");
-      for (const transaction of committedTransactions) {
-        const targetInfo = byId.get(transaction.targetSessionId);
-        if (!targetInfo?.path || targetInfo.path === info.path) continue;
-        const transactionWorkspace = await realpath(transaction.cwd).catch(() => resolve(transaction.cwd));
-        if (transactionWorkspace !== currentWorkspace) continue;
-        const [targetStat, backupStat] = await Promise.all([
-          stat(targetInfo.path).catch(() => undefined),
-          stat(info.path).catch(() => undefined),
-        ]);
-        // A crash can occur after the committed marker updates the backup's
-        // mtime but before the target-prioritization write. Repair that
-        // discoverability gap before continueRecent chooses a session.
-        if (targetStat && backupStat && backupStat.mtimeMs >= targetStat.mtimeMs) {
-          await prioritizeRestoreTargetSession(targetInfo.path, info.path).catch(() => undefined);
-        }
-      }
-      for (const transaction of transactions) {
-        // listAll spans every project. Recovery is deliberately scoped to the
-        // checkout this host is opening; mutating an unrelated project's
-        // workspace during startup would be a data-loss bug in its own right.
-        const transactionWorkspace = await realpath(transaction.cwd).catch(() => resolve(transaction.cwd));
-        if (transactionWorkspace !== currentWorkspace) continue;
-        await this.recoverRestoreTransaction(transaction, manager, byId);
-      }
-    }
-  }
-
-  private async recoverRestoreTransaction(
-    transaction: TurnRestoreTransaction,
-    backupManager: SessionManager,
-    sessionInfos: ReadonlyMap<string, SessionInfo>,
-  ): Promise<void> {
-    const [transactionWorkspace, backupWorkspace] = await Promise.all([
-      this.checkpointLeaseManager.canonicalKey(transaction.cwd),
-      this.checkpointLeaseManager.canonicalKey(backupManager.getCwd()),
-    ]);
-    if (transactionWorkspace !== backupWorkspace) {
-      throw new Error(`Restore recovery refused a workspace mismatch for backup ${transaction.backupSessionId.slice(0, 12)}.`);
-    }
-    const lease = await this.checkpointLeaseManager.acquire(transaction.cwd, {
-      sessionId: transaction.backupSessionId,
-      turnId: `restore-recovery-${transaction.transactionId}`,
+    const deleted = previous
+      .filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path))
+      .map((session) => ({ sessionId: session.id, cwd: session.projectPath }));
+    await this.threadLifecycle.sweep({
+      sessions: sessionInfos.map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
+      liveThreads: this.threads.list().map((record) => this.hostThreadFor(record.runtime)),
+      projectPaths: this.projectHistory.list().map((project) => project.path),
+      deleted,
     });
-    try {
-      if (transaction.kind === "backup-open") {
-        // Opening a backup uses the durable backup pair as the target and a
-        // temporary pair in the same backup session as the rollback. If the
-        // process died before activation committed, put the pre-open
-        // workspace back and leave the backup thread unopened.
-        await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, transaction.backupAfterSnapshotId, {
-          target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
-          rollback: { sessionId: transaction.sourceSessionId, turnId: transaction.sourceTurnId },
-        });
-        this.gitCoordinator.invalidate(transaction.cwd);
-        backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, {
-          ...transaction,
-          state: "recovered",
-        });
-        const previousPath = transaction.previousSessionId
-          ? sessionInfos.get(transaction.previousSessionId)?.path
-          : undefined;
-        const backupPath = backupManager.getSessionFile();
-        if (previousPath && backupPath && previousPath !== backupPath) {
-          await prioritizeRestoreTargetSession(previousPath, backupPath).catch(() => undefined);
-        } else if (backupPath) {
-          await utimes(backupPath, new Date(0), new Date(0)).catch(() => undefined);
-        }
-        // Recovery is durable before deleting the temporary rollback pair. If
-        // cleanup is interrupted, the committed recovery marker makes the
-        // harmless orphan eligible for ordinary checkpoint GC.
-        await workspaceGit.cleanupTurnCheckpointRefs(transaction.cwd, [{
-          sessionId: transaction.backupSessionId,
-          turnId: transaction.backupTurnId,
-        }]);
-        return;
-      }
-      const backupBefore = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "before");
-      const backupAfter = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "after");
-      // Replaying the backup pair is idempotent and also repairs a process
-      // death in the middle of Git's clean/read-tree sequence. Using the same
-      // pair as rollback means an apply failure is retried against the same
-      // known-good state rather than falling back to the selected checkpoint.
-      await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, backupAfter, {
-        target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
-        rollback: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
-      });
-      this.gitCoordinator.invalidate(transaction.cwd);
-
-      // Remove the uncommitted target before recording recovery. If the
-      // process dies between these operations the next startup simply repeats
-      // the idempotent workspace replay and cleanup.
-      await workspaceGit.cleanupTurnCheckpointSessionRefs(transaction.cwd, transaction.targetSessionId);
-      const targetInfo = sessionInfos.get(transaction.targetSessionId);
-      if (targetInfo?.path && targetInfo.path !== backupManager.getSessionFile()) {
-        await rm(targetInfo.path, { force: true });
-      }
-      backupManager.appendCustomEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, {
-        ...transaction,
-        state: "recovered",
-      });
-    } catch (error) {
-      throw new Error(`Restore recovery failed for backup ${transaction.backupSessionId.slice(0, 12)}; the workspace was not exposed as restored. ${this.errorMessage(error)}`);
-    } finally {
-      await lease.release();
-    }
-  }
-
-  /** Shared trust boundary used by both the restore action and its UI offer. */
-  private async verifiedRestoreCheckpoint(sessionId: string, checkpointId: string) {
-    if (this.bridge) throw new Error("Restore is unavailable while Pi owns this thread.");
-    const sourceThread = this.requireActive();
-    if (sourceThread.threadId !== sessionId) throw new Error("The selected thread changed before it could be restored.");
-    if (!isPiBackend(sourceThread)) throw new Error("Only local Pi threads with workspace checkpoints can be restored.");
-    if (sourceThread.backend.isStreaming()
-      || !sourceThread.backend.isIdle()
-      || sourceThread.adapterStreaming
-      || sourceThread.adapterPending > 0
-      || (sourceThread.checkpointRuntime?.pendingCount ?? 0) > 0
-      || this.hasOpenUiPrompts(sourceThread.threadId)) {
-      throw new Error("Wait for the active turn and its checkpoint to finish before restoring it.");
-    }
-    const sourceFile = sourceThread.sessionFile;
-    if (!sourceFile || !existsSync(sourceFile)) throw new Error("This thread has no durable session to restore.");
-    const sourceManager = SessionManager.open(sourceFile);
-    const sourceBranch = sourceManager.getBranch();
-    const sourceCheckpoints = turnCheckpointsFromEntries(sourceBranch, sourceThread.sessionId);
-    const checkpoint = sourceCheckpoints.find((entry) => entry.id === checkpointId);
-    if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
-    if (checkpoint.completeness === "partial") {
-      throw new Error("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
-    }
-    const anchor = sourceBranch.find((entry) => {
-      if (!entry || typeof entry !== "object") return false;
-      const item = entry as { id?: unknown; type?: unknown; message?: unknown };
-      return item.id === checkpoint.anchorMessageId
-        && item.type === "message"
-        && Boolean(item.message && typeof item.message === "object"
-          && (item.message as { role?: unknown }).role === "assistant");
-    });
-    if (!anchor || typeof (anchor as { id?: unknown }).id !== "string") {
-      throw new Error("This checkpoint has no completed assistant anchor and cannot be restored.");
-    }
-    await workspaceGit.validateRestorableWorkspaceSnapshotRefs(
-      sourceThread.cwd,
-      checkpoint.beforeSnapshotId,
-      checkpoint.afterSnapshotId,
-      { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
-    );
-    return { sourceThread, sourceFile, sourceBranch, sourceCheckpoints, checkpoint };
-  }
-
-  /** Ref verification is deliberately completed before the renderer offers Restore. */
-  async canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean> {
-    if (this.bridge) return false;
-    return this.runLifecycle(async () => {
-      try {
-        await this.verifiedRestoreCheckpoint(sessionId, checkpointId);
-        return true;
-      } catch {
-        return false;
-      }
-    });
-  }
-
-  /** Preview the exact live-workspace delta that the selected checkpoint would replace. */
-  async getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges> {
-    if (this.bridge) throw new Error("Restore is unavailable while Pi owns this thread.");
-    return this.runLifecycle(async () => {
-      const { sourceThread, checkpoint } = await this.verifiedRestoreCheckpoint(sessionId, checkpointId);
-      return workspaceGit.previewWorkspaceRestore(
-        sourceThread.cwd,
-        checkpoint.beforeSnapshotId,
-        checkpoint.afterSnapshotId,
-        { sessionId: sourceThread.sessionId, turnId: checkpoint.turnId },
-        { branch: this.knownBranches.get(sourceThread.cwd) },
-      );
-    });
-  }
-
-  /**
-   * Reconciles all persisted session journals against namespaced snapshot refs.
-   * The sweep runs under the same checkout lease as capture, so an offline
-   * deletion/prune cannot remove a live writer's provisional or committed refs.
-   */
-  private async cleanupCheckpointRefsForPersistedSessions(sessionInfos: readonly SessionInfo[]): Promise<void> {
-    const live: WorkspaceKitLiveCheckpointSession[] = [];
-    for (const info of sessionInfos) {
-      try {
-        const manager = SessionManager.open(info.path);
-        live.push({
-          sessionId: info.id,
-          cwd: info.cwd,
-          checkpoints: turnCheckpointsFromEntries(manager.getBranch(), info.id),
-          backups: turnRestoreBackupsFromEntries(manager.getBranch(), info.id),
-          restoreTransactions: turnRestoreTransactionsFromEntries(manager.getBranch(), info.id),
-        });
-      } catch {
-        // A session can disappear between listAll and open; its refs are
-        // intentionally eligible for the same sweep.
-      }
-    }
-    for (const record of this.threads.list()) {
-      if (!isPiBackend(record.runtime)) continue;
-      const branch = record.runtime.backend.branchEntries();
-      if (live.some((session) => session.sessionId === record.threadId)) continue;
-      live.push({
-        sessionId: record.threadId,
-        cwd: record.cwd,
-        checkpoints: turnCheckpointsFromEntries(branch, record.threadId),
-        backups: turnRestoreBackupsFromEntries(branch, record.threadId),
-        restoreTransactions: turnRestoreTransactionsFromEntries(branch, record.threadId),
-      });
-    }
-    const workspaces = new Map<string, string>();
-    for (const info of sessionInfos) {
-      const cwd = info.cwd || this.cwd;
-      try { workspaces.set(await this.checkpointLeaseManager.canonicalKey(cwd), cwd); } catch { /* invalid path */ }
-    }
-    for (const record of this.threads.list()) {
-      try { workspaces.set(await this.checkpointLeaseManager.canonicalKey(record.cwd), record.cwd); } catch { /* invalid path */ }
-    }
-    // A project can outlive its last session in the persisted project history.
-    // Include those roots in the sweep so deleting/pruning the final session is
-    // recovered after a host restart, even though no SessionInfo still names it.
-    for (const project of this.projectHistory.list()) {
-      try { workspaces.set(await this.checkpointLeaseManager.canonicalKey(project.path), project.path); } catch { /* invalid path */ }
-    }
-    await Promise.allSettled([...workspaces.values()].map(async (cwd) => {
-      await this.checkpointMaintenance.cleanupLiveRefs(cwd, live);
-    }));
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
@@ -5342,11 +4579,9 @@ export class PiHost {
       return [...thread.adapterMessages];
     }
     const mapping = this.messageMappingOptions(thread);
-    const checkpoints = this.turnCheckpoints(thread);
     const messages = this.branchMessagesWithEntryIds(thread)
       .map((message, index) => mapMessage(message, index, mapping))
-      .filter((message): message is UiMessage => Boolean(message
-        && (message.text || message.skill || messageHasCheckpointAnchor(message, checkpoints))));
+      .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned));
     messages.push(...(thread.adapterMessages ?? []));
     // Text still streaming is not in the session yet; without it a thread opened
     // mid-answer would look silent until the answer finished.
@@ -5367,8 +4602,20 @@ export class PiHost {
     };
   }
 
-  private turnCheckpoints(thread: ThreadRuntime): UiTurnCheckpoint[] {
-    return turnCheckpointsFromEntries(thread.backend.branchEntries(), thread.sessionId).map(cloneTurnCheckpoint);
+  /** Entries extensions pinned for a thread, cached per branch state. */
+  private pinnedEntries(thread: ThreadRuntime): ReadonlySet<string> {
+    if (this.entryPinProviders.size === 0 || !isPiBackend(thread)) return EMPTY_PINS;
+    const entries = thread.backend.branchEntries();
+    const leaf = entries.at(-1);
+    const cached = this.pinnedEntriesCache.get(thread);
+    if (cached && cached.size === entries.length && cached.leaf === leaf) return cached.pinned;
+    const hostThread = this.hostThreadFor(thread);
+    const pinned = new Set<string>();
+    for (const provider of this.entryPinProviders) {
+      try { for (const id of provider(hostThread)) pinned.add(id); } catch (error) { this.log("host-extension.pins.failed", this.errorMessage(error)); }
+    }
+    this.pinnedEntriesCache.set(thread, { size: entries.length, leaf, pinned });
+    return pinned;
   }
 
   private composerCommands(thread: ThreadRuntime): UiComposerCommand[] {
@@ -5424,6 +4671,7 @@ export class PiHost {
       return {
         runtimeAdapter: thread.runtimeAdapter,
         skillCommands: this.composerCommands(thread),
+        pinned: this.pinnedEntries(thread),
       };
     }
     const runtimeAdapter = this.bridgeRuntimeAdapter();
@@ -5459,8 +4707,7 @@ export class PiHost {
         allTools: [],
         composerCommands: this.composerCommands(thread),
         extensionCount: 0,
-        supportsCheckpointRestore: false,
-      };
+        };
     }
     const branchMessages = this.branchMessagesWithEntryIds(thread);
     const messages = this.messageSnapshot(thread);
@@ -5484,13 +4731,11 @@ export class PiHost {
       activeTools: thread.backend.activeToolNames(),
       turnActivity: this.turnActivity(thread, branchMessages),
       turnActivityHistory: turnActivityHistoryFromMessages(branchMessages),
-      turnCheckpoints: this.turnCheckpoints(thread),
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
       allTools: thread.backend.allTools(),
       composerCommands: this.composerCommands(thread),
       extensionCount: this.extensionCount,
-      supportsCheckpointRestore: true,
       historyCompleteness: "complete",
       supportsImageInput: modelSupportsImageInput(thread.runtime?.session.model),
       contextUsage: usage && usage.tokens !== null && usage.percent !== null

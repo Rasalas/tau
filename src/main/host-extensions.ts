@@ -7,8 +7,7 @@ import type {
   ThreadHostEvent,
   UiMessage,
 } from "../shared/contracts.js";
-import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/workspace-kit-types.js";
-import type { HostActionResult } from "../shared/host-protocol.js";
+import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { GitCoordinator } from "./git-coordinator.js";
@@ -25,20 +24,120 @@ export interface HostPlatform {
   pickDirectory?(options?: DirectoryPickerOptions): Promise<string | undefined>;
 }
 
-export type CheckpointHostEvent = Extract<ThreadHostEvent, { type: "turn-checkpoint" | "turn-checkpoint-status" }>;
+/** A persisted session file without a runtime: its raw entries and the durable custom-entry seam. */
+export interface HostSessionFile {
+  readonly path: string;
+  readonly sessionId: string;
+  readonly cwd: string;
+  /** Entries on the current branch, in order. */
+  entries(): readonly unknown[];
+  leafId(): string | undefined;
+  appendEntry(customType: string, data: unknown): void;
+  appendInfo(text: string): void;
+  /**
+   * A new session continuing from `entryId`, or undefined for an unknown entry.
+   * The handle it returns replaces this one; a branch without an assistant
+   * message has no file until its first response, so it is never reopened from disk.
+   */
+  branch(entryId: string): HostSessionFile | undefined;
+}
+
+/** A runtime opened for a session that stays off screen until an extension activates it. */
+export interface HostPreparedThread {
+  readonly sessionId: string;
+  readonly session: HostSessionFile;
+  /** Adopts the runtime and puts it on screen; the updates carry the new detail, not the index. */
+  activate(): Promise<HostActionResult>;
+  /** Closes the runtime without ever showing it. */
+  discard(): Promise<void>;
+}
+
+export interface HostSessionSummary {
+  sessionId: string;
+  path: string;
+  cwd: string;
+}
+
+/** Session files the host can reach for an extension that keeps state beside them. */
+export interface HostSessionServices {
+  /** Every persisted session the host knows, across projects. */
+  list(): Promise<HostSessionSummary[]>;
+  open(path: string): HostSessionFile;
+  /** Opens a runtime for a session file the extension created; `previousSessionFile` names what it continues. */
+  prepare(session: HostSessionFile, options?: { previousSessionFile?: string }): Promise<HostPreparedThread>;
+  /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
+  exclusive<T>(work: () => Promise<T>): Promise<T>;
+  /** Rescans persisted sessions and returns the index update. The sweep runs inside, so release any lease first. */
+  refreshIndex(): Promise<HostUpdate>;
+}
+
+/** Work an extension wraps around a thread becoming visible; core commits after activation and rolls back when it fails. */
+export interface HostActivationTransaction {
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
+export interface HostSessionSweep {
+  sessions: HostSessionSummary[];
+  liveThreads: HostThread[];
+  /** Roots of every project the host remembers, including ones without sessions. */
+  projectPaths: string[];
+  /** Sessions whose files disappeared since the last sweep. */
+  deleted: Array<{ sessionId: string; cwd: string }>;
+}
 
 /**
- * Turn checkpoints still live in core because thread opening, project
- * switching, forking and transcript anchors depend on them. This facade is the
- * wire Workspace Kit owns until that lifecycle coupling is unwound.
+ * Where an extension may step into the thread lifecycle. Every hook is
+ * optional; a failure is the caller's failure, so a hook that cannot repair
+ * what it found must throw.
  */
-export interface HostCheckpointServices {
-  canRestore(sessionId: string, checkpointId: string): Promise<boolean>;
-  restorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
-  restore(sessionId: string, checkpointId: string): Promise<HostActionResult>;
-  turnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
-  turnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
-  subscribe(listener: (event: CheckpointHostEvent) => void): () => void;
+export interface HostThreadLifecycle {
+  /** Before a workspace's first thread opens: startup, project switch. */
+  beforeWorkspace?(cwd: string): Promise<void>;
+  /** Before a runtime is built for a session file. */
+  beforeOpen?(session: HostSessionFile): Promise<void>;
+  /** After a fork wrote its session file and before that file's runtime opens. */
+  afterFork?(source: HostThread, target: HostSessionFile): Promise<void>;
+  /** Before a thread is put on screen. */
+  beforeActivate?(thread: HostThread): Promise<HostActivationTransaction | undefined>;
+  /** Periodic pass over every persisted session the host indexes. */
+  sweep?(sweep: HostSessionSweep): Promise<void>;
+}
+
+/**
+ * Turn boundaries of a thread the host drives. `turnId` is the host's id for
+ * one prompt; Pi's own events follow through the runtime extension.
+ */
+export interface HostTurnObserver {
+  /** A prompt was accepted; `deferBefore` when it queues behind a running turn. */
+  accepted?(sessionId: string, turnId: string, options: { deferBefore: boolean; expectsInput?: boolean }): void;
+  /** An idle prompt is about to start; runs before the runtime begins. */
+  prepare?(sessionId: string, turnId: string): Promise<void>;
+  /** The prompt was refused before its turn started. */
+  cancelled?(sessionId: string, turnId: string): Promise<void>;
+  /** The prompt's run ended; an observer drops what it prepared for a turn that never started. */
+  ended?(sessionId: string, turnId: string, outcome: "completed" | "failed"): Promise<void>;
+  /** Work still pending for the thread; a thread with pending work is not released. */
+  pending?(sessionId: string): number;
+  /** The thread's runtime was rebound; live state starts over. */
+  reset?(sessionId: string): Promise<void>;
+  /** The thread's runtime closes; flush and release. */
+  closed?(sessionId: string): Promise<void>;
+}
+
+export interface RuntimeSessionInfo {
+  sessionId: string;
+  cwd: string;
+}
+
+/** A Pi extension factory that also learns which session it serves. */
+export type RuntimeExtensionFactory = (pi: Parameters<ExtensionFactory>[0], session: RuntimeSessionInfo) => ReturnType<ExtensionFactory>;
+
+/** The Pi terminal that owns a thread while Tau is attached to it. */
+export interface HostAttachedRuntime {
+  readonly sessionId: string;
+  /** Runs a command of the extension's counterpart inside that Pi; it answers with whatever it returns. */
+  invoke(extensionId: string, command: string, input?: unknown): Promise<unknown>;
 }
 
 export interface RuntimeSettingsView {
@@ -53,7 +152,7 @@ export interface RuntimeExtensionOptions {
 
 export interface RuntimeExtensionContribution extends RuntimeExtensionOptions {
   name: string;
-  factory: ExtensionFactory;
+  factory: RuntimeExtensionFactory;
 }
 
 /** What a host extension may do with one open thread. */
@@ -61,7 +160,11 @@ export interface HostThread {
   readonly sessionId: string;
   readonly cwd: string;
   readonly backendKind: ThreadBackendKind;
+  /** The session file behind the thread, once it has one. */
+  readonly sessionFile: string | undefined;
   isStreaming(): boolean;
+  /** Nothing running, queued or asked: the thread can be replaced safely. */
+  isIdle(): boolean;
   waitForIdle(): Promise<void>;
   /** False once the host replaced or closed this thread's runtime. */
   isCurrent(): boolean;
@@ -75,6 +178,10 @@ export interface HostThread {
   shortcuts(userBindings: PiUserKeybindings): PiShortcut[];
   /** Runs such a shortcut; false when the runtime has none for the chord. */
   runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean>;
+  /** Raw entries on the thread's current branch, in order. */
+  entries(): readonly unknown[];
+  /** Appends a custom entry to the thread's session, the durable seam for extension state. */
+  appendEntry(customType: string, data: unknown): void;
 }
 
 /**
@@ -115,9 +222,22 @@ export interface HostExtensionServices {
   thread(sessionId?: string): HostThread | undefined;
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
+  /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */
+  attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
+  /** Last known branch of a workspace, from the host's cache; never awaits Git. */
+  branch(cwd: string): string | undefined;
+  readonly sessions: HostSessionServices;
+  /** Steps into thread opening, forking, activation and the index sweep. */
+  registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
+  /** Follows the turns of every thread the host drives. */
+  registerTurnObserver(observer: HostTurnObserver): () => void;
+  /**
+   * Entries an extension attaches rows to. A text-empty assistant message stays
+   * in the transcript when a provider names its entry, so the row has a place.
+   */
+  pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
   /** Loads a Pi extension into every runtime the host creates from now on. */
-  registerRuntimeExtension(name: string, factory: ExtensionFactory, options?: RuntimeExtensionOptions): () => void;
-  readonly checkpoints: HostCheckpointServices;
+  registerRuntimeExtension(name: string, factory: RuntimeExtensionFactory, options?: RuntimeExtensionOptions): () => void;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** Which permission policy external runtimes launch with; `undefined` restores full access. */
@@ -269,5 +389,107 @@ export class HostExtensionRegistry {
       try { await dispose(); } catch (error) { errors.push(error); }
     }
     if (errors.length > 0) throw new AggregateError(errors, "Host extension cleanup failed");
+  }
+}
+
+/** Fans one lifecycle step out to every registered hook, in registration order. */
+export class HostThreadLifecycleSet {
+  private readonly hooks = new Set<HostThreadLifecycle>();
+
+  add(hook: HostThreadLifecycle): () => void {
+    this.hooks.add(hook);
+    return () => { this.hooks.delete(hook); };
+  }
+
+  async beforeWorkspace(cwd: string): Promise<void> {
+    for (const hook of [...this.hooks]) await hook.beforeWorkspace?.(cwd);
+  }
+
+  async beforeOpen(session: HostSessionFile): Promise<void> {
+    for (const hook of [...this.hooks]) await hook.beforeOpen?.(session);
+  }
+
+  async afterFork(source: HostThread, target: HostSessionFile): Promise<void> {
+    for (const hook of [...this.hooks]) await hook.afterFork?.(source, target);
+  }
+
+  /** One transaction over every hook's; a hook failing rolls back the ones before it. */
+  async beforeActivate(thread: HostThread): Promise<HostActivationTransaction | undefined> {
+    const transactions: HostActivationTransaction[] = [];
+    for (const hook of [...this.hooks]) {
+      try {
+        const transaction = await hook.beforeActivate?.(thread);
+        if (transaction) transactions.push(transaction);
+      } catch (error) {
+        await rollbackAll(transactions).catch(() => undefined);
+        throw error;
+      }
+    }
+    if (transactions.length === 0) return undefined;
+    return {
+      commit: async () => { for (const transaction of transactions) await transaction.commit(); },
+      rollback: () => rollbackAll(transactions),
+    };
+  }
+
+  async sweep(sweep: HostSessionSweep): Promise<void> {
+    const errors: unknown[] = [];
+    for (const hook of [...this.hooks]) {
+      try { await hook.sweep?.(sweep); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Session sweep failed");
+  }
+}
+
+async function rollbackAll(transactions: readonly HostActivationTransaction[]): Promise<void> {
+  const errors: unknown[] = [];
+  for (const transaction of [...transactions].reverse()) {
+    try { await transaction.rollback(); } catch (error) { errors.push(error); }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, "Activation rollback failed");
+}
+
+/** Fans turn boundaries out to every observer; pending work is the sum of theirs. */
+export class HostTurnObserverSet {
+  private readonly observers = new Set<HostTurnObserver>();
+
+  add(observer: HostTurnObserver): () => void {
+    this.observers.add(observer);
+    return () => { this.observers.delete(observer); };
+  }
+
+  accepted(sessionId: string, turnId: string, options: { deferBefore: boolean; expectsInput?: boolean }): void {
+    for (const observer of [...this.observers]) observer.accepted?.(sessionId, turnId, options);
+  }
+
+  async prepare(sessionId: string, turnId: string): Promise<void> {
+    for (const observer of [...this.observers]) await observer.prepare?.(sessionId, turnId);
+  }
+
+  async cancelled(sessionId: string, turnId: string): Promise<void> {
+    for (const observer of [...this.observers]) await observer.cancelled?.(sessionId, turnId);
+  }
+
+  async ended(sessionId: string, turnId: string, outcome: "completed" | "failed"): Promise<void> {
+    for (const observer of [...this.observers]) await observer.ended?.(sessionId, turnId, outcome);
+  }
+
+  pending(sessionId: string): number {
+    let total = 0;
+    for (const observer of this.observers) total += observer.pending?.(sessionId) ?? 0;
+    return total;
+  }
+
+  async reset(sessionId: string): Promise<void> {
+    for (const observer of [...this.observers]) await observer.reset?.(sessionId);
+  }
+
+  /** Every observer gets to close; failures are reported together afterwards. */
+  async closed(sessionId: string): Promise<void> {
+    const errors: unknown[] = [];
+    for (const observer of [...this.observers]) {
+      try { await observer.closed?.(sessionId); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Turn observer shutdown failed");
   }
 }

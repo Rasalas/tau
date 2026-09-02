@@ -39,7 +39,7 @@ These exist today, some still inside core files. They are extension work, and Ph
 | Feature | Owner today | Belongs to |
 |---|---|---|
 | Git status, staging, commit, push, worktrees, file tree, file reading, editors | Workspace Kit on both sides: host commands and `src/renderer/extensions/workspace-store.ts`; core lends the title-bar region, the composer footer, the transcript footer and the document source seam for the stage | Workspace Kit |
-| Turn checkpoints and restore | wire and UI: Workspace Kit (`src/renderer/extensions/workspace-checkpoints.tsx`, host commands); lifecycle still in `PiHost` behind `services.checkpoints`, summaries still in `thread-detail` because transcript anchors depend on them | Workspace Kit |
+| Turn checkpoints and restore | Workspace Kit on both sides: capture, restore, recovery and ref upkeep in `src/main/extensions/workspace-kit-lifecycle.ts` through the seam's lifecycle hooks and turn observer; cards, status and the restore dialog in `src/renderer/extensions/workspace-checkpoints.tsx`. Core keeps only what an anchor needs: a pinned text-empty assistant entry stays in the transcript | Workspace Kit |
 | Review mode, diff viewer, changed-files dock | Review Kit overlay over Workspace Kit state; dock is a Workspace Kit region | Review Kit |
 | Stage tabs, file viewer | tabs and placement stay core (the document area); loading, changed markers and editors come from the registered document source | core placement, Workspace Kit content |
 | Thread title generation | Thread Title Generator: `src/main/extensions/thread-titles-host-extension.ts` and `src/renderer/extensions/title-generator.tsx` | Thread Title Generator |

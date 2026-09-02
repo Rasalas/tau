@@ -24,6 +24,7 @@ Workspace Kit's Git and file commands are the first host extension. Safe mode st
 
 - `PiHost` and the IPC table shrink by one method per moved feature and grow by nothing when a new feature arrives.
 - The services facade is the new place where core leaks: what a host extension may ask for is an explicit list, and adding to it is a design decision.
+- Features that live beside sessions get generic hooks rather than core code: `registerThreadLifecycle` (before a workspace or session opens, after a fork, around activation, the index sweep), `registerTurnObserver` (accept, prepare, cancel and end of a prompt), `pinTranscriptEntries` (entries a row anchors to) and `sessions` (open a session file, prepare a runtime off screen). Turn checkpoints were the feature that needed them; core no longer knows they exist.
 - The shared Git cache stays in core for now because the thread index shows branches. That is the next thing to question.
 - `App.tsx` still orchestrates the moved commands through the kit's typed client. Moving that orchestration needs the renderer contribution points listed in PLAN.md, Phase 1b, step 4.
 - Dynamic loading of host extensions from disk follows the desktop extension loader once the trust model (Phase 3) exists; until then host extensions are bundled.

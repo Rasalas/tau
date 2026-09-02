@@ -320,6 +320,8 @@ export interface DesktopExtensionContext {
   registerComposerControl(control: ComposerControlContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number): TranscriptRowsHandle;
+  /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
+  setLiveStatus(sessionId: string, label: string | undefined): void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
@@ -385,6 +387,8 @@ export class ExtensionRegistry {
   private overlays = new Map<string, Owned<OverlayContribution>>();
   private readonly workbenchEventListeners = new Map<WorkbenchEventType, Set<(event: WorkbenchEvent) => void>>();
   private transcriptRows = new Map<string, { order: number; owner: ContributionOwner; bySession: Map<string, readonly TranscriptRow[]> }>();
+  /** Waiting labels per extension and thread; the first extension's label wins. */
+  private liveStatuses = new Map<string, Map<string, string>>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
@@ -456,6 +460,14 @@ export class ExtensionRegistry {
       registerOverlay: (overlay) => {
         note("overlay");
         return this.register(this.overlays, overlay.id, { ...overlay, ...owner }, disposers);
+      },
+      setLiveStatus: (sessionId, label) => {
+        const own = this.liveStatuses.get(extension.id) ?? new Map<string, string>();
+        if (label === undefined) own.delete(sessionId);
+        else own.set(sessionId, label);
+        if (own.size === 0) this.liveStatuses.delete(extension.id);
+        else this.liveStatuses.set(extension.id, own);
+        this.changed();
       },
       registerTranscriptRows: (id, order = 0) => {
         note("transcript rows");
@@ -576,6 +588,7 @@ export class ExtensionRegistry {
     try { active.dispose(); } catch (error) { cleanupError = error; }
     this.activeExtensions.delete(id);
     this.contributionKinds.delete(id);
+    this.liveStatuses.delete(id);
     this.changed();
     if (cleanupError) throw cleanupError;
   }
@@ -595,6 +608,16 @@ export class ExtensionRegistry {
 
   getPanels(): Array<Owned<PanelContribution>> {
     return this.sorted("panels", this.panels);
+  }
+
+  /** The waiting label an extension set for a thread, if any. */
+  getLiveStatus(sessionId: string | undefined): string | undefined {
+    if (!sessionId) return undefined;
+    for (const own of this.liveStatuses.values()) {
+      const label = own.get(sessionId);
+      if (label !== undefined) return label;
+    }
+    return undefined;
   }
 
   /** Rows every extension published for one thread, sorted by source order; ids are namespaced by source. */

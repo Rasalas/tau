@@ -19,7 +19,6 @@ import type {
   UiThreadTree,
 } from "../shared/contracts";
 import type { DiffLoadOptions, FileNode, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges, WorkspaceInfo } from "../shared/workspace-kit-types";
-import type { UiTurnCheckpoint } from "../shared/turn-checkpoint-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
@@ -112,7 +111,6 @@ import {
 } from "./transcript-history";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
-type CheckpointStatus = "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
 
 /**
  * Navigation belongs to the semantic transcript, not to whichever host action
@@ -175,7 +173,6 @@ export function optimisticThreadSnapshot(
       // Capability is thread-scoped; the target's catalog update will restore
       // it after the switch rather than leaking the previous thread's value.
       supportsImageInput: false,
-      supportsCheckpointRestore: false,
       ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
       ...(detail.threadId ? { threadId: detail.threadId } : {}),
       ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
@@ -675,20 +672,16 @@ export default function App() {
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [tools, setTools] = useState<UiToolRun[]>([]);
   const [turnActivityHistory, setTurnActivityHistory] = useState(cachedBootstrap?.snapshot.turnActivityHistory ?? []);
-  const [turnCheckpoints, setTurnCheckpoints] = useState<UiTurnCheckpoint[]>(cachedBootstrap?.snapshot.turnCheckpoints ?? []);
-  const turnCheckpointsRef = useRef(turnCheckpoints);
-  turnCheckpointsRef.current = turnCheckpoints;
   const [toolAnchorId, setToolAnchorId] = useState<string>();
   const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [queue, setQueue] = useState<string[]>([]);
-  const [checkpointStatus, setCheckpointStatus] = useState<CheckpointStatus>();
   const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
   const uiPromptsRef = useRef(uiPrompts);
   uiPromptsRef.current = uiPrompts;
   const [runStartedAt, setRunStartedAt] = useState<number>();
   // Legacy sessions may only have the old renderer cache. A settled run with
-  // no durable checkpoint must not leave that stale cache looking current.
+  // nothing durable behind it must not leave that stale cache looking current.
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -748,7 +741,7 @@ export default function App() {
   const toolAnchorRef = useRef<string | undefined>(undefined);
   toolAnchorRef.current = toolAnchorId;
   const assistantStartsRef = useRef(new Map<string, number>());
-  /** Empty live assistant rows wait here until a durable checkpoint proves they are visible. */
+  /** Empty live assistant rows wait here until an extension row asks for their entry. */
   const pendingAssistantAnchorsRef = useRef(new Map<string, { id: string; timestamp: number; beforeMessageId?: string }>());
   const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
   const deltaFrameRef = useRef<number | undefined>(undefined);
@@ -897,9 +890,6 @@ export default function App() {
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     setSnapshot(next);
     replaceTranscriptMessages(next.messages);
-    turnCheckpointsRef.current = next.turnCheckpoints ?? [];
-    setTurnCheckpoints(turnCheckpointsRef.current);
-    setCheckpointStatus(undefined);
     const restoredActivity = next.turnActivity ?? cachedActivity;
     updateTools(restoredActivity?.tools ?? []);
     toolAnchorRef.current = restoredActivity?.anchorMessageId;
@@ -961,8 +951,7 @@ export default function App() {
         sessionTitle: shell?.title ?? currentSnapshot.sessionTitle,
         ...(currentSnapshot.sessionId === detail.sessionId ? {} : {
           supportsImageInput: false,
-          supportsCheckpointRestore: false,
-        }),
+            }),
       } : undefined;
       const application = transcriptHistory.applyDetail(detail, snapshotForDetail);
       if (!application) return;
@@ -1015,9 +1004,6 @@ export default function App() {
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
       replaceTranscriptMessages(detailForRender.messages);
-      turnCheckpointsRef.current = detailForRender.turnCheckpoints ?? [];
-      setTurnCheckpoints(turnCheckpointsRef.current);
-      setCheckpointStatus(undefined);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detailForRender.sessionId);
       const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
       updateTools(restoredActivity?.tools ?? []);
@@ -1034,8 +1020,6 @@ export default function App() {
           ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
           ...(detail.threadId ? { threadId: detail.threadId } : {}),
           ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
-          ...(detail.supportsCheckpointRestore !== undefined ? { supportsCheckpointRestore: detail.supportsCheckpointRestore } : {}),
-          turnCheckpoints: detailForRender.turnCheckpoints,
           turnActivityHistory: detailForRender.turnActivityHistory,
         };
         cachedSnapshotRef.current = enriched;
@@ -1319,8 +1303,7 @@ export default function App() {
     if (
       (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
         || event.type === "assistant-end" || event.type === "assistant-anchor" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
-        || event.type === "tool-end" || event.type === "queue" || event.type === "turn-checkpoint"
-        || event.type === "turn-checkpoint-status")
+        || event.type === "tool-end" || event.type === "queue")
       && event.sessionId !== threadStore.getSnapshot().activeThreadId
     ) return;
     switch (event.type) {
@@ -1357,54 +1340,6 @@ export default function App() {
           const viewed = threadStore.getSnapshot().activeThreadId;
           if (finished && (finished !== viewed || document.hidden)) threadStore.markUnread(finished);
           runningThreadRef.current = "";
-        }
-        break;
-      }
-      case "turn-checkpoint-status":
-        if (event.status === "ready" || event.status === "failed") setCheckpointStatus(undefined);
-        else setCheckpointStatus(event.status);
-        break;
-      case "turn-checkpoint": {
-        const next = [...turnCheckpointsRef.current.filter((entry) => entry.id !== event.checkpoint.id), event.checkpoint]
-          .sort((left, right) => left.endedAt - right.endedAt);
-        turnCheckpointsRef.current = next;
-        setTurnCheckpoints(next);
-        setSnapshot((current) => {
-          if (!current || current.sessionId !== event.sessionId) return current;
-          const updated = { ...current, turnCheckpoints: next };
-          cachedSnapshotRef.current = updated;
-          writeBootstrapCache(updated, cachedIndexRef.current);
-          return updated;
-        });
-        const pending = pendingAssistantAnchorsRef.current.get(event.checkpoint.anchorMessageId);
-        if (pending) {
-          pendingAssistantAnchorsRef.current.delete(event.checkpoint.anchorMessageId);
-        }
-        if (pending && (event.checkpoint.completeness === "partial"
-          || (event.checkpoint.fileCount ?? event.checkpoint.files.length) > 0)) {
-          setMessages((current) => {
-            if (current.some((message) => message.sourceEntryId === event.checkpoint.anchorMessageId)) return current;
-            const existing = current.find((message) => message.id === pending.id);
-            if (existing) {
-              return current.map((message) => message.id === pending.id
-                ? { ...message, sourceEntryId: event.checkpoint.anchorMessageId }
-                : message);
-            }
-            const anchor: UiMessage = {
-              id: pending.id,
-              sourceEntryId: event.checkpoint.anchorMessageId,
-              role: "assistant",
-              text: "",
-              timestamp: pending.timestamp,
-            };
-            const beforeIndex = pending.beforeMessageId === undefined
-              ? -1
-              : current.findIndex((message) => message.id === pending.beforeMessageId
-                || message.sourceEntryId === pending.beforeMessageId);
-            return beforeIndex < 0
-              ? [...current, anchor]
-              : [...current.slice(0, beforeIndex), anchor, ...current.slice(beforeIndex)];
-          });
         }
         break;
       }
@@ -1468,29 +1403,9 @@ export default function App() {
             return next;
           }
           // A text-empty assistant is intentionally omitted from assistant-end
-          // events. Only insert its marker when the corresponding checkpoint is
-          // already known; a historical checkpoint arriving without this live
-          // anchor must never be appended to the transcript tail.
-          const checkpoint = turnCheckpointsRef.current.find((entry) => entry.anchorMessageId === event.sourceEntryId);
-          if (!checkpoint || (checkpoint.completeness !== "partial"
-            && (checkpoint.fileCount ?? checkpoint.files.length) === 0)) return current;
-          pendingAssistantAnchorsRef.current.delete(event.sourceEntryId);
-          const anchor: UiMessage = {
-            id: event.id,
-            sourceEntryId: event.sourceEntryId,
-            role: "assistant",
-            text: "",
-            timestamp: event.timestamp,
-          };
-          const beforeIndex = event.beforeMessageId === undefined
-            ? -1
-            : current.findIndex((message) => message.id === event.beforeMessageId
-              || message.sourceEntryId === event.beforeMessageId);
-          const next = beforeIndex < 0
-            ? [...current, anchor]
-            : [...current.slice(0, beforeIndex), anchor, ...current.slice(beforeIndex)];
-          messagesRef.current = next;
-          return next;
+          // events. Its marker is inserted once an extension row asks for the
+          // entry; a row arriving without this live anchor never reaches the tail.
+          return current;
         });
         break;
       case "user-message":
@@ -2520,6 +2435,32 @@ export default function App() {
   const liveTaskProgress = conversationSnapshot?.isStreaming && conversationSnapshot.taskProgress
     ? <TaskProgress progress={conversationSnapshot.taskProgress} placement="transcript" />
     : undefined;
+  const extensionRows = registry.getTranscriptRows(conversationSnapshot?.sessionId);
+  const liveStatusLabel = registry.getLiveStatus(conversationSnapshot?.sessionId);
+  // A text-empty assistant is left out of the transcript until an extension
+  // row asks for its entry; then its marker goes where the host said.
+  useEffect(() => {
+    const pending = pendingAssistantAnchorsRef.current;
+    if (pending.size === 0) return;
+    const wanted = extensionRows.flatMap((row) => row.afterMessageId !== undefined && pending.has(row.afterMessageId) ? [row.afterMessageId] : []);
+    if (wanted.length === 0) return;
+    setMessages((current) => {
+      let next = current;
+      for (const sourceEntryId of new Set(wanted)) {
+        const anchor = pending.get(sourceEntryId);
+        if (!anchor) continue;
+        pending.delete(sourceEntryId);
+        if (next.some((message) => message.sourceEntryId === sourceEntryId || message.id === anchor.id)) continue;
+        const marker: UiMessage = { id: anchor.id, sourceEntryId, role: "assistant", text: "", timestamp: anchor.timestamp };
+        const beforeIndex = anchor.beforeMessageId === undefined
+          ? -1
+          : next.findIndex((message) => message.id === anchor.beforeMessageId || message.sourceEntryId === anchor.beforeMessageId);
+        next = beforeIndex < 0 ? [...next, marker] : [...next.slice(0, beforeIndex), marker, ...next.slice(beforeIndex)];
+      }
+      if (next !== current) messagesRef.current = next;
+      return next;
+    });
+  }, [extensionRows]);
   const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
     ...historicalActivityRows,
     ...((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
@@ -2534,7 +2475,7 @@ export default function App() {
       content: liveTaskProgress,
     }] : []),
     // Rows extensions publish for this thread; the transcript anchors them itself.
-    ...registry.getTranscriptRows(conversationSnapshot?.sessionId),
+    ...extensionRows,
     ...(conversationActivityTools.length > 0 ? [{
       id: "turn-activity",
       afterMessageId: visibleToolAnchorId,
@@ -2805,8 +2746,8 @@ export default function App() {
                 turnStart={visibleTranscriptTurnStart}
                 isStreaming={Boolean(conversationSnapshot?.isStreaming)}
                 activities={transcriptActivities}
-                liveStatus={checkpointStatus === "queued" || checkpointStatus === "waiting"
-                  ? <LiveStatus label="Waiting for workspace…" />
+                liveStatus={liveStatusLabel !== undefined
+                  ? <LiveStatus label={liveStatusLabel} />
                   : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
                     ? <LiveStatus startedAt={runStartedAt} />
                     : undefined}

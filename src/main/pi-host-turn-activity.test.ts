@@ -28,28 +28,6 @@ describe("modelSupportsImageInput", () => {
   });
 });
 
-describe("workspace restore recovery", () => {
-  it("recovers the target project before a normal session is activated", async () => {
-    const host = new PiHost("/project-a", () => undefined, {} as never, false, false);
-    const internals = host as unknown as {
-      recoverPendingRestoreTransactions: (cwd: string) => Promise<void>;
-      restoreBackupWorkspaceOnOpen: (thread: unknown) => Promise<unknown>;
-    };
-    const recover = vi.fn(async () => undefined);
-    internals.recoverPendingRestoreTransactions = recover;
-
-    // A cross-project switch may open a normal (non-Pi) thread in project B.
-    // Its workspace still needs pending clean/read-tree recovery before the
-    // thread is exposed, even though it has no backup marker of its own.
-    await expect(internals.restoreBackupWorkspaceOnOpen({
-      cwd: "/project-b",
-      runtimeAdapter: { id: "claude-code" },
-    })).resolves.toBeUndefined();
-    expect(recover).toHaveBeenCalledOnce();
-    expect(recover).toHaveBeenCalledWith("/project-b");
-  });
-});
-
 describe("workspace metadata scope", () => {
   it("canonicalizes and rejects paths outside known projects", async () => {
     const history = {
@@ -649,7 +627,6 @@ describe("PiHost.generateThreadTitle", () => {
       allTools: [],
       composerCommands: [],
       extensionCount: 0,
-      supportsCheckpointRestore: true,
     });
     let releaseCatalog!: () => void;
     const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });

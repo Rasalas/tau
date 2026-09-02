@@ -51,6 +51,8 @@ export interface WorkspaceHostCommands {
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   "open-in-editor": { input: { editorId: string; path?: string }; output: void };
+  /** Every checkpoint of a thread's branch, and whether this runtime can restore one. */
+  "checkpoints": { input: { sessionId: string }; output: WorkspaceCheckpointList };
   /** Ref and workspace integrity check used before showing Restore. */
   "can-restore": { input: { sessionId: string; checkpointId: string }; output: boolean };
   /** Exact live-workspace delta that restoring a checkpoint would replace. */
@@ -61,11 +63,18 @@ export interface WorkspaceHostCommands {
   "turn-files": { input: { sessionId: string; checkpointId: string; cursor?: string; limit?: number }; output: UiWorkspaceChangesPage };
 }
 
+export interface WorkspaceCheckpointList {
+  checkpoints: UiTurnCheckpoint[];
+  /** Whether completed checkpoints can restore this thread; false while Pi owns it. */
+  restoreSupported: boolean;
+}
+
 /** Published for every checkpoint the host records or whose capture status changes. */
 export const CHECKPOINT_EVENT = "checkpoint";
 export type CheckpointEvent =
   | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
-  | { type: "turn-checkpoint-status"; sessionId: string; turnId: string; status: "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed" };
+  | { type: "turn-checkpoint-status"; sessionId: string; turnId: string; status: "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed" }
+  | { type: "turn-checkpoint-error"; sessionId: string; turnId: string; message: string };
 
 export type WorkspaceHostCommand = keyof WorkspaceHostCommands;
 
@@ -90,6 +99,7 @@ export interface WorkspaceHostClient {
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, path?: string): Promise<void>;
+  checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
   canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
   getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
@@ -120,6 +130,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, path) => call("open-in-editor", { editorId, path }),
+    checkpoints: (sessionId) => call("checkpoints", { sessionId }),
     canRestoreCheckpoint: (sessionId, checkpointId) => call("can-restore", { sessionId, checkpointId }),
     getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),
     restoreCheckpoint: (sessionId, checkpointId) => call("restore", { sessionId, checkpointId }),

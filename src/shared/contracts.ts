@@ -1,7 +1,6 @@
 import type { HostActionResult } from "./host-protocol.js";
 import type { TranscriptBundle } from "./transcript-contract.js";
 import type { HostTranscriptCursor } from "./transcript-cursor.js";
-import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 
 declare const newThreadRequestIdBrand: unique symbol;
 /** Opaque identity for one new-thread request across renderer, host, and bridge. */
@@ -274,7 +273,6 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
-  turnCheckpoints?: UiTurnCheckpoint[];
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
   allTools: Array<{ name: string; description: string }>;
@@ -284,8 +282,6 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   /** Whether the active host/runtime adapter accepts image prompt input. */
   /** Optional for protocol-v1 compatibility; missing means unsupported. */
   supportsImageInput?: boolean;
-  /** Whether completed turn checkpoints can safely restore this thread; missing means unsupported. */
-  supportsCheckpointRestore?: boolean;
 }
 
 /** Capability of the runtime prepared for a not-yet-created thread. */
@@ -312,14 +308,11 @@ export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTra
   isStreaming: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
-  turnCheckpoints?: UiTurnCheckpoint[];
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
   contextUsage?: UiContextUsage;
   /** Older v1 clients may omit this derived flag. */
   hasMore?: boolean;
-  /** Whether completed turn checkpoints can safely restore this thread; missing means unsupported. */
-  supportsCheckpointRestore?: boolean;
 }
 
 export interface HostBootstrap {
@@ -355,13 +348,6 @@ export type GlobalHostEvent =
 /** Events emitted by a runtime always carry the owning session explicitly. */
 export type ThreadHostEvent =
   | { type: "agent-status"; sessionId: string; running: boolean }
-  | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
-  | {
-      type: "turn-checkpoint-status";
-      sessionId: string;
-      turnId: string;
-      status: "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
-    }
   /** Adds the persisted session-entry id to a row emitted optimistically at message_end. */
   | {
       type: "assistant-anchor";

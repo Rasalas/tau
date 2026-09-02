@@ -9,6 +9,7 @@ import { assertAllowedCloneSource } from "../clone-source.js";
 import { readBoundedFileContent } from "../file-content.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
 import * as workspaceGit from "../workspace-git.js";
+import { createWorkspaceKitLifecycle } from "./workspace-kit-lifecycle.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -195,31 +196,38 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       });
-      // Turn checkpoints: the kit owns the wire; core still owns the lifecycle
-      // (see HostCheckpointServices).
+      // Turn checkpoints: capture per runtime, restore, recovery and ref upkeep
+      // all live in the kit; core only offers the lifecycle hooks.
+      const checkpoints = createWorkspaceKitLifecycle(services, { emit: (event) => context.emit(CHECKPOINT_EVENT, event) });
+      const disposers = [
+        services.registerThreadLifecycle(checkpoints.lifecycle),
+        services.registerTurnObserver(checkpoints.turns),
+        services.pinTranscriptEntries((thread) => checkpoints.pinnedEntries(thread)),
+        services.registerRuntimeExtension("tau-turn-checkpoints", checkpoints.runtimeExtension),
+      ];
       const checkpointRef = (input: unknown) => ({ sessionId: requiredString(input, "sessionId"), checkpointId: requiredString(input, "checkpointId") });
+      context.registerCommand("checkpoints", (input) => checkpoints.checkpoints(requiredString(input, "sessionId")));
       context.registerCommand("can-restore", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
-        return services.checkpoints.canRestore(sessionId, checkpointId);
+        return checkpoints.canRestore(sessionId, checkpointId);
       });
       context.registerCommand("restore-preview", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
-        return services.checkpoints.restorePreview(sessionId, checkpointId);
+        return checkpoints.restorePreview(sessionId, checkpointId);
       });
       context.registerCommand("restore", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
-        return services.checkpoints.restore(sessionId, checkpointId);
+        return checkpoints.restore(sessionId, checkpointId);
       });
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
-        return services.checkpoints.turnFileDiff(sessionId, checkpointId, requiredString(input, "path"), record(input).options as DiffLoadOptions | undefined);
+        return checkpoints.turnFileDiff(sessionId, checkpointId, requiredString(input, "path"), record(input).options as DiffLoadOptions | undefined);
       });
       context.registerCommand("turn-files", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         const limit = record(input).limit;
-        return services.checkpoints.turnFiles(sessionId, checkpointId, optionalString(input, "cursor"), typeof limit === "number" ? limit : undefined);
+        return checkpoints.turnFiles(sessionId, checkpointId, optionalString(input, "cursor"), typeof limit === "number" ? limit : undefined);
       });
-      const unsubscribe = services.checkpoints.subscribe((event) => context.emit(CHECKPOINT_EVENT, event));
       context.registerCommand("list-editors", () => workspaceGit.listEditors());
       context.registerCommand("open-in-editor", async (input) => {
         const project = cwd();
@@ -228,7 +236,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (path) await workspaceGit.assertWorkspacePath(project, path);
         await workspaceGit.openInEditor(project, editorId, path);
       });
-      return unsubscribe;
+      return () => { for (const dispose of disposers.reverse()) dispose(); };
     },
   };
 }

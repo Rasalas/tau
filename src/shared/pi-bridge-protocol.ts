@@ -9,8 +9,6 @@ import type {
   UiTaskProgress,
   UiTaskProgressEntry,
 } from "./contracts.js";
-import type { DiffLoadOptions, UiWorkspaceChangesPage } from "./workspace-kit-types.js";
-import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;
@@ -82,8 +80,8 @@ export interface PiBridgeSnapshot extends TranscriptBundle<unknown, string> {
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
-  /** Optional because older Pi bridge extensions do not provide checkpoints. */
-  turnCheckpoints?: UiTurnCheckpoint[];
+  /** Raw entry ids an extension attaches rows to; text-empty assistants among them stay visible. */
+  pinnedEntryIds?: string[];
   /** Cursor for raw records older than the newest bridge snapshot page. */
   olderCursor?: string;
   /** Set while Pi blocks on an extension question in its own terminal. */
@@ -103,8 +101,8 @@ export interface PiBridgeTranscriptPage extends ThreadTranscriptPage<unknown, st
   turnActivityHistory?: import("./contracts.js").UiTurnActivityEntry[];
   /** False when the bridge had to omit activity metadata at its explicit cap. */
   turnActivityHistoryComplete?: boolean;
-  /** Checkpoints whose anchors are present in this page. */
-  turnCheckpoints?: UiTurnCheckpoint[];
+  /** Pinned raw entry ids present in this page. */
+  pinnedEntryIds?: string[];
 }
 
 /**
@@ -125,7 +123,7 @@ export type PiBridgeCommand =
   | {
       command: "prompt";
       text: string;
-      /** Checkpoint lifecycle correlation; required for newly created turns. */
+      /** Turn correlation for host extensions; required for newly created turns. */
       clientTurnId?: string;
       /** Renderer submission correlation retained by the bridge handoff flow. */
       clientMessageId?: string;
@@ -146,16 +144,18 @@ export type PiBridgeCommand =
   | { command: "new_session_abort"; requestId: NewThreadRequestId; sessionId: string; bridgeEpoch: string }
   | { command: "transcript_page"; cursor?: string }
   | { command: "read_tool_output"; toolCallId: string; offset?: number }
-  | { command: "turn_files_page"; checkpointId: string; cursor?: string; limit?: number }
-      & Partial<ClientTurnIdentity>
   | { command: "export_markdown" }
-  | ({ command: "turn_file_diff"; checkpointId: string; path: string } & DiffLoadOptions)
+  /** A command of a host extension's counterpart inside Pi; answered with whatever it returns. */
+  | { command: "extension"; extensionId: string; name: string; input?: unknown }
   | { command: "snapshot" }
   | { command: "ping" };
 
-export interface PiBridgeTurnFilesPage extends UiWorkspaceChangesPage {
-  sessionId: string;
-  checkpointId: string;
+/** Published by a bridge-side extension for its desktop counterpart; the host routes it by id. */
+export interface PiBridgeExtensionEvent {
+  type: "extension-event";
+  extensionId: string;
+  name: string;
+  payload?: unknown;
 }
 
 /** One bounded page of the persisted output requested by the host. */

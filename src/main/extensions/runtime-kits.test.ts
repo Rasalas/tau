@@ -26,7 +26,18 @@ function harness(thread?: Partial<HostThread>) {
     runtimeOwner: () => "tau" as const,
     thread: () => thread as HostThread | undefined,
     setThreadTitle: async () => undefined,
-    checkpoints: { canRestore: async () => false, restorePreview: async () => ({ files: [], added: 0, removed: 0 }), restore: async () => ({ version: 1 as const, updates: [] }), turnFileDiff: async () => ({ path: "", added: 0, removed: 0, hunks: [] }), turnFiles: async () => ({ sessionId: "", checkpointId: "", files: [], added: 0, removed: 0, fileCount: 0, hasMore: false }), subscribe: () => () => undefined },
+    attachedRuntime: () => undefined,
+    branch: () => undefined,
+    sessions: {
+      list: async () => [],
+      open: () => { throw new Error("no sessions in this test"); },
+      prepare: async () => { throw new Error("no sessions in this test"); },
+      exclusive: (work) => work(),
+      refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
+    },
+    registerThreadLifecycle: () => () => undefined,
+    registerTurnObserver: () => () => undefined,
+    pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: (decorator) => { decorators.push(decorator); return () => undefined; },
     registerRuntimeExtension: (name, factory, options) => { runtimeExtensions.push({ name, factory, ...options }); return () => undefined; },
     setPermissionPolicy: () => undefined,
@@ -63,7 +74,7 @@ describe("Questionnaire host extension", () => {
     runtimeExtensions[0]!.factory({
       on: (event: string, handler: (event: unknown, ctx: unknown) => void) => { piHandlers.set(event, handler); },
       events: { on: (name: string, handler: (payload: unknown) => void) => { busHandlers.set(name, handler); } },
-    } as never);
+    } as never, { sessionId: "s1", cwd: "/project" });
     piHandlers.get("session_start")?.({}, { sessionManager: { getSessionId: () => "s1" } });
     busHandlers.get("rpiv:ask-user:prompt")?.({ questions: [
       { question: "Which colour?", header: "Theme", options: [{ label: "red" }, { label: "blue" }] },
