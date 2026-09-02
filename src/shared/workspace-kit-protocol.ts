@@ -14,7 +14,7 @@ import type {
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { HostActionResult } from "./host-protocol.js";
 
-export type { FileNode, ChangeStatus, UiChangedFile, WorkspaceChangesCompleteness, WorkspaceDiffScope, WorkspaceChangesQuery, UiWorkspaceChanges, UiWorkspaceChangesPage, DiffLineKind, UiDiffLine, UiDiffHunk, DiffLoadOptions, UiFileDiff, UiFileContent, UiWorktree, UiRef, WorkspaceInfo, UiEditor, CommitResult, PushResult } from "./workspace-kit-types.js";
+export type { FileNode, ChangeStatus, UiChangedFile, WorkspaceChangesCompleteness, WorkspaceDiffScope, WorkspaceChangesQuery, UiReviewRequest, UiWorkspaceChanges, UiWorkspaceChangesPage, DiffLineKind, UiDiffLine, UiDiffHunk, DiffLoadOptions, UiFileDiff, UiFileContent, UiWorktree, UiRef, WorkspaceInfo, UiEditor, CommitResult, PushResult } from "./workspace-kit-types.js";
 
 /**
  * Workspace Kit's own contract between its host entry and its desktop entry.

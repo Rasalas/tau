@@ -2172,6 +2172,14 @@ async function resolveBranchBase(cwd: string, requested?: string, runGit: GitRun
   throw new Error("No branch comparison base is available.");
 }
 
+/** The first candidate that names a commit in this checkout, e.g. `origin/main` before `main`. */
+export async function firstExistingRef(cwd: string, candidates: string[], runGit: GitRunner = git): Promise<string | undefined> {
+  for (const candidate of candidates) {
+    if (await runGit(cwd, ["rev-parse", "--verify", "--quiet", candidate]).then(() => true).catch(() => false)) return candidate;
+  }
+  return undefined;
+}
+
 export async function getBranchChanges(
   cwd: string,
   query: WorkspaceChangesQuery = {},

@@ -2010,6 +2010,8 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-scope-summary { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 0 4px; }
 .review-scope-summary strong { flex: none; color: var(--ink-2); font-size: 11.5px; }
 .review-scope-summary small { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fainter); font: 9.5px var(--mono); }
+.review-scope-summary .review-request { flex: none; padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); font: 9.5px var(--mono); text-decoration: none; }
+.review-scope-summary .review-request:hover { border-color: var(--acid-line); color: var(--acid-ink); }
 .review-scope-summary .stat-add, .review-scope-summary .stat-del { font: 10.5px var(--mono); }
 .review-file-navigation { display: flex; align-items: center; }
 .review-file-navigation .icon-button { width: 29px; height: 28px; border-radius: 5px; }

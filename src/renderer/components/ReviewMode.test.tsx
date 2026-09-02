@@ -16,6 +16,7 @@ const branch: UiWorkspaceChanges = {
   branch: "feat/review",
   scope: "branch",
   baseRef: "main",
+  request: { provider: "github", number: 42, title: "Add review bases", url: "https://github.com/acme/tau/pull/42", baseRef: "main" },
   files: [{ path: "src/b.ts", name: "b.ts", directory: "src", status: "added", added: 1, removed: 0 }],
   fileCount: 1,
   added: 1,
@@ -54,6 +55,7 @@ describe("ReviewMode", () => {
     await waitFor(() => expect(loadChanges).toHaveBeenCalledWith({ scope: "branch" }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("src/b.ts"));
     expect(await screen.findByText("from main")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "PR #42" }).getAttribute("href")).toBe("https://github.com/acme/tau/pull/42");
   });
 
   it("uses a filterable tree, cycles files, and expands context only on request", async () => {

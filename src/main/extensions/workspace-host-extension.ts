@@ -11,6 +11,7 @@ import type { UiToolRun } from "../../shared/contracts.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
 import { GitCoordinator } from "../git-coordinator.js";
 import * as workspaceGit from "../workspace-git.js";
+import { createReviewRequestDetector } from "../workspace-review-request.js";
 import { createWorkspaceKitLifecycle } from "./workspace-kit-lifecycle.js";
 
 const execFileAsync = promisify(execFile);
@@ -125,9 +126,18 @@ export function createWorkspaceHostExtension(): HostExtension {
         await workspaceGit.assertWorkspacePath(project, root);
         return readFileTree(root);
       });
+      // A branch with a pull or merge request diffs against that request's base, via gh or glab.
+      const reviewRequests = createReviewRequestDetector({ findCommand: (name) => services.findCommand(name), onSubprocess: () => services.noteSubprocess() });
+      const branchChanges = async (project: string, query: WorkspaceChangesQuery) => {
+        const request = query.baseRef ? undefined : await reviewRequests.detect(project);
+        if (!request) return workspaceGit.getBranchChanges(project, query);
+        const baseRef = await workspaceGit.firstExistingRef(project, [`origin/${request.baseRef}`, request.baseRef]);
+        const changes = await workspaceGit.getBranchChanges(project, baseRef ? { ...query, baseRef } : query);
+        return { ...changes, request };
+      };
       context.registerCommand("changes", async (input) => {
         const query = (record(input).query ?? {}) as WorkspaceChangesQuery;
-        if (query.scope === "branch") return workspaceGit.getBranchChanges(cwd(), query);
+        if (query.scope === "branch") return branchChanges(cwd(), query);
         return git.getChanges(cwd());
       });
       context.registerCommand("file-diff", async (input) => {

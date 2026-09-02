@@ -34,11 +34,24 @@ export interface WorkspaceChangesQuery {
   baseRef?: string;
 }
 
+/** The pull or merge request a branch belongs to, as `gh` or `glab` report it. */
+export interface UiReviewRequest {
+  provider: "github" | "gitlab";
+  number: number;
+  title: string;
+  url: string;
+  /** Branch the request merges into; the branch diff uses it as base. */
+  baseRef: string;
+  headRef?: string;
+}
+
 export interface UiWorkspaceChanges {
   branch?: string;
   scope?: WorkspaceDiffScope;
   /** Resolved comparison ref for branch-wide changes. */
   baseRef?: string;
+  /** The request the base came from, when the branch has one. */
+  request?: UiReviewRequest;
   /** Resolved merge-base commit reused by lazy per-file diffs. */
   baseCommit?: string;
   /** Last refresh outcome; stale data may remain visible after a failed scan. */

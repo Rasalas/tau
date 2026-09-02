@@ -336,6 +336,17 @@ export function ReviewMode({
           <span className="review-scope-summary">
             <strong>{scopeTitle}</strong>
             <small>{visibleChanges.baseRef ? `from ${visibleChanges.baseRef}` : visibleChanges.branch ?? "detached"}</small>
+            {visibleChanges.request ? (
+              <a
+                className="review-request"
+                href={visibleChanges.request.url}
+                target="_blank"
+                rel="noreferrer"
+                title={`${visibleChanges.request.title} · opens in the browser`}
+              >
+                {visibleChanges.request.provider === "github" ? "PR" : "MR"} #{visibleChanges.request.number}
+              </a>
+            ) : null}
             <span className="stat-add">+{visibleChanges.added}</span>
             <span className="stat-del">−{visibleChanges.removed}</span>
           </span>
