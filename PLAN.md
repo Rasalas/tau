@@ -47,7 +47,7 @@ Planned work, in order:
 5. close the gaps to the Pi terminal: render thinking (done: collapsed blocks with a toggle command), tree/fork/clone (done: core actions `threadTree`, `navigateThreadTree`, `duplicateThread` with a tree modal; Runtime Controls adds `/tree`, `/fork`, `/clone`), map `ctx.ui` status, widget, working message and notify onto workbench slots (done: Pi UI extension; `setFooter` and component widgets need a terminal and stay reported as unsupported), honor `registerShortcut` and `keybindings.json` (done: the Runtime Controls host entry reads both; Pi shortcuts become palette commands bound to their chord), register the hard-coded slash commands (done: `/reload`, `/rebuild` and `/restart` are slash commands of the Runtime Controls extension, not App.tsx branches)
 6. make the access gate a default-on extension (done: Access Kit owns the level, the Pi gate and the composer control; approvals use Pi's `ctx.ui.confirm`, so the core approval overlay and its IPC entries are gone)
 
-Host tools come from the user's machine, the way the terminal has them: at startup the main process reads the login shell's environment (`src/main/shell-environment.ts`) so `git`, `claude`, editors and Pi's own tools resolve after a Dock launch, and the seam offers `findCommand(name)`. Claude Code is the installed CLI with its own `~/.claude` login and settings; Tau sets neither `HOME` nor `CLAUDE_CONFIG_DIR`. Follow-up: Review Kit takes pull and merge request bases from `gh` and `glab` when they are installed, found the same way.
+Host tools come from the user's machine, the way the terminal has them: at startup the main process reads the login shell's environment (`src/main/shell-environment.ts`) so `git`, `claude`, editors and Pi's own tools resolve after a Dock launch, and the seam offers `findCommand(name)`. Claude Code is the installed CLI with its own `~/.claude` login and settings; Tau sets neither `HOME` nor `CLAUDE_CONFIG_DIR`. The Review's branch scope takes the base of the current branch's pull or merge request from `gh` or `glab` when one is installed and logged in (`src/main/workspace-review-request.ts`, found through `findCommand`, origin URL decides which is asked first) and falls back to the Git heuristics otherwise.
 
 Completion check: `start:safe` shows exactly the core listed in `docs/CORE.md`; every bundled kit can be removed on both the host and the desktop side without editing core; no feature name appears in `src/shared/contracts.ts` or `src/main/index.ts`. Checked by `src/shared/core-boundary.test.ts` (names), `src/main/pi-host-safe-mode.test.ts` and `src/renderer/extensions/kit-lifecycle.test.tsx`, all part of `npm test`.
 
@@ -57,13 +57,13 @@ Replace the bundled-only registry with a package loader.
 
 Planned work:
 
-- define a versioned desktop extension manifest (partly done: `tau-extension.json` names id, name and the two entries, ADR 0008; it carries no version yet)
+- define a versioned desktop extension manifest (done: `tau-extension.json` names id, name, `version`, `engines` and the two entries, ADR 0008 with amendment)
 - discover installed extensions without source edits (done: `~/.tau/extensions` and `<project>/.tau/extensions`, synced at start, on project change and on `/reload`)
 - persist enablement and extension settings (done for enablement: the Settings toggle switches both halves and is remembered; extension settings are still each package's own business)
 - report activation failures without preventing Tau from starting (done: the failure shows on the extension's settings page)
-- define compatibility checks for Tau, Pi, and contribution interface versions
+- define compatibility checks for Tau, Pi, and contribution interface versions (done: `engines.tau`, `engines.pi`, `engines.api` against the app version, the bundled Pi and `EXTENSION_API_VERSION`; a miss keeps both halves off with the reason in the Inspector)
 - let one package declare both Pi and desktop entry points (done: `desktop` and `host` entries; a Pi extension entry is still registered from the host half through `registerRuntimeExtension`)
-- add development tooling for reloading and inspecting extensions (`/reload` and `/rebuild` exist; no inspector yet)
+- add development tooling for reloading and inspecting extensions (done: `/reload`, `/rebuild`, and Settings → Inspector listing both registries, the package folders, versions, engines, errors and skips)
 
 Completion check: a separately packaged extension can be installed, enabled, disabled, upgraded, and removed without rebuilding Tau.
 
@@ -114,7 +114,7 @@ Completion check: a second client can supervise the same host and clearly report
 
 These questions are intentionally unresolved:
 
-- How are packages versioned and distributed? The manifest shape is settled (ADR 0008: a folder with `tau-extension.json`); version, compatibility fields and any registry are not.
+- How are packages distributed? The manifest shape, `version` and `engines` are settled (ADR 0008 and its amendment); an installer, a registry, signing and update channels are not.
 - Which extension code may run in-process, and which code must be isolated?
 - Does a thread always map to one Pi session, or can it coordinate several sessions and agents?
 - How are project identities preserved when the same repository exists locally, remotely, or in several worktrees?

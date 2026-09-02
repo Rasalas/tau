@@ -22,7 +22,7 @@ npm install
 npm start
 ```
 
-`npm start` performs the minified production build and opens the Electron app. For development, use `npm run dev` (Electron + Vite hot reload) or `npm run dev:web` (browser fixture preview); `npm run start:existing` opens the last production assets without rebuilding. Build and startup measurements are written to `reports/build-report.json` and `reports/start-report.json`; `npm run build:budget` and `npm run start:budget` enforce the local budgets. It uses your existing `~/.pi/agent` models, credentials, skills and extensions, and the tools of your machine: at startup the main process reads your login shell's environment (PATH, SSH agent, locale, Homebrew variables), so `git`, `claude`, editors and everything Pi's tools call resolve the way they do in a terminal, also after a Dock launch. Claude Code threads run the installed `claude` CLI with its own login and `~/.claude` settings; `TAU_CLAUDE_CODE_COMMAND` names a different executable. The initial workspace is this repository; use the project picker in the left sidebar to open another folder. Recent projects persist in Electron's user-data directory.
+`npm start` performs the minified production build and opens the Electron app. For development, use `npm run dev` (Electron + Vite hot reload) or `npm run dev:web` (browser fixture preview); `npm run start:existing` opens the last production assets without rebuilding. Build and startup measurements are written to `reports/build-report.json` and `reports/start-report.json`; `npm run build:budget` and `npm run start:budget` enforce the local budgets. It uses your existing `~/.pi/agent` models, credentials, skills and extensions, and the tools of your machine: at startup the main process reads your login shell's environment (PATH, SSH agent, locale, Homebrew variables), so `git`, `claude`, editors and everything Pi's tools call resolve the way they do in a terminal, also after a Dock launch. Claude Code threads run the installed `claude` CLI with its own login and `~/.claude` settings; `TAU_CLAUDE_CODE_COMMAND` names a different executable. When `gh` or `glab` is installed and logged in, the Review's branch scope diffs against the base branch of the current branch's pull or merge request and links to it. The initial workspace is this repository; use the project picker in the left sidebar to open another folder. Recent projects persist in Electron's user-data directory.
 
 For a UI-only browser preview with fixture data:
 
@@ -51,10 +51,19 @@ Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) f
 An extension with a host half is a package: a folder under one of those two directories with a `tau-extension.json` manifest.
 
 ```json
-{ "id": "acme.hello", "name": "Hello", "desktop": "./desktop.tsx", "host": "./host.ts" }
+{
+  "id": "acme.hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "engines": { "api": "^1.0.0", "pi": ">=0.84" },
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts"
+}
 ```
 
-`id` is shared by both halves (lowercase, dot-separated) and must equal the id the desktop module exports; `desktop` and `host` are relative entry paths, either may be omitted. The desktop entry is loaded like a plain desktop extension. The host entry runs in the Electron main process: the host compiles it with esbuild (Node builtins and Electron stay external, everything else is bundled), imports it and activates the default export, a `HostExtension` (`{ id?, name?, activate(context) }`) or a factory returning one; `context.services` is the same facade the bundled kits use (see `docs/adr/0006-host-extensions-own-host-features.md`), `context.registerCommand` and `context.emit` reach the desktop half through `context.host`. Packages are synced when Tau starts, when the project changes and on `/reload`, so installing, updating or removing a folder never needs a rebuild. A project's packages load only where Pi trusts the project; an activation failure is shown on the extension's settings page, not thrown. The settings toggle of a package turns both halves off and on.
+`id` is shared by both halves (lowercase, dot-separated) and must equal the id the desktop module exports; `desktop` and `host` are relative entry paths, either may be omitted. `version` is the package's own semver. `engines` names the ranges of `tau` (the app version), `pi` (the bundled Pi) and `api` (the contribution interfaces, `EXTENSION_API_VERSION` in `src/shared/extension-compat.ts`) the package runs on; ranges take `*`, `1.2.3`, `^1.2.0`, `~1.2.0`, `>=1 <2` and `||`. A package whose engines do not fit stays off on both sides and is listed with the reason in the Inspector. Both fields are optional; while Tau's own version is `0.0.0`, pin `api` rather than `tau`.
+
+Settings → Inspector shows every extension both halves know (desktop registry, host registry, commands, activation failures), the package folders on disk with their versions and engines, and the three versions the check runs against. The desktop entry is loaded like a plain desktop extension. The host entry runs in the Electron main process: the host compiles it with esbuild (Node builtins and Electron stay external, everything else is bundled), imports it and activates the default export, a `HostExtension` (`{ id?, name?, activate(context) }`) or a factory returning one; `context.services` is the same facade the bundled kits use (see `docs/adr/0006-host-extensions-own-host-features.md`), `context.registerCommand` and `context.emit` reach the desktop half through `context.host`. Packages are synced when Tau starts, when the project changes and on `/reload`, so installing, updating or removing a folder never needs a rebuild. A project's packages load only where Pi trusts the project; an activation failure is shown on the extension's settings page, not thrown. The settings toggle of a package turns both halves off and on.
 
 Tau's own source can be changed from inside Tau too. `/rebuild` runs the production build without leaving the app and reloads the renderer; when the main process or preload changed, it says so and `/restart` relaunches the app. Both are also in the command palette.
 
