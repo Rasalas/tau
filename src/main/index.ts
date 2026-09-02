@@ -13,6 +13,7 @@ import { rebuildWorkbench } from "./workbench-build.js";
 import { bundledHostExtensions } from "./extensions/index.js";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { loadHostExtensionPackages } from "./extension-packages.js";
+import { installShellEnvironment } from "./shell-environment.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
@@ -194,7 +195,13 @@ function installIpc(): void {
 
 app.whenReady().then(async () => {
   projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"));
-  await projectHistory.load();
+  // The host and every tool it spawns (Pi's tools, runtimes, editors) see the
+  // login shell's PATH, not the one a Dock launch inherits.
+  const [shellEnvironment] = await Promise.all([
+    installShellEnvironment().catch((error: unknown) => { console.warn("Tau could not read the login shell", error); return undefined; }),
+    projectHistory.load(),
+  ]);
+  if (shellEnvironment?.installed.length) console.log(`shell environment: ${shellEnvironment.installed.join(", ")} from ${shellEnvironment.pathSource}`);
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
   host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);

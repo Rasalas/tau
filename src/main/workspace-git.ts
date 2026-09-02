@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
+import { findExecutable } from "./shell-environment.js";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -2313,15 +2314,7 @@ export async function push(cwd: string, runGit: GitRunner = git): Promise<PushRe
 }
 
 export async function listEditors(): Promise<UiEditor[]> {
-  const found = await Promise.all(KNOWN_EDITORS.map(async (editor) => {
-    try {
-      await execFileAsync("which", [editor.id]);
-      return editor;
-    } catch {
-      return undefined;
-    }
-  }));
-  return found.filter((editor): editor is UiEditor => Boolean(editor));
+  return KNOWN_EDITORS.filter((editor) => findExecutable(editor.id) !== undefined);
 }
 
 export async function openInEditor(cwd: string, editorId: string, path?: string): Promise<void> {

@@ -281,6 +281,8 @@ export interface HostExtensionServices {
   describeProjects(facts: HostProjectFacts): () => void;
   /** Counts a child process the extension spawned, for the host's lifecycle metrics. */
   noteSubprocess(): void;
+  /** Absolute path of a command on the host's PATH (the login shell's, see `shell-environment.ts`), or undefined. */
+  findCommand(name: string): string | undefined;
   readonly sessions: HostSessionServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;

@@ -146,6 +146,7 @@ import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
 import { PiThreadRuntimeBackend, type ThreadRuntimeBackend, type ThreadTitleSource } from "./thread-runtime-backend.js";
 import { assistantAnchorForBranch } from "./session-entries.js";
+import { findExecutable } from "./shell-environment.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Threads of an external backend get a virtual shell path, since they have no Pi session file. */
@@ -1138,6 +1139,7 @@ export class PiHost {
       attachedRuntime: (sessionId) => this.attachedRuntime(sessionId),
       describeProjects: (facts) => this.projectFacts.add(facts),
       noteSubprocess: () => this.lifecycleMetrics.countSubprocess(),
+      findCommand: (name) => findExecutable(name),
       sessions: {
         list: async () => (await SessionManager.listAll()).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
         open: (path) => {

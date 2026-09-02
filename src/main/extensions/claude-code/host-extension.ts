@@ -32,6 +32,15 @@ export function claudeComposerCommands(cwd: string, agentDir: string, adapter: C
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+const claudeCommand = () => process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude";
+
+/** A missing CLI fails with an explanation instead of a bare ENOENT from the first turn. */
+export function assertCommandInstalled(findCommand: (name: string) => string | undefined): void {
+  const command = claudeCommand();
+  if (findCommand(command)) return;
+  throw new Error(`The Claude Code CLI "${command}" was not found on the PATH of your login shell. Install it (https://claude.ai/code) or point TAU_CLAUDE_CODE_COMMAND at the executable.`);
+}
+
 /**
  * Claude Code as a runtime backend (ADR 0005): threads it owns run the Claude
  * CLI in print mode and persist in Tau's app data. Bundled by default; removing
@@ -66,6 +75,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           return entry ? record(entry) : undefined;
         },
         open: async (threadId, cwd, { resume }, thread) => {
+          assertCommandInstalled(context.services.findCommand);
           const backend = new ClaudeThreadRuntimeBackend(threadId, cwd, {
             adapter,
             store,
@@ -83,7 +93,10 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         composerCommands: commands,
         assertPromptAllowed: (level) => assertClaudePermissionPolicySupported(runtimePermissionPolicy(level)),
       };
-      context.registerCommand("status", () => ({ kind: CLAUDE_CODE_BACKEND_KIND, command: process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude" }));
+      context.registerCommand("status", () => {
+        const command = claudeCommand();
+        return { kind: CLAUDE_CODE_BACKEND_KIND, command, path: context.services.findCommand(command) };
+      });
       return context.services.registerRuntimeBackend(provider);
     },
   };
