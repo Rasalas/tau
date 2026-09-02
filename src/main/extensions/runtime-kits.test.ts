@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionUiPrompt, GlobalHostEvent } from "../../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices, type HostThread, type HostUiPresenter, type RuntimeExtensionContribution } from "../host-extensions.js";
+import { questionnaireOf } from "../../shared/questionnaire-protocol.js";
 import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
 import { createKeybindingsHostExtension, readPiUserKeybindings } from "./keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
@@ -70,11 +71,11 @@ describe("Questionnaire host extension", () => {
     ] });
     const prompt = { id: "p1", sessionId: "s1", kind: "select", title: "[Theme] Which colour?", options: ["red", "blue"] } as ExtensionUiPrompt;
     decorators.forEach((decorate) => decorate(prompt));
-    expect(prompt.questionnaire?.index).toBe(0);
-    expect(prompt.questionnaire?.questions).toHaveLength(2);
+    expect(questionnaireOf(prompt)?.index).toBe(0);
+    expect(questionnaireOf(prompt)?.questions).toHaveLength(2);
     const confirm = { id: "p2", sessionId: "s1", kind: "confirm", title: "Sure?", message: "" } as ExtensionUiPrompt;
     decorators.forEach((decorate) => decorate(confirm));
-    expect(confirm.questionnaire).toBeUndefined();
+    expect(questionnaireOf(confirm)).toBeUndefined();
   });
 });
 

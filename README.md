@@ -103,6 +103,7 @@ context.registerProjectSource(...);
 context.registerCommand(...);
 context.registerSlashCommand(...);   // `/name` in the composer, run in the workbench
 context.registerKeybinding(...);     // "mod+k", "ctrl+shift+p", "escape" → a command id
+context.registerPromptRenderer(...); // draws Pi dialogs it recognises, e.g. by a marker in `prompt.extras`
 context.registerPromptHook(...);
 context.registerToolRenderer(...);
 context.registerOptions(...);

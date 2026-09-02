@@ -237,3 +237,30 @@ describe("ExtensionRegistry keybindings", () => {
     warn.mockRestore();
   });
 });
+
+describe("ExtensionRegistry prompt renderers", () => {
+  const prompt = (extras?: Record<string, unknown>) => ({ id: "p1", sessionId: "s1", kind: "select" as const, title: "Pick", options: ["a", "b"], extras });
+
+  it("hands matching prompts to their renderer, lets it answer ahead, and hears every answer", () => {
+    const registry = new ExtensionRegistry();
+    const answered: string[] = [];
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerPromptRenderer({
+        id: "marked",
+        match: (entry) => Boolean(entry.extras?.["kit"]),
+        Component: () => null,
+        intercept: (entry) => (entry.extras?.["kit"] === "known" ? { value: "a" } : undefined),
+        onAnswered: (_entry, answer) => { answered.push("value" in answer ? answer.value : "other"); },
+      });
+    } });
+    expect(registry.getPromptRenderer(prompt())).toBeUndefined();
+    expect(registry.getPromptRenderer(prompt({ kit: true }))?.id).toBe("marked");
+    expect(registry.interceptPrompt(prompt({ kit: true }))).toBeUndefined();
+    expect(registry.interceptPrompt(prompt({ kit: "known" }))).toEqual({ value: "a" });
+    registry.notifyPromptAnswered(prompt({ kit: true }), { value: "b" });
+    registry.notifyPromptAnswered(prompt(), { value: "ignored" });
+    expect(answered).toEqual(["b"]);
+    registry.deactivate("kit");
+    expect(registry.getPromptRenderer(prompt({ kit: true }))).toBeUndefined();
+  });
+});

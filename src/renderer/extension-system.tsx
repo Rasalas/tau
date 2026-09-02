@@ -13,6 +13,8 @@ import type {
   UiToolRun,
   UiWorkspaceChanges,
   WorkspaceChangesQuery,
+  ExtensionUiAnswer,
+  ExtensionUiPrompt,
 } from "../shared/contracts";
 
 /**
@@ -236,6 +238,28 @@ export interface SlashCommandContribution {
   run(args: string, actions: WorkbenchActions): void | string | Promise<void | string>;
 }
 
+export interface PromptRendererProps {
+  prompt: ExtensionUiPrompt;
+  /** Further questions queued behind this one. */
+  pending: number;
+  onAnswer(value: string | boolean, typed?: boolean): void;
+  onCancel(): void;
+}
+
+/**
+ * Takes over the rendering of Pi dialogs it recognises, usually by a marker its
+ * host entry left in `prompt.extras`. Core renders the four dialogs otherwise.
+ */
+export interface PromptRendererContribution {
+  id: string;
+  match(prompt: ExtensionUiPrompt): boolean;
+  Component: ComponentType<PromptRendererProps>;
+  /** An answer known before the question shows; core sends it and never renders the prompt. */
+  intercept?(prompt: ExtensionUiPrompt): ExtensionUiAnswer | undefined;
+  /** Every answer core sends for a matched prompt, including free text typed in the composer. */
+  onAnswered?(prompt: ExtensionUiPrompt, answer: ExtensionUiAnswer): void;
+}
+
 export interface PromptSubmittedEvent {
   prompt: string;
   snapshot?: HostSnapshot;
@@ -305,6 +329,7 @@ export interface DesktopExtensionContext {
   /** Binds a chord to a command of any extension; core dispatches window keydown. */
   registerKeybinding(binding: KeybindingContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
+  registerPromptRenderer(renderer: PromptRendererContribution): () => void;
   /** The stage shows documents; one extension says how to load them and which are changed. */
   registerDocumentSource(source: DocumentSourceContribution): () => void;
   registerOptions(options: ExtensionOption[]): () => void;
@@ -368,6 +393,7 @@ export class ExtensionRegistry {
   private keybindings = new Map<string, ResolvedKeybinding>();
   private keybindingConflicts: KeybindingConflict[] = [];
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
+  private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
   private options = new Map<string, ExtensionOption[]>();
@@ -496,6 +522,10 @@ export class ExtensionRegistry {
         if (!/^[a-z][a-z0-9:-]*$/u.test(command.name)) throw new Error(`Slash command name "${command.name}" from ${extension.id} must be lowercase letters, digits, ":" or "-"`);
         note("slash commands");
         return this.register(this.slashCommands, command.name, { ...command, ...owner }, disposers);
+      },
+      registerPromptRenderer: (renderer) => {
+        note("prompt renderers");
+        return this.register(this.promptRenderers, renderer.id, { ...renderer, ...owner }, disposers);
       },
       registerPromptHook: (hook) => {
         note("prompt hooks");
@@ -656,6 +686,31 @@ export class ExtensionRegistry {
     if (!match) return undefined;
     const command = this.slashCommands.get(match[1]!);
     return command ? { command, args: (match[2] ?? "").trim() } : undefined;
+  }
+
+  getPromptRenderer(prompt: ExtensionUiPrompt): Owned<PromptRendererContribution> | undefined {
+    for (const renderer of this.promptRenderers.values()) if (renderer.match(prompt)) return renderer;
+    return undefined;
+  }
+
+  /** An answer a renderer already knows for this prompt, if any. */
+  interceptPrompt(prompt: ExtensionUiPrompt): ExtensionUiAnswer | undefined {
+    const renderer = this.getPromptRenderer(prompt);
+    try {
+      return renderer?.intercept?.(prompt);
+    } catch (error) {
+      console.error(`Prompt renderer ${renderer?.id} failed to intercept`, error);
+      return undefined;
+    }
+  }
+
+  notifyPromptAnswered(prompt: ExtensionUiPrompt, answer: ExtensionUiAnswer): void {
+    const renderer = this.getPromptRenderer(prompt);
+    try {
+      renderer?.onAnswered?.(prompt, answer);
+    } catch (error) {
+      console.error(`Prompt renderer ${renderer?.id} failed on answer`, error);
+    }
   }
 
   getDocumentSource(): Owned<DocumentSourceContribution> | undefined {

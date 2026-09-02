@@ -204,20 +204,6 @@ export type AccessLevel = "read-only" | "ask" | "full";
 
 export type ExtensionUiPromptKind = "select" | "confirm" | "input" | "editor";
 
-export interface UiQuestionnaireQuestion {
-  question: string;
-  header: string;
-  multiSelect: boolean;
-  options: Array<{ label: string; description: string }>;
-}
-
-/** The whole questionnaire a prompt belongs to, so the workbench can page through it. */
-export interface UiQuestionnaire {
-  /** Position of this prompt's question. */
-  index: number;
-  questions: UiQuestionnaireQuestion[];
-}
-
 /**
  * A blocking question an extension asked through Pi's UI context. It belongs to
  * one thread: that thread is stalled until it is answered, others are not.
@@ -239,7 +225,8 @@ export interface ExtensionUiPrompt {
   expiresAt?: number;
   /** The question is answered outside Tau — Pi owns the runtime and asks in its terminal. */
   answerElsewhere?: boolean;
-  questionnaire?: UiQuestionnaire;
+  /** What host extensions attached for their desktop halves, keyed by extension id. */
+  extras?: Record<string, unknown>;
 }
 
 export type ExtensionUiAnswer =

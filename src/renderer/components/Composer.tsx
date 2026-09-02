@@ -5,7 +5,7 @@ import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
-import { ExtensionPrompt, type QuestionnaireChoice } from "./ExtensionPrompt";
+import { ExtensionPrompt } from "./ExtensionPrompt";
 import { TaskProgress } from "./TaskProgress";
 import {
   attachmentPolicyMessage,
@@ -145,8 +145,6 @@ export function Composer({
   promptsPending = 0,
   onAnswerPrompt,
   onCancelPrompt,
-  promptChoices,
-  onPreselectQuestion,
   onCompactContext,
   held = false,
 }: {
@@ -171,9 +169,6 @@ export function Composer({
   /** `typed` is set when the answer came from the text field rather than a choice. */
   onAnswerPrompt?(value: string | boolean, typed?: boolean): void;
   onCancelPrompt?(): void;
-  /** Picks per question of the prompt's questionnaire, answered or waiting. */
-  promptChoices?: Record<number, QuestionnaireChoice>;
-  onPreselectQuestion?(index: number, labels: string[]): void;
   onCompactContext(): void;
   /** An extension is changing the workspace; submitting would target the wrong thread. */
   held?: boolean;
@@ -397,16 +392,18 @@ export function Composer({
           ))}
         </div>
       ) : null}
-      {prompt ? (
-        <ExtensionPrompt
-          prompt={prompt}
-          pending={promptsPending}
-          choices={promptChoices}
-          onAnswer={(value) => { onAnswerPrompt?.(value); updateDraft(""); }}
-          onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
-          onPreselect={onPreselectQuestion}
-        />
-      ) : null}
+      {prompt ? (() => {
+        // An extension that recognises the prompt draws it; core draws the four dialogs.
+        const Renderer = registry?.getPromptRenderer(prompt)?.Component ?? ExtensionPrompt;
+        return (
+          <Renderer
+            prompt={prompt}
+            pending={promptsPending}
+            onAnswer={(value, typed) => { onAnswerPrompt?.(value, typed); updateDraft(""); }}
+            onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
+          />
+        );
+      })() : null}
       <div
         className={`composer-frame ${queue.length > 0 || prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
         onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}

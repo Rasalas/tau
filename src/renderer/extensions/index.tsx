@@ -24,6 +24,7 @@ import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
 import { piUiExtension } from "./pi-ui";
+import { questionnaireExtension } from "./questionnaire-kit";
 
 let lastDocumentState: { changes: import("../../shared/contracts").UiWorkspaceChanges; editor?: import("../../shared/contracts").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
@@ -258,5 +259,6 @@ export const bundledExtensions = [
   computerUsePresentationExtension,
   titleGeneratorExtension,
   piUiExtension,
+  questionnaireExtension,
   settingsExtension,
 ];

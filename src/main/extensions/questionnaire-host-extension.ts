@@ -1,8 +1,6 @@
-import type { UiQuestionnaireQuestion } from "../../shared/contracts.js";
+import { QUESTIONNAIRE_HOST_EXTENSION_ID, tagQuestionnaire, type UiQuestionnaireQuestion } from "../../shared/questionnaire-protocol.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
 import { createQuestionnaireExtension } from "../questionnaire-extension.js";
-
-export const QUESTIONNAIRE_HOST_EXTENSION_ID = "tau.questionnaire";
 
 /**
  * Questionnaire Kit's host entry. The ask-user tool walks its questions one
@@ -29,7 +27,7 @@ export function createQuestionnaireHostExtension(): HostExtension {
         const byTitle = questions.findIndex((q) => prompt.title.startsWith(`${q.header ? `[${q.header}] ` : ""}${q.question}`));
         const index = byTitle >= 0 ? byTitle : Math.min(questionnaire.asked, questions.length - 1);
         questionnaire.asked = index + 1;
-        prompt.questionnaire = { index, questions };
+        tagQuestionnaire(prompt, { index, questions });
       });
     },
   };

@@ -32,8 +32,6 @@ import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeatu
 import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
 import { allocateAttachmentId, ComposerScopeStore, createDraftKey, type ComposerScopeReference, type DraftKey, type PendingAttachment } from "./composer-scope-store";
 import { errorMessage } from "./error-message";
-import { multiSelectValue, type QuestionnaireChoice } from "./components/ExtensionPrompt";
-import { optionForLabel, splitOption } from "../shared/extension-prompt-options";
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import {
@@ -119,10 +117,6 @@ import {
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 type CheckpointStatus = "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
-
-function questionKey(sessionId: string, index: number): string {
-  return `${sessionId}:${index}`;
-}
 
 /**
  * Navigation belongs to the semantic transcript, not to whichever host action
@@ -696,11 +690,6 @@ export default function App() {
   const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
   const uiPromptsRef = useRef(uiPrompts);
   uiPromptsRef.current = uiPrompts;
-  // Picks per questionnaire question, keyed by thread and index. A pick for a
-  // question the extension has not reached yet is sent the moment it asks.
-  const [questionnaireChoices, setQuestionnaireChoices] = useState<Record<string, QuestionnaireChoice>>({});
-  const questionnaireChoicesRef = useRef(questionnaireChoices);
-  questionnaireChoicesRef.current = questionnaireChoices;
   const [runStartedAt, setRunStartedAt] = useState<number>();
   // Legacy sessions may only have the old renderer cache. A settled run with
   // no durable checkpoint must not leave that stale cache looking current.
@@ -1543,30 +1532,11 @@ export default function App() {
         if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
         break;
       case "extension-ui-prompt": {
-        const questionnaire = event.prompt.questionnaire;
-        if (questionnaire) {
-          const sessionId = event.prompt.sessionId;
-          const key = questionKey(sessionId, questionnaire.index);
-          const pick = questionnaire.index === 0 ? undefined : questionnaireChoicesRef.current[key];
-          if (questionnaire.index === 0) {
-            // A fresh questionnaire: picks left from an earlier one in this thread are stale.
-            setQuestionnaireChoices((current) => Object.fromEntries(
-              Object.entries(current).filter(([entry]) => !entry.startsWith(`${sessionId}:`)),
-            ));
-          }
-          const question = questionnaire.questions[questionnaire.index];
-          const value = !pick || pick.answered || pick.labels.length === 0
-            ? undefined
-            : event.prompt.kind === "select"
-              ? optionForLabel(event.prompt.options, pick.labels[0])
-              : event.prompt.kind === "input" && question?.multiSelect
-                ? multiSelectValue(question, pick.labels)
-                : undefined;
-          if (value) {
-            void window.tau?.answerExtensionUi(event.prompt.id, { value });
-            setQuestionnaireChoices((current) => ({ ...current, [key]: { labels: pick!.labels, answered: true } }));
-            break;
-          }
+        // A renderer that already knows the answer (a pick made ahead of time) sends it.
+        const known = registry.interceptPrompt(event.prompt);
+        if (known) {
+          void window.tau?.answerExtensionUi(event.prompt.id, known);
+          break;
         }
         setUiPrompts((current) => [...current, event.prompt]);
         break;
@@ -1869,40 +1839,10 @@ export default function App() {
 
   const answerUiPrompt = useCallback((id: string, answer: ExtensionUiAnswer) => {
     const prompt = uiPromptsRef.current.find((entry) => entry.id === id);
-    if (prompt?.questionnaire && "value" in answer) {
-      const question = prompt.questionnaire.questions[prompt.questionnaire.index];
-      // Multi-select answers are option numbers; keep the labels for the page summary.
-      const labels = answer.typed
-        ? [answer.value]
-        : prompt.kind === "input" && question?.multiSelect
-          ? answer.value.split(/[,\s]+/u).flatMap((token) => {
-            const option = question.options[Number(token) - 1];
-            return option ? [option.label] : [];
-          })
-          : [splitOption(answer.value).label];
-      const key = questionKey(prompt.sessionId, prompt.questionnaire.index);
-      setQuestionnaireChoices((current) => ({ ...current, [key]: { labels: labels.length > 0 ? labels : [answer.value], answered: true } }));
-    }
+    if (prompt) registry.notifyPromptAnswered(prompt, answer);
     setUiPrompts((current) => current.filter((entry) => entry.id !== id));
     void window.tau?.answerExtensionUi(id, answer);
-  }, []);
-
-  const preselectQuestion = useCallback((index: number, labels: string[]) => {
-    const active = threadPrompts[0];
-    if (!active) return;
-    setQuestionnaireChoices((current) => ({ ...current, [questionKey(active.sessionId, index)]: { labels, answered: false } }));
-  }, [threadPrompts]);
-
-  const promptChoices = useMemo(() => {
-    const active = threadPrompts[0];
-    if (!active?.questionnaire) return undefined;
-    const choices: Record<number, QuestionnaireChoice> = {};
-    active.questionnaire.questions.forEach((_question, index) => {
-      const pick = questionnaireChoices[questionKey(active.sessionId, index)];
-      if (pick) choices[index] = pick;
-    });
-    return choices;
-  }, [questionnaireChoices, threadPrompts]);
+  }, [registry]);
 
   const settleActiveThread = useCallback(() => {
     const activeId = threadStore.getSnapshot().activeThreadId;
@@ -2624,8 +2564,6 @@ export default function App() {
         const active = conversationPrompts[0];
         if (active) answerUiPrompt(active.id, { cancelled: true });
       }}
-      promptChoices={promptChoices}
-      onPreselectQuestion={preselectQuestion}
       onCompactContext={() => void compactContext()}
       held={composerHolds > 0}
     />
