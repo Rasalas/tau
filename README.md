@@ -61,7 +61,7 @@ Tau's own source can be changed from inside Tau too. `/rebuild` runs the product
 ## Prototype surface
 
 - real Pi SDK session with streamed text, thinking and tool events
-- recent Pi threads across projects, including project identity, Git branch, live activity, and a settled shelf
+- recent Pi threads across projects, including project identity, the Git branch Workspace Kit supplies, live activity, and a settled shelf
 - searchable recent-project modal (`Cmd/Ctrl+P`) and extension-provided add-project sources
 - working local-folder and Git-clone project flows, plus thread search (`/`)
 - file index marked with the working tree's changes, and a Signals event stream

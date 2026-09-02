@@ -5,10 +5,11 @@ message with an unknown version or type and continue using its last coherent
 state; it must not reinterpret it as a `HostSnapshot`.
 
 - `thread-index` and `thread-shell` contain navigation records only.
-- `thread-detail` contains the active session's messages, run state, tools, usage,
-  and immutable turn-checkpoint summaries. Each checkpoint carries stable
-  before/after Git snapshot references; historical diff bytes are loaded by the
-  dedicated host API so transcript updates stay bounded.
+- `thread-detail` contains the active session's messages, run state, tools and
+  usage. Extension state beside a thread (Workspace Kit's turn checkpoints, say)
+  travels through the extension's own commands and events, never in the detail;
+  a text-empty assistant message stays in the detail only when an extension
+  pinned its entry.
 - `transcript-page` contains a bounded page plus a cursor for older records and
   an optional `historyCompleteness` value.
 - `catalog` contains models, thinking levels, tools, and extension count.
@@ -16,7 +17,8 @@ state; it must not reinterpret it as a `HostSnapshot`.
   decoder accepts both omissions; omitted capability is treated as `false`,
   while a catalog without a session id cannot change the active thread's
   capability.
-- `project` contains workspace identity, branch, and optional project metadata.
+- `project` contains workspace identity and an optional label an extension
+  supplies (Workspace Kit: the Git branch).
 - `run` contains lifecycle state for the active session.
 
 Within the typed host/page contracts, `olderCursor` is an opaque
