@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { UiChangedFile, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/contracts";
+import type { UiChangedFile, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/workspace-kit-types";
 
 /**
  * One paging state machine is shared by the transcript card and historical

@@ -1,4 +1,4 @@
-import type { DiffLoadOptions } from "./contracts.js";
+import type { DiffLoadOptions } from "./workspace-kit-types.js";
 
 /** Shared diff paging normalization for host and bridge Git adapters. */
 export function normalizeDiffLoadOptions(

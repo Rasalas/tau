@@ -47,7 +47,7 @@ Planned work, in order:
 5. close the gaps to the Pi terminal: render thinking (done: collapsed blocks with a toggle command), tree/fork/clone, map `ctx.ui` status, widget, working message and notify onto workbench slots (done: Pi UI extension; `setFooter` and component widgets need a terminal and stay reported as unsupported), honor `registerShortcut` and `keybindings.json` (done: the Runtime Controls host entry reads both; Pi shortcuts become palette commands bound to their chord), register the hard-coded slash commands (done: `/reload`, `/rebuild` and `/restart` are slash commands of the Runtime Controls extension, not App.tsx branches)
 6. make the access gate a default-on extension (done: Access Kit owns the level, the Pi gate and the composer control; approvals use Pi's `ctx.ui.confirm`, so the core approval overlay and its IPC entries are gone)
 
-Completion check: `start:safe` shows exactly the core listed in `docs/CORE.md`; every bundled kit can be removed on both the host and the desktop side without editing core; no feature name appears in `src/shared/contracts.ts` or `src/main/index.ts`.
+Completion check: `start:safe` shows exactly the core listed in `docs/CORE.md`; every bundled kit can be removed on both the host and the desktop side without editing core; no feature name appears in `src/shared/contracts.ts` or `src/main/index.ts`. Checked by `src/shared/core-boundary.test.ts` (names, with the checkpoint debt of stage B listed), `src/main/pi-host-safe-mode.test.ts` and `src/renderer/extensions/kit-lifecycle.test.tsx`, all part of `npm test`.
 
 ## Phase 2: load extension packages dynamically
 

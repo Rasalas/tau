@@ -2,29 +2,23 @@ import { Component, createRef, lazy, memo, Suspense, useCallback, useEffect, use
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
   ClientTurnIdentity,
-  DiffLoadOptions,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
-  FileNode,
   HostEvent,
   HostSnapshot,
   NewThreadRequestId,
   PreparedPrompt,
   ShellActionResult,
   ThreadIndexSnapshot,
-  UiEditor,
-  UiFileContent,
-  UiFileDiff,
   UiMessage,
   UiProject,
   UiPromptAttachment,
   UiSession,
   UiSkillDraft,
   UiToolRun,
-  UiTurnCheckpoint,
-  UiWorkspaceChanges,
-  WorkspaceInfo,
 } from "../shared/contracts";
+import type { DiffLoadOptions, FileNode, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges, WorkspaceInfo } from "../shared/workspace-kit-types";
+import type { UiTurnCheckpoint } from "../shared/turn-checkpoint-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { ChangedFiles } from "./components/ChangedFiles";
 import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";

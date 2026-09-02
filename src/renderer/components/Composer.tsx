@@ -1,6 +1,14 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft } from "../../shared/contracts";
+import type {
+  ExtensionUiPrompt,
+  HostSnapshot,
+  SubmissionResult,
+  UiComposerCommand,
+  UiContextUsage,
+  UiPromptAttachment,
+  UiSkillDraft,
+} from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";

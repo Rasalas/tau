@@ -21,7 +21,6 @@ import type {
   ClientTurnIdentity,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
-  DiffLoadOptions,
   HostBootstrap,
   HostEvent,
   HostExtensionSummary,
@@ -31,7 +30,6 @@ import type {
   ShellActionResult,
   ThreadIndexSnapshot,
   UiComposerCommand,
-  UiFileDiff,
   UiMessage,
   UiMessageImage,
   UiModel,
@@ -41,15 +39,14 @@ import type {
   UiSession,
   UiTaskProgressEntry,
   UiToolRun,
-  UiTurnCheckpoint,
   UiTurnActivity,
   UiTurnActivityEntry,
-  UiWorkspaceChanges,
-  UiWorkspaceChangesPage,
   NewThreadRequestId,
   ThreadBackendKind,
   PreparedPrompt,
 } from "../shared/contracts.js";
+import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/workspace-kit-types.js";
+import type { UiTurnCheckpoint } from "../shared/turn-checkpoint-types.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
   HOST_PROTOCOL_VERSION,

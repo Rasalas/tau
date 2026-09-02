@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { UiChangedFile, UiWorkspaceChanges } from "../shared/contracts";
+import type { UiChangedFile, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 
 function file(path: string, added: number, removed: number): UiChangedFile {

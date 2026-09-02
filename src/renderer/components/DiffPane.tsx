@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { DiffLoadOptions, UiFileDiff } from "../../shared/contracts";
+import type { DiffLoadOptions, UiFileDiff } from "../../shared/workspace-kit-types";
 import { DiffView } from "./DiffView";
 
 const HUNK_PAGE = 40;

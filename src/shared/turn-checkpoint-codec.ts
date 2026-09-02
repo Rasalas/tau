@@ -1,9 +1,5 @@
-import type {
-  ChangeStatus,
-  UiChangedFile,
-  UiTurnCheckpoint,
-  UiWorkspaceChanges,
-} from "./contracts.js";
+import type { ChangeStatus, UiChangedFile, UiWorkspaceChanges } from "./workspace-kit-types.js";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type {
   StoredTurnCheckpoint,
   TurnRestoreBackup,

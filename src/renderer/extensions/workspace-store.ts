@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { FileNode, UiEditor, UiWorkspaceChanges, WorkspaceInfo } from "../../shared/contracts";
+import type { FileNode, UiEditor, UiWorkspaceChanges, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import type { HostActionResult } from "../../shared/host-protocol";
 import type { WorkbenchActions } from "../extension-system";
 import { errorMessage } from "../error-message";

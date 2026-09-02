@@ -1,5 +1,13 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { DiffLoadOptions, ExtensionUiPrompt, GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, ThreadHostEvent, UiFileDiff, UiMessage, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/contracts.js";
+import type {
+  ExtensionUiPrompt,
+  GlobalHostEvent,
+  HostExtensionSummary,
+  ThreadBackendKind,
+  ThreadHostEvent,
+  UiMessage,
+} from "../shared/contracts.js";
+import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/workspace-kit-types.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";

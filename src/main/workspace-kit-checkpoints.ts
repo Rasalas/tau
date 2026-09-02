@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/contracts.js";
+import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/workspace-kit-types.js";
 import {
   createStoredTurnCheckpoint,
   createTurnCheckpointBatch,

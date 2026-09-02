@@ -1,4 +1,4 @@
-import type { AccessLevel } from "../../shared/contracts.js";
+import type { AccessLevel } from "../../shared/access-kit-protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_EVENT, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "../../shared/access-kit-protocol.js";
 import { createAccessExtension } from "../access-extension.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";

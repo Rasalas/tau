@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { DiffLoadOptions, UiTurnCheckpoint, UiWorkspaceChanges } from "../../shared/contracts";
+import type { DiffLoadOptions, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
+import type { UiTurnCheckpoint } from "../../shared/turn-checkpoint-types";
 import { CHECKPOINT_EVENT, type CheckpointEvent } from "../../shared/workspace-kit-protocol";
 import type { DesktopExtensionContext, OverlayProps, RegionProps, TranscriptRow, WorkbenchActions } from "../extension-system";
 import { useWorkbench } from "../workbench-context";

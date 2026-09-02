@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiFileContent, UiWorkspaceChanges } from "../../shared/contracts";
+import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activateTab, closeTab, EMPTY_STAGE, openFileTab, pinTab, setFileView, type StageState } from "../stage";
 import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context";
 import { workspaceStore } from "../extensions/workspace-store";

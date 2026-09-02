@@ -20,7 +20,7 @@ import type {
   UiWorkspaceChangesPage,
   WorkspaceChangesQuery,
   WorkspaceDiffScope,
-} from "../../shared/contracts";
+} from "../../shared/workspace-kit-types";
 import { readReviewState, writeReviewState, type PersistedReviewState } from "../review-state";
 import { DiffView } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";

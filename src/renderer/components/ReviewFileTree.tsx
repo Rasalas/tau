@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
-import type { UiChangedFile } from "../../shared/contracts";
+import type { UiChangedFile } from "../../shared/workspace-kit-types";
 import { buildChangesTree } from "./ChangesTree";
 import { FileKindIcon } from "./FileKindIcon";
 

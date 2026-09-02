@@ -8,14 +8,14 @@ import type {
   UiTaskProgress,
   UiTaskProgressEntry,
   UiTurnActivityEntry,
-  UiTurnCheckpoint,
   UiToolRun,
   UiTurnActivity,
-  UiWorkspaceChanges,
   SubmissionResult,
   NewThreadRequestId,
   ThreadBackendKind,
 } from "./contracts.js";
+import type { UiWorkspaceChanges } from "./workspace-kit-types.js";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { ThreadTranscriptPage, TranscriptBundle, TranscriptCursorBoundary } from "./transcript-contract.js";
 import { isTranscriptHistoryMetadataConsistent, resolveTranscriptHistoryCompleteness } from "./transcript-completeness.js";
 import { isHostTranscriptCursor, type HostTranscriptCursor } from "./transcript-cursor.js";

@@ -1,5 +1,6 @@
 import { Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
-import type { UiFileDiff, UiMessage, UiToolRun } from "../shared/contracts";
+import type { UiMessage, UiToolRun } from "../shared/contracts";
+import type { UiFileDiff } from "../shared/workspace-kit-types";
 import { DiffView } from "./components/DiffView";
 import { Message } from "./components/Message";
 import { ToolGroup } from "./components/ToolGroup";

@@ -2,20 +2,15 @@ import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parse
 import type { ComponentType, ReactNode } from "react";
 import type { HostActionResult } from "../shared/host-protocol";
 import type {
-  DiffLoadOptions,
   GlobalHostEvent,
   HostEvent,
   HostSnapshot,
   ShellActionResult,
-  UiFileContent,
-  UiEditor,
-  UiFileDiff,
   UiToolRun,
-  UiWorkspaceChanges,
-  WorkspaceChangesQuery,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
 } from "../shared/contracts";
+import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges, WorkspaceChangesQuery } from "../shared/workspace-kit-types";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;

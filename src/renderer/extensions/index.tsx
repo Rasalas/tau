@@ -26,7 +26,7 @@ import { titleGeneratorExtension } from "./title-generator";
 import { piUiExtension } from "./pi-ui";
 import { questionnaireExtension } from "./questionnaire-kit";
 
-let lastDocumentState: { changes: import("../../shared/contracts").UiWorkspaceChanges; editor?: import("../../shared/contracts").UiEditor } | undefined;
+let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
 function documentState() {

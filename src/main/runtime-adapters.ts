@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { AccessLevel, RuntimeCapabilities } from "../shared/contracts.js";
+import type { RuntimeCapabilities } from "../shared/contracts.js";
+import type { AccessLevel } from "../shared/access-kit-protocol.js";
 import { PI_RUNTIME_ADAPTER, type SkillRuntimeAdapter } from "./skill-invocation.js";
 import { ClaudeRuntimeSessionStore } from "./claude-runtime-store.js";
 

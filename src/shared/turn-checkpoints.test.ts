@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { UiTurnCheckpoint } from "./contracts.js";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import {
   boundedTurnCheckpointSummary,
   createTurnCheckpointBatch,

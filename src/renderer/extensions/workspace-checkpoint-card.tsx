@@ -1,4 +1,5 @@
-import type { UiTurnCheckpoint, UiWorkspaceChangesPage } from "../../shared/contracts";
+import type { UiWorkspaceChangesPage } from "../../shared/workspace-kit-types";
+import type { UiTurnCheckpoint } from "../../shared/turn-checkpoint-types";
 import { ChangedFiles } from "../components/ChangedFiles";
 
 /** Workspace Kit's optional transcript contribution for immutable turn changes. */

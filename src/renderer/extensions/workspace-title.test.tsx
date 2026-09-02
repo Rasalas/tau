@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceInfo } from "../../shared/contracts";
+import type { WorkspaceInfo } from "../../shared/workspace-kit-types";
 import type { WorkbenchActions } from "../extension-system";
 import { WorkspaceTitleActions } from "./workspace-title";
 import { workspaceStore } from "./workspace-store";

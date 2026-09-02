@@ -1,4 +1,4 @@
-import type { UiDiffLine, UiFileDiff } from "../../shared/contracts";
+import type { UiDiffLine, UiFileDiff } from "../../shared/workspace-kit-types";
 import { ChevronsUpDown, MessageSquarePlus } from "lucide-react";
 import { VirtualList } from "./VirtualList";
 

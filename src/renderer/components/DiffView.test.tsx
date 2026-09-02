@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { UiFileDiff } from "../../shared/contracts";
+import type { UiFileDiff } from "../../shared/workspace-kit-types";
 import { DiffView } from "./DiffView";
 
 const diff: UiFileDiff = {

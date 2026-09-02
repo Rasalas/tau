@@ -1,4 +1,8 @@
-import type { AccessLevel } from "./contracts.js";
+/**
+ * Pi itself has no permission model — every tool it is asked to run, runs.
+ * Tau enforces these levels through an inline Pi extension that can block tool calls.
+ */
+export type AccessLevel = "read-only" | "ask" | "full";
 
 /**
  * Access Kit's contract between its host entry and its desktop entry. The gate

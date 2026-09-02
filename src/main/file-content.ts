@@ -1,6 +1,6 @@
 import { open, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
-import type { UiFileContent } from "../shared/contracts.js";
+import type { UiFileContent } from "../shared/workspace-kit-types.js";
 import { readBoundedImagePreview } from "./image-preview.js";
 
 /** Source files past this ceiling are cut; the viewer is a reader, not an editor. */

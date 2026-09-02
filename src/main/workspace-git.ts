@@ -20,7 +20,7 @@ import type {
   UiWorkspaceChangesPage,
   WorkspaceChangesQuery,
   WorkspaceInfo,
-} from "../shared/contracts.js";
+} from "../shared/workspace-kit-types.js";
 import {
   type StoredTurnCheckpoint,
   type TurnRestoreBackup,

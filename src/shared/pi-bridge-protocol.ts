@@ -1,6 +1,5 @@
 import type {
   ClientTurnIdentity,
-  DiffLoadOptions,
   ExtensionUiPromptKind,
   NewThreadRequestId,
   RuntimeCapabilities,
@@ -9,9 +8,9 @@ import type {
   UiSkillInvocation,
   UiTaskProgress,
   UiTaskProgressEntry,
-  UiTurnCheckpoint,
-  UiWorkspaceChangesPage,
 } from "./contracts.js";
+import type { DiffLoadOptions, UiWorkspaceChangesPage } from "./workspace-kit-types.js";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { ThreadTranscriptPage, TranscriptBundle } from "./transcript-contract.js";
 
 export const PI_BRIDGE_PROTOCOL_VERSION = 1;

@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react";
-import type { UiChangedFile } from "../../shared/contracts";
+import type { UiChangedFile } from "../../shared/workspace-kit-types";
 import { FileKindIcon } from "./FileKindIcon";
 
 interface DirectoryNode {

@@ -1,4 +1,5 @@
-import type { UiChangedFile, UiToolRun, UiWorkspaceChanges } from "../shared/contracts";
+import type { UiToolRun } from "../shared/contracts";
+import type { UiChangedFile, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 
 const TURN_ACTIVITY_CACHE_KEY = "tau.turn-activity.v1";
 

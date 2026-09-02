@@ -1,10 +1,4 @@
-import type {
-  RuntimeCapabilities,
-  SkillInvocationDialect,
-  UiComposerCommand,
-  UiSkillDraft,
-  UiSkillInvocation,
-} from "../shared/contracts.js";
+import type { RuntimeCapabilities, SkillInvocationDialect, UiComposerCommand, UiSkillDraft, UiSkillInvocation } from "../shared/contracts.js";
 import { parseKnownSkillInvocation } from "../shared/skill-envelope.js";
 import { canonicalPreparedSkillName, runtimeSkillCommand } from "../shared/prepared-prompt.js";
 

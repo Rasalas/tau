@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/contracts";
+import type { UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/workspace-kit-types";
 import { VirtualList } from "./VirtualList";
 import { FileKindIcon } from "./FileKindIcon";
 import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UiWorkspaceChanges } from "../../shared/contracts";
+import type { UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { ReviewMode } from "./ReviewMode";
 
 const worktree: UiWorkspaceChanges = {

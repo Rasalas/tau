@@ -1,10 +1,4 @@
-import type {
-  PreparedPrompt,
-  RuntimeCapabilities,
-  ThreadBackendKind,
-  UiComposerCommand,
-  UiSkillInvocation,
-} from "./contracts.js";
+import type { PreparedPrompt, RuntimeCapabilities, ThreadBackendKind, UiComposerCommand, UiSkillInvocation } from "./contracts.js";
 import { clientMessageFingerprint } from "./client-message-correlation.js";
 import { isSkillName, knownSkillNames, parseKnownSkillInvocation } from "./skill-envelope.js";
 

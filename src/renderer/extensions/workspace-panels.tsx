@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Maximize2 } from "lucide-react";
-import type { FileNode } from "../../shared/contracts";
+import type { FileNode } from "../../shared/workspace-kit-types";
 import { VirtualList } from "../components/VirtualList";
 import { FileKindIcon } from "../components/FileKindIcon";
 import { ChangesTree } from "../components/ChangesTree";

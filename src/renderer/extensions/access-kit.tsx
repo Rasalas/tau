@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from "react";
 import { ChevronDown, Lock, LockOpen } from "lucide-react";
-import type { AccessLevel } from "../../shared/contracts";
+import type { AccessLevel } from "../../shared/access-kit-protocol";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "../../shared/access-kit-protocol";
 import { HostUnavailableError, type ComposerControlProps, type DesktopExtension, type HostExtensionClient } from "../extension-system";
 import { Menu } from "../components/Menu";

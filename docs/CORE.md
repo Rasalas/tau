@@ -54,3 +54,4 @@ These exist today, some still inside core files. They are extension work, and Ph
 - `start:safe` shows the core list and nothing more. That includes no access gate: safe mode runs tools the way Pi does.
 - Removing a bundled kit removes its behavior on both sides without editing core.
 - `src/shared/contracts.ts` and `src/main/index.ts` name no feature. Feature commands travel through `invokeHostExtension`.
+- Tests keep this true: `src/shared/core-boundary.test.ts` fails on a feature name in those two files outside a listed debt, `src/main/pi-host-safe-mode.test.ts` proves safe mode loads no host or Pi extension, and `src/renderer/extensions/kit-lifecycle.test.tsx` activates and removes every bundled kit against the core slots.

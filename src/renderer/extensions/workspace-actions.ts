@@ -1,4 +1,4 @@
-import type { UiWorkspaceChanges, WorkspaceInfo } from "../../shared/contracts";
+import type { UiWorkspaceChanges, WorkspaceInfo } from "../../shared/workspace-kit-types";
 
 export type GitQuickActionKind = "commit" | "commit-push" | "push" | "none";
 

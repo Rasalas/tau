@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Folder, FolderGit2, GitBranch, History, Plus, Search } from "lucide-react";
-import type { WorkspaceInfo } from "../../shared/contracts";
+import type { WorkspaceInfo } from "../../shared/workspace-kit-types";
 import { VirtualList } from "./VirtualList";
 
 type OpenPanel = "workspace" | "refs" | undefined;

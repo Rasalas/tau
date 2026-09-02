@@ -1,8 +1,23 @@
-import type {
-  UiChangedFile,
-  UiTurnCheckpoint,
-  UiWorkspaceChanges,
-} from "./contracts.js";
+import type { UiChangedFile, UiWorkspaceChanges } from "./workspace-kit-types.js";
+
+/**
+ * Immutable workspace summary captured when one accepted user turn reaches its
+ * final assistant boundary. The id is generated once for that client turn and
+ * is reused as the durable identity after reload.
+ */
+export interface UiTurnCheckpoint extends UiWorkspaceChanges {
+  id: string;
+  turnId: string;
+  sessionId: string;
+  /** Persisted message-entry id used to place the card below the answer. */
+  anchorMessageId: string;
+  /** Immutable Git tree/ref captured immediately before this turn. */
+  beforeSnapshotId: string;
+  /** Immutable Git tree/ref captured when this turn settled. */
+  afterSnapshotId: string;
+  startedAt: number;
+  endedAt: number;
+}
 
 /** Outcome of one accepted user turn, independent of Pi's low-level retries. */
 export type TurnOutcome = "completed" | "aborted" | "error";

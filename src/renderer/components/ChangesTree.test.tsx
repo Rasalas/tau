@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { UiChangedFile } from "../../shared/contracts";
+import type { UiChangedFile } from "../../shared/workspace-kit-types";
 import { buildChangesTree, ChangesTree } from "./ChangesTree";
 
 const files: UiChangedFile[] = [

@@ -1,5 +1,5 @@
 import { useMemo, type KeyboardEvent } from "react";
-import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/contracts";
+import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageState, type StageView } from "../stage";
 import { FileViewer } from "./FileViewer";
 import { StageTabs, type ChatTab } from "./StageTabs";

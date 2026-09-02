@@ -3,7 +3,7 @@ import { readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { DiffLoadOptions, FileNode, WorkspaceChangesQuery } from "../../shared/contracts.js";
+import type { DiffLoadOptions, FileNode, WorkspaceChangesQuery } from "../../shared/workspace-kit-types.js";
 import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "../../shared/workspace-kit-protocol.js";
 import { assertAllowedCloneSource } from "../clone-source.js";
 import { readBoundedFileContent } from "../file-content.js";

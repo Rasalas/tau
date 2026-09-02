@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
-import type { ChangeStatus, UiTurnCheckpoint, UiWorkspaceChanges } from "../../shared/contracts";
+import type { ChangeStatus, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
+import type { UiTurnCheckpoint } from "../../shared/turn-checkpoint-types";
 
 export interface RestoreCheckpointDialogProps {
   checkpoint: UiTurnCheckpoint;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { UiWorkspaceChanges, WorkspaceInfo } from "../../shared/contracts";
+import type { UiWorkspaceChanges, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import { parseShellActionDraft, resolveGitQuickAction } from "./workspace-actions";
 
 const clean: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
