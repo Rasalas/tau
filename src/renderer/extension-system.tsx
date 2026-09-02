@@ -1,7 +1,8 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type {
   DiffLoadOptions,
   GlobalHostEvent,
+  HostEvent,
   HostSnapshot,
   UiEditor,
   UiFileDiff,
@@ -36,6 +37,9 @@ export interface WorkbenchActions {
   openWorkspace(path: string): Promise<boolean>;
   /** The thread on screen and its model, for commands that act on it. */
   activeThread(): { sessionId?: string; model?: { provider: string; id: string } } | undefined;
+  /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
+  openOverlay(id: string): void;
+  closeOverlay(): void;
 }
 
 /** Stamped onto every contribution so the UI can say which extension supplied it. */
@@ -78,6 +82,75 @@ export type ProjectSourceContribution = ProjectSourceBase & (
       run?: never;
     }
 );
+
+/**
+ * A row an extension places in the transcript after the message it belongs to.
+ * The transcript resolves `afterMessageId` against loaded messages and their
+ * source entries; a row whose anchor is not loaded stays hidden until its page is.
+ */
+export interface TranscriptRow {
+  id: string;
+  afterMessageId?: string;
+  /** Keep a transient row visible at the tail while its anchor is still racing in. */
+  fallbackToTail?: boolean;
+  content: ReactNode;
+}
+
+/** Handle an extension keeps to publish rows per thread; disposal removes them all. */
+export interface TranscriptRowsHandle {
+  setRows(sessionId: string, rows: readonly TranscriptRow[]): void;
+  clear(sessionId?: string): void;
+  dispose(): void;
+}
+
+/**
+ * Places the workbench lends to extensions. Core renders the region, never its
+ * content: above or below the composer (Pi's widgets), at the head or foot of
+ * the transcript, or as the status line at the bottom, Pi's footer.
+ */
+export type RegionPlacement = "composer-above" | "composer-below" | "transcript-header" | "transcript-footer";
+
+export interface RegionProps {
+  snapshot?: HostSnapshot;
+  actions: WorkbenchActions;
+}
+
+export interface RegionContribution {
+  id: string;
+  placement: RegionPlacement;
+  order?: number;
+  Component: ComponentType<RegionProps>;
+}
+
+/** One item of the status line; `align` decides the side, `order` the position within it. */
+export interface StatusItemContribution {
+  id: string;
+  order?: number;
+  align?: "left" | "right";
+  Component: ComponentType<RegionProps>;
+}
+
+export interface OverlayProps {
+  actions: WorkbenchActions;
+  onClose(): void;
+}
+
+/** A full-workbench view an extension opens with `actions.openOverlay(id)`. */
+export interface OverlayContribution {
+  id: string;
+  Component: ComponentType<OverlayProps>;
+}
+
+/** Host events the workbench forwards to extensions; the rest stays core state. */
+export type WorkbenchEvent =
+  | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" }>
+  | { type: "active-thread-changed"; sessionId?: string };
+
+export type WorkbenchEventType = WorkbenchEvent["type"];
+
+export interface WorkbenchEvents {
+  on<T extends WorkbenchEventType>(type: T, listener: (event: Extract<WorkbenchEvent, { type: T }>) => void): () => void;
+}
 
 /** A control rendered in the composer's toolbar row, beside model and thinking. */
 export interface ComposerControlProps {
@@ -216,8 +289,15 @@ export type ExtensionEvent = Extract<GlobalHostEvent, { type: "extension-event" 
 export interface DesktopExtensionContext {
   /** This extension's host entry, if the package has one. */
   host: HostExtensionClient;
+  /** Core host events this extension may react to; listeners go with deactivation. */
+  events: WorkbenchEvents;
+  registerRegion(region: RegionContribution): () => void;
+  registerStatusItem(item: StatusItemContribution): () => void;
+  registerOverlay(overlay: OverlayContribution): () => void;
   registerPanel(panel: PanelContribution): () => void;
   registerComposerControl(control: ComposerControlContribution): () => void;
+  /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
+  registerTranscriptRows(id: string, order?: number): TranscriptRowsHandle;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
@@ -274,6 +354,11 @@ export class ExtensionRegistry {
 
   private panels = new Map<string, Owned<PanelContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();
+  private regions = new Map<string, Owned<RegionContribution>>();
+  private statusItems = new Map<string, Owned<StatusItemContribution>>();
+  private overlays = new Map<string, Owned<OverlayContribution>>();
+  private readonly workbenchEventListeners = new Map<WorkbenchEventType, Set<(event: WorkbenchEvent) => void>>();
+  private transcriptRows = new Map<string, { order: number; owner: ContributionOwner; bySession: Map<string, readonly TranscriptRow[]> }>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
@@ -320,6 +405,55 @@ export class ExtensionRegistry {
       registerPanel: (panel) => {
         note(panel.label.toLowerCase());
         return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
+      },
+      events: {
+        on: (type, listener) => {
+          const listeners = this.workbenchEventListeners.get(type) ?? new Set<(event: WorkbenchEvent) => void>();
+          this.workbenchEventListeners.set(type, listeners);
+          const wrapped = listener as (event: WorkbenchEvent) => void;
+          listeners.add(wrapped);
+          const dispose = () => { listeners.delete(wrapped); };
+          disposers.push(dispose);
+          return dispose;
+        },
+      },
+      registerRegion: (region) => {
+        note(`${region.placement} region`);
+        return this.register(this.regions, region.id, { ...region, ...owner }, disposers);
+      },
+      registerStatusItem: (item) => {
+        note("status line");
+        return this.register(this.statusItems, item.id, { ...item, ...owner }, disposers);
+      },
+      registerOverlay: (overlay) => {
+        note("overlay");
+        return this.register(this.overlays, overlay.id, { ...overlay, ...owner }, disposers);
+      },
+      registerTranscriptRows: (id, order = 0) => {
+        note("transcript rows");
+        if (this.transcriptRows.has(id)) throw new Error(`Contribution id ${id} from ${extension.id} collides with another transcript row source`);
+        const source = { order, owner, bySession: new Map<string, readonly TranscriptRow[]>() };
+        this.transcriptRows.set(id, source);
+        const dispose = () => {
+          if (this.transcriptRows.get(id) === source) this.transcriptRows.delete(id);
+          this.changed();
+        };
+        disposers.push(dispose);
+        this.changed();
+        return {
+          setRows: (sessionId, rows) => {
+            if (this.transcriptRows.get(id) !== source) return;
+            if (rows.length === 0) source.bySession.delete(sessionId);
+            else source.bySession.set(sessionId, rows);
+            this.changed();
+          },
+          clear: (sessionId) => {
+            if (sessionId === undefined) source.bySession.clear();
+            else source.bySession.delete(sessionId);
+            this.changed();
+          },
+          dispose,
+        };
       },
       registerComposerControl: (control) => {
         note("composer controls");
@@ -412,6 +546,40 @@ export class ExtensionRegistry {
 
   getPanels(): Array<Owned<PanelContribution>> {
     return this.sorted("panels", this.panels);
+  }
+
+  /** Rows every extension published for one thread, sorted by source order; ids are namespaced by source. */
+  getTranscriptRows(sessionId: string | undefined): TranscriptRow[] {
+    if (!sessionId) return [];
+    const key = `transcript-rows:${sessionId}`;
+    const cached = this.sortedCache.get(key);
+    if (cached?.version === this.version) return cached.value as TranscriptRow[];
+    const value = [...this.transcriptRows.entries()]
+      .sort(([, a], [, b]) => a.order - b.order)
+      .flatMap(([id, source]) => (source.bySession.get(sessionId) ?? []).map((row) => ({ ...row, id: `${id}:${row.id}` })));
+    this.sortedCache.set(key, { version: this.version, value });
+    return value;
+  }
+
+  getRegions(placement: RegionPlacement): Array<Owned<RegionContribution>> {
+    return this.sorted(`regions:${placement}`, this.regions).filter((region) => region.placement === placement);
+  }
+
+  getStatusItems(): Array<Owned<StatusItemContribution>> {
+    return this.sorted("status-items", this.statusItems);
+  }
+
+  getOverlay(id: string | undefined): Owned<OverlayContribution> | undefined {
+    return id ? this.overlays.get(id) : undefined;
+  }
+
+  /** Forwards one core event to the extensions listening for its type. */
+  dispatchWorkbenchEvent(event: WorkbenchEvent): void {
+    const listeners = this.workbenchEventListeners.get(event.type);
+    if (!listeners) return;
+    for (const listener of [...listeners]) {
+      try { listener(event); } catch (error) { console.error(`Extension listener for ${event.type} failed`, error); }
+    }
   }
 
   getComposerControls(): Array<Owned<ComposerControlContribution>> {

@@ -84,3 +84,81 @@ describe("ExtensionRegistry host seam", () => {
     expect(seen).toEqual([1]);
   });
 });
+
+describe("ExtensionRegistry transcript rows", () => {
+  it("merges rows per thread in source order, namespaces ids, and drops them on deactivate", () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      const rows = context.registerTranscriptRows("cards", 20);
+      rows.setRows("s1", [{ id: "a", afterMessageId: "m1", content: null }]);
+      rows.setRows("s2", [{ id: "b", content: null }]);
+    } });
+    registry.activate({ id: "other", name: "Other", activate(context) {
+      const rows = context.registerTranscriptRows("notes", 10);
+      rows.setRows("s1", [{ id: "n", afterMessageId: "m1", fallbackToTail: true, content: null }]);
+    } });
+    expect(registry.getTranscriptRows("s1").map((row) => row.id)).toEqual(["notes:n", "cards:a"]);
+    expect(registry.getTranscriptRows("s2").map((row) => row.id)).toEqual(["cards:b"]);
+    expect(registry.getTranscriptRows(undefined)).toEqual([]);
+    expect(registry.getTranscriptRows("s1")).toBe(registry.getTranscriptRows("s1"));
+
+    registry.deactivate("kit");
+    expect(registry.getTranscriptRows("s1").map((row) => row.id)).toEqual(["notes:n"]);
+    expect(registry.getTranscriptRows("s2")).toEqual([]);
+  });
+
+  it("lets a source clear one thread or all, and ignores writes after disposal", () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    let handle: import("./extension-system").TranscriptRowsHandle | undefined;
+    registry.activate({ id: "kit", name: "Kit", activate(context) { handle = context.registerTranscriptRows("cards"); } });
+    handle!.setRows("s1", [{ id: "a", content: null }]);
+    handle!.setRows("s2", [{ id: "b", content: null }]);
+    handle!.clear("s1");
+    expect(registry.getTranscriptRows("s1")).toEqual([]);
+    expect(registry.getTranscriptRows("s2")).toHaveLength(1);
+    handle!.clear();
+    expect(registry.getTranscriptRows("s2")).toEqual([]);
+    handle!.dispose();
+    handle!.setRows("s2", [{ id: "c", content: null }]);
+    expect(registry.getTranscriptRows("s2")).toEqual([]);
+  });
+});
+
+describe("ExtensionRegistry regions, status line, overlays, and events", () => {
+  it("sorts regions per placement and status items by order, and finds overlays by id", () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerRegion({ id: "b", placement: "composer-above", order: 20, Component: () => null });
+      context.registerRegion({ id: "a", placement: "composer-above", order: 10, Component: () => null });
+      context.registerRegion({ id: "f", placement: "transcript-footer", Component: () => null });
+      context.registerStatusItem({ id: "right", align: "right", order: 5, Component: () => null });
+      context.registerStatusItem({ id: "left", Component: () => null });
+      context.registerOverlay({ id: "review", Component: () => null });
+    } });
+    expect(registry.getRegions("composer-above").map((region) => region.id)).toEqual(["a", "b"]);
+    expect(registry.getRegions("transcript-footer").map((region) => region.id)).toEqual(["f"]);
+    expect(registry.getRegions("composer-below")).toEqual([]);
+    expect(registry.getStatusItems().map((item) => item.id)).toEqual(["left", "right"]);
+    expect(registry.getOverlay("review")?.extensionId).toBe("kit");
+    expect(registry.getOverlay(undefined)).toBeUndefined();
+    registry.deactivate("kit");
+    expect(registry.getRegions("composer-above")).toEqual([]);
+    expect(registry.getOverlay("review")).toBeUndefined();
+  });
+
+  it("forwards workbench events to listeners until the extension is deactivated", () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    const seen: string[] = [];
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.events.on("tool-end", (event) => seen.push(`tool:${event.tool.id}`));
+      context.events.on("active-thread-changed", (event) => seen.push(`thread:${event.sessionId ?? "none"}`));
+    } });
+    registry.dispatchWorkbenchEvent({ type: "tool-end", sessionId: "s", tool: { id: "t1", name: "edit", args: {}, status: "done", output: "", startedAt: 0 } as never });
+    registry.dispatchWorkbenchEvent({ type: "active-thread-changed", sessionId: "s2" });
+    registry.dispatchWorkbenchEvent({ type: "agent-status", sessionId: "s", running: true });
+    expect(seen).toEqual(["tool:t1", "thread:s2"]);
+    registry.deactivate("kit");
+    registry.dispatchWorkbenchEvent({ type: "active-thread-changed", sessionId: "s3" });
+    expect(seen).toHaveLength(2);
+  });
+});

@@ -81,6 +81,7 @@ import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences } from "./preferences";
 import { workspaceKit } from "./extensions/workspace-kit-client";
 import { ProjectSourcesModal } from "./components/ProjectSources";
+import { Region, StatusLine } from "./components/Regions";
 import { createNewThreadDraft, draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
@@ -609,7 +610,7 @@ export default function App() {
     });
     return value;
   });
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
   // Extensions from ~/.tau/extensions and <project>/.tau/extensions load at
   // runtime, like Pi's own; the project set follows the open workspace.
   const noticeRef = useRef<(message: string) => void>(() => {});
@@ -711,6 +712,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [projectSourcesOpen, setProjectSourcesOpen] = useState(false);
+  const [activeOverlayId, setActiveOverlayId] = useState<string>();
   const newThreadController = useNewThreadController(window.localStorage);
   const {
     pendingNewThread,
@@ -1338,6 +1340,11 @@ export default function App() {
   }, [refreshChanges, refreshWorkspace, workspaceCwd]);
 
   const handleHostEvent = useCallback((event: HostEvent) => {
+    // Extensions see a bounded subset of events, after core has no say in them.
+    if (event.type === "tool-start" || event.type === "tool-end" || event.type === "agent-status"
+      || event.type === "user-message" || event.type === "assistant-end" || event.type === "thread-index" || event.type === "notice") {
+      queueMicrotask(() => registry.dispatchWorkbenchEvent(event));
+    }
     // A real user message starts new work even when its thread is off-screen.
     // The bridge can replay a persisted message under a transport-generated ID
     // after reconnecting, so compare its stable content before changing the
@@ -1700,6 +1707,11 @@ export default function App() {
     }
     return unsubscribe;
   }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, refreshChanges, refreshWorkspace, transcriptHistory]);
+
+  const activeThreadIdForEvents = snapshot?.sessionId;
+  useEffect(() => {
+    registry.dispatchWorkbenchEvent({ type: "active-thread-changed", sessionId: activeThreadIdForEvents });
+  }, [activeThreadIdForEvents, registry]);
 
   // Opening or switching a thread should leave you ready to type — but never
   // steal the caret out of the thread search or a dialog the user is using.
@@ -2333,6 +2345,8 @@ export default function App() {
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
+    openOverlay: (id) => setActiveOverlayId(id),
+    closeOverlay: () => setActiveOverlayId(undefined),
     openWorkspace,
     activeThread: () => snapshot ? { sessionId: snapshot.sessionId, model: snapshot.model } : undefined,
   }), [
@@ -2894,6 +2908,8 @@ export default function App() {
       content: liveTaskProgress,
     }] : []),
     ...checkpointActivities,
+    // Rows extensions publish for this thread; the transcript anchors them itself.
+    ...registry.getTranscriptRows(conversationSnapshot?.sessionId),
     ...(conversationActivityTools.length > 0 ? [{
       id: "turn-activity",
       afterMessageId: visibleToolAnchorId,
@@ -2908,7 +2924,7 @@ export default function App() {
         onCopyOutput={copyToolOutput}
       />,
     }] : []),
-  ], [checkpointActivities, conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.taskHistory, copyToolOutput, historicalActivityRows, liveTaskProgress, recoverThread, registry, snapshot?.sessionId, visibleToolAnchorId]);
+  ], [checkpointActivities, conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, snapshot?.sessionId, visibleToolAnchorId]);
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
@@ -3038,6 +3054,30 @@ export default function App() {
       ) : null}
     </>
   );
+
+  const activeOverlay = registry.getOverlay(activeOverlayId);
+  if (activeOverlay) {
+    return (
+      <ThreadStoreContext.Provider value={threadStore}>
+        <WorkbenchShellContext.Provider value={shellContextValue}>
+          <WorkbenchContext.Provider value={contextValue}>
+            <FilesContext.Provider value={filesContextValue}>
+              <ChangesContext.Provider value={changesContextValue}>
+                <ObservatoryContext.Provider value={observatoryContextValue}>
+                  <LazyFeatureBoundary label={activeOverlay.id}>
+                    <Suspense fallback={<LazyFeatureFallback label={activeOverlay.id} />}>
+                      <activeOverlay.Component actions={actions} onClose={() => setActiveOverlayId(undefined)} />
+                    </Suspense>
+                  </LazyFeatureBoundary>
+                  {overlays}
+                </ObservatoryContext.Provider>
+              </ChangesContext.Provider>
+            </FilesContext.Provider>
+          </WorkbenchContext.Provider>
+        </WorkbenchShellContext.Provider>
+      </ThreadStoreContext.Provider>
+    );
+  }
 
   if (review) {
     return (
@@ -3170,12 +3210,15 @@ export default function App() {
                       </button>
                     </>
                   ) : null}
+                  <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
                   <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
+                  <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
                 </div>
               </section>
               <div className="conversation-thread">
                 {!showStartScreen ? (
                   <>
+                  <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
               <header className="conversation-header">
                 <ThreadTitleMenu
                   title={conversationSnapshot?.sessionTitle || "Untitled thread"}
@@ -3232,9 +3275,11 @@ export default function App() {
                   <ChangesComponent changes={turnChanges} onOpenDiff={openReview} />
                 </div>
               ) : null}
+              <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
                 </>
                 ) : null}
               </div>
+              <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
             </main>
 
             {stage.tabs.length > 0 ? (

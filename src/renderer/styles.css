@@ -2469,3 +2469,15 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .message-thinking > summary .chev { transition: transform 120ms ease; }
 .message-thinking[open] > summary .chev { transform: rotate(90deg); }
 .message-thinking-body { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-card); opacity: 0.85; font-size: 13px; }
+
+/* Regions and status line: placement is core, content belongs to extensions. */
+.workbench-region { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.workbench-region:empty { display: none; }
+.region-composer-above, .region-composer-below { padding: 0 var(--composer-inset, 0); }
+.status-line {
+  display: flex; align-items: center; gap: 12px; padding: 4px 14px;
+  border-top: 1px solid var(--line); font-size: 11.5px; letter-spacing: 0.02em; color: var(--ink); opacity: 0.75;
+  min-height: 24px;
+}
+.status-line .status-side { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
+.status-line .status-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
