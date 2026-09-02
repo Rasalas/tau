@@ -14,7 +14,10 @@ const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
 import { accessKitExtension } from "./access-kit";
+import { preferences } from "../preferences";
+import { workspaceKit } from "./workspace-kit-client";
 import { computerUsePresentationExtension } from "./computer-use";
+import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
 
 export const workspaceExtension: DesktopExtension = {
@@ -52,7 +55,14 @@ export const workspaceExtension: DesktopExtension = {
       { id: "sources", kind: "chips", label: "Add-project sources", values: ["local folder", "git clone"] },
     ]);
     plugin.registerCommand({ id: "workspace.files", label: "Open file index", group: "Project", run: (app) => app.openPanel("files") });
-    plugin.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", shortcut: "⌘P", run: (app) => void app.chooseWorkspace() });
+    plugin.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", shortcut: "⌘P", run: async (app) => {
+      try {
+        const path = await workspaceKit.pickFolder();
+        if (path) await app.openWorkspace(path);
+      } catch (error) {
+        app.notify(error instanceof Error ? error.message : String(error));
+      }
+    } });
     plugin.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", shortcut: "⌘⇧S", run: (app) => app.settleActiveThread() });
     plugin.registerToolRenderer(
       "workspace.read-renderer",
@@ -129,6 +139,7 @@ export const settingsExtension: DesktopExtension = {
 
 export const bundledExtensions = [
   accessKitExtension,
+  serviceTierKitExtension,
   workspaceExtension,
   reviewExtension,
   observatoryExtension,

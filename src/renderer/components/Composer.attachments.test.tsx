@@ -13,8 +13,7 @@ function renderComposer(
   snapshot: HostSnapshot = {
     cwd: "/project", sessionId: "session", sessionTitle: "Thread", models: [],
     thinkingLevel: "off", thinkingLevels: ["off"], messages: [], isStreaming: false,
-    activeTools: [], allTools: [], extensionCount: 0, serviceTier: "standard",
-    serviceTierAvailable: false, supportsImageInput: true,
+    activeTools: [], allTools: [], extensionCount: 0, supportsImageInput: true,
   },
   draftStorageKey = "thread:session",
 ) {
@@ -33,7 +32,6 @@ function renderComposer(
       onCancelQueued={() => {}}
       onSetModel={() => {}}
       onSetThinking={() => {}}
-      onSetServiceTier={() => {}}
       onCompactContext={() => {}}
       workspaceBusy={false}
       onOpenWorktree={async () => true}
@@ -128,8 +126,7 @@ describe("Composer attachments", () => {
     renderComposer(vi.fn(), attachmentRef, {
       cwd: "/project", sessionId: "session", sessionTitle: "Thread", models: [],
       thinkingLevel: "off", thinkingLevels: ["off"], messages: [], isStreaming: false,
-      activeTools: [], allTools: [], extensionCount: 0, serviceTier: "standard",
-      serviceTierAvailable: false, supportsImageInput: false,
+      activeTools: [], allTools: [], extensionCount: 0, supportsImageInput: false,
     });
 
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "blocked.png", { type: "image/png" })]);

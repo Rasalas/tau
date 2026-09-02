@@ -1,15 +1,10 @@
-import { execFile } from "node:child_process";
-import { readdir, realpath } from "node:fs/promises";
-import { homedir } from "node:os";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
-import type { ClientTurnIdentity, ExtensionUiAnswer, HostEvent, ServiceTier, UiPromptAttachment } from "../shared/contracts.js";
+import type { ClientTurnIdentity, ExtensionUiAnswer, HostEvent, UiPromptAttachment } from "../shared/contracts.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { PiHost } from "./pi-host.js";
 import { selectRuntimeAdapter } from "./runtime-adapters.js";
-import { assertAllowedCloneSource } from "./clone-source.js";
 import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
 import { validateImageDataUrl } from "./image-clipboard.js";
@@ -22,8 +17,20 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const runtimeAdapter = selectRuntimeAdapter(undefined, { safeMode });
-const hostOptions = { runtimeAdapter, hostExtensions: safeMode ? [] : bundledHostExtensions() };
-const execFileAsync = promisify(execFile);
+const hostOptions = {
+  runtimeAdapter,
+  hostExtensions: safeMode ? [] : bundledHostExtensions(),
+  platform: {
+    pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        ...(options?.buttonLabel ? { buttonLabel: options.buttonLabel } : {}),
+        ...(options?.message ? { message: options.message } : {}),
+        properties: ["openDirectory", ...(options?.createDirectory ? ["createDirectory" as const] : [])],
+      });
+      return result.filePaths[0];
+    },
+  },
+};
 
 async function rendererImagePreview(path: string) {
   const preview = await readBoundedImagePreview(path);
@@ -41,26 +48,6 @@ async function rendererImagePreview(path: string) {
   return { name: preview.name, dataUrl: `data:image/png;base64,${resized.toPNG().toString("base64")}` };
 }
 
-async function listDirectories(requested?: string) {
-  const candidate = requested?.trim() || homedir();
-  if (!isAbsolute(candidate)) throw new Error("Choose an absolute folder path.");
-  const path = await realpath(candidate);
-  const entries = await readdir(path, { withFileTypes: true });
-  return {
-    path,
-    ...(dirname(path) !== path ? { parent: dirname(path) } : {}),
-    directories: entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-      .map((entry) => ({ name: entry.name, path: join(path, entry.name) }))
-      .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })),
-  };
-}
-
-function repositoryFolderName(repositoryUrl: string): string {
-  const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
-  const name = normalized.split(/[\\/:]/u).filter(Boolean).at(-1) ?? "repository";
-  return name.replace(/[^a-z0-9._-]+/giu, "-") || "repository";
-}
 let mainWindow: BrowserWindow | undefined;
 let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
@@ -159,7 +146,6 @@ function installIpc(): void {
   // question, so requiring readiness here would deadlock startup.
   ipcMain.handle("tau:answer-extension-ui", (_event, id: string, answer: ExtensionUiAnswer) => host?.answerExtensionUi(id, answer));
   ipcMain.handle("tau:sync-extension-ui", () => host?.replayOpenUiPrompts());
-  ipcMain.handle("tau:set-service-tier", async (_event, tier: ServiceTier) => (await requireHostReady()).setServiceTier(tier));
   ipcMain.handle("tau:recover-thread", async () => (await requireHostReady()).recoverThread());
   ipcMain.handle("tau:rename-thread", async (_event, title: string, expectedSessionId?: string) => (await requireHostReady()).renameThread(title, expectedSessionId));
   ipcMain.handle("tau:copy-text", (_event, text: string) => clipboard.writeText(text));
@@ -182,7 +168,6 @@ function installIpc(): void {
   ipcMain.handle("tau:host-extension", async (_event, extensionId: string, command: string, input?: unknown) =>
     (await requireHostReady()).invokeHostExtension(extensionId, command, input));
   ipcMain.handle("tau:host-extensions", async () => (await requireHostReady()).listHostExtensions());
-  ipcMain.handle("tau:list-directories", async (_event, path?: string) => listDirectories(path));
   ipcMain.handle("tau:desktop-extensions", async (_event, cwd: string, sharedExports: Record<string, string[]>) =>
     loadDesktopExtensions(cwd, getAgentDir(), { sharedExports }));
   ipcMain.handle("tau:rebuild-workbench", async () => {
@@ -196,30 +181,8 @@ function installIpc(): void {
     app.relaunch();
     app.quit();
   });
-  ipcMain.handle("tau:choose-workspace", async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, { properties: ["openDirectory"] });
-    const selected = result.filePaths[0];
-    return selected ? (await requireHostReady()).setWorkspace(selected) : undefined;
-  });
   ipcMain.handle("tau:open-project", async (_event, path: string) => (await requireHostReady()).setWorkspace(path));
   ipcMain.handle("tau:remove-project", async (_event, path: string) => (await requireHostReady()).removeProject(path));
-  ipcMain.handle("tau:clone-project", async (_event, repositoryUrl: string) => {
-    const url = assertAllowedCloneSource(repositoryUrl);
-    const result = await dialog.showOpenDialog(mainWindow!, {
-      buttonLabel: "Clone here",
-      message: "Choose the parent folder for the cloned project",
-      properties: ["openDirectory", "createDirectory"],
-    });
-    const parent = result.filePaths[0];
-    if (!parent) return undefined;
-    const readyHost = await requireHostReady();
-    const destination = join(parent, repositoryFolderName(url));
-    await execFileAsync("git", ["clone", "--", url, destination], {
-      timeout: 10 * 60 * 1000,
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    return readyHost.setWorkspace(destination);
-  });
 }
 
 app.whenReady().then(async () => {

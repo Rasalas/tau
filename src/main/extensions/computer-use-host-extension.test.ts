@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settingsIncludeComputerUse } from "./computer-use-extension.js";
+import { settingsIncludeComputerUse } from "./computer-use-host-extension.js";
 
 describe("settingsIncludeComputerUse", () => {
   it("recognizes string and object package declarations", () => {

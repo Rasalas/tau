@@ -68,9 +68,7 @@ function snapshot(sessionId: string, messages: UiMessage[]): HostSnapshot {
     thinkingLevel: "off",
     thinkingLevels: ["off"],
     extensionCount: 0,
-    serviceTier: "standard",
-    serviceTierAvailable: false,
-  };
+    };
 }
 
 function detail(sessionId: string, messages: UiMessage[]): ThreadDetail {

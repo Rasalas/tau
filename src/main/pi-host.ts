@@ -21,8 +21,6 @@ import type {
   ClientTurnIdentity,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
-  UiQuestionnaireQuestion,
-  ServiceTier,
   DiffLoadOptions,
   HostBootstrap,
   HostEvent,
@@ -75,15 +73,12 @@ import { OLDER_TRANSCRIPT_TURN_LIMIT, TranscriptPager, type TranscriptCursorPoli
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
-import { computerUseExtensionFactories } from "./computer-use-extension.js";
-import { createServiceTierExtension, SERVICE_TIER_APIS } from "./service-tier-extension.js";
 import { createExtensionUiContext } from "./extension-ui.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
-import { createQuestionnaireExtension } from "./questionnaire-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostThread, type RuntimeExtensionContribution } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostPlatform, type HostThread, type RuntimeExtensionContribution } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
@@ -279,6 +274,8 @@ export interface PiHostOptions {
   runtimeCommands?: readonly UiComposerCommand[];
   /** Host entries of desktop kits; activated at start, before the first runtime opens. */
   hostExtensions?: readonly HostExtension[];
+  /** Platform services (native dialogs) host extensions may use. */
+  platform?: HostPlatform;
 }
 
 export function mapMessage(message: unknown, index: number, options: MessageMappingOptions = {}): UiMessage | undefined {
@@ -996,9 +993,11 @@ export class PiHost {
   private readonly gitCoordinator = new GitCoordinator({ onSubprocess: () => this.lifecycleMetrics.countSubprocess() });
   private readonly hostExtensions: HostExtensionRegistry;
   private readonly pendingHostExtensions: readonly HostExtension[];
+  private readonly platform: HostPlatform;
   /** Pi extensions host extensions contribute; loaded into every runtime created afterwards. */
   private readonly runtimeExtensionContributions: RuntimeExtensionContribution[] = [];
   private permissionPolicyProvider: (() => RuntimePermissionPolicy) | undefined;
+  private readonly uiPromptDecorators = new Set<(prompt: ExtensionUiPrompt) => void>();
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
   private readonly threads = new ThreadRuntimeRegistry<ThreadRuntime>({
@@ -1044,7 +1043,6 @@ export class PiHost {
   private readonly knownWorktreeProjects = new Map<string, boolean>();
   private readonly worktreeClassifications = new Map<string, Promise<void>>();
   private readonly pendingShellUpdates = new Map<string, UiSession>();
-  private serviceTier: ServiceTier = "standard";
   private pendingUiPrompts = new Map<string, { sessionId: string; settle: (answer: ExtensionUiAnswer) => void }>();
   /** Prompts still awaiting an answer, kept so a late subscriber still sees them. */
   private openUiPrompts = new Map<string, ExtensionUiPrompt>();
@@ -1098,9 +1096,7 @@ export class PiHost {
         // Inline factories load even in safe mode; host extensions add theirs
         // through the services facade and are absent in safe mode.
         extensionFactories: [
-          ...this.runtimeExtensionContributions,
-          { name: "tau-service-tier", factory: this.serviceTierExtension },
-          { name: "tau-questionnaire", factory: this.questionnaireExtension },
+          ...this.runtimeExtensionsFor(settingsManager),
           ...(this.safeMode ? [] : [{
             name: "tau-turn-checkpoints",
             factory: checkpointFeature.createPiExtension({
@@ -1108,7 +1104,6 @@ export class PiHost {
               findAssistantAnchor: assistantAnchorForMessage,
             }),
           }]),
-          ...(this.safeMode ? [] : computerUseExtensionFactories(settingsManager)),
         ],
       },
     });
@@ -1131,27 +1126,6 @@ export class PiHost {
       diagnostics: services.diagnostics,
     };
   };
-
-  /** Questionnaires announced per thread, and how many of their questions were asked so far. */
-  private readonly questionnaires = new Map<string, { questions: UiQuestionnaireQuestion[]; asked: number }>();
-
-  private readonly questionnaireExtension = createQuestionnaireExtension({
-    onQuestionnaire: (sessionId, questions) => this.questionnaires.set(sessionId, { questions, asked: 0 }),
-    onCleared: (sessionId) => this.questionnaires.delete(sessionId),
-  });
-
-  /** Threads and models the priority tier was already reported for; every request applies it. */
-  private readonly serviceTierReported = new Set<string>();
-
-  private readonly serviceTierExtension = createServiceTierExtension({
-    fastRequested: () => this.serviceTier === "fast",
-    available: () => this.serviceTierAvailable(),
-    onApplied: (scope) => {
-      if (this.serviceTierReported.has(scope)) return;
-      this.serviceTierReported.add(scope);
-      this.log("service-tier.applied", `priority · ${scope.slice(0, 8)}${scope.slice(36)}`);
-    },
-  });
 
   constructor(
     cwd: string,
@@ -1181,6 +1155,7 @@ export class PiHost {
     this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? configured.id;
     this.runtimeCommands = options.runtimeCommands ?? [];
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
+    this.platform = options.platform ?? {};
     this.hostExtensions = new HostExtensionRegistry(this.hostExtensionServices(), (event) => this.emit(event));
     markTauHostRuntime();
     this.emit = (event) => {
@@ -1205,11 +1180,18 @@ export class PiHost {
       projectName: (cwd) => this.loadProjectName(cwd),
       rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
       git: this.gitCoordinator,
+      pickDirectory: (options) => this.platform.pickDirectory
+        ? this.platform.pickDirectory(options)
+        : Promise.reject(new Error("This host has no folder picker.")),
       runtimeOwner: () => this.bridge ? "pi" : "tau",
       thread: (sessionId) => this.hostThread(sessionId),
       setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
-      registerRuntimeExtension: (name, factory) => {
-        const contribution = { name, factory };
+      decorateUiPrompt: (decorator) => {
+        this.uiPromptDecorators.add(decorator);
+        return () => { this.uiPromptDecorators.delete(decorator); };
+      },
+      registerRuntimeExtension: (name, factory, options) => {
+        const contribution = { name, factory, ...(options ?? {}) };
         this.runtimeExtensionContributions.push(contribution);
         return () => {
           const index = this.runtimeExtensionContributions.indexOf(contribution);
@@ -1233,7 +1215,15 @@ export class PiHost {
       sessionName: () => thread.backend.sessionName(),
       transcript: () => thread.backend.transcript(),
       completeTitle: (provider, modelId, conversation) => thread.backend.completeTitle(provider, modelId, conversation),
+      modelApi: () => thread.backend.modelApi(),
     };
+  }
+
+  private runtimeExtensionsFor(settingsManager: SettingsManager): Array<{ name: string; factory: import("@earendil-works/pi-coding-agent").ExtensionFactory }> {
+    const settings = { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings() };
+    return this.runtimeExtensionContributions
+      .filter((contribution) => contribution.enabledFor?.(settings) ?? true)
+      .map(({ name, factory }) => ({ name, factory }));
   }
 
   /** External runtimes launch with this; without an access extension everything is allowed. */
@@ -3208,19 +3198,6 @@ export class PiHost {
     return update;
   }
 
-  async setServiceTier(tier: ServiceTier): Promise<HostActionResult> {
-    this.serviceTier = tier;
-    this.serviceTierReported.clear();
-    this.log("service-tier.changed", tier);
-    return this.catalogResult();
-  }
-
-  /** The active model's API decides whether a priority tier can be asked for at all. */
-  private serviceTierAvailable(): boolean {
-    const api = this.active?.backend.modelApi();
-    return Boolean(api && SERVICE_TIER_APIS.has(api));
-  }
-
   async reloadRuntime(): Promise<void> {
     return this.runLifecycle(async () => {
       if (this.bridge) {
@@ -4376,8 +4353,6 @@ export class PiHost {
       allTools: snapshot.allTools,
       composerCommands,
       extensionCount: 0,
-      serviceTier: "standard",
-      serviceTierAvailable: false,
       supportsCheckpointRestore: false,
       supportsImageInput: snapshot.supportsImageInput,
       contextUsage: snapshot.contextUsage && snapshot.contextUsage.tokens !== null && snapshot.contextUsage.percent !== null
@@ -5367,8 +5342,6 @@ export class PiHost {
         allTools: [],
         composerCommands: this.composerCommands(thread),
         extensionCount: 0,
-        serviceTier: "standard",
-        serviceTierAvailable: false,
         supportsCheckpointRestore: false,
       };
     }
@@ -5400,8 +5373,6 @@ export class PiHost {
       allTools: thread.backend.allTools(),
       composerCommands: this.composerCommands(thread),
       extensionCount: this.extensionCount,
-      serviceTier: this.serviceTier,
-      serviceTierAvailable: this.serviceTierAvailable(),
       supportsCheckpointRestore: true,
       historyCompleteness: "complete",
       supportsImageInput: modelSupportsImageInput(thread.runtime?.session.model),
@@ -5422,7 +5393,7 @@ export class PiHost {
         return Promise.resolve({ value: typed.text });
       }
     }
-    this.attachQuestionnaire(prompt);
+    for (const decorate of this.uiPromptDecorators) decorate(prompt);
     return new Promise<ExtensionUiAnswer>((resolve) => {
       let settled = false;
       const settle = (answer: ExtensionUiAnswer) => {
@@ -5451,18 +5422,6 @@ export class PiHost {
       else this.log("extension-ui.prompt", `${prompt.kind}: ${prompt.title}`);
       this.emitForThread(thread, { type: "extension-ui-prompt", prompt, sessionId: prompt.sessionId });
     });
-  }
-
-  /** Places a prompt inside the questionnaire it came from, by its question text. */
-  private attachQuestionnaire(prompt: ExtensionUiPrompt): void {
-    if (prompt.kind !== "select" && prompt.kind !== "input") return;
-    const questionnaire = this.questionnaires.get(prompt.sessionId);
-    if (!questionnaire) return;
-    const { questions } = questionnaire;
-    const byTitle = questions.findIndex((q) => prompt.title.startsWith(`${q.header ? `[${q.header}] ` : ""}${q.question}`));
-    const index = byTitle >= 0 ? byTitle : Math.min(questionnaire.asked, questions.length - 1);
-    questionnaire.asked = index + 1;
-    prompt.questionnaire = { index, questions };
   }
 
   answerExtensionUi(id: string, answer: ExtensionUiAnswer): void {

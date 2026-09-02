@@ -40,9 +40,7 @@ function snapshot(sessionId: string, ids: string[], olderCursor?: string): HostS
     thinkingLevel: "off",
     thinkingLevels: ["off"],
     extensionCount: 0,
-    serviceTier: "standard",
-    serviceTierAvailable: false,
-  };
+    };
 }
 
 function page(sessionId: string, ids: string[], olderCursor?: string): TranscriptPage {

@@ -1,10 +1,31 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, UiMessage } from "../shared/contracts.js";
+import type { ExtensionUiPrompt, GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, UiMessage } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { GitCoordinator } from "./git-coordinator.js";
 import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
 
-export interface RuntimeExtensionContribution {
+export interface DirectoryPickerOptions {
+  buttonLabel?: string;
+  message?: string;
+  createDirectory?: boolean;
+}
+
+/** What the platform (Electron main, later a remote host) lends to extensions. */
+export interface HostPlatform {
+  pickDirectory?(options?: DirectoryPickerOptions): Promise<string | undefined>;
+}
+
+export interface RuntimeSettingsView {
+  global: unknown;
+  project: unknown;
+}
+
+export interface RuntimeExtensionOptions {
+  /** Decides per runtime, from Pi's settings, whether the extension loads at all. */
+  enabledFor?: (settings: RuntimeSettingsView) => boolean;
+}
+
+export interface RuntimeExtensionContribution extends RuntimeExtensionOptions {
   name: string;
   factory: ExtensionFactory;
 }
@@ -22,6 +43,8 @@ export interface HostThread {
   transcript(): Promise<UiMessage[]>;
   /** Asks a model of the thread's runtime for a title of the given conversation. */
   completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
+  /** The provider API of the thread's active model, e.g. "openai-responses". */
+  modelApi(): string | undefined;
 }
 
 /**
@@ -42,6 +65,8 @@ export interface HostExtensionServices {
   rememberProjectName(cwd: string, name: string): void;
   /** Shared Git cache; core still reads branches from it for the thread index. */
   readonly git: GitCoordinator;
+  /** Native folder picker of the host platform; resolves undefined when cancelled. */
+  pickDirectory(options?: DirectoryPickerOptions): Promise<string | undefined>;
   /** Whether Tau or an attached Pi terminal owns the active runtime. */
   runtimeOwner(): "tau" | "pi";
   /** An open thread by id, or the active one; `undefined` when it is not open. */
@@ -49,7 +74,9 @@ export interface HostExtensionServices {
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** Loads a Pi extension into every runtime the host creates from now on. */
-  registerRuntimeExtension(name: string, factory: ExtensionFactory): () => void;
+  registerRuntimeExtension(name: string, factory: ExtensionFactory, options?: RuntimeExtensionOptions): () => void;
+  /** Lets an extension annotate Pi dialogs before the workbench sees them. */
+  decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** Which permission policy external runtimes launch with; `undefined` restores full access. */
   setPermissionPolicy(provider: (() => RuntimePermissionPolicy) | undefined): void;
 }

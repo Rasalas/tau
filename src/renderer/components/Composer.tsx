@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ArrowUp, ChevronDown, CornerDownRight, Paperclip, Sparkles, X, Zap } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, ServiceTier, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft, WorkspaceInfo } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, SubmissionResult, UiComposerCommand, UiContextUsage, UiPromptAttachment, UiSkillDraft, WorkspaceInfo } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Menu } from "./Menu";
@@ -142,7 +142,6 @@ export function Composer({
   onCancelQueued,
   onSetModel,
   onSetThinking,
-  onSetServiceTier,
   prompt,
   promptsPending = 0,
   onAnswerPrompt,
@@ -172,7 +171,6 @@ export function Composer({
   onCancelQueued(index: number): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
-  onSetServiceTier(tier: ServiceTier): void;
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
@@ -251,9 +249,7 @@ export function Composer({
     setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const fastTier = snapshot?.serviceTier === "fast";
   const supportsImageInput = snapshot?.supportsImageInput ?? false;
-  const tierAvailable = Boolean(snapshot?.serviceTierAvailable);
   const streaming = Boolean(snapshot?.isStreaming);
   const claudeCode = snapshot?.backendKind === "claude-code";
   const modelSelectionAvailable = !claudeCode && (snapshot?.models.length ?? 0) > 0;
@@ -561,17 +557,16 @@ export function Composer({
           <span className="menu-anchor composer-runtime-menu-anchor">
             <button
               className="runtime-chip"
-              disabled={!thinkingSelectionAvailable && !tierAvailable}
-              title={thinkingSelectionAvailable || tierAvailable ? "Reasoning and service tier" : claudeCode ? "Claude Code does not expose Pi thinking levels or service tiers." : "Reasoning controls are unavailable."}
-              aria-label={thinkingSelectionAvailable || tierAvailable ? "Reasoning and service tier" : "Reasoning controls unavailable"}
+              disabled={!thinkingSelectionAvailable}
+              title={thinkingSelectionAvailable ? "Reasoning" : claudeCode ? "Claude Code does not expose Pi thinking levels." : "Reasoning controls are unavailable."}
+              aria-label={thinkingSelectionAvailable ? "Reasoning" : "Reasoning controls unavailable"}
               onClick={() => {
-                if (thinkingSelectionAvailable || tierAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
+                if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
               }}
             >
               <Zap size={13} />
               {snapshot?.thinkingLevel ?? "—"}
-              {fastTier ? <i className="tier-mark">fast</i> : null}
-              {thinkingSelectionAvailable || tierAvailable ? <ChevronDown size={12} className="chev" /> : null}
+              {thinkingSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
             </button>
             {menu === "thinking" ? (
               <Menu
@@ -588,31 +583,10 @@ export function Composer({
                       description: !thinkingSelectionAvailable && claudeCode ? "Claude Code controls reasoning in its own runtime." : undefined,
                     })),
                   },
-                  {
-                    heading: "SERVICE TIER",
-                    items: [
-                      {
-                        id: "tier:standard",
-                        label: "Standard",
-                        badge: "Default",
-                        selected: !fastTier,
-                      },
-                      {
-                        id: "tier:fast",
-                        label: "Fast",
-                        description: tierAvailable
-                          ? "Priority routing, higher cost"
-                          : "Not offered for this model's provider",
-                        selected: fastTier,
-                        disabled: !tierAvailable,
-                      },
-                    ],
-                  },
                 ]}
                 onSelect={(id) => {
                   const [group, value] = id.split(":");
-                  if (group === "thinking") onSetThinking(value);
-                  else onSetServiceTier(value as ServiceTier);
+                  if (group === "thinking" && value) onSetThinking(value);
                 }}
                 onClose={() => setMenu(undefined)}
               />

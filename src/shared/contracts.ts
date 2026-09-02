@@ -201,7 +201,6 @@ export type AccessLevel = "read-only" | "ask" | "full";
  * Pi has no service-tier concept either; Tau maps "fast" onto the provider's own
  * priority tier through the before_provider_request hook, where the API has one.
  */
-export type ServiceTier = "standard" | "fast";
 
 export type ExtensionUiPromptKind = "select" | "confirm" | "input" | "editor";
 
@@ -489,9 +488,6 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
   contextUsage?: UiContextUsage;
-  serviceTier: ServiceTier;
-  /** False when the active model's API has no priority tier to ask for. */
-  serviceTierAvailable: boolean;
   /** Whether the active host/runtime adapter accepts image prompt input. */
   /** Optional for protocol-v1 compatibility; missing means unsupported. */
   supportsImageInput?: boolean;
@@ -546,8 +542,6 @@ export interface HostBootstrap {
     runtimeCapabilities?: RuntimeCapabilities;
     thinkingLevel: string;
     thinkingLevels: string[];
-    serviceTier: ServiceTier;
-    serviceTierAvailable: boolean;
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;
@@ -656,12 +650,6 @@ export interface WorkbenchBuildResult {
   output: string;
 }
 
-export interface UiDirectoryListing {
-  path: string;
-  parent?: string;
-  directories: Array<{ name: string; path: string }>;
-}
-
 export interface TauDesktopApi {
   /** Host platform, so the title bar can leave room for native window controls. */
   readonly platform: string;
@@ -690,15 +678,11 @@ export interface TauDesktopApi {
   recoverThread(): Promise<import("./host-protocol.js").HostActionResult>;
   /** Reload Pi resources first; the renderer then reloads its desktop extensions. */
   reloadRuntime(): Promise<void>;
-  setServiceTier(tier: ServiceTier): Promise<import("./host-protocol.js").HostActionResult>;
   answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
   /** Re-announces questions raised before this renderer was listening. */
   syncExtensionUi(): Promise<void>;
-  chooseWorkspace(): Promise<HostActionResult | undefined>;
-  listDirectories(path?: string): Promise<UiDirectoryListing>;
   openProject(path: string): Promise<HostActionResult>;
   removeProject(path: string): Promise<HostActionResult>;
-  cloneProject(repositoryUrl: string): Promise<HostActionResult | undefined>;
   renameThread(title: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
   copyText(text: string): Promise<void>;
   /** Copies a validated image data URL through the Electron main process. */

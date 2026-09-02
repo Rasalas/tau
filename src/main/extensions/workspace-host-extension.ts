@@ -1,10 +1,37 @@
-import { readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { readdir, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { promisify } from "node:util";
 import type { DiffLoadOptions, FileNode, WorkspaceChangesQuery } from "../../shared/contracts.js";
-import { WORKSPACE_HOST_EXTENSION_ID } from "../../shared/workspace-kit-protocol.js";
+import { WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "../../shared/workspace-kit-protocol.js";
+import { assertAllowedCloneSource } from "../clone-source.js";
 import { readBoundedFileContent } from "../file-content.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
 import * as workspaceGit from "../workspace-git.js";
+
+const execFileAsync = promisify(execFile);
+
+export async function listDirectories(requested?: string): Promise<UiDirectoryListing> {
+  const candidate = requested?.trim() || homedir();
+  if (!isAbsolute(candidate)) throw new Error("Choose an absolute folder path.");
+  const path = await realpath(candidate);
+  const entries = await readdir(path, { withFileTypes: true });
+  return {
+    path,
+    ...(dirname(path) !== path ? { parent: dirname(path) } : {}),
+    directories: entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => ({ name: entry.name, path: join(path, entry.name) }))
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })),
+  };
+}
+
+export function repositoryFolderName(repositoryUrl: string): string {
+  const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
+  const name = normalized.split(/[\\/:]/u).filter(Boolean).at(-1) ?? "repository";
+  return name.replace(/[^a-z0-9._-]+/giu, "-") || "repository";
+}
 
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
 const VISIBLE_DOT_DIRECTORIES = new Set([".pi", ".scratch"]);
@@ -60,6 +87,25 @@ export function createWorkspaceHostExtension(): HostExtension {
         return refreshedChanges(project);
       };
 
+      // Project sources: browse, pick, clone. Opening the result is core's job.
+      context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path")));
+      context.registerCommand("pick-folder", async () => {
+        const path = await services.pickDirectory();
+        return path ? { path } : undefined;
+      });
+      context.registerCommand("clone", async (input) => {
+        const url = assertAllowedCloneSource(requiredString(input, "repositoryUrl"));
+        const parent = await services.pickDirectory({
+          buttonLabel: "Clone here",
+          message: "Choose the parent folder for the cloned project",
+          createDirectory: true,
+        });
+        if (!parent) return undefined;
+        const destination = join(parent, repositoryFolderName(url));
+        await execFileAsync("git", ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+        services.log("git.cloned", destination);
+        return { path: destination };
+      });
       context.registerCommand("file-tree", async (input) => {
         const project = cwd();
         const root = optionalString(input, "path") ?? project;

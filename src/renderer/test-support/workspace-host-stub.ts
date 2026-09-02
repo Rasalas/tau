@@ -19,6 +19,9 @@ export type HostExtensionStub = (command: string, input?: unknown) => Promise<un
 export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, extensions: Record<string, HostExtensionStub> = {}) {
   const unsupported = (name: string) => async () => { throw new Error(`workspaceHostStub: ${name} is not stubbed`); };
   const client: WorkspaceHostStubOverrides & Required<WorkspaceHostStubOverrides> = {
+    listDirectories: unsupported("listDirectories"),
+    pickFolder: unsupported("pickFolder"),
+    clone: unsupported("clone"),
     getFileTree: async () => [],
     getChanges: async () => NO_CHANGES,
     getWorkspaceInfo: async () => NO_REPO,
@@ -45,6 +48,9 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     if (extensionId === "tau.access") return command === "set-level" ? (input as { level?: unknown })?.level : "full";
     if (extensionId !== WORKSPACE_HOST_EXTENSION_ID) throw new Error(`Host extension ${extensionId} is not installed.`);
     switch (command) {
+      case "list-directories": return client.listDirectories(...optional(field<string>(input, "path")));
+      case "pick-folder": return client.pickFolder().then((path) => path ? { path } : undefined);
+      case "clone": return client.clone(field(input, "repositoryUrl")!).then((path) => path ? { path } : undefined);
       case "file-tree": return client.getFileTree(...optional(field<string>(input, "path")));
       case "changes": return client.getChanges(...optional(field(input, "query")));
       case "file-diff": return client.getFileDiff(field(input, "path")!, field(input, "options"));

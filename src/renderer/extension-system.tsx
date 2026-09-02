@@ -31,9 +31,9 @@ export interface WorkbenchActions {
   restartWorkbench(): void;
   focusComposer(seed?: string): void;
   notify(message: string): void;
-  chooseWorkspace(): Promise<boolean>;
+  /** Opens the list of project sources extensions registered. */
+  openProjectSources(): void;
   openWorkspace(path: string): Promise<boolean>;
-  cloneWorkspace(repositoryUrl: string): Promise<boolean>;
   /** The thread on screen and its model, for commands that act on it. */
   activeThread(): { sessionId?: string; model?: { provider: string; id: string } } | undefined;
 }

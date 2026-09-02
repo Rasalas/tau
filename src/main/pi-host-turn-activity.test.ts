@@ -649,8 +649,6 @@ describe("PiHost.generateThreadTitle", () => {
       allTools: [],
       composerCommands: [],
       extensionCount: 0,
-      serviceTier: "standard",
-      serviceTierAvailable: false,
       supportsCheckpointRestore: true,
     });
     let releaseCatalog!: () => void;

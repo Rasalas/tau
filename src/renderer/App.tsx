@@ -17,7 +17,6 @@ import type {
   PreparedPrompt,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
-  ServiceTier,
   UiToolRun,
   UiTurnCheckpoint,
   UiWorkspaceChanges,
@@ -80,6 +79,8 @@ import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences } from "./preferences";
+import { workspaceKit } from "./extensions/workspace-kit-client";
+import { ProjectSourcesModal } from "./components/ProjectSources";
 import { createNewThreadDraft, draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
@@ -103,14 +104,7 @@ import {
   type TimelineEvent,
 } from "./workbench-context";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
-import { WORKSPACE_HOST_EXTENSION_ID, createWorkspaceHostClient } from "../shared/workspace-kit-protocol";
 
-// Workspace Kit's host entry, reached through the generic extension channel.
-// App still orchestrates these calls; moving that orchestration into the kit
-// itself is the next cut described in docs/CORE.md.
-const workspaceKit = createWorkspaceHostClient((command, input) => window.tau
-  ? window.tau.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input)
-  : Promise.reject(new Error("The Electron host is not available.")));
 import {
   TranscriptHistoryController,
   type TranscriptBootstrapRequest,
@@ -205,8 +199,6 @@ const mockSnapshot: HostSnapshot = {
   models: [{ provider: "anthropic", id: "preview", name: "sonnet-4.6" }],
   thinkingLevel: "high",
   thinkingLevels: ["off", "low", "medium", "high"],
-  serviceTier: "standard",
-  serviceTierAvailable: true,
   messages: [
     { id: "welcome-user", role: "user", text: "Split the full host snapshots, stop calling SessionManager.listAll() on every switch, and virtualize the thread list for large sessions.", timestamp: Date.now() - 120000 },
     { id: "welcome-pi", role: "assistant", text: "Core keeps thread and session semantics; extensions only subscribe to individual thread shells. Press ⌘K to inspect the contribution registry.", timestamp: Date.now() - 110000 },
@@ -718,6 +710,7 @@ export default function App() {
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const [projectSourcesOpen, setProjectSourcesOpen] = useState(false);
   const newThreadController = useNewThreadController(window.localStorage);
   const {
     pendingNewThread,
@@ -1685,8 +1678,6 @@ export default function App() {
           runtimeCapabilities: bootstrap.catalog.runtimeCapabilities,
           thinkingLevel: bootstrap.catalog.thinkingLevel,
           thinkingLevels: bootstrap.catalog.thinkingLevels,
-          serviceTier: bootstrap.catalog.serviceTier,
-          serviceTierAvailable: bootstrap.catalog.serviceTierAvailable,
           allTools: bootstrap.catalog.allTools,
           composerCommands: bootstrap.catalog.composerCommands ?? [],
           extensionCount: bootstrap.catalog.extensionCount,
@@ -1913,20 +1904,6 @@ export default function App() {
     }
   }, [acceptWorkspace, requireHost, restoreRequest, snapshot?.sessionId, visibleStreaming]);
 
-  const chooseWorkspace = useCallback(async (): Promise<boolean> => {
-    if (!allowWorkspaceAction("Project selection")) return false;
-    if (!requireHost("Project selection")) return false;
-    try {
-      const next = await window.tau!.chooseWorkspace();
-      if (!next) return false;
-      acceptWorkspace(next);
-      return true;
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [acceptWorkspace, allowWorkspaceAction, requireHost]);
-
   const openWorkspace = useCallback(async (path: string): Promise<boolean> => {
     if (!allowWorkspaceAction("Project switching")) return false;
     if (path === snapshot?.cwd) return true;
@@ -1977,25 +1954,6 @@ export default function App() {
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
   }, [activeDraftKey, beginNewThread, composerScopeStore, pendingNewThread]);
-
-  const browseForNewThread = useCallback(async () => {
-    setNewThreadOpen(false);
-    await chooseWorkspace();
-  }, [chooseWorkspace]);
-
-  const cloneWorkspace = useCallback(async (repositoryUrl: string): Promise<boolean> => {
-    if (!allowWorkspaceAction("Git clone")) return false;
-    if (!requireHost("Git clone")) return false;
-    try {
-      const next = await window.tau!.cloneProject(repositoryUrl);
-      if (!next) return false;
-      acceptWorkspace(next);
-      return true;
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [acceptWorkspace, allowWorkspaceAction, requireHost]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
@@ -2056,15 +2014,6 @@ export default function App() {
     if (!requireHost("Thinking level")) return;
     try {
       applyActionResult(await window.tau!.setThinkingLevel(level));
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [applyActionResult, requireHost]);
-
-  const setServiceTier = useCallback(async (tier: ServiceTier) => {
-    if (!requireHost("Service tier")) return;
-    try {
-      applyActionResult(await window.tau!.setServiceTier(tier));
     } catch (error) {
       setNotice(errorMessage(error));
     }
@@ -2383,12 +2332,11 @@ export default function App() {
     restartWorkbench,
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
     notify: setNotice,
-    chooseWorkspace,
+    openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
     openWorkspace,
-    cloneWorkspace,
     activeThread: () => snapshot ? { sessionId: snapshot.sessionId, model: snapshot.model } : undefined,
   }), [
-    chooseWorkspace, cloneWorkspace, openPanel,
+    openPanel,
     activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,
   ]);
   actionsRef.current = actions;
@@ -3009,7 +2957,6 @@ export default function App() {
       onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
       onSetModel={(provider, id) => void setModel(provider, id)}
       onSetThinking={(level) => void setThinking(level)}
-      onSetServiceTier={(tier) => void setServiceTier(tier)}
       prompt={conversationPrompts[0]}
       promptsPending={Math.max(0, conversationPrompts.length - 1)}
       onAnswerPrompt={(value, typed) => {
@@ -3057,10 +3004,13 @@ export default function App() {
           />
         </Suspense>
       </LazyFeatureBoundary>
+      {projectSourcesOpen ? (
+        <ProjectSourcesModal actions={actions} onClose={() => setProjectSourcesOpen(false)} sources={registry.getProjectSources()} />
+      ) : null}
       <ProjectPicker
         open={newThreadOpen}
         projects={projects}
-        onBrowse={() => void browseForNewThread()}
+        onBrowse={() => actions.openProjectSources()}
         onClose={() => setNewThreadOpen(false)}
         onRemove={removeProject}
         onSelect={(project) => createThreadInProject(project)}

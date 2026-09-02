@@ -1,13 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
-import type { UiDirectoryListing, UiProject, UiSession } from "../../shared/contracts";
-import type {
-  ContributionOwner,
-  ProjectSourceContribution,
-  ProjectSourceProps,
-  SidebarContributionProps,
-} from "../extension-system";
+import type { UiProject, UiSession } from "../../shared/contracts";
+import type { UiDirectoryListing } from "../../shared/workspace-kit-protocol";
+import { workspaceKit } from "./workspace-kit-client";
+import type { ProjectSourceProps, SidebarContributionProps } from "../extension-system";
 import { preferences } from "../preferences";
 import { useThreadStore, useWorkbenchShell } from "../workbench-context";
 import { VirtualList } from "../components/VirtualList";
@@ -33,90 +30,6 @@ function projectInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "·";
 }
 
-function AddProjectModal({
-  actions,
-  onClose,
-  sources,
-}: {
-  actions: SidebarContributionProps["actions"];
-  onClose(): void;
-  sources: Array<ProjectSourceContribution & ContributionOwner>;
-}) {
-  const [activeSourceId, setActiveSourceId] = useState<string>();
-  const [busySourceId, setBusySourceId] = useState<string>();
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(0);
-  const activeSource = sources.find((source) => source.id === activeSourceId);
-  const visibleSources = sources.filter((source) => fuzzyMatch(`${source.label} ${source.description}`, query.trim()));
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (activeSourceId) setActiveSourceId(undefined);
-      else onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeSourceId, onClose]);
-
-  const selectSource = async (source: ProjectSourceContribution) => {
-    if (source.Component) {
-      setActiveSourceId(source.id);
-      return;
-    }
-    setBusySourceId(source.id);
-    try {
-      const completed = await source.run(actions);
-      if (completed !== false) onClose();
-    } finally {
-      setBusySourceId(undefined);
-    }
-  };
-
-  const SourceComponent = activeSource?.Component;
-  return (
-    <>
-      <button className="project-modal-scrim" aria-label="Close add project" onClick={onClose} />
-      <section className="project-modal" role="dialog" aria-modal="true" aria-label="Add project">
-        {activeSource?.id === "workspace.local-folder" ? null : <header className={`project-modal-title${SourceComponent ? " source-open" : ""}`}>
-          <button className="modal-back" onClick={() => SourceComponent ? setActiveSourceId(undefined) : onClose()}>←</button>
-          {SourceComponent ? <span><small>Project source</small><strong>{activeSource?.label}</strong></span> : <input
-            autoFocus
-            value={query}
-            onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, visibleSources.length - 1))); }
-              if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
-              if (event.key === "Enter" && visibleSources[selected]) { event.preventDefault(); void selectSource(visibleSources[selected]); }
-            }}
-            placeholder="Search project sources…"
-            aria-label="Search project sources"
-          />}
-          <button className="modal-close" onClick={onClose}>esc</button>
-        </header>}
-        {SourceComponent ? (
-          <SourceComponent actions={actions} onBack={() => setActiveSourceId(undefined)} onDone={onClose} />
-        ) : (
-          <>
-            <div className="project-source-intro"><span>Sources</span></div>
-            <div className="project-source-list">
-              {visibleSources.map((source, index) => (
-                <button className={selected === index ? "selected" : ""} key={source.id} disabled={Boolean(busySourceId)} onMouseMove={() => setSelected(index)} onClick={() => void selectSource(source)}>
-                  <i>{source.glyph}</i>
-                  <span><strong>{source.label}</strong><small>{source.description}</small></span>
-                  <b>{busySourceId === source.id ? "working…" : "→"}</b>
-                </button>
-              ))}
-              {visibleSources.length === 0 ? <p>No matching project sources.</p> : null}
-            </div>
-            <footer className="project-modal-help"><kbd>↑↓</kbd> Navigate <kbd>Enter</kbd> Select <kbd>Esc</kbd> Close</footer>
-          </>
-        )}
-      </section>
-    </>
-  );
-}
-
 function fuzzyMatch(value: string, query: string): boolean {
   let at = 0;
   const haystack = value.toLocaleLowerCase();
@@ -139,7 +52,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
   const load = useCallback(async (path?: string) => {
     try {
       setError(undefined);
-      setListing(await window.tau!.listDirectories(path));
+      setListing(await workspaceKit.listDirectories(path));
       setQuery("");
       setSelected(0);
       window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -203,9 +116,14 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
   const submit = async () => {
     if (!canSubmit) return;
     setBusy(true);
-    const completed = await actions.cloneWorkspace(repositoryUrl.trim());
-    setBusy(false);
-    if (completed) onDone();
+    try {
+      const path = await workspaceKit.clone(repositoryUrl.trim());
+      if (path && await actions.openWorkspace(path)) onDone();
+    } catch (error) {
+      actions.notify(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -293,18 +211,15 @@ export function ProjectSwitcherPopover({
 }
 
 function ProjectScope({ actions }: SidebarContributionProps) {
-  const { snapshot, registry } = useWorkbenchShell();
+  const { snapshot } = useWorkbenchShell();
   const threadStore = useThreadStore();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const projectSources = useMemo(() => registry.getProjectSources(), [registry, addOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "p") return;
       event.preventDefault();
-      setAddOpen(false);
       setSearchOpen(true);
     };
     window.addEventListener("keydown", onKeyDown);
@@ -314,7 +229,7 @@ function ProjectScope({ actions }: SidebarContributionProps) {
   return (
     <>
       <div className="project-scope-row">
-        <button className="project-scope" onClick={() => { setAddOpen(false); setSearchOpen(true); }}>
+        <button className="project-scope" onClick={() => setSearchOpen(true)}>
           <i className="all-projects-icon"><Folder size={15} /></i>
           <span>All projects</span>
           <b><ChevronDown size={14} /></b>
@@ -323,7 +238,7 @@ function ProjectScope({ actions }: SidebarContributionProps) {
           className="sidebar-action"
           title="Add project"
           aria-label="Add project"
-          onClick={() => { setSearchOpen(false); setAddOpen(true); }}
+          onClick={() => { setSearchOpen(false); actions.openProjectSources(); }}
         >
           <FolderPlus size={16} />
         </button>
@@ -335,7 +250,6 @@ function ProjectScope({ actions }: SidebarContributionProps) {
         onClose={() => setSearchOpen(false)}
         onSelect={(project) => { setSearchOpen(false); void actions.openWorkspace(project.path); }}
       />
-      {addOpen ? <AddProjectModal actions={actions} onClose={() => setAddOpen(false)} sources={projectSources} /> : null}
     </>
   );
 }

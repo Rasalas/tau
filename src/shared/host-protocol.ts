@@ -1,6 +1,5 @@
 import type {
   HostSnapshot,
-  ServiceTier,
   ThreadIndexSnapshot,
   UiComposerCommand,
   UiContextUsage,
@@ -94,8 +93,6 @@ export interface HostCatalog {
   runtimeCapabilities?: import("./contracts.js").RuntimeCapabilities;
   thinkingLevel: string;
   thinkingLevels: string[];
-  serviceTier: ServiceTier;
-  serviceTierAvailable: boolean;
   allTools: Array<{ name: string; description: string }>;
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
@@ -398,8 +395,6 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     runtimeCapabilities: snapshot.runtimeCapabilities,
     thinkingLevel: snapshot.thinkingLevel,
     thinkingLevels: [...snapshot.thinkingLevels],
-    serviceTier: snapshot.serviceTier,
-    serviceTierAvailable: snapshot.serviceTierAvailable,
     allTools: [...snapshot.allTools],
     composerCommands: snapshot.composerCommands?.map((command) => ({ ...command })),
     extensionCount: snapshot.extensionCount,

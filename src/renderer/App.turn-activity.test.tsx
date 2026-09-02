@@ -27,7 +27,7 @@ describe("last-turn activity", () => {
           sessions: [{ id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 }],
         },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], serviceTier: "standard", serviceTierAvailable: false, allTools: [], extensionCount: 0, supportsImageInput: true },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
       onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },

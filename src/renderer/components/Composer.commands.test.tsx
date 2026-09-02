@@ -25,8 +25,6 @@ const snapshot: HostSnapshot = {
   allTools: [],
   composerCommands,
   extensionCount: 0,
-  serviceTier: "standard",
-  serviceTierAvailable: false,
   supportsImageInput: true,
 };
 
@@ -43,7 +41,6 @@ function renderComposer(onSubmit = vi.fn(async () => ({ accepted: true as const 
     onCancelQueued={() => {}}
     onSetModel={() => {}}
     onSetThinking={() => {}}
-    onSetServiceTier={() => {}}
     onCompactContext={() => {}}
     workspaceBusy={false}
     onOpenWorktree={async () => true}
@@ -127,7 +124,6 @@ describe("Composer command menu", () => {
       onCancelQueued={() => {}}
       onSetModel={() => {}}
       onSetThinking={() => {}}
-      onSetServiceTier={() => {}}
       prompt={{ id: "question", sessionId: "session", kind: "input", title: "Choose the scope" }}
       onCompactContext={() => {}}
       workspaceBusy={false}
@@ -190,8 +186,7 @@ describe("Composer command menu", () => {
       model: undefined,
       thinkingLevel: "off",
       thinkingLevels: ["off"],
-      serviceTierAvailable: false,
-    });
+      });
 
     expect(screen.getByRole("button", { name: "Model selection unavailable" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Reasoning controls unavailable" })).toHaveProperty("disabled", true);
