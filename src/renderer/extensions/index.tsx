@@ -165,6 +165,9 @@ export const settingsExtension: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.reload", label: "Reload Pi and desktop extensions", group: "Runtime", run: async (app) => { await app.reloadRuntime(); } });
     plugin.registerCommand({ id: "runtime.rebuild", label: "Rebuild Tau from source and reload", group: "Runtime", run: async (app) => { await app.rebuildWorkbench(); } });
     plugin.registerCommand({ id: "runtime.restart", label: "Restart Tau", group: "Runtime", run: (app) => app.restartWorkbench() });
+    plugin.registerSlashCommand({ name: "reload", description: "Reload Pi and desktop extensions", run: async (_args, app) => (await app.reloadRuntime()) ? undefined : "Runtime reload failed." });
+    plugin.registerSlashCommand({ name: "rebuild", description: "Rebuild Tau from source and reload", run: async (_args, app) => (await app.rebuildWorkbench()) ? undefined : "Workbench rebuild failed." });
+    plugin.registerSlashCommand({ name: "restart", description: "Restart Tau", run: (_args, app) => app.restartWorkbench() });
   },
 };
 

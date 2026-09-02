@@ -205,16 +205,39 @@ export function Composer({
     textarea.style.height = `${Math.min(contentHeight, MAX_COMPOSER_HEIGHT)}px`;
     textarea.style.overflowY = contentHeight > MAX_COMPOSER_HEIGHT ? "auto" : "hidden";
   }, [text, textareaRef]);
-  const commands = snapshot?.composerCommands ?? [];
+  // Extensions contribute slash commands and the rest of the toolbar; outside
+  // the workbench shell (tests, previews) there are none.
+  const registry = useContext(WorkbenchShellContext)?.registry;
+  useSyncExternalStore(registry?.subscribe ?? noSubscribe, registry?.getVersion ?? noVersion, noVersion);
+  const runtimeCommands = snapshot?.composerCommands;
+  const desktopCommands = registry?.getSlashCommands();
+  const commands = useMemo<UiComposerCommand[]>(() => {
+    const merged = [...(runtimeCommands ?? [])];
+    for (const command of desktopCommands ?? []) {
+      // The runtime's spelling wins so the menu never lists a name twice.
+      if (merged.some((entry) => entry.source !== "skill" && entry.name === command.name)) continue;
+      merged.push({ name: command.name, description: command.description, argumentHint: command.argumentHint, source: "extension" });
+    }
+    return merged;
+  }, [desktopCommands, runtimeCommands]);
   const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
   const commandMatches = useMemo(() => {
     if (!trigger) return [];
     const query = trigger.query.toLowerCase();
-    return commands.filter((command) => {
-      if (trigger.kind === "$" && command.source !== "skill") return false;
-      const name = command.source === "skill" ? skillName(command) : command.name;
-      return !query || name.toLowerCase().includes(query) || command.name.toLowerCase().includes(query) || command.description?.toLowerCase().includes(query);
-    }).slice(0, 10);
+    // Name matches outrank description matches so a typed prefix is never cut off by the cap.
+    const rank = (command: UiComposerCommand) => {
+      if (!query) return 0;
+      const name = (command.source === "skill" ? skillName(command) : command.name).toLowerCase();
+      if (name.startsWith(query)) return 0;
+      if (name.includes(query) || command.name.toLowerCase().includes(query)) return 1;
+      return command.description?.toLowerCase().includes(query) ? 2 : -1;
+    };
+    return commands
+      .map((command, index) => ({ command, index, rank: trigger.kind === "$" && command.source !== "skill" ? -1 : rank(command) }))
+      .filter((entry) => entry.rank >= 0)
+      .sort((a, b) => a.rank - b.rank || a.index - b.index)
+      .slice(0, 10)
+      .map((entry) => entry.command);
   }, [commands, trigger]);
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
@@ -246,10 +269,6 @@ export function Composer({
   const claudeCode = snapshot?.backendKind === "claude-code";
   const modelSelectionAvailable = !claudeCode && (snapshot?.models.length ?? 0) > 0;
   const thinkingSelectionAvailable = !claudeCode && (snapshot?.thinkingLevels.length ?? 0) > 1;
-  // Extensions contribute the rest of the toolbar; outside the workbench shell
-  // (tests, previews) there are none.
-  const registry = useContext(WorkbenchShellContext)?.registry;
-  useSyncExternalStore(registry?.subscribe ?? noSubscribe, registry?.getVersion ?? noVersion, noVersion);
   const composerControls = registry?.getComposerControls() ?? [];
   const preview = attachments.find((attachment) => attachment.id === previewId);
 

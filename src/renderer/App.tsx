@@ -2071,15 +2071,15 @@ export default function App() {
     const text = skillDraft ? value : value.trim();
     const commandText = text.trim();
     if (!commandText && attachments.length === 0) return { accepted: false, message: "Enter a message or attach an image." };
-    if (commandText === "/reload" && attachments.length === 0) {
-      return (await reloadRuntime()) ? { accepted: true } : { accepted: false, message: "Runtime reload failed." };
-    }
-    if (commandText === "/rebuild" && attachments.length === 0) {
-      return (await rebuildWorkbench()) ? { accepted: true } : { accepted: false, message: "Workbench rebuild failed." };
-    }
-    if (commandText === "/restart" && attachments.length === 0) {
-      restartWorkbench();
-      return { accepted: true };
+    // Desktop extensions own slash commands the runtime never sees.
+    const slash = attachments.length === 0 && !skillDraft ? registry.findSlashCommand(commandText) : undefined;
+    if (slash) {
+      try {
+        const message = await slash.command.run(slash.args, actions);
+        return message ? { accepted: false, message } : { accepted: true };
+      } catch (error) {
+        return { accepted: false, message: errorMessage(error) };
+      }
     }
     let prepared: PreparedPrompt | undefined;
     if (window.tau?.preparePrompt) {
@@ -2386,7 +2386,7 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, rebuildWorkbench, registry, reloadRuntime, restartWorkbench, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {

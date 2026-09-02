@@ -202,6 +202,16 @@ export interface CommandContribution {
   run(actions: WorkbenchActions): void | Promise<void>;
 }
 
+/** A `/name` the composer runs in the workbench instead of sending it to the runtime. */
+export interface SlashCommandContribution {
+  /** Invocation without the leading slash, e.g. `reload`. */
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  /** Returns a message to show when the command could not do its work. */
+  run(args: string, actions: WorkbenchActions): void | string | Promise<void | string>;
+}
+
 export interface PromptSubmittedEvent {
   prompt: string;
   snapshot?: HostSnapshot;
@@ -266,6 +276,8 @@ export interface DesktopExtensionContext {
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
+  /** Slash commands show in the composer's `/` menu next to the runtime's own. */
+  registerSlashCommand(command: SlashCommandContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
   /** The stage shows documents; one extension says how to load them and which are changed. */
   registerDocumentSource(source: DocumentSourceContribution): () => void;
@@ -326,6 +338,7 @@ export class ExtensionRegistry {
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
+  private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
@@ -431,6 +444,11 @@ export class ExtensionRegistry {
       },
       registerCommand: (command) =>
         this.register(this.commands, command.id, { ...command, ...owner }, disposers),
+      registerSlashCommand: (command) => {
+        if (!/^[a-z][a-z0-9:-]*$/u.test(command.name)) throw new Error(`Slash command name "${command.name}" from ${extension.id} must be lowercase letters, digits, ":" or "-"`);
+        note("slash commands");
+        return this.register(this.slashCommands, command.name, { ...command, ...owner }, disposers);
+      },
       registerPromptHook: (hook) => {
         note("prompt hooks");
         return this.register(this.promptHooks, hook.id, { ...hook, ...owner }, disposers);
@@ -554,6 +572,18 @@ export class ExtensionRegistry {
 
   getCommandsFor(surface: CommandSurface): Array<Owned<CommandContribution>> {
     return this.getCommands().filter((command) => command.surfaces?.includes(surface));
+  }
+
+  getSlashCommands(): Array<Owned<SlashCommandContribution>> {
+    return this.sorted("slash-commands", this.slashCommands, false);
+  }
+
+  /** Splits `/name rest` and finds the desktop command for it, if any. */
+  findSlashCommand(text: string): { command: Owned<SlashCommandContribution>; args: string } | undefined {
+    const match = /^\/([^\s]+)(?:\s+([^]*))?$/u.exec(text.trim());
+    if (!match) return undefined;
+    const command = this.slashCommands.get(match[1]!);
+    return command ? { command, args: (match[2] ?? "").trim() } : undefined;
   }
 
   getDocumentSource(): Owned<DocumentSourceContribution> | undefined {

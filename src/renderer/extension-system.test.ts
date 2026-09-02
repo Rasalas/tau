@@ -163,3 +163,28 @@ describe("ExtensionRegistry regions, status line, overlays, and events", () => {
     expect(seen).toHaveLength(2);
   });
 });
+
+describe("ExtensionRegistry slash commands", () => {
+  it("finds a registered slash command with its arguments and drops it on deactivation", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "slash", name: "Slash", activate(context) {
+      context.registerSlashCommand({ name: "reload", description: "Reload", run() {} });
+    } });
+    expect(registry.getSlashCommands().map((command) => command.name)).toEqual(["reload"]);
+    expect(registry.findSlashCommand("/reload  now please ")?.args).toBe("now please");
+    expect(registry.findSlashCommand("/reload")?.command.extensionId).toBe("slash");
+    expect(registry.findSlashCommand("/reloaded")).toBeUndefined();
+    expect(registry.findSlashCommand("reload")).toBeUndefined();
+    registry.deactivate("slash");
+    expect(registry.getSlashCommands()).toEqual([]);
+    expect(registry.findSlashCommand("/reload")).toBeUndefined();
+  });
+
+  it("rejects slash command names the composer could not trigger", () => {
+    const registry = new ExtensionRegistry();
+    expect(() => registry.activate({ id: "bad", name: "Bad", activate(context) {
+      context.registerSlashCommand({ name: "Re load", run() {} });
+    } })).toThrow('Slash command name "Re load"');
+    expect(registry.isActive("bad")).toBe(false);
+  });
+});

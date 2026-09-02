@@ -94,16 +94,23 @@ interface DesktopExtension {
 }
 ```
 
-The context currently accepts seven contribution types:
+The context accepts these contribution types:
 
 ```ts
 context.registerPanel(...);
 context.registerSidebar(...);
 context.registerProjectSource(...);
 context.registerCommand(...);
+context.registerSlashCommand(...);   // `/name` in the composer, run in the workbench
 context.registerPromptHook(...);
 context.registerToolRenderer(...);
 context.registerOptions(...);
+context.registerRegion(...);
+context.registerStatusItem(...);
+context.registerOverlay(...);
+context.registerComposerControl(...);
+context.registerTranscriptRows(...);
+context.registerDocumentSource(...);
 ```
 
 Every contribution is stamped with the extension that supplied it, which is what lets the palette, panel headers and settings page attribute behaviour back to its source. `registerOptions` is the whole of the settings surface: an extension declares toggles and chip rows, and Tau renders the page from that declaration — an extension with no options shows only its on/off switch.
