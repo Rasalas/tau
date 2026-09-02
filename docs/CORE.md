@@ -30,6 +30,7 @@ Workbench
 - command palette and keybinding dispatch; the chords themselves are extension contributions
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
 - typed messages between renderer and host, including the one generic channel host extensions use
+- the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
 - enough persisted state to restore the workbench
 
 ## Not in core
