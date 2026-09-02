@@ -17,6 +17,9 @@ function harness() {
     projectName: async () => "project",
     rememberProjectName: () => undefined,
     git: {} as never,
+    runtimeOwner: () => "tau" as const,
+    thread: () => undefined,
+    setThreadTitle: async () => undefined,
     registerRuntimeExtension: (name, factory) => {
       runtimeExtensions.push({ name, factory });
       return () => { runtimeExtensions.splice(runtimeExtensions.findIndex((entry) => entry.factory === factory), 1); };

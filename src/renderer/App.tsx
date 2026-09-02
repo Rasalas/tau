@@ -2034,22 +2034,6 @@ export default function App() {
     }
   }, [applyActionResult, requireHost, threadStore]);
 
-  const generateThreadTitle = useCallback(async (provider: string, modelId: string, force = false): Promise<boolean> => {
-    if (!requireHost("Title generation")) return false;
-    try {
-      applyActionResult(await window.tau!.generateThreadTitle(
-        provider,
-        modelId,
-        force,
-        threadStore.getSnapshot().activeThreadId,
-      ));
-      return true;
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [applyActionResult, requireHost, threadStore]);
-
   const setModel = useCallback(async (provider: string, id: string) => {
     if (!requireHost("Model selection")) return;
     try {
@@ -2393,15 +2377,10 @@ export default function App() {
     chooseWorkspace,
     openWorkspace,
     cloneWorkspace,
-    generateThreadTitle,
-    regenerateTitle: async (force = true) => {
-      const model = snapshot?.model;
-      if (!model) { setNotice("No model is selected for this thread."); return false; }
-      return generateThreadTitle(model.provider, model.id, force);
-    },
+    activeThread: () => snapshot ? { sessionId: snapshot.sessionId, model: snapshot.model } : undefined,
   }), [
-    chooseWorkspace, cloneWorkspace, generateThreadTitle, openPanel,
-    activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot?.model, switchSession,
+    chooseWorkspace, cloneWorkspace, openPanel,
+    activeDraftKey, openReview, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,
   ]);
   actionsRef.current = actions;
 
@@ -2857,6 +2836,7 @@ export default function App() {
   const ReviewComponent = reviewContribution?.Component;
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
+  const titleCommands = registry.getCommandsFor("thread-title");
   const activeEditor = editors.find((editor) => editor.id === settings.editorId) ?? editors[0];
   const scopedOptimisticMessages = useMemo(
     () => optimisticMessages.filter((entry) => entry.scope === activeDraftKey),
@@ -3247,7 +3227,8 @@ export default function App() {
                   onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
                   onToggleSettled={settleActiveThread}
                   onRename={renameThread}
-                  onRegenerate={() => void actions.regenerateTitle(true)}
+                  commands={titleCommands}
+                  onCommand={(id) => { void titleCommands.find((command) => command.id === id)?.run(actions); }}
                   onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
                   onCopy={(kind) => void copyThreadValue(kind)}
                 />

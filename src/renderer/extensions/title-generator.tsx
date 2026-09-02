@@ -1,18 +1,28 @@
-import type { DesktopExtension, PromptSubmittedEvent, WorkbenchActions } from "../extension-system";
+import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../shared/thread-titles-protocol";
+import type { DesktopExtension, HostExtensionClient, PromptSubmittedEvent, WorkbenchActions } from "../extension-system";
 import { preferences } from "../preferences";
 
-const EXTENSION_ID = "tau.thread-titles";
-
 function automatic(): boolean {
-  return preferences.optionValue(EXTENSION_ID, "automatic", true);
+  return preferences.optionValue(THREAD_TITLES_HOST_EXTENSION_ID, "automatic", true);
 }
 
 /**
  * Titles are generated with the thread's own model, so there is nothing to
- * configure beyond whether it happens on its own.
+ * configure beyond whether it happens on its own. The host entry renames the
+ * thread; the new title arrives like any other rename.
  */
-async function generate(actions: WorkbenchActions, provider: string, modelId: string, force: boolean): Promise<void> {
-  await actions.generateThreadTitle(provider, modelId, force);
+async function generate(
+  host: HostExtensionClient,
+  actions: WorkbenchActions,
+  model: { provider: string; id: string },
+  sessionId: string | undefined,
+  force: boolean,
+): Promise<void> {
+  try {
+    await host.invoke("generate", { provider: model.provider, modelId: model.id, force, sessionId });
+  } catch (error) {
+    actions.notify(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export function automaticTitleModel(event: PromptSubmittedEvent): { provider: string; id: string } | undefined {
@@ -23,7 +33,7 @@ export function automaticTitleModel(event: PromptSubmittedEvent): { provider: st
 }
 
 export const titleGeneratorExtension: DesktopExtension = {
-  id: EXTENSION_ID,
+  id: THREAD_TITLES_HOST_EXTENSION_ID,
   name: "Title generator",
   activate(context) {
     context.registerOptions([
@@ -31,16 +41,21 @@ export const titleGeneratorExtension: DesktopExtension = {
     ]);
     context.registerCommand({
       id: "thread-titles.regenerate",
-      label: "Rename this thread",
+      label: "Regenerate title",
       group: "Thread",
-      run: async (actions) => { await actions.regenerateTitle(true); },
+      surfaces: ["thread-title"],
+      run: async (actions) => {
+        const thread = actions.activeThread();
+        if (!thread?.model) { actions.notify("No model is selected for this thread."); return; }
+        await generate(context.host, actions, thread.model, thread.sessionId, true);
+      },
     });
     context.registerPromptHook({
       id: "thread-titles.auto-generate",
       async afterPrompt(event, actions) {
         const model = automaticTitleModel(event);
         if (!model) return;
-        await generate(actions, model.provider, model.id, false);
+        await generate(context.host, actions, model, event.snapshot?.sessionId, false);
       },
     });
   },

@@ -173,7 +173,6 @@ function installIpc(): void {
     clipboard.writeText(await (await requireHostReady()).exportThreadMarkdown(expectedSessionId));
   });
   ipcMain.handle("tau:read-image-preview", async (_event, path: string) => rendererImagePreview(path));
-  ipcMain.handle("tau:generate-thread-title", async (_event, provider: string, modelId: string, force?: boolean, expectedSessionId?: string) => (await requireHostReady()).generateThreadTitle(provider, modelId, force, expectedSessionId));
   ipcMain.handle("tau:turn-file-diff", async (_event, sessionId: string, checkpointId: string, path: string, options?: import("../shared/contracts.js").DiffLoadOptions) =>
     (await requireHostReady()).getTurnFileDiff(sessionId, checkpointId, path, options));
   ipcMain.handle("tau:turn-files", async (_event, sessionId: string, checkpointId: string, cursor?: string, limit?: number) =>

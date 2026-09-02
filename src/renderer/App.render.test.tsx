@@ -1119,14 +1119,17 @@ describe("App render isolation", () => {
         submission: { accepted: true as const },
       };
     });
-    const generateThreadTitle = vi.fn(async () => ({
-      version: 1 as const,
-      updates: [{
-        version: 1 as const,
-        type: "thread-shell" as const,
-        update: { sessionId: "created", shell: { ...shell, title: "Created thread title" } },
-      }],
-    }));
+    let publish: ((event: HostEvent) => void) | undefined;
+    const generateTitle = vi.fn(async () => {
+      // The host renames after its own round trip; the renamed shell arrives as
+      // an ordinary host update, never as the command's return value.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      publish?.({
+        type: "host-update",
+        update: { version: 1, type: "thread-shell", update: { sessionId: "created", shell: { ...shell, title: "Created thread title" } } },
+      });
+      return { title: "Created thread title" };
+    });
     const getWorkspaceInfo = vi.fn(async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }));
     window.tau = {
       bootstrap: async () => ({
@@ -1147,15 +1150,14 @@ describe("App render isolation", () => {
         },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo,
         getFileTree: async () => [],
-      }),
+      }, { "tau.thread-titles": generateTitle }),
       newSession,
-      generateThreadTitle,
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -1168,7 +1170,7 @@ describe("App render isolation", () => {
     fireEvent.change(composer, { target: { value: "Name this thread" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(generateThreadTitle).toHaveBeenCalledWith("provider", "model", false, "created"));
+    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: "provider", modelId: "model", force: false, sessionId: "created" }));
     expect(await screen.findByText("Created thread title")).toBeTruthy();
     expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
   });
@@ -1247,7 +1249,7 @@ describe("App render isolation", () => {
     let resolveNewSession!: (result: { version: 1; updates: never[]; submission: { accepted: true } }) => void;
     let publish: ((event: HostEvent) => void) | undefined;
     let identity: { clientMessageId: string; newThreadRequestId?: string } | undefined;
-    const generateThreadTitle = vi.fn(async () => ({ version: 1 as const, updates: [] as never[] }));
+    const generateTitle = vi.fn(async () => undefined);
     const newSession = vi.fn((...args: unknown[]) => {
       identity = args[3] as typeof identity;
       return new Promise<{ version: 1; updates: never[]; submission: { accepted: true } }>((resolve) => { resolveNewSession = resolve; });
@@ -1266,9 +1268,8 @@ describe("App render isolation", () => {
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
-      }),
+      }, { "tau.thread-titles": generateTitle }),
       newSession,
-      generateThreadTitle,
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -1294,8 +1295,8 @@ describe("App render isolation", () => {
       sessionId: "created",
       message: { id: "persisted", clientMessageId: identity.clientMessageId, role: "user", text: "start in the detached runtime", timestamp: Date.now() },
     });
-    await waitFor(() => expect(generateThreadTitle).toHaveBeenCalledWith("provider", "model", false, "created"));
-    expect(generateThreadTitle).toHaveBeenCalledOnce();
+    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: "provider", modelId: "model", force: false, sessionId: "created" }));
+    expect(generateTitle).toHaveBeenCalledOnce();
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
     expect(screen.getAllByText("start in the detached runtime").length).toBeGreaterThan(0);
@@ -1312,7 +1313,7 @@ describe("App render isolation", () => {
     // A settled record cannot be reopened by the runtime's late reports.
     publish?.({ type: "user-message-failed", sessionId: "created", clientMessageId: identity.clientMessageId, message: "late failure" });
     expect(screen.queryByText("late failure")).toBeNull();
-    expect(generateThreadTitle).toHaveBeenCalledOnce();
+    expect(generateTitle).toHaveBeenCalledOnce();
   });
 
   it("binds a generated session id on detached failure so retry uses sendPrompt", async () => {
@@ -1371,7 +1372,7 @@ describe("App render isolation", () => {
   it("restores the draft and runs no prompt hooks when detached delivery is rejected", async () => {
     let publish: ((event: HostEvent) => void) | undefined;
     let clientMessageId: string | undefined;
-    const generateThreadTitle = vi.fn(async () => ({ version: 1 as const, updates: [] as never[] }));
+    const generateTitle = vi.fn(async () => undefined);
     const newSession = vi.fn(async (...args: unknown[]) => {
       clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
       return { version: 1 as const, updates: [] as never[], sessionId: "allocated", submission: { accepted: true as const } };
@@ -1390,9 +1391,8 @@ describe("App render isolation", () => {
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
-      }),
+      }, { "tau.thread-titles": generateTitle }),
       newSession,
-      generateThreadTitle,
     } as unknown as typeof window.tau;
 
     render(<App />);
@@ -1419,7 +1419,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(composer.value).toBe("delivery is refused"));
     expect(screen.getByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
     // The prompt never reached the runtime, so no afterPrompt hook may run.
-    expect(generateThreadTitle).not.toHaveBeenCalled();
+    expect(generateTitle).not.toHaveBeenCalled();
     // A retry reuses the allocated runtime rather than leaking another one.
     expect(JSON.parse(localStorage.getItem("tau.active-new-thread.v1") ?? "{}").sessionId).toBe("allocated");
   });

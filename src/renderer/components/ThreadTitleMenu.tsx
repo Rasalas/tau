@@ -11,7 +11,8 @@ export function ThreadTitleMenu({
   onTogglePin,
   onToggleSettled,
   onRename,
-  onRegenerate,
+  commands = [],
+  onCommand,
   onMarkUnread,
   onCopy,
 }: {
@@ -23,7 +24,9 @@ export function ThreadTitleMenu({
   onTogglePin(): void;
   onToggleSettled(): void;
   onRename(title: string): Promise<boolean>;
-  onRegenerate(): void;
+  /** Extension commands offered on the thread-title surface. */
+  commands?: ReadonlyArray<{ id: string; label: string }>;
+  onCommand?(id: string): void;
   onMarkUnread(): void;
   onCopy(value: "chat" | "path" | "branch" | "thread-id"): void;
 }) {
@@ -54,7 +57,7 @@ export function ThreadTitleMenu({
     {
       items: [
         { id: "rename", label: "Rename thread" },
-        { id: "regenerate", label: "Regenerate title" },
+        ...commands.map((command) => ({ id: `command:${command.id}`, label: command.label })),
         { id: "unread", label: "Mark unread" },
       ],
     },
@@ -73,7 +76,7 @@ export function ThreadTitleMenu({
     if (id === "pin") onTogglePin();
     if (id === "settle") onToggleSettled();
     if (id === "rename") setRenaming(true);
-    if (id === "regenerate") onRegenerate();
+    if (id.startsWith("command:")) onCommand?.(id.slice("command:".length));
     if (id === "unread") onMarkUnread();
     if (id === "copy-chat") onCopy("chat");
     if (id === "copy-path") onCopy("path");

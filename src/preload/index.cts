@@ -33,7 +33,6 @@ const api: TauDesktopApi = {
   readToolOutput: (sessionId, toolCallId) => ipcRenderer.invoke("tau:read-tool-output", sessionId, toolCallId),
   copyThreadMarkdown: (expectedSessionId) => ipcRenderer.invoke("tau:copy-thread-markdown", expectedSessionId),
   readImagePreview: (path) => ipcRenderer.invoke("tau:read-image-preview", path),
-  generateThreadTitle: (provider, modelId, force, expectedSessionId) => ipcRenderer.invoke("tau:generate-thread-title", provider, modelId, force, expectedSessionId),
   chooseWorkspace: () => ipcRenderer.invoke("tau:choose-workspace"),
   listDirectories: (path) => ipcRenderer.invoke("tau:list-directories", path),
   openProject: (path) => ipcRenderer.invoke("tau:open-project", path),

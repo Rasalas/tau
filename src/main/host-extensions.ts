@@ -1,5 +1,5 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { GlobalHostEvent, HostExtensionSummary } from "../shared/contracts.js";
+import type { GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, UiMessage } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { GitCoordinator } from "./git-coordinator.js";
 import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
@@ -7,6 +7,21 @@ import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
 export interface RuntimeExtensionContribution {
   name: string;
   factory: ExtensionFactory;
+}
+
+/** What a host extension may do with one open thread. */
+export interface HostThread {
+  readonly sessionId: string;
+  readonly cwd: string;
+  readonly backendKind: ThreadBackendKind;
+  isStreaming(): boolean;
+  waitForIdle(): Promise<void>;
+  /** False once the host replaced or closed this thread's runtime. */
+  isCurrent(): boolean;
+  sessionName(): string | undefined;
+  transcript(): Promise<UiMessage[]>;
+  /** Asks a model of the thread's runtime for a title of the given conversation. */
+  completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
 }
 
 /**
@@ -27,6 +42,12 @@ export interface HostExtensionServices {
   rememberProjectName(cwd: string, name: string): void;
   /** Shared Git cache; core still reads branches from it for the thread index. */
   readonly git: GitCoordinator;
+  /** Whether Tau or an attached Pi terminal owns the active runtime. */
+  runtimeOwner(): "tau" | "pi";
+  /** An open thread by id, or the active one; `undefined` when it is not open. */
+  thread(sessionId?: string): HostThread | undefined;
+  /** Renames a thread the way the title menu does, and publishes the change. */
+  setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** Loads a Pi extension into every runtime the host creates from now on. */
   registerRuntimeExtension(name: string, factory: ExtensionFactory): () => void;
   /** Which permission policy external runtimes launch with; `undefined` restores full access. */

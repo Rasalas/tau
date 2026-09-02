@@ -29,6 +29,7 @@ export type {
   ProjectSourceContribution,
   ProjectSourceProps,
   CommandContribution,
+  CommandSurface,
   PromptHookContribution,
   PromptSubmittedEvent,
   ChangesContribution,

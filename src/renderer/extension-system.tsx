@@ -34,9 +34,8 @@ export interface WorkbenchActions {
   chooseWorkspace(): Promise<boolean>;
   openWorkspace(path: string): Promise<boolean>;
   cloneWorkspace(repositoryUrl: string): Promise<boolean>;
-  generateThreadTitle(provider: string, modelId: string, force?: boolean): Promise<boolean>;
-  /** Regenerate the active thread's title using its own model. */
-  regenerateTitle(force?: boolean): Promise<boolean>;
+  /** The thread on screen and its model, for commands that act on it. */
+  activeThread(): { sessionId?: string; model?: { provider: string; id: string } } | undefined;
 }
 
 /** Stamped onto every contribution so the UI can say which extension supplied it. */
@@ -105,11 +104,15 @@ export interface PanelContribution {
   Component: ComponentType<PanelProps>;
 }
 
+/** Places besides the palette where a command may also be offered. */
+export type CommandSurface = "thread-title";
+
 export interface CommandContribution {
   id: string;
   label: string;
   group: string;
   shortcut?: string;
+  surfaces?: readonly CommandSurface[];
   run(actions: WorkbenchActions): void | Promise<void>;
 }
 
@@ -425,6 +428,10 @@ export class ExtensionRegistry {
 
   getCommands(): Array<Owned<CommandContribution>> {
     return this.sorted("commands", this.commands, false);
+  }
+
+  getCommandsFor(surface: CommandSurface): Array<Owned<CommandContribution>> {
+    return this.getCommands().filter((command) => command.surfaces?.includes(surface));
   }
 
   getChangesContributions(): Array<Owned<ChangesContribution>> {

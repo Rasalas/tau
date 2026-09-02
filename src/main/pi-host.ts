@@ -83,7 +83,7 @@ import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
 import { createQuestionnaireExtension } from "./questionnaire-extension.js";
 import { GitCoordinator } from "./git-coordinator.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type RuntimeExtensionContribution } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostThread, type RuntimeExtensionContribution } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
@@ -205,7 +205,7 @@ function processIsAlive(pid: number): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
 }
 
-function textFromContent(content: unknown): string {
+export function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
@@ -649,7 +649,7 @@ function firstSentence(value: string): string {
   return sentence.length > 96 ? `${sentence.slice(0, 93).trimEnd()}…` : sentence;
 }
 
-function visibleTitleText(value: string): string {
+export function visibleTitleText(value: string): string {
   // A raw skill wrapper has no trustworthy title text. Keep runtime internals
   // out of sidebar/title fallback rather than echoing its tag or local path.
   return /<skill\b/iu.test(value)
@@ -661,42 +661,6 @@ function safeSessionTitle(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try { return cleanThreadTitle(visibleTitleText(value)); }
   catch { return undefined; }
-}
-
-interface TitleMessage {
-  role?: string;
-  content?: unknown;
-  skill?: { name?: unknown; command?: unknown };
-}
-
-function titleVisibleUserText(text: string, metadata: TitleMessage["skill"]): string {
-  const envelope = parseSkillEnvelope(text);
-  if (envelope && metadata
-    && metadata.name === envelope.name
-    && typeof metadata.command === "string"
-    && metadata.command.replace(/^\/skill:/u, "").replace(/^\//u, "") === envelope.name) {
-    return envelope.userMessage;
-  }
-  return visibleTitleText(text);
-}
-
-export function buildTitleConversation(
-  runtimeMessages: readonly TitleMessage[],
-  persistedMessages: readonly TitleMessage[] = [],
-): string {
-  function render(messages: readonly TitleMessage[]): string {
-    return messages
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .map((message) => {
-        const text = textFromContent(message.content);
-        return `${message.role}: ${message.role === "user" ? titleVisibleUserText(text, message.skill) : text}`;
-      })
-      .filter((line) => line.trim().length > line.indexOf(":") + 1)
-      .slice(0, 4)
-      .join("\n\n")
-      .slice(0, 6000);
-  }
-  return render(runtimeMessages) || render(persistedMessages);
 }
 
 export function cleanThreadTitle(value: string): string {
@@ -1241,6 +1205,9 @@ export class PiHost {
       projectName: (cwd) => this.loadProjectName(cwd),
       rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
       git: this.gitCoordinator,
+      runtimeOwner: () => this.bridge ? "pi" : "tau",
+      thread: (sessionId) => this.hostThread(sessionId),
+      setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
       registerRuntimeExtension: (name, factory) => {
         const contribution = { name, factory };
         this.runtimeExtensionContributions.push(contribution);
@@ -1250,6 +1217,22 @@ export class PiHost {
         };
       },
       setPermissionPolicy: (provider) => { this.permissionPolicyProvider = provider; },
+    };
+  }
+
+  private hostThread(sessionId?: string): HostThread | undefined {
+    const thread = this.threadFor(sessionId);
+    if (!thread) return undefined;
+    return {
+      sessionId: thread.threadId,
+      cwd: thread.cwd,
+      backendKind: thread.backend.kind,
+      isStreaming: () => thread.backend.isStreaming(),
+      waitForIdle: () => thread.backend.waitForIdle(),
+      isCurrent: () => this.threads.get(thread.threadId)?.runtime === thread,
+      sessionName: () => thread.backend.sessionName(),
+      transcript: () => thread.backend.transcript(),
+      completeTitle: (provider, modelId, conversation) => thread.backend.completeTitle(provider, modelId, conversation),
     };
   }
 
@@ -3189,67 +3172,40 @@ export class PiHost {
     } else {
       const thread = this.requireThread(expectedSessionId);
       sessionId = thread.threadId;
-      await thread.backend.setTitle(title, "renamed");
+      return this.actionResult([await this.applyThreadTitle(thread, title, "renamed")]);
+    }
+    return this.actionResult([this.publishThreadTitle(sessionId, displayedTitle)]);
+  }
+
+  /** Stores a title on the thread's backend and publishes the renamed shell. */
+  private async applyThreadTitle(thread: ThreadRuntime, title: string, source: "generated" | "renamed"): Promise<HostUpdate> {
+    await thread.backend.setTitle(title, source);
+    if (source === "renamed") {
       const detail = await thread.backend.detail();
       thread.adapterTitle = detail.title;
       thread.adapterTitleSource = detail.titleSource;
-      displayedTitle = detail.title ?? title;
+      return this.publishThreadTitle(thread.threadId, detail.title ?? title);
     }
+    thread.adapterTitle = title;
+    thread.adapterTitleSource = "generated";
+    return this.publishThreadTitle(thread.threadId, title);
+  }
+
+  private publishThreadTitle(sessionId: string, title: string): HostUpdate {
     const now = Date.now();
     this.sessions = this.sessions.map((thread) =>
-      thread.id === sessionId ? { ...thread, title: displayedTitle, modifiedAt: now } : thread,
+      thread.id === sessionId ? { ...thread, title, modifiedAt: now } : thread,
     );
     const shell = this.sessions.find((thread) => thread.id === sessionId);
     if (!shell) throw new Error("The active thread is missing from the session index.");
-    this.log("title.renamed", displayedTitle);
+    this.log("title.renamed", title);
     const update: HostUpdate = {
       version: HOST_PROTOCOL_VERSION,
       type: "thread-shell",
       update: { sessionId, shell },
     };
     this.emitUpdate(update);
-    return this.actionResult([update]);
-  }
-
-  async generateThreadTitle(provider: string, modelId: string, force = false, expectedSessionId?: string): Promise<HostActionResult> {
-    if (this.bridge) {
-      if (!force) return { version: HOST_PROTOCOL_VERSION, updates: [] };
-      throw new Error("Generate the thread title in Pi while Tau is attached to its runtime.");
-    }
-    const thread = this.requireThread(expectedSessionId);
-    if (thread.backend.kind !== "pi") throw new Error("Claude Code thread titles are generated by the Claude backend and cannot use Pi's model runtime.");
-    if (thread.backend.isStreaming()) {
-      if (force) throw new Error("Wait for the active agent run before generating a title.");
-      await thread.backend.waitForIdle();
-      if (this.threads.get(thread.threadId)?.runtime !== thread) return { version: HOST_PROTOCOL_VERSION, updates: [] };
-    }
-    if (thread.backend.sessionName() && !force) return { version: HOST_PROTOCOL_VERSION, updates: [] };
-    const visibleMessages = await thread.backend.transcript();
-    const conversation = buildTitleConversation(
-      visibleMessages.map((message) => ({ role: message.role, content: message.text })),
-    );
-    if (!conversation) {
-      if (!force) return this.actionResult([]);
-      throw new Error("The thread has no conversation to title yet.");
-    }
-
-    this.log("title.started", `${provider}/${modelId}`);
-    const title = cleanThreadTitle(await thread.backend.completeTitle(provider, modelId, conversation));
-    if (this.threads.get(thread.threadId)?.runtime !== thread) return { version: HOST_PROTOCOL_VERSION, updates: [] };
-    await thread.backend.setTitle(title, "generated");
-    thread.adapterTitle = title;
-    thread.adapterTitleSource = "generated";
-    this.sessions = this.sessions.map((entry) =>
-      entry.id === thread.threadId ? { ...entry, title, modifiedAt: Date.now() } : entry,
-    );
-    this.log("title.generated", title);
-    const update: HostUpdate = {
-      version: HOST_PROTOCOL_VERSION,
-      type: "thread-shell",
-      update: { sessionId: thread.threadId, shell: this.sessions.find((entry) => entry.id === thread.threadId) },
-    };
-    this.emitUpdate(update);
-    return this.actionResult([update]);
+    return update;
   }
 
   async setServiceTier(tier: ServiceTier): Promise<HostActionResult> {

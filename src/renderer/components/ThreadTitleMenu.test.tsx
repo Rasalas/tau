@@ -15,7 +15,8 @@ function props() {
     onTogglePin: vi.fn(),
     onToggleSettled: vi.fn(),
     onRename: vi.fn(async () => true),
-    onRegenerate: vi.fn(),
+    commands: [{ id: "thread-titles.regenerate", label: "Regenerate title" }],
+    onCommand: vi.fn(),
     onMarkUnread: vi.fn(),
     onCopy: vi.fn(),
   };
@@ -49,7 +50,7 @@ describe("ThreadTitleMenu", () => {
     fireEvent.submit(input.closest("form")!);
 
     await waitFor(() => expect(handlers.onRename).toHaveBeenCalledWith("A precise manual title"));
-    expect(handlers.onRegenerate).not.toHaveBeenCalled();
+    expect(handlers.onCommand).not.toHaveBeenCalled();
   });
 
   it("dispatches pinning and copy actions", () => {

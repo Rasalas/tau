@@ -42,7 +42,7 @@ These exist today, some still inside core files. They are extension work, and Ph
 | Turn checkpoints and restore | `PiHost`, `host-protocol.ts`, `App.tsx` | Workspace Kit |
 | Review mode, diff viewer, changed-files dock | `App.tsx` state, Review Kit views | Review Kit |
 | Stage tabs, file viewer | `App.tsx` | Workspace Kit |
-| Thread title generation | `PiHost` | Thread Title Generator |
+| Thread title generation | Thread Title Generator: `src/main/extensions/thread-titles-host-extension.ts` and `src/renderer/extensions/title-generator.tsx` | Thread Title Generator |
 | Access gate (read-only, ask, full) | Access Kit: `src/main/extensions/access-host-extension.ts` and `src/renderer/extensions/access-kit.tsx` | Access Kit, on by default; approvals are Pi `ctx.ui.confirm` questions |
 | Service tier, questionnaire, computer use | injected Pi extensions in `PiHost` | separate packages |
 | Claude Code backend | `PiHost`, runtime adapters | stays supported; its implementation becomes its own package behind the ADR 0005 seam |

@@ -7,6 +7,7 @@ import { clientMessageFingerprint } from "../shared/client-message-correlation.j
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost, turnActivityHistoryFromMessages } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { createWorkspaceHostExtension } from "./extensions/workspace-host-extension.js";
+import { createThreadTitlesHostExtension } from "./extensions/thread-titles-host-extension.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
@@ -325,9 +326,15 @@ describe("PiHost deliberate tool-output reads", () => {
   });
 });
 
+async function titleHost(emit: (event: unknown) => void = () => undefined) {
+  const host = new PiHost("/repo", emit as never, {} as never, false, false, { hostExtensions: [createThreadTitlesHostExtension()] });
+  await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
+  return host;
+}
+
 describe("PiHost.generateThreadTitle", () => {
   it("silently skips automatic title generation until the first message exists", async () => {
-    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const host = await titleHost();
     const thread = makeActivationThread("session");
     Object.assign(thread.backend, {
       sessionName: () => undefined,
@@ -341,8 +348,8 @@ describe("PiHost.generateThreadTitle", () => {
     internals.threads.setActive("session");
     internals.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 0 }];
 
-    await expect(host.generateThreadTitle("provider", "model", false, "session"))
-      .resolves.toEqual({ version: 1, updates: [] });
+    await expect(host.invokeHostExtension("tau.thread-titles", "generate", { provider: "provider", modelId: "model", force: false, sessionId: "session" }))
+      .resolves.toBeUndefined();
   });
 
   it("waits for a new thread's active first run before generating its title", async () => {
@@ -390,7 +397,8 @@ describe("PiHost.generateThreadTitle", () => {
       detail: async () => ({ title: session.sessionName }),
     };
     const thread = { backend, runtime: { session }, threadId: "session", sessionId: "session", cwd: "/repo" };
-    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const published: unknown[] = [];
+    const host = await titleHost((event) => published.push(event));
     const internals = host as unknown as {
       threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
       sessions: Array<Record<string, unknown>>;
@@ -399,15 +407,18 @@ describe("PiHost.generateThreadTitle", () => {
     internals.threads.setActive("session");
     internals.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 1 }];
 
-    const generated = host.generateThreadTitle("provider", "model", false, "session");
+    const generated = host.invokeHostExtension("tau.thread-titles", "generate", { provider: "provider", modelId: "model", force: false, sessionId: "session" });
+    await Promise.resolve();
     await Promise.resolve();
     expect(callOrder).toEqual(["wait"]);
 
     finishRun();
-    await expect(generated).resolves.toMatchObject({
-      updates: [{ type: "thread-shell", update: { sessionId: "session", shell: { title: "Automatic Thread Titles" } } }],
-    });
+    await expect(generated).resolves.toEqual({ title: "Automatic Thread Titles" });
     expect(callOrder).toEqual(["wait", "complete"]);
+    expect(published).toContainEqual(expect.objectContaining({
+      type: "host-update",
+      update: expect.objectContaining({ type: "thread-shell", update: { sessionId: "session", shell: expect.objectContaining({ title: "Automatic Thread Titles" }) } }),
+    }));
   });
 
   it("does not let a stale new-thread activation replace a newer live switch", async () => {

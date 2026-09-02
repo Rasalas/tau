@@ -14,7 +14,9 @@ export type WorkspaceHostStubOverrides = {
   [K in keyof WorkspaceHostClient]?: (...args: Parameters<WorkspaceHostClient[K]>) => Promise<unknown>;
 };
 
-export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}) {
+export type HostExtensionStub = (command: string, input?: unknown) => Promise<unknown>;
+
+export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, extensions: Record<string, HostExtensionStub> = {}) {
   const unsupported = (name: string) => async () => { throw new Error(`workspaceHostStub: ${name} is not stubbed`); };
   const client: WorkspaceHostStubOverrides & Required<WorkspaceHostStubOverrides> = {
     getFileTree: async () => [],
@@ -39,6 +41,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}) {
   const optional = <T,>(value: T | undefined): [] | [T] => value === undefined ? [] : [value];
   return async (extensionId: string, command: string, input?: unknown): Promise<unknown> => {
     // Access Kit pushes its level on activation; tests that render App do not care.
+    if (extensionId in extensions) return extensions[extensionId]!(command, input);
     if (extensionId === "tau.access") return command === "set-level" ? (input as { level?: unknown })?.level : "full";
     if (extensionId !== WORKSPACE_HOST_EXTENSION_ID) throw new Error(`Host extension ${extensionId} is not installed.`);
     switch (command) {
