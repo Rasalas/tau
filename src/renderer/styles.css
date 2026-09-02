@@ -2458,3 +2458,14 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   .transcript-turn-navigation-pager { padding-top: 5px; }
   .transcript { padding-inline: 12px; }
 }
+
+/* Thinking blocks: collapsed by default, like Pi's terminal with Ctrl+T. */
+.message-thinking { margin: 2px 0 8px; }
+.message-thinking > summary {
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer; list-style: none;
+  font-size: 12px; letter-spacing: 0.02em; color: var(--ink); opacity: 0.6; user-select: none;
+}
+.message-thinking > summary::-webkit-details-marker { display: none; }
+.message-thinking > summary .chev { transition: transform 120ms ease; }
+.message-thinking[open] > summary .chev { transform: rotate(90deg); }
+.message-thinking-body { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-card); opacity: 0.85; font-size: 13px; }

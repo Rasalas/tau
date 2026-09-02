@@ -1517,7 +1517,16 @@ export default function App() {
         queueAssistantDelta(event.id, "text", event.delta);
         break;
       case "assistant-thinking":
-        // Pi presents this phase as working state rather than transcript content.
+        // Thinking is transcript content, collapsed by default, like Pi's terminal.
+        if (!transcriptMessageIndexRef.current!.has(event.id)) {
+          appendTranscriptMessage({
+            id: event.id,
+            role: "assistant",
+            text: "",
+            timestamp: assistantStartsRef.current.get(event.id) ?? Date.now(),
+          });
+        }
+        queueAssistantDelta(event.id, "thinking", event.delta);
         break;
       case "assistant-end":
         flushAssistantDeltas();

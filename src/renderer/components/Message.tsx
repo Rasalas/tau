@@ -1,9 +1,10 @@
 import { Bot, ChevronRight } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useState, useSyncExternalStore } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { MessageActions } from "./MessageActions";
 import { UserMessage } from "./UserMessage";
 import { Markdown } from "./Markdown";
+import { preferences } from "../preferences";
 
 interface AsyncActivity {
   label: string;
@@ -22,6 +23,21 @@ export function parseAsyncActivity(text: string): AsyncActivity | undefined {
     ? `${count} subagent ${count === "1" ? "run" : "runs"} completed`
     : "Background task completed";
   return { label, detail: text };
+}
+
+const readShowThinking = () => preferences.getSnapshot().showThinking;
+
+/** Pi shows thinking as a collapsible block; Ctrl+T there is the palette command here. */
+function ThinkingDisclosure({ thinking, streaming }: { thinking: string; streaming?: boolean }) {
+  const expandedByDefault = useSyncExternalStore(preferences.subscribe, readShowThinking, readShowThinking);
+  const [toggled, setToggled] = useState<boolean>();
+  const open = toggled ?? expandedByDefault;
+  return (
+    <details className="message-thinking" open={open} onToggle={(event) => setToggled((event.target as HTMLDetailsElement).open)}>
+      <summary><ChevronRight size={12} className="chev" /> Thinking{streaming && !thinking.trim() ? "…" : ""}</summary>
+      {open ? <div className="message-thinking-body"><Markdown streaming={streaming}>{thinking}</Markdown></div> : null}
+    </details>
+  );
 }
 
 function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
@@ -64,14 +80,18 @@ export const Message = memo(function Message({
     return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
   }
 
-  if (!message.text) return null;
+  const thinking = message.thinking?.trim() ? message.thinking : undefined;
+  if (!message.text && !thinking) return null;
 
   return (
     <div className="message-shell assistant">
       <article className="message assistant">
-        <div className="message-text">
-          <Markdown streaming={streaming}>{message.text}</Markdown>
-        </div>
+        {thinking ? <ThinkingDisclosure thinking={thinking} streaming={streaming && !message.text} /> : null}
+        {message.text ? (
+          <div className="message-text">
+            <Markdown streaming={streaming}>{message.text}</Markdown>
+          </div>
+        ) : null}
       </article>
       {onCopy ? <MessageActions
         onCopy={() => onCopy(message)}

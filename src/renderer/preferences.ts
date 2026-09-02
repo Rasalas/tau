@@ -1,4 +1,6 @@
 export interface PreferencesState {
+  /** Whether assistant thinking blocks start expanded, like Ctrl+T in Pi's terminal. */
+  showThinking: boolean;
   editorId?: string;
   settledThreadIds: readonly string[];
   pinnedThreadIds: readonly string[];
@@ -14,6 +16,7 @@ export interface PreferencesState {
 const STORAGE_KEY = "tau.preferences";
 
 const DEFAULTS: PreferencesState = {
+  showThinking: false,
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
@@ -40,6 +43,7 @@ function load(): PreferencesState {
     // The access level lived in core before Access Kit owned it.
     if (typeof raw.accessLevel === "string" && !("tau.access.level" in values)) values["tau.access.level"] = raw.accessLevel;
     return {
+      showThinking: raw.showThinking === true,
       editorId: typeof raw.editorId === "string" ? raw.editorId : undefined,
       settledThreadIds: stringList(raw.settledThreadIds),
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
@@ -63,6 +67,10 @@ export class PreferencesStore {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+
+  setShowThinking(showThinking: boolean): void {
+    this.update({ showThinking });
+  }
 
   setEditor(editorId: string): void {
     this.update({ editorId });

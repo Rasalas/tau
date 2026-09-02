@@ -84,7 +84,7 @@ describe("Message actions", () => {
 });
 
 describe("Message reasoning presentation", () => {
-  it("keeps provider reasoning summaries out of the transcript", () => {
+  it("shows thinking as a collapsed block that opens on demand, like Pi's terminal", () => {
     const view = render(<Message message={{
       id: "assistant",
       role: "assistant",
@@ -95,7 +95,17 @@ describe("Message reasoning presentation", () => {
 
     expect(screen.getByText("Visible answer")).toBeTruthy();
     expect(screen.queryByText("Internal reasoning summary")).toBeNull();
-    expect(view.container.textContent).not.toContain("thinking");
+    const details = view.container.querySelector("details.message-thinking") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    fireEvent(details, new Event("toggle", { bubbles: false }));
+    details.open = true;
+    fireEvent(details, new Event("toggle", { bubbles: false }));
+    expect(screen.getByText("Internal reasoning summary")).toBeTruthy();
+  });
+
+  it("renders thinking alone while the answer has not started", () => {
+    render(<Message message={{ id: "assistant", role: "assistant", text: "", thinking: "Considering options", timestamp: 0 }} streaming />);
+    expect(screen.getByText(/Thinking/u)).toBeTruthy();
   });
 
   it("does not render an empty thinking placeholder", () => {

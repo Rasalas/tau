@@ -42,9 +42,9 @@ Planned work, in order:
 
 1. write down the core (done: `docs/CORE.md`) and make safe mode the proof of it
 2. add a host-side extension seam so a package can own host commands and events (done: ADR 0006, `src/main/host-extensions.ts`)
-3. move features out by size: Git and workspace (done: `src/main/extensions/workspace-host-extension.ts`), then title generation (done: `src/main/extensions/thread-titles-host-extension.ts`), turn checkpoints, service tier, questionnaire, computer use, editors, clone, export; the Claude Code backend stays a supported runtime, keeps its ADR 0005 seam, and its implementation becomes its own package
+3. move features out by size: Git and workspace (done: `src/main/extensions/workspace-host-extension.ts`), then title generation (done: `src/main/extensions/thread-titles-host-extension.ts`), service tier, questionnaire and computer use (done as host extensions), project sources incl. clone (done), turn checkpoints; the Claude Code backend stays a supported runtime, keeps its ADR 0005 seam, and its implementation becomes its own package
 4. add the renderer contribution points the moved features need: real keybindings, slash commands, regions next to the transcript and composer, a status line, host event subscriptions, extension state, so the orchestration in `App.tsx` can follow the views into the kits
-5. close the gaps to the Pi terminal: render thinking, tree/fork/clone, map `ctx.ui` status, widget, footer and notify onto workbench slots, honor `registerShortcut` and `keybindings.json`, register the hard-coded slash commands as Pi commands
+5. close the gaps to the Pi terminal: render thinking (done: collapsed blocks with a toggle command), tree/fork/clone, map `ctx.ui` status, widget, footer and notify onto workbench slots, honor `registerShortcut` and `keybindings.json`, register the hard-coded slash commands as Pi commands
 6. make the access gate a default-on extension (done: Access Kit owns the level, the Pi gate and the composer control; approvals use Pi's `ctx.ui.confirm`, so the core approval overlay and its IPC entries are gone)
 
 Completion check: `start:safe` shows exactly the core listed in `docs/CORE.md`; every bundled kit can be removed on both the host and the desktop side without editing core; no feature name appears in `src/shared/contracts.ts` or `src/main/index.ts`.
