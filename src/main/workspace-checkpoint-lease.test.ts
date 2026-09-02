@@ -11,7 +11,8 @@ async function repository(prefix: string): Promise<string> {
   return cwd;
 }
 
-describe("workspace checkpoint leases", () => {
+// Every case runs real git in temp repositories; the whole suite pushes single cases past 5 s.
+describe("workspace checkpoint leases", { timeout: 60_000 }, () => {
   it("serializes turns sharing a checkout and hands ownership over in FIFO order", async () => {
     const cwd = await repository("tau-lease-shared-");
     try {

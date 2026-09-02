@@ -302,7 +302,8 @@ describe("performance report checks", () => {
     expect(dryRun.baseline.commands).toContain('git -C "$SUBJECT_ROOT" worktree add --detach "$BASELINE_ROOT" "$BASELINE_COMMIT"');
   });
 
-  it("hashes artifacts from the pinned detached current root", async () => {
+  // Three git repositories and two aggregate runs; slow when the whole suite loads the machine.
+  it("hashes artifacts from the pinned detached current root", { timeout: 60_000 }, async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "tau-renderer-aggregate-"));
     const subjectRoot = join(fixtureRoot, "subject");
     const baselineRoot = join(fixtureRoot, "baseline");

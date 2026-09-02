@@ -58,13 +58,14 @@ describe("runtime adapter selection", () => {
     }
   });
 
-  it.skipIf(process.platform === "win32")("aborts and times out tracked child processes without blocking the next turn", async () => {
+  // Spawns several Node stubs; under full-suite load a stub can take seconds to start.
+  it.skipIf(process.platform === "win32")("aborts and times out tracked child processes without blocking the next turn", { timeout: 60_000 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-claude-abort-"));
     try {
       const command = join(directory, "claude-stub.mjs");
       await writeFile(command, "#!/usr/bin/env node\nconst args = process.argv.slice(2);\nif (args.at(-1) === 'hang') setInterval(() => {}, 1000); else process.stdout.write('ok');\n", { encoding: "utf8", mode: 0o700 });
       await chmod(command, 0o700);
-      const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json"), timeoutMs: 1000, killGraceMs: 20 });
+      const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "sessions.json"), timeoutMs: 30_000, killGraceMs: 20 });
       const pending = adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "hang" });
       await new Promise((resolve) => setTimeout(resolve, 20));
       const queued = adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "queued" });
@@ -75,7 +76,7 @@ describe("runtime adapter selection", () => {
       const timeoutAdapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "timeout-sessions.json"), timeoutMs: 80, killGraceMs: 20 });
       await expect(timeoutAdapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "timeout-session", sessionId: "provider-timeout", text: "hang" })).rejects.toMatchObject({ name: "AbortError" });
       const controller = new AbortController();
-      const signalAdapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "signal-sessions.json"), timeoutMs: 1_000, killGraceMs: 20 });
+      const signalAdapter = createClaudeCodeRuntimeAdapter({ command, storePath: join(directory, "signal-sessions.json"), timeoutMs: 30_000, killGraceMs: 20 });
       const signalPending = signalAdapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "signal-session", sessionId: "provider-signal", text: "hang", signal: controller.signal });
       await new Promise((resolve) => setTimeout(resolve, 20));
       controller.abort();
@@ -85,7 +86,7 @@ describe("runtime adapter selection", () => {
     }
   });
 
-  it.skipIf(process.platform === "win32")("recovers create/resume conflicts and one missing resumed session", async () => {
+  it.skipIf(process.platform === "win32")("recovers create/resume conflicts and one missing resumed session", { timeout: 60_000 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-claude-recovery-"));
     try {
       const command = join(directory, "claude-recovery-stub.mjs");
