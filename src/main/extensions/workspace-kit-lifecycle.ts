@@ -45,6 +45,10 @@ export interface WorkspaceKitLifecycleOptions {
   maintenance?: WorkspaceKitCheckpointMaintenance;
   /** Checkpoint events for the desktop half. */
   emit(event: CheckpointEvent): void;
+  /** The kit's Git cache, staled after a workspace was rewritten. */
+  git?: { invalidate(cwd: string): void };
+  /** Last known branch of a workspace, presentation metadata only. */
+  branch?(cwd: string): string | undefined;
 }
 
 /** The checkpoint side of Workspace Kit's host entry: capture, restore, recovery and ref upkeep. */
@@ -89,6 +93,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
   const leaseManager = options.leaseManager ?? new WorkspaceCheckpointLeaseManager();
   const maintenance = options.maintenance ?? createWorkspaceKitCheckpointMaintenance(leaseManager);
   const features = new Map<string, SessionFeature>();
+  const git = options.git ?? { invalidate: () => undefined };
+  const branchOf = (cwd: string) => options.branch?.(cwd);
   /** A restore of this workspace is in progress; its own activation must not replay its journal. */
   let restoringCwd: string | undefined;
 
@@ -104,7 +110,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       deferred: new Map(),
       feature: createWorkspaceKitCheckpointFeature({
         contextForTurn: () => ({ cwd, sessionId }),
-        branchForWorkspace: (workspace) => services.branch(workspace),
+        branchForWorkspace: (workspace) => branchOf(workspace),
         leaseManager,
         maintenance,
         appendCheckpoint: async (stored) => {
@@ -217,7 +223,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
           target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
           rollback: { sessionId: transaction.sourceSessionId, turnId: transaction.sourceTurnId },
         });
-        services.git.invalidate(transaction.cwd);
+        git.invalidate(transaction.cwd);
         backup.appendEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, { ...transaction, state: "recovered" });
         const previousPath = transaction.previousSessionId ? sessions.get(transaction.previousSessionId)?.path : undefined;
         if (previousPath && previousPath !== backup.path) {
@@ -243,7 +249,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
         rollback: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
       });
-      services.git.invalidate(transaction.cwd);
+      git.invalidate(transaction.cwd);
       // Remove the uncommitted target before recording recovery. If the
       // process dies between these operations the next startup simply repeats
       // the idempotent workspace replay and cleanup.
@@ -332,7 +338,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         rollback: { sessionId: thread.sessionId, turnId: rollbackTurnId },
         onPhase: (phase) => appendTransaction(phaseState(phase)),
       });
-      services.git.invalidate(thread.cwd);
+      git.invalidate(thread.cwd);
       appendTransaction("workspace-applied");
       handedOff = true;
       let finished = false;
@@ -350,7 +356,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
             target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
             rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
           });
-          services.git.invalidate(thread.cwd);
+          git.invalidate(thread.cwd);
           appendTransaction("recovered");
           finished = true;
           await cleanupRollback().catch(() => undefined);
@@ -368,7 +374,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
             target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
             rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
           });
-          services.git.invalidate(thread.cwd);
+          git.invalidate(thread.cwd);
           appendTransaction("recovered");
           recovered = true;
         } catch (recoveryError) {
@@ -566,7 +572,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
                 ? "workspace-applied"
                 : "rolling-back"),
         });
-        services.git.invalidate(cwd);
+        git.invalidate(cwd);
         journal("workspace-applied");
 
         activated = await prepared.activate();
@@ -594,7 +600,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
               target: { sessionId: backupSessionId, turnId: backupTurnId },
               rollback: { sessionId: source.sessionId, turnId: checkpoint.turnId },
             });
-            services.git.invalidate(cwd);
+            git.invalidate(cwd);
             recovered = true;
           } catch (recoveryError) {
             recoveryErrors.push(recoveryError);
@@ -765,7 +771,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
           checkpoint.beforeSnapshotId,
           checkpoint.afterSnapshotId,
           { sessionId: source.sessionId, turnId: checkpoint.turnId },
-          { branch: services.branch(source.cwd) },
+          { branch: branchOf(source.cwd) },
         );
       });
     },

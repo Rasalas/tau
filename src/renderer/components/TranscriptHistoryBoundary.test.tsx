@@ -56,7 +56,7 @@ function message(id: string, role: UiMessage["role"] = "user"): UiMessage {
 function snapshot(sessionId: string, messages: UiMessage[]): HostSnapshot {
   return {
     cwd: "/project",
-    branch: "main",
+    projectLabel: "main",
     sessionId,
     sessionTitle: sessionId,
     messages,

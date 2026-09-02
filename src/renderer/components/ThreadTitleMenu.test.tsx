@@ -8,7 +8,7 @@ afterEach(cleanup);
 function props() {
   return {
     title: "Improve title menu",
-    branch: "main",
+    label: "main",
     pinned: false,
     settled: false,
     onNewThread: vi.fn(),
@@ -69,7 +69,5 @@ describe("ThreadTitleMenu", () => {
     expect(handlers.onCopy).toHaveBeenCalledWith("chat");
 
     fireEvent.click(screen.getByRole("button", { name: "Improve title menu" }));
-    fireEvent.click(screen.getByText("Copy branch"));
-    expect(handlers.onCopy).toHaveBeenCalledWith("branch");
   });
 });

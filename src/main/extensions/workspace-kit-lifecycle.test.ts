@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TURN_CHECKPOINT_CUSTOM_TYPE } from "../../shared/turn-checkpoint-codec.js";
 import type { UiTurnCheckpoint } from "../../shared/turn-checkpoint-types.js";
-import { GitCoordinator } from "../git-coordinator.js";
 import type { HostExtensionServices, HostSessionFile, HostThread } from "../host-extensions.js";
 import type { WorkspaceKitCheckpointMaintenance } from "../workspace-kit-checkpoints.js";
 import { createWorkspaceKitLifecycle } from "./workspace-kit-lifecycle.js";
@@ -83,12 +82,12 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     knownWorkspacePath: async (path) => path,
     projectName: async () => "project",
     rememberProjectName: () => undefined,
-    git: new GitCoordinator(),
     pickDirectory: async () => undefined,
     runtimeOwner: () => "tau",
     thread: () => undefined,
     attachedRuntime: () => undefined,
-    branch: () => undefined,
+    describeProjects: () => () => undefined,
+    noteSubprocess: () => undefined,
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no such session"); },

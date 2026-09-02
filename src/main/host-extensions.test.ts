@@ -18,7 +18,8 @@ function services(): HostExtensionServices & { logs: string[] } {
     thread: () => undefined,
     setThreadTitle: async () => undefined,
     attachedRuntime: () => undefined,
-    branch: () => undefined,
+    describeProjects: () => () => undefined,
+    noteSubprocess: () => undefined,
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no sessions in this test"); },
@@ -33,7 +34,6 @@ function services(): HostExtensionServices & { logs: string[] } {
     registerRuntimeExtension: () => () => undefined,
     setPermissionPolicy: () => undefined,
     presentUi: () => () => undefined,
-    git: {} as never,
   };
 }
 

@@ -169,7 +169,7 @@ export function optimisticThreadSnapshot(
       ...snapshot,
       sessionName: undefined,
       sessionTitle: target.title,
-      branch: target.branch,
+      projectLabel: target.projectLabel,
       // Capability is thread-scoped; the target's catalog update will restore
       // it after the switch rather than leaking the previous thread's value.
       supportsImageInput: false,
@@ -183,7 +183,7 @@ export function optimisticThreadSnapshot(
 
 const mockSnapshot: HostSnapshot = {
   cwd: "/workspace/tau",
-  branch: "main",
+  projectLabel: "main",
   sessionId: "prototype-preview",
   sessionName: "Split host snapshots & virtualize the thread list",
   sessionTitle: "Split host snapshots & virtualize the thread list",
@@ -210,9 +210,9 @@ const mockThreadIndex: ThreadIndexSnapshot = {
     { path: "/workspace/lab", name: "agent-lab", lastOpenedAt: Date.now() - 86400000 },
   ],
   sessions: [
-    { id: "prototype-preview", path: "preview", title: "Split host snapshots & virtualize the thread list", modifiedAt: Date.now(), projectPath: "/workspace/tau", projectName: "tau", branch: "main", messageCount: 12 },
-    { id: "second", path: "second", title: "Renderer experiment", modifiedAt: Date.now() - 860000, projectPath: "/workspace/pi", projectName: "pi-coding-agent", branch: "feat/desktop-host", messageCount: 7 },
-    { id: "third", path: "third", title: "Package both extension domains", modifiedAt: Date.now() - 7200000, projectPath: "/workspace/lab", projectName: "agent-lab", branch: "main", messageCount: 18 },
+    { id: "prototype-preview", path: "preview", title: "Split host snapshots & virtualize the thread list", modifiedAt: Date.now(), projectPath: "/workspace/tau", projectName: "tau", projectLabel: "main", messageCount: 12 },
+    { id: "second", path: "second", title: "Renderer experiment", modifiedAt: Date.now() - 860000, projectPath: "/workspace/pi", projectName: "pi-coding-agent", projectLabel: "feat/desktop-host", messageCount: 7 },
+    { id: "third", path: "third", title: "Package both extension domains", modifiedAt: Date.now() - 7200000, projectPath: "/workspace/lab", projectName: "agent-lab", projectLabel: "main", messageCount: 18 },
   ],
 };
 
@@ -927,7 +927,7 @@ export default function App() {
     if (update.type === "thread-shell") {
       const shell = update.update.shell;
       threadStore.applyThreadShell(update.update.sessionId, shell, update.update.removed);
-      if (shell) setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, branch: shell.branch } : current);
+      if (shell) setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, projectLabel: shell.projectLabel } : current);
       return;
     }
     if (update.type === "thread-detail") {
@@ -1480,7 +1480,7 @@ export default function App() {
         applyThreadIndex(bootstrap.threadIndex);
         const current = hostSnapshotFromThreadDetail({
           cwd: bootstrap.project.cwd,
-          branch: bootstrap.project.branch,
+          projectLabel: bootstrap.project.label,
           sessionId: bootstrap.detail.sessionId,
           sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
           backendKind: bootstrap.detail.backendKind ?? bootstrap.catalog.backendKind,
@@ -1761,7 +1761,7 @@ export default function App() {
     preferences.toggleSettled(activeId);
   }, [threadStore]);
 
-  const copyThreadValue = useCallback(async (kind: "chat" | "path" | "branch" | "thread-id") => {
+  const copyThreadValue = useCallback(async (kind: "chat" | "path" | "thread-id") => {
     if (kind === "chat") {
       if (!snapshot?.sessionId || !window.tau) return;
       try {
@@ -1772,22 +1772,18 @@ export default function App() {
       }
       return;
     }
-    const value = kind === "path"
-      ? snapshot?.cwd
-      : kind === "branch"
-        ? snapshot?.branch
-        : snapshot?.sessionId;
+    const value = kind === "path" ? snapshot?.cwd : snapshot?.sessionId;
     if (!value) {
-      setNotice(`${kind === "branch" ? "Branch" : "Value"} is unavailable.`);
+      setNotice("Value is unavailable.");
       return;
     }
     try {
       await window.tau?.copyText(value);
-      setNotice(`${kind === "path" ? "Path" : kind === "branch" ? "Branch" : "Thread ID"} copied.`);
+      setNotice(`${kind === "path" ? "Path" : "Thread ID"} copied.`);
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, [snapshot?.branch, snapshot?.cwd, snapshot?.sessionId]);
+  }, [snapshot?.cwd, snapshot?.sessionId]);
 
   const copyMessage = useCallback(async (message: UiMessage) => {
     try {
@@ -2711,7 +2707,7 @@ export default function App() {
               <header className="conversation-header">
                 <ThreadTitleMenu
                   title={conversationSnapshot?.sessionTitle || "Untitled thread"}
-                  branch={snapshot?.branch}
+                  label={snapshot?.projectLabel}
                   pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
                   settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
                   onNewThread={() => setNewThreadOpen(true)}

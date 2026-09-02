@@ -73,7 +73,7 @@ export const ThreadRow = memo(function ThreadRow({
         </span>
         <span className="thread-title">{session.title}</span>
         <span className="thread-meta-line">
-          <span className="thread-branch">{session.branch ?? "no branch"}</span>
+          {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
           <span className="thread-activity"><i />{label}</span>
         </span>
       </button>

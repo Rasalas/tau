@@ -343,7 +343,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     .filter(
       (session) =>
         !needle ||
-        `${session.projectName} ${session.title} ${session.branch ?? ""}`.toLocaleLowerCase().includes(needle),
+        `${session.projectName} ${session.title} ${session.projectLabel ?? ""}`.toLocaleLowerCase().includes(needle),
     )
     .slice()
     .sort((left, right) => {

@@ -6,11 +6,11 @@ import type {
   ThreadBackendKind,
   ThreadHostEvent,
   UiMessage,
+  UiToolRun,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
-import type { GitCoordinator } from "./git-coordinator.js";
 import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
 
 export interface DirectoryPickerOptions {
@@ -22,6 +22,19 @@ export interface DirectoryPickerOptions {
 /** What the platform (Electron main, later a remote host) lends to extensions. */
 export interface HostPlatform {
   pickDirectory?(options?: DirectoryPickerOptions): Promise<string | undefined>;
+}
+
+/**
+ * Facts an extension knows about a project folder. Core caches them, refreshes
+ * the label in the background and publishes changes with the thread index.
+ */
+export interface HostProjectFacts {
+  /** Display name of a project; undefined keeps the folder name. */
+  name?(cwd: string): Promise<string | undefined>;
+  /** Short label shown beside the project (Workspace Kit: the Git branch). */
+  label?(cwd: string): Promise<string | undefined>;
+  /** True for a secondary checkout of another project; it is not listed as a project of its own. */
+  nested?(cwd: string): Promise<boolean>;
 }
 
 /** A persisted session file without a runtime: its raw entries and the durable custom-entry seam. */
@@ -123,6 +136,8 @@ export interface HostTurnObserver {
   reset?(sessionId: string): Promise<void>;
   /** The thread's runtime closes; flush and release. */
   closed?(sessionId: string): Promise<void>;
+  /** A tool call of the thread finished; `cwd` is the checkout it may have changed. */
+  toolEnded?(sessionId: string, tool: UiToolRun, cwd: string): void;
 }
 
 export interface RuntimeSessionInfo {
@@ -212,8 +227,6 @@ export interface HostExtensionServices {
   knownWorkspacePath(path: string): Promise<string>;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
-  /** Shared Git cache; core still reads branches from it for the thread index. */
-  readonly git: GitCoordinator;
   /** Native folder picker of the host platform; resolves undefined when cancelled. */
   pickDirectory(options?: DirectoryPickerOptions): Promise<string | undefined>;
   /** Whether Tau or an attached Pi terminal owns the active runtime. */
@@ -224,8 +237,10 @@ export interface HostExtensionServices {
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */
   attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
-  /** Last known branch of a workspace, from the host's cache; never awaits Git. */
-  branch(cwd: string): string | undefined;
+  /** Supplies what the thread index shows about a project: its name, a label, whether it is nested in another. */
+  describeProjects(facts: HostProjectFacts): () => void;
+  /** Counts a child process the extension spawned, for the host's lifecycle metrics. */
+  noteSubprocess(): void;
   readonly sessions: HostSessionServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
@@ -484,6 +499,10 @@ export class HostTurnObserverSet {
     for (const observer of [...this.observers]) await observer.reset?.(sessionId);
   }
 
+  toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void {
+    for (const observer of [...this.observers]) observer.toolEnded?.(sessionId, tool, cwd);
+  }
+
   /** Every observer gets to close; failures are reported together afterwards. */
   async closed(sessionId: string): Promise<void> {
     const errors: unknown[] = [];
@@ -491,5 +510,38 @@ export class HostTurnObserverSet {
       try { await observer.closed?.(sessionId); } catch (error) { errors.push(error); }
     }
     if (errors.length > 0) throw new AggregateError(errors, "Turn observer shutdown failed");
+  }
+}
+
+/** Asks every provider in turn; the first defined answer wins. */
+export class HostProjectFactsSet {
+  private readonly providers = new Set<HostProjectFacts>();
+
+  add(facts: HostProjectFacts): () => void {
+    this.providers.add(facts);
+    return () => { this.providers.delete(facts); };
+  }
+
+  async name(cwd: string): Promise<string | undefined> {
+    for (const facts of [...this.providers]) {
+      const value = await facts.name?.(cwd);
+      if (value) return value;
+    }
+    return undefined;
+  }
+
+  async label(cwd: string): Promise<string | undefined> {
+    for (const facts of [...this.providers]) {
+      const value = await facts.label?.(cwd);
+      if (value !== undefined) return value;
+    }
+    return undefined;
+  }
+
+  async nested(cwd: string): Promise<boolean> {
+    for (const facts of [...this.providers]) {
+      if (await facts.nested?.(cwd)) return true;
+    }
+    return false;
   }
 }

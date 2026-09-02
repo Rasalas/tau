@@ -7,7 +7,9 @@ import type { DiffLoadOptions, FileNode, WorkspaceChangesQuery } from "../../sha
 import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "../../shared/workspace-kit-protocol.js";
 import { assertAllowedCloneSource } from "../clone-source.js";
 import { readBoundedFileContent } from "../file-content.js";
+import type { UiToolRun } from "../../shared/contracts.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import { GitCoordinator } from "../git-coordinator.js";
 import * as workspaceGit from "../workspace-git.js";
 import { createWorkspaceKitLifecycle } from "./workspace-kit-lifecycle.js";
 
@@ -65,6 +67,14 @@ const optionalString = (input: unknown, key: string): string | undefined => {
   return typeof value === "string" ? value : undefined;
 };
 
+function invalidateAfterTool(git: GitCoordinator, tool: UiToolRun, cwd: string): void {
+  const command = typeof tool.args.command === "string" ? tool.args.command : "";
+  const mutatesGit = /\bgit\s+(?:checkout|switch|branch|reset|worktree|commit|merge|rebase|pull|fetch)\b/iu.test(command);
+  if (tool.name === "edit" || tool.name === "write" || mutatesGit) {
+    git.invalidate(cwd, mutatesGit ? ["status", "branch", "workspace"] : ["status", "workspace"]);
+  }
+}
+
 /**
  * Workspace Kit's host entry: files, Git status and staging, commits, worktrees
  * and external editors. Everything here used to be a method on PiHost.
@@ -75,7 +85,9 @@ export function createWorkspaceHostExtension(): HostExtension {
     name: "Workspace Kit",
     activate(context: HostExtensionContext) {
       const { services } = context;
-      const git = services.git;
+      // The kit owns the Git cache; core only learns project facts from it.
+      const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
+      const labels = new Map<string, string | undefined>();
       const cwd = () => services.cwd();
       const refreshedChanges = async (project: string) => {
         git.invalidate(project);
@@ -198,8 +210,23 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       // Turn checkpoints: capture per runtime, restore, recovery and ref upkeep
       // all live in the kit; core only offers the lifecycle hooks.
-      const checkpoints = createWorkspaceKitLifecycle(services, { emit: (event) => context.emit(CHECKPOINT_EVENT, event) });
+      const checkpoints = createWorkspaceKitLifecycle(services, {
+        emit: (event) => context.emit(CHECKPOINT_EVENT, event),
+        git,
+        branch: (project) => labels.get(project),
+      });
       const disposers = [
+        services.describeProjects({
+          name: (project) => workspaceGit.repositoryDisplayName(project),
+          label: async (project) => {
+            const branch = await git.getBranch(project);
+            labels.set(project, branch);
+            return branch;
+          },
+          nested: (project) => workspaceGit.isLinkedWorktree(project),
+        }),
+        // Edits and Git commands run by the agent stale the cache.
+        services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),
         services.registerThreadLifecycle(checkpoints.lifecycle),
         services.registerTurnObserver(checkpoints.turns),
         services.pinTranscriptEntries((thread) => checkpoints.pinnedEntries(thread)),

@@ -73,9 +73,9 @@ import type { HostPackageLoadResult } from "./extension-packages.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
-import { GitCoordinator } from "./git-coordinator.js";
 import {
   HostExtensionRegistry,
+  HostProjectFactsSet,
   HostThreadLifecycleSet,
   HostTurnObserverSet,
   type HostAttachedRuntime,
@@ -90,7 +90,6 @@ import {
   type RuntimeSessionInfo,
 } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
-import * as workspaceGit from "./workspace-git.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
@@ -146,7 +145,7 @@ import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { assertClaudePermissionPolicySupported, assertRuntimeAdapter, createClaudeCodeRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, runtimePermissionPolicy, type AgentRuntimeAdapter, type RuntimePermissionPolicy } from "./runtime-adapters.js";
 import { ClaudeRuntimeSessionStore, type ClaudeTitleSource } from "./claude-runtime-store.js";
 import { ClaudeThreadRuntimeBackend, PiThreadRuntimeBackend, type ThreadRuntimeBackend } from "./thread-runtime-backend.js";
-import { assistantAnchorForBranch } from "./pi-turn-checkpoint-extension.js";
+import { assistantAnchorForBranch } from "./session-entries.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 /** Virtual shell paths keep app-data-owned Claude sessions addressable without
@@ -678,14 +677,14 @@ export function cleanThreadTitle(value: string): string {
 export async function mapSessions(
   sessions: SessionInfo[],
   fallbackCwd: string,
-  resolveBranch: (cwd: string) => Promise<string | undefined>,
+  resolveLabel: (cwd: string) => Promise<string | undefined>,
   resolveProjectName: (cwd: string) => string = (cwd) => basename(cwd) || cwd,
 ): Promise<UiSession[]> {
   const recent = [...sessions]
     .sort((a, b) => b.modified.getTime() - a.modified.getTime());
   const projectPaths = [...new Set(recent.map((session) => session.cwd || fallbackCwd))];
-  const branches = new Map(
-    await Promise.all(projectPaths.map(async (path) => [path, await resolveBranch(path)] as const)),
+  const labels = new Map(
+    await Promise.all(projectPaths.map(async (path) => [path, await resolveLabel(path)] as const)),
   );
   return recent.map((session) => {
     const projectPath = session.cwd || fallbackCwd;
@@ -696,7 +695,7 @@ export async function mapSessions(
       modifiedAt: session.modified.getTime(),
       projectPath,
       projectName: resolveProjectName(projectPath),
-      branch: branches.get(projectPath),
+      projectLabel: labels.get(projectPath),
       messageCount: session.messageCount,
       backendKind: "pi",
     };
@@ -706,7 +705,7 @@ export async function mapSessions(
 function sessionShellEqual(left: UiSession, right: UiSession): boolean {
   return left.id === right.id && left.path === right.path && left.title === right.title &&
     left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
-    left.projectName === right.projectName && left.branch === right.branch &&
+    left.projectName === right.projectName && left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount && left.backendKind === right.backendKind;
 }
 
@@ -736,7 +735,7 @@ export interface ActiveThreadShellInput {
   now: number;
   projectPath: string;
   projectName: string;
-  branch?: string;
+  projectLabel?: string;
   messageCount: number;
   backendKind?: ThreadBackendKind;
 }
@@ -753,7 +752,7 @@ export function reconcileActiveThreadShell(
     modifiedAt: touch ? input.now : existing?.modifiedAt ?? input.now,
     projectPath: input.projectPath,
     projectName: input.projectName,
-    branch: input.branch,
+    projectLabel: input.projectLabel,
     messageCount: input.messageCount,
     ...(input.backendKind ? { backendKind: input.backendKind } : {}),
   };
@@ -776,10 +775,6 @@ export function mergeSessionIndexScan(
     if (!scannedIds.has(session.id)) merged.push(session);
   }
   return merged;
-}
-
-export async function assertWorkspacePath(cwd: string, path: string): Promise<void> {
-  return workspaceGit.assertWorkspacePath(cwd, path);
 }
 
 function resultText(result: unknown): string {
@@ -964,7 +959,6 @@ export class PiHost {
   private readonly agentDir = getAgentDir();
   private extensionCount = 0;
   private readonly lifecycleMetrics = new HostLifecycleInstrumentation();
-  private readonly gitCoordinator = new GitCoordinator({ onSubprocess: () => this.lifecycleMetrics.countSubprocess() });
   private readonly hostExtensions: HostExtensionRegistry;
   private readonly pendingHostExtensions: readonly HostExtension[];
   private readonly hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
@@ -1010,15 +1004,17 @@ export class PiHost {
   /** Publications coalesced into the next tick, keyed by what they carry. */
   private readonly coalescedPublishes = new Map<"shells" | "index", ReturnType<typeof setTimeout>>();
   private indexRecoveryTimer?: ReturnType<typeof setInterval>;
-  private projectBranch?: string;
-  /** Last known branch per project. Git is never awaited on an interactive path. */
-  private readonly knownBranches = new Map<string, string | undefined>();
-  private readonly branchRefreshes = new Map<string, Promise<void>>();
+  private projectLabel?: string;
+  /** Last known label per project; the provider is never awaited on an interactive path. */
+  private readonly knownLabels = new Map<string, string | undefined>();
+  private readonly labelRefreshes = new Map<string, Promise<void>>();
+  /** What extensions know about projects: name, label, nesting. */
+  private readonly projectFacts = new HostProjectFactsSet();
   /** A linked worktree keeps the repository's project name instead of becoming a new project. */
   private readonly knownProjectNames = new Map<string, string>();
-  /** Which known project paths are linked worktrees. Unclassified paths stay absent. */
-  private readonly knownWorktreeProjects = new Map<string, boolean>();
-  private readonly worktreeClassifications = new Map<string, Promise<void>>();
+  /** Which known project paths are nested in another project. Unclassified paths stay absent. */
+  private readonly knownNestedProjects = new Map<string, boolean>();
+  private readonly nestedClassifications = new Map<string, Promise<void>>();
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   private pendingUiPrompts = new Map<string, { sessionId: string; settle: (answer: ExtensionUiAnswer) => void }>();
   /** Prompts still awaiting an answer, kept so a late subscriber still sees them. */
@@ -1148,7 +1144,6 @@ export class PiHost {
       knownWorkspacePath: (path) => this.knownWorkspacePath(path),
       projectName: (cwd) => this.loadProjectName(cwd),
       rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
-      git: this.gitCoordinator,
       pickDirectory: (options) => this.platform.pickDirectory
         ? this.platform.pickDirectory(options)
         : Promise.reject(new Error("This host has no folder picker.")),
@@ -1156,7 +1151,8 @@ export class PiHost {
       thread: (sessionId) => this.hostThread(sessionId),
       setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
       attachedRuntime: (sessionId) => this.attachedRuntime(sessionId),
-      branch: (cwd) => this.knownBranches.get(cwd),
+      describeProjects: (facts) => this.projectFacts.add(facts),
+      noteSubprocess: () => this.lifecycleMetrics.countSubprocess(),
       sessions: {
         list: async () => (await SessionManager.listAll()).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
         open: (path) => {
@@ -1471,7 +1467,7 @@ export class PiHost {
         await this.rememberProject(this.cwd);
         // Classify saved projects while the runtime opens. Each answer is a
         // single git call, so it is ready long before bootstrap reads the list.
-        for (const project of this.projectHistory.list()) this.classifyWorktreeInBackground(project.path);
+        for (const project of this.projectHistory.list()) this.classifyNestedInBackground(project.path);
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
@@ -1487,7 +1483,7 @@ export class PiHost {
           if (!await this.activateThread(thread, false, activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         }
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
-        this.branchFor(this.cwd);
+        this.labelFor(this.cwd);
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
         // The global index is independent of the active detail. Publish it when
@@ -1511,15 +1507,15 @@ export class PiHost {
   async bootstrap(): Promise<HostBootstrap> {
     // The project list is withheld while a checkout is unclassified. Bootstrap
     // is the one publication the client cannot miss, so settle it here.
-    await Promise.allSettled([...this.worktreeClassifications.values()]);
-    const host = { ...this.snapshotSync(await this.ensureModels()), branch: this.projectBranch };
+    await Promise.allSettled([...this.nestedClassifications.values()]);
+    const host = { ...this.snapshotSync(await this.ensureModels()), projectLabel: this.projectLabel };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
       threadIndex: this.threadIndexSnapshot(),
       version: HOST_PROTOCOL_VERSION,
       detail,
       catalog: catalogFromSnapshot(host),
-      project: { cwd: host.cwd, branch: host.branch },
+      project: { cwd: host.cwd, label: host.projectLabel },
     };
     this.lifecycleMetrics.recordIpc(result);
     return result;
@@ -1743,7 +1739,7 @@ export class PiHost {
       modifiedAt: Date.now(),
       projectPath: snapshot.cwd,
       projectName: this.projectNameFor(snapshot.cwd),
-      branch: this.branchFor(snapshot.cwd),
+      projectLabel: this.labelFor(snapshot.cwd),
       messageCount: next.messages.length,
     };
     this.sessions = [shell, ...this.sessions.filter((entry) => entry.id !== shell.id)];
@@ -1759,7 +1755,7 @@ export class PiHost {
       ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
       { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
       { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
-      { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
+      { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, label: snapshot.projectLabel } },
     ];
   }
 
@@ -1787,7 +1783,7 @@ export class PiHost {
       const initialUpdates: HostUpdate[] = [
         ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
         { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
-        { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, branch: snapshot.branch } },
+        { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, label: snapshot.projectLabel } },
       ];
       for (const update of initialUpdates) this.emitUpdate(update);
     } catch (error) {
@@ -3092,7 +3088,7 @@ export class PiHost {
 
   async snapshot(): Promise<HostSnapshot> {
     const models = await this.ensureModels();
-    return { ...this.snapshotSync(models), branch: this.branchFor(this.cwd) };
+    return { ...this.snapshotSync(models), projectLabel: this.labelFor(this.cwd) };
   }
 
   /** Workspace metadata is only exposed for projects already admitted by the host. */
@@ -3164,7 +3160,7 @@ export class PiHost {
       // boundary. The host never substitutes a Pi resource loader later.
       commands: this.claudeComposerCommands(cwd),
       projectName: this.projectNameFor(cwd),
-      branch: this.knownBranches.get(cwd),
+      branch: this.knownLabels.get(cwd),
       permissionPolicy: () => this.permissionPolicy(),
       onMessage: (message) => {
         const thread = this.threads.get(threadId)?.runtime;
@@ -3225,7 +3221,7 @@ export class PiHost {
             modifiedAt: Date.now(),
             projectPath: owner.cwd,
             projectName: this.projectNameFor(owner.cwd),
-            branch: this.branchFor(owner.cwd),
+            projectLabel: this.labelFor(owner.cwd),
             messageCount: messages.length,
             backendKind: "pi",
           };
@@ -3366,17 +3362,17 @@ export class PiHost {
   ): Promise<boolean> {
     if (!this.isCurrentActivation(activationEpoch)) return false;
     const restore = await this.threadLifecycle.beforeActivate(this.hostThreadFor(thread));
-    let restoreCommitted = !restore;
+    let activationCommitted = !restore;
     try {
       if (!this.isCurrentActivation(activationEpoch)) {
         await restore?.rollback();
-        restoreCommitted = true;
+        activationCommitted = true;
         return false;
       }
       if (!this.threads.has(thread.threadId)) await this.adoptThread(thread);
       if (!this.isCurrentActivation(activationEpoch)) {
         await restore?.rollback();
-        restoreCommitted = true;
+        activationCommitted = true;
         return false;
       }
       this.threads.setActive(thread.threadId);
@@ -3385,13 +3381,13 @@ export class PiHost {
       await this.rememberProject(this.cwd);
       if (!this.isCurrentActivation(activationEpoch)) {
         await restore?.rollback();
-        restoreCommitted = true;
+        activationCommitted = true;
         return false;
       }
       await this.refreshThreadShell(thread, touch);
       if (!this.isCurrentActivation(activationEpoch)) {
         await restore?.rollback();
-        restoreCommitted = true;
+        activationCommitted = true;
         return false;
       }
       this.log("session.opened", thread.threadId.slice(0, 8));
@@ -3399,10 +3395,10 @@ export class PiHost {
       this.scheduleRuntimePrewarm();
       if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
       await restore?.commit();
-      restoreCommitted = true;
+      activationCommitted = true;
       return true;
     } catch (error) {
-      if (restore && !restoreCommitted) {
+      if (restore && !activationCommitted) {
         try {
           await restore.rollback();
         } catch (recoveryError) {
@@ -3545,7 +3541,7 @@ export class PiHost {
   private async loadProjectName(cwd: string): Promise<string> {
     const known = this.knownProjectNames.get(cwd);
     if (known) return known;
-    const name = await workspaceGit.repositoryDisplayName(cwd);
+    const name = await this.projectFacts.name(cwd).catch(() => undefined) ?? (basename(cwd) || cwd);
     this.knownProjectNames.set(cwd, name);
     return name;
   }
@@ -3555,39 +3551,39 @@ export class PiHost {
   }
 
   /**
-   * The branch a project is on, as last seen. A refresh always runs in the
+   * The label a project carries, as last seen. A refresh always runs in the
    * background and publishes when the answer changes, so opening or switching a
-   * thread never waits on git — a busy repository used to hold switches for
-   * seconds behind its own status scan.
+   * thread never waits on the provider — a busy repository used to hold
+   * switches for seconds behind its own status scan.
    */
-  private branchFor(cwd: string): string | undefined {
-    this.refreshBranchInBackground(cwd);
-    return this.knownBranches.get(cwd);
+  private labelFor(cwd: string): string | undefined {
+    this.refreshLabelInBackground(cwd);
+    return this.knownLabels.get(cwd);
   }
 
-  private refreshBranchInBackground(cwd: string): void {
-    if (this.branchRefreshes.has(cwd)) return;
+  private refreshLabelInBackground(cwd: string): void {
+    if (this.labelRefreshes.has(cwd)) return;
     const startedAt = performance.now();
-    const pending = this.resolveBranch(cwd).then((branch) => {
-      const known = this.knownBranches.has(cwd);
-      const previous = this.knownBranches.get(cwd);
-      this.knownBranches.set(cwd, branch);
-      if (!known || previous !== branch) this.publishBranch(cwd, branch);
-    }).catch((error) => this.log("branch.failed", `${basename(cwd)}: ${this.errorMessage(error)}`)).finally(() => {
-      this.recordBackgroundLifecycle("branch", startedAt);
-      this.branchRefreshes.delete(cwd);
+    const pending = this.projectFacts.label(cwd).then((label) => {
+      const known = this.knownLabels.has(cwd);
+      const previous = this.knownLabels.get(cwd);
+      this.knownLabels.set(cwd, label);
+      if (!known || previous !== label) this.publishLabel(cwd, label);
+    }).catch((error) => this.log("project-label.failed", `${basename(cwd)}: ${this.errorMessage(error)}`)).finally(() => {
+      this.recordBackgroundLifecycle("project-label", startedAt);
+      this.labelRefreshes.delete(cwd);
     });
-    this.branchRefreshes.set(cwd, pending);
+    this.labelRefreshes.set(cwd, pending);
   }
 
-  private publishBranch(cwd: string, branch: string | undefined): void {
+  private publishLabel(cwd: string, label: string | undefined): void {
     if (cwd === this.cwd) {
-      this.projectBranch = branch;
-      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd, branch } });
+      this.projectLabel = label;
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd, label } });
     }
-    const changed = this.sessions.filter((session) => session.projectPath === cwd && session.branch !== branch);
+    const changed = this.sessions.filter((session) => session.projectPath === cwd && session.projectLabel !== label);
     if (changed.length === 0) return;
-    this.sessions = this.sessions.map((session) => session.projectPath === cwd ? { ...session, branch } : session);
+    this.sessions = this.sessions.map((session) => session.projectPath === cwd ? { ...session, projectLabel: label } : session);
     for (const session of this.sessions) {
       if (session.projectPath === cwd) this.publishThreadShellSoon(session);
     }
@@ -4167,7 +4163,7 @@ export class PiHost {
             startedAt: previous?.startedAt ?? Date.now(),
             endedAt: Date.now(),
           };
-          this.invalidateGitAfterTool(tool, cwd);
+          this.turnObservers.toolEnded(sessionId, tool, cwd);
           this.emit({ type: "tool-end", sessionId, tool });
           // Settled output belongs to the renderer/artifact store, not the host's
           // active-run map. Do not retain every completed tool forever.
@@ -4220,7 +4216,7 @@ export class PiHost {
         modifiedAt: record.updatedAt,
         projectPath: record.cwd,
         projectName: this.projectNameFor(record.cwd),
-        branch: this.branchFor(record.cwd),
+        projectLabel: this.labelFor(record.cwd),
         messageCount: record.messages.length,
         backendKind: "claude-code",
       };
@@ -4235,7 +4231,7 @@ export class PiHost {
         const scanned = await mapSessions(
           sessionInfos,
           this.cwd,
-          async (cwd) => this.branchFor(cwd),
+          async (cwd) => this.labelFor(cwd),
           (cwd) => this.projectNameFor(cwd),
         );
         const previous = this.sessions;
@@ -4269,7 +4265,7 @@ export class PiHost {
     const scanned = await mapSessions(
       sessionInfos,
       this.cwd,
-      async (cwd) => this.branchFor(cwd),
+      async (cwd) => this.labelFor(cwd),
       (cwd) => this.projectNameFor(cwd),
     );
     const external = await this.externalSessionShells();
@@ -4321,7 +4317,7 @@ export class PiHost {
       now: Date.now(),
       projectPath,
       projectName: this.projectNameFor(projectPath),
-      branch: this.branchFor(projectPath),
+      projectLabel: this.labelFor(projectPath),
       messageCount: visibleMessages.length,
       backendKind: threadBackendKind(thread),
     }, existing, touch);
@@ -4380,36 +4376,37 @@ export class PiHost {
   }
 
   /**
-   * A linked worktree belongs to a repository that is already a project, so the
-   * workspace bar moves between worktrees instead. Git is never awaited here; an
-   * unclassified checkout is withheld until its background answer arrives.
+   * A project nested in another (Workspace Kit: a linked worktree) is not a
+   * root of its own; the workspace bar moves inside the parent instead. The
+   * provider is never awaited here; an unclassified path is withheld until its
+   * background answer arrives.
    */
   private isProjectRoot(cwd: string): boolean {
-    const isWorktree = this.knownWorktreeProjects.get(cwd);
-    if (isWorktree === undefined) {
-      this.classifyWorktreeInBackground(cwd);
+    const nested = this.knownNestedProjects.get(cwd);
+    if (nested === undefined) {
+      this.classifyNestedInBackground(cwd);
       return false;
     }
-    return !isWorktree;
+    return !nested;
   }
 
-  private classifyWorktreeInBackground(cwd: string): void {
-    if (this.worktreeClassifications.has(cwd)) return;
+  private classifyNestedInBackground(cwd: string): void {
+    if (this.nestedClassifications.has(cwd)) return;
     const startedAt = performance.now();
-    const pending = workspaceGit.isLinkedWorktree(cwd).then((isWorktree) => {
-      if (this.knownWorktreeProjects.get(cwd) === isWorktree) return;
-      this.knownWorktreeProjects.set(cwd, isWorktree);
+    const pending = this.projectFacts.nested(cwd).then((nested) => {
+      if (this.knownNestedProjects.get(cwd) === nested) return;
+      this.knownNestedProjects.set(cwd, nested);
       this.publishThreadIndexSoon();
     }).catch(() => {
-      // A path that is not a repository at all is simply not a worktree.
-      if (this.knownWorktreeProjects.has(cwd)) return;
-      this.knownWorktreeProjects.set(cwd, false);
+      // A path no provider can classify is simply a root.
+      if (this.knownNestedProjects.has(cwd)) return;
+      this.knownNestedProjects.set(cwd, false);
       this.publishThreadIndexSoon();
     }).finally(() => {
-      this.recordBackgroundLifecycle("worktree-classification", startedAt);
-      this.worktreeClassifications.delete(cwd);
+      this.recordBackgroundLifecycle("project-classification", startedAt);
+      this.nestedClassifications.delete(cwd);
     });
-    this.worktreeClassifications.set(cwd, pending);
+    this.nestedClassifications.set(cwd, pending);
   }
 
   private publishThreadIndexSoon(): void {
@@ -4819,20 +4816,6 @@ export class PiHost {
   private cancelUiPromptsFor(sessionId: string): void {
     const pending = [...this.pendingUiPrompts.values()].filter((entry) => entry.sessionId === sessionId);
     pending.forEach((entry) => entry.settle({ cancelled: true }));
-  }
-
-  private resolveBranch(cwd: string): Promise<string | undefined> {
-    return this.gitCoordinator.getBranch(cwd);
-  }
-
-  private invalidateGitAfterTool(tool: UiToolRun, cwd: string): void {
-    const command = typeof tool.args.command === "string" ? tool.args.command : "";
-    const mutatesGit = /\bgit\s+(?:checkout|switch|branch|reset|worktree|commit|merge|rebase|pull|fetch)\b/iu.test(command);
-    if (tool.name === "edit" || tool.name === "write" || mutatesGit) {
-      this.gitCoordinator.invalidate(cwd, mutatesGit
-        ? ["status", "branch", "workspace"]
-        : ["status", "workspace"]);
-    }
   }
 
   private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string, thread?: ThreadRuntime): void {

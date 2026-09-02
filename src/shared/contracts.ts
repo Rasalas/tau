@@ -165,7 +165,8 @@ export interface UiSession {
   modifiedAt: number;
   projectPath: string;
   projectName: string;
-  branch?: string;
+  /** Short label an extension gives the project, e.g. its Git branch. */
+  projectLabel?: string;
   messageCount: number;
   /** Lifecycle owner; older index entries default to Pi. */
   backendKind?: ThreadBackendKind;
@@ -259,7 +260,8 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   providerSessionId?: string;
   /** @deprecated v1 alias for the Tau thread id. */
   sessionId: string;
-  branch?: string;
+  /** Short label an extension gives the project, e.g. its Git branch. */
+  projectLabel?: string;
   sessionName?: string;
   sessionTitle: string;
   model?: UiModel;
@@ -334,7 +336,7 @@ export interface HostBootstrap {
     /** Optional for protocol-v1 compatibility; missing means unsupported. */
     supportsImageInput?: boolean;
   };
-  project: { cwd: string; branch?: string };
+  project: { cwd: string; label?: string };
 }
 
 export type GlobalHostEvent =

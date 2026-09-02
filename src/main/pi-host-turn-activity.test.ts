@@ -6,7 +6,7 @@ import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.j
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, PiHost, turnActivityHistoryFromMessages } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
-import { createWorkspaceHostExtension } from "./extensions/workspace-host-extension.js";
+import type { HostExtensionContext } from "./host-extensions.js";
 import { createThreadTitlesHostExtension } from "./extensions/thread-titles-host-extension.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
@@ -34,18 +34,18 @@ describe("workspace metadata scope", () => {
       list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }],
       isHidden: () => false,
     };
-    const host = new PiHost("/known", () => undefined, history as never, false, false, { hostExtensions: [createWorkspaceHostExtension()] });
-    const internals = host as unknown as {
-      gitCoordinator: { getWorkspaceInfo: (cwd: string) => Promise<unknown> };
-      activateHostExtensions(): Promise<void>;
+    // A host extension is the only caller of knownWorkspacePath; a test one shows what it gets back.
+    const paths = {
+      id: "test.paths",
+      name: "Paths",
+      activate: (context: HostExtensionContext) => {
+        context.registerCommand("canonical", (input) => context.services.knownWorkspacePath((input as { cwd: string }).cwd));
+      },
     };
-    const read = vi.fn(async (cwd: string) => ({ root: cwd, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: "/" }));
-    internals.gitCoordinator.getWorkspaceInfo = read;
-    await internals.activateHostExtensions();
-
-    await host.invokeHostExtension("tau.workspace", "workspace-info", { cwd: "/known/../known" });
-    expect(read).toHaveBeenCalledWith("/known");
-    await expect(host.invokeHostExtension("tau.workspace", "workspace-info", { cwd: "/not-a-project" })).rejects.toThrow("known Tau project");
+    const host = new PiHost("/known", () => undefined, history as never, false, false, { hostExtensions: [paths] });
+    await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
+    await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/known/../known" })).resolves.toBe("/known");
+    await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/not-a-project" })).rejects.toThrow("known Tau project");
   });
 });
 
@@ -811,16 +811,20 @@ describe("PiHost project index", () => {
       ],
       isHidden: () => false,
     };
-    const host = new PiHost("/repos/alpha", () => undefined, history as never, false, false);
-    const internals = host as unknown as Record<string, any>;
     const worktrees = new Set(["/repos/alpha-worktrees/feat", "/repos/beta-worktrees/fix"]);
+    // Workspace Kit reports linked worktrees as nested; this stands in for it.
+    const facts = {
+      id: "test.facts",
+      name: "Facts",
+      activate: (context: HostExtensionContext) => { context.services.describeProjects({ nested: async (cwd) => worktrees.has(cwd) }); },
+    };
+    const host = new PiHost("/repos/alpha", () => undefined, history as never, false, false, { hostExtensions: [facts] });
+    const internals = host as unknown as Record<string, any>;
+    await internals.activateHostExtensions();
 
     // Nothing is offered before the checkouts have been classified.
     expect(internals.threadIndexSnapshot().projects).toEqual([]);
-
-    await Promise.all([...history.list()].map(async (project) => {
-      internals.knownWorktreeProjects.set(project.path, worktrees.has(project.path));
-    }));
+    await Promise.all([...internals.nestedClassifications.values()]);
 
     expect(internals.threadIndexSnapshot().projects.map((project: { path: string }) => project.path))
       .toEqual(["/repos/alpha", "/repos/beta"]);

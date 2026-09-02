@@ -89,7 +89,7 @@ describe("session index reconciliation", () => {
       now: 200,
       projectPath: existing.projectPath,
       projectName: existing.projectName,
-      branch: "main",
+      projectLabel: "main",
       messageCount: 5,
     }, existing, false);
     expect(selected.title).toBe("Stable title");

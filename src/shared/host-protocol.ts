@@ -76,7 +76,8 @@ export interface HostCatalog {
 
 export interface ProjectMetadata {
   cwd: string;
-  branch?: string;
+  /** Short label an extension gives the project, e.g. its Git branch. */
+  label?: string;
   changes?: UiWorkspaceChanges;
 }
 

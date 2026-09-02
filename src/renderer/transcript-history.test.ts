@@ -28,7 +28,7 @@ function detail(sessionId: string, ids: string[], olderCursor?: string): ThreadD
 function snapshot(sessionId: string, ids: string[], olderCursor?: string): HostSnapshot {
   return {
     cwd: "/project",
-    branch: "main",
+    projectLabel: "main",
     sessionId,
     sessionTitle: sessionId,
     messages: ids.map((id) => message(id)),

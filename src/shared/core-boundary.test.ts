@@ -30,7 +30,19 @@ function words(source: string): string[] {
   return [...new Set(stripped.match(/[A-Za-z][\w-]*/gu) ?? [])];
 }
 
+/** The host keeps thread and title handling; only the moved features are checked there. */
+const HOST_RULES = new Set(["checkpoint", "git", "editor", "tier", "access"]);
+const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-kit-checkpoints", "pi-turn-checkpoint-extension", "turn-checkpoint-codec"];
+
 describe("core boundary", () => {
+  it("src/main/pi-host.ts names no moved feature and imports no feature module", () => {
+    const source = readFileSync("src/main/pi-host.ts", "utf8");
+    const offenders = words(source).filter((word) => FORBIDDEN.some((rule) => HOST_RULES.has(rule.label) && rule.test.test(word)));
+    expect(offenders).toEqual([]);
+    const imports = HOST_FORBIDDEN_IMPORTS.filter((name) => source.includes(`./${name}.js`) || source.includes(`/${name}.js`));
+    expect(imports).toEqual([]);
+  });
+
   for (const [file, debt] of Object.entries(KNOWN_DEBT)) {
     it(`${file} names no feature outside the known debt`, () => {
       const offenders = words(readFileSync(file, "utf8"))

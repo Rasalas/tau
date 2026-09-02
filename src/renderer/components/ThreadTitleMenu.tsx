@@ -4,7 +4,7 @@ import { Menu, type MenuSection } from "./Menu";
 
 export function ThreadTitleMenu({
   title,
-  branch,
+  label,
   pinned,
   settled,
   onNewThread,
@@ -19,7 +19,8 @@ export function ThreadTitleMenu({
   onCopy,
 }: {
   title: string;
-  branch?: string;
+  /** Short label of the project, e.g. its Git branch. */
+  label?: string;
   pinned: boolean;
   settled: boolean;
   onNewThread(): void;
@@ -33,7 +34,7 @@ export function ThreadTitleMenu({
   commands?: ReadonlyArray<{ id: string; label: string }>;
   onCommand?(id: string): void;
   onMarkUnread(): void;
-  onCopy(value: "chat" | "path" | "branch" | "thread-id"): void;
+  onCopy(value: "chat" | "path" | "thread-id"): void;
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -54,7 +55,7 @@ export function ThreadTitleMenu({
   const sections: MenuSection[] = [
     {
       items: [
-        { id: "new", label: branch ? `New thread on ${branch}` : "New thread" },
+        { id: "new", label: label ? `New thread on ${label}` : "New thread" },
         { id: "tree", label: "Thread tree…" },
         { id: "duplicate", label: "Duplicate thread" },
         { id: "pin", label: pinned ? "Unpin thread" : "Pin thread" },
@@ -72,7 +73,6 @@ export function ThreadTitleMenu({
       items: [
         { id: "copy-chat", label: "Copy entire chat as Markdown" },
         { id: "copy-path", label: "Copy path" },
-        ...(branch ? [{ id: "copy-branch", label: "Copy branch" }] : []),
         { id: "copy-thread-id", label: "Copy thread ID" },
       ],
     },
@@ -89,7 +89,6 @@ export function ThreadTitleMenu({
     if (id === "unread") onMarkUnread();
     if (id === "copy-chat") onCopy("chat");
     if (id === "copy-path") onCopy("path");
-    if (id === "copy-branch") onCopy("branch");
     if (id === "copy-thread-id") onCopy("thread-id");
   };
 

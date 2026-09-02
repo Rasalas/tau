@@ -2,7 +2,7 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertWorkspacePath } from "./pi-host.js";
+import { assertWorkspacePath } from "./workspace-git.js";
 
 describe("host workspace paths", () => {
   it("accepts workspace paths and rejects lexical or symlink traversal", async () => {

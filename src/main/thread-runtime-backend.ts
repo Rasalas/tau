@@ -539,7 +539,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       modifiedAt: this.record?.updatedAt ?? Date.now(),
       projectPath: this.cwd,
       projectName: this.options.projectName,
-      branch: this.options.branch,
+      projectLabel: this.options.branch,
       messageCount: this.messages.length,
       backendKind: this.kind,
     };

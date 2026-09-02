@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorkspaceHostClient } from "../../shared/workspace-kit-protocol.js";
-import { GitCoordinator } from "../git-coordinator.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "../host-extensions.js";
 import { createWorkspaceHostExtension } from "./workspace-host-extension.js";
 
@@ -33,7 +32,8 @@ async function client(cwd: string) {
     thread: () => undefined,
     setThreadTitle: async () => undefined,
     attachedRuntime: () => undefined,
-    branch: () => undefined,
+    describeProjects: () => () => undefined,
+    noteSubprocess: () => undefined,
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no sessions in this test"); },
@@ -48,7 +48,6 @@ async function client(cwd: string) {
     registerRuntimeExtension: () => () => undefined,
     setPermissionPolicy: () => undefined,
     presentUi: () => () => undefined,
-    git: new GitCoordinator(),
   };
   const registry = new HostExtensionRegistry(services, () => undefined);
   await registry.activate(createWorkspaceHostExtension());

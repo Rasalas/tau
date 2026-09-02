@@ -41,7 +41,7 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.modifiedAt === right.modifiedAt &&
     left.projectPath === right.projectPath &&
     left.projectName === right.projectName &&
-    left.branch === right.branch &&
+    left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount;
 }
 
