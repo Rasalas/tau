@@ -5,16 +5,6 @@ import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { preferences } from "../preferences";
 import { ModelPicker, modelKey } from "./ModelPicker";
 
-const KEYBINDINGS: ReadonlyArray<{ label: string; keys: string; source: string }> = [
-  { label: "Command palette", keys: "⌘K", source: "core" },
-  { label: "New thread", keys: "⌘N", source: "runtime controls" },
-  { label: "Open project…", keys: "⌘P", source: "workspace kit" },
-  { label: "Search threads", keys: "/", source: "workspace kit" },
-  { label: "Settle thread", keys: "⌘⇧S", source: "workspace kit" },
-  { label: "Signals panel", keys: "⌘⇧O", source: "signals" },
-  { label: "Stop the run", keys: "Esc", source: "runtime controls" },
-];
-
 function DefaultsPage({
   snapshot,
   onSetModel,
@@ -228,17 +218,23 @@ export function SettingsModal({
           ) : page === "keybindings" ? (
             <div className="settings-page">
               <h3>Keybindings</h3>
-              <p className="lede">Shortcuts the workbench and its extensions currently claim.</p>
+              <p className="lede">Chords extensions bound to their commands; the first binding of a chord wins.</p>
               <div className="keybinding-list">
-                {KEYBINDINGS.map((binding) => (
-                  <div className="keybinding-row" key={binding.label}>
-                    <span>{binding.label}</span>
-                    <small>{binding.source}</small>
-                    <kbd>{binding.keys}</kbd>
+                {registry.getKeybindings().map((binding) => (
+                  <div className="keybinding-row" key={binding.keys}>
+                    <span>{registry.getCommands().find((command) => command.id === binding.commandId)?.label ?? binding.commandId}</span>
+                    <small>{binding.extensionName.toLowerCase()}</small>
+                    <kbd>{binding.label}</kbd>
                   </div>
                 ))}
+                {registry.getKeybindings().length === 0 ? <div className="keybinding-row"><span>No extension binds a key.</span></div> : null}
               </div>
-              <div className="settings-note">Rebinding is not implemented in this prototype.</div>
+              {registry.getKeybindingConflicts().map((conflict) => (
+                <div className="settings-note" key={`${conflict.keys}:${conflict.commandId}`}>
+                  {conflict.keys} from {conflict.extensionId} ({conflict.commandId}) was ignored: {conflict.boundTo.extensionId} bound it to {conflict.boundTo.commandId} first.
+                </div>
+              ))}
+              <div className="settings-note">Pi's <code>~/.pi/agent/keybindings.json</code> rebinds the runtime commands (app.session.new, app.interrupt, app.model.select, app.thinking.toggle) and the shortcuts Pi extensions register; run /reload after editing it.</div>
             </div>
           ) : active ? (
             <ExtensionPage summary={active} registry={registry} onChanged={() => onSetPage(active.id)} />

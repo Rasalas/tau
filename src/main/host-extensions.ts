@@ -1,6 +1,7 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { DiffLoadOptions, ExtensionUiPrompt, GlobalHostEvent, HostExtensionSummary, ThreadBackendKind, ThreadHostEvent, UiFileDiff, UiMessage, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
+import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { GitCoordinator } from "./git-coordinator.js";
 import type { RuntimePermissionPolicy } from "./runtime-adapters.js";
 
@@ -61,6 +62,10 @@ export interface HostThread {
   completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
   /** The provider API of the thread's active model, e.g. "openai-responses". */
   modelApi(): string | undefined;
+  /** Shortcuts Pi extensions registered for this thread's runtime, resolved against the user's keybindings.json. */
+  shortcuts(userBindings: PiUserKeybindings): PiShortcut[];
+  /** Runs such a shortcut; false when the runtime has none for the chord. */
+  runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean>;
 }
 
 /**

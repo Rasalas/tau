@@ -1233,6 +1233,8 @@ export class PiHost {
       transcript: () => thread.backend.transcript(),
       completeTitle: (provider, modelId, conversation) => thread.backend.completeTitle(provider, modelId, conversation),
       modelApi: () => thread.backend.modelApi(),
+      shortcuts: (userBindings) => thread.backend.shortcuts(userBindings),
+      runShortcut: (keys, userBindings) => thread.backend.runShortcut(keys, userBindings),
     };
   }
 

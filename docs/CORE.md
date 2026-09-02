@@ -27,7 +27,7 @@ Threads
 Workbench
 
 - the window, the two layout slots (left sidebar, right dock) and shared modals
-- command palette and keybindings
+- command palette and keybinding dispatch; the chords themselves are extension contributions
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
 - typed messages between renderer and host, including the one generic channel host extensions use
 - enough persisted state to restore the workbench

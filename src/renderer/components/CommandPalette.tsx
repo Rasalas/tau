@@ -32,12 +32,15 @@ export function CommandPalette({
   commands,
   extensionCount,
   actions,
+  shortcutFor,
   onClose,
 }: {
   open: boolean;
   commands: Command[];
   extensionCount: number;
   actions: WorkbenchActions;
+  /** The chord label bound to a command, from the registry's keybindings. */
+  shortcutFor?: (commandId: string) => string | undefined;
   onClose(): void;
 }) {
   const [query, setQuery] = useState("");
@@ -131,7 +134,7 @@ export function CommandPalette({
             onMouseMove={() => setCursor(index)}
             onClick={() => run(command)}
           >
-            <span>{highlight(command.label, needle)}</span><small>{command.extensionName.toLowerCase()}</small>{command.shortcut ? <kbd>{command.shortcut}</kbd> : null}
+            <span>{highlight(command.label, needle)}</span><small>{command.extensionName.toLowerCase()}</small>{(() => { const shortcut = shortcutFor?.(command.id); return shortcut ? <kbd>{shortcut}</kbd> : null; })()}
           </button>}
         />
         <footer>

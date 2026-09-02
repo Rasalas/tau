@@ -1,5 +1,7 @@
 import { lazy } from "react";
-import type { DesktopExtension } from "../extension-system";
+import { HostUnavailableError, type DesktopExtension, type DesktopExtensionContext } from "../extension-system";
+import { errorMessage } from "../error-message";
+import type { PiKeybindingsState, PiShortcutsState } from "../../shared/keybindings-protocol";
 
 // Keep optional extension UI out of the workbench's first renderer chunk. The
 // registry still owns activation; React loads a contribution when its slot is
@@ -86,7 +88,7 @@ export const workspaceExtension: DesktopExtension = {
       { id: "sources", kind: "chips", label: "Add-project sources", values: ["local folder", "git clone"] },
     ]);
     plugin.registerCommand({ id: "workspace.files", label: "Open file index", group: "Project", run: (app) => app.openPanel("files") });
-    plugin.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", shortcut: "⌘P", run: async (app) => {
+    plugin.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", run: async (app) => {
       try {
         const path = await workspaceKit.pickFolder();
         if (path) await app.openWorkspace(path);
@@ -94,7 +96,9 @@ export const workspaceExtension: DesktopExtension = {
         app.notify(error instanceof Error ? error.message : String(error));
       }
     } });
-    plugin.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", shortcut: "⌘⇧S", run: (app) => app.settleActiveThread() });
+    plugin.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", run: (app) => app.settleActiveThread() });
+    plugin.registerKeybinding({ keys: "mod+p", commandId: "workspace.open-project" });
+    plugin.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });
     plugin.registerToolRenderer(
       "workspace.read-renderer",
       (tool) => tool.name === "read" || tool.name === "grep" || tool.name === "find" || tool.name === "ls",
@@ -128,7 +132,8 @@ export const reviewExtension: DesktopExtension = {
       { id: "split-diff", kind: "toggle", label: "Open diffs in split view", defaultValue: false },
       { id: "propose-message", kind: "toggle", label: "Propose a commit message from the diff", defaultValue: true },
     ]);
-    plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", shortcut: "⌘⇧D", run: () => workspaceStore.openReview() });
+    plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => workspaceStore.openReview() });
+    plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" });
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel("changes") });
   },
 };
@@ -138,7 +143,8 @@ export const observatoryExtension: DesktopExtension = {
   name: "Signals",
   activate(plugin) {
     plugin.registerPanel({ id: "observatory", label: "Signals", glyph: "signals", order: 30, Component: LazyObservatoryPanel });
-    plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", shortcut: "⌘⇧O", run: (app) => app.openPanel("observatory") });
+    plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel("observatory") });
+    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "observatory.open" });
     plugin.registerToolRenderer(
       "observatory.shell-renderer",
       (tool) => tool.name === "bash" || tool.name === "powershell",
@@ -152,22 +158,93 @@ export const observatoryExtension: DesktopExtension = {
   },
 };
 
+/**
+ * Tau's chords for the runtime commands, and the Pi action whose entry in
+ * `~/.pi/agent/keybindings.json` replaces each of them when the user set one.
+ */
+const RUNTIME_KEYBINDINGS: ReadonlyArray<{ commandId: string; keys?: string; piAction?: string }> = [
+  { commandId: "runtime.command-palette", keys: "mod+k" },
+  { commandId: "runtime.new-session", keys: "mod+n", piAction: "app.session.new" },
+  { commandId: "runtime.abort", keys: "escape", piAction: "app.interrupt" },
+  { commandId: "runtime.model", piAction: "app.model.select" },
+  { commandId: "runtime.toggle-thinking", piAction: "app.thinking.toggle" },
+];
+
+// No host, or a host without this extension's entry (safe mode): Tau's chords stay.
+const ignoreHostUnavailable = (error: unknown) => {
+  if (error instanceof HostUnavailableError || /is not installed/u.test(errorMessage(error))) return;
+  console.warn("Pi keybindings are unavailable", error);
+};
+
+function bindRuntimeKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean): void {
+  const defaults = new Map<string, () => void>();
+  for (const entry of RUNTIME_KEYBINDINGS) {
+    if (entry.keys) defaults.set(entry.commandId, plugin.registerKeybinding({ keys: entry.keys, commandId: entry.commandId }));
+  }
+  void plugin.host.invoke("pi-keybindings").then((state) => {
+    if (isDisposed()) return;
+    const bindings = (state as PiKeybindingsState).bindings;
+    for (const entry of RUNTIME_KEYBINDINGS) {
+      const keys = entry.piAction ? bindings[entry.piAction] : undefined;
+      if (!keys?.length) continue;
+      defaults.get(entry.commandId)?.();
+      for (const chord of keys) {
+        try { plugin.registerKeybinding({ keys: chord, commandId: entry.commandId }); } catch (error) { console.warn(`keybindings.json: ${entry.piAction} = ${chord} is not a chord Tau understands`, error); }
+      }
+    }
+  }).catch(ignoreHostUnavailable);
+}
+
+/** Shortcuts Pi extensions registered: a palette command each, bound to the same chord. */
+function bindPiShortcuts(plugin: DesktopExtensionContext, isDisposed: () => boolean): () => void {
+  let disposers: Array<() => void> = [];
+  const clear = () => { disposers.forEach((dispose) => dispose()); disposers = []; };
+  const refresh = (sessionId?: string) => plugin.host.invoke("shortcuts", sessionId ? { sessionId } : undefined).then((state) => {
+    if (isDisposed()) return;
+    clear();
+    for (const shortcut of (state as PiShortcutsState).shortcuts) {
+      const id = `pi.shortcut.${shortcut.keys}`;
+      try {
+        disposers.push(plugin.registerCommand({
+          id,
+          label: shortcut.description ?? `Pi shortcut ${shortcut.keys}`,
+          group: "Pi",
+          run: async (app) => {
+            try { await plugin.host.invoke("run-shortcut", { keys: shortcut.keys, sessionId: app.activeThread()?.sessionId }); } catch (error) { app.notify(errorMessage(error)); }
+          },
+        }));
+        disposers.push(plugin.registerKeybinding({ keys: shortcut.keys, commandId: id }));
+      } catch (error) {
+        console.warn(`Pi shortcut ${shortcut.keys} from ${shortcut.source} could not be bound`, error);
+      }
+    }
+  }).catch(ignoreHostUnavailable);
+  void refresh();
+  plugin.events.on("active-thread-changed", (event) => void refresh(event.sessionId));
+  return clear;
+}
+
 export const settingsExtension: DesktopExtension = {
   id: "tau.runtime-settings",
   name: "Runtime Controls",
   activate(plugin) {
     plugin.registerCommand({ id: "runtime.settings", label: "Open Settings panel", group: "Runtime", run: (app) => app.openSettings() });
-    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", shortcut: "⌘M", run: (app) => app.openSettings("defaults") });
+    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
-    plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", shortcut: "⌘N", run: (app) => app.newSession() });
+    plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", run: (app) => app.newSession() });
     plugin.registerCommand({ id: "runtime.toggle-thinking", label: "Expand or collapse thinking blocks", group: "Thread", run: () => preferences.setShowThinking(!preferences.getSnapshot().showThinking) });
-    plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", shortcut: "Esc", run: (app) => app.abort() });
+    plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
+    plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", run: (app) => app.openCommandPalette() });
     plugin.registerCommand({ id: "runtime.reload", label: "Reload Pi and desktop extensions", group: "Runtime", run: async (app) => { await app.reloadRuntime(); } });
     plugin.registerCommand({ id: "runtime.rebuild", label: "Rebuild Tau from source and reload", group: "Runtime", run: async (app) => { await app.rebuildWorkbench(); } });
     plugin.registerCommand({ id: "runtime.restart", label: "Restart Tau", group: "Runtime", run: (app) => app.restartWorkbench() });
     plugin.registerSlashCommand({ name: "reload", description: "Reload Pi and desktop extensions", run: async (_args, app) => (await app.reloadRuntime()) ? undefined : "Runtime reload failed." });
     plugin.registerSlashCommand({ name: "rebuild", description: "Rebuild Tau from source and reload", run: async (_args, app) => (await app.rebuildWorkbench()) ? undefined : "Workbench rebuild failed." });
     plugin.registerSlashCommand({ name: "restart", description: "Restart Tau", run: (_args, app) => app.restartWorkbench() });
+    let disposed = false;
+    bindRuntimeKeys(plugin, () => disposed);
+    const clearShortcuts = bindPiShortcuts(plugin, () => disposed);
+    return () => { disposed = true; clearShortcuts(); };
   },
 };
 

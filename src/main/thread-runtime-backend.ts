@@ -17,6 +17,8 @@ import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { prepareSkillPrompt, skillInvocationCommand } from "./skill-invocation.js";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type AgentRuntimeAdapter, type ClaudeCodeAgentRuntimeAdapter, type RuntimePermissionPolicy } from "./runtime-adapters.js";
 import type { AgentSession, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { basename } from "node:path";
+import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import { ClaudeRuntimeSessionStore, type ClaudeTitleSource } from "./claude-runtime-store.js";
 
 export interface ThreadBackendPromptInput {
@@ -110,6 +112,9 @@ export interface ThreadRuntimeBackend {
   waitForIdle(): Promise<void>;
   completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
   modelApi(): string | undefined;
+  /** Shortcuts the runtime's extensions registered; Pi resolves them against the user's keybindings.json. */
+  shortcuts(userBindings: PiUserKeybindings): PiShortcut[];
+  runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean>;
   model(): UiModel | undefined;
   thinkingLevel(): string;
   thinkingLevels(): string[];
@@ -349,6 +354,23 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       : String(content ?? "");
   }
   modelApi(): string | undefined { return (this.session.model as { api?: string } | undefined)?.api; }
+  private shortcutMap(userBindings: PiUserKeybindings) {
+    type Config = Parameters<AgentSession["extensionRunner"]["getShortcuts"]>[0];
+    return this.session.extensionRunner.getShortcuts(userBindings as Config);
+  }
+  shortcuts(userBindings: PiUserKeybindings): PiShortcut[] {
+    return [...this.shortcutMap(userBindings).entries()].map(([keys, shortcut]) => ({
+      keys: keys.toLowerCase(),
+      ...(shortcut.description ? { description: shortcut.description } : {}),
+      source: basename(shortcut.extensionPath),
+    }));
+  }
+  async runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean> {
+    const shortcut = this.shortcutMap(userBindings).get(keys.toLowerCase() as never);
+    if (!shortcut) return false;
+    await shortcut.handler(this.session.extensionRunner.createContext());
+    return true;
+  }
   model(): UiModel | undefined { return modelOf(this.session.model); }
   thinkingLevel(): string { return this.session.thinkingLevel; }
   thinkingLevels(): string[] { return this.session.getAvailableThinkingLevels(); }
@@ -627,6 +649,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     throw new Error("Claude Code title generation is owned by the Claude runtime.");
   }
   modelApi(): string | undefined { return undefined; }
+  shortcuts(): PiShortcut[] { return []; }
+  async runShortcut(): Promise<boolean> { return false; }
   model(): UiModel | undefined { return undefined; }
   thinkingLevel(): string { return "off"; }
   thinkingLevels(): string[] { return ["off"]; }

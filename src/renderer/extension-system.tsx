@@ -1,3 +1,4 @@
+import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, type KeyChord } from "./keybindings";
 import type { ComponentType, ReactNode } from "react";
 import type { HostActionResult } from "../shared/host-protocol";
 import type {
@@ -197,9 +198,32 @@ export interface CommandContribution {
   id: string;
   label: string;
   group: string;
-  shortcut?: string;
   surfaces?: readonly CommandSurface[];
   run(actions: WorkbenchActions): void | Promise<void>;
+}
+
+/**
+ * A key chord that runs a command. Spelling follows Pi's keybindings.json
+ * ("ctrl+shift+p", "escape") plus "mod" for ⌘ on macOS and Ctrl elsewhere.
+ * The first binding of a chord wins; later ones are recorded as conflicts.
+ */
+export interface KeybindingContribution {
+  keys: string;
+  commandId: string;
+}
+
+export interface KeybindingConflict {
+  keys: string;
+  commandId: string;
+  extensionId: string;
+  /** The binding that holds the chord. */
+  boundTo: { commandId: string; extensionId: string };
+}
+
+export interface ResolvedKeybinding extends KeybindingContribution, ContributionOwner {
+  /** Platform spelling for display, e.g. ⌘K. */
+  label: string;
+  chord: KeyChord;
 }
 
 /** A `/name` the composer runs in the workbench instead of sending it to the runtime. */
@@ -278,6 +302,8 @@ export interface DesktopExtensionContext {
   registerCommand(command: CommandContribution): () => void;
   /** Slash commands show in the composer's `/` menu next to the runtime's own. */
   registerSlashCommand(command: SlashCommandContribution): () => void;
+  /** Binds a chord to a command of any extension; core dispatches window keydown. */
+  registerKeybinding(binding: KeybindingContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
   /** The stage shows documents; one extension says how to load them and which are changed. */
   registerDocumentSource(source: DocumentSourceContribution): () => void;
@@ -318,7 +344,7 @@ export class HostUnavailableError extends Error {
 }
 
 const desktopApiBridge: HostExtensionBridge = {
-  invoke: (extensionId, command, input) => window.tau
+  invoke: (extensionId, command, input) => typeof window !== "undefined" && window.tau
     ? window.tau.invokeHostExtension(extensionId, command, input)
     : Promise.reject(new HostUnavailableError()),
 };
@@ -339,6 +365,8 @@ export class ExtensionRegistry {
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
+  private keybindings = new Map<string, ResolvedKeybinding>();
+  private keybindingConflicts: KeybindingConflict[] = [];
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
@@ -444,6 +472,26 @@ export class ExtensionRegistry {
       },
       registerCommand: (command) =>
         this.register(this.commands, command.id, { ...command, ...owner }, disposers),
+      registerKeybinding: (binding) => {
+        const chord = parseKeyChord(binding.keys);
+        const id = normalizeKeyChord(binding.keys);
+        if (!chord || !id) throw new Error(`Keybinding "${binding.keys}" from ${extension.id} is not a key chord`);
+        note("keybindings");
+        const existing = this.keybindings.get(id);
+        if (existing) {
+          const conflict: KeybindingConflict = { keys: id, commandId: binding.commandId, extensionId: extension.id, boundTo: { commandId: existing.commandId, extensionId: existing.extensionId } };
+          this.keybindingConflicts.push(conflict);
+          console.warn(`Keybinding ${id} from ${extension.id} (${binding.commandId}) is already bound to ${existing.commandId} by ${existing.extensionId}; keeping the first.`);
+          const dispose = () => {
+            this.keybindingConflicts = this.keybindingConflicts.filter((entry) => entry !== conflict);
+            this.changed();
+          };
+          disposers.push(dispose);
+          this.changed();
+          return dispose;
+        }
+        return this.register(this.keybindings, id, { ...binding, keys: id, chord, label: formatKeyChord(chord), ...owner }, disposers);
+      },
       registerSlashCommand: (command) => {
         if (!/^[a-z][a-z0-9:-]*$/u.test(command.name)) throw new Error(`Slash command name "${command.name}" from ${extension.id} must be lowercase letters, digits, ":" or "-"`);
         note("slash commands");
@@ -572,6 +620,30 @@ export class ExtensionRegistry {
 
   getCommandsFor(surface: CommandSurface): Array<Owned<CommandContribution>> {
     return this.getCommands().filter((command) => command.surfaces?.includes(surface));
+  }
+
+  getKeybindings(): ResolvedKeybinding[] {
+    return this.sorted("keybindings", this.keybindings, false);
+  }
+
+  getKeybindingConflicts(): readonly KeybindingConflict[] {
+    return this.keybindingConflicts;
+  }
+
+  /** The display label of the chord bound to a command, if any. */
+  keybindingLabel(commandId: string): string | undefined {
+    for (const binding of this.keybindings.values()) if (binding.commandId === commandId) return binding.label;
+    return undefined;
+  }
+
+  /** The command a keydown event should run; `modified` tells bare keys from chords with modifiers. */
+  matchKeybinding(event: KeyboardEvent): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean } | undefined {
+    for (const binding of this.keybindings.values()) {
+      if (!chordMatchesEvent(binding.chord, event)) continue;
+      const command = this.commands.get(binding.commandId);
+      return command ? { command, binding, modified: isModified(binding.chord) } : undefined;
+    }
+    return undefined;
   }
 
   getSlashCommands(): Array<Owned<SlashCommandContribution>> {

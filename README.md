@@ -102,6 +102,7 @@ context.registerSidebar(...);
 context.registerProjectSource(...);
 context.registerCommand(...);
 context.registerSlashCommand(...);   // `/name` in the composer, run in the workbench
+context.registerKeybinding(...);     // "mod+k", "ctrl+shift+p", "escape" → a command id
 context.registerPromptHook(...);
 context.registerToolRenderer(...);
 context.registerOptions(...);

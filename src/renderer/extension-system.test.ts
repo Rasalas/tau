@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry } from "./extension-system";
 
 describe("ExtensionRegistry contribution selectors", () => {
@@ -186,5 +186,54 @@ describe("ExtensionRegistry slash commands", () => {
       context.registerSlashCommand({ name: "Re load", run() {} });
     } })).toThrow('Slash command name "Re load"');
     expect(registry.isActive("bad")).toBe(false);
+  });
+});
+
+describe("ExtensionRegistry keybindings", () => {
+  const keydown = (init: Partial<KeyboardEvent> & { key: string }) =>
+    ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...init }) as KeyboardEvent;
+
+  it("binds chords to commands of any extension and dispatches keydown events", () => {
+    const registry = new ExtensionRegistry();
+    const ran: string[] = [];
+    registry.activate({ id: "commands", name: "Commands", activate(context) {
+      context.registerCommand({ id: "palette", label: "Palette", group: "Test", run() { ran.push("palette"); } });
+    } });
+    registry.activate({ id: "keys", name: "Keys", activate(context) {
+      context.registerKeybinding({ keys: "Mod+K", commandId: "palette" });
+      context.registerKeybinding({ keys: "escape", commandId: "missing" });
+    } });
+    expect(registry.getKeybindings().map((binding) => [binding.keys, binding.commandId, binding.extensionId])).toEqual([["mod+k", "palette", "keys"], ["escape", "missing", "keys"]]);
+    expect(registry.keybindingLabel("palette")).toMatch(/K$/u);
+    const mac = /mac/iu.test(navigator.platform);
+    const match = registry.matchKeybinding(keydown({ key: "k", metaKey: mac, ctrlKey: !mac }));
+    expect(match?.command.id).toBe("palette");
+    expect(match?.modified).toBe(true);
+    // A chord whose command no extension provides is not a match.
+    expect(registry.matchKeybinding(keydown({ key: "Escape" }))).toBeUndefined();
+    registry.deactivate("keys");
+    expect(registry.getKeybindings()).toEqual([]);
+  });
+
+  it("keeps the first binding of a chord and records later ones as conflicts", () => {
+    const registry = new ExtensionRegistry();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    registry.activate({ id: "first", name: "First", activate(context) {
+      context.registerCommand({ id: "first.cmd", label: "First", group: "Test", run() {} });
+      context.registerKeybinding({ keys: "mod+shift+s", commandId: "first.cmd" });
+    } });
+    registry.activate({ id: "second", name: "Second", activate(context) {
+      context.registerCommand({ id: "second.cmd", label: "Second", group: "Test", run() {} });
+      context.registerKeybinding({ keys: "shift+mod+s", commandId: "second.cmd" });
+    } });
+    expect(registry.getKeybindings().map((binding) => binding.commandId)).toEqual(["first.cmd"]);
+    expect(registry.getKeybindingConflicts()).toEqual([{ keys: "mod+shift+s", commandId: "second.cmd", extensionId: "second", boundTo: { commandId: "first.cmd", extensionId: "first" } }]);
+    expect(warn).toHaveBeenCalledOnce();
+    registry.deactivate("second");
+    expect(registry.getKeybindingConflicts()).toEqual([]);
+    expect(() => registry.activate({ id: "bad", name: "Bad", activate(context) {
+      context.registerKeybinding({ keys: "hyper+k", commandId: "first.cmd" });
+    } })).toThrow('Keybinding "hyper+k"');
+    warn.mockRestore();
   });
 });

@@ -655,6 +655,8 @@ export default function App() {
   // events. Deriving it here keeps the composer, the live row and the rail from
   // ever disagreeing about whether the visible thread is working.
   const visibleStreaming = Boolean(snapshot && threadActivity.runningThreadIds.includes(snapshot.sessionId));
+  const visibleStreamingRef = useRef(false);
+  visibleStreamingRef.current = visibleStreaming;
   const transcriptMessageIndexRef = useRef<TranscriptMessageIndex | undefined>(undefined);
   if (!transcriptMessageIndexRef.current) {
     transcriptMessageIndexRef.current = new TranscriptMessageIndex(cachedBootstrap?.snapshot.messages ?? []);
@@ -2017,7 +2019,8 @@ export default function App() {
     newSession: () => setNewThreadOpen(true),
     switchSession,
     settleActiveThread,
-    abort: () => void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined),
+    // Escape is bound to this; only a visibly running thread has anything to stop.
+    abort: () => { if (visibleStreamingRef.current) void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined); },
     reloadRuntime,
     rebuildWorkbench,
     restartWorkbench,
@@ -2388,22 +2391,21 @@ export default function App() {
     }
   }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
 
+  // Extensions own every chord; core only dispatches. A handler that already
+  // claimed the key (the composer's menu, a dialog) keeps it, and bare keys
+  // such as Escape stay with an open modal.
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      const meta = event.metaKey || event.ctrlKey;
-      if (meta && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteOpen(true); }
-      if (meta && event.key.toLowerCase() === "n") { event.preventDefault(); setNewThreadOpen(true); }
-      if (meta && event.shiftKey && event.key.toLowerCase() === "s") { event.preventDefault(); settleActiveThread(); }
-      if (
-        event.key === "Escape" &&
-        visibleStreaming &&
-        !paletteOpen &&
-        !document.querySelector('[aria-modal="true"]')
-      ) void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined);
+      if (event.defaultPrevented) return;
+      const match = registry.matchKeybinding(event);
+      if (!match) return;
+      if (!match.modified && document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault();
+      Promise.resolve(match.command.run(actions)).catch((error) => setNotice(`${match.command.id}: ${errorMessage(error)}`));
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [paletteOpen, settleActiveThread, threadStore, visibleStreaming]);
+  }, [actions, registry]);
 
   useEffect(() => {
     const sessionId = snapshot?.sessionId;
@@ -2630,6 +2632,7 @@ export default function App() {
         <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
           <LazyCommandPalette
             open={paletteOpen}
+            shortcutFor={(commandId) => registry.keybindingLabel(commandId)}
             commands={commands}
             extensionCount={registry.getExtensionNames().length}
             actions={actions}

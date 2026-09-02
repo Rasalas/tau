@@ -51,6 +51,8 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     // Access Kit pushes its level on activation; tests that render App do not care.
     if (extensionId in extensions) return extensions[extensionId]!(command, input);
     if (extensionId === "tau.access") return command === "set-level" ? (input as { level?: unknown })?.level : "full";
+    // Runtime Controls asks for Pi keybindings and shortcuts on activation; tests have none.
+    if (extensionId === "tau.runtime-settings") return command === "pi-keybindings" ? { bindings: {} } : command === "shortcuts" ? { shortcuts: [] } : undefined;
     if (extensionId !== WORKSPACE_HOST_EXTENSION_ID) throw new Error(`Host extension ${extensionId} is not installed.`);
     switch (command) {
       case "list-directories": return client.listDirectories(...optional(field<string>(input, "path")));
