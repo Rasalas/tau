@@ -182,6 +182,8 @@ export interface UiProject {
   path: string;
   name: string;
   lastOpenedAt: number;
+  /** Project image encoded by the host so renderer clients never receive a local asset path. */
+  icon?: string;
 }
 
 

@@ -11,6 +11,19 @@ afterEach(async () => {
 });
 
 describe("ProjectHistory", () => {
+  it("resolves icons for the client without storing image data in project history", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-project-history-"));
+    temporaryDirectories.push(directory);
+    const file = join(directory, "state", "projects.json");
+    const history = new ProjectHistory(file, async () => "data:image/svg+xml;base64,aWNvbg==");
+
+    await history.remember(join(directory, "project"), "project");
+    await history.flush();
+
+    expect(history.list()[0]?.icon).toBe("data:image/svg+xml;base64,aWNvbg==");
+    expect(JSON.parse(await readFile(file, "utf8")).projects[0]).not.toHaveProperty("icon");
+  });
+
   it("persists hidden projects without deleting them and unhides them when reopened", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-project-history-"));
     temporaryDirectories.push(directory);

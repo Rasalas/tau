@@ -52,7 +52,7 @@ function stabilizeProjects(
   const previousByPath = new Map(previous.map((project) => [project.path, project] as const));
   const next = incoming.map((project) => {
     const old = previousByPath.get(project.path);
-    return old && old.name === project.name && old.lastOpenedAt === project.lastOpenedAt ? old : project;
+    return old && old.name === project.name && old.lastOpenedAt === project.lastOpenedAt && old.icon === project.icon ? old : project;
   });
   return next.length === previous.length && next.every((project, index) => project === previous[index]) ? previous : next;
 }

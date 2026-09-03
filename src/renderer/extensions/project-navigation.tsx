@@ -200,7 +200,9 @@ export function ProjectSwitcherPopover({
           onMouseMove={() => setSelected(index)}
           onClick={() => onSelect(project)}
         >
-          <i>{projectInitial(project.name)}</i>
+          <i className={project.icon ? "has-image" : ""}>
+            {project.icon ? <img src={project.icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}
+          </i>
           <span>{project.name}</span>
           {project.path === activePath ? <small>current</small> : null}
           <Settings size={14} aria-hidden="true" />
@@ -286,10 +288,12 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
     useCallback((listener: () => void) => store.subscribeToThread(id, listener), [id, store]),
     useCallback(() => store.getThread(id), [id, store]),
   );
+  const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   if (!session) return null;
   return (
     <ThreadRow
       session={session}
+      projectIcon={projects.find((project) => project.path === session.projectPath)?.icon}
       active={active}
       age={sessionAge(session.modifiedAt)}
       activity={activity}

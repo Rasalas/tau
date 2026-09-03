@@ -1,8 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import type { UiProject } from "../shared/contracts.js";
+import { resolveProjectIcon } from "./project-icon.js";
 
 const MAX_PROJECTS = 24;
+
+type ProjectIconResolver = (path: string) => Promise<string | undefined>;
 
 export class ProjectHistory {
   private projects: UiProject[] = [];
@@ -11,7 +14,10 @@ export class ProjectHistory {
   private persistTimer?: ReturnType<typeof setTimeout>;
   private persistQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly filePath: string) {}
+  constructor(
+    private readonly filePath: string,
+    private readonly resolveIcon: ProjectIconResolver = resolveProjectIcon,
+  ) {}
 
   async load(): Promise<void> {
     try {
@@ -21,18 +27,19 @@ export class ProjectHistory {
       this.hiddenPaths = new Set(Array.isArray(stored.hiddenPaths)
         ? stored.hiddenPaths.filter((path): path is string => typeof path === "string")
         : []);
-      this.projects = stored.projects
+      const projects = stored.projects
         .filter((item): item is UiProject => {
           if (!item || typeof item !== "object") return false;
           const project = item as Partial<UiProject>;
           return typeof project.path === "string" && typeof project.lastOpenedAt === "number";
         })
-        .map((project) => ({
-          path: project.path,
-          name: project.name || basename(project.path) || project.path,
-          lastOpenedAt: project.lastOpenedAt,
-        }))
         .slice(0, MAX_PROJECTS);
+      this.projects = await Promise.all(projects.map(async (project) => ({
+        path: project.path,
+        name: project.name || basename(project.path) || project.path,
+        lastOpenedAt: project.lastOpenedAt,
+        ...await this.icon(project.path),
+      })));
     } catch {
       this.projects = [];
     }
@@ -57,6 +64,7 @@ export class ProjectHistory {
       path,
       name,
       lastOpenedAt: Date.now(),
+      ...await this.icon(path),
     };
     this.projects = [project, ...this.projects.filter((item) => item.path !== path)].slice(
       0,
@@ -86,10 +94,20 @@ export class ProjectHistory {
     await this.persistQueue;
   }
 
+  private async icon(path: string): Promise<Pick<UiProject, "icon">> {
+    try {
+      const icon = await this.resolveIcon(path);
+      return icon ? { icon } : {};
+    } catch {
+      return {};
+    }
+  }
+
   private persist(): Promise<void> {
     if (!this.dirty) return this.persistQueue;
     this.dirty = false;
-    const contents = JSON.stringify({ projects: this.projects, hiddenPaths: [...this.hiddenPaths] }, null, 2);
+    const storedProjects = this.projects.map(({ icon: _icon, ...project }) => project);
+    const contents = JSON.stringify({ projects: storedProjects, hiddenPaths: [...this.hiddenPaths] }, null, 2);
     this.persistQueue = this.persistQueue.catch(() => undefined).then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true });
       await writeFile(this.filePath, contents, "utf8");

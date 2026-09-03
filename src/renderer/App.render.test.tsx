@@ -399,6 +399,103 @@ describe("App render isolation", () => {
     resolveOld();
   });
 
+  it("switches to an existing thread while a new-thread message is still being delivered", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let createdClientMessageId = "";
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      createdClientMessageId = (args[3] as { clientMessageId: string }).clientMessageId;
+      return {
+        version: 1 as const,
+        updates: [] as never[],
+        sessionId: "created",
+        submission: { accepted: true as const },
+      };
+    });
+    const switchSession = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [{
+        version: 1 as const,
+        type: "thread-detail" as const,
+        detail: {
+          sessionId: "target",
+          messages: [{ id: "target-message", role: "assistant" as const, text: "Target content", timestamp: 1 }],
+          isStreaming: false,
+          activeTools: [],
+        },
+      }],
+    }));
+    const sendPrompt = vi.fn(async () => undefined);
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [
+            { id: "current", path: "/current.jsonl", title: "Current thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 0 },
+            { id: "target", path: "/target.jsonl", title: "Target thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 },
+          ],
+        },
+        detail: { sessionId: "current", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "current", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+      newSession,
+      switchSession,
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const picker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
+
+    const composer = await screen.findByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "background request" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-busy")).toBe("false"));
+
+    const navigation = await screen.findByRole("navigation", { name: "Threads" });
+    fireEvent.keyDown(navigation, { key: "ArrowDown" });
+    fireEvent.keyDown(navigation, { key: "Enter" });
+
+    await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/target.jsonl"));
+    expect(screen.queryByText(/Wait for the current message delivery/u)).toBeNull();
+    expect(await screen.findByText("Target content")).toBeTruthy();
+
+    publish?.({
+      type: "user-message",
+      sessionId: "created",
+      message: {
+        id: "created-message",
+        clientMessageId: createdClientMessageId,
+        role: "user",
+        text: "background request",
+        timestamp: Date.now(),
+      },
+    });
+    expect(screen.getByText("Target content")).toBeTruthy();
+    expect(screen.queryByText("background request")).toBeNull();
+
+    fireEvent.change(composer, { target: { value: "continue target" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
+      "continue target",
+      [],
+      "target",
+      expect.objectContaining({ clientMessageId: expect.any(String) }),
+      undefined,
+    ));
+  });
+
   it("keeps restored draft chrome scoped to its pending project", async () => {
     writeNewThreadDraft(localStorage, createNewThreadDraft({ projectPath: "/other", projectName: "other" }));
     const getWorkspaceInfo = vi.fn(async (cwd?: string) => cwd === "/other"

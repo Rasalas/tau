@@ -10,6 +10,7 @@ interface ThreadRowProps {
   active: boolean;
   age: string;
   compact?: boolean;
+  projectIcon?: string;
   session: UiSession;
   onSelect(path: string): void;
   onToggleSettled(id: string): void;
@@ -33,12 +34,16 @@ export const ThreadRow = memo(function ThreadRow({
   active,
   age,
   compact,
+  projectIcon,
   session,
   onSelect,
   onToggleSettled,
 }: ThreadRowProps) {
   const iconStyle = { "--project-hue": projectHue(session.projectPath) } as CSSProperties;
   const settled = activity === "settled";
+  const projectMark = projectIcon
+    ? <img src={projectIcon} alt="" aria-hidden="true" />
+    : projectInitial(session.projectName);
   const label = activityLabel ?? (
     settled ? "Settled" : activity === "ready" ? "READY" : activity === "idle" ? "IDLE" : "WORKING"
   );
@@ -47,7 +52,7 @@ export const ThreadRow = memo(function ThreadRow({
     return (
       <article className={`thread-row compact ${active ? "active" : ""} activity-${activity}`}>
         <button className="thread-main" onClick={() => onSelect(session.path)}>
-          <i className="thread-project-icon" style={iconStyle}>{projectInitial(session.projectName)}</i>
+          <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
           <span className="thread-title">{session.title}</span>
           <time>{age}</time>
         </button>
@@ -67,7 +72,7 @@ export const ThreadRow = memo(function ThreadRow({
     <article className={`thread-row ${active ? "active" : ""} activity-${activity}`}>
       <button className="thread-main" onClick={() => onSelect(session.path)}>
         <span className="thread-project-line">
-          <i className="thread-project-icon" style={iconStyle}>{projectInitial(session.projectName)}</i>
+          <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
           <strong>{session.projectName}</strong>
           <time>{age}</time>
         </span>

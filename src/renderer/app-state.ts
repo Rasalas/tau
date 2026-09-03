@@ -171,6 +171,23 @@ export function mergeTranscriptMessages(authoritative: readonly UiMessage[], opt
   return merged;
 }
 
+export function backgroundNewThreadDetail(
+  cached: ThreadDetail | undefined,
+  sessionId: string,
+  message: UiMessage,
+): ThreadDetail {
+  const messages = cached?.messages ?? [];
+  return {
+    ...cached,
+    sessionId,
+    messages: messages.some((entry) => isSameUserMessage(entry, message))
+      ? messages
+      : mergeTranscriptMessages(messages, [message]),
+    isStreaming: true,
+    activeTools: cached?.activeTools ?? [],
+  };
+}
+
 export interface NewThreadSubmissionCompletion {
   pending: NewThreadDraft;
   sessionId: string;
@@ -191,6 +208,8 @@ export interface NewThreadSubmissionRecovery {
   optimistic: UiMessage;
   ipcPending: boolean;
   sessionId?: string;
+  /** The user left this draft after its runtime was allocated; delivery continues in that thread. */
+  detached?: boolean;
   promoted?: boolean;
   withoutUserTurn?: boolean;
   notified?: boolean;

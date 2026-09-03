@@ -84,6 +84,7 @@ import {
   type TransitionToken,
 } from "./transcript-history";
 import {
+  backgroundNewThreadDetail,
   createClientMessageId,
   estimateTokens,
   isCurrentTranscriptSubmission,
@@ -253,7 +254,7 @@ export default function App() {
   // inside the other's initializer.
   const promoteRecoveryRef = useRef<(clientMessageId: string, sessionId: string, message?: UiMessage) => boolean>(() => false);
   const [, setNewThreadRecoveryVersion] = useState(0);
-  const newThreadDeliveryPending = Boolean(pendingNewThread || newThreadRecoveryRef.current.size > 0);
+  const newThreadDeliveryPending = Boolean(pendingNewThread);
   const [notice, setNoticeText] = useState<string>();
   const [noticeLevel, setNoticeLevel] = useState<"info" | "warning" | "error">("info");
   const setNotice = useCallback((message?: string, level: "info" | "warning" | "error" = "info") => {
@@ -633,12 +634,7 @@ export default function App() {
     }, currentActions).catch((error) => setNotice(errorMessage(error)));
   }, [registry]);
 
-  /**
-   * Commit a detached new-thread delivery: the draft becomes the created
-   * thread, prompt hooks run once and the recovery scope is released, which is
-   * what unblocks thread switching while the agent keeps running. `message` is
-   * the persisted user turn, or undefined when the delivery produced none.
-   */
+  /** Commit a new-thread delivery without changing whichever thread is now visible. */
   const promoteRecoveryToSession = useCallback((
     clientMessageId: string,
     sessionId: string,
@@ -647,13 +643,13 @@ export default function App() {
     const recovery = newThreadRecoveryRef.current.get(clientMessageId);
     if (!recovery || recovery.failed) return false;
     if (recovery.sessionId && recovery.sessionId !== sessionId) return false;
-    // A correlated host detail may have already cleared the controller's pending
-    // draft; the recovery scope then finishes the move on its own.
-    const promotedScope = promoteFromUserMessage(sessionId, recovery.pending.projectPath);
+    const keepInBackground = recovery.detached && threadStore.getSnapshot().activeThreadId !== sessionId;
+    // A detached delivery must not reclaim the visible new-thread controller.
+    const promotedScope = recovery.detached ? undefined : promoteFromUserMessage(sessionId, recovery.pending.projectPath);
     if (!promotedScope && recovery.sessionId !== sessionId) return false;
     recovery.sessionId = sessionId;
     recovery.promoted = true;
-    if (promotedScope) composerScopeStore.moveScope(promotedScope, createDraftKey(draftKey(sessionId)));
+    composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
     setOptimisticMessages((current) => message
       ? current.map((entry) => entry.message.clientMessageId === clientMessageId
         ? { ...entry, scope: `session:${sessionId}` }
@@ -670,7 +666,14 @@ export default function App() {
       } : undefined, turnStart.turnId);
     }
 
-    if (!message) {
+    if (keepInBackground) {
+      if (message) {
+        detailStoreRef.current.set(backgroundNewThreadDetail(detailStoreRef.current.get(sessionId), sessionId, message));
+        threadStore.setThreadRunning(sessionId, true);
+      } else {
+        threadStore.setThreadRunning(sessionId, false);
+      }
+    } else if (!message) {
       // An extension command answered the prompt without a user turn and
       // without an agent run. The thread exists; nothing is in flight in it.
       threadStore.setActiveThread(sessionId, false);
@@ -926,7 +929,7 @@ export default function App() {
   // A draft can target a project the host has not opened yet. Switching
   // projects under it would run against the previous thread's workspace.
   const allowWorkspaceAction = useCallback((what: string): boolean => {
-    if (!pendingNewThreadRef.current && newThreadRecoveryRef.current.size === 0) return true;
+    if (!pendingNewThreadRef.current && ![...newThreadRecoveryRef.current.values()].some((recovery) => !recovery.detached)) return true;
     setNotice(`${what} is unavailable until this draft becomes a thread.`);
     return false;
   }, []);
@@ -954,7 +957,7 @@ export default function App() {
   }, [applyActionResult, requireHost]);
 
   const createThreadInProject = useCallback((project: UiProject) => {
-    if (newThreadRecoveryRef.current.size > 0) {
+    if ([...newThreadRecoveryRef.current.values()].some((recovery) => !recovery.detached)) {
       setNotice("Wait for the current message delivery to finish before changing projects.");
       return;
     }
@@ -985,9 +988,18 @@ export default function App() {
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
-    if (newThreadRecoveryRef.current.size > 0) {
-      setNotice("Wait for the current message delivery to finish before changing threads.");
-      return false;
+    const currentRecoveryEntry = pendingNewThreadRef.current
+      ? [...newThreadRecoveryRef.current.entries()].find(([, recovery]) => recovery.pending.draftId === pendingNewThreadRef.current?.draftId) : undefined;
+    if (currentRecoveryEntry) {
+      const [, recovery] = currentRecoveryEntry;
+      if (recovery.ipcPending || !recovery.sessionId) {
+        setNotice("Wait for the new thread to start before changing threads.");
+        return false;
+      }
+      recovery.detached = true;
+      composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(recovery.sessionId)));
+      setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === currentRecoveryEntry[0]
+        ? { ...entry, scope: `session:${recovery.sessionId}` } : entry));
     }
     invalidateNewThread();
     setPendingNewThread(undefined);
@@ -1012,7 +1024,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [addEvent, applyActionResult, applySnapshot, invalidateNewThread, requireHost, snapshot, threadStore]);
+  }, [addEvent, applyActionResult, applySnapshot, composerScopeStore, invalidateNewThread, requireHost, snapshot, threadStore]);
 
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
