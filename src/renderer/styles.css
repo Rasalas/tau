@@ -1276,8 +1276,27 @@ button > svg { pointer-events: none; }
 .workspace-chip:disabled { opacity: .5; cursor: default; }
 .workspace-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.workspace-menu { min-width: 250px; }
-.worktree-form { display: flex; flex-direction: column; gap: 8px; padding: 4px; }
+.workspace-menu {
+  width: min(390px, calc(100vw - 24px)); max-height: min(470px, calc(100vh - 96px));
+  min-width: 280px; padding: 0; overflow: hidden;
+}
+.worktree-search {
+  display: flex; align-items: center; gap: 9px; height: 40px; flex: none;
+  padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--faint);
+}
+.worktree-search input {
+  flex: 1; min-width: 0; border: 0; background: transparent;
+  color: var(--ink); font-size: 13px; outline: none;
+}
+.worktree-search input::placeholder { color: var(--faint); }
+.workspace-menu > button.new-worktree { width: auto; margin: 6px 6px 0; flex: none; }
+.worktree-list { min-height: 0; max-height: 360px; overflow: auto; padding: 6px; }
+.worktree-list > button { min-height: 49px; }
+.worktree-list > button > svg { flex: none; }
+.worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worktree-list > p { padding: 14px 10px; color: var(--faint); font-size: 12px; }
+.worktree-list .cleanup-candidate { color: var(--acid); }
+.worktree-form { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .worktree-form label { display: flex; flex-direction: column; gap: 6px; }
 .worktree-form label > span { font: 500 10px var(--mono); color: var(--faint); letter-spacing: .1em; }
 .worktree-form input,

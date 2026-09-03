@@ -4,6 +4,7 @@ import type { ComposerControlProps, RegionProps } from "../extension-system";
 import { useWorkbench } from "../workbench-context";
 import { ChangedFiles } from "../components/ChangedFiles";
 import { WorkspaceBar } from "../components/WorkspaceBar";
+import { workspaceKit } from "./workspace-kit-client";
 import { useWorkspaceKit, workspaceStore } from "./workspace-store";
 
 /**
@@ -48,6 +49,7 @@ export function WorkspaceBarControl(_props: ComposerControlProps) {
       onOpenWorktree={(path) => workspaceStore.openWorktree(path)}
       onCreateWorktree={(branch, baseRef) => workspaceStore.createWorktree(branch, baseRef)}
       onSwitchRef={(ref) => workspaceStore.switchRef(ref)}
+      onLoadWorktreeStatuses={() => workspaceKit.getWorktreeStatuses(state.cwd)}
     />
   );
 }

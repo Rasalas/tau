@@ -1,6 +1,8 @@
+import type { UiWorktreeStatus } from "../shared/workspace-kit-types.js";
 import {
   emptyProjectGitState,
   readProjectGitState,
+  readWorktreeStatuses,
   runGitCommand,
   type GitRunner,
   type ProjectGitState,
@@ -131,20 +133,12 @@ export class GitCoordinator {
       const run = async (): Promise<ProjectGitState> => {
         try {
           const state = await readProjectGitState(cwd, {
-            runGit: async (path, args, maxBuffer, scanSignal) => this.semaphore.run(async () => {
-              this.metricsValue.subprocesses += 1;
-              this.onSubprocess?.();
-              this.metricsValue.activeSubprocesses += 1;
-              this.metricsValue.maxParallelSubprocesses = Math.max(
-                this.metricsValue.maxParallelSubprocesses,
-                this.metricsValue.activeSubprocesses,
-              );
-              try {
-                return await this.runGit(path, args, maxBuffer, scanSignal);
-              } finally {
-                this.metricsValue.activeSubprocesses -= 1;
-              }
-            }, scanSignal ?? controller.signal),
+            runGit: (path, args, maxBuffer, scanSignal) => this.runCoordinated(
+              path,
+              args,
+              maxBuffer,
+              scanSignal ?? controller.signal,
+            ),
             signal: controller.signal,
             throwOnError: true,
             untrackedStats: {
@@ -193,6 +187,26 @@ export class GitCoordinator {
     return { ...state.workspace, refreshStatus: this.getRefreshStatus(cwd) };
   }
 
+  async getWorktreeStatuses(cwd: string, threadCwds: readonly string[], signal?: AbortSignal): Promise<UiWorktreeStatus[]> {
+    const state = await this.getState(cwd, signal, "workspace");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    timeout.unref?.();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await readWorktreeStatuses(
+        state.workspace.worktrees,
+        state.workspace.refs,
+        threadCwds,
+        (path, args, maxBuffer, scanSignal) => this.runCoordinated(path, args, maxBuffer, scanSignal ?? controller.signal),
+      );
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+    }
+  }
+
   async getBranch(cwd: string, signal?: AbortSignal): Promise<string | undefined> {
     return (await this.getState(cwd, signal, "branch")).branch;
   }
@@ -214,6 +228,28 @@ export class GitCoordinator {
 
   metrics(): GitCoordinatorMetrics {
     return { ...this.metricsValue };
+  }
+
+  private runCoordinated(
+    path: string,
+    args: string[],
+    maxBuffer: number | undefined,
+    signal: AbortSignal,
+  ): Promise<string> {
+    return this.semaphore.run(async () => {
+      this.metricsValue.subprocesses += 1;
+      this.onSubprocess?.();
+      this.metricsValue.activeSubprocesses += 1;
+      this.metricsValue.maxParallelSubprocesses = Math.max(
+        this.metricsValue.maxParallelSubprocesses,
+        this.metricsValue.activeSubprocesses,
+      );
+      try {
+        return await this.runGit(path, args, maxBuffer, signal);
+      } finally {
+        this.metricsValue.activeSubprocesses -= 1;
+      }
+    }, signal);
   }
 
   private record(cwd: string): ProjectRecord {

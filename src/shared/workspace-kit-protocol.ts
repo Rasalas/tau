@@ -6,6 +6,7 @@ import type {
   UiEditor,
   UiFileContent,
   UiFileDiff,
+  UiWorktreeStatus,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
   WorkspaceChangesQuery,
@@ -14,7 +15,7 @@ import type {
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { HostActionResult } from "./host-protocol.js";
 
-export type { FileNode, ChangeStatus, UiChangedFile, WorkspaceChangesCompleteness, WorkspaceDiffScope, WorkspaceChangesQuery, UiReviewRequest, UiWorkspaceChanges, UiWorkspaceChangesPage, DiffLineKind, UiDiffLine, UiDiffHunk, DiffLoadOptions, UiFileDiff, UiFileContent, UiWorktree, UiRef, WorkspaceInfo, UiEditor, CommitResult, PushResult } from "./workspace-kit-types.js";
+export type { FileNode, ChangeStatus, UiChangedFile, WorkspaceChangesCompleteness, WorkspaceDiffScope, WorkspaceChangesQuery, UiReviewRequest, UiWorkspaceChanges, UiWorkspaceChangesPage, DiffLineKind, UiDiffLine, UiDiffHunk, DiffLoadOptions, UiFileDiff, UiFileContent, UiWorktree, UiWorktreeStatus, UiRef, WorkspaceInfo, UiEditor, CommitResult, PushResult } from "./workspace-kit-types.js";
 
 /**
  * Workspace Kit's own contract between its host entry and its desktop entry.
@@ -47,6 +48,8 @@ export interface WorkspaceHostCommands {
   "push": { input: undefined; output: PushResult };
   /** Reads metadata for a known project without changing the active host workspace. */
   "workspace-info": { input: { cwd?: string } | undefined; output: WorkspaceInfo };
+  /** Reads every linked checkout only when the picker needs cleanup safety facts. */
+  "worktree-statuses": { input: { cwd?: string } | undefined; output: UiWorktreeStatus[] };
   "create-worktree": { input: { branch: string; baseRef?: string }; output: HostActionResult };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
@@ -95,6 +98,7 @@ export interface WorkspaceHostClient {
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
   getWorkspaceInfo(cwd?: string): Promise<WorkspaceInfo>;
+  getWorktreeStatuses(cwd?: string): Promise<UiWorktreeStatus[]>;
   createWorktree(branch: string, baseRef?: string): Promise<HostActionResult>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
@@ -126,6 +130,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     commit: (message, push) => call("commit", { message, push }),
     push: () => call("push", undefined),
     getWorkspaceInfo: (cwd) => call("workspace-info", cwd === undefined ? undefined : { cwd }),
+    getWorktreeStatuses: (cwd) => call("worktree-statuses", cwd === undefined ? undefined : { cwd }),
     createWorktree: (branch, baseRef) => call("create-worktree", { branch, baseRef }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),

@@ -190,6 +190,11 @@ export function createWorkspaceHostExtension(): HostExtension {
         const canonical = await services.knownWorkspacePath(optionalString(input, "cwd") ?? cwd());
         return git.getWorkspaceInfo(canonical);
       });
+      context.registerCommand("worktree-statuses", async (input) => {
+        const canonical = await services.knownWorkspacePath(optionalString(input, "cwd") ?? cwd());
+        const sessions = await services.sessions.list();
+        return git.getWorktreeStatuses(canonical, sessions.map((session) => session.cwd));
+      });
       context.registerCommand("create-worktree", async (input) => {
         const project = cwd();
         const branch = requiredString(input, "branch");

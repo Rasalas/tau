@@ -17,6 +17,7 @@ import type {
   PushResult,
   UiRef,
   UiWorktree,
+  UiWorktreeStatus,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
   WorkspaceChangesQuery,
@@ -1872,7 +1873,7 @@ export async function readProjectGitState(
       run(["status", "--porcelain", "-z"]),
       run(["diff", "--numstat", "-z", "HEAD"]).catch(() => ""),
       run(["worktree", "list", "--porcelain"]),
-      run(["for-each-ref", "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)", "--sort=-committerdate", "refs/heads"]),
+      run(["for-each-ref", "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)", "--sort=-committerdate", "refs/heads"]),
     ]);
     const workspaceRoot = rootOut.trim() || cwd;
     const worktrees = parseWorktrees(worktreeOut, workspaceRoot);
@@ -1907,18 +1908,20 @@ export async function readProjectGitState(
       worktrees.filter((tree) => tree.branch && tree.branch !== "detached").map((tree) => [tree.branch as string, tree.path]),
     );
     const refMetadata = refOut.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
-      const [name, upstream, tracking = ""] = line.split("\t");
+      const [name, upstream, tracking = "", committedAt = ""] = line.split("\t");
+      const commitSeconds = Number(committedAt);
       return {
         name,
         upstream: upstream || undefined,
         ahead: Number(/ahead (\d+)/u.exec(tracking)?.[1] ?? 0),
         behind: Number(/behind (\d+)/u.exec(tracking)?.[1] ?? 0),
+        lastCommitAt: Number.isFinite(commitSeconds) && commitSeconds > 0 ? commitSeconds * 1_000 : undefined,
       };
     });
-    const refs: UiRef[] = refMetadata.map(({ name }) => ({
-      name,
-      isCurrent: name === branch,
-      worktreePath: heldByWorktree.get(name),
+    const refs: UiRef[] = refMetadata.map((metadata) => ({
+      ...metadata,
+      isCurrent: metadata.name === branch,
+      worktreePath: heldByWorktree.get(metadata.name),
     }));
     const currentRef = refMetadata.find((ref) => ref.name === branch);
     const mainRoot = worktrees.find((tree) => tree.isMain)?.path ?? workspaceRoot;
@@ -2339,6 +2342,64 @@ function worktreeParentFor(mainRoot: string): string {
 
 export function worktreeSlug(branch: string): string {
   return branch.replace(/[^a-z0-9._-]+/giu, "-").replace(/^-+|-+$/gu, "") || "worktree";
+}
+
+export const WORKTREE_CLEANUP_MIN_AGE_MS = 14 * 24 * 60 * 60 * 1_000;
+
+/** Cleanup stays a suggestion and fails closed when any safety fact is missing. */
+export function isWorktreeCleanupCandidate(
+  tree: UiWorktree,
+  status: Omit<UiWorktreeStatus, "path" | "cleanupCandidate">,
+  now = Date.now(),
+): boolean {
+  return !tree.isMain
+    && !tree.isCurrent
+    && status.isDirty === false
+    && status.threadCount === 0
+    && Boolean(status.upstream)
+    && status.ahead === 0
+    && status.lastCommitAt !== undefined
+    && now - status.lastCommitAt >= WORKTREE_CLEANUP_MIN_AGE_MS
+    && !status.inspectionError;
+}
+
+/**
+ * Reads dirty state only on demand. Normal project refreshes remain one bounded
+ * scan even when a repository has many linked worktrees.
+ */
+export async function readWorktreeStatuses(
+  worktrees: readonly UiWorktree[],
+  refs: readonly UiRef[],
+  threadCwds: readonly string[],
+  runGit: GitRunner = git,
+  now = Date.now(),
+): Promise<UiWorktreeStatus[]> {
+  return Promise.all(worktrees.map(async (tree) => {
+    const ref = refs.find((candidate) => candidate.name === tree.branch);
+    const base = {
+      upstream: ref?.upstream,
+      ahead: ref?.ahead ?? 0,
+      behind: ref?.behind ?? 0,
+      threadCount: threadCwds.filter((path) => resolve(path) === resolve(tree.path)).length,
+      lastCommitAt: ref?.lastCommitAt,
+    };
+    try {
+      const status: Omit<UiWorktreeStatus, "path" | "cleanupCandidate"> = {
+        ...base,
+        isDirty: (await runGit(tree.path, ["status", "--porcelain", "-z"])).length > 0,
+      };
+      return { path: tree.path, ...status, cleanupCandidate: isWorktreeCleanupCandidate(tree, status, now) };
+    } catch (error) {
+      return {
+        path: tree.path,
+        ...base,
+        ahead: base.ahead,
+        behind: base.behind,
+        cleanupCandidate: false,
+        inspectionError: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }));
 }
 
 /**

@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceInfo } from "../../shared/workspace-kit-types";
+import type { UiWorktreeStatus, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import { WorkspaceBar } from "./WorkspaceBar";
 
 const handlers = {
   onOpenWorktree: vi.fn(async () => true),
   onCreateWorktree: vi.fn(async () => true),
   onSwitchRef: vi.fn(async () => true),
+  onLoadWorktreeStatuses: vi.fn(async (): Promise<UiWorktreeStatus[]> => []),
 };
 
 function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
@@ -62,6 +63,56 @@ describe("WorkspaceBar", () => {
     }));
 
     expect(screen.getByRole("button", { name: "feat-worktree-label" })).toBeTruthy();
+  });
+
+  it("bounds and fuzzy-filters a long worktree list", async () => {
+    const worktrees = [
+      workspace().worktrees[0],
+      ...Array.from({ length: 30 }, (_, index) => ({
+        path: `/Users/dev/code/tau-worktrees/feature-${index}`,
+        name: `feature-${index}`,
+        branch: index === 17 ? "feat/renderer-search" : `feat/issue-${index}`,
+        isMain: false,
+        isCurrent: false,
+      })),
+    ];
+    setup(workspace({ worktrees }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+
+    const search = await screen.findByRole("searchbox", { name: "Search worktrees" });
+    expect(search.closest(".workspace-menu")).toBeTruthy();
+    expect(screen.getByRole("listbox", { name: "Worktrees" }).classList.contains("worktree-list")).toBe(true);
+
+    fireEvent.change(search, { target: { value: "rndrsrch" } });
+    expect(screen.getByRole("button", { name: /feat\/renderer-search/u })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /feat\/issue-2/u })).toBeNull();
+  });
+
+  it("shows cleanup safety status without hiding unsafe worktrees", async () => {
+    const linked = {
+      path: "/Users/dev/code/tau-worktrees/feat-safe",
+      name: "feat-safe",
+      branch: "feat/safe",
+      isMain: false,
+      isCurrent: false,
+    };
+    handlers.onLoadWorktreeStatuses.mockResolvedValueOnce([{
+      path: linked.path,
+      isDirty: false,
+      upstream: "origin/feat/safe",
+      ahead: 0,
+      behind: 2,
+      threadCount: 0,
+      lastCommitAt: Date.now() - 30 * 24 * 60 * 60 * 1_000,
+      cleanupCandidate: true,
+    }]);
+    setup(workspace({ worktrees: [workspace().worktrees[0], linked] }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+
+    expect(await screen.findByText("cleanup candidate")).toBeTruthy();
+    expect(screen.getByText("clean · behind 2 · unused")).toBeTruthy();
   });
 
   it("lets a new worktree start from origin/main", () => {

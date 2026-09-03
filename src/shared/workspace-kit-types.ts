@@ -145,6 +145,24 @@ export interface UiRef {
   isCurrent: boolean;
   /** Set when this ref is already checked out in a worktree. */
   worktreePath?: string;
+  upstream?: string;
+  ahead?: number;
+  behind?: number;
+  lastCommitAt?: number;
+}
+
+/** Expensive safety facts loaded only while the worktree picker is open. */
+export interface UiWorktreeStatus {
+  path: string;
+  isDirty?: boolean;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  threadCount: number;
+  lastCommitAt?: number;
+  /** A conservative suggestion only. Tau never removes the worktree automatically. */
+  cleanupCandidate: boolean;
+  inspectionError?: string;
 }
 
 export interface WorkspaceInfo {

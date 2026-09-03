@@ -10,6 +10,7 @@ export function VirtualList<T>({
   renderItem,
   scrollToIndex,
   role,
+  ariaLabel,
 }: {
   items: readonly T[];
   itemHeight: number;
@@ -19,6 +20,7 @@ export function VirtualList<T>({
   renderItem(item: T, index: number): ReactNode;
   scrollToIndex?: number;
   role?: AriaRole;
+  ariaLabel?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState({ start: 0, end: Math.min(items.length, 30) });
@@ -39,7 +41,7 @@ export function VirtualList<T>({
   }, [itemHeight, scrollToIndex]);
   const visible = items.slice(range.start, range.end);
   return (
-    <div ref={ref} className={className} role={role} onScroll={update}>
+    <div ref={ref} className={className} role={role} aria-label={ariaLabel} onScroll={update}>
       {items.length === 0 ? empty : <>
         <div aria-hidden style={{ height: range.start * itemHeight }} />
         {visible.map((item, offset) => renderItem(item, range.start + offset))}

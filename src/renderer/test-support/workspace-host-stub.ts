@@ -25,6 +25,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     getFileTree: async () => [],
     getChanges: async () => NO_CHANGES,
     getWorkspaceInfo: async () => NO_REPO,
+    getWorktreeStatuses: async () => [],
     listEditors: async () => [],
     getFileDiff: unsupported("getFileDiff"),
     stageFile: unsupported("stageFile"),
@@ -71,6 +72,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "commit": return client.commit(field(input, "message")!, field(input, "push")!);
       case "push": return client.push();
       case "workspace-info": return client.getWorkspaceInfo(...optional(field<string>(input, "cwd")));
+      case "worktree-statuses": return client.getWorktreeStatuses(...optional(field<string>(input, "cwd")));
       case "create-worktree": return client.createWorktree(field(input, "branch")!, field(input, "baseRef"));
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();

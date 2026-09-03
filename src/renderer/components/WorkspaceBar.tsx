@@ -1,12 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Folder, FolderGit2, GitBranch, History, Plus, Search } from "lucide-react";
-import type { WorkspaceInfo } from "../../shared/workspace-kit-types";
+import type { UiWorktree, UiWorktreeStatus, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import { VirtualList } from "./VirtualList";
 
 type OpenPanel = "workspace" | "refs" | undefined;
 
 function pathName(path: string): string {
   return path.replace(/[\\/]+$/u, "").split(/[\\/]/u).at(-1) ?? path;
+}
+
+function fuzzyMatch(value: string, query: string): boolean {
+  let at = 0;
+  const haystack = value.toLocaleLowerCase();
+  for (const character of query.toLocaleLowerCase()) {
+    at = haystack.indexOf(character, at);
+    if (at < 0) return false;
+    at += 1;
+  }
+  return true;
+}
+
+function worktreeStatusLabel(status?: UiWorktreeStatus, loading = false): string {
+  if (!status) return loading ? "checking…" : "status unavailable";
+  if (status.inspectionError || status.isDirty === undefined) return "status unavailable";
+  const parts = [status.isDirty ? "uncommitted changes" : "clean"];
+  if (!status.upstream) parts.push("no upstream");
+  else {
+    if (status.ahead > 0) parts.push(`ahead ${status.ahead}`);
+    if (status.behind > 0) parts.push(`behind ${status.behind}`);
+  }
+  parts.push(status.threadCount === 0 ? "unused" : `${status.threadCount} thread${status.threadCount === 1 ? "" : "s"}`);
+  return parts.join(" · ");
 }
 
 function WorktreeForm({
@@ -67,18 +91,24 @@ export function WorkspaceBar({
   onOpenWorktree,
   onCreateWorktree,
   onSwitchRef,
+  onLoadWorktreeStatuses,
 }: {
   info?: WorkspaceInfo;
   busy: boolean;
   onOpenWorktree(path: string): Promise<boolean>;
   onCreateWorktree(branch: string, baseRef: string): Promise<boolean>;
   onSwitchRef(ref: string): Promise<boolean>;
+  onLoadWorktreeStatuses(): Promise<UiWorktreeStatus[]>;
 }) {
   const [open, setOpen] = useState<OpenPanel>();
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
+  const [worktreeQuery, setWorktreeQuery] = useState("");
   const [refCursor, setRefCursor] = useState(0);
+  const [worktreeCursor, setWorktreeCursor] = useState(0);
+  const [worktreeStatuses, setWorktreeStatuses] = useState<UiWorktreeStatus[]>();
   const searchRef = useRef<HTMLInputElement>(null);
+  const worktreeSearchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open !== "refs") return;
@@ -86,6 +116,17 @@ export function WorkspaceBar({
     setRefCursor(0);
     requestAnimationFrame(() => searchRef.current?.focus());
   }, [open]);
+
+  useEffect(() => {
+    if (open !== "workspace" || creating) return;
+    let current = true;
+    setWorktreeQuery("");
+    setWorktreeCursor(0);
+    setWorktreeStatuses(undefined);
+    requestAnimationFrame(() => worktreeSearchRef.current?.focus());
+    void onLoadWorktreeStatuses().then((statuses) => { if (current) setWorktreeStatuses(statuses); });
+    return () => { current = false; };
+  }, [creating, onLoadWorktreeStatuses, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -100,8 +141,15 @@ export function WorkspaceBar({
   }, [open]);
 
   const current = info?.worktrees.find((tree) => tree.isCurrent);
-  const others = info?.worktrees.filter((tree) => !tree.isCurrent) ?? [];
   const label = !info?.isRepo ? "Local folder" : current?.isMain ? "Current checkout" : current?.name ?? "Worktree";
+
+  const worktreeNeedle = worktreeQuery.trim();
+  const worktrees = useMemo(
+    () => (info?.worktrees ?? []).filter((tree) => !worktreeNeedle || fuzzyMatch(`${tree.branch ?? ""} ${tree.name} ${tree.path}`, worktreeNeedle)),
+    [info?.worktrees, worktreeNeedle],
+  );
+  const statusesByPath = useMemo(() => new Map(worktreeStatuses?.map((status) => [status.path, status]) ?? []), [worktreeStatuses]);
+  useEffect(() => setWorktreeCursor(0), [worktreeNeedle]);
 
   const needle = query.trim().toLowerCase();
   const refs = useMemo(
@@ -114,6 +162,10 @@ export function WorkspaceBar({
   const chooseRef = (refName: string) => {
     if (refs.find((ref) => ref.name === refName)?.isCurrent) { close(); return; }
     void onSwitchRef(refName).then((changed) => { if (changed) close(); });
+  };
+  const chooseWorktree = (tree: UiWorktree) => {
+    if (tree.isCurrent) { close(); return; }
+    void onOpenWorktree(tree.path).then((changed) => { if (changed) close(); });
   };
 
   return (
@@ -146,38 +198,52 @@ export function WorkspaceBar({
               />
             ) : (
               <>
-                <div className="menu-heading">WORKSPACE</div>
-                {info?.worktrees.filter((tree) => tree.isMain).map((tree) => (
-                  <button
-                    key={tree.path}
-                    className={tree.isCurrent ? "selected" : ""}
-                    onClick={() => {
-                      if (tree.isCurrent) { close(); return; }
-                      void onOpenWorktree(tree.path).then((changed) => { if (changed) close(); });
+                <div className="worktree-search">
+                  <Search size={13} />
+                  <input
+                    ref={worktreeSearchRef}
+                    type="search"
+                    value={worktreeQuery}
+                    onChange={(event) => setWorktreeQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowDown") { event.preventDefault(); setWorktreeCursor((value) => worktrees.length ? (value + 1) % worktrees.length : 0); }
+                      if (event.key === "ArrowUp") { event.preventDefault(); setWorktreeCursor((value) => worktrees.length ? (value - 1 + worktrees.length) % worktrees.length : 0); }
+                      if (event.key === "Enter" && worktrees[worktreeCursor]) { event.preventDefault(); chooseWorktree(worktrees[worktreeCursor]); }
                     }}
-                  >
-                    <Folder size={13} />
-                    <span>Current checkout</span>
-                  </button>
-                ))}
-                <button onClick={() => setCreating(true)} disabled={!info?.isRepo}>
+                    placeholder="Search worktrees…"
+                    aria-label="Search worktrees"
+                  />
+                </div>
+                <button className="new-worktree" onClick={() => setCreating(true)} disabled={!info?.isRepo}>
                   <Plus size={13} />
                   <span>New worktree…</span>
                 </button>
-                {others.filter((tree) => !tree.isMain).map((tree) => (
-                  <button key={tree.path} onClick={() => {
-                    void onOpenWorktree(tree.path).then((changed) => { if (changed) close(); });
-                  }}>
-                    <History size={13} />
-                    <span>Worktree ({tree.branch ?? tree.name})</span>
-                  </button>
-                ))}
-                {current && !current.isMain ? (
-                  <button className="selected" onClick={close}>
-                    <FolderGit2 size={13} />
-                    <span>{current.branch ?? current.name}</span>
-                  </button>
-                ) : null}
+                <VirtualList
+                  items={worktrees}
+                  itemHeight={49}
+                  className="worktree-list"
+                  empty={<p>No worktree matches “{worktreeQuery}”.</p>}
+                  scrollToIndex={worktreeCursor}
+                  role="listbox"
+                  ariaLabel="Worktrees"
+                  renderItem={(tree, index) => {
+                    const status = statusesByPath.get(tree.path);
+                    return <button
+                      key={tree.path}
+                      className={tree.isCurrent || index === worktreeCursor ? "selected" : ""}
+                      onClick={() => chooseWorktree(tree)}
+                      role="option"
+                      aria-selected={tree.isCurrent}
+                    >
+                      {tree.isMain ? <Folder size={13} /> : tree.isCurrent ? <FolderGit2 size={13} /> : <History size={13} />}
+                      <span className="menu-label">
+                        <em>{tree.isMain ? "Current checkout" : tree.branch ?? tree.name}</em>
+                        <small>{worktreeStatusLabel(status, worktreeStatuses === undefined)}</small>
+                      </span>
+                      {status?.cleanupCandidate ? <small className="cleanup-candidate">cleanup candidate</small> : null}
+                    </button>;
+                  }}
+                />
               </>
             )}
           </div>
