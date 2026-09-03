@@ -770,7 +770,14 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         return { checkpoints: Array.isArray(result?.checkpoints) ? result.checkpoints : [], restoreSupported: false };
       }
       const thread = services.thread(sessionId);
-      if (!thread) throw new Error("That thread is not open any more. Open it again to continue.");
+      if (!thread) {
+        const stored = (await services.sessions.list()).find((session) => session.sessionId === sessionId);
+        if (!stored) return { checkpoints: [], restoreSupported: false };
+        return {
+          checkpoints: checkpointsOf(services.sessions.open(stored.path).entries(), sessionId).map(cloneTurnCheckpoint),
+          restoreSupported: false,
+        };
+      }
       return {
         checkpoints: checkpointsOf(thread.entries(), sessionId).map(cloneTurnCheckpoint),
         restoreSupported: thread.backendKind === "pi",

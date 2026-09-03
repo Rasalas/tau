@@ -127,6 +127,25 @@ describe("Workspace Kit checkpoint lifecycle", () => {
     expect(kit.pinnedEntries(thread({ entries: () => [] }))).toEqual([]);
   });
 
+  it("lists persisted checkpoints after a thread runtime was released", async () => {
+    const open = vi.fn(() => sessionFile());
+    const kit = createWorkspaceKitLifecycle(services({
+      sessions: {
+        list: async () => [{ sessionId: "session", path: "/sessions/session.jsonl", cwd: "/project" }],
+        open,
+        prepare: async () => { throw new Error("no runtimes here"); },
+        exclusive: (work) => work(),
+        refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
+      },
+    }), { emit: () => undefined });
+
+    await expect(kit.checkpoints("session")).resolves.toEqual({
+      checkpoints: [expect.objectContaining({ id: "turn-1" })],
+      restoreSupported: false,
+    });
+    expect(open).toHaveBeenCalledWith("/sessions/session.jsonl");
+  });
+
   it("asks the Pi terminal that owns a thread and never offers restore there", async () => {
     const invoke = vi.fn(async () => ({ checkpoints: [checkpoint], restoreSupported: true }));
     const kit = createWorkspaceKitLifecycle(services({ attachedRuntime: () => ({ sessionId: "session", invoke }) }), { emit: () => undefined });
