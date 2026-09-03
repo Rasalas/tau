@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { findExecutable } from "./shell-environment.js";
+import { findExecutable, gitExecutable } from "./shell-environment.js";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -826,7 +826,7 @@ export async function runGitCommand(
   signal?: AbortSignal,
   env?: NodeJS.ProcessEnv,
 ): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], {
+  const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
     maxBuffer,
     timeout: 10_000,
@@ -2025,7 +2025,7 @@ async function streamFilePatch(
 ): Promise<StreamedPatch> {
   const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
   return new Promise((resolve, reject) => {
-    const child = spawn("git", ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let pending = "";

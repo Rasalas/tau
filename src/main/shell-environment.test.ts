@@ -2,7 +2,7 @@ import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { captureCommand, captureLoginShellEnvironment, findExecutable, installShellEnvironment, mergePaths, parseCapture } from "./shell-environment.js";
+import { captureCommand, captureLoginShellEnvironment, findExecutable, gitExecutable, installShellEnvironment, mergePaths, parseCapture } from "./shell-environment.js";
 
 const answer = (values: Record<string, string>) => Object.entries(values)
   .map(([name, value]) => `__TAU_ENV_${name}_START__\n${value}\n__TAU_ENV_${name}_END__`)
@@ -83,5 +83,18 @@ describe("findExecutable", () => {
     expect(findExecutable("plain", env)).toBeUndefined();
     expect(findExecutable("missing", env)).toBeUndefined();
     expect(findExecutable(join(dir, "tool"), { PATH: "" })).toBe(join(dir, "tool"));
+  });
+});
+
+describe("gitExecutable", () => {
+  it("resolves git to an absolute path once per PATH and falls back to the bare name", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-git-executable-"));
+    const git = join(directory, "git");
+    await writeFile(git, "#!/bin/sh\n");
+    await chmod(git, 0o755);
+    expect(gitExecutable({ PATH: directory })).toBe(git);
+    expect(gitExecutable({ PATH: directory })).toBe(git);
+    expect(gitExecutable({ PATH: join(directory, "missing") })).toBe("git");
+    expect(gitExecutable({ PATH: `${join(directory, "missing")}:${directory}` })).toBe(git);
   });
 });

@@ -152,6 +152,20 @@ export async function installShellEnvironment(options: ShellEnvironmentOptions =
   return { pathSource, installed };
 }
 
+let gitLookup: { path: string | undefined; executable: string } | undefined;
+
+/**
+ * Absolute path of `git`, or the bare name when PATH has none. Spawning by
+ * name is slow on macOS: libuv tries one spawn per PATH entry, which cost
+ * ~110 ms per call with a 34-entry login-shell PATH and blocks the event loop.
+ * The lookup is redone whenever PATH changes, e.g. after the login shell is installed.
+ */
+export function gitExecutable(env: NodeJS.ProcessEnv = process.env): string {
+  const lookup = gitLookup && gitLookup.path === env.PATH ? gitLookup : { path: env.PATH, executable: findExecutable("git", env) ?? "git" };
+  gitLookup = lookup;
+  return lookup.executable;
+}
+
 /** The absolute path `command` resolves to on `env.PATH`, or undefined; a path with a slash is checked as is. */
 export function findExecutable(command: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   const executable = (path: string) => {

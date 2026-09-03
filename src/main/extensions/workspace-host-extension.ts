@@ -10,6 +10,7 @@ import { readBoundedFileContent } from "../file-content.js";
 import type { UiToolRun } from "../../shared/contracts.js";
 import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
 import { GitCoordinator } from "../git-coordinator.js";
+import { gitExecutable } from "../shell-environment.js";
 import * as workspaceGit from "../workspace-git.js";
 import { createReviewRequestDetector } from "../workspace-review-request.js";
 import { createWorkspaceKitLifecycle } from "./workspace-kit-lifecycle.js";
@@ -116,7 +117,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         });
         if (!parent) return undefined;
         const destination = join(parent, repositoryFolderName(url));
-        await execFileAsync("git", ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+        await execFileAsync(gitExecutable(), ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
         services.log("git.cloned", destination);
         return { path: destination };
       });

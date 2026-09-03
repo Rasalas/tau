@@ -4,6 +4,7 @@ import { mkdir, open, readFile, readdir, realpath, rename, rm, rmdir, stat } fro
 import { hostname, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { gitExecutable } from "./shell-environment.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -67,7 +68,7 @@ const DEFAULT_STALE_AFTER_MS = 2 * 60_000;
 const DEFAULT_POLL_MS = 50;
 
 async function defaultRunGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], {
+  const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
     maxBuffer: 1024 * 1024,
     timeout: 10_000,
