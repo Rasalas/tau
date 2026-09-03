@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { ArrowUp, ChevronDown, CornerDownRight, Paperclip, Sparkles, X, Zap } from "lucide-react";
 import type {
   ExtensionUiPrompt,
@@ -653,14 +654,15 @@ export function Composer({
         </div>
       </div>
 
-      {preview ? (
+      {preview ? createPortal(
         <div className="attachment-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={() => setPreviewId(undefined)}>
           <figure onMouseDown={(event) => event.stopPropagation()}>
             <button aria-label="Close preview" onClick={() => setPreviewId(undefined)}><X size={18} /></button>
             <img src={preview.previewUrl} alt={preview.name} />
             <figcaption>{preview.name}</figcaption>
           </figure>
-        </div>
+        </div>,
+        document.body,
       ) : null}
 
       {modelPickerOpen ? (
