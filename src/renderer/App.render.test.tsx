@@ -297,6 +297,61 @@ describe("App render isolation", () => {
     expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeTruthy();
   });
 
+  it("replaces an optimistic prompt when the host echoes only its client message id", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let identity: { clientMessageId: string } | undefined;
+    const sendPrompt = vi.fn(async (...args: unknown[]) => {
+      identity = args[3] as { clientMessageId: string };
+    });
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "Render this once" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalled());
+
+    publish?.({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "thread-detail",
+        detail: {
+          sessionId: "session",
+          messages: [{
+            id: "persisted-prompt",
+            clientMessageId: identity!.clientMessageId,
+            role: "user",
+            text: "Render this once",
+            timestamp: Date.now() + 1_000,
+          }],
+          isStreaming: true,
+          activeTools: [],
+        },
+      },
+    });
+
+    await waitFor(() => expect(screen.getByRole("log").querySelector('[data-message-id="persisted-prompt"]')).toBeTruthy());
+    expect(screen.getByRole("log").querySelectorAll("[data-message-id]")).toHaveLength(1);
+  });
+
   it("keeps the same focused composer mounted while the first prompt docks", async () => {
     const sendPrompt = vi.fn(async () => undefined);
     window.tau = {

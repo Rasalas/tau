@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { clientIdentityMatches, matchesTranscriptTurnMessage, resolveClientTurnIdentity } from "./transcript-turn.js";
 
 describe("matchesTranscriptTurnMessage", () => {
-  it("requires the complete explicit identity before considering a match", () => {
+  it("matches a persisted client message id but rejects conflicting turn metadata", () => {
     const turn = {
       turnId: "turn-local",
       clientMessageId: "message-local",
@@ -12,11 +12,18 @@ describe("matchesTranscriptTurnMessage", () => {
     };
     expect(matchesTranscriptTurnMessage({
       role: "user",
+      id: "persisted-entry",
+      text: "same prompt",
+      timestamp: 11,
+      clientMessageId: "message-local",
+    }, turn)).toBe(true);
+    expect(matchesTranscriptTurnMessage({
+      role: "user",
       id: "same-entry",
       text: "same prompt",
       timestamp: 10,
       clientTurnId: "turn-other",
-      clientMessageId: "message-other",
+      clientMessageId: "message-local",
     }, turn)).toBe(false);
   });
 

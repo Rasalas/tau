@@ -48,8 +48,10 @@ export function clientIdentityMatches(
 
 /**
  * One matching policy shared by renderer reconciliation, navigation, and host
- * snapshots: explicit authoritative identity is checked first; only a message
- * with no explicit identity may use its message ID or legacy text/clock key.
+ * snapshots. A persisted message may carry only `clientMessageId`, which is
+ * the stable renderer-to-runtime correlation key. When both sides also carry
+ * a turn id, a mismatch still rejects the message. Only messages without any
+ * explicit identity may use their message ID or the legacy text/clock key.
  */
 export function matchesTranscriptTurnMessage(
   message: TranscriptTurnMessage,
@@ -58,13 +60,9 @@ export function matchesTranscriptTurnMessage(
 ): boolean {
   if (message.role !== "user") return false;
   if (hasExplicitClientIdentity(message)) {
-    return Boolean(
-      message.clientTurnId
-      && message.clientMessageId
-      && turn.clientMessageId
-      && message.clientTurnId === turn.turnId
-      && message.clientMessageId === turn.clientMessageId,
-    );
+    if (!message.clientMessageId || !turn.clientMessageId) return false;
+    if (message.clientTurnId && message.clientTurnId !== turn.turnId) return false;
+    return message.clientMessageId === turn.clientMessageId;
   }
   if (turn.messageId !== undefined && message.id === turn.messageId) return true;
   if (turn.text === undefined || message.text !== turn.text) return false;
