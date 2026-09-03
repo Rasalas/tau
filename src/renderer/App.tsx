@@ -1259,8 +1259,11 @@ export default function App() {
       const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
       const known = active
         ? messagesRef.current
-        : detailStoreRef.current.get(event.sessionId)?.messages ?? [];
-      if (!known.some((message) => isSameUserMessage(message, event.message))) {
+        : detailStoreRef.current.get(event.sessionId)?.messages;
+      // Tau already unsettles locally submitted work before it reaches the
+      // host. Without an inactive thread's detail, this event cannot tell a
+      // new message from a reconnect replay, so preserve the explicit choice.
+      if (known && !known.some((message) => isSameUserMessage(message, event.message))) {
         preferences.unsettle(event.sessionId);
       }
     }

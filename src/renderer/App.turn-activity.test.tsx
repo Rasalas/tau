@@ -86,6 +86,43 @@ describe("last-turn activity", () => {
     expect(preferences.isSettled("session")).toBe(true);
   });
 
+  it("keeps an uncached settled thread settled when the host replays its existing user message", async () => {
+    const originalBootstrap = window.tau!.bootstrap;
+    window.tau!.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        threadIndex: {
+          ...bootstrap.threadIndex,
+          sessions: [
+            ...bootstrap.threadIndex.sessions,
+            {
+              id: "background-session",
+              path: "/background-session.jsonl",
+              title: "Settled thread",
+              modifiedAt: 2,
+              projectPath: "/project",
+              projectName: "project",
+              messageCount: 2,
+            },
+          ],
+        },
+      };
+    };
+    preferences.unsettle("background-session");
+    preferences.toggleSettled("background-session");
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+
+    act(() => publish({
+      type: "user-message",
+      sessionId: "background-session",
+      message: { id: "replayed-user", role: "user", text: "existing work", timestamp: 1 },
+    }));
+
+    expect(preferences.isSettled("background-session")).toBe(true);
+  });
+
   it("keeps a tool without a terminal frame visibly interrupted after settling", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
