@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiWorktreeStatus, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import { WorkspaceBar } from "./WorkspaceBar";
+
+const styles = readFileSync("src/renderer/styles.css", "utf8");
 
 const handlers = {
   onOpenWorktree: vi.fn(async () => true),
@@ -82,11 +85,12 @@ describe("WorkspaceBar", () => {
 
     const search = await screen.findByRole("searchbox", { name: "Search worktrees" });
     expect(search.closest(".workspace-menu")).toBeTruthy();
+    expect(styles).toMatch(/\.workspace-menu\s*\{[^}]*max-height:\s*min\(470px,\s*calc\(100vh - 96px\)\)/u);
     expect(screen.getByRole("listbox", { name: "Worktrees" }).classList.contains("worktree-list")).toBe(true);
 
     fireEvent.change(search, { target: { value: "rndrsrch" } });
-    expect(screen.getByRole("button", { name: /feat\/renderer-search/u })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /feat\/issue-2/u })).toBeNull();
+    expect(screen.getByRole("option", { name: /feat\/renderer-search/u })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /feat\/issue-2/u })).toBeNull();
   });
 
   it("shows cleanup safety status without hiding unsafe worktrees", async () => {

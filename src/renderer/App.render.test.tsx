@@ -1818,7 +1818,7 @@ describe("App render isolation", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
-    fireEvent.click(screen.getByRole("button", { name: "Worktree (feat/worktree-label)" }));
+    fireEvent.click(screen.getByRole("option", { name: /feat\/worktree-label/u }));
 
     expect(await screen.findByRole("button", { name: "feat-worktree-label" })).toBeTruthy();
     expect(getWorkspaceInfo).toHaveBeenLastCalledWith();

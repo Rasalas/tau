@@ -124,7 +124,10 @@ export function WorkspaceBar({
     setWorktreeCursor(0);
     setWorktreeStatuses(undefined);
     requestAnimationFrame(() => worktreeSearchRef.current?.focus());
-    void onLoadWorktreeStatuses().then((statuses) => { if (current) setWorktreeStatuses(statuses); });
+    void onLoadWorktreeStatuses().then(
+      (statuses) => { if (current) setWorktreeStatuses(statuses); },
+      () => { if (current) setWorktreeStatuses([]); },
+    );
     return () => { current = false; };
   }, [creating, onLoadWorktreeStatuses, open]);
 

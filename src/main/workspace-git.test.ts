@@ -24,6 +24,7 @@ import {
   push,
   previewWorkspaceRestore,
   readProjectGitState,
+  readWorktreeStatuses,
   revertFile,
   restoreWorkspaceSnapshot,
   repositoryDisplayName,
@@ -779,6 +780,46 @@ describe("immutable turn snapshots", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe("worktree cleanup suggestions", () => {
+  it("suggests only old, clean, pushed worktrees with no threads", async () => {
+    const now = Date.UTC(2026, 8, 20);
+    const old = now - 30 * 24 * 60 * 60 * 1_000;
+    const recent = now - 2 * 24 * 60 * 60 * 1_000;
+    const tree = (name: string, patch: Record<string, unknown> = {}) => ({
+      path: `/repo-worktrees/${name}`,
+      name,
+      branch: `feat/${name}`,
+      isMain: false,
+      isCurrent: false,
+      ...patch,
+    });
+    const worktrees = [
+      tree("main", { path: "/repo", branch: "main", isMain: true, isCurrent: true }),
+      tree("safe"), tree("dirty"), tree("ahead"), tree("no-upstream"), tree("recent"), tree("used"),
+    ];
+    const refs = worktrees.map((worktree) => ({
+      name: worktree.branch,
+      isCurrent: worktree.isCurrent,
+      upstream: worktree.name === "no-upstream" ? undefined : `origin/${worktree.branch}`,
+      ahead: worktree.name === "ahead" ? 1 : 0,
+      behind: 0,
+      lastCommitAt: worktree.name === "recent" ? recent : old,
+    }));
+    const statuses = await readWorktreeStatuses(
+      worktrees,
+      refs,
+      ["/repo", "/repo-worktrees/used"],
+      async (cwd, args) => args[0] === "status" && cwd.endsWith("/dirty") ? " M file.ts\0" : "",
+      now,
+    );
+
+    expect(statuses.filter((status) => status.cleanupCandidate).map((status) => status.path))
+      .toEqual(["/repo-worktrees/safe"]);
+    expect(statuses.find((status) => status.path.endsWith("/dirty"))?.isDirty).toBe(true);
+    expect(statuses.find((status) => status.path.endsWith("/used"))?.threadCount).toBe(1);
+  });
 });
 
 describe("worktree classification", () => {
