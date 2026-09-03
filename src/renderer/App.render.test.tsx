@@ -689,6 +689,11 @@ describe("App render isolation", () => {
     expect(screen.getByText("Error: prompt rejected")).toBeTruthy();
     expect(composer.value).toBe("newer draft");
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    const nextDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(nextDialog).getByRole("option", { name: /project/u }));
+    expect(screen.queryByText(/Wait for the current message delivery/u)).toBeNull();
   });
 
   it("promotes a bridge new thread from a later detail when the acknowledgement has no updates", async () => {
@@ -898,7 +903,7 @@ describe("App render isolation", () => {
         dropEffect: "none",
       },
     });
-    expect(screen.getByRole("status").textContent).toMatch(/unavailable/u);
+    expect(screen.getByText("The active runtime does not accept image input.")).toBeTruthy();
   });
 
   it("keeps a new thread draft in memory without persisting image-capable composer data", async () => {

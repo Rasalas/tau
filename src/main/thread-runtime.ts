@@ -1,0 +1,118 @@
+import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { ThreadBackendKind, ThreadHostEvent, UiMessage, UiToolRun } from "../shared/contracts.js";
+import type { LiveAssistant, LiveTurnState } from "./live-turn-state.js";
+import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
+import type { ThreadRuntimeBackend, ThreadTitleSource } from "./thread-runtime-backend.js";
+
+type DeferredThreadRecord =
+  | { kind: "event"; event: any; sessionId: string; cwd: string }
+  | { kind: "error"; error: unknown }
+  | { kind: "host"; event: ThreadHostEvent }
+  | { kind: "title"; title: string };
+
+/** One runtime bound to one Tau thread for the runtime's whole life. */
+export class ThreadRuntime implements LiveTurnState {
+  readonly tools = new Map<string, UiToolRun>();
+  readonly pendingClientMessageIds: string[] = [];
+  pendingClientMessageFingerprints = new Map<string, string>();
+  /** Markers assigned at message_start but not finalized at message_end yet. */
+  readonly inFlightClientMessageIds = new Set<string>();
+  adapterMessages: UiMessage[] = [];
+  adapterTitle?: string;
+  adapterTitleSource?: ThreadTitleSource;
+  adapterStreaming = false;
+  adapterPending = 0;
+  adapterAbortGeneration = 0;
+  adapterAbortControllers = new Set<AbortController>();
+  adapterQueue: Promise<void> = Promise.resolve();
+  currentAssistantId?: string;
+  liveAssistant?: LiveAssistant;
+  unsubscribe?: () => void;
+  private deferredRecords?: DeferredThreadRecord[];
+
+  constructor(
+    readonly backend: ThreadRuntimeBackend,
+    readonly runtime?: AgentSessionRuntime,
+  ) {}
+
+  get runtimeAdapter(): AgentRuntimeAdapter { return this.backend.runtimeAdapter; }
+  get threadId(): string { return this.backend.threadId; }
+  /** @deprecated External v1 calls still use sessionId; internal code uses threadId. */
+  get sessionId(): string { return this.threadId; }
+  get cwd(): string { return this.backend.cwd; }
+  get sessionFile(): string | undefined { return this.backend.sessionFile(); }
+
+  resetLiveState(): void {
+    this.tools.clear();
+    this.pendingClientMessageIds.length = 0;
+    this.pendingClientMessageFingerprints.clear();
+    this.inFlightClientMessageIds.clear();
+    this.adapterAbortControllers.clear();
+    this.currentAssistantId = undefined;
+    this.liveAssistant = undefined;
+  }
+
+  beginEventBarrier(): void {
+    this.deferredRecords = [];
+  }
+
+  private defer(record: DeferredThreadRecord): boolean {
+    if (!this.deferredRecords) return false;
+    this.deferredRecords.push(record);
+    return true;
+  }
+
+  deferEvent(event: any, sessionId: string, cwd: string): boolean {
+    return this.defer({ kind: "event", event, sessionId, cwd });
+  }
+
+  deferError(error: unknown): boolean {
+    return this.defer({ kind: "error", error });
+  }
+
+  deferHostEvent(event: ThreadHostEvent): boolean {
+    // Questions must remain answerable while a prepared runtime is binding.
+    // Buffering their prompt would deadlock bind until the answer arrives.
+    if (event.type === "extension-ui-prompt" || event.type === "extension-ui-resolved") return false;
+    return this.defer({ kind: "host", event });
+  }
+
+  deferTitle(title: string): boolean {
+    return this.defer({ kind: "title", title });
+  }
+
+  releaseEventBarrier(
+    dispatch: (event: any, thread: ThreadRuntime, sessionId: string, cwd: string, error?: unknown) => void,
+    dispatchHost: (event: ThreadHostEvent) => void,
+    dispatchTitle: (title: string) => void,
+  ): void {
+    const records = this.deferredRecords;
+    this.deferredRecords = undefined;
+    for (const record of records ?? []) {
+      if (record.kind === "event") dispatch(record.event, this, record.sessionId, record.cwd);
+      else if (record.kind === "error") dispatch(undefined, this, this.sessionId, this.cwd, record.error);
+      else if (record.kind === "host") dispatchHost(record.event);
+      else dispatchTitle(record.title);
+    }
+  }
+
+  cancelEventBarrier(): void {
+    this.deferredRecords = undefined;
+  }
+}
+
+export function isThreadRuntime(thread: LiveTurnState | undefined): thread is ThreadRuntime {
+  // Attached Pi sessions have a deliberately smaller live-state carrier.
+  if (!thread || !("backend" in thread)) return false;
+  const candidate = thread as ThreadRuntime;
+  return candidate.backend.kind === "pi" && Boolean(candidate.runtime);
+}
+
+export function threadBackendKind(thread: ThreadRuntime | LiveTurnState | undefined): ThreadBackendKind {
+  if (thread && "backend" in thread && thread.backend) return thread.backend.kind;
+  return thread && "runtimeAdapter" in thread ? thread.runtimeAdapter.id : "pi";
+}
+
+export function isPiBackend(thread: ThreadRuntime | LiveTurnState | undefined): boolean {
+  return threadBackendKind(thread) === "pi";
+}

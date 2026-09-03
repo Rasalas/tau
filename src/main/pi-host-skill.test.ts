@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, UiComposerCommand } from "../shared/contracts.js";
+import type { HostSnapshot, PreparedPrompt, UiComposerCommand } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { createClaudeCodeHostExtension } from "./extensions/claude-code/host-extension.js";
@@ -71,6 +71,7 @@ function localHost(adapter: AgentRuntimeAdapter) {
     sessionFile: "/tmp/session.jsonl",
     runtimeAdapter: adapter,
     pendingClientMessageIds: [] as string[],
+    pendingClientMessageFingerprints: new Map<string, string>(),
     inFlightClientMessageIds: new Set<string>(),
     adapterQueue: Promise.resolve(),
     adapterMessages: [],
@@ -202,10 +203,10 @@ describe("PiHost skill delivery", () => {
   it("maps bridge messages through the attached Pi runtime adapter", () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as {
-      bridgeSnapshot: PiBridgeSnapshot;
-      bridgeHostSnapshot(): HostSnapshot;
+      attached: { snapshot?: PiBridgeSnapshot };
+      projection: { attachedHostSnapshot(): HostSnapshot };
     };
-    internals.bridgeSnapshot = {
+    internals.attached.snapshot = {
       sessionId: "bridge",
       sessionFile: "/tmp/bridge.jsonl",
       cwd: "/repo",
@@ -226,7 +227,7 @@ describe("PiHost skill delivery", () => {
       composerCommands: commands,
     };
 
-    expect(internals.bridgeHostSnapshot()).toMatchObject({
+    expect(internals.projection.attachedHostSnapshot()).toMatchObject({
       supportsImageInput: true,
       messages: [{
         text: "fix it",
@@ -257,10 +258,10 @@ describe("PiHost skill delivery", () => {
     const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
     await adopt(fixture);
     const hostInternals = fixture.host as unknown as {
-      appendClientMessageMarker(thread: unknown, clientMessageId: string, correlationText?: string): boolean;
+      clientMessages: { appendMarker(thread: unknown, clientMessageId: string, correlationText?: string): boolean };
       handleSessionEvent(event: unknown, thread: unknown, sessionId: string, cwd: string): void;
     };
-    expect(hostInternals.appendClientMessageMarker(fixture.thread, "request-in-flight", "keep tracking this")).toBe(true);
+    expect(hostInternals.clientMessages.appendMarker(fixture.thread, "request-in-flight", "keep tracking this")).toBe(true);
 
     hostInternals.handleSessionEvent({ type: "agent_settled" }, fixture.thread, "session", "/repo");
     expect(fixture.session.sessionManager.entries).not.toContainEqual(expect.objectContaining({ customType: "tau-client-message-cancel" }));
@@ -338,12 +339,11 @@ describe("PiHost skill delivery", () => {
     });
     const command = vi.fn(async () => undefined);
     const internals = host as unknown as {
-      bridge: { command: typeof command };
-      bridgeSnapshot: { sessionId: string };
+      attached: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } };
     };
-    internals.bridge = { command };
-    internals.bridgeSnapshot = { sessionId: "bridge" };
-    (internals.bridge as typeof internals.bridge & { descriptor: { epoch: string } }).descriptor = { epoch: "test-epoch" };
+    internals.attached.client = { command };
+    internals.attached.snapshot = { sessionId: "bridge" };
+    internals.attached.client!.descriptor = { epoch: "test-epoch" };
 
     await host.prompt("$tdd fix it", [], "bridge");
     await host.steer("$tdd steer it", [], "bridge");
@@ -351,7 +351,7 @@ describe("PiHost skill delivery", () => {
     // A legacy bridge fixture has no asynchronous snapshot publisher. Clearing
     // the optional snapshot exercises the raw command boundary without waiting
     // forever for a handoff that this unit test does not model.
-    internals.bridgeSnapshot = undefined as never;
+    internals.attached.snapshot = undefined;
     await host.newSession("$tdd start it");
     expect(command.mock.calls).toEqual([
       [{ command: "prompt", text: "$tdd fix it" }],
@@ -361,17 +361,133 @@ describe("PiHost skill delivery", () => {
     ]);
   });
 
+  it("accepts a prepared prompt from the attached Pi when creating its next thread", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false, {
+      runtimeAdapter: { id: "pi", capabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities },
+    });
+    const currentSnapshot = {
+      sessionId: "current-thread",
+      sessionFile: "/tmp/current-thread.jsonl",
+      cwd: "/repo",
+      messages: [],
+      isStreaming: false,
+      supportsImageInput: false,
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      activeTools: [],
+      allTools: [],
+      composerCommands: [],
+    } as PiBridgeSnapshot;
+    const command = vi.fn(async (input: { command: string; text?: string; requestId?: string }) => {
+      if (input.command === "prepare_prompt") return {
+        visibleText: input.text,
+        runtimeText: input.text,
+        runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+        sourceFingerprint: clientMessageFingerprint(input.text ?? "", []),
+      };
+      if (input.command === "new_session") return {
+        requestId: input.requestId,
+        snapshot: {
+          ...currentSnapshot,
+          sessionId: "next-thread",
+          sessionFile: "/tmp/next-thread.jsonl",
+          newSessionRequestId: input.requestId,
+        },
+      };
+      return { accepted: true };
+    });
+    const internals = host as unknown as {
+      attached: { client?: { command: typeof command; descriptor: { epoch: string } }; snapshot?: PiBridgeSnapshot };
+    };
+    internals.attached.client = { command, descriptor: { epoch: "test-epoch" } };
+    internals.attached.snapshot = currentSnapshot;
+
+    const prepared = await host.preparePrompt("start it");
+
+    await expect(host.newSession("start it", [], "/repo", undefined, prepared)).resolves.toMatchObject({
+      submission: { accepted: true },
+      sessionId: "next-thread",
+    });
+    expect(command).toHaveBeenCalledWith(expect.objectContaining({
+      command: "new_session",
+      prepared: expect.objectContaining({ runtimeText: "start it" }),
+    }));
+  });
+
+  it("re-prepares a new-thread prompt when attached Pi replaced its preflight owner", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false, {
+      runtimeAdapter: { id: "pi", capabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities },
+    });
+    const currentSnapshot = {
+      sessionId: "pi-thread",
+      sessionFile: "/tmp/pi-thread.jsonl",
+      cwd: "/repo",
+      messages: [],
+      isStreaming: false,
+      supportsImageInput: false,
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      activeTools: [],
+      allTools: [],
+      composerCommands: [],
+    } as PiBridgeSnapshot;
+    const command = vi.fn(async (input: { command: string; text?: string; requestId?: string }) => {
+      if (input.command === "prepare_prompt") return {
+        visibleText: input.text,
+        runtimeText: input.text,
+        runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+        sourceFingerprint: clientMessageFingerprint(input.text ?? "", []),
+      };
+      if (input.command === "new_session") return {
+        requestId: input.requestId,
+        snapshot: {
+          ...currentSnapshot,
+          sessionId: "next-pi-thread",
+          sessionFile: "/tmp/next-pi-thread.jsonl",
+          newSessionRequestId: input.requestId,
+        },
+      };
+      return { accepted: true };
+    });
+    const internals = host as unknown as {
+      attached: { client?: { command: typeof command; descriptor: { epoch: string } }; snapshot?: PiBridgeSnapshot };
+    };
+    internals.attached.client = { command, descriptor: { epoch: "test-epoch" } };
+    internals.attached.snapshot = currentSnapshot;
+    const preparedByPreviousRuntime: PreparedPrompt = {
+      tauThreadId: "previous-local-pi-thread",
+      providerSessionId: "previous-local-pi-thread",
+      sessionId: "previous-local-pi-thread",
+      backendKind: "pi",
+      runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+      visibleText: "start it",
+      runtimeText: "start it",
+      sourceFingerprint: clientMessageFingerprint("start it", []),
+    };
+
+    await expect(host.newSession("start it", [], "/repo", undefined, preparedByPreviousRuntime)).resolves.toMatchObject({
+      submission: { accepted: true },
+      sessionId: "next-pi-thread",
+    });
+    expect(command).toHaveBeenNthCalledWith(1, { command: "prepare_prompt", text: "start it" });
+    expect(command).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      command: "new_session",
+      prepared: expect.objectContaining({ runtimeText: "start it" }),
+    }));
+  });
+
   it("validates and forwards image attachments to the Pi bridge", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false, {
       runtimeAdapter: { id: "pi", capabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities },
     });
     const command = vi.fn(async () => undefined);
     const internals = host as unknown as {
-      bridge: { command: typeof command };
-      bridgeSnapshot: PiBridgeSnapshot;
+      attached: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } };
     };
-    internals.bridge = { command };
-    internals.bridgeSnapshot = {
+    internals.attached.client = { command };
+    internals.attached.snapshot = {
       sessionId: "bridge",
       sessionFile: "/tmp/bridge.jsonl",
       cwd: "/repo",
@@ -407,11 +523,10 @@ describe("PiHost skill delivery", () => {
       }
       : undefined);
     const internals = host as unknown as {
-      bridge: { command: typeof command };
-      bridgeSnapshot: PiBridgeSnapshot;
+      attached: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } };
     };
-    internals.bridge = { command };
-    internals.bridgeSnapshot = {
+    internals.attached.client = { command };
+    internals.attached.snapshot = {
       sessionId: "bridge",
       sessionFile: "/tmp/bridge.jsonl",
       cwd: "/repo",

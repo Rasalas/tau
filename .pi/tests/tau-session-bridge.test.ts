@@ -13,7 +13,7 @@ import tauSessionBridge, {
   bridgeSnapshotMessages,
   decorateBridgeUserMessage,
   toolOutputPageForMessages,
-} from "./tau-session-bridge.js";
+} from "../extensions/tau-session-bridge.js";
 import { createNewThreadRequestId } from "../../src/shared/contracts.js";
 
 const branch = Array.from({ length: 25 }, (_, turn) => [

@@ -119,9 +119,16 @@ function makeActivationThread(threadId: string, sessionFile = `/${threadId}.json
     extensionCount: () => 0,
     composerCommands: () => [],
     branchEntries: () => [],
+    appendCustomEntry: () => undefined,
     hasMessages: () => true,
     isStreaming: () => false,
     isIdle: () => true,
+    contextUsage: () => undefined,
+    model: () => undefined,
+    thinkingLevel: () => "off",
+    thinkingLevels: () => ["off"],
+    activeToolNames: () => [],
+    allTools: () => [],
     unbind: () => {},
     abort: async () => {},
     dispose: async () => {},
@@ -287,13 +294,11 @@ describe("PiHost deliberate tool-output reads", () => {
       };
     });
     const internals = host as unknown as {
-      bridge: object;
-      bridgeSnapshot: PiBridgeSnapshot;
-      bridgeCommand: typeof bridgeCommand;
+      attached: { client?: object; snapshot?: PiBridgeSnapshot; command: typeof bridgeCommand };
     };
-    internals.bridge = {};
-    internals.bridgeSnapshot = { sessionId: "session" } as PiBridgeSnapshot;
-    internals.bridgeCommand = bridgeCommand;
+    internals.attached.client = {};
+    internals.attached.snapshot = { sessionId: "session" } as PiBridgeSnapshot;
+    internals.attached.command = bridgeCommand;
 
     await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
       toolCallId: "call",
@@ -777,7 +782,6 @@ describe("PiHost.generateThreadTitle", () => {
     };
     thread.backend.preparePrompt = async (text: string) => ({ runtimeText: text, visibleText: text });
     internals.assertPreparedPrompt = () => {};
-    internals.appendClientMessageMarker = () => true;
 
     await host.newSession("/extension-command", [], "/repo", { clientTurnId: "turn", clientMessageId: "message" });
     // prompt() owns this decision: it is the only place that knows the text the
@@ -956,13 +960,13 @@ describe("Pi bridge transcript projection", () => {
     };
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as {
-      bridgeSnapshot?: PiBridgeSnapshot;
-      bridgeHostSnapshot(): HostSnapshot;
+      attached: { snapshot?: PiBridgeSnapshot };
+      projection: { attachedHostSnapshot(): HostSnapshot };
       detailForSnapshot(snapshot: HostSnapshot): ThreadDetail;
     };
-    internals.bridgeSnapshot = bridgeSnapshot;
+    internals.attached.snapshot = bridgeSnapshot;
 
-    const projected = internals.bridgeHostSnapshot();
+    const projected = internals.projection.attachedHostSnapshot();
     expect(projected.transcriptWindow).toBe("bounded");
     expect(projected.messages).toHaveLength(20);
     expect(projected.messages.filter((message) => message.role === "user")).toHaveLength(10);

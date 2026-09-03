@@ -9,7 +9,7 @@ function tabName(tab: StageTab): string {
 export interface ChatTab {
   active: boolean;
   streaming: boolean;
-  onSelect(): void;
+  onSelect(active: boolean): void;
 }
 
 export function StageTabs({ tabs, activeId, changedPaths, chatTab, onActivate, onClose, onPin }: {
@@ -29,9 +29,9 @@ export function StageTabs({ tabs, activeId, changedPaths, chatTab, onActivate, o
         tabIndex={0}
         aria-selected={chatTab.active}
         className={`stage-tab chat ${chatTab.active ? "active" : ""}`}
-        onClick={chatTab.onSelect}
+        onClick={() => chatTab.onSelect(true)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatTab.onSelect(); }
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatTab.onSelect(true); }
         }}
       >
         <span className="stage-tab-icon"><MessageSquare size={13} /></span>
@@ -52,11 +52,11 @@ export function StageTabs({ tabs, activeId, changedPaths, chatTab, onActivate, o
         aria-selected={active}
         title={tab.path}
         className={`stage-tab ${active ? "active" : ""} ${tab.preview ? "preview" : ""}`}
-        onClick={() => onActivate(tab.id)}
+        onClick={() => { chatTab?.onSelect(false); onActivate(tab.id); }}
         onDoubleClick={() => onPin(tab.id)}
         onAuxClick={(event) => { if (event.button === 1) onClose(tab.id); }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(tab.id); }
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatTab?.onSelect(false); onActivate(tab.id); }
         }}
       >
         <span className="stage-tab-icon"><FileKindIcon name={name} size={13} /></span>

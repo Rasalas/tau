@@ -1,5 +1,6 @@
 {
   "name": "tau-pi-desktop-prototype",
+  "productName": "Tau",
   "version": "0.0.0",
   "private": true,
   "type": "module",

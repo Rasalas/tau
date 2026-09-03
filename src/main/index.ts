@@ -14,9 +14,11 @@ import { bundledHostExtensions } from "./extensions/index.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
+import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
+const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 /** What a package's `engines` is checked against. */
@@ -63,6 +65,9 @@ let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
 let rebuild: Promise<unknown> | undefined;
 
+configureAppIdentity(app);
+const primaryInstance = installSingleInstance(app, () => mainWindow);
+
 function publish(event: HostEvent): void {
   if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send("tau:host-event", event);
 }
@@ -77,6 +82,7 @@ async function createWindow(): Promise<void> {
     // Centres the native traffic lights in Tau's 46px title bar.
     trafficLightPosition: { x: 19, y: 15 },
     backgroundColor: "#11110f",
+    icon: appIconPath,
     webPreferences: {
       preload: join(currentDir, "../preload/bundle.cjs"),
       contextIsolation: true,
@@ -197,7 +203,8 @@ function installIpc(): void {
   ipcMain.handle("tau:remove-project", async (_event, path: string) => (await requireHostReady()).removeProject(path));
 }
 
-app.whenReady().then(async () => {
+if (primaryInstance) app.whenReady().then(async () => {
+  app.dock?.setIcon(appIconPath);
   projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"));
   // The host and every tool it spawns (Pi's tools, runtimes, editors) see the
   // login shell's PATH, not the one a Dock launch inherits.
@@ -214,15 +221,15 @@ app.whenReady().then(async () => {
   await createWindow();
 });
 
-app.on("window-all-closed", () => {
+if (primaryInstance) app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("activate", () => {
+if (primaryInstance) app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
 
-app.on("before-quit", (event) => {
+if (primaryInstance) app.on("before-quit", (event) => {
   if (!host || shutdownComplete) return;
   event.preventDefault();
   if (shutdownStarted) return;

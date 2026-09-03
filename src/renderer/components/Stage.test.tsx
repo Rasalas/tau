@@ -68,21 +68,28 @@ describe("Stage", () => {
     expect(screen.queryByRole("button", { name: "Diff" })).toBeNull();
   });
 
-  it("lets the chat take the strip when the centre is too narrow for both", async () => {
-    const onSelect = vi.fn();
-    const { rerender } = render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} chatTab={{ active: false, streaming: true, onSelect }} />);
-    await screen.findByText("const a = 1;");
+  it("switches from a file to chat and back in the compact tab strip", async () => {
+    function CompactHarness() {
+      const [chatActive, setChatActive] = useState(false);
+      return <Harness
+        initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)}
+        chatTab={{ active: chatActive, streaming: true, onSelect: setChatActive }}
+      />;
+    }
+
+    render(<CompactHarness />);
+    expect(await screen.findByText("const a = 1;")).toBeTruthy();
 
     const chat = screen.getByRole("tab", { name: /Chat/u });
     expect(chat.className).not.toContain("active");
     expect(screen.getByLabelText("Agent is working")).toBeTruthy();
     fireEvent.click(chat);
-    expect(onSelect).toHaveBeenCalled();
-
-    rerender(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} chatTab={{ active: true, streaming: false, onSelect }} />);
-    expect(screen.getByRole("tab", { name: /Chat/u }).className).toContain("active");
-    expect(screen.getByRole("tab", { name: /a\.ts/u }).className).not.toContain("active");
+    expect(chat.className).toContain("active");
     expect(screen.queryByText("const a = 1;")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: /a\.ts/u }));
+    expect(chat.className).not.toContain("active");
+    expect(await screen.findByText("const a = 1;")).toBeTruthy();
   });
 
   it("closes the focused tab on Escape without letting the key bubble", async () => {

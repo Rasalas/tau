@@ -1059,7 +1059,7 @@ button > svg { pointer-events: none; }
 .turn-activity-stack { display: flex; flex-direction: column; gap: 8px; }
 .task-progress { width: 100%; color: var(--muted); }
 .task-progress.dock {
-  position: relative; z-index: 12; width: max-content; height: 0; margin: 0 auto;
+  position: relative; z-index: 12; width: max-content; margin: 0 auto 8px;
   color: var(--muted);
 }
 .task-progress-header {
@@ -1071,7 +1071,6 @@ button > svg { pointer-events: none; }
   width: auto; min-height: 34px; gap: 8px; padding: 7px 10px;
   border: 1px solid var(--line-float); border-radius: 999px;
   background: #22221e; box-shadow: 0 12px 28px #0009, inset 0 1px #ffffff08;
-  transform: translateY(-50%);
 }
 .task-progress.dock .task-progress-header:hover,
 .task-progress.dock.expanded .task-progress-header {
@@ -1101,14 +1100,14 @@ button > svg { pointer-events: none; }
 .task-progress.expanded .task-progress-chevron { transform: rotate(90deg); }
 .task-progress-list { padding: 2px 12px 10px; max-height: 260px; overflow: auto; }
 .task-progress.dock .task-progress-list {
-  position: absolute; bottom: 26px; left: 50%; width: min(520px, calc(100vw - 64px));
+  position: absolute; bottom: calc(100% + 8px); left: 50%; width: min(520px, calc(100vw - 64px));
   max-height: 300px; padding: 11px 14px; overflow: auto;
   border: 1px solid var(--line-float); border-radius: 14px;
   background: #292925; box-shadow: 0 24px 56px #000b, inset 0 1px #ffffff08;
   transform: translateX(-50%); animation: task-popover-enter 120ms ease-out;
 }
 .task-progress.dock.expanded::before {
-  content: ""; position: absolute; bottom: 16px; left: 50%; width: 100%; height: 12px;
+  content: ""; position: absolute; bottom: 100%; left: 50%; width: 100%; height: 8px;
   transform: translateX(-50%);
 }
 @keyframes task-popover-enter {

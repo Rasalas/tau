@@ -1,4 +1,4 @@
-import { Component, createRef, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode, type RefObject } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type {
   ClientTurnIdentity,
@@ -32,39 +32,13 @@ import {
   activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE,
   openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView,
 } from "./stage";
-const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
-/** Conversation minimum plus stage minimum, matching the grid tracks in styles.css. */
-const CENTER_SPLIT_MIN_WIDTH = 480 + 360;
-const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
-const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
-
 const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
-
-export const MountedPanel = memo(function MountedPanel({
-  Component,
-  active,
-  label,
-  extensionName,
-}: {
-  Component: ComponentType<{ active: boolean; extensionName: string }>;
-  active: boolean;
-  label: string;
-  extensionName: string;
-}) {
-  return <div className={active ? "panel active" : "panel"}>
-    <LazyFeatureBoundary label={label.toLowerCase()}>
-      <Suspense fallback={<LazyFeatureFallback label={label.toLowerCase()} />}>
-        <Component active={active} extensionName={extensionName} />
-      </Suspense>
-    </LazyFeatureBoundary>
-  </div>;
-});
 
 import { TitleBar } from "./components/TitleBar";
 import { PanelIcon } from "./components/PanelIcon";
 import { ToolGroup } from "./components/ToolGroup";
 import { TranscriptViewport } from "./components/TranscriptViewport";
-import { transcriptNavigationScopesEqual, type TranscriptNavigationScope, type TranscriptTurnStart } from "./components/transcript-navigation";
+import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -109,486 +83,46 @@ import {
   type TranscriptHistoryRequest,
   type TransitionToken,
 } from "./transcript-history";
+import {
+  createClientMessageId,
+  estimateTokens,
+  isCurrentTranscriptSubmission,
+  isSameUserMessage,
+  latestActivityAnchor,
+  mergeNewThreadRecoveryAttachments,
+  mergeNewThreadRecoveryDraft,
+  mergeTranscriptMessages,
+  mockSnapshot,
+  mockThreadIndex,
+  optimisticThreadSnapshot,
+  reconcileOptimisticMessages,
+  skillPresentationForDraft,
+  transcriptNavigationScope,
+  transcriptNavigationScopeKey,
+  type NewThreadSubmissionCompletion,
+  type NewThreadSubmissionRecovery,
+  type OptimisticUserMessage,
+  type TranscriptSubmissionIdentity,
+} from "./app-state";
+import { ComposerHost, LiveStatus, useTailScroll } from "./components/ComposerHost";
+import { applyHostEvent, type HostEventStores } from "./host-events";
+import { Workbench } from "./Workbench";
+import { useConversationActivities } from "./conversation-activities";
+
+export {
+  isCurrentTranscriptSubmission,
+  latestActivityAnchor,
+  mergeNewThreadRecoveryAttachments,
+  mergeNewThreadRecoveryDraft,
+  optimisticThreadSnapshot,
+  reconcileOptimisticMessages,
+  skillPresentationForDraft,
+  transcriptNavigationScopeKey,
+} from "./app-state";
+export { ComposerHost, measureComposerGeometry, useTailScroll } from "./components/ComposerHost";
+export { MountedPanel } from "./Workbench";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
-
-/**
- * Navigation belongs to the semantic transcript, not to whichever host action
- * happened to cause it to load. A prepared draft has its own transcript scope
- * until Pi assigns the real session ID after the first send.
- */
-export function transcriptNavigationScopeKey(
-  snapshot: Pick<HostSnapshot, "cwd" | "sessionId"> | undefined,
-  pending?: NewThreadDraft,
-): string {
-  const project = pending?.projectPath ?? snapshot?.cwd ?? "";
-  const thread = pending ? `draft:${pending.draftId}` : snapshot?.sessionId ?? "";
-  return `project:${project}\u0000thread:${thread}`;
-}
-
-function transcriptNavigationScope(
-  snapshot: Pick<HostSnapshot, "cwd" | "sessionId"> | undefined,
-  pending?: NewThreadDraft,
-): TranscriptNavigationScope {
-  return pending
-    ? { kind: "draft", projectPath: pending.projectPath, draftId: pending.draftId }
-    : { kind: "session", projectPath: snapshot?.cwd, sessionId: snapshot?.sessionId ?? "" };
-}
-
-export interface TranscriptSubmissionIdentity {
-  turnId: string;
-  scopeKey: string;
-  scope: TranscriptNavigationScope;
-  draftId?: string;
-}
-
-/**
- * Late send failures may still clean up their own optimistic entry, but they
- * may only restore composer UI while the exact logical request and semantic
- * transcript scope remain current.
- */
-export function isCurrentTranscriptSubmission(
-  current: TranscriptTurnStart | undefined,
-  currentScopeKey: string,
-  currentDraftId: string | undefined,
-  captured: TranscriptSubmissionIdentity,
-): boolean {
-  return current?.turnId === captured.turnId
-    && currentScopeKey === captured.scopeKey
-    && transcriptNavigationScopesEqual(current.scope, captured.scope)
-    && currentDraftId === captured.draftId;
-}
-
-export function optimisticThreadSnapshot(
-  snapshot: HostSnapshot,
-  target: UiSession,
-  detail: ThreadDetail,
-): HostSnapshot {
-  return hostSnapshotFromThreadDetail(
-    {
-      ...snapshot,
-      sessionName: undefined,
-      sessionTitle: target.title,
-      projectLabel: target.projectLabel,
-      // Capability is thread-scoped; the target's catalog update will restore
-      // it after the switch rather than leaking the previous thread's value.
-      supportsImageInput: false,
-      ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
-      ...(detail.threadId ? { threadId: detail.threadId } : {}),
-      ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
-    },
-    { ...detail, isStreaming: false },
-  );
-}
-
-const mockSnapshot: HostSnapshot = {
-  cwd: "/workspace/tau",
-  projectLabel: "main",
-  sessionId: "prototype-preview",
-  sessionName: "Split host snapshots & virtualize the thread list",
-  sessionTitle: "Split host snapshots & virtualize the thread list",
-  model: { provider: "anthropic", id: "preview", name: "sonnet-4.6" },
-  models: [{ provider: "anthropic", id: "preview", name: "sonnet-4.6" }],
-  thinkingLevel: "high",
-  thinkingLevels: ["off", "low", "medium", "high"],
-  messages: [
-    { id: "welcome-user", role: "user", text: "Split the full host snapshots, stop calling SessionManager.listAll() on every switch, and virtualize the thread list for large sessions.", timestamp: Date.now() - 120000 },
-    { id: "welcome-pi", role: "assistant", text: "Core keeps thread and session semantics; extensions only subscribe to individual thread shells. Press ⌘K to inspect the contribution registry.", timestamp: Date.now() - 110000 },
-  ],
-  isStreaming: false,
-  activeTools: ["read", "bash", "edit", "write"],
-  allTools: ["read", "bash", "edit", "write", "grep", "find", "ls"].map((name) => ({ name, description: `${name} tool` })),
-  extensionCount: 2,
-  supportsImageInput: true,
-  contextUsage: { tokens: 68000, contextWindow: 200000, percent: 34 },
-};
-
-const mockThreadIndex: ThreadIndexSnapshot = {
-  projects: [
-    { path: "/workspace/tau", name: "tau", lastOpenedAt: Date.now() },
-    { path: "/workspace/pi", name: "pi-coding-agent", lastOpenedAt: Date.now() - 7200000 },
-    { path: "/workspace/lab", name: "agent-lab", lastOpenedAt: Date.now() - 86400000 },
-  ],
-  sessions: [
-    { id: "prototype-preview", path: "preview", title: "Split host snapshots & virtualize the thread list", modifiedAt: Date.now(), projectPath: "/workspace/tau", projectName: "tau", projectLabel: "main", messageCount: 12 },
-    { id: "second", path: "second", title: "Renderer experiment", modifiedAt: Date.now() - 860000, projectPath: "/workspace/pi", projectName: "pi-coding-agent", projectLabel: "feat/desktop-host", messageCount: 7 },
-    { id: "third", path: "third", title: "Package both extension domains", modifiedAt: Date.now() - 7200000, projectPath: "/workspace/lab", projectName: "agent-lab", projectLabel: "main", messageCount: 18 },
-  ],
-};
-
-/** chars/4, the same heuristic the Pi SDK uses, so the dial's split is a real estimate. */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-export function latestActivityAnchor(
-  messages: readonly UiMessage[],
-  currentAnchorId?: string,
-): string | undefined {
-  if (!currentAnchorId) return messages.at(-1)?.id;
-  const currentIndex = messages.findIndex((message) => message.id === currentAnchorId);
-  if (currentIndex < 0) return messages.at(-1)?.id;
-  for (let index = messages.length - 1; index > currentIndex; index -= 1) {
-    if (messages[index]?.role === "user") return messages[index].id;
-  }
-  return currentAnchorId;
-}
-
-interface OptimisticUserMessage {
-  scope: string;
-  message: UiMessage;
-}
-
-export function skillPresentationForDraft(
-  draft: UiSkillDraft,
-): UiMessage["skill"] {
-  return {
-    name: draft.name,
-    command: draft.command,
-    copyText: draft.visibleText ? `${draft.command} ${draft.visibleText}` : draft.command,
-  };
-}
-
-let fallbackClientMessageCounter = 0;
-
-export function createClientMessageId(): string {
-  const randomUUID = globalThis.crypto?.randomUUID;
-  if (randomUUID) return randomUUID.call(globalThis.crypto);
-  fallbackClientMessageCounter += 1;
-  return `client-${Date.now()}-${fallbackClientMessageCounter}`;
-}
-
-export function reconcileOptimisticMessages(
-  pending: readonly OptimisticUserMessage[],
-  authoritative: readonly UiMessage[],
-): OptimisticUserMessage[] {
-  const confirmed = authoritative.filter((message) => message.role === "user");
-  const used = new Set<number>();
-  return pending.filter((entry) => {
-    const index = confirmed.findIndex((message, at) => !used.has(at) && matchesTranscriptTurnMessage(message, {
-      turnId: entry.message.clientTurnId ?? "",
-      clientMessageId: entry.message.clientMessageId,
-      messageId: entry.message.id,
-      text: entry.message.text,
-      timestamp: entry.message.timestamp,
-    }));
-    if (index < 0) return true;
-    used.add(index);
-    return false;
-  });
-}
-
-function isSameUserMessage(left: UiMessage, right: UiMessage): boolean {
-  if (left.role !== "user" || right.role !== "user") return false;
-  if (left.sourceEntryId && right.sourceEntryId) return left.sourceEntryId === right.sourceEntryId;
-  if (left.id === right.id) return true;
-  return left.timestamp === right.timestamp
-    && left.text === right.text
-    && JSON.stringify(left.images ?? []) === JSON.stringify(right.images ?? []);
-}
-
-/**
- * Authoritative messages are chronological. Optimistic entries are few and
- * arrive at the tail of a send, so insert them with binary search instead of
- * sorting the complete transcript on every assistant delta.
- */
-export function mergeTranscriptMessages(
-  authoritative: readonly UiMessage[],
-  optimistic: readonly UiMessage[],
-): UiMessage[] {
-  if (optimistic.length === 0) return authoritative as UiMessage[];
-  const merged = [...authoritative];
-  for (const message of optimistic) {
-    let low = 0;
-    let high = merged.length;
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2);
-      if (merged[middle].timestamp <= message.timestamp) low = middle + 1;
-      else high = middle;
-    }
-    merged.splice(low, 0, message);
-  }
-  return merged;
-}
-
-function elapsedLabel(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
-}
-
-interface NewThreadSubmissionCompletion {
-  pending: NewThreadDraft;
-  sessionId: string;
-  optimisticId: string;
-  prompt: string;
-  scope: DraftKey | undefined;
-  requestId: NewThreadRequestId;
-  result?: HostActionResult;
-  /** Present when an event may already have run this submission's hooks. */
-  recovery?: NewThreadSubmissionRecovery;
-}
-
-interface NewThreadSubmissionRecovery {
-  pending: NewThreadDraft;
-  requestId: NewThreadRequestId;
-  scopeRef: ComposerScopeReference;
-  draft: string;
-  attachments: PendingAttachment[];
-  optimistic: UiMessage;
-  /** The IPC call is still running; a failure must remain observable to it. */
-  ipcPending: boolean;
-  /** The host assigned a runtime session before the first prompt was durable. */
-  sessionId?: string;
-  promoted?: boolean;
-  /** The host answered this prompt without a user turn; expect no message. */
-  withoutUserTurn?: boolean;
-  /** Prompt hooks are shared by IPC and event promotion; run them once. */
-  notified?: boolean;
-  failed?: string;
-}
-
-export function mergeNewThreadRecoveryDraft(recovered: string, current: string): string {
-  if (!recovered) return current;
-  if (!current || current === recovered) return recovered;
-  if (current.includes(recovered)) return current;
-  const separator = recovered.endsWith("\n") || current.startsWith("\n") ? "" : "\n\n";
-  return `${recovered}${separator}${current}`;
-}
-
-export function mergeNewThreadRecoveryAttachments(
-  recovered: readonly PendingAttachment[],
-  current: readonly PendingAttachment[],
-): PendingAttachment[] {
-  const seen = new Set<string>();
-  return [...recovered, ...current].filter((attachment) => {
-    const key = `${attachment.name}\u0000${attachment.mimeType}\u0000${attachment.data}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function LiveStatus({ startedAt, label = "Pi is working" }: { startedAt?: number; label?: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (startedAt === undefined) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [startedAt]);
-  return <div className="live-status"><span className="spinner" /><span>{label}{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
-}
-
-/**
- * The composer owns transient editor state (selection, menus and focus), so
- * its host stays mounted while the surrounding conversation changes mode.
- * Animate the measured position change with FLIP; reduced-motion users get a
- * single immediate placement instead.
- */
-export function measureComposerGeometry(host: HTMLElement): DOMRect {
-  return host.querySelector<HTMLElement>("[data-composer-surface]")?.getBoundingClientRect()
-    ?? host.getBoundingClientRect();
-}
-
-interface ComposerHostProps {
-  start: boolean;
-  children: ReactNode;
-}
-
-export class ComposerHost extends Component<ComposerHostProps, Record<string, never>, DOMRect | undefined> {
-  private readonly hostRef = createRef<HTMLDivElement>();
-  private previousRect: DOMRect | undefined;
-  private frame: number | undefined;
-  private cleanupTimer: number | undefined;
-
-  componentDidMount(): void {
-    this.previousRect = this.measure();
-  }
-
-  getSnapshotBeforeUpdate(): DOMRect | undefined {
-    return this.measure();
-  }
-
-  componentDidUpdate(previousProps: ComposerHostProps, _previousState: Record<string, never>, beforeLayout?: DOMRect): void {
-    const current = this.measure();
-    const previous = beforeLayout ?? this.previousRect;
-    this.previousRect = current;
-    if (previousProps.start !== this.props.start) this.animate(previous, current);
-  }
-
-  componentWillUnmount(): void {
-    this.clearAnimation();
-  }
-
-  private measure(): DOMRect | undefined {
-    const host = this.hostRef.current;
-    return host ? measureComposerGeometry(host) : undefined;
-  }
-
-  private animate(previous: DOMRect | undefined, current: DOMRect | undefined): void {
-    const node = this.hostRef.current;
-    this.clearAnimation();
-    if (!node || !previous || !current) return;
-    const reduceMotion = typeof window.matchMedia === "function"
-      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) return;
-
-    const deltaX = previous.left - current.left;
-    const deltaY = previous.top - current.top;
-    if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return;
-
-    node.style.transition = "none";
-    node.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
-    node.style.willChange = "transform";
-    // Force the inverse transform to be painted before releasing it, otherwise
-    // browsers are free to collapse the two geometry states into one frame.
-    void node.offsetWidth;
-    this.frame = window.requestAnimationFrame(() => {
-      this.frame = undefined;
-      node.style.transition = "transform 220ms cubic-bezier(.2, .8, .2, 1)";
-      node.style.transform = "translate3d(0, 0, 0)";
-      this.cleanupTimer = window.setTimeout(() => {
-        this.cleanupTimer = undefined;
-        node.style.transition = "";
-        node.style.transform = "";
-        node.style.willChange = "";
-      }, 240);
-    });
-  }
-
-  private clearAnimation(): void {
-    const node = this.hostRef.current;
-    if (this.frame !== undefined) window.cancelAnimationFrame(this.frame);
-    if (this.cleanupTimer !== undefined) window.clearTimeout(this.cleanupTimer);
-    this.frame = undefined;
-    this.cleanupTimer = undefined;
-    if (node) {
-      node.style.transition = "";
-      node.style.transform = "";
-      node.style.willChange = "";
-    }
-  }
-
-  render(): ReactNode {
-    return <div ref={this.hostRef} className={`conversation-composer-host ${this.props.start ? "start" : "docked"}`}>{this.props.children}</div>;
-  }
-}
-
-export function useTailScroll(
-  ref: RefObject<HTMLDivElement | null>,
-  updates: readonly unknown[],
-  resetKey?: unknown,
-  preserveScrollRefOrPosition?: RefObject<boolean | undefined> | boolean,
-  preservePosition = false,
-): void {
-  // Keep the old boolean fourth argument usable for focused hook tests and
-  // callers, while the transcript controller uses its mutable preservation
-  // ref and the paging state occupies the fifth argument.
-  const preserveScrollRef = typeof preserveScrollRefOrPosition === "object"
-    ? preserveScrollRefOrPosition
-    : undefined;
-  const preservePositionValue = typeof preserveScrollRefOrPosition === "boolean"
-    ? preserveScrollRefOrPosition
-    : preservePosition;
-  const pinnedRef = useRef(true);
-  const frameRef = useRef<number | undefined>(undefined);
-  const preservePositionRef = useRef(preservePositionValue);
-  const skipTailAfterPreserveRef = useRef(false);
-  preservePositionRef.current = preservePositionValue;
-  const scheduleTail = () => {
-    if (preserveScrollRef?.current) {
-      pinnedRef.current = false;
-      return;
-    }
-    if (preservePositionRef.current) {
-      skipTailAfterPreserveRef.current = true;
-      return;
-    }
-    if (skipTailAfterPreserveRef.current) {
-      skipTailAfterPreserveRef.current = false;
-      return;
-    }
-    if (!pinnedRef.current || frameRef.current !== undefined) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = undefined;
-      const node = ref.current;
-      if (node && pinnedRef.current) node.scrollTop = node.scrollHeight;
-    });
-  };
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    // A fresh transcript starts at scrollTop 0 even when it is several screens
-    // tall. Treat it as pinned until the first tail placement completes.
-    pinnedRef.current = true;
-    let pointerDown = false;
-    let touchY: number | undefined;
-    const nearTail = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
-    const onScroll = () => {
-      if (nearTail()) pinnedRef.current = true;
-      else if (pointerDown) pinnedRef.current = false;
-    };
-    const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) pinnedRef.current = false;
-    };
-    const onPointerDown = () => { pointerDown = true; };
-    const onPointerUp = () => { pointerDown = false; };
-    const onTouchStart = (event: TouchEvent) => { touchY = event.touches[0]?.clientY; };
-    const onTouchMove = (event: TouchEvent) => {
-      const nextY = event.touches[0]?.clientY;
-      if (touchY !== undefined && nextY !== undefined && nextY > touchY) pinnedRef.current = false;
-      touchY = nextY;
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) pinnedRef.current = false;
-      if (event.key === "End") pinnedRef.current = true;
-    };
-    node.addEventListener("scroll", onScroll, { passive: true });
-    node.addEventListener("wheel", onWheel, { passive: true });
-    node.addEventListener("pointerdown", onPointerDown, { passive: true });
-    window.addEventListener("pointerup", onPointerUp, { passive: true });
-    node.addEventListener("touchstart", onTouchStart, { passive: true });
-    node.addEventListener("touchmove", onTouchMove, { passive: true });
-    node.addEventListener("keydown", onKeyDown);
-    const content = node.firstElementChild ?? node;
-    const observer = typeof ResizeObserver === "undefined"
-      ? undefined
-      : new ResizeObserver(() => scheduleTail());
-    observer?.observe(content);
-    scheduleTail();
-    return () => {
-      node.removeEventListener("scroll", onScroll);
-      node.removeEventListener("wheel", onWheel);
-      node.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointerup", onPointerUp);
-      node.removeEventListener("touchstart", onTouchStart);
-      node.removeEventListener("touchmove", onTouchMove);
-      node.removeEventListener("keydown", onKeyDown);
-      observer?.disconnect();
-      if (frameRef.current !== undefined) cancelAnimationFrame(frameRef.current);
-      frameRef.current = undefined;
-    };
-  }, [ref, resetKey]);
-
-  useEffect(() => {
-    if (preserveScrollRef?.current) {
-      pinnedRef.current = false;
-      return;
-    }
-    if (preservePositionValue) {
-      skipTailAfterPreserveRef.current = true;
-      if (frameRef.current !== undefined) {
-        cancelAnimationFrame(frameRef.current);
-        frameRef.current = undefined;
-      }
-      return;
-    }
-    scheduleTail();
-  // The array identity is intentionally controlled by the caller's visible records.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...updates, preservePositionValue]);
-}
 
 export default function App() {
   const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
@@ -1237,238 +771,46 @@ export default function App() {
     void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, workspaceCwd]);
 
-  const handleHostEvent = useCallback((event: HostEvent) => {
-    // Extensions see a bounded subset of events, after core has no say in them.
-    if (event.type === "tool-start" || event.type === "tool-end" || event.type === "agent-status"
-      || event.type === "user-message" || event.type === "assistant-end" || event.type === "thread-index" || event.type === "notice") {
-      queueMicrotask(() => registry.dispatchWorkbenchEvent(event));
-    }
-    // A real user message starts new work even when its thread is off-screen.
-    // The bridge can replay a persisted message under a transport-generated ID
-    // after reconnecting, so compare its stable content before changing the
-    // user's explicit settled choice.
-    if (event.type === "user-message") {
-      const clientMessageId = event.message.clientMessageId;
-      // A persisted user message is the positive acknowledgement for a
-      // detached new-thread prompt. It may arrive before newSession's IPC
-      // response, so promote from this event instead of waiting for the
-      // catalog/detail publication path.
-      if (clientMessageId && newThreadRecoveryRef.current.has(clientMessageId)) {
-        promoteRecoveryToSession(clientMessageId, event.sessionId, event.message);
-      }
-      const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
-      const known = active
-        ? messagesRef.current
-        : detailStoreRef.current.get(event.sessionId)?.messages;
-      // Tau already unsettles locally submitted work before it reaches the
-      // host. Without an inactive thread's detail, this event cannot tell a
-      // new message from a reconnect replay, so preserve the explicit choice.
-      if (known && !known.some((message) => isSameUserMessage(message, event.message))) {
-        preferences.unsettle(event.sessionId);
-      }
-    }
-    // A prompt with no user turn leaves an optimistic message that no
-    // transcript will ever confirm. This arrives before any new-thread
-    // settlement, so a draft promotion downstream knows not to expect one.
-    if (event.type === "prompt-without-user-turn") {
-      setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
-      const turnStart = transcriptTurnStartRef.current;
-      if (turnStart?.clientMessageId === event.clientMessageId) setTranscriptTurnStart(undefined, turnStart.turnId);
-      const recovery = newThreadRecoveryRef.current.get(event.clientMessageId);
-      if (recovery) recovery.withoutUserTurn = true;
-      return;
-    }
-    if (event.type === "new-thread-delivery-settled") {
-      settleNewThreadDelivery(event.clientMessageId, event.sessionId, event.accepted
-        ? { accepted: true }
-        : { accepted: false, message: event.message });
-    }
-    // Recovered run status alone must not undo an explicit settled choice.
-    if (event.type === "user-message-failed") {
-      // Bridge commands acknowledge dispatch before the runtime completes. A
-      // later failure still reconciles by the same request id, even if the
-      // user switched threads in the meantime.
-      setOptimisticMessages((current) => current.filter((entry) => entry.message.clientMessageId !== event.clientMessageId));
-      // A committed delivery has no record left, and deliberately so: the host
-      // only fails a client message it did not persist, so a draft restored
-      // after promotion would duplicate a prompt that is in the transcript.
-      const recovery = newThreadRecoveryRef.current.get(event.clientMessageId);
-      if (recovery) {
-        settleNewThreadDelivery(event.clientMessageId, event.sessionId, { accepted: false, message: event.message });
-      }
-      if (event.sessionId === threadStore.getSnapshot().activeThreadId
-        || recovery?.scopeRef.scope === activeDraftKeyRef.current) setNotice(event.message);
-      return;
-    }
-    // Every thread streams from its own runtime. Transcript and tool events for a
-    // thread that is not on screen are dropped here; its persisted state is
-    // re-read when it is opened.
-    if (
-      (event.type === "assistant-start" || event.type === "assistant-delta" || event.type === "assistant-thinking"
-        || event.type === "assistant-end" || event.type === "assistant-anchor" || event.type === "user-message" || event.type === "tool-start" || event.type === "tool-update"
-        || event.type === "tool-end" || event.type === "queue")
-      && event.sessionId !== threadStore.getSnapshot().activeThreadId
-    ) return;
-    switch (event.type) {
-      case "host-update": applyHostUpdate(event.update); break;
-      case "thread-index": applyThreadIndex(event.threadIndex); break;
-      case "extension-event": registry.dispatchExtensionEvent(event); break;
-      case "agent-status": {
-        // Record the run against its own thread first: a thread keeps its
-        // WORKING state while you are reading a different one.
-        threadStore.setThreadRunning(event.sessionId, event.running);
-        if (event.sessionId !== threadStore.getSnapshot().activeThreadId) break;
-        if (event.running) {
-          pendingToolUpdatesRef.current.clear();
-          if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
-          toolFrameRef.current = undefined;
-          updateTools([]);
-          toolAnchorRef.current = undefined;
-          setToolAnchorId(undefined);
-          setTurnActivitySessionId(event.sessionId);
-        }
-        threadStore.setStreaming(event.running);
-        setSnapshot((current) => {
-          if (event.running && current) runningThreadRef.current = current.sessionId;
-          return current ? { ...current, isStreaming: event.running } : current;
-        });
-        setRunStartedAt(event.running ? Date.now() : undefined);
-        if (!event.running) {
-          // A reconnect can miss a final tool-end frame. Keep that call open
-          // in the UI so ToolGroup can truthfully present it as interrupted;
-          // the host's authoritative detail replaces it when a result exists.
-          flushToolUpdates();
-          // "Ready" is an unread badge: only raise it if the user was not watching this finish.
-          const finished = runningThreadRef.current;
-          const viewed = threadStore.getSnapshot().activeThreadId;
-          if (finished && (finished !== viewed || document.hidden)) threadStore.markUnread(finished);
-          runningThreadRef.current = "";
-        }
-        break;
-      }
-      case "assistant-start":
-        // Tool-only assistant messages are common. Keep their timestamp off-screen
-        // until a visible text token arrives so virtualization never estimates a
-        // temporary empty row and shifts the transcript.
-        assistantStartsRef.current.set(event.id, event.timestamp);
-        break;
-      case "assistant-delta":
-        if (!transcriptMessageIndexRef.current!.has(event.id)) {
-          appendTranscriptMessage({
-            id: event.id,
-            role: "assistant",
-            text: "",
-            timestamp: assistantStartsRef.current.get(event.id) ?? Date.now(),
-          });
-        }
-        queueAssistantDelta(event.id, "text", event.delta);
-        break;
-      case "assistant-thinking":
-        // Thinking is transcript content, collapsed by default, like Pi's terminal.
-        if (!transcriptMessageIndexRef.current!.has(event.id)) {
-          appendTranscriptMessage({
-            id: event.id,
-            role: "assistant",
-            text: "",
-            timestamp: assistantStartsRef.current.get(event.id) ?? Date.now(),
-          });
-        }
-        queueAssistantDelta(event.id, "thinking", event.delta);
-        break;
-      case "assistant-end":
-        flushAssistantDeltas();
-        assistantStartsRef.current.delete(event.message.id);
-        if (!event.message.text) {
-          transcriptMessageIndexRef.current!.remove(event.message.id);
-          replaceTranscriptMessages(transcriptMessageIndexRef.current!.messages);
-        } else if (transcriptMessageIndexRef.current!.has(event.message.id)) {
-          updateTranscriptMessages(new Map([[event.message.id, () => event.message]]));
-        } else {
-          appendTranscriptMessage(event.message);
-        }
-        break;
-      case "assistant-anchor":
-        pendingAssistantAnchorsRef.current.set(event.sourceEntryId, {
-          id: event.id,
-          timestamp: event.timestamp,
-          ...(event.beforeMessageId ? { beforeMessageId: event.beforeMessageId } : {}),
-        });
-        setMessages((current) => {
-          const existing = current.find((message) => message.id === event.id
-            || message.sourceEntryId === event.sourceEntryId);
-          if (existing) {
-            pendingAssistantAnchorsRef.current.delete(event.sourceEntryId);
-            const next = current.map((message) => message.id === event.id
-              || message.sourceEntryId === event.sourceEntryId
-                ? { ...message, sourceEntryId: event.sourceEntryId }
-              : message);
-            messagesRef.current = next;
-            return next;
-          }
-          // A text-empty assistant is intentionally omitted from assistant-end
-          // events. Its marker is inserted once an extension row asks for the
-          // entry; a row arriving without this live anchor never reaches the tail.
-          return current;
-        });
-        break;
-      case "user-message":
-        if (transcriptMessageIndexRef.current!.has(event.message.id)) {
-          updateTranscriptMessages(new Map([[event.message.id, () => event.message]]));
-        } else {
-          appendTranscriptMessage(event.message);
-        }
-        setOptimisticMessages((current) => reconcileOptimisticMessages(current, [event.message]));
-        break;
-      case "tool-start": {
-        threadStore.toolStarted(event.tool.id, event.tool.name);
-        if (!toolAnchorRef.current) {
-          const anchor = [...messagesRef.current].reverse().find((message) => message.text.trim())?.id;
-          toolAnchorRef.current = anchor;
-          setToolAnchorId(anchor);
-        }
-        updateTools((current) => [...current.filter((tool) => tool.id !== event.tool.id), event.tool]);
-        break;
-      }
-      case "tool-update":
-        queueToolUpdate(event.id, event.output);
-        break;
-      case "tool-end":
-        pendingToolUpdatesRef.current.delete(event.tool.id);
-        threadStore.toolEnded(event.tool.id);
-        updateTools((current) => current.map((tool) => tool.id === event.tool.id ? event.tool : tool));
-        break;
-      case "event-log":
-        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) {
-          addEvent(event.label, event.detail, event.timestamp);
-        }
-        break;
-      case "error":
-        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message);
-        break;
-      case "extension-ui-prompt": {
-        // A renderer that already knows the answer (a pick made ahead of time) sends it.
-        const known = registry.interceptPrompt(event.prompt);
-        if (known) {
-          void window.tau?.answerExtensionUi(event.prompt.id, known);
-          break;
-        }
-        setUiPrompts((current) => [...current, event.prompt]);
-        break;
-      }
-      case "extension-ui-resolved":
-        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) {
-          setUiPrompts((current) => current.filter((entry) => entry.id !== event.id));
-        }
-        break;
-      case "notice":
-        if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) setNotice(event.message, event.level);
-        break;
-      case "queue":
-        setQueue([...event.steering, ...event.followUp]);
-        addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
-        break;
-    }
-  }, [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, replaceTranscriptMessages, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, updateTranscriptMessages]);
+  const hostEventStores = useMemo<HostEventStores>(() => ({
+    registry,
+    threadStore,
+    detailStore: detailStoreRef.current,
+    messages: messagesRef,
+    transcriptTurnStart: transcriptTurnStartRef,
+    recoveries: newThreadRecoveryRef,
+    activeDraftKey: activeDraftKeyRef,
+    assistantStarts: assistantStartsRef,
+    pendingToolUpdates: pendingToolUpdatesRef,
+    toolFrame: toolFrameRef,
+    toolAnchor: toolAnchorRef,
+    runningThread: runningThreadRef,
+    assistantAnchors: pendingAssistantAnchorsRef,
+    transcriptIndex: transcriptMessageIndexRef as { current: TranscriptMessageIndex },
+    setOptimisticMessages,
+    setTranscriptTurnStart,
+    setNotice,
+    settleNewThreadDelivery,
+    promoteRecoveryToSession,
+    applyHostUpdate,
+    applyThreadIndex,
+    flushAssistantDeltas,
+    flushToolUpdates,
+    updateTools,
+    setToolAnchorId,
+    setTurnActivitySessionId,
+    setSnapshot,
+    setRunStartedAt,
+    appendTranscriptMessage,
+    queueAssistantDelta,
+    replaceTranscriptMessages,
+    updateTranscriptMessages,
+    setMessages,
+    queueToolUpdate,
+    addEvent,
+    setUiPrompts,
+    setQueue,
+  }), [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, flushToolUpdates, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, registry, replaceTranscriptMessages, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, updateTranscriptMessages, updateTools]);
+  const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventStores), [hostEventStores]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -2355,7 +1697,10 @@ export default function App() {
   );
   const unconfirmedOptimisticMessages = useMemo(
     () => reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message),
-    [scopedOptimisticMessages, transcriptUserRevision],
+    // `userRevision` lives in the mutable transcript index and can become
+    // visible in a higher-priority render before the matching messages state.
+    // The array dependency makes the later authoritative commit reconcile too.
+    [messages, scopedOptimisticMessages, transcriptUserRevision],
   );
   const preparedThreadCapability = usePreparedThreadCapability(
     pendingNewThread?.sessionId ? undefined : pendingNewThread?.projectPath,
@@ -2404,94 +1749,12 @@ export default function App() {
     addDroppedFiles,
     composerAttachmentSnapshot.attachments,
   );
-  const conversationActivityTools = pendingNewThread ? [] : activityTools;
-  const conversationActivityHistory = pendingNewThread
-    ? []
-    : (turnActivityHistory.length > 0 ? turnActivityHistory : conversationSnapshot?.turnActivityHistory ?? []);
-  const currentActivityToolIds = new Set(conversationActivityTools.map((tool) => tool.id));
-  const currentActivityHistoryId = conversationActivityTools.length > 0
-    ? [...conversationActivityHistory].reverse().find((entry) => (
-      (toolAnchorId !== undefined && entry.anchorMessageId === toolAnchorId)
-      || entry.tools.some((tool) => currentActivityToolIds.has(tool.id))
-    ))?.id
-    : undefined;
-  const historicalActivityRows = conversationActivityHistory
-    .filter((entry) => entry.id !== currentActivityHistoryId)
-    .filter((entry) => entry.tools.some((tool) => tool.name !== "todo"))
-    .map((entry) => ({
-      id: entry.id,
-      afterMessageId: entry.anchorMessageId,
-      content: (
-        <ToolGroup
-          tools={entry.tools.filter((tool) => tool.name !== "todo")}
-          registry={registry}
-          streaming={entry.status === "running"}
-          activityStatus={entry.status}
-          onRecover={entry.status === "interrupted" ? () => void recoverThread() : undefined}
-          onCopyOutput={copyToolOutput}
-        />
-      ),
-    }));
-  const conversationPrompts = pendingNewThread ? [] : threadPrompts;
-  const liveTaskProgress = conversationSnapshot?.isStreaming && conversationSnapshot.taskProgress
-    ? <TaskProgress progress={conversationSnapshot.taskProgress} placement="transcript" />
-    : undefined;
-  const extensionRows = registry.getTranscriptRows(conversationSnapshot?.sessionId);
-  const liveStatusLabel = registry.getLiveStatus(conversationSnapshot?.sessionId);
-  // A text-empty assistant is left out of the transcript until an extension
-  // row asks for its entry; then its marker goes where the host said.
-  useEffect(() => {
-    const pending = pendingAssistantAnchorsRef.current;
-    if (pending.size === 0) return;
-    const wanted = extensionRows.flatMap((row) => row.afterMessageId !== undefined && pending.has(row.afterMessageId) ? [row.afterMessageId] : []);
-    if (wanted.length === 0) return;
-    setMessages((current) => {
-      let next = current;
-      for (const sourceEntryId of new Set(wanted)) {
-        const anchor = pending.get(sourceEntryId);
-        if (!anchor) continue;
-        pending.delete(sourceEntryId);
-        if (next.some((message) => message.sourceEntryId === sourceEntryId || message.id === anchor.id)) continue;
-        const marker: UiMessage = { id: anchor.id, sourceEntryId, role: "assistant", text: "", timestamp: anchor.timestamp };
-        const beforeIndex = anchor.beforeMessageId === undefined
-          ? -1
-          : next.findIndex((message) => message.id === anchor.beforeMessageId || message.sourceEntryId === anchor.beforeMessageId);
-        next = beforeIndex < 0 ? [...next, marker] : [...next.slice(0, beforeIndex), marker, ...next.slice(beforeIndex)];
-      }
-      if (next !== current) messagesRef.current = next;
-      return next;
-    });
-  }, [extensionRows]);
-  const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
-    ...historicalActivityRows,
-    ...((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
-      id: entry.id,
-      afterMessageId: entry.anchorMessageId,
-      content: <TaskProgress progress={entry.progress} placement="transcript" />,
-    }))),
-    ...(liveTaskProgress ? [{
-      id: "live-task-progress",
-      afterMessageId: visibleToolAnchorId,
-      fallbackToTail: true,
-      content: liveTaskProgress,
-    }] : []),
-    // Rows extensions publish for this thread; the transcript anchors them itself.
-    ...extensionRows,
-    ...(conversationActivityTools.length > 0 ? [{
-      id: "turn-activity",
-      afterMessageId: visibleToolAnchorId,
-      fallbackToTail: true,
-      content: <ToolGroup
-        tools={conversationActivityTools}
-        registry={registry}
-        streaming={conversationSnapshot?.isStreaming}
-        waiting={conversationPrompts.length > 0}
-        onRecover={() => void recoverThread()}
-        onStop={() => void window.tau?.abort(snapshot?.sessionId)}
-        onCopyOutput={copyToolOutput}
-      />,
-    }] : []),
-  ], [conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, snapshot?.sessionId, visibleToolAnchorId]);
+  const { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities } = useConversationActivities({
+    pendingNewThread: Boolean(pendingNewThread), activityTools, turnActivityHistory, conversationSnapshot,
+    toolAnchorId, visibleToolAnchorId, threadPrompts, registry, registryVersion,
+    pendingAssistantAnchors: pendingAssistantAnchorsRef, messages: messagesRef, setMessages,
+    recoverThread, copyToolOutput, abortSessionId: snapshot?.sessionId,
+  });
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
@@ -2501,334 +1764,24 @@ export default function App() {
     ?? projects.find((project) => project.path === startProjectPath)?.name
     ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
     ?? startProjectPath;
-  useEffect(() => {
-    const element = centerRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      setCenterCompact(entry.contentRect.width < CENTER_SPLIT_MIN_WIDTH);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  const centerClassName = [
-    "workbench-center",
-    stage.tabs.length > 0 ? "stage-open" : "",
-    centerCompact ? "compact" : "",
-    centerCompact && chatFocused ? "chat-focused" : "",
-  ].filter(Boolean).join(" ");
-  const shellClassName = [
-    "app-shell",
-    sidebarContributions.length === 0 ? "no-sidebar" : "",
-    panels.length === 0 ? "no-dock" : "",
-    dockOpen ? "" : "dock-closed",
-  ].filter(Boolean).join(" ");
-
-  const conversationComposer = (
-    <Composer
-      snapshot={conversationSnapshot}
-      scopeStore={composerScopeStore}
-      seed={composerSeed}
-      draftStorageKey={activeDraftKey}
-      queue={queue}
-      contextUsage={snapshot?.contextUsage}
-      contextBreakdown={contextBreakdown}
-      textareaRef={composerRef}
-      attachmentRef={composerAttachmentRef}
-      onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
-      onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
-      onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
-      onSetModel={(provider, id) => void setModel(provider, id)}
-      onSetThinking={(level) => void setThinking(level)}
-      prompt={conversationPrompts[0]}
-      promptsPending={Math.max(0, conversationPrompts.length - 1)}
-      onAnswerPrompt={(value, typed) => {
-        const active = conversationPrompts[0];
-        if (!active) return;
-        answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
-      }}
-      onCancelPrompt={() => {
-        const active = conversationPrompts[0];
-        if (active) answerUiPrompt(active.id, { cancelled: true });
-      }}
-      onCompactContext={() => void compactContext()}
-      held={composerHolds > 0}
-    />
-  );
-
-  const overlays = (
-    <>
-      {threadTreeModal ? (
-        <ThreadTreeModal
-          tree={threadTreeModal.tree}
-          mode={threadTreeModal.mode}
-          busy={threadTreeModal.busy}
-          error={threadTreeModal.error}
-          onClose={() => setThreadTreeModal(undefined)}
-          onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)}
-          onFork={(entryId) => void forkFromTree(entryId)}
-        />
-      ) : null}
-      <LazyFeatureBoundary label="command palette">
-        <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
-          <LazyCommandPalette
-            open={paletteOpen}
-            shortcutFor={(commandId) => registry.keybindingLabel(commandId)}
-            commands={commands}
-            extensionCount={registry.getExtensionNames().length}
-            actions={actions}
-            onClose={() => setPaletteOpen(false)}
-          />
-        </Suspense>
-      </LazyFeatureBoundary>
-      {projectSourcesOpen ? (
-        <ProjectSourcesModal actions={actions} onClose={() => setProjectSourcesOpen(false)} sources={registry.getProjectSources()} />
-      ) : null}
-      <ProjectPicker
-        open={newThreadOpen}
-        projects={projects}
-        onBrowse={() => actions.openProjectSources()}
-        onClose={() => setNewThreadOpen(false)}
-        onRemove={removeProject}
-        onSelect={(project) => createThreadInProject(project)}
-      />
-      {settingsPage ? (
-        <LazyFeatureBoundary label="settings">
-          <Suspense fallback={<LazyFeatureFallback label="settings" />}>
-            <LazySettingsModal
-              page={settingsPage}
-              snapshot={snapshot}
-              registry={registry}
-              onSetPage={setSettingsPage}
-              onSetModel={(provider, id) => void setModel(provider, id)}
-              onSetThinking={(level) => void setThinking(level)}
-              onClose={() => setSettingsPage(undefined)}
-              onNotify={setNotice}
-            />
-          </Suspense>
-        </LazyFeatureBoundary>
-      ) : null}
-      {notice ? (
-        <button className="toast" data-level={noticeLevel} onClick={() => setNotice(undefined)}>
-          <b>{noticeLevel === "info" ? "NOTICE" : noticeLevel.toUpperCase()}</b><span>{notice}</span><i>×</i>
-        </button>
-      ) : null}
-    </>
-  );
-
-  const activeOverlay = registry.getOverlay(activeOverlayId);
-  if (activeOverlay) {
-    return (
-      <ThreadStoreContext.Provider value={threadStore}>
-        <WorkbenchShellContext.Provider value={shellContextValue}>
-          <WorkbenchContext.Provider value={contextValue}>
-                <ObservatoryContext.Provider value={observatoryContextValue}>
-                  <LazyFeatureBoundary label={activeOverlay.id}>
-                    <Suspense fallback={<LazyFeatureFallback label={activeOverlay.id} />}>
-                      <activeOverlay.Component actions={actions} onClose={() => setActiveOverlayId(undefined)} />
-                    </Suspense>
-                  </LazyFeatureBoundary>
-                  {overlays}
-                </ObservatoryContext.Provider>
-          </WorkbenchContext.Provider>
-        </WorkbenchShellContext.Provider>
-      </ThreadStoreContext.Provider>
-    );
-  }
-
-  return (
-    <ThreadStoreContext.Provider value={threadStore}>
-      <WorkbenchShellContext.Provider value={shellContextValue}>
-        <WorkbenchContext.Provider value={contextValue}>
-            <ObservatoryContext.Provider value={observatoryContextValue}>
-          <div className={shellClassName}>
-            <TitleBar
-              cwd={workspaceCwd}
-              dockOpen={dockOpen}
-              registry={registry}
-              snapshot={snapshot}
-              actions={actions}
-              onToggleDock={() => setDockOpen((value) => !value)}
-            />
-
-            {sidebarContributions.map((contribution) => (
-              <LazyFeatureBoundary key={contribution.id} label="sidebar">
-                <Suspense fallback={<LazyFeatureFallback label="sidebar" />}>
-                  <contribution.Component actions={actions} />
-                </Suspense>
-              </LazyFeatureBoundary>
-            ))}
-
-            <div className={centerClassName} ref={centerRef}>
-            <main
-              className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
-              onDragEnter={threadDropController.onDragEnter}
-              onDragOver={threadDropController.onDragOver}
-              onDragLeave={threadDropController.onDragLeave}
-              onDrop={threadDropController.onDrop}
-            >
-              {threadDropController.state !== "idle" ? (
-                <div className={`conversation-drop-overlay ${threadDropController.state}`} role="status" aria-live="polite">
-                  <div className="conversation-drop-card">
-                    <strong>{THREAD_DROP_FEEDBACK[threadDropController.state].title}</strong>
-                    <span>{THREAD_DROP_FEEDBACK[threadDropController.state].description}</span>
-                  </div>
-                </div>
-              ) : null}
-              <section
-                className="conversation-start-screen"
-                aria-labelledby={showStartScreen ? "start-screen-title" : undefined}
-              >
-                <div className="conversation-start-content">
-                  {showStartScreen ? (
-                    <>
-                      <h1 id="start-screen-title">What do you want to build?</h1>
-                      <button
-                        type="button"
-                        className="conversation-start-project"
-                        aria-label={`Change project, current project ${startProjectName}`}
-                        onClick={() => setNewThreadOpen(true)}
-                      >
-                        <i><Folder size={17} /></i>
-                        <span>
-                          <small>Current project</small>
-                          <strong>{startProjectName}</strong>
-                          <code title={startProjectPath}>{displayPath(startProjectPath)}</code>
-                        </span>
-                        <b>Change</b>
-                        <ChevronDown size={15} />
-                      </button>
-                    </>
-                  ) : null}
-                  <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
-                  <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
-                  <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
-                </div>
-              </section>
-              <div className="conversation-thread">
-                {!showStartScreen ? (
-                  <>
-                  <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
-              <header className="conversation-header">
-                <ThreadTitleMenu
-                  title={conversationSnapshot?.sessionTitle || "Untitled thread"}
-                  label={snapshot?.projectLabel}
-                  pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
-                  settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
-                  onNewThread={() => setNewThreadOpen(true)}
-                  onOpenTree={() => openThreadTree("navigate")}
-                  onDuplicate={() => void duplicateThread()}
-                  onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
-                  onToggleSettled={settleActiveThread}
-                  onRename={renameThread}
-                  commands={titleCommands}
-                  onCommand={(id) => { void titleCommands.find((command) => command.id === id)?.run(actions); }}
-                  onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
-                  onCopy={(kind) => void copyThreadValue(kind)}
-                />
-                <span className="title-spacer" />
-              </header>
-
-              <TranscriptHistoryBoundary
-                controller={transcriptHistory}
-                scrollRef={transcriptRef}
-                showControl={!pendingNewThread && conversationMessages.length > 0}
-                loadPage={loadTranscriptPage}
-                applyPage={applyTranscriptPage}
-              >
-                {() => <TranscriptViewport
-                messages={conversationMessages}
-                scrollRef={transcriptRef}
-                sessionId={conversationSnapshot?.sessionId}
-                scopeKey={transcriptScopeKey}
-                revision={transcriptRevision}
-                lookupRevision={transcriptLookupRevision}
-                scope={transcriptTurnStart?.scope ?? transcriptScope}
-                turnStart={visibleTranscriptTurnStart}
-                isStreaming={Boolean(conversationSnapshot?.isStreaming)}
-                activities={transcriptActivities}
-                liveStatus={liveStatusLabel !== undefined
-                  ? <LiveStatus label={liveStatusLabel} />
-                  : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
-                    ? <LiveStatus startedAt={runStartedAt} />
-                    : undefined}
-                onCopyMessage={(message) => void copyMessage(message)}
-                onForkMessage={(message) => void forkMessage(message)}
-              />}
-              </TranscriptHistoryBoundary>
-
-              <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
-                </>
-                ) : null}
-              </div>
-              <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
-            </main>
-
-            {stage.tabs.length > 0 ? (
-              <LazyFeatureBoundary label="stage">
-                <Suspense fallback={<section className="stage"><LazyFeatureFallback label="stage" /></section>}>
-                  <LazyStage
-                    stage={stage}
-                    cwd={snapshot?.cwd}
-                    changes={documentState.changes}
-                    editor={documentState.editor}
-                    chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: () => setChatFocused(true) } : undefined}
-                    loadFile={documentSource?.loadFile ?? loadFileUnavailable}
-                    loadDiff={documentSource?.loadDiff ?? loadDiffUnavailable}
-                    onActivate={(id) => setStage((current) => activateStageTab(current, id))}
-                    onClose={(id) => setStage((current) => closeStageTab(current, id))}
-                    onPin={(id) => setStage((current) => pinStageTab(current, id))}
-                    onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
-                    onOpenInEditor={(path) => documentSource?.openInEditor(path)}
-                  />
-                </Suspense>
-              </LazyFeatureBoundary>
-            ) : null}
-            </div>
-
-            {panels.length > 0 ? (
-              <aside className="instrument-dock">
-                {dockOpen ? (
-                  <div className="panel-stage">
-                    {panels.map((panel) => openedPanels.has(panel.id) ? (
-                      <MountedPanel
-                        key={panel.id}
-                        Component={panel.Component}
-                        active={activePanel === panel.id}
-                        label={panel.label}
-                        extensionName={panel.extensionName}
-                      />
-                    ) : null)}
-                  </div>
-                ) : null}
-                <nav className="panel-rail">
-                  {panels.map((panel) => (
-                    <button
-                      key={panel.id}
-                      title={panel.label}
-                      aria-label={panel.label}
-                      className={dockOpen && activePanel === panel.id ? "active" : ""}
-                      onClick={() => openPanel(panel.id)}
-                    >
-                      <PanelIcon name={panel.glyph} />
-                    </button>
-                  ))}
-                  <span className="spacer" />
-                  <button
-                    title={dockOpen ? "Collapse panel" : "Expand panel"}
-                    aria-label={dockOpen ? "Collapse panel" : "Expand panel"}
-                    onClick={() => setDockOpen((value) => !value)}
-                  >
-                    {dockOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
-                  </button>
-                </nav>
-              </aside>
-            ) : null}
-          </div>
-          {overlays}
-            </ObservatoryContext.Provider>
-        </WorkbenchContext.Provider>
-      </WorkbenchShellContext.Provider>
-    </ThreadStoreContext.Provider>
-  );
+  return <Workbench model={{
+    registry, actions, threadStore, context: contextValue, shellContext: shellContextValue,
+    observatoryContext: observatoryContextValue, snapshot, workspaceCwd, dockOpen, setDockOpen,
+    sidebarContributions, panels, activePanel, openedPanels, openPanel, centerRef, centerCompact,
+    setCenterCompact, chatFocused, setChatFocused, stage, setStage, documentState, documentSource,
+    visibleStreaming, showStartScreen, startProjectPath, startProjectName, setNewThreadOpen,
+    dropController: threadDropController, conversationSnapshot, composerScopeStore, composerSeed,
+    activeDraftKey, queue, contextBreakdown, composerRef, composerAttachmentRef, submit, setQueue,
+    setModel, setThinking, conversationPrompts, answerUiPrompt, compactContext, composerHolds,
+    settings, titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread,
+    copyThreadValue, pendingNewThread: Boolean(pendingNewThread), conversationMessages,
+    transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
+    transcriptRevision, transcriptLookupRevision, transcriptScope, transcriptTurnStart,
+    visibleTranscriptTurnStart, transcriptActivities, liveStatusLabel, conversationActivityTools,
+    runStartedAt, copyMessage, forkMessage, threadTreeModal, setThreadTreeModal,
+    navigateThreadTree, forkFromTree, paletteOpen, setPaletteOpen, commands, projectSourcesOpen,
+    setProjectSourcesOpen, newThreadOpen, projects, removeProject, createThreadInProject,
+    settingsPage, setSettingsPage, notice, noticeLevel, setNotice, activeOverlayId,
+    setActiveOverlayId,
+  }} />;
 }
