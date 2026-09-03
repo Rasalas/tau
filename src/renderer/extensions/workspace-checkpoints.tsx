@@ -233,9 +233,10 @@ export function registerCheckpoints(plugin: DesktopExtensionContext): void {
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
     if (event?.type === "turn-checkpoint") { store.announce(event.checkpoint); workspaceStore.checkpointRecorded(event.sessionId); }
-    // The capture waits for the workspace lease before Pi starts; say so in place of the spinner.
+    // The capture briefly waits for the workspace lease before Pi starts; say so in place of the spinner.
     else if (event?.type === "turn-checkpoint-status") {
       plugin.setLiveStatus(event.sessionId, event.status === "queued" || event.status === "waiting" ? "Waiting for workspace…" : undefined);
+      if (event.status === "skipped") store.update({ notice: "Turn changes were not recorded: another turn is active in this workspace." });
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
   plugin.registerRegion({ id: "workspace.checkpoints", placement: "transcript-header", order: 100, Component: createController(store, rows) });

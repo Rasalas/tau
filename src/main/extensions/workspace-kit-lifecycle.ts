@@ -127,7 +127,10 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
           try { services.log("turn.checkpoint.saved", `${stored.fileCount} ${stored.fileCount === 1 ? "file" : "files"}`); } catch { /* diagnostics are best effort */ }
         },
         onError: (error, capture) => services.log("turn.checkpoint.failed", `${capture.id}: ${errorMessage(error)}`),
-        onStatus: (status, capture) => emit({ type: "turn-checkpoint-status", sessionId, turnId: capture.id, status }),
+        onStatus: (status, capture) => {
+          if (status === "skipped") services.log("turn.checkpoint.skipped", `${capture.id}: workspace busy`);
+          emit({ type: "turn-checkpoint-status", sessionId, turnId: capture.id, status });
+        },
         onReleased: (capture) => { record.deferred.delete(capture.id); },
       }),
     };

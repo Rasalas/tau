@@ -171,6 +171,8 @@ export interface WorkspaceKitCheckpointFeatureOptions {
   ): Promise<void>;
   leaseManager?: WorkspaceCheckpointLeaseManager;
   maintenance?: WorkspaceKitCheckpointMaintenance;
+  /** Defaults to `DEFAULT_LEASE_TIMEOUT_MS`; a busy workspace skips the checkpoint instead of delaying Pi. */
+  leaseTimeoutMs?: number;
   onError?(error: unknown, capture: TurnCaptureState<workspaceGit.WorkspaceSnapshot>): void;
   onStatus?(status: TurnCheckpointStatus, capture: TurnCaptureState<workspaceGit.WorkspaceSnapshot>): void;
   onReleased?(capture: TurnCaptureState<workspaceGit.WorkspaceSnapshot>): void | Promise<void>;
@@ -202,6 +204,12 @@ export interface WorkspaceKitCheckpointFeature {
   ): Promise<UiWorkspaceChangesPage>;
   close(): Promise<void>;
 }
+
+/**
+ * Long enough for a neighbouring turn's persist or a ref sweep to finish, short
+ * enough that a parallel thread in the same worktree feels instant.
+ */
+export const DEFAULT_LEASE_TIMEOUT_MS = 1_000;
 
 /** Creates the one shared Workspace Kit feature instance used by host and Pi bridge. */
 export function createWorkspaceKitCheckpointFeature(
@@ -275,7 +283,10 @@ export function createWorkspaceKitCheckpointFeature(
     ...(options.onStatus ? { onStatus: options.onStatus } : {}),
     ...(options.onReleased ? { onReleased: options.onReleased } : {}),
   };
-  const lifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>(createTurnCheckpointAdapter(adapterOptions));
+  const lifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>(
+    createTurnCheckpointAdapter(adapterOptions),
+    { leaseTimeoutMs: options.leaseTimeoutMs ?? DEFAULT_LEASE_TIMEOUT_MS },
+  );
   const runtime: WorkspaceKitCheckpointRuntime = {
     get: (id) => lifecycle.get(id),
     acceptUserTurn: (id, acceptOptions) => lifecycle.acceptUserTurn(id, acceptOptions),

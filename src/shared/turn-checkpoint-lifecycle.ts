@@ -19,6 +19,8 @@ export function startTurnCapture<Snapshot>(
     deferBefore?: boolean;
     expectsInput?: boolean;
     acquireLease?: (signal?: AbortSignal) => Promise<TurnCheckpointLease | undefined>;
+    /** Give up on the lease after this long and run the turn without a checkpoint. */
+    leaseTimeoutMs?: number;
     onStatus?: (status: TurnCheckpointStatus) => void;
   } = {},
 ): TurnCaptureState<Snapshot> {
@@ -38,7 +40,12 @@ export function startTurnCapture<Snapshot>(
       .then(async () => {
         options.onStatus?.("waiting");
         if (options.acquireLease) {
-          const lease = await options.acquireLease(capture.abortController?.signal);
+          const lease = await acquireLeaseWithin(options.acquireLease, capture.abortController?.signal, options.leaseTimeoutMs);
+          if (lease === "busy") {
+            capture.skipped = true;
+            options.onStatus?.("skipped");
+            return undefined;
+          }
           if (!lease) {
             options.onStatus?.("failed");
             return undefined;
@@ -58,6 +65,34 @@ export function startTurnCapture<Snapshot>(
   capture.beforeFactory = start;
   if (!options.deferBefore) start();
   return capture;
+}
+
+/**
+ * Bounds lease acquisition so a busy workspace never delays the prompt. A
+ * timeout aborts this turn's queue ticket; the client's own abort still
+ * surfaces as an error.
+ */
+async function acquireLeaseWithin(
+  acquire: (signal?: AbortSignal) => Promise<TurnCheckpointLease | undefined>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+): Promise<TurnCheckpointLease | undefined | "busy"> {
+  if (timeoutMs === undefined) return acquire(signal);
+  const controller = new AbortController();
+  const forward = () => controller.abort();
+  if (signal?.aborted) forward();
+  else signal?.addEventListener("abort", forward, { once: true });
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    return await acquire(controller.signal);
+  } catch (error) {
+    if (timedOut && !signal?.aborted) return "busy";
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forward);
+  }
 }
 
 function ensureBeforeSnapshot<Snapshot>(capture: TurnCaptureState<Snapshot>): Promise<Snapshot | undefined> {
@@ -97,6 +132,11 @@ function removeId(ids: string[], id: string): void {
   if (index >= 0) ids.splice(index, 1);
 }
 
+export interface TurnCheckpointLifecycleOptions {
+  /** How long a turn waits for the workspace lease before running without a checkpoint. */
+  leaseTimeoutMs?: number;
+}
+
 /**
  * Shared Pi user-turn state machine. `agent_end` is deliberately not a turn
  * boundary: retries and queued follow-ups can follow it. A capture is assigned
@@ -112,7 +152,10 @@ export class TurnCheckpointLifecycle<Snapshot> {
   /** True when the current `turn_start` selected a new client capture. */
   private activeTurnFreshCapture = false;
 
-  constructor(private readonly adapter: TurnCheckpointLifecycleAdapter<Snapshot>) {}
+  constructor(
+    private readonly adapter: TurnCheckpointLifecycleAdapter<Snapshot>,
+    private readonly options: TurnCheckpointLifecycleOptions = {},
+  ) {}
 
   acceptUserTurn(id: string, options: AcceptTurnOptions = {}): TurnCaptureState<Snapshot> {
     const existing = this.captures.get(id);
@@ -129,6 +172,7 @@ export class TurnCheckpointLifecycle<Snapshot> {
         deferBefore: true,
         expectsInput: options.expectsInput,
         acquireLease: this.adapter.acquireLease ? (signal) => this.adapter.acquireLease!(id, signal) : undefined,
+        leaseTimeoutMs: this.options.leaseTimeoutMs,
         onStatus: (status) => this.status(status, capture),
       },
     );
@@ -263,6 +307,7 @@ export class TurnCheckpointLifecycle<Snapshot> {
     if (stopReason === "error" || stopReason === "aborted") return;
     if (stopReason === "length") return;
     capture.outcome = "completed";
+    if (capture.skipped) return;
     // After capture is started at the assistant boundary; summary/persistence
     // remains on this thread's lifecycle queue and holds the lease.
     void startAfterSnapshot(capture, () => this.adapter.createAfter(capture.id));
@@ -331,6 +376,8 @@ export class TurnCheckpointLifecycle<Snapshot> {
   }
 
   private async captureAndPersistOnce(capture: TurnCaptureState<Snapshot>): Promise<void> {
+    // A skipped capture owns no refs and no lease; there is nothing to persist or discard.
+    if (capture.skipped) { await this.forget(capture); return; }
     if (!capture.anchorMessageId && capture.anchorFactory) {
       try { capture.anchorMessageId = capture.anchorFactory(); } catch (error) { reportLifecycleError(this.adapter, error, capture); }
     }
@@ -372,6 +419,7 @@ export class TurnCheckpointLifecycle<Snapshot> {
 
   private async discardOnce(capture: TurnCaptureState<Snapshot>): Promise<void> {
     capture.abortController?.abort();
+    if (capture.skipped) { await this.forget(capture); return; }
     try {
       const after = capture.afterStarted ? await this.resolveSnapshot(capture, capture.afterSnapshot) : undefined;
       const before = capture.beforeStarted ? await this.resolveSnapshot(capture, capture.beforeSnapshot) : undefined;

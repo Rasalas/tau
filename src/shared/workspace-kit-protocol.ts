@@ -12,7 +12,7 @@ import type {
   WorkspaceChangesQuery,
   WorkspaceInfo,
 } from "./workspace-kit-types.js";
-import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
+import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { HostActionResult } from "./host-protocol.js";
 
 export type { FileNode, ChangeStatus, UiChangedFile, WorkspaceChangesCompleteness, WorkspaceDiffScope, WorkspaceChangesQuery, UiReviewRequest, UiWorkspaceChanges, UiWorkspaceChangesPage, DiffLineKind, UiDiffLine, UiDiffHunk, DiffLoadOptions, UiFileDiff, UiFileContent, UiWorktree, UiWorktreeStatus, UiRef, WorkspaceInfo, UiEditor, CommitResult, PushResult } from "./workspace-kit-types.js";
@@ -76,7 +76,7 @@ export interface WorkspaceCheckpointList {
 export const CHECKPOINT_EVENT = "checkpoint";
 export type CheckpointEvent =
   | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
-  | { type: "turn-checkpoint-status"; sessionId: string; turnId: string; status: "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed" }
+  | { type: "turn-checkpoint-status"; sessionId: string; turnId: string; status: TurnCheckpointStatus }
   | { type: "turn-checkpoint-error"; sessionId: string; turnId: string; message: string };
 
 export type WorkspaceHostCommand = keyof WorkspaceHostCommands;

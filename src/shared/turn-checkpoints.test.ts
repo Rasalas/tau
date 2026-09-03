@@ -491,6 +491,93 @@ describe("turn checkpoints", () => {
     expect(lifecycle.pendingCount).toBe(0);
   });
 
+  it("runs the turn without a checkpoint when the workspace lease stays busy past the timeout", async () => {
+    const statuses: string[] = [];
+    const calls: string[] = [];
+    const errors: unknown[] = [];
+    let ticketAborted = false;
+    const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({
+      createBefore: async () => { calls.push("before"); return { id: "before" }; },
+      createAfter: async () => { calls.push("after"); return { id: "after" }; },
+      summarize: async () => ({ files: [], added: 0, removed: 0 }),
+      discardSnapshot: (snapshot) => { calls.push(`discard:${snapshot.id}`); },
+      discardTurnSnapshot: (_turnId, phase) => { calls.push(`discard-phase:${phase}`); },
+      acquireLease: (_turnId, signal) => new Promise((_resolve, reject) => {
+        const abort = () => { ticketAborted = true; reject(new Error("aborted")); };
+        if (signal?.aborted) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+      }),
+      persist: async () => { calls.push("persist"); },
+      onError: (error) => errors.push(error),
+      onStatus: (status) => statuses.push(status),
+    }, { leaseTimeoutMs: 10 });
+
+    lifecycle.acceptUserTurn("turn");
+    await lifecycle.prepare("turn");
+    expect(ticketAborted).toBe(true);
+    expect(statuses).toEqual(["queued", "waiting", "skipped"]);
+    expect(lifecycle.get("turn")?.skipped).toBe(true);
+
+    await lifecycle.beginTurn();
+    await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant");
+    await lifecycle.close();
+    expect(calls).toEqual([]);
+    expect(errors).toEqual([]);
+    expect(statuses).toEqual(["queued", "waiting", "skipped"]);
+    expect(lifecycle.pendingCount).toBe(0);
+  });
+
+  it("keeps the checkpoint when the lease arrives inside the timeout", async () => {
+    const released: string[] = [];
+    const statuses: string[] = [];
+    const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({
+      createBefore: async () => ({ id: "before" }),
+      createAfter: async () => ({ id: "after" }),
+      summarize: async () => ({ files: [], added: 0, removed: 0 }),
+      discardSnapshot: () => undefined,
+      acquireLease: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { release: () => { released.push("lease"); } };
+      },
+      persist: async () => { released.push("persist"); },
+      onStatus: (status) => statuses.push(status),
+    }, { leaseTimeoutMs: 1_000 });
+
+    lifecycle.acceptUserTurn("turn");
+    await lifecycle.beginTurn();
+    await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant");
+    await lifecycle.close();
+    expect(released).toEqual(["persist", "lease"]);
+    expect(statuses).toEqual(["queued", "waiting", "capturing", "persisting", "ready"]);
+    expect(lifecycle.get("turn")).toBeUndefined();
+  });
+
+  it("reports a client abort during the lease wait as failed, not skipped", async () => {
+    const statuses: string[] = [];
+    const lifecycle = new TurnCheckpointLifecycle<{ id: string }>({
+      createBefore: async () => ({ id: "before" }),
+      createAfter: async () => ({ id: "after" }),
+      summarize: async () => ({ files: [], added: 0, removed: 0 }),
+      discardSnapshot: () => undefined,
+      // Like the real lease manager, a waiter checks the signal before it polls.
+      acquireLease: (_turnId, signal) => new Promise((_resolve, reject) => {
+        const abort = () => reject(new Error("aborted"));
+        if (signal?.aborted) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+      }),
+      persist: async () => undefined,
+      onStatus: (status) => statuses.push(status),
+    }, { leaseTimeoutMs: 1_000 });
+
+    lifecycle.acceptUserTurn("turn");
+    const preparing = lifecycle.prepare("turn");
+    await lifecycle.reject("turn");
+    await preparing;
+    expect(statuses).not.toContain("skipped");
+    expect(statuses).toContain("failed");
+    expect(lifecycle.pendingCount).toBe(0);
+  });
+
   it("serializes concurrent settle calls for one thread", async () => {
     let persistCalls = 0;
     let resolvePersist!: () => void;

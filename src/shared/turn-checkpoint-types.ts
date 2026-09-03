@@ -22,7 +22,8 @@ export interface UiTurnCheckpoint extends UiWorkspaceChanges {
 /** Outcome of one accepted user turn, independent of Pi's low-level retries. */
 export type TurnOutcome = "completed" | "aborted" | "error";
 
-export type TurnCheckpointStatus = "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed";
+/** `skipped`: another turn held the workspace too long; Pi ran without a checkpoint. */
+export type TurnCheckpointStatus = "queued" | "waiting" | "capturing" | "persisting" | "ready" | "failed" | "skipped";
 
 /** The lifecycle keeps this handle until the checkpoint entry is durable. */
 export interface TurnCheckpointLease {
@@ -61,6 +62,8 @@ export interface TurnCaptureState<Snapshot = unknown> {
   lease?: TurnCheckpointLease;
   /** Cancels a queued lease acquisition when the client rejects its prompt. */
   abortController?: AbortController;
+  /** The workspace stayed busy past the lease timeout; no refs or lease exist for this turn. */
+  skipped?: boolean;
 }
 
 export interface TurnOutcomeEvent {
