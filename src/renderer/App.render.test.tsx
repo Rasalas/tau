@@ -601,6 +601,59 @@ describe("App render isolation", () => {
     }
   });
 
+  it("discards an unsubmitted draft when switching projects from the sidebar", async () => {
+    const openProject = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [
+        { version: 1 as const, type: "project" as const, project: { cwd: "/other" } },
+        {
+          version: 1 as const,
+          type: "thread-detail" as const,
+          detail: { sessionId: "other-session", messages: [], isStreaming: false, activeTools: [] },
+        },
+      ],
+    }));
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [
+          { path: "/project", name: "project", lastOpenedAt: 2 },
+          { path: "/other", name: "other", lastOpenedAt: 1 },
+        ], sessions: [
+          { id: "session", path: "/session.jsonl", title: "Current thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 },
+        ] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: () => () => {},
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+      openProject,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const draftDialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(draftDialog).getByRole("option", { name: /project/u }));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "discard this draft" } });
+
+    fireEvent.click(await screen.findByRole("button", { name: /All projects/u }));
+    const switcher = await screen.findByRole("dialog", { name: "Switch project" });
+    fireEvent.click(within(switcher).getByRole("option", { name: /other/u }));
+
+    await waitFor(() => expect(openProject).toHaveBeenCalledWith("/other"));
+    await waitFor(() => expect(composer.value).toBe(""));
+    expect(screen.queryByText(/Project switching is unavailable/u)).toBeNull();
+    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+  });
+
   it("carries a draft and supported attachments across a pre-send project switch", async () => {
     const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
     const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));

@@ -906,12 +906,12 @@ export default function App() {
     setChatFocused(false);
   }, []);
   /**
-   * Applies a host action result. A project change clears the stage, and a
-   * thread the result switches to inherits whatever was typed but not sent.
+   * Applies a host action result. A project change clears the stage. Most
+   * thread changes keep unsent composer text; explicit project switches do not.
    */
-  const applyHostResult = useCallback((result: HostActionResult) => {
+  const applyHostResult = useCallback((result: HostActionResult, inheritDraft = true) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
-    const pendingDraft = composerRef.current?.value ?? "";
+    const pendingDraft = inheritDraft ? composerRef.current?.value ?? "" : "";
     applyActionResult(result);
     if (cwd && cwd !== snapshot?.cwd) setStage(EMPTY_STAGE);
     const detail = result.updates.find((update) => update.type === "thread-detail");
@@ -926,26 +926,46 @@ export default function App() {
     return false;
   }, []);
 
-  // A draft can target a project the host has not opened yet. Switching
-  // projects under it would run against the previous thread's workspace.
-  const allowWorkspaceAction = useCallback((what: string): boolean => {
-    if (!pendingNewThreadRef.current && ![...newThreadRecoveryRef.current.values()].some((recovery) => !recovery.detached)) return true;
-    setNotice(`${what} is unavailable until this draft becomes a thread.`);
+  // Once the first message is being delivered, its draft scope must stay alive
+  // until it has a session to detach to. An unsubmitted draft has no such host
+  // lifecycle and can be discarded immediately.
+  const allowProjectSwitch = useCallback((): boolean => {
+    if (![...newThreadRecoveryRef.current.values()].some((recovery) => !recovery.detached)) return true;
+    setNotice("Wait for the current message delivery to finish before changing projects.");
     return false;
   }, []);
 
+  const discardPendingNewThread = useCallback((expected?: NewThreadDraft): boolean => {
+    const current = pendingNewThreadRef.current;
+    if (!current || (expected && current.draftId !== expected.draftId)) return false;
+    invalidateNewThread();
+    pendingNewThreadRef.current = undefined;
+    setPendingNewThread(undefined);
+    writeNewThreadDraft(window.localStorage);
+    return true;
+  }, [invalidateNewThread, setPendingNewThread]);
+
   const openWorkspace = useCallback(async (path: string): Promise<boolean> => {
-    if (!allowWorkspaceAction("Project switching")) return false;
-    if (path === snapshot?.cwd) return true;
-    if (!requireHost("Project switching")) return false;
+    const pending = pendingNewThreadRef.current;
+    if (path === (pending?.projectPath ?? snapshot?.cwd)) return true;
+    if (!allowProjectSwitch() || !requireHost("Project switching")) return false;
+    // A draft for another project sits above the still-active host thread. If
+    // the user picks that host project again, revealing it is the whole switch.
+    if (pending && path === snapshot?.cwd) {
+      discardPendingNewThread(pending);
+      setStage(EMPTY_STAGE);
+      return true;
+    }
     try {
-      applyHostResult(await window.tau!.openProject(path));
+      const result = await window.tau!.openProject(path);
+      if (pending) discardPendingNewThread(pending);
+      applyHostResult(result, false);
       return true;
     } catch (error) {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [applyHostResult, allowWorkspaceAction, requireHost, snapshot?.cwd]);
+  }, [allowProjectSwitch, applyHostResult, discardPendingNewThread, requireHost, snapshot?.cwd]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
