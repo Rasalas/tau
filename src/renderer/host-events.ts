@@ -123,12 +123,18 @@ export function applyHostEvent(event: HostEvent, stores: HostEventStores): void 
     case "assistant-anchor":
       applyAssistantAnchor(event, stores);
       break;
-    case "user-message":
-      if (stores.transcriptIndex.current.has(event.message.id)) {
+    case "user-message": {
+      // A thread-detail update can win the race against this live event. Its
+      // persisted row has a different entry id, so deduplicate by the client
+      // identity in the synchronously updated index rather than React's ref.
+      const existing = stores.transcriptIndex.current.messages.find((message) => isSameUserMessage(message, event.message));
+      if (!existing) stores.appendTranscriptMessage(event.message);
+      else if (existing.id === event.message.id) {
         stores.updateTranscriptMessages(new Map([[event.message.id, () => event.message]]));
-      } else stores.appendTranscriptMessage(event.message);
+      }
       stores.setOptimisticMessages((current) => reconcileOptimisticMessages(current, [event.message]));
       break;
+    }
     case "tool-start": {
       threadStore.toolStarted(event.tool.id, event.tool.name);
       if (!stores.toolAnchor.current) {

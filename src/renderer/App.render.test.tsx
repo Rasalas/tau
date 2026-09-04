@@ -328,11 +328,35 @@ describe("App render isolation", () => {
     expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeTruthy();
   });
 
-  it("replaces an optimistic prompt when the host echoes only its client message id", async () => {
+  it("deduplicates a persisted detail that arrives before its live user-message event", async () => {
     let publish: ((event: HostEvent) => void) | undefined;
-    let identity: { clientMessageId: string } | undefined;
     const sendPrompt = vi.fn(async (...args: unknown[]) => {
-      identity = args[3] as { clientMessageId: string };
+      const identity = args[3] as { clientMessageId: string };
+      const persisted = {
+        id: "persisted-prompt",
+        clientMessageId: identity.clientMessageId,
+        role: "user" as const,
+        text: "Render this once",
+        timestamp: Date.now() + 1_000,
+      };
+      publish?.({
+        type: "host-update",
+        update: {
+          version: 1,
+          type: "thread-detail",
+          detail: {
+            sessionId: "session",
+            messages: [persisted],
+            isStreaming: true,
+            activeTools: [],
+          },
+        },
+      });
+      publish?.({
+        type: "user-message",
+        sessionId: "session",
+        message: { ...persisted, id: `user-${identity.clientMessageId}` },
+      });
     });
     window.tau = {
       bootstrap: async () => ({
@@ -358,27 +382,6 @@ describe("App render isolation", () => {
     fireEvent.change(composer, { target: { value: "Render this once" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(sendPrompt).toHaveBeenCalled());
-
-    publish?.({
-      type: "host-update",
-      update: {
-        version: 1,
-        type: "thread-detail",
-        detail: {
-          sessionId: "session",
-          messages: [{
-            id: "persisted-prompt",
-            clientMessageId: identity!.clientMessageId,
-            role: "user",
-            text: "Render this once",
-            timestamp: Date.now() + 1_000,
-          }],
-          isStreaming: true,
-          activeTools: [],
-        },
-      },
-    });
-
     await waitFor(() => expect(screen.getByRole("log").querySelector('[data-message-id="persisted-prompt"]')).toBeTruthy());
     expect(screen.getByRole("log").querySelectorAll("[data-message-id]")).toHaveLength(1);
   });

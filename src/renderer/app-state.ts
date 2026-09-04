@@ -148,6 +148,10 @@ export function reconcileOptimisticMessages(
 
 export function isSameUserMessage(left: UiMessage, right: UiMessage): boolean {
   if (left.role !== "user" || right.role !== "user") return false;
+  if (left.clientMessageId && right.clientMessageId) {
+    if (left.clientTurnId && right.clientTurnId && left.clientTurnId !== right.clientTurnId) return false;
+    return left.clientMessageId === right.clientMessageId;
+  }
   if (left.sourceEntryId && right.sourceEntryId) return left.sourceEntryId === right.sourceEntryId;
   if (left.id === right.id) return true;
   return left.timestamp === right.timestamp
