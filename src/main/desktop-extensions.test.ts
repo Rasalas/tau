@@ -114,6 +114,7 @@ describe("desktop extension packages", () => {
       trusted: () => true,
     });
     expect(result.bundles).toHaveLength(1);
+    expect(result.bundles[0].id).toBe("acme.pkg");
     expect(result.bundles[0].permissions).toEqual(["workspace:read"]);
     expect(result.bundles[0].granted).toBe(false);
     expect(result.bundles[0].source).toEqual({ url: "https://github.com/foo/bar" });

@@ -13,6 +13,7 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
     host: {
       load: async () => ({
         bundles: bundles.map((entry) => ({
+          id: `x.${entry.path.split("/").pop()}`,
           path: entry.path,
           scope: "global" as const,
           code: "",
@@ -21,7 +22,7 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
         errors: [],
         skipped: [],
       }),
-      importModule: async (_code: string, path: string) => modules.get(path),
+      importModule: async (bundle: { path: string }) => modules.get(bundle.path),
       isEnabled: () => true,
       notify,
       log,
@@ -60,6 +61,7 @@ describe("runtime desktop extensions", () => {
     const h = {
       load: async () => ({
         bundles: [{
+          id: "x.ungranted",
           path: "/x/ungranted.tsx",
           scope: "global" as const,
           code: "",
@@ -82,6 +84,36 @@ describe("runtime desktop extensions", () => {
     expect(summaries[0].active).toBe(false);
     expect(summaries[0].granted).toBe(false);
     expect(summaries[0].permissions).toEqual(["workspace:read"]);
+  });
+
+  it("imports a bundle from the host's tau-ext URL, not from a blob", async () => {
+    const registry = new ExtensionRegistry();
+    const seen: string[] = [];
+    const h = {
+      load: async () => ({
+        bundles: [{
+          id: "x.served",
+          path: "/x/served.tsx",
+          scope: "global" as const,
+          code: "export default { id: 'x.served', name: 'Served', activate() {} };",
+          url: "tau-ext://bundles/x.served/abc123.js",
+          permissions: [],
+          granted: true,
+        }],
+        errors: [],
+        skipped: [],
+      }),
+      importModule: async (bundle: { url?: string }) => {
+        seen.push(bundle.url ?? "<none>");
+        return { default: { id: "x.served", name: "Served", activate() {} } };
+      },
+      isEnabled: () => true,
+      notify: vi.fn(),
+      log: vi.fn(),
+    };
+    await new RuntimeExtensions(registry, h).sync("/project");
+    expect(seen).toEqual(["tau-ext://bundles/x.served/abc123.js"]);
+    expect(registry.getExtensionSummaries()[0]?.active).toBe(true);
   });
 
   it("validates the extension shape and lists shared exports", () => {

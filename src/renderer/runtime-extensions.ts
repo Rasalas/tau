@@ -34,15 +34,21 @@ export interface RuntimeExtensionRecord {
 
 export interface RuntimeExtensionHost {
   load(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
-  /** Evaluates a bundle as an ES module; defaults to a blob URL import. */
-  importModule?(code: string, path: string): Promise<unknown>;
+  /** Evaluates a bundle as an ES module; defaults to the host's `tau-ext:` URL. */
+  importModule?(bundle: DesktopExtensionBundle): Promise<unknown>;
   isEnabled(id: string): boolean;
   notify(message: string): void;
   log(label: string, detail?: string): void;
 }
 
-async function importFromBlob(code: string): Promise<unknown> {
-  const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+/**
+ * The desktop host serves every bundle under `tau-ext:`, which is what the CSP
+ * allows. The browser preview has no host, so it falls back to a blob URL — the
+ * one place a bundle is turned into a script inside the renderer.
+ */
+export async function importBundle(bundle: DesktopExtensionBundle): Promise<unknown> {
+  if (bundle.url) return import(/* @vite-ignore */ bundle.url);
+  const url = URL.createObjectURL(new Blob([bundle.code], { type: "text/javascript" }));
   try {
     return await import(/* @vite-ignore */ url);
   } finally {
@@ -82,7 +88,7 @@ export class RuntimeExtensions {
     const next: RuntimeExtensionRecord[] = [];
     for (const bundle of result.bundles) {
       try {
-        const module = await (this.host.importModule ?? ((code) => importFromBlob(code)))(bundle.code, bundle.path);
+        const module = await (this.host.importModule ?? importBundle)(bundle);
         const extension = (module as { default?: unknown } | null)?.default;
         if (!isDesktopExtension(extension)) {
           throw new Error("the module's default export is not a desktop extension ({ id, name, activate })");

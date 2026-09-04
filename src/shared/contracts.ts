@@ -446,8 +446,12 @@ export interface DesktopExtensionBundle {
   path: string;
   scope: "global" | "project";
   projectPath?: string;
+  /** Manifest id of the package, or a slug of the entry file for a loose extension. */
+  id: string;
   /** Self-contained ES module; shared libraries come from `globalThis.__tauShared`. */
   code: string;
+  /** `tau-ext://bundles/<id>/<hash>.js` once the host serves it; absent in the browser preview. */
+  url?: string;
   permissions: readonly string[];
   granted?: boolean;
   source?: { url: string; commit?: string };

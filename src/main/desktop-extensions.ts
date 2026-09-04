@@ -77,6 +77,12 @@ export async function listDesktopExtensionEntries(directory: string, options: De
   return detailed.map((entry) => entry.path);
 }
 
+/** A loose extension file has no manifest id; its path names it instead. */
+function slugForEntry(path: string): string {
+  const name = basename(path).replace(/\.[cm]?[jt]sx?$/u, "");
+  return `local.${name.toLowerCase().replace(/[^a-z0-9-]+/gu, "-") || "extension"}`;
+}
+
 function isIdentifier(name: string): boolean {
   return /^[A-Za-z_$][\w$]*$/u.test(name) && name !== "default";
 }
@@ -166,6 +172,7 @@ export async function loadDesktopExtensions(
         const permissions = entry.manifest?.permissions ?? [];
         const granted = entry.manifest ? isPackageGranted(entry.manifest, grantsFile.grants) : true;
         bundles.push({
+          id: entry.manifest?.id ?? slugForEntry(entry.path),
           path: entry.path,
           scope,
           projectPath: scope === "project" ? cwd : undefined,

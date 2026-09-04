@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-04T19:20:40.747Z",
-  "buildTimeMs": 5707,
+  "generatedAt": "2026-09-04T20:17:01.806Z",
+  "buildTimeMs": 4859,
   "sourcemaps": false,
   "initial": {
     "javascript": {
-      "bytes": 1632078,
-      "gzipBytes": 387830,
+      "bytes": 1631684,
+      "gzipBytes": 387673,
       "files": 1
     },
     "css": {
-      "bytes": 127302,
-      "gzipBytes": 22067,
+      "bytes": 127974,
+      "gzipBytes": 22197,
       "files": 1
     },
     "sourcemaps": {
@@ -22,8 +22,8 @@
   },
   "lazy": {
     "javascript": {
-      "bytes": 134140,
-      "gzipBytes": 50097,
+      "bytes": 136046,
+      "gzipBytes": 50610,
       "files": 24
     },
     "css": {
@@ -46,18 +46,18 @@
       "gzipBytes": 1573
     },
     {
-      "file": "assets/ChangesTree-B_A2OAYW.js",
+      "file": "assets/ChangesTree--yNOzAy-.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 2941,
-      "gzipBytes": 1195
+      "gzipBytes": 1196
     },
     {
-      "file": "assets/CommandPalette-BUb5RRWm.js",
+      "file": "assets/CommandPalette-DziK5TUo.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 2509,
-      "gzipBytes": 1223
+      "gzipBytes": 1222
     },
     {
       "file": "assets/css-AVCICof-.js",
@@ -74,7 +74,7 @@
       "gzipBytes": 312
     },
     {
-      "file": "assets/DiffView-DdvAmnSV.js",
+      "file": "assets/DiffView-IdgtIOu3.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 4536,
@@ -88,18 +88,18 @@
       "gzipBytes": 708
     },
     {
-      "file": "assets/index-BzC6jLeh.js",
+      "file": "assets/index-Bh4lhwu5.js",
       "kind": "javascript",
       "phase": "initial",
-      "bytes": 1632078,
-      "gzipBytes": 387830
+      "bytes": 1631684,
+      "gzipBytes": 387673
     },
     {
-      "file": "assets/index-ilhv0Dr7.css",
+      "file": "assets/index-CLVJpV8i.css",
       "kind": "css",
       "phase": "initial",
-      "bytes": 127302,
-      "gzipBytes": 22067
+      "bytes": 127974,
+      "gzipBytes": 22197
     },
     {
       "file": "assets/javascript-DUNaicwC.js",
@@ -123,14 +123,14 @@
       "gzipBytes": 895
     },
     {
-      "file": "assets/observatory-panel-DUAIPGTG.js",
+      "file": "assets/observatory-panel-D-3DGBiq.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1361,
       "gzipBytes": 589
     },
     {
-      "file": "assets/project-navigation-Crxq5obX.js",
+      "file": "assets/project-navigation-Du58narF.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 16176,
@@ -144,18 +144,18 @@
       "gzipBytes": 1505
     },
     {
-      "file": "assets/RendererBenchmark-CK9aht0C.js",
+      "file": "assets/RendererBenchmark-ogYjgUgL.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 11899,
       "gzipBytes": 3982
     },
     {
-      "file": "assets/ReviewMode-303Nqaf2.js",
+      "file": "assets/ReviewMode-BiTkqUOJ.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 18304,
-      "gzipBytes": 6261
+      "gzipBytes": 6259
     },
     {
       "file": "assets/rust-DsMvwcVK.js",
@@ -165,11 +165,11 @@
       "gzipBytes": 1436
     },
     {
-      "file": "assets/SettingsModal-CGpGhcRy.js",
+      "file": "assets/SettingsModal-DBoxgYVM.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 12310,
-      "gzipBytes": 3687
+      "bytes": 14216,
+      "gzipBytes": 4205
     },
     {
       "file": "assets/shell-DYhVHYSm.js",
@@ -186,7 +186,7 @@
       "gzipBytes": 2423
     },
     {
-      "file": "assets/Stage-BKgsz7vm.js",
+      "file": "assets/Stage-CfXWPU6z.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 6079,
@@ -200,11 +200,11 @@
       "gzipBytes": 3079
     },
     {
-      "file": "assets/workspace-panels-7SX6deQy.js",
+      "file": "assets/workspace-panels-DbqGO23a.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 5489,
-      "gzipBytes": 2172
+      "gzipBytes": 2169
     },
     {
       "file": "assets/xml-FcirFJJ2.js",
