@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
@@ -100,6 +100,36 @@ function ModelOptionRow({
   );
 }
 
+/**
+ * Packages on disk the user has not answered for yet. A host-only package has no
+ * desktop half in the registry, so without this it would never reach the approval UI.
+ */
+function useAwaitingApproval(cwd: string | undefined, known: readonly ExtensionSummary[]): ExtensionSummary[] {
+  const client = useHostClient();
+  const [packages, setPackages] = useState<ExtensionInspection["packages"]>([]);
+  useEffect(() => {
+    if (!cwd) return;
+    let cancelled = false;
+    client?.inspectExtensions(cwd).then((result) => { if (!cancelled) setPackages(result.packages); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [client, cwd]);
+  const knownIds = known.map((entry) => entry.id).join("\u0000");
+  return useMemo(() => {
+    const ids = new Set(knownIds ? knownIds.split("\u0000") : []);
+    return packages
+      .filter((pkg) => pkg.granted === false && !ids.has(pkg.id))
+      .map((pkg) => ({
+        id: pkg.id,
+        name: pkg.name,
+        active: false,
+        contributes: "",
+        options: [],
+        permissions: pkg.permissions ?? [],
+        granted: false,
+      }));
+  }, [knownIds, packages]);
+}
+
 function ExtensionPage({
   summary,
   registry,
@@ -140,6 +170,7 @@ function ExtensionPage({
   const handleGrant = async (allow: boolean) => {
     try {
       await client?.grantExtension(summary.id, allow);
+      registry.setGranted(summary.id, allow);
       preferences.setExtensionEnabled(summary.id, allow);
       registry.setActive(summary.id, allow);
       await client?.setHostExtensionActive(summary.id, allow);
@@ -383,7 +414,9 @@ export function SettingsModal({
 }) {
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
-  const summaries = registry.getExtensionSummaries();
+  const loaded = registry.getExtensionSummaries();
+  const awaiting = useAwaitingApproval(snapshot?.cwd, loaded);
+  const summaries = [...loaded, ...awaiting];
   const active = summaries.find((summary) => summary.id === page);
 
   useEffect(() => {

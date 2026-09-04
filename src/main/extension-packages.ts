@@ -272,20 +272,33 @@ export async function importHostExtension(code: string, manifest: ExtensionManif
 
 export interface HostPackageLoadResult {
   extensions: Array<{ extension: HostExtension; package: ExtensionPackage }>;
+  /** Packages the user has not approved; their code was never compiled or imported. */
+  ungranted: ExtensionPackage[];
   errors: Array<{ path: string; message: string }>;
   skipped: Array<{ directory: string; reason: string }>;
 }
 
-/** Finds, compiles and imports the host halves of the packages a workspace sees. */
+/**
+ * Finds, compiles and imports the host halves of the packages a workspace sees.
+ * A package without a grant stops before the import, in both scopes: importing it
+ * would already run its top-level code with everything the main process can reach.
+ */
 export async function loadHostExtensionPackages(
   cwd: string,
   agentDir: string,
-  options: PackageScanOptions & { cacheDir?: string } = {},
+  options: PackageScanOptions & { cacheDir?: string; grantsFilePath?: string } = {},
 ): Promise<HostPackageLoadResult> {
-  const scan = await listExtensionPackages(cwd, agentDir, options);
-  const result: HostPackageLoadResult = { extensions: [], errors: [...scan.errors], skipped: scan.skipped };
+  const [scan, grantsFile] = await Promise.all([
+    listExtensionPackages(cwd, agentDir, options),
+    readExtensionGrants(options.grantsFilePath),
+  ]);
+  const result: HostPackageLoadResult = { extensions: [], ungranted: [], errors: [...scan.errors], skipped: scan.skipped };
   for (const pkg of scan.packages) {
     if (!pkg.hostEntry) continue;
+    if (!isPackageGranted(pkg.manifest, grantsFile.grants)) {
+      result.ungranted.push(pkg);
+      continue;
+    }
     try {
       const extension = await importHostExtension(await bundleHostExtension(pkg.hostEntry), pkg.manifest, options.cacheDir);
       result.extensions.push({ extension, package: pkg });

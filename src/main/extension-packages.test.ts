@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -5,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
 import { bundleHostExtension, importHostExtension, inspectExtensionPackages, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest } from "./extension-packages.js";
+import { grantPackage } from "./extension-grants.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -164,8 +166,60 @@ describe("extension packages", () => {
     await expect(importHostExtension('module.exports = { greeting: "no activate" };', { id: "acme.hello", name: "Hello" }, cache)).rejects.toThrow("must default-export a host extension");
     // Only host halves load; a desktop-only package contributes no host extension.
     await writePackage(home, "desktop-only", { id: "acme.desktop", name: "D", desktop: "./d.tsx" }, { "d.tsx": "export default {}" });
-    const loaded = await loadHostExtensionPackages("/nowhere", "/agent", { home, trusted: () => true, cacheDir: cache });
+    const grantsFilePath = join(await scratch(), "grants.json");
+    await grantPackage({ id: "acme.hello", permissions: ["workspace:read"] }, true, grantsFilePath);
+    const loaded = await loadHostExtensionPackages("/nowhere", "/agent", { home, trusted: () => true, cacheDir: cache, grantsFilePath });
     expect(loaded.extensions.map((entry) => entry.extension.id)).toEqual(["acme.hello"]);
     expect(loaded.errors).toEqual([]);
+  });
+
+  it("never imports a package the user has not approved, in either scope", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const cache = await scratch();
+    const grantsFilePath = join(await scratch(), "grants.json");
+    const sideEffect = join(await scratch(), "ran.txt");
+    const entry = `
+      import { writeFileSync } from "node:fs";
+      writeFileSync(${JSON.stringify(sideEffect)}, "ran");
+      export default { activate() {} };
+    `;
+    await writePackage(home, "global-pkg", { id: "acme.global", name: "Global", host: "./host.ts" }, { "host.ts": entry });
+    await writePackage(project, "project-pkg", { id: "acme.project", name: "Project", host: "./host.ts" }, { "host.ts": entry });
+
+    const options = { home, trusted: () => true, cacheDir: cache, grantsFilePath };
+    const first = await loadHostExtensionPackages(project, "/agent", options);
+    expect(first.extensions).toEqual([]);
+    expect(first.ungranted.map((pkg) => pkg.manifest.id).sort()).toEqual(["acme.global", "acme.project"]);
+    // Top-level module code of an unapproved package never ran.
+    expect(existsSync(sideEffect)).toBe(false);
+
+    await grantPackage({ id: "acme.global", permissions: [] }, true, grantsFilePath);
+    const second = await loadHostExtensionPackages(project, "/agent", options);
+    expect(second.extensions.map((e) => e.extension.id)).toEqual(["acme.global"]);
+    expect(second.ungranted.map((pkg) => pkg.manifest.id)).toEqual(["acme.project"]);
+    expect(existsSync(sideEffect)).toBe(true);
+  });
+
+  it("asks again once a granted package changes the permissions it wants", async () => {
+    const home = await scratch();
+    const cache = await scratch();
+    const grantsFilePath = join(await scratch(), "grants.json");
+    await writePackage(home, "shifty", { id: "acme.shifty", name: "Shifty", permissions: ["sessions"], host: "./host.ts" }, {
+      "host.ts": "export default { activate() {} };",
+    });
+    await grantPackage({ id: "acme.shifty", permissions: ["sessions"] }, true, grantsFilePath);
+    const options = { home, trusted: () => true, cacheDir: cache, grantsFilePath };
+    expect((await loadHostExtensionPackages("/nowhere", "/agent", options)).extensions).toHaveLength(1);
+
+    // The grant survives a restart (a fresh read of the same file) ...
+    expect((await loadHostExtensionPackages("/nowhere", "/agent", options)).extensions).toHaveLength(1);
+    // ... but a wider permission list is a new question.
+    await writePackage(home, "shifty", { id: "acme.shifty", name: "Shifty", permissions: ["sessions", "process"], host: "./host.ts" }, {
+      "host.ts": "export default { activate() {} };",
+    });
+    const after = await loadHostExtensionPackages("/nowhere", "/agent", options);
+    expect(after.extensions).toEqual([]);
+    expect(after.ungranted.map((pkg) => pkg.manifest.id)).toEqual(["acme.shifty"]);
   });
 });

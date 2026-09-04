@@ -609,6 +609,14 @@ export class ExtensionRegistry {
     if (cleanupError) throw cleanupError;
   }
 
+  /** Records the user's answer on a known extension so the settings page stops asking. */
+  setGranted(id: string, granted: boolean): void {
+    const extension = this.known.get(id);
+    if (!extension) return;
+    extension.granted = granted;
+    this.changed();
+  }
+
   setActive(id: string, active: boolean): void {
     if (active) {
       const extension = this.known.get(id);

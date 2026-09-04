@@ -139,6 +139,19 @@ describe("HostExtensionRegistry", () => {
     await expect(r.activate(allowedExt)).resolves.toBe(true);
     await expect(r.invoke("allowed.kit", "call-sessions")).resolves.toEqual([]);
 
+    // The same guard covers workspace switching, not only sessions.
+    const switcher: HostExtension = {
+      id: "switch.kit",
+      name: "Switch Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("open", () => ctx.services.openWorkspace("/tmp"));
+      },
+    };
+    await expect(r.activate(switcher)).resolves.toBe(true);
+    await expect(r.invoke("switch.kit", "open")).rejects.toThrow("Extension switch.kit lacks permission workspace:switch");
+    expect(s.logs).toContain("host-extension.denied Extension switch.kit lacks permission workspace:switch");
+
     // Bundled extension with undefined permissions has access to everything
     const legacyExt: HostExtension = {
       id: "legacy.kit",

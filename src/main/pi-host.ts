@@ -172,6 +172,8 @@ export class PiHost {
   private readonly hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
   private packagedHostExtensionIds = new Set<string>();
   private packagedHostExtensionEntries = new Map<string, { extension: HostExtension; package: ExtensionPackage }>();
+  /** Packages found on disk but never imported, because the user has not approved them. */
+  private packagedUngranted = new Map<string, ExtensionPackage>();
   private readonly grantsFilePath?: string;
   private readonly platform: HostPlatform;
   private readonly logger?: HostLogger;
@@ -505,6 +507,10 @@ export class PiHost {
     }
     for (const failure of loaded.errors) this.log("host-extension.package.failed", `${failure.path}: ${failure.message}`);
     for (const skip of loaded.skipped) this.log("host-extension.package.skipped", `${skip.directory}: ${skip.reason}`);
+    this.packagedUngranted = new Map(loaded.ungranted.map((pkg) => [pkg.manifest.id, pkg]));
+    for (const pkg of loaded.ungranted) {
+      this.log("host-extension.package.ungranted", `${pkg.manifest.name} · ${pkg.scope} · awaiting approval`);
+    }
     const next = new Set(loaded.extensions.map((entry) => entry.extension.id));
     for (const id of this.packagedHostExtensionIds) {
       if (!next.has(id)) {
@@ -540,25 +546,28 @@ export class PiHost {
     return this.listHostExtensions();
   }
 
-  /** Grants or revokes permissions for an extension package and activates/deactivates accordingly. */
+  /**
+   * Records the user's answer for a package and applies it. Approving one that
+   * was never imported re-runs the package sync, which is where the import happens.
+   */
   async grantExtension(id: string, grant: boolean): Promise<void> {
-    const entry = this.packagedHostExtensionEntries.get(id);
-    if (!entry) {
-      const scanned = await listExtensionPackages(this.cwd, this.agentDir);
-      const found = scanned.packages.find((p) => p.manifest.id === id);
-      if (found) {
-        await grantPackage(found.manifest, grant, this.grantsFilePath);
-      }
+    const manifest = this.packagedHostExtensionEntries.get(id)?.package.manifest
+      ?? this.packagedUngranted.get(id)?.manifest
+      ?? (await listExtensionPackages(this.cwd, this.agentDir)).packages.find((pkg) => pkg.manifest.id === id)?.manifest;
+    if (!manifest) return;
+    await grantPackage(manifest, grant, this.grantsFilePath);
+    this.log(grant ? "host-extension.granted" : "host-extension.revoked", id);
+    if (!grant) {
+      await this.hostExtensions.deactivate(id);
       return;
     }
-    await grantPackage(entry.package.manifest, grant, this.grantsFilePath);
-    if (grant) {
+    const entry = this.packagedHostExtensionEntries.get(id);
+    if (entry) {
       await this.hostExtensions.activate(entry.extension);
       this.log("host-extension.enabled", id);
-    } else {
-      await this.hostExtensions.deactivate(id);
-      this.log("host-extension.disabled", id);
+      return;
     }
+    await this.syncHostExtensionPackages();
   }
 
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown> {
@@ -566,7 +575,13 @@ export class PiHost {
   }
 
   listHostExtensions(): HostExtensionSummary[] {
-    return this.hostExtensions.summaries();
+    const summaries = this.hostExtensions.summaries();
+    const known = new Set(summaries.map((summary) => summary.id));
+    // A package awaiting approval has no code loaded, but the user still has to see it.
+    for (const pkg of this.packagedUngranted.values()) {
+      if (!known.has(pkg.manifest.id)) summaries.push({ id: pkg.manifest.id, name: pkg.manifest.name, active: false, commands: [] });
+    }
+    return summaries;
   }
 
   private adapterFor(kind: ThreadBackendKind): AgentRuntimeAdapter {

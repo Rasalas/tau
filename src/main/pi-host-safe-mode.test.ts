@@ -33,6 +33,7 @@ describe("PiHost safe mode", () => {
 describe("PiHost extension packages", () => {
   const loader = async () => ({
     extensions: [{ extension: { id: "acme.pkg", name: "Package", activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } }, package: { scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest: { id: "acme.pkg", name: "Package", host: "./host.ts" } } }],
+    ungranted: [],
     errors: [],
     skipped: [],
   });
@@ -56,6 +57,43 @@ describe("PiHost extension packages", () => {
       const safe = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
       await (safe as unknown as Internals).activateHostExtensions();
       expect(safe.listHostExtensions()).toEqual([]);
+
+      // A restart reads the same grants file and starts the package without asking again.
+      const restarted = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
+      await (restarted as unknown as Internals).activateHostExtensions();
+      expect(restarted.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("lists a package that was never imported, and starts it once it is granted", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "tau-ungranted-"));
+    try {
+      const grantsFilePath = join(scratch, "grants.json");
+      const manifest = { id: "acme.pkg", name: "Package", permissions: ["sessions"], host: "./host.ts" };
+      const pkg = { scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest };
+      let imported = 0;
+      const gated = async () => {
+        const { readExtensionGrants, isPackageGranted } = await import("./extension-grants.js");
+        const granted = isPackageGranted(manifest, (await readExtensionGrants(grantsFilePath)).grants);
+        if (!granted) return { extensions: [], ungranted: [pkg], errors: [], skipped: [] };
+        imported += 1;
+        return {
+          extensions: [{ extension: { id: "acme.pkg", name: "Package", permissions: manifest.permissions, activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } }, package: pkg }],
+          ungranted: [],
+          errors: [],
+          skipped: [],
+        };
+      };
+      const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: gated, grantsFilePath });
+      await (host as unknown as Internals).activateHostExtensions();
+      expect(imported).toBe(0);
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [] }]);
+
+      await host.grantExtension("acme.pkg", true);
+      expect(imported).toBe(1);
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
