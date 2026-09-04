@@ -7,7 +7,7 @@ import type {
   UiTurnActivityEntry,
 } from "../shared/contracts";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
-import { isSameUserMessage, reconcileOptimisticMessages, type OptimisticUserMessage } from "./app-state";
+import { conversationMessagesFor, isSameUserMessage, reconcileOptimisticMessages, type OptimisticUserMessage } from "./app-state";
 import type { TimelineEvent } from "./workbench-context";
 import {
   appendMessage,
@@ -54,6 +54,35 @@ export interface ThreadViewState {
   readonly events: readonly TimelineEvent[];
   readonly eventSequence: number;
   readonly notice?: ThreadViewNotice;
+}
+
+/**
+ * What the workbench needs to know about the conversation without reading its
+ * rows: whether anything is on screen, and where live activity anchors.
+ */
+export interface ConversationSummary {
+  readonly isEmpty: boolean;
+  readonly lastMessageId?: string;
+}
+
+const EMPTY_CONVERSATION: ConversationSummary = { isEmpty: true };
+
+function conversationSummary(
+  state: ThreadViewState,
+  activeDraftKey: string | undefined,
+  pendingNewThread: boolean,
+): ConversationSummary {
+  const messages = state.transcript.messages;
+  // The common case has nothing unconfirmed, so a streamed delta costs one
+  // filter over an empty list and a look at the last row.
+  if (!state.optimisticMessages.some((entry) => entry.scope === activeDraftKey)) {
+    if (pendingNewThread || messages.length === 0) return EMPTY_CONVERSATION;
+    return { isEmpty: false, lastMessageId: messages[messages.length - 1].id };
+  }
+  const conversation = conversationMessagesFor(messages, state.optimisticMessages, activeDraftKey, pendingNewThread);
+  return conversation.length === 0
+    ? EMPTY_CONVERSATION
+    : { isEmpty: false, lastMessageId: conversation[conversation.length - 1].id };
 }
 
 export interface ToolViewState {
@@ -288,6 +317,9 @@ export class ThreadViewStore {
   private readonly optimisticListeners = new Set<() => void>();
   private readonly noticeListeners = new Set<() => void>();
   private readonly eventListeners = new Set<() => void>();
+  private readonly conversationListeners = new Set<() => void>();
+  private readonly userMessageListeners = new Set<() => void>();
+  private conversationCache?: { key: string; summary: ConversationSummary };
   private pendingDeltas = new Map<string, { text: string; thinking: string }>();
   private pendingToolOutput = new Map<string, string>();
   private deltaFrame?: number;
@@ -306,6 +338,23 @@ export class ThreadViewStore {
   getOptimisticMessages = (): readonly OptimisticUserMessage[] => this.state.optimisticMessages;
   getNotice = (): ThreadViewNotice | undefined => this.state.notice;
   getEvents = (): readonly TimelineEvent[] => this.state.events;
+  /** Bumps only when a user message can change how optimistic rows reconcile. */
+  getUserRevision = (): number => this.state.transcript.userRevision;
+
+  /**
+   * The conversation as two facts, cached by value: a consumer of this
+   * selector re-renders when the summary changes, not when the rows do.
+   */
+  selectConversation = (activeDraftKey: string | undefined, pendingNewThread: boolean): ConversationSummary => {
+    const key = `${pendingNewThread ? "draft" : "session"} ${activeDraftKey ?? ""}`;
+    const summary = conversationSummary(this.state, activeDraftKey, pendingNewThread);
+    const cached = this.conversationCache;
+    if (cached?.key === key
+      && cached.summary.isEmpty === summary.isEmpty
+      && cached.summary.lastMessageId === summary.lastMessageId) return cached.summary;
+    this.conversationCache = { key, summary };
+    return summary;
+  };
 
   subscribeToSnapshot = (listener: () => void) => this.add(this.snapshotListeners, listener);
   subscribeToTranscript = (listener: () => void) => this.add(this.transcriptListeners, listener);
@@ -314,6 +363,8 @@ export class ThreadViewStore {
   subscribeToOptimistic = (listener: () => void) => this.add(this.optimisticListeners, listener);
   subscribeToNotice = (listener: () => void) => this.add(this.noticeListeners, listener);
   subscribeToEvents = (listener: () => void) => this.add(this.eventListeners, listener);
+  subscribeToConversation = (listener: () => void) => this.add(this.conversationListeners, listener);
+  subscribeToUserMessages = (listener: () => void) => this.add(this.userMessageListeners, listener);
 
   /** One host event, batching what streams and reducing everything else. */
   dispatch(event: HostEvent): void {
@@ -508,6 +559,12 @@ export class ThreadViewStore {
     }
     if (next.uiPrompts !== previous.uiPrompts) this.promptListeners.forEach((listener) => listener());
     if (next.optimisticMessages !== previous.optimisticMessages) this.optimisticListeners.forEach((listener) => listener());
+    if (next.transcript !== previous.transcript || next.optimisticMessages !== previous.optimisticMessages) {
+      this.conversationListeners.forEach((listener) => listener());
+    }
+    if (next.transcript.userRevision !== previous.transcript.userRevision) {
+      this.userMessageListeners.forEach((listener) => listener());
+    }
     if (next.notice !== previous.notice) this.noticeListeners.forEach((listener) => listener());
     if (next.events !== previous.events) this.eventListeners.forEach((listener) => listener());
   }

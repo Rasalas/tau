@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { ClientTurnIdentity, UiPromptAttachment, UiSkillDraft } from "../shared/contracts";
 import { createClientMessageId } from "./app-state";
 import type { SubmitResult } from "./components/Composer";
@@ -40,17 +40,19 @@ async function deliverInBackground(client: HostClient | undefined, sessionId: st
  * then leave one at a time as ordinary prompts. The visible thread submits
  * through the composer path; other threads are delivered directly.
  */
-export function useFollowUpQueue({ client, sessionId, isRunning, runningThreadIds, submitRef, setNotice }: {
+export function useFollowUpQueue({ client, store, sessionId, isRunning, runningThreadIds, submit, setNotice }: {
   client: HostClient | undefined;
+  /** The queue itself; the workbench owns it so a submission can enqueue into it. */
+  store: FollowUpQueueStore;
   /** The thread on screen, or undefined while a new-thread draft is open. */
   sessionId: string | undefined;
   /** Reads the one run-state selector; a steer only steers a thread that is working. */
   isRunning(): boolean;
   runningThreadIds: readonly string[];
-  submitRef: RefObject<SubmitPrompt>;
+  /** Sends through the visible composer's path; stable, so this effect never chases a render. */
+  submit: SubmitPrompt;
   setNotice(message: string | undefined, level: "error"): void;
 }) {
-  const store = useMemo(() => new FollowUpQueueStore(), []);
   const version = useSyncExternalStore(store.subscribe, store.getVersion);
   // The version is the change signal; the list is derived from it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -71,7 +73,7 @@ export function useFollowUpQueue({ client, sessionId, isRunning, runningThreadId
       if (!next) continue;
       flushingRef.current.add(threadId);
       const delivery = threadId === sessionId
-        ? submitRef.current(next.text, next.attachments, undefined, next.skillDraft)
+        ? submit(next.text, next.attachments, undefined, next.skillDraft)
         : deliverInBackground(client, threadId, next);
       void delivery.then((result) => {
         if (result.accepted) {
@@ -85,11 +87,8 @@ export function useFollowUpQueue({ client, sessionId, isRunning, runningThreadId
         setNotice(result.message, "error");
       });
     }
-  }, [client, runningThreadIds, sessionId, setNotice, store, submitRef, version]);
+  }, [client, runningThreadIds, sessionId, setNotice, store, submit, version]);
 
-  const enqueue = useCallback((threadId: string, item: Omit<QueuedFollowUp, "id">) => {
-    store.enqueue(threadId, item);
-  }, [store]);
   const cancelQueued = useCallback((id: string) => {
     if (sessionId) store.remove(sessionId, id);
   }, [sessionId, store]);
@@ -102,13 +101,13 @@ export function useFollowUpQueue({ client, sessionId, isRunning, runningThreadId
     if (!sessionId) return;
     const item = store.remove(sessionId, id);
     if (!item) return;
-    const result = await submitRef.current(item.text, item.attachments, isRunning() ? "steer" : undefined, item.skillDraft);
+    const result = await submit(item.text, item.attachments, isRunning() ? "steer" : undefined, item.skillDraft);
     if (!result.accepted) {
       store.unshift(sessionId, item);
       store.pause(sessionId);
       setNotice(result.message, "error");
     }
-  }, [isRunning, sessionId, setNotice, store, submitRef]);
+  }, [isRunning, sessionId, setNotice, store, submit]);
 
-  return { queue, enqueue, cancelQueued, reorderQueue, steerQueued };
+  return { queue, cancelQueued, reorderQueue, steerQueued };
 }

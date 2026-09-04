@@ -3,10 +3,19 @@ import type { HostUpdate } from "../shared/host-protocol";
 import type { HostClient } from "./host-client";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import type { ExtensionRegistry } from "./extension-system";
-import { isSameUserMessage, type NewThreadSubmissionRecovery } from "./app-state";
+import { isSameUserMessage } from "./app-state";
 import { preferences } from "./preferences";
 import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
+
+/** What a delivery in flight needs to hear from the host. */
+export interface SubmissionPort {
+  hasRecovery(clientMessageId: string): boolean;
+  recoveryScope(clientMessageId: string): string | undefined;
+  markWithoutUserTurn(clientMessageId: string): void;
+  promoteRecovery(clientMessageId: string, sessionId: string, message: UiMessage): boolean;
+  settleDelivery(clientMessageId: string, sessionId: string, settlement: { accepted: true } | { accepted: false; message: string }): boolean;
+}
 
 /** What a host event reaches besides the view store it is reduced into. */
 export interface HostEventTargets {
@@ -14,12 +23,10 @@ export interface HostEventTargets {
   registry: ExtensionRegistry;
   threadStore: ThreadStore;
   view: ThreadViewStore;
-  recoveries: Map<string, NewThreadSubmissionRecovery>;
+  submission: SubmissionPort;
   currentDraftKey(): string | undefined;
   transcriptTurnStart(): TranscriptTurnStart | undefined;
   setTranscriptTurnStart(value: TranscriptTurnStart | undefined, expectedTurnId?: string): void;
-  settleNewThreadDelivery(clientMessageId: string, sessionId: string, settlement: { accepted: true } | { accepted: false; message: string }): boolean;
-  promoteRecoveryToSession(clientMessageId: string, sessionId: string, message: UiMessage): boolean;
   applyHostUpdate(update: HostUpdate): void;
   applyThreadIndex(index: ThreadIndexSnapshot): void;
 }
@@ -53,8 +60,8 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;
-      if (clientMessageId && targets.recoveries.has(clientMessageId)) {
-        targets.promoteRecoveryToSession(clientMessageId, event.sessionId, event.message);
+      if (clientMessageId && targets.submission.hasRecovery(clientMessageId)) {
+        targets.submission.promoteRecovery(clientMessageId, event.sessionId, event.message);
       }
       const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
       const known = active ? view.getTranscript().messages : view.details.get(event.sessionId)?.messages;
@@ -64,20 +71,21 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
     case "prompt-without-user-turn": {
       const turnStart = targets.transcriptTurnStart();
       if (turnStart?.clientMessageId === event.clientMessageId) targets.setTranscriptTurnStart(undefined, turnStart.turnId);
-      const recovery = targets.recoveries.get(event.clientMessageId);
-      if (recovery) recovery.withoutUserTurn = true;
+      targets.submission.markWithoutUserTurn(event.clientMessageId);
       break;
     }
     case "new-thread-delivery-settled":
-      targets.settleNewThreadDelivery(event.clientMessageId, event.sessionId, event.accepted
+      targets.submission.settleDelivery(event.clientMessageId, event.sessionId, event.accepted
         ? { accepted: true }
         : { accepted: false, message: event.message });
       break;
     case "user-message-failed": {
-      const recovery = targets.recoveries.get(event.clientMessageId);
-      if (recovery) targets.settleNewThreadDelivery(event.clientMessageId, event.sessionId, { accepted: false, message: event.message });
+      const recoveryScope = targets.submission.recoveryScope(event.clientMessageId);
+      if (recoveryScope !== undefined) {
+        targets.submission.settleDelivery(event.clientMessageId, event.sessionId, { accepted: false, message: event.message });
+      }
       if (event.sessionId === threadStore.getSnapshot().activeThreadId
-        || recovery?.scopeRef.scope === targets.currentDraftKey()) view.setNotice(event.message);
+        || recoveryScope === targets.currentDraftKey()) view.setNotice(event.message);
       break;
     }
     case "agent-status":
