@@ -15,6 +15,7 @@ export function createPiUiHostExtension(): HostExtension {
   return {
     id: PI_UI_HOST_EXTENSION_ID,
     name: "Pi UI",
+    permissions: ["runtime:extend", "sessions"],
     activate(context: HostExtensionContext) {
       const threads = new Map<string, PiUiThreadState>();
       const stateOf = (sessionId: string) => threads.get(sessionId) ?? EMPTY_PI_UI_STATE(sessionId);

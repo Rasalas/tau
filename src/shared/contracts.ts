@@ -423,6 +423,9 @@ export interface ExtensionPackageSummary {
   name: string;
   version?: string;
   engines?: Record<string, string>;
+  permissions?: string[];
+  granted?: boolean;
+  source?: { url: string; commit?: string };
   scope: "global" | "project";
   directory: string;
   desktop: boolean;
@@ -443,8 +446,15 @@ export interface DesktopExtensionBundle {
   path: string;
   scope: "global" | "project";
   projectPath?: string;
+  /** Manifest id of the package, or a slug of the entry file for a loose extension. */
+  id: string;
   /** Self-contained ES module; shared libraries come from `globalThis.__tauShared`. */
   code: string;
+  /** `tau-ext://bundles/<id>/<hash>.js` once the host serves it; absent in the browser preview. */
+  url?: string;
+  permissions: readonly string[];
+  granted?: boolean;
+  source?: { url: string; commit?: string };
 }
 
 export interface DesktopExtensionLoadResult {
@@ -552,6 +562,8 @@ export interface TauDesktopApi {
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   /** Turns the host half of an extension package off or on; bundled kits stay as they are. */
   setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
+  /** Grants or revokes the permissions a package asked for; a grant starts both halves. */
+  grantExtension(id: string, grant: boolean): Promise<void>;
   /** Atomically checks, waits for, or stops active runs before a workbench reload. */
   prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation>;
   /** Releases a prepared reload when applying changes fails or only the renderer reloads. */

@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
@@ -100,6 +100,36 @@ function ModelOptionRow({
   );
 }
 
+/**
+ * Packages on disk the user has not answered for yet. A host-only package has no
+ * desktop half in the registry, so without this it would never reach the approval UI.
+ */
+function useAwaitingApproval(cwd: string | undefined, known: readonly ExtensionSummary[]): ExtensionSummary[] {
+  const client = useHostClient();
+  const [packages, setPackages] = useState<ExtensionInspection["packages"]>([]);
+  useEffect(() => {
+    if (!cwd) return;
+    let cancelled = false;
+    client?.inspectExtensions(cwd).then((result) => { if (!cancelled) setPackages(result.packages); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [client, cwd]);
+  const knownIds = known.map((entry) => entry.id).join("\u0000");
+  return useMemo(() => {
+    const ids = new Set(knownIds ? knownIds.split("\u0000") : []);
+    return packages
+      .filter((pkg) => pkg.granted === false && !ids.has(pkg.id))
+      .map((pkg) => ({
+        id: pkg.id,
+        name: pkg.name,
+        active: false,
+        contributes: "",
+        options: [],
+        permissions: pkg.permissions ?? [],
+        granted: false,
+      }));
+  }, [knownIds, packages]);
+}
+
 function ExtensionPage({
   summary,
   registry,
@@ -136,23 +166,67 @@ function ExtensionPage({
     onChanged();
   };
 
+  // A grant is the package's first start; a denial keeps both halves off.
+  const handleGrant = async (allow: boolean) => {
+    try {
+      await client?.grantExtension(summary.id, allow);
+      registry.setGranted(summary.id, allow);
+      preferences.setExtensionEnabled(summary.id, allow);
+      registry.setActive(summary.id, allow);
+      await client?.setHostExtensionActive(summary.id, allow);
+      onChanged();
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <div className="settings-page">
       <div className="extension-head">
         <span>
           <strong>{summary.name}</strong>
-          <small>{summary.contributes ? `contributes ${summary.contributes}` : "no contributions"}</small>
+          <small>
+            {summary.granted === false
+              ? "waiting for approval"
+              : summary.contributes
+                ? `contributes ${summary.contributes}`
+                : "no contributions"}
+          </small>
         </span>
-        <button
-          className={`switch ${summary.active ? "on" : ""}`}
-          role="switch"
-          aria-checked={summary.active}
-          aria-label={`${summary.active ? "Disable" : "Enable"} ${summary.name}`}
-          onClick={toggleExtension}
-        >
-          <i />
-        </button>
+        {summary.granted === false ? null : (
+          <button
+            className={`switch ${summary.active ? "on" : ""}`}
+            role="switch"
+            aria-checked={summary.active}
+            aria-label={`${summary.active ? "Disable" : "Enable"} ${summary.name}`}
+            onClick={toggleExtension}
+          >
+            <i />
+          </button>
+        )}
       </div>
+
+      {summary.granted === false ? (
+        <div className="extension-grant-box">
+          <div className="settings-label">APPROVAL REQUIRED</div>
+          <p>This package does not run until you approve the permissions it asks for:</p>
+          {summary.permissions && summary.permissions.length > 0 ? (
+            <ul>{summary.permissions.map((permission) => <li key={permission}><code>{permission}</code></li>)}</ul>
+          ) : (
+            <p>It asks for no permissions.</p>
+          )}
+          <div className="extension-grant-actions">
+            <button type="button" className="grant-allow" onClick={() => void handleGrant(true)}>Allow</button>
+            <button type="button" className="grant-deny" onClick={() => void handleGrant(false)}>Deny</button>
+          </div>
+        </div>
+      ) : null}
+
+      {summary.permissions && summary.permissions.length > 0 && summary.granted !== false ? (
+        <div className="settings-note">
+          Permissions: {summary.permissions.join(", ")}
+        </div>
+      ) : null}
 
       {summary.options.length > 0 ? (
         <>
@@ -292,13 +366,15 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
       ))}
       {packages.length > 0 ? (
         <table className="inspector-table" aria-label="Extension packages">
-          <thead><tr><th>Package</th><th>Entries</th><th>Engines</th><th>Folder</th></tr></thead>
+          <thead><tr><th>Package</th><th>Entries</th><th>Engines</th><th>Permissions</th><th>Source</th><th>Folder</th></tr></thead>
           <tbody>
             {packages.map((pkg) => (
               <tr key={pkg.directory}>
                 <td><strong>{pkg.name}</strong><small>{pkg.id}{pkg.version ? ` · ${pkg.version}` : ""}</small></td>
                 <td>{[pkg.desktop ? "desktop" : "", pkg.host ? "host" : ""].filter(Boolean).join(" + ")}</td>
                 <td>{pkg.engines ? Object.entries(pkg.engines).map(([engine, range]) => `${engine} ${range}`).join(", ") : "any"}</td>
+                <td>{pkg.permissions && pkg.permissions.length > 0 ? pkg.permissions.join(", ") : "none"}</td>
+                <td>{pkg.source ? `${pkg.source.url}${pkg.source.commit ? ` (${pkg.source.commit.slice(0, 7)})` : ""}` : "—"}</td>
                 <td><code title={pkg.directory}>{pkg.directory.split("/").pop()}</code></td>
               </tr>
             ))}
@@ -338,7 +414,9 @@ export function SettingsModal({
 }) {
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
-  const summaries = registry.getExtensionSummaries();
+  const loaded = registry.getExtensionSummaries();
+  const awaiting = useAwaitingApproval(snapshot?.cwd, loaded);
+  const summaries = [...loaded, ...awaiting];
   const active = summaries.find((summary) => summary.id === page);
 
   useEffect(() => {

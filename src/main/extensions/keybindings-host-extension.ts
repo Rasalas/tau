@@ -40,6 +40,7 @@ export function createKeybindingsHostExtension(options: { agentDir?: string } = 
   return {
     id: KEYBINDINGS_HOST_EXTENSION_ID,
     name: "Runtime Controls",
+    permissions: ["sessions"],
     activate(context: HostExtensionContext) {
       const agentDir = () => options.agentDir ?? getAgentDir();
       context.registerCommand("pi-keybindings", async (): Promise<PiKeybindingsState> => {

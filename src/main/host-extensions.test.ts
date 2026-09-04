@@ -111,4 +111,100 @@ describe("HostExtensionRegistry", () => {
     expect(order).toEqual(["b", "a"]);
     expect(r.summaries().every((entry) => !entry.active)).toBe(true);
   });
+
+  it("enforces permissions on HostExtensionServices methods", async () => {
+    const { registry: r, services: s } = registry();
+    // Extension with empty permissions tries to access sessions.list()
+    const deniedExt: HostExtension = {
+      id: "denied.kit",
+      name: "Denied Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("call-sessions", () => ctx.services.sessions.list());
+      },
+    };
+    await expect(r.activate(deniedExt)).resolves.toBe(true);
+    await expect(r.invoke("denied.kit", "call-sessions")).rejects.toThrow("Extension denied.kit lacks permission sessions");
+    expect(s.logs).toContain("host-extension.denied Extension denied.kit lacks permission sessions");
+
+    // Extension with permissions: ["sessions"] can access sessions.list()
+    const allowedExt: HostExtension = {
+      id: "allowed.kit",
+      name: "Allowed Kit",
+      permissions: ["sessions"],
+      activate: (ctx) => {
+        ctx.registerCommand("call-sessions", () => ctx.services.sessions.list());
+      },
+    };
+    await expect(r.activate(allowedExt)).resolves.toBe(true);
+    await expect(r.invoke("allowed.kit", "call-sessions")).resolves.toEqual([]);
+
+    // The same guard covers workspace switching, not only sessions.
+    const switcher: HostExtension = {
+      id: "switch.kit",
+      name: "Switch Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("open", () => ctx.services.openWorkspace("/tmp"));
+      },
+    };
+    await expect(r.activate(switcher)).resolves.toBe(true);
+    await expect(r.invoke("switch.kit", "open")).rejects.toThrow("Extension switch.kit lacks permission workspace:switch");
+    expect(s.logs).toContain("host-extension.denied Extension switch.kit lacks permission workspace:switch");
+
+    // Bundled extension with undefined permissions has access to everything
+    const legacyExt: HostExtension = {
+      id: "legacy.kit",
+      name: "Legacy Kit",
+      activate: (ctx) => {
+        ctx.registerCommand("open", () => ctx.services.openWorkspace("/tmp"));
+      },
+    };
+    await expect(r.activate(legacyExt)).resolves.toBe(true);
+    await expect(r.invoke("legacy.kit", "open")).resolves.toEqual({ version: 1, updates: [] });
+  });
+
+  it("deactivates an extension when a command times out", async () => {
+    const s = services();
+    const r = new HostExtensionRegistry(s, () => {}, { commandTimeoutMs: 50 });
+    await r.activate({
+      id: "slow.kit",
+      name: "Slow Kit",
+      activate: (ctx) => {
+        ctx.registerCommand("hang", () => new Promise((resolve) => setTimeout(resolve, 200)));
+      },
+    });
+    await expect(r.invoke("slow.kit", "hang")).rejects.toThrow("timed out after 50ms");
+    expect(r.isActive("slow.kit")).toBe(false);
+    expect(r.summaries().find((e) => e.id === "slow.kit")?.error).toContain("timed out after 50ms");
+    expect(s.logs.some((line) => line.includes("host-extension.failed") && line.includes("timed out"))).toBe(true);
+  });
+
+  it("deactivates an extension after 3 consecutive failures", async () => {
+    const { registry: r } = registry();
+    let fails = true;
+    await r.activate({
+      id: "flaky.kit",
+      name: "Flaky Kit",
+      activate: (ctx) => {
+        ctx.registerCommand("flaky", () => {
+          if (fails) throw new Error("failure");
+          return "ok";
+        });
+      },
+    });
+
+    // 1st failure
+    await expect(r.invoke("flaky.kit", "flaky")).rejects.toThrow("failure");
+    expect(r.isActive("flaky.kit")).toBe(true);
+
+    // 2nd failure
+    await expect(r.invoke("flaky.kit", "flaky")).rejects.toThrow("failure");
+    expect(r.isActive("flaky.kit")).toBe(true);
+
+    // 3rd failure -> deactivates!
+    await expect(r.invoke("flaky.kit", "flaky")).rejects.toThrow("failure");
+    expect(r.isActive("flaky.kit")).toBe(false);
+    expect(r.summaries().find((e) => e.id === "flaky.kit")?.error).toContain("deactivated after 3 consecutive failures");
+  });
 });

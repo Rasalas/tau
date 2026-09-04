@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, session, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HostEvent } from "../shared/contracts.js";
@@ -8,6 +8,7 @@ import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
 import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
+import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
 import { rebuildWorkbench } from "./workbench-build.js";
 import { bundledHostExtensions } from "./extensions/index.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
@@ -43,6 +44,9 @@ const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);
+// Both must happen before the app is ready: a privileged scheme cannot be added later.
+const desktopBundles = new DesktopBundleStore();
+registerDesktopBundleScheme();
 const hostLog = new HostLog({ dir: join(app.getPath("userData"), "logs") });
 
 process.on("uncaughtException", (error) => {
@@ -130,6 +134,14 @@ async function createWindow(): Promise<void> {
       preload: join(currentDir, "../preload/bundle.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // The preload bundle uses only contextBridge and ipcRenderer, both of
+      // which survive the sandbox; nothing in the renderer needs Node.
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+      nodeIntegrationInSubFrames: false,
+      spellcheck: false,
     },
   });
 
@@ -323,14 +335,23 @@ function installIpc(): void {
       decodeString("tau:host-extension-active", "id", id),
       decodeBoolean("tau:host-extension-active", "active", active),
     ));
+  ipcMain.handle("tau:extension-grant", async (_event, id: unknown, grant: unknown) =>
+    (await requireHostReady()).grantExtension(
+      decodeExtensionId("tau:extension-grant", id),
+      decodeBoolean("tau:extension-grant", "grant", grant),
+    ));
   ipcMain.handle("tau:prepare-workbench-reload", async (_event, mode: unknown) =>
     (await requireHostReady()).prepareWorkbenchReload(decodeWorkbenchReloadMode("tau:prepare-workbench-reload", "mode", mode)));
   ipcMain.handle("tau:release-workbench-reload", async () => (await requireHostReady()).releaseWorkbenchReload());
-  ipcMain.handle("tau:desktop-extensions", async (_event, cwd: unknown, sharedExports: unknown) =>
-    loadDesktopExtensions(decodeString("tau:desktop-extensions", "cwd", cwd), getAgentDir(), {
+  ipcMain.handle("tau:desktop-extensions", async (_event, cwd: unknown, sharedExports: unknown) => {
+    const result = await loadDesktopExtensions(decodeString("tau:desktop-extensions", "cwd", cwd), getAgentDir(), {
       sharedExports: decodeSharedExports("tau:desktop-extensions", "sharedExports", sharedExports),
       versions: extensionVersions,
-    }));
+    });
+    // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
+    desktopBundles.clear();
+    return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })) };
+  });
   ipcMain.handle("tau:rebuild-workbench", async () => {
     if (rebuild) return rebuild;
     rebuild = rebuildWorkbench(app.getAppPath(), {
@@ -357,6 +378,11 @@ if (primaryInstance) app.whenReady().then(async () => {
     userData: app.getPath("userData"),
   });
   app.dock?.setIcon(appIconPath);
+  serveDesktopBundles(desktopBundles);
+  // Nothing in the workbench asks for a camera, a microphone or a location, and
+  // an extension rendering inside it must not be able to ask on its behalf.
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
   projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"), undefined, hostLog);
   // The host and every tool it spawns (Pi's tools, runtimes, editors) see the
   // login shell's PATH, not the one a Dock launch inherits.
@@ -375,6 +401,11 @@ if (primaryInstance) app.whenReady().then(async () => {
 
 if (primaryInstance) app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+// `webviewTag` is off, so this only ever fires on a bug or on injected markup.
+if (primaryInstance) app.on("web-contents-created", (_event, contents) => {
+  contents.on("will-attach-webview", (event) => event.preventDefault());
 });
 
 if (primaryInstance) app.on("child-process-gone", (_event, details) => {

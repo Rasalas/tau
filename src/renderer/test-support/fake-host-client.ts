@@ -59,6 +59,7 @@ function defaults(): HostClient {
     listHostExtensions: async () => [],
     inspectExtensions: async () => ({ versions: { tau: "", pi: "", api: "" }, directories: [], packages: [], errors: [], skipped: [] }),
     setHostExtensionActive: async () => [],
+    grantExtension: async () => undefined,
 
     prepareWorkbenchReload: async () => ({ ready: true, runningThreads: 0 }),
     releaseWorkbenchReload: async () => undefined,

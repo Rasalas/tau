@@ -22,6 +22,8 @@ const KNOWN_DEBT: Record<string, Record<string, string>> = {
   "src/shared/contracts.ts": {
     // Pi's own dialog kinds; `editor` is ctx.ui.editor, not an external editor.
     editor: "Pi dialog kind",
+    // Provenance metadata on ExtensionPackageSummary and DesktopExtensionBundle.
+    commit: "Extension package provenance commit hash",
   },
   "src/main/index.ts": {},
 };

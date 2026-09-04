@@ -71,6 +71,7 @@ export interface HostClient {
   listHostExtensions(): Promise<HostExtensionSummary[]>;
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
+  grantExtension(id: string, grant: boolean): Promise<void>;
 
   // Rebuilding, reloading, and restarting the workbench itself.
   prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation>;
@@ -129,6 +130,7 @@ export function createElectronHostClient(api: TauDesktopApi): HostClient {
     listHostExtensions: () => api.listHostExtensions(),
     inspectExtensions: (cwd) => api.inspectExtensions(cwd),
     setHostExtensionActive: (id, active) => api.setHostExtensionActive(id, active),
+    grantExtension: (id, grant) => api.grantExtension(id, grant),
 
     prepareWorkbenchReload: (mode) => api.prepareWorkbenchReload(mode),
     releaseWorkbenchReload: () => api.releaseWorkbenchReload(),

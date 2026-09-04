@@ -68,15 +68,27 @@ export const MountedPanel = memo(function MountedPanel({
   Component,
   active,
   label,
+  extensionId,
   extensionName,
+  registry,
+  onNotify,
 }: {
   Component: ComponentType<{ active: boolean; extensionName: string }>;
   active: boolean;
   label: string;
+  extensionId?: string;
   extensionName: string;
+  registry?: ExtensionRegistry;
+  onNotify?(message: string): void;
 }) {
   return <div className={active ? "panel active" : "panel"}>
-    <LazyFeatureBoundary label={label.toLowerCase()}>
+    <LazyFeatureBoundary
+      label={label.toLowerCase()}
+      extensionId={extensionId}
+      extensionName={extensionName}
+      registry={registry}
+      onNotify={onNotify}
+    >
       <Suspense fallback={<LazyFeatureFallback label={label.toLowerCase()} />}>
         <Component active={active} extensionName={extensionName} />
       </Suspense>
@@ -282,6 +294,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     snapshot={snapshot}
     conversationSnapshot={conversationSnapshot}
     activeDraftKey={activeDraftKey}
+    onNotify={actions.notify}
   />;
 
   const overlays = <>
@@ -343,7 +356,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </WorkbenchShellContext.Provider>
   </ThreadStoreContext.Provider>;
   if (activeOverlay) return providers(<>
-    <LazyFeatureBoundary label={activeOverlay.id}>
+    <LazyFeatureBoundary
+      label={activeOverlay.id}
+      extensionId={activeOverlay.extensionId}
+      extensionName={activeOverlay.extensionName}
+      registry={registry}
+      onNotify={actions.notify}
+    >
       <Suspense fallback={<LazyFeatureFallback label={activeOverlay.id} />}>
         <activeOverlay.Component actions={actions} onClose={closeOverlay} />
       </Suspense>
@@ -354,7 +373,14 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   return providers(<>
     <div className={shellClassName} style={{ "--dock-width": `${dockWidth}px` } as CSSProperties}>
       <TitleBar cwd={workspaceCwd} dockOpen={dockOpen} registry={registry} snapshot={snapshot} actions={actions} onToggleDock={() => setDockOpen(!dockOpen)} />
-      {sidebarContributions.map((contribution) => <LazyFeatureBoundary key={contribution.id} label="sidebar">
+      {sidebarContributions.map((contribution) => <LazyFeatureBoundary
+        key={contribution.id}
+        label="sidebar"
+        extensionId={contribution.extensionId}
+        extensionName={contribution.extensionName}
+        registry={registry}
+        onNotify={actions.notify}
+      >
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
       </LazyFeatureBoundary>)}
       <div className={centerClassName} ref={centerRef}>
@@ -457,7 +483,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           Component={panel.Component}
           active={activePanel === panel.id}
           label={panel.label}
+          extensionId={panel.extensionId}
           extensionName={panel.extensionName}
+          registry={registry}
+          onNotify={actions.notify}
         /> : null)}</div> : null}
         <nav className="panel-rail">
           {panels.map((panel) => <button
@@ -526,12 +555,13 @@ function ConversationTranscript({ view, thread }: { view: ThreadViewStore; threa
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, activeDraftKey }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, activeDraftKey, onNotify }: {
   view: ThreadViewStore;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
   conversationSnapshot?: HostSnapshot;
   activeDraftKey?: string;
+  onNotify?(message: string): void;
 }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   const tools = useSyncExternalStore(view.subscribeToTools, view.getToolView).tools;
@@ -572,5 +602,6 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     }}
     onCompactContext={() => void compactContext()}
     held={holds > 0}
+    onNotify={onNotify}
   />;
 }
