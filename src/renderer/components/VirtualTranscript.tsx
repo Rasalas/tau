@@ -8,6 +8,7 @@ import {
   unanchoredTranscriptActivitiesForMessageCount,
   type TranscriptActivity,
 } from "./transcript-activity";
+import { RowViewportKeeper } from "./transcript-scroll-controller";
 import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
 import { LazyFeatureBoundary } from "./LazyFeature";
 
@@ -22,7 +23,7 @@ export interface VirtualTranscriptProps {
   activeTurnStartId?: string;
   /** Changes only when the ordered message ID set changes (not on deltas). */
   messageScopeKey?: string;
-  /** Visible record revision; lets a stable array carry an O(1) delta to rows. */
+  /** Visible record revision; only invalidates this memoized component. */
   revision?: number;
   /** Invalidates the user-message lookup when an existing record's metadata changes. */
   lookupRevision?: number;
@@ -34,21 +35,6 @@ export interface VirtualTranscriptProps {
 
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
 const MAX_EXPANDED_MESSAGE_IDS = 64;
-
-interface ActivityViewportPosition {
-  container: HTMLDivElement;
-  scrollTop: number;
-  anchor?: HTMLElement;
-  anchorTop?: number;
-  tracked?: HTMLElement;
-  trackedHeight?: number;
-  trackedTop?: number;
-}
-
-interface PendingActivityViewportRestore {
-  token: number;
-  position: ActivityViewportPosition;
-}
 
 interface ActivityLayoutSnapshot {
   activities: readonly TranscriptActivity[];
@@ -92,7 +78,6 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   activities = [],
   activeTurnStartId,
   messageScopeKey,
-  revision,
   lookupRevision,
   anchorRef,
   onCopyMessage,
@@ -102,27 +87,10 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     ...activities,
     ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, fallbackToTail: true, content: activity }] : []),
   ], [activities, activity, activityAfterMessageId]);
-  const indexRef = useRef<{
-    scopeKey?: string;
-    length: number;
-    firstId?: string;
-    lastId?: string;
-    lookupRevision?: number;
-    revision?: number;
-    ids: Set<string>;
-    positions: Map<string, number>;
-    references: Map<string, string>;
-    version: number;
-  } | undefined>(undefined);
   const firstId = messages[0]?.id;
   const lastId = messages.at(-1)?.id;
-  const currentIndex = indexRef.current;
-  if (!currentIndex
-    || currentIndex.scopeKey !== messageScopeKey
-    || currentIndex.length !== messages.length
-    || currentIndex.firstId !== firstId
-    || currentIndex.lastId !== lastId
-    || currentIndex.lookupRevision !== lookupRevision) {
+  // Rebuilt only when the ordered ID set changes, never for streaming deltas.
+  const messageIndex = useMemo(() => {
     const ids = new Set<string>();
     const positions = new Map<string, number>();
     const references = new Map<string, string>();
@@ -131,28 +99,15 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       positions.set(message.id, index);
       if (message.sourceEntryId) references.set(message.sourceEntryId, message.id);
     });
-    indexRef.current = {
-      scopeKey: messageScopeKey,
-      length: messages.length,
-      firstId,
-      lastId,
-      lookupRevision,
-      revision,
-      ids,
-      positions,
-      references,
-      version: (currentIndex?.version ?? 0) + 1,
-    };
-  } else if (currentIndex.revision !== revision) {
-    indexRef.current = { ...currentIndex, revision };
-  }
-  const messageIndex = indexRef.current!;
+    return { length: messages.length, lastId, ids, positions, references };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageScopeKey, messages.length, firstId, lastId, lookupRevision]);
   const normalizedActivities = useMemo(() => pendingActivities.map((entry) => ({
     ...entry,
     ...(entry.afterMessageId && messageIndex.references.has(entry.afterMessageId)
       ? { afterMessageId: messageIndex.references.get(entry.afterMessageId) }
       : {}),
-  })), [pendingActivities, messageIndex.version]);
+  })), [pendingActivities, messageIndex]);
   const activitiesByMessage = useMemo(
     () => groupTranscriptActivitiesForMessageIds(messageIndex.ids, messageIndex.lastId, normalizedActivities),
     [messageIndex, normalizedActivities],
@@ -179,7 +134,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   // The transcript index already owns this mapping. Reusing it avoids a second
   // full message scan and map allocation on every render of a long transcript.
   const messageIndexes = useRef<Map<string, number>>(messageIndex.positions);
-  messageIndexes.current = messageIndex.positions;
+  useLayoutEffect(() => { messageIndexes.current = messageIndex.positions; }, [messageIndex]);
   useLayoutEffect(() => {
     if (expandedState.sessionKey === sessionKey) return;
     setExpandedState({ sessionKey, ids: new Set() });
@@ -214,7 +169,11 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     rangeExtractor,
     useAnimationFrameWithResizeObserver: true,
   });
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+  // Not a `useVirtualizer` option in virtual-core 3.x. The controller owns
+  // every scroll write, so the virtualizer never compensates on its own.
+  useLayoutEffect(() => {
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+  }, [virtualizer]);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activityLayout = useRef<ActivityLayoutSnapshot>({
@@ -230,70 +189,16 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       .forEach((row) => virtualizer.measureElement(row));
   }, [messageIndex.lastId, normalizedActivities, virtualizer]);
 
-  const pendingActivityRestore = useRef<PendingActivityViewportRestore | undefined>(undefined);
-  const activityRestoreFrames = useRef<[number, number?] | undefined>(undefined);
-  const activityRestoreToken = useRef(0);
-  const cancelActivityRestore = useCallback(() => {
-    const [firstFrame, secondFrame] = activityRestoreFrames.current ?? [];
-    if (firstFrame !== undefined) window.cancelAnimationFrame(firstFrame);
-    if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame);
-    activityRestoreFrames.current = undefined;
-    pendingActivityRestore.current = undefined;
-  }, []);
-  const restoreActivityViewport = useCallback((pending: PendingActivityViewportRestore) => {
-    if (pendingActivityRestore.current?.token !== pending.token || activityRestoreFrames.current) return;
-    const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(() => {
-        activityRestoreFrames.current = undefined;
-        const current = pendingActivityRestore.current;
-        if (!current || current.token !== pending.token) return;
-        const { position } = current;
-        if (position.anchor && position.anchorTop !== undefined && position.anchor.isConnected) {
-          position.container.scrollTop = position.scrollTop + position.anchor.getBoundingClientRect().top - position.anchorTop;
-        } else if (position.tracked && position.trackedTop !== undefined && position.tracked.isConnected
-          && position.tracked.getBoundingClientRect().top < position.container.getBoundingClientRect().top) {
-          const oldHeight = position.trackedHeight ?? 0;
-          const newHeight = position.tracked.getBoundingClientRect().height;
-          const maxScrollTop = Math.max(0, position.container.scrollHeight - position.container.clientHeight);
-          position.container.scrollTop = Math.min(maxScrollTop, Math.max(0, position.scrollTop + newHeight - oldHeight));
-        }
-        pendingActivityRestore.current = undefined;
-      });
-      activityRestoreFrames.current = [firstFrame, secondFrame];
-    });
-    activityRestoreFrames.current = [firstFrame, undefined];
-  }, []);
-  useEffect(() => cancelActivityRestore, [cancelActivityRestore]);
+  const [activityKeeper] = useState(() => new RowViewportKeeper());
+  useEffect(() => () => activityKeeper.cancel(), [activityKeeper]);
   const captureActivityViewport = useCallback((event: SyntheticEvent<HTMLDivElement>) => {
     const target = event.target as Element | null;
     if (!target?.closest("button")) return;
     const container = scrollRef.current;
     const row = event.currentTarget.closest<HTMLElement>(".virtual-transcript-row");
     if (!container || !row) return;
-    cancelActivityRestore();
-    const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
-    const containerTop = container.getBoundingClientRect().top;
-    const rowIndex = rows.indexOf(row);
-    const anchor = rows
-      .slice(Math.max(0, rowIndex))
-      .find((candidate) => candidate.getBoundingClientRect().top >= containerTop);
-    const anchorRect = anchor?.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
-    const pending = {
-      token: ++activityRestoreToken.current,
-      position: {
-        container,
-        scrollTop: container.scrollTop,
-        ...(anchor ? { anchor } : {}),
-        ...(anchorRect ? { anchorTop: anchorRect.top } : {}),
-        tracked: row,
-        trackedHeight: rowRect.height,
-        trackedTop: rowRect.top,
-      },
-    } satisfies PendingActivityViewportRestore;
-    pendingActivityRestore.current = pending;
-    restoreActivityViewport(pending);
-  }, [cancelActivityRestore, restoreActivityViewport, scrollRef]);
+    activityKeeper.queueRestore(activityKeeper.capture(container, row));
+  }, [activityKeeper, scrollRef]);
 
   const onMessageToggleExpanded = useTranscriptViewportAnchor({
     expandedMessageIds,
