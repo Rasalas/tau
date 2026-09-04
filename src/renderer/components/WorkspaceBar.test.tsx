@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiWorktreeStatus, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import { WorkspaceBar } from "./WorkspaceBar";
@@ -119,24 +119,36 @@ describe("WorkspaceBar", () => {
     expect(screen.getByText("clean · behind 2 · unused")).toBeTruthy();
   });
 
-  it("offers the typed name as a new worktree after the matches, and not when a worktree carries it", async () => {
+  it("offers the typed name as a new worktree above the matches, and not when a worktree carries it", async () => {
     const linked = { path: "/Users/dev/code/tau-worktrees/feat-new-thing", name: "feat-new-thing", branch: "feat/new-thing", isMain: false, isCurrent: false };
-    setup(workspace({ worktrees: [workspace().worktrees[0], linked] }));
+    setup(workspace({ hasRemote: true, worktrees: [workspace().worktrees[0], linked] }));
     fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
     const search = await screen.findByRole("searchbox", { name: "Search worktrees" });
 
     fireEvent.change(search, { target: { value: "feat/new" } });
-    const options = screen.getAllByRole("option").map((option) => option.textContent ?? "");
-    expect(options[0]).toContain("feat/new-thing");
-    expect(options[1]).toContain("Create worktree “feat/new”");
-    expect(options[1]).toContain("with exactly this name · from main · ../tau-worktrees/feat-new");
+    const options = screen.getAllByRole("option");
+    expect(options[0].textContent).toContain("Create worktree “feat/new”");
+    expect(options[0].textContent).toContain("with exactly this name · from origin/main · ../tau-worktrees/feat-new");
+    expect(options[1].textContent).toContain("feat/new-thing");
+    // Enter still opens the best match; the new-worktree row is one ArrowUp away.
+    expect(options[1].classList.contains("selected")).toBe(true);
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(handlers.onOpenWorktree).toHaveBeenCalledWith(linked.path);
 
     fireEvent.change(search, { target: { value: "feat/new-thing" } });
     expect(screen.queryByRole("option", { name: /Create worktree/u })).toBeNull();
 
     fireEvent.change(search, { target: { value: "fix/worktree-handling" } });
     fireEvent.click(screen.getByRole("option", { name: /Create worktree “fix\/worktree-handling”/u }));
-    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/worktree-handling", "main");
+    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/worktree-handling", "origin/main");
+  });
+
+  it("branches a new worktree off the current branch when the repository has no remote", async () => {
+    setup(workspace());
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search worktrees" }), { target: { value: "fix/local" } });
+    fireEvent.click(screen.getByRole("option", { name: /Create worktree “fix\/local”/u }));
+    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/local", "main");
   });
 
   it("creates the typed name with Enter when nothing else matches", async () => {
@@ -148,18 +160,8 @@ describe("WorkspaceBar", () => {
     expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/only-new", "main");
   });
 
-  it("seeds the form with the typed name so the base can still be chosen", async () => {
-    setup(workspace({ hasRemote: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
-    fireEvent.change(await screen.findByRole("searchbox", { name: "Search worktrees" }), { target: { value: "fix/from-remote" } });
-    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
-    expect((screen.getByPlaceholderText("feat/my-branch") as HTMLInputElement).value).toBe("fix/from-remote");
-    fireEvent.change(screen.getByRole("combobox", { name: "START FROM" }), { target: { value: "origin/main" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/from-remote", "origin/main");
-  });
 
-  it("offers automatic naming only with a namer, and reviews the suggestion in the form", async () => {
+  it("offers automatic naming only with a namer, and puts the suggestion into the search to review", async () => {
     setup(workspace());
     fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
     await screen.findByRole("searchbox", { name: "Search worktrees" });
@@ -172,7 +174,11 @@ describe("WorkspaceBar", () => {
     fireEvent.change(await screen.findByRole("searchbox", { name: "Search worktrees" }), { target: { value: "steer" } });
     fireEvent.click(screen.getByRole("button", { name: /automatic naming/u }));
     expect(onSuggestName).toHaveBeenCalledWith("steer");
-    expect(((await screen.findByPlaceholderText("feat/my-branch")) as HTMLInputElement).value).toBe("fix/steer-queue-messages");
+    const search = screen.getByRole("searchbox", { name: "Search worktrees" }) as HTMLInputElement;
+    await waitFor(() => expect(search.value).toBe("fix/steer-queue-messages"));
+    expect(screen.getByRole("option", { name: /Create worktree “fix\/steer-queue-messages”/u }).classList.contains("selected")).toBe(true);
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/steer-queue-messages", "main");
   });
 
   it("closes the picker on a click outside of the bar", async () => {
@@ -183,26 +189,5 @@ describe("WorkspaceBar", () => {
     expect(screen.queryByRole("searchbox", { name: "Search worktrees" })).toBeNull();
   });
 
-  it("lets a new worktree start from origin/main", () => {
-    setup(workspace({ hasRemote: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
-    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
-    fireEvent.change(screen.getByPlaceholderText("feat/my-branch"), { target: { value: "feat/remote-base" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "START FROM" }), { target: { value: "origin/main" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("feat/remote-base", "origin/main");
-  });
-
-  it("shows a sibling-relative path when creating a worktree", () => {
-    setup(workspace());
-    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
-    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
-    fireEvent.change(screen.getByPlaceholderText("feat/my-branch"), {
-      target: { value: "feat/short-path" },
-    });
-
-    expect(screen.getByText("../tau-worktrees/feat-short-path")).toBeTruthy();
-    expect(screen.queryByText(/Users\/dev\/code/u)).toBeNull();
-  });
 });

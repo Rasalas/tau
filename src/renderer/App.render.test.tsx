@@ -1848,9 +1848,8 @@ describe("App render isolation", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
-    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
-    fireEvent.change(screen.getByPlaceholderText("feat/my-branch"), { target: { value: "feat/race" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search worktrees" }), { target: { value: "feat/race" } });
+    fireEvent.click(screen.getByRole("option", { name: /Create worktree “feat\/race”/u }));
 
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "Must run in the worktree" } });

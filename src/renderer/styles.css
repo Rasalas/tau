@@ -1313,28 +1313,6 @@ button > svg { pointer-events: none; }
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-list > p { padding: 14px 10px; color: var(--faint); font-size: 12px; }
 .worktree-list .cleanup-candidate { color: var(--acid); }
-.worktree-form { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
-.worktree-form label { display: flex; flex-direction: column; gap: 6px; }
-.worktree-form label > span { font: 500 10px var(--mono); color: var(--faint); letter-spacing: .1em; }
-.worktree-form input,
-.worktree-form select {
-  border: 1px solid var(--line-control); border-radius: 7px; background: var(--sunken);
-  color: var(--ink); padding: 7px 9px; font-size: 12.5px; outline: none;
-}
-.worktree-form input:focus,
-.worktree-form select:focus { border-color: var(--line-field); }
-.worktree-form > small {
-  font: 10px var(--mono); color: var(--faint);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
-}
-.worktree-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
-.worktree-form-actions button {
-  border: 1px solid var(--line-control); border-radius: 6px; background: transparent;
-  color: var(--ink-3); font: 500 11.5px var(--sans); padding: 5px 10px; cursor: pointer;
-}
-.worktree-form-actions button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
-.worktree-form-actions button.primary { border: 0; background: var(--acid); color: var(--acid-ink); font-weight: 600; }
-.worktree-form-actions button:disabled { opacity: .5; cursor: default; }
 
 .ref-picker { min-width: 300px; padding: 0; overflow: hidden; }
 .ref-search {
