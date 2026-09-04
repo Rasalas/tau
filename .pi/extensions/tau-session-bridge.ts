@@ -42,6 +42,9 @@ import {
 } from "../../src/main/workspace-kit-checkpoints.js";
 import { bridgeTranscriptPage, boundedBridgePayload, boundedBridgeValue } from "../../src/shared/bridge-transcript-pager.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS, toolOutputByteLength } from "../../src/shared/tool-output.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../src/shared/thread-titles-protocol.js";
+import { cleanThreadTitle } from "../../src/main/host-messages.js";
+import { buildTitleConversation } from "../../src/main/extensions/thread-titles-host-extension.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,
@@ -746,6 +749,91 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
       ],
     };
   };
+
+  interface PendingTitleGeneration {
+    context: ExtensionContext;
+    provider: string;
+    modelId: string;
+    promise: Promise<{ title: string } | undefined>;
+    resolve(value: { title: string } | undefined): void;
+    reject(error: unknown): void;
+  }
+  const pendingTitleGenerations = new Map<string, PendingTitleGeneration>();
+  const generateThreadTitle = async (
+    ctx: ExtensionContext,
+    provider: string,
+    modelId: string,
+    force: boolean,
+  ): Promise<{ title: string } | undefined> => {
+    if (pi.getSessionName() && !force) return undefined;
+    const model = ctx.modelRegistry.find(provider, modelId);
+    if (!model) throw new Error(`Unknown model: ${provider}/${modelId}`);
+    const conversation = buildTitleConversation(ctx.sessionManager.getBranch().flatMap((entry) => {
+      if (entry.type !== "message") return [];
+      const message = normalizedTranscriptMessage(entry.message);
+      return message ? [message] : [];
+    }));
+    if (!conversation) {
+      if (!force) return undefined;
+      throw new Error("The thread has no conversation to title yet.");
+    }
+    const response = await ctx.modelRegistry.complete(model, {
+      systemPrompt: "Create a concise coding-thread title as one plain-text noun phrase. Use 3-7 words and at most 60 characters. Name the concrete task, change, or decision. Never use Markdown, quotes, terminal punctuation, a label, a complete sentence, or meta wording such as working on, help with, discussion about, or implementing.",
+      messages: [{
+        role: "user",
+        content: [{ type: "text", text: `Return only the plain-text title for this thread. Match the conversation's language.\n\n${conversation}` }],
+        timestamp: Date.now(),
+      }],
+    }, { maxTokens: 48, cacheRetention: "none", sessionId: randomUUID() });
+    if (response.stopReason === "error" || response.stopReason === "aborted") {
+      throw new Error(response.errorMessage || "The title model did not complete.");
+    }
+    const title = cleanThreadTitle(response.content
+      .filter((part): part is { type: "text"; text: string } => part.type === "text")
+      .map((part) => part.text)
+      .join("\n"));
+    pi.setSessionName(title);
+    return { title };
+  };
+  const requestThreadTitle = (
+    ctx: ExtensionContext,
+    provider: string,
+    modelId: string,
+    force: boolean,
+  ): Promise<{ title: string } | undefined> => {
+    if (ctx.isIdle()) return generateThreadTitle(ctx, provider, modelId, force);
+    if (force) throw new Error("Wait for the active agent run before generating a title.");
+    const sessionId = ctx.sessionManager.getSessionId();
+    const existing = pendingTitleGenerations.get(sessionId);
+    if (existing) return existing.promise;
+    let resolve!: PendingTitleGeneration["resolve"];
+    let reject!: PendingTitleGeneration["reject"];
+    const promise = new Promise<{ title: string } | undefined>((accept, fail) => {
+      resolve = accept;
+      reject = fail;
+    });
+    pendingTitleGenerations.set(sessionId, { context: ctx, provider, modelId, promise, resolve, reject });
+    return promise;
+  };
+  const settleThreadTitle = async (ctx: ExtensionContext): Promise<void> => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const pending = pendingTitleGenerations.get(sessionId);
+    if (!pending || pending.context !== ctx || !ctx.isIdle()) return;
+    pendingTitleGenerations.delete(sessionId);
+    try {
+      pending.resolve(await generateThreadTitle(ctx, pending.provider, pending.modelId, false));
+    } catch (error) {
+      pending.reject(error);
+    }
+  };
+  const rejectPendingTitle = (ctx: ExtensionContext): void => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const pending = pendingTitleGenerations.get(sessionId);
+    if (!pending) return;
+    pendingTitleGenerations.delete(sessionId);
+    pending.reject(new Error("The Pi session changed before its title was generated."));
+  };
+
   pi.registerCommand("tau-bridge-reload", {
     description: "Reload Pi resources for an attached Tau client",
     handler: async (_args, ctx) => ctx.reload(),
@@ -970,6 +1058,12 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   });
   // Commands of Workspace Kit's counterpart inside Pi, reached through the host's `extension` command.
   const extensionCommands: Record<string, (ctx: ExtensionContext, input: Record<string, unknown>) => Promise<unknown>> = {
+    [`${THREAD_TITLES_HOST_EXTENSION_ID}/generate`]: async (ctx, input) => {
+      const provider = typeof input.provider === "string" ? input.provider : "";
+      const modelId = typeof input.modelId === "string" ? input.modelId : "";
+      if (!provider || !modelId) throw new Error("Title generation needs a provider and a model.");
+      return requestThreadTitle(ctx, provider, modelId, input.force === true);
+    },
     [`${WORKSPACE_HOST_EXTENSION_ID}/checkpoints`]: async (ctx) => checkpointList(ctx),
     [`${WORKSPACE_HOST_EXTENSION_ID}/turn-file-diff`]: async (ctx, input) => {
       if (typeof input.checkpointId !== "string" || typeof input.path !== "string") throw new Error("turn-file-diff needs checkpointId and path.");
@@ -1518,7 +1612,10 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
     }
     // A queued follow-up can make an inner agent turn settle while Pi is still
     // running. Do not cancel its marker until the runtime is genuinely idle.
-    if (eventName === "agent_settled" && ctx.isIdle()) settlePendingClientMessageIds(ctx);
+    if (eventName === "agent_settled" && ctx.isIdle()) {
+      settlePendingClientMessageIds(ctx);
+      await settleThreadTitle(ctx);
+    }
     broadcast({ ...event, type: eventName }, ctx);
     if (eventName === "message_end" || eventName === "agent_settled" || eventName === "model_select" || eventName === "thinking_level_select") {
       broadcastSnapshot(ctx);
@@ -1549,6 +1646,7 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
+    rejectPendingTitle(ctx);
     await checkpointRuntime.close();
     // Read the branch after the awaited settle: a checkpoint that was in the
     // final persistence phase must be part of a subsequent fork as well.

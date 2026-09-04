@@ -62,8 +62,9 @@ export function createThreadTitlesHostExtension(): HostExtension {
         if (!provider || !modelId) throw new Error("Title generation needs a provider and a model.");
 
         if (services.runtimeOwner() === "pi") {
-          if (!force) return undefined;
-          throw new Error("Generate the thread title in Pi while Tau is attached to its runtime.");
+          const attached = services.attachedRuntime(sessionId);
+          if (!attached) throw new Error("The attached Pi runtime is not ready.");
+          return attached.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider, modelId, force });
         }
         const thread = services.thread(sessionId);
         if (!thread) {

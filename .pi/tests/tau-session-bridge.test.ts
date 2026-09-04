@@ -250,6 +250,51 @@ afterEach(async () => {
 });
 
 describe("Tau session bridge handler", () => {
+  it("generates the first thread title inside the attached Pi runtime after the run settles", async () => {
+    const bridge = fakeBridge();
+    let idle = false;
+    let idleChecks = 0;
+    let sessionName: string | undefined;
+    bridge.context.isIdle = () => { idleChecks += 1; return idle; };
+    bridge.context.model = { provider: "provider", id: "model", name: "Model" };
+    bridge.context.modelRegistry.find = vi.fn(() => bridge.context.model);
+    bridge.context.modelRegistry.complete = vi.fn(async () => ({
+      stopReason: "stop",
+      content: [{ type: "text", text: "Automatic Thread Titles" }],
+    }));
+    bridge.pi.getSessionName = () => sessionName;
+    bridge.pi.setSessionName = vi.fn((title: string) => { sessionName = title; });
+    bridge.context.sessionManager.getBranch().push({
+      type: "message",
+      id: "user",
+      message: { role: "user", content: [{ type: "text", text: "Fix automatic titles" }], timestamp: 1 },
+    });
+    await bridge.events.get("session_start")?.({}, bridge.context);
+    const descriptor = await findPiBridge(bridge.context.cwd);
+    const client = new PiBridgeClient(descriptor as PiBridgeDescriptor);
+    cleanups.push(async () => {
+      await bridge.events.get("session_shutdown")?.({}, bridge.context);
+      client.close();
+    });
+    await client.open();
+
+    const idleChecksBeforeRequest = idleChecks;
+    const generated = client.command({
+      command: "extension",
+      extensionId: "tau.thread-titles",
+      name: "generate",
+      input: { provider: "provider", modelId: "model", force: false },
+    });
+    await vi.waitFor(() => expect(idleChecks).toBeGreaterThan(idleChecksBeforeRequest));
+    expect(bridge.context.modelRegistry.complete).not.toHaveBeenCalled();
+
+    idle = true;
+    await bridge.events.get("agent_settled")?.({}, bridge.context);
+
+    await expect(generated).resolves.toEqual({ title: "Automatic Thread Titles" });
+    expect(bridge.pi.setSessionName).toHaveBeenCalledWith("Automatic Thread Titles");
+  });
+
   it("advertises and delivers image input for an image-capable model", async () => {
     const bridge = fakeBridge();
     await bridge.events.get("session_start")?.({}, bridge.context);
