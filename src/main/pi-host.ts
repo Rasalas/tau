@@ -1647,7 +1647,6 @@ export class PiHost {
       }
     }
     if ((!wasStreaming || isExtensionCommand) && markerActive && (preflightState as PromptPreflightState) !== "accepted") failUnpersistedMarker();
-    this.log("prompt.accepted", `${text.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
   }
 
   async runShellAction(command: string, includeInContext = false, expectedCwd?: string): Promise<ShellActionResult> {
