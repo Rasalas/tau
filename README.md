@@ -38,6 +38,8 @@ npm run start:safe
 
 The production renderer is minified and does not ship source maps unless `TAU_SOURCEMAP=true` is explicitly set. Review, Settings, optional panels, and Highlight.js languages are demand-loaded; their slots expose a Retry action if a chunk cannot be loaded.
 
+`npm run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter.html) over `src/`, `.pi/` and `scripts/` (config in `.oxlintrc.json`: `correctness` and `suspicious` rules as errors, `perf` as warnings). CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full Vitest suite, and a production build on every pull request and push to `main`; `.github/workflows/performance.yml` stays the separate, slower gate for build/startup/renderer budgets.
+
 ### Reach the host over a socket
 
 The renderer talks to the host through one versioned protocol (`docs/adr/0010-host-protocol.md`); Electron IPC is one transport of it. Start a host that also listens on a socket with `TAU_HOST_LISTEN=127.0.0.1:7788 npm start`, and point a client at it by opening the workbench with `?host=ws://127.0.0.1:7788&token=<token>`, where the token is the line in `~/.tau/host-token` (created on the first listen, 0o600). A wrong token closes the connection. Encryption is an SSH tunnel's job.
