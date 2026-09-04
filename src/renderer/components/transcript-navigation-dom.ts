@@ -10,7 +10,7 @@ import {
   type TranscriptNavigationOptions,
   type TranscriptNavigationState,
 } from "./transcript-navigation";
-import { TranscriptScrollController, type TranscriptScrollMode } from "./transcript-scroll-controller";
+import { TranscriptScrollController } from "./transcript-scroll-controller";
 
 export interface TranscriptNavigation {
   canJumpToLatest: boolean;
@@ -19,7 +19,6 @@ export interface TranscriptNavigation {
   /** Reuse the controller's single scroll listener and ResizeObserver. */
   subscribeScroll: (listener: () => void) => () => void;
   subscribeResize: (listener: () => void) => () => void;
-  mode: () => TranscriptScrollMode;
 }
 
 function initialNavigationState(options: TranscriptNavigationOptions): TranscriptNavigationState {
@@ -49,11 +48,11 @@ export function useTranscriptNavigation(
   options: TranscriptNavigationOptions,
 ): TranscriptNavigation {
   const [canJumpToLatest, setCanJumpToLatest] = useState(false);
-  const latest = useRef({
-    messages: options.messages as readonly UiMessage[],
-    lookup: options.lookup as TranscriptMessageLookup | undefined,
-    onAnchorChange: options.onAnchorChange,
-  });
+  const latest = useRef<{
+    messages: readonly UiMessage[];
+    lookup: TranscriptMessageLookup | undefined;
+    onAnchorChange: (id?: string) => void;
+  }>({ messages: options.messages, lookup: options.lookup, onAnchorChange: options.onAnchorChange });
   const [{ navigation, controller }] = useState(() => {
     const state = initialNavigationState(options);
     return {
@@ -83,7 +82,6 @@ export function useTranscriptNavigation(
   const jumpToMessage = useCallback((messageId: string) => controller.jumpToMessage(messageId), [controller]);
   const subscribeScroll = useCallback((listener: () => void) => controller.subscribeScroll(listener), [controller]);
   const subscribeResize = useCallback((listener: () => void) => controller.subscribeResize(listener), [controller]);
-  const mode = useCallback(() => controller.mode, [controller]);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -196,5 +194,5 @@ export function useTranscriptNavigation(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, updates);
 
-  return { canJumpToLatest, jumpToLatest, jumpToMessage, subscribeScroll, subscribeResize, mode };
+  return { canJumpToLatest, jumpToLatest, jumpToMessage, subscribeScroll, subscribeResize };
 }
