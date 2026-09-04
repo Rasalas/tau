@@ -217,7 +217,7 @@ export class WorkspaceStore {
     if (tool.name === "edit" || tool.name === "write" || /\bgit\b/u.test(command)) void this.refreshChanges();
   }
 
-  turnChanges(tools: UiToolRun[]): UiWorkspaceChanges {
+  turnChanges(tools: readonly UiToolRun[]): UiWorkspaceChanges {
     const { turnBaseline, changes } = this.state;
     return turnBaseline ? changesSinceTurn(turnBaseline, changes) : changesTouchedByTools(tools, changes);
   }

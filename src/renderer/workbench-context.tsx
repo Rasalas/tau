@@ -12,8 +12,8 @@ export interface TimelineEvent {
 
 export interface WorkbenchContextValue {
   snapshot?: HostSnapshot;
-  tools: UiToolRun[];
-  events: TimelineEvent[];
+  tools: readonly UiToolRun[];
+  events: readonly TimelineEvent[];
   registry: ExtensionRegistry;
   /** Absolute path of the document shown in the active stage tab. */
   activeDocumentPath?: string;
@@ -28,9 +28,9 @@ export interface WorkbenchShellContextValue {
 }
 
 export interface ObservatoryContextValue {
-  events: TimelineEvent[];
+  events: readonly TimelineEvent[];
   snapshot?: HostSnapshot;
-  tools: UiToolRun[];
+  tools: readonly UiToolRun[];
   registry: ExtensionRegistry;
 }
 

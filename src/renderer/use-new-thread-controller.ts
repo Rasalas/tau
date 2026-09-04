@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type SetStateAction } from "react";
 import { createNewThreadRequestId, type NewThreadRequestId } from "../shared/contracts";
 import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { createDraftKey, type DraftKey } from "./composer-scope-store";
@@ -20,9 +20,15 @@ export interface NewThreadPromotionContext {
 }
 
 export function useNewThreadController(storage: Storage) {
-  const [pendingNewThread, setPendingNewThread] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
+  const [pendingNewThread, setPendingState] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
   const pendingRef = useRef(pendingNewThread);
-  pendingRef.current = pendingNewThread;
+  // The ref moves with the setter, not with rendering: a submission that
+  // awaits the host reads what is pending now, not what was last rendered.
+  const setPendingNewThread = useCallback((value: SetStateAction<NewThreadDraft | undefined>) => {
+    pendingRef.current = typeof value === "function" ? value(pendingRef.current) : value;
+    setPendingState(pendingRef.current);
+  }, []);
+  const current = useCallback(() => pendingRef.current, []);
   const requestRef = useRef<NewThreadRequestId>(newRequestIdentity());
   const awaitingPromotionRef = useRef<{ scope: DraftKey; requestId: NewThreadRequestId } | undefined>(undefined);
 
@@ -31,7 +37,7 @@ export function useNewThreadController(storage: Storage) {
     const scopedDraft = { ...draft, draftId: draft.draftId ?? newDraftIdentity() };
     writeNewThreadDraft(storage, scopedDraft);
     setPendingNewThread(scopedDraft);
-  }, [storage]);
+  }, [setPendingNewThread, storage]);
 
   const invalidate = useCallback(() => {
     requestRef.current = newRequestIdentity();
@@ -69,7 +75,7 @@ export function useNewThreadController(storage: Storage) {
     writeNewThreadDraft(storage);
     setPendingNewThread(undefined);
     return Boolean(sessionId);
-  }, [storage]);
+  }, [setPendingNewThread, storage]);
 
   /**
    * A persisted user-message is stronger evidence than a blank lifecycle
@@ -85,11 +91,12 @@ export function useNewThreadController(storage: Storage) {
     writeNewThreadDraft(storage);
     setPendingNewThread(undefined);
     return scope;
-  }, [storage]);
+  }, [setPendingNewThread, storage]);
 
   return {
     pendingNewThread,
     setPendingNewThread,
+    current,
     requestId: requestRef,
     begin,
     invalidate,

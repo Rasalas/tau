@@ -39,6 +39,8 @@ export interface AssistantAnchorRecord {
 export interface ThreadViewState {
   /** The thread this view belongs to; every runtime event is filtered against it. */
   readonly activeThreadId: string;
+  /** The thread whose run started while it was visible; unread marking needs it at the end. */
+  readonly runningThreadId: string;
   readonly snapshot?: HostSnapshot;
   readonly transcript: TranscriptState;
   readonly optimisticMessages: readonly OptimisticUserMessage[];
@@ -66,6 +68,7 @@ const EMPTY_TOOL_VIEW: ToolViewState = { tools: [], turnActivityHistory: [] };
 export function createThreadViewState(snapshot?: HostSnapshot): ThreadViewState {
   return {
     activeThreadId: snapshot?.sessionId ?? "",
+    runningThreadId: "",
     snapshot,
     transcript: snapshot ? replaceTranscript(EMPTY_TRANSCRIPT, snapshot.messages) : EMPTY_TRANSCRIPT,
     optimisticMessages: [],
@@ -155,8 +158,14 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
       // A starting run opens a fresh activity group; a stopping one keeps the
       // finished tools on screen until the next turn replaces them.
       return event.running
-        ? { ...state, tools: [], toolAnchorId: undefined, turnActivitySessionId: event.sessionId }
-        : state;
+        ? {
+          ...state,
+          tools: [],
+          toolAnchorId: undefined,
+          turnActivitySessionId: event.sessionId,
+          runningThreadId: state.snapshot?.sessionId ?? "",
+        }
+        : state.runningThreadId ? { ...state, runningThreadId: "" } : state;
     case "assistant-start":
       return { ...state, assistantStarts: new Map(state.assistantStarts).set(event.id, event.timestamp) };
     case "assistant-delta":
@@ -410,19 +419,27 @@ export class ThreadViewStore {
     this.commit({ ...this.state, turnActivityHistory, turnActivitySessionId });
   }
 
+  setTurnActivityHistory(turnActivityHistory: readonly UiTurnActivityEntry[]): void {
+    this.commit({ ...this.state, turnActivityHistory });
+  }
+
+  appendMessage(message: UiMessage): void {
+    this.commit({ ...this.state, transcript: appendMessage(this.state.transcript, message) });
+  }
+
   setUiPrompts(update: Updater<readonly ExtensionUiPrompt[]>): void {
     const uiPrompts = resolve(update, this.state.uiPrompts);
     if (uiPrompts === this.state.uiPrompts) return;
     this.commit({ ...this.state, uiPrompts });
   }
 
-  setNotice(message?: string, level: NoticeLevel = "info"): void {
+  setNotice = (message?: string, level: NoticeLevel = "info"): void => {
     this.commit(withNotice(this.state, message, level));
-  }
+  };
 
-  addEvent(label: string, detail?: string, timestamp = Date.now()): void {
+  addEvent = (label: string, detail?: string, timestamp = Date.now()): void => {
     this.commit(withEvent(this.state, label, detail, timestamp));
-  }
+  };
 
   /**
    * Materializes the parked anchor rows an extension asked for. An empty

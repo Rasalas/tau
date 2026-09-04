@@ -1,29 +1,22 @@
-import { useEffect, useMemo, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiToolRun } from "../shared/contracts";
+import { useEffect, useMemo } from "react";
+import type { ExtensionUiPrompt, HostSnapshot, UiToolRun } from "../shared/contracts";
 import { TaskProgress } from "./components/TaskProgress";
 import { ToolGroup } from "./components/ToolGroup";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import type { ExtensionRegistry } from "./extension-system";
-
-interface PendingAssistantAnchor {
-  id: string;
-  timestamp: number;
-  beforeMessageId?: string;
-}
+import type { ThreadViewStore } from "./thread-view-store";
 
 export interface ConversationActivityInput {
   pendingNewThread: boolean;
   activityTools: UiToolRun[];
-  turnActivityHistory: NonNullable<HostSnapshot["turnActivityHistory"]>;
+  turnActivityHistory: readonly NonNullable<HostSnapshot["turnActivityHistory"]>[number][];
   conversationSnapshot?: HostSnapshot;
   toolAnchorId?: string;
   visibleToolAnchorId?: string;
   threadPrompts: ExtensionUiPrompt[];
   registry: ExtensionRegistry;
   registryVersion: number;
-  pendingAssistantAnchors: MutableRefObject<Map<string, PendingAssistantAnchor>>;
-  messages: MutableRefObject<UiMessage[]>;
-  setMessages: Dispatch<SetStateAction<UiMessage[]>>;
+  viewStore: ThreadViewStore;
   recoverThread(): Promise<unknown>;
   copyToolOutput(tool: UiToolRun): Promise<void>;
   abortSessionId?: string;
@@ -32,8 +25,8 @@ export interface ConversationActivityInput {
 export function useConversationActivities(input: ConversationActivityInput) {
   const {
     pendingNewThread, activityTools, turnActivityHistory, conversationSnapshot, toolAnchorId,
-    visibleToolAnchorId, threadPrompts, registry, registryVersion, pendingAssistantAnchors,
-    messages, setMessages, recoverThread, copyToolOutput, abortSessionId,
+    visibleToolAnchorId, threadPrompts, registry, registryVersion, viewStore,
+    recoverThread, copyToolOutput, abortSessionId,
   } = input;
   const conversationActivityTools = pendingNewThread ? [] : activityTools;
   const conversationActivityHistory = pendingNewThread
@@ -69,27 +62,10 @@ export function useConversationActivities(input: ConversationActivityInput) {
   const liveStatusLabel = registry.getLiveStatus(conversationSnapshot?.sessionId);
 
   useEffect(() => {
-    const pending = pendingAssistantAnchors.current;
-    if (pending.size === 0) return;
-    const wanted = extensionRows.flatMap((row) => row.afterMessageId !== undefined && pending.has(row.afterMessageId) ? [row.afterMessageId] : []);
-    if (wanted.length === 0) return;
-    setMessages((current) => {
-      let next = current;
-      for (const sourceEntryId of new Set(wanted)) {
-        const anchor = pending.get(sourceEntryId);
-        if (!anchor) continue;
-        pending.delete(sourceEntryId);
-        if (next.some((message) => message.sourceEntryId === sourceEntryId || message.id === anchor.id)) continue;
-        const marker: UiMessage = { id: anchor.id, sourceEntryId, role: "assistant", text: "", timestamp: anchor.timestamp };
-        const beforeIndex = anchor.beforeMessageId === undefined
-          ? -1
-          : next.findIndex((message) => message.id === anchor.beforeMessageId || message.sourceEntryId === anchor.beforeMessageId);
-        next = beforeIndex < 0 ? [...next, marker] : [...next.slice(0, beforeIndex), marker, ...next.slice(beforeIndex)];
-      }
-      if (next !== current) messages.current = next;
-      return next;
-    });
-  }, [extensionRows, messages, pendingAssistantAnchors, setMessages]);
+    // An empty live assistant row only becomes visible once an extension row
+    // asks to sit at its entry.
+    viewStore.resolvePendingAnchors(extensionRows.flatMap((row) => row.afterMessageId === undefined ? [] : [row.afterMessageId]));
+  }, [extensionRows, viewStore]);
 
   const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
     ...historicalActivityRows,

@@ -13,7 +13,10 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { ComposerHost, isCurrentTranscriptSubmission, latestActivityAnchor, measureComposerGeometry, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App from "./App";
+import { isCurrentTranscriptSubmission, latestActivityAnchor, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./app-state";
+import { ComposerHost, measureComposerGeometry } from "./components/ComposerHost";
+import { MountedPanel } from "./Workbench";
 import { createNewThreadDraft, writeNewThreadDraft } from "./draft-store";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
