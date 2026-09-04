@@ -8,6 +8,7 @@ import {
   unanchoredTranscriptActivitiesForMessageCount,
   type TranscriptActivity,
 } from "./transcript-activity";
+import { RowViewportKeeper } from "./transcript-scroll-controller";
 import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
 
 export interface VirtualTranscriptProps {
@@ -33,21 +34,6 @@ export interface VirtualTranscriptProps {
 
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
 const MAX_EXPANDED_MESSAGE_IDS = 64;
-
-interface ActivityViewportPosition {
-  container: HTMLDivElement;
-  scrollTop: number;
-  anchor?: HTMLElement;
-  anchorTop?: number;
-  tracked?: HTMLElement;
-  trackedHeight?: number;
-  trackedTop?: number;
-}
-
-interface PendingActivityViewportRestore {
-  token: number;
-  position: ActivityViewportPosition;
-}
 
 interface ActivityLayoutSnapshot {
   activities: readonly TranscriptActivity[];
@@ -229,70 +215,16 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       .forEach((row) => virtualizer.measureElement(row));
   }, [messageIndex.lastId, normalizedActivities, virtualizer]);
 
-  const pendingActivityRestore = useRef<PendingActivityViewportRestore | undefined>(undefined);
-  const activityRestoreFrames = useRef<[number, number?] | undefined>(undefined);
-  const activityRestoreToken = useRef(0);
-  const cancelActivityRestore = useCallback(() => {
-    const [firstFrame, secondFrame] = activityRestoreFrames.current ?? [];
-    if (firstFrame !== undefined) window.cancelAnimationFrame(firstFrame);
-    if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame);
-    activityRestoreFrames.current = undefined;
-    pendingActivityRestore.current = undefined;
-  }, []);
-  const restoreActivityViewport = useCallback((pending: PendingActivityViewportRestore) => {
-    if (pendingActivityRestore.current?.token !== pending.token || activityRestoreFrames.current) return;
-    const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(() => {
-        activityRestoreFrames.current = undefined;
-        const current = pendingActivityRestore.current;
-        if (!current || current.token !== pending.token) return;
-        const { position } = current;
-        if (position.anchor && position.anchorTop !== undefined && position.anchor.isConnected) {
-          position.container.scrollTop = position.scrollTop + position.anchor.getBoundingClientRect().top - position.anchorTop;
-        } else if (position.tracked && position.trackedTop !== undefined && position.tracked.isConnected
-          && position.tracked.getBoundingClientRect().top < position.container.getBoundingClientRect().top) {
-          const oldHeight = position.trackedHeight ?? 0;
-          const newHeight = position.tracked.getBoundingClientRect().height;
-          const maxScrollTop = Math.max(0, position.container.scrollHeight - position.container.clientHeight);
-          position.container.scrollTop = Math.min(maxScrollTop, Math.max(0, position.scrollTop + newHeight - oldHeight));
-        }
-        pendingActivityRestore.current = undefined;
-      });
-      activityRestoreFrames.current = [firstFrame, secondFrame];
-    });
-    activityRestoreFrames.current = [firstFrame, undefined];
-  }, []);
-  useEffect(() => cancelActivityRestore, [cancelActivityRestore]);
+  const [activityKeeper] = useState(() => new RowViewportKeeper());
+  useEffect(() => () => activityKeeper.cancel(), [activityKeeper]);
   const captureActivityViewport = useCallback((event: SyntheticEvent<HTMLDivElement>) => {
     const target = event.target as Element | null;
     if (!target?.closest("button")) return;
     const container = scrollRef.current;
     const row = event.currentTarget.closest<HTMLElement>(".virtual-transcript-row");
     if (!container || !row) return;
-    cancelActivityRestore();
-    const rows = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
-    const containerTop = container.getBoundingClientRect().top;
-    const rowIndex = rows.indexOf(row);
-    const anchor = rows
-      .slice(Math.max(0, rowIndex))
-      .find((candidate) => candidate.getBoundingClientRect().top >= containerTop);
-    const anchorRect = anchor?.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
-    const pending = {
-      token: ++activityRestoreToken.current,
-      position: {
-        container,
-        scrollTop: container.scrollTop,
-        ...(anchor ? { anchor } : {}),
-        ...(anchorRect ? { anchorTop: anchorRect.top } : {}),
-        tracked: row,
-        trackedHeight: rowRect.height,
-        trackedTop: rowRect.top,
-      },
-    } satisfies PendingActivityViewportRestore;
-    pendingActivityRestore.current = pending;
-    restoreActivityViewport(pending);
-  }, [cancelActivityRestore, restoreActivityViewport, scrollRef]);
+    activityKeeper.queueRestore(activityKeeper.capture(container, row));
+  }, [activityKeeper, scrollRef]);
 
   const onMessageToggleExpanded = useTranscriptViewportAnchor({
     expandedMessageIds,

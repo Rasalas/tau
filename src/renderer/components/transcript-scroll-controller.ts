@@ -486,3 +486,136 @@ export class TranscriptScrollController {
     if (this.applyNavigationKey(event.key)) this.refreshJumpAvailability();
   };
 }
+
+/** Geometry captured before a row is allowed to change height. */
+export interface RowViewportPosition {
+  container: HTMLElement;
+  scrollTop: number;
+  scrollHeight: number;
+  anchor?: HTMLElement;
+  anchorTop?: number;
+  tracked: HTMLElement;
+  trackedHeight: number;
+  trackedTop: number;
+}
+
+const USER_SCROLL_KEYS = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "End", "Home", "PageDown", "PageUp", " "]);
+
+export function captureRowViewport(container: HTMLElement, tracked: HTMLElement): RowViewportPosition {
+  const rows = transcriptRows(container);
+  const containerTop = container.getBoundingClientRect().top;
+  const trackedRect = tracked.getBoundingClientRect();
+  const anchor = rows
+    .slice(Math.max(0, rows.indexOf(tracked)))
+    .find((row) => row.getBoundingClientRect().top >= containerTop);
+  const anchorRect = anchor?.getBoundingClientRect();
+  return {
+    container,
+    scrollTop: container.scrollTop,
+    scrollHeight: container.scrollHeight,
+    ...(anchor ? { anchor } : {}),
+    ...(anchorRect ? { anchorTop: anchorRect.top } : {}),
+    tracked,
+    trackedHeight: trackedRect.height,
+    trackedTop: trackedRect.top,
+  };
+}
+
+export function restoreRowViewport(position: RowViewportPosition, beforeWrite: () => void = () => {}): void {
+  if (position.anchor && position.anchorTop !== undefined && position.anchor.isConnected) {
+    beforeWrite();
+    position.container.scrollTop = position.scrollTop + position.anchor.getBoundingClientRect().top - position.anchorTop;
+    return;
+  }
+  // Tail rows have no following anchor. Compute an absolute target from the
+  // pre-change geometry and clamp it once against the post-layout range.
+  if (!position.tracked.isConnected || position.trackedTop >= position.container.getBoundingClientRect().top) return;
+  const delta = position.tracked.getBoundingClientRect().height - position.trackedHeight;
+  beforeWrite();
+  setScrollTopClamped(position.container, position.scrollTop + delta);
+}
+
+/**
+ * Keeps what the user reads in place while one row changes height. Used for
+ * message expand/collapse and for activity rows that open inside a message.
+ */
+export class RowViewportKeeper {
+  private readonly frames = new FrameLoop();
+  private nextToken = 0;
+  private pending: { token: number; position: RowViewportPosition } | undefined;
+  private programmaticToken = 0;
+  private interactionCleanup: (() => void) | undefined;
+
+  get position(): RowViewportPosition | undefined { return this.pending?.position; }
+  get token(): number | undefined { return this.pending?.token; }
+
+  /** Start tracking `tracked`; returns the token that identifies this change. */
+  capture(container: HTMLElement, tracked: HTMLElement, reuse?: RowViewportPosition): number {
+    const token = ++this.nextToken;
+    this.programmaticToken = 0;
+    this.cancel();
+    this.pending = { token, position: reuse ?? captureRowViewport(container, tracked) };
+    return token;
+  }
+
+  /** Cancel a delayed restore as soon as the user takes over the scroll. */
+  guardInteraction(container: HTMLElement): void {
+    this.interactionCleanup?.();
+    const onInteraction = (event: Event) => {
+      const pending = this.pending;
+      if (!pending) return;
+      if (event.type === "scroll") {
+        if (this.programmaticToken > 0) {
+          this.programmaticToken = 0;
+          return;
+        }
+        if (pending.position.scrollHeight !== container.scrollHeight
+          && container.scrollTop === Math.min(pending.position.scrollTop, maxScrollTop(container))) return;
+      }
+      if (event.type === "keydown" && !USER_SCROLL_KEYS.has((event as KeyboardEvent).key)) return;
+      this.cancel();
+    };
+    const types: Array<[string, AddEventListenerOptions | undefined]> = [
+      ["wheel", { passive: true }],
+      ["touchstart", { passive: true }],
+      ["pointerdown", { passive: true }],
+      ["scroll", { passive: true }],
+      ["keydown", undefined],
+    ];
+    types.forEach(([type, options]) => container.addEventListener(type, onInteraction, options));
+    this.interactionCleanup = () => types.forEach(([type]) => container.removeEventListener(type, onInteraction));
+  }
+
+  queueRestore(token: number): void {
+    if (this.pending?.token !== token) return;
+    this.frames.scheduleAfterLayout(() => {
+      if (this.pending?.token !== token) return;
+      restoreRowViewport(this.pending.position, () => this.markProgrammaticScroll());
+      // Keep the pending record through the scrollTop write so a synchronous
+      // browser scroll event can consume the programmatic-write token.
+      this.settle(token);
+    });
+  }
+
+  /** Drop the tracked change without moving the transcript. */
+  settle(token: number): void {
+    if (this.pending?.token !== token) return;
+    this.interactionCleanup?.();
+    this.interactionCleanup = undefined;
+    this.pending = undefined;
+  }
+
+  cancel(): void {
+    this.frames.cancel();
+    this.interactionCleanup?.();
+    this.interactionCleanup = undefined;
+    this.pending = undefined;
+  }
+
+  private markProgrammaticScroll(): void {
+    const token = ++this.programmaticToken;
+    window.setTimeout(() => {
+      if (this.programmaticToken === token) this.programmaticToken = 0;
+    }, 0);
+  }
+}
