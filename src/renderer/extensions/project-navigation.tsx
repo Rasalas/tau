@@ -274,6 +274,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity,
   activityLabel,
   compact,
+  startedAt,
   onSelect,
 }: {
   id: string;
@@ -281,6 +282,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity: ThreadActivity;
   activityLabel?: string;
   compact: boolean;
+  startedAt?: number;
   onSelect(path: string): Promise<boolean>;
 }) {
   const store = useThreadStore();
@@ -299,6 +301,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       compact={compact}
+      startedAt={startedAt}
       onSelect={onSelect}
       onToggleSettled={(threadId) => preferences.toggleSettled(threadId)}
     />
@@ -382,10 +385,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     if (activityState.waitingThreadIds.includes(sessionId)) return { activity: "waiting", label: "NEEDS YOU" };
     // Run state follows the thread, not the tab you happen to be reading.
     if (activityState.runningThreadIds.includes(sessionId)) {
-      const tool = sessionId === activityState.activeThreadId ? activityState.runningToolName : undefined;
-      return tool
-        ? { activity: "tool", label: tool.toUpperCase() }
-        : { activity: "working", label: "WORKING" };
+      return { activity: "working", label: "WORKING" };
     }
     // A tool still marked running while nothing is in flight is a dead turn, not work.
     if (sessionId === activityState.activeThreadId && activityState.runningToolName) {
@@ -404,6 +404,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={activity}
       activityLabel={label}
       compact={compactRows && activity !== "settled"}
+      startedAt={activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}
     />
   );

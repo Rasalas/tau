@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadStore } from "./thread-store";
 
 const shell = (id: string, title = id) => ({
   id, path: `/tmp/${id}.jsonl`, title, modifiedAt: 1,
   projectPath: "/tmp/project", projectName: "project", messageCount: 1,
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe("ThreadStore selective navigation subscriptions", () => {
   it("keeps ids and unchanged shell references stable", () => {
@@ -53,5 +55,18 @@ describe("ThreadStore selective navigation subscriptions", () => {
     expect(store.getThread("two")).toBe(two);
     store.applyThreadShell("one", undefined, true);
     expect(store.getThreadIds()).toEqual(["two"]);
+  });
+
+  it("records a stable start time for each running thread", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T12:00:00Z"));
+    const store = new ThreadStore();
+    store.setThreadRunning("one", true);
+    const startedAt = store.getActivity().runningStartedAt.one;
+    vi.advanceTimersByTime(5_000);
+    store.setThreadRunning("one", true);
+    expect(store.getActivity().runningStartedAt.one).toBe(startedAt);
+    store.setThreadRunning("one", false);
+    expect(store.getActivity().runningStartedAt.one).toBeUndefined();
   });
 });

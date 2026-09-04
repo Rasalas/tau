@@ -1,4 +1,4 @@
-import { memo, type CSSProperties } from "react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
 import { ArchiveRestore, Check } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 
@@ -12,6 +12,7 @@ interface ThreadRowProps {
   compact?: boolean;
   projectIcon?: string;
   session: UiSession;
+  startedAt?: number;
   onSelect(path: string): void;
   onToggleSettled(id: string): void;
 }
@@ -28,6 +29,36 @@ function projectInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "·";
 }
 
+function elapsedLabel(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function ThreadStatus({ activity, label, startedAt }: { activity: ThreadActivity; label: string; startedAt: number }) {
+  const working = activity === "working" || activity === "tool";
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!working) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [working]);
+  return (
+    <span className={`thread-status-age status-${activity}`}>
+      {working ? <i /> : null}
+      {label}
+      {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
+    </span>
+  );
+}
+
+function ProviderMark({ backendKind = "pi" }: { backendKind?: string }) {
+  const claude = backendKind === "claude-code";
+  const label = claude ? "Claude Code" : backendKind === "pi" ? "Pi" : backendKind;
+  const mark = claude ? "✳" : backendKind === "pi" ? "π" : backendKind.charAt(0).toUpperCase();
+  return <span className={`thread-provider-mark provider-${backendKind}`} title={label} aria-label={`${label} provider`}>{mark}</span>;
+}
+
 export const ThreadRow = memo(function ThreadRow({
   activity,
   activityLabel,
@@ -36,6 +67,7 @@ export const ThreadRow = memo(function ThreadRow({
   compact,
   projectIcon,
   session,
+  startedAt,
   onSelect,
   onToggleSettled,
 }: ThreadRowProps) {
@@ -47,6 +79,8 @@ export const ThreadRow = memo(function ThreadRow({
   const label = activityLabel ?? (
     settled ? "Settled" : activity === "ready" ? "READY" : activity === "idle" ? "IDLE" : "WORKING"
   );
+  const working = activity === "working" || activity === "tool";
+  const showStatus = working || activity === "waiting" || activity === "ready";
 
   if (settled || compact) {
     return (
@@ -74,12 +108,14 @@ export const ThreadRow = memo(function ThreadRow({
         <span className="thread-project-line">
           <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
           <strong>{session.projectName}</strong>
-          <time>{age}</time>
+          {showStatus
+            ? <ThreadStatus activity={activity} label={working ? "WORKING" : label} startedAt={startedAt ?? session.modifiedAt} />
+            : <time>{age}</time>}
         </span>
         <span className="thread-title">{session.title}</span>
         <span className="thread-meta-line">
           {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
-          <span className="thread-activity"><i />{label}</span>
+          <ProviderMark backendKind={session.backendKind} />
         </span>
       </button>
       <button

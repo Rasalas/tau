@@ -8,6 +8,8 @@ export interface ThreadActivitySnapshot {
   waitingThreadIds: readonly string[];
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
+  /** Local start times for live sidebar timers, keyed by Tau thread id. */
+  runningStartedAt: Readonly<Record<string, number>>;
 }
 
 export interface ThreadStoreSnapshot {
@@ -22,6 +24,8 @@ export interface ThreadStoreSnapshot {
   waitingThreadIds: readonly string[];
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
+  /** Local start times for live sidebar timers, keyed by Tau thread id. */
+  runningStartedAt: Readonly<Record<string, number>>;
 }
 
 const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
@@ -32,6 +36,7 @@ const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
   unreadThreadIds: [],
   waitingThreadIds: [],
   runningThreadIds: [],
+  runningStartedAt: {},
 };
 
 function threadEqual(left: UiSession, right: UiSession): boolean {
@@ -42,7 +47,8 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.projectPath === right.projectPath &&
     left.projectName === right.projectName &&
     left.projectLabel === right.projectLabel &&
-    left.messageCount === right.messageCount;
+    left.messageCount === right.messageCount &&
+    left.backendKind === right.backendKind;
 }
 
 function stabilizeProjects(
@@ -80,7 +86,7 @@ export class ThreadStore {
   private projectListeners = new Set<() => void>();
   private activityListeners = new Set<() => void>();
   private activitySnapshot: ThreadActivitySnapshot = {
-    activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [], runningThreadIds: [],
+    activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [], runningThreadIds: [], runningStartedAt: {},
   };
   private shellListeners = new Map<string, Set<() => void>>();
   private runningTools = new Map<string, string>();
@@ -166,10 +172,16 @@ export class ThreadStore {
   setThreadRunning(threadId: string, running: boolean): void {
     if (!threadId) return;
     const current = this.snapshot.runningThreadIds;
-    if (running === current.includes(threadId)) return;
+    const alreadyRunning = current.includes(threadId);
+    const hasStartedAt = this.snapshot.runningStartedAt[threadId] !== undefined;
+    if (running === alreadyRunning && running === hasStartedAt) return;
+    const runningStartedAt = { ...this.snapshot.runningStartedAt };
+    if (running) runningStartedAt[threadId] ??= Date.now();
+    else delete runningStartedAt[threadId];
     this.publish({
       ...this.snapshot,
-      runningThreadIds: running ? [...current, threadId] : current.filter((id) => id !== threadId),
+      runningThreadIds: running ? (alreadyRunning ? current : [...current, threadId]) : current.filter((id) => id !== threadId),
+      runningStartedAt,
     });
   }
 
@@ -217,7 +229,8 @@ export class ThreadStore {
       next.runningToolName === this.snapshot.runningToolName &&
       next.unreadThreadIds === this.snapshot.unreadThreadIds &&
       next.waitingThreadIds === this.snapshot.waitingThreadIds &&
-      next.runningThreadIds === this.snapshot.runningThreadIds
+      next.runningThreadIds === this.snapshot.runningThreadIds &&
+      next.runningStartedAt === this.snapshot.runningStartedAt
     ) return;
     const previous = this.snapshot;
     this.snapshot = next;
@@ -228,7 +241,8 @@ export class ThreadStore {
       next.runningToolName !== previous.runningToolName ||
       next.unreadThreadIds !== previous.unreadThreadIds ||
       next.waitingThreadIds !== previous.waitingThreadIds ||
-      next.runningThreadIds !== previous.runningThreadIds
+      next.runningThreadIds !== previous.runningThreadIds ||
+      next.runningStartedAt !== previous.runningStartedAt
     ) {
       this.activitySnapshot = {
         activeThreadId: next.activeThreadId,
@@ -237,6 +251,7 @@ export class ThreadStore {
         unreadThreadIds: next.unreadThreadIds,
         waitingThreadIds: next.waitingThreadIds,
         runningThreadIds: next.runningThreadIds,
+        runningStartedAt: next.runningStartedAt,
       };
       this.activityListeners.forEach((listener) => listener());
     }
