@@ -29,6 +29,8 @@ import {
   decodeSharedExports,
   decodeString,
   decodeStringOrClientTurnIdentity,
+  decodeText,
+  decodeOptionalText,
   decodeUiPromptAttachments,
   decodeUiSkillDraft,
   decodeWorkbenchReloadMode,
@@ -214,12 +216,12 @@ function installIpc(): void {
     ));
   ipcMain.handle("tau:prepare-prompt", async (_event, text: unknown, sessionId?: unknown, skill?: unknown) =>
     (await requireHostReady()).preparePrompt(
-      decodeString("tau:prepare-prompt", "text", text),
+      decodeText("tau:prepare-prompt", "text", text),
       decodeOptionalString("tau:prepare-prompt", "sessionId", sessionId),
       decodeUiSkillDraft("tau:prepare-prompt", "skill", skill),
     ));
   const decodePromptArgs = (channel: string, text: unknown, attachments: unknown, sessionId: unknown, clientMessageIdOrIdentity: unknown, prepared: unknown) => ({
-    text: decodeString(channel, "text", text),
+    text: decodeText(channel, "text", text),
     attachments: decodeUiPromptAttachments(channel, "attachments", attachments),
     sessionId: decodeOptionalString(channel, "sessionId", sessionId),
     clientMessageIdOrIdentity: decodeStringOrClientTurnIdentity(channel, "clientMessageIdOrIdentity", clientMessageIdOrIdentity),
@@ -248,7 +250,7 @@ function installIpc(): void {
   ipcMain.handle("tau:abort", async (_event, sessionId?: unknown) => host?.abort(decodeOptionalString("tau:abort", "sessionId", sessionId)));
   ipcMain.handle("tau:new-session", async (_event, initialPrompt?: unknown, attachments?: unknown, cwd?: unknown, clientMessageIdOrRequestId?: unknown, prepared?: unknown) =>
     (await requireHostReady()).newSession(
-      decodeOptionalString("tau:new-session", "initialPrompt", initialPrompt),
+      decodeOptionalText("tau:new-session", "initialPrompt", initialPrompt),
       decodeUiPromptAttachments("tau:new-session", "attachments", attachments),
       decodeOptionalString("tau:new-session", "cwd", cwd),
       decodeStringOrClientTurnIdentity("tau:new-session", "clientMessageIdOrRequestId", clientMessageIdOrRequestId),

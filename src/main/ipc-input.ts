@@ -34,6 +34,17 @@ export function decodeString(channel: string, field: string, value: unknown): st
   return value;
 }
 
+/** Prompt text may be empty when only attachments are sent (App allows it); only the type is checked. */
+export function decodeText(channel: string, field: string, value: unknown): string {
+  if (typeof value !== "string") fail(channel, field, "must be a string");
+  return value;
+}
+
+export function decodeOptionalText(channel: string, field: string, value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  return decodeText(channel, field, value);
+}
+
 export function decodeOptionalString(channel: string, field: string, value: unknown): string | undefined {
   if (value === undefined) return undefined;
   return decodeString(channel, field, value);

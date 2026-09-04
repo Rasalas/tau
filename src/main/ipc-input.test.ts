@@ -16,6 +16,8 @@ import {
   decodeUiPromptAttachments,
   decodeUiSkillDraft,
   decodeWorkbenchReloadMode,
+  decodeText,
+  decodeOptionalText,
 } from "./ipc-input.js";
 
 const CHANNEL = "tau:test";
@@ -242,5 +244,15 @@ describe("ipc-input decoders", () => {
     it("rejects a non-string", () => {
       expect(() => decodeCommandName(CHANNEL, 5)).toThrow();
     });
+  });
+});
+
+describe("decodeText", () => {
+  it("accepts an empty string so an attachment-only prompt passes", () => {
+    expect(decodeText("tau:prompt", "text", "")).toBe("");
+    expect(decodeOptionalText("tau:new-session", "initialPrompt", undefined)).toBeUndefined();
+  });
+  it("rejects non-strings", () => {
+    expect(() => decodeText("tau:prompt", "text", 1)).toThrow("tau:prompt: text must be a string");
   });
 });
