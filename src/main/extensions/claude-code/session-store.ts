@@ -1,8 +1,12 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { UiMessage, UiSkillInvocation } from "../../../shared/contracts.js";
 import { parseSkillEnvelope } from "../../../shared/skill-envelope.js";
+import { type PersistedJsonLogger, readPersistedJson, writePersistedJson } from "../../persisted-json.js";
+
+/** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
+const CURRENT_VERSION = 1;
 
 /** Large messages are represented as UTF-8-safe chunks on disk, never dropped. */
 const TEXT_CHUNK_BYTES = 256 * 1024;
@@ -46,6 +50,7 @@ export interface ClaudeRuntimeSessionRecord {
 export interface ClaudeRuntimeSessionStoreOptions {
   filePath: string;
   now?(): number;
+  logger?: PersistedJsonLogger;
   /**
    * @deprecated Skill knowledge is request-scoped. Pass it to appendExchange
    * instead; this option is accepted only for source compatibility and never
@@ -257,13 +262,26 @@ function sameStoredMessage(left: ClaudeStoredMessage, right: ClaudeStoredMessage
     && JSON.stringify(left.skill ?? null) === JSON.stringify(right.skill ?? null);
 }
 
+/** Accepts the current `{ sessions: [...] }` shape and a legacy bare array of sessions. */
+function decodeSessions(value: unknown): ClaudeRuntimeSessionRecord[] | undefined {
+  const values = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && Array.isArray((value as { sessions?: unknown }).sessions)
+      ? (value as { sessions: unknown[] }).sessions
+      : undefined;
+  if (!values) return undefined;
+  return values.flatMap((item) => {
+    const record = storedRecord(item);
+    return record ? [record] : [];
+  });
+}
+
 /** App-data persistence for Claude session ids and the visible Tau projection. */
 export class ClaudeRuntimeSessionStore {
   private readonly now: () => number;
   private readonly records = new Map<string, ClaudeRuntimeSessionRecord>();
   private loaded = false;
   private loading?: Promise<void>;
-  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: ClaudeRuntimeSessionStoreOptions) {
     this.now = options.now ?? Date.now;
@@ -291,15 +309,15 @@ export class ClaudeRuntimeSessionStore {
 
   private async readFromDisk(): Promise<void> {
     try {
-      const parsed = JSON.parse(await readFile(this.options.filePath, "utf8")) as unknown;
-      const values = parsed && typeof parsed === "object" && Array.isArray((parsed as { sessions?: unknown }).sessions)
-        ? (parsed as { sessions: unknown[] }).sessions
-        : [];
-      for (const value of values) {
-        const record = storedRecord(value);
-        if (record) this.records.set(record.tauThreadId, record);
+      const result = await readPersistedJson(this.options.filePath, {
+        expectedVersion: CURRENT_VERSION,
+        decode: decodeSessions,
+        logger: this.options.logger,
+      });
+      if (result) {
+        for (const record of result.data) this.records.set(record.tauThreadId, record);
+        await chmod(this.options.filePath, 0o600).catch(() => undefined);
       }
-      await chmod(this.options.filePath, 0o600).catch(() => undefined);
     } catch {
       // Missing or corrupt app state must not prevent the workbench from opening.
       this.records.clear();
@@ -452,21 +470,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   private persist(): Promise<void> {
-    this.writeQueue = this.writeQueue.catch(() => undefined).then(async () => {
-      const contents = `${JSON.stringify({ version: 1, sessions: [...this.records.values()].map(serializeRecord) }, null, 2)}\n`;
-      const directory = dirname(this.options.filePath);
-      await mkdir(directory, { recursive: true, mode: 0o700 });
-      await chmod(directory, 0o700).catch(() => undefined);
-      const temporary = `${this.options.filePath}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temporary, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
-        await chmod(temporary, 0o600).catch(() => undefined);
-        await rename(temporary, this.options.filePath);
-        await chmod(this.options.filePath, 0o600).catch(() => undefined);
-      } finally {
-        await rm(temporary, { force: true }).catch(() => undefined);
-      }
-    });
-    return this.writeQueue;
+    const sessions = [...this.records.values()].map(serializeRecord);
+    return writePersistedJson(this.options.filePath, CURRENT_VERSION, { sessions }, { logger: this.options.logger });
   }
 }

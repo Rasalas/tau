@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatChatTranscript } from "../../../shared/chat-transcript.js";
 import type { UiMessage } from "../../../shared/contracts.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -241,5 +241,59 @@ describe("Claude runtime session store", () => {
     const store = new ClaudeRuntimeSessionStore({ filePath });
     await store.ensure("tau-session", "/repo-a");
     await expect(store.ensure("tau-session", "/repo-b")).rejects.toThrow("another workspace");
+  });
+
+  it("loads a legacy bare-array file", async () => {
+    const { filePath } = await temporaryStore();
+    await mkdir(join(filePath, ".."), { recursive: true });
+    await writeFile(filePath, JSON.stringify([{
+      tauThreadId: "tau-session",
+      claudeSessionId: "123e4567-e89b-12d3-a456-426614174000",
+      cwd: "/repo",
+      started: true,
+      messages: [],
+      updatedAt: 1,
+    }]), "utf8");
+
+    const store = new ClaudeRuntimeSessionStore({ filePath });
+    expect(await store.get("tau-session")).toMatchObject({ cwd: "/repo", started: true });
+  });
+
+  it("quarantines an unparsable file instead of silently starting empty on top of it", async () => {
+    const { filePath } = await temporaryStore();
+    await mkdir(join(filePath, ".."), { recursive: true });
+    await writeFile(filePath, "{not valid json", "utf8");
+
+    const store = new ClaudeRuntimeSessionStore({ filePath });
+    expect(await store.list()).toEqual([]);
+
+    const directory = join(filePath, "..");
+    const entries = await readdir(directory);
+    expect(entries).not.toContain("sessions.json");
+    expect(entries.some((name) => name.startsWith("sessions.json.corrupt-"))).toBe(true);
+  });
+
+  it("reads a newer-versioned file best-effort without downgrading it on a mere load", async () => {
+    const { filePath } = await temporaryStore();
+    await mkdir(join(filePath, ".."), { recursive: true });
+    const original = JSON.stringify({
+      version: 99,
+      sessions: [{
+        tauThreadId: "tau-session",
+        claudeSessionId: "123e4567-e89b-12d3-a456-426614174000",
+        cwd: "/repo",
+        started: true,
+        messages: [],
+        updatedAt: 1,
+      }],
+      futureField: "kept by a newer client, not this one",
+    });
+    await writeFile(filePath, original, "utf8");
+    const logger = { warn: vi.fn() };
+
+    const store = new ClaudeRuntimeSessionStore({ filePath, logger });
+    expect(await store.get("tau-session")).toMatchObject({ cwd: "/repo", started: true });
+    expect(logger.warn).toHaveBeenCalled();
+    expect(await readFile(filePath, "utf8")).toBe(original);
   });
 });
