@@ -136,7 +136,9 @@ export default function App() {
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
-  const [, setNewThreadRecoveryVersion] = useState(0);
+  // A delivery held for recovery changes what the workbench may do next, so
+  // taking or releasing one has to reach the render.
+  const [, setDeliveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   const [dockOpen, setDockOpen] = useState(true);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -217,7 +219,7 @@ export default function App() {
         prepareThreadDetail: (sessionId) => transcriptHistory.prepareActionDetail(sessionId),
       },
       enqueueFollowUp: (threadId, item) => followUpQueue.enqueue(threadId, item),
-      onRecoveriesChanged: () => setNewThreadRecoveryVersion((version) => version + 1),
+      onRecoveriesChanged: () => setDeliveryVersion((version) => version + 1),
     };
     return new SubmissionController(ports);
   });
