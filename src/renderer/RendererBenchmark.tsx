@@ -113,27 +113,31 @@ function StreamingTranscriptScenario({
   />;
 }
 
+// A real multi-megabyte patch is tens of thousands of ordinary lines, not a
+// thousand pathological ones. Row count is what the diff window has to absorb.
+const DIFF_LINE_WIDTH = 96;
+const DIFF_LINE_JSON_OVERHEAD = 40;
+
 function makeDiff(targetBytes: number): UiFileDiff {
   const lines: UiFileDiff["hunks"][number]["lines"] = [];
-  const payload = () => ({
-    path: "benchmark.ts",
-    added: lines.filter((line) => line.kind === "added").length,
-    removed: lines.filter((line) => line.kind === "removed").length,
-    hunks: [{ header: "@@ -1,10000 +1,10000 @@", lines }],
-    truncated: true,
-    nextHunkOffset: 1,
-  });
-  const lineBytes = Math.max(180, Math.ceil(targetBytes / 1_000));
-  for (let index = 0; index < 1_000; index += 1) {
-    const text = `benchmark diff line ${index} ${"x".repeat(lineBytes)}`;
+  for (let index = 0, bytes = 0; bytes < targetBytes; index += 1) {
+    const text = `const value${index} = ${"benchmarkDiffValue".repeat(6).slice(0, DIFF_LINE_WIDTH)}; // row ${index}`;
     lines.push({
       kind: index % 3 === 0 ? "added" : index % 3 === 1 ? "removed" : "context",
       oldLine: index % 3 === 0 ? undefined : index + 1,
       newLine: index % 3 === 1 ? undefined : index + 1,
       text,
     });
+    bytes += text.length + DIFF_LINE_JSON_OVERHEAD;
   }
-  return payload();
+  return {
+    path: "benchmark.ts",
+    added: lines.filter((line) => line.kind === "added").length,
+    removed: lines.filter((line) => line.kind === "removed").length,
+    hunks: [{ header: `@@ -1,${lines.length} +1,${lines.length} @@`, lines }],
+    truncated: true,
+    nextHunkOffset: 1,
+  };
 }
 
 function makeLongUserMessage(bytes: number, revision: number): UiMessage {
@@ -186,12 +190,7 @@ export default function RendererBenchmark() {
     [scenario, scenarioConfig.items],
   );
   const filteredListItems = useMemo(() => listItems.filter((item) => item.includes(listQuery)), [listItems, listQuery]);
-  const diff = useMemo(() => {
-    if (scenario !== "diff-2mb") return undefined;
-    const value = makeDiff(targetBytes);
-    payloadBytes.current = new TextEncoder().encode(JSON.stringify(value)).byteLength;
-    return value;
-  }, [scenario, targetBytes]);
+  const diff = useMemo(() => scenario === "diff-2mb" ? makeDiff(targetBytes) : undefined, [scenario, targetBytes]);
   const longUserMessage = useMemo(() => scenario === "long-user-message" ? makeLongUserMessage(targetBytes, longUserRevision) : undefined, [scenario, targetBytes, longUserRevision]);
   const tool = useMemo<UiToolRun>(() => ({ id: "benchmark-tool", name: "bash", args: { command: "benchmark" }, output: toolOutput, status: "running", startedAt: 0 }), [toolOutput]);
   const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
@@ -231,6 +230,9 @@ export default function RendererBenchmark() {
   }, [listQuery, text, toolOutput, benchmarkPulse, longUserRevision]);
 
   useEffect(() => {
+    // Sizing the fixture payload is harness instrumentation, not renderer work,
+    // so it stays outside the profiled render and the interaction window.
+    if (diff) payloadBytes.current = new TextEncoder().encode(JSON.stringify(diff)).byteLength;
     // Mark the interaction before any scheduled task can execute. This keeps
     // the first scenario update out of startup Long Task measurements.
     interactionStartedAt.current = performance.now();
@@ -358,7 +360,7 @@ export default function RendererBenchmark() {
       });
     }
     return () => { stopped = true; longTaskCapture.observer?.disconnect(); };
-  }, [scenario, targetBytes]);
+  }, [diff, scenario, targetBytes]);
 
   let content;
   if (scenario.startsWith("markdown")) {
