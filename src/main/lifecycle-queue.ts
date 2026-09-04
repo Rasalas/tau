@@ -19,7 +19,8 @@ export interface LifecycleQueueOptions {
  */
 export class LifecycleQueue {
   private tail: Promise<void> = Promise.resolve();
-  private readonly inside = new AsyncLocalStorage<string>();
+  /** The token is invalidated when its operation ends, so a callback created inside an operation but fired later queues normally. */
+  private readonly inside = new AsyncLocalStorage<{ name: string; active: boolean }>();
   private readonly slowAfterMs: number;
   private readonly onSlow: ((operation: string, elapsedMs: number) => void) | undefined;
   private readonly now: () => number;
@@ -38,19 +39,21 @@ export class LifecycleQueue {
 
   /** True while the caller runs inside a queued operation. */
   get reentrant(): boolean {
-    return this.inside.getStore() !== undefined;
+    return this.inside.getStore()?.active === true;
   }
 
   run<T>(name: string, operation: () => Promise<T>): Promise<T> {
-    if (this.inside.getStore() !== undefined) return operation();
+    if (this.reentrant) return operation();
     const task = async (): Promise<T> => {
       const startedAt = this.now();
       this.running = { name, startedAt };
+      const token = { name, active: true };
       const timer = setTimeout(() => this.onSlow?.(name, this.now() - startedAt), this.slowAfterMs);
       timer.unref?.();
       try {
-        return await this.inside.run(name, operation);
+        return await this.inside.run(token, operation);
       } finally {
+        token.active = false;
         clearTimeout(timer);
         if (this.running?.startedAt === startedAt) this.running = undefined;
       }
