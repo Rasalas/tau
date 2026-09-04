@@ -545,7 +545,7 @@ export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
     left.modelProvider === right.modelProvider;
 }
 
-export function sessionIndexUpdates(previous: UiSession[], next: UiSession[]): HostUpdate[] {
+export function sessionIndexUpdates(previous: readonly UiSession[], next: readonly UiSession[]): HostUpdate[] {
   const previousById = new Map(previous.map((session) => [session.id, session] as const));
   const nextById = new Map(next.map((session) => [session.id, session] as const));
   const updates: HostUpdate[] = [];

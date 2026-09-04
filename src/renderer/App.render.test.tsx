@@ -2,7 +2,10 @@
 import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createNewThreadRequestId, type HostEvent } from "../shared/contracts";
+import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
+import { setHostClient } from "./host-client-context";
+import { createFakeHostClient } from "./test-support/fake-host-client";
+import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
 
 const messageRenders = vi.hoisted(() => ({ count: 0 }));
@@ -13,18 +16,21 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App, { ComposerHost, isCurrentTranscriptSubmission, latestActivityAnchor, measureComposerGeometry, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, MountedPanel, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./App";
+import App from "./App";
+import { isCurrentTranscriptSubmission, latestActivityAnchor, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./app-state";
+import { ComposerHost, measureComposerGeometry } from "./components/ComposerHost";
+import { MountedPanel } from "./Workbench";
 import { createNewThreadDraft, writeNewThreadDraft } from "./draft-store";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
+import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); setHostClient(undefined); });
 
 describe("App render isolation", () => {
   beforeEach(() => {
     messageRenders.count = 0;
     localStorage.clear();
-    delete window.tau;
   });
 
   it("merges detached draft recovery ahead of newer composer input", () => {
@@ -222,7 +228,7 @@ describe("App render isolation", () => {
   });
 
   it("resizes the right sidebar and resets it on double-click", async () => {
-    const view = render(<App />);
+    const view = renderApp(undefined);
     const shell = view.container.querySelector(".app-shell") as HTMLElement;
     const resizer = await screen.findByRole("separator", { name: "Resize right sidebar" });
 
@@ -238,7 +244,7 @@ describe("App render isolation", () => {
   });
 
   it("toggles the right sidebar from its active rail icon", async () => {
-    const view = render(<App />);
+    const view = renderApp(undefined);
     const shell = view.container.querySelector(".app-shell") as HTMLElement;
     const filesButton = await screen.findByRole("button", { name: "Files" });
     await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("true"));
@@ -254,7 +260,7 @@ describe("App render isolation", () => {
 
   it("does not load a hidden Files panel", async () => {
     const getFileTree = vi.fn(async () => []);
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -262,21 +268,20 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree,
       }),
-    } as unknown as typeof window.tau;
-    render(<App />);
+    });
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(getFileTree).not.toHaveBeenCalled();
   });
 
   it("keeps the virtual thread canvas from shrinking inside the scroll rail", async () => {
-    render(<App />);
+    renderApp(undefined);
     const navigation = await screen.findByRole("navigation", { name: "Threads" });
     const canvas = navigation.firstElementChild as HTMLElement;
     expect(canvas.style.flexShrink).toBe("0");
@@ -284,7 +289,7 @@ describe("App render isolation", () => {
 
   it("uses a focused start screen until the first message is sent", async () => {
     const sendPrompt = vi.fn(async () => undefined);
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -292,7 +297,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -300,9 +304,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(heading.closest(".conversation-start-screen")).toBeTruthy();
     expect(screen.queryByText("NEW THREAD")).toBeNull();
@@ -329,7 +333,6 @@ describe("App render isolation", () => {
   });
 
   it("deduplicates a persisted detail that arrives before its live user-message event", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     const sendPrompt = vi.fn(async (...args: unknown[]) => {
       const identity = args[3] as { clientMessageId: string };
       const persisted = {
@@ -339,7 +342,7 @@ describe("App render isolation", () => {
         text: "Render this once",
         timestamp: Date.now() + 1_000,
       };
-      publish?.({
+      client.emit({
         type: "host-update",
         update: {
           version: 1,
@@ -352,13 +355,13 @@ describe("App render isolation", () => {
           },
         },
       });
-      publish?.({
+      client.emit({
         type: "user-message",
         sessionId: "session",
         message: { ...persisted, id: `user-${identity.clientMessageId}` },
       });
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -366,7 +369,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -374,9 +376,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "Render this once" } });
@@ -388,7 +390,7 @@ describe("App render isolation", () => {
 
   it("keeps the same focused composer mounted while the first prompt docks", async () => {
     const sendPrompt = vi.fn(async () => undefined);
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -396,7 +398,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -404,9 +405,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     composer.focus();
@@ -437,7 +438,7 @@ describe("App render isolation", () => {
       }],
       submission: { accepted: true as const },
     }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [
@@ -448,7 +449,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -457,9 +457,9 @@ describe("App render isolation", () => {
       }),
       sendPrompt,
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     const oldComposer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(oldComposer, { target: { value: "old in-flight prompt" } });
@@ -489,7 +489,6 @@ describe("App render isolation", () => {
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let createdClientMessageId = "";
     const newSession = vi.fn(async (...args: unknown[]) => {
       createdClientMessageId = (args[3] as { clientMessageId: string }).clientMessageId;
@@ -514,7 +513,7 @@ describe("App render isolation", () => {
       }],
     }));
     const sendPrompt = vi.fn(async () => undefined);
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: {
@@ -528,7 +527,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "current", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -538,9 +536,9 @@ describe("App render isolation", () => {
       newSession,
       switchSession,
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
@@ -560,7 +558,7 @@ describe("App render isolation", () => {
     expect(screen.queryByText(/Wait for the current message delivery/u)).toBeNull();
     expect(await screen.findByText("Target content")).toBeTruthy();
 
-    publish?.({
+    client.emit({
       type: "user-message",
       sessionId: "created",
       message: {
@@ -586,7 +584,6 @@ describe("App render isolation", () => {
   });
 
   it("switches projects while a new-thread message is still being delivered", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let createdClientMessageId = "";
     let resolveNewSession!: (result: { version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }) => void;
     const newSession = vi.fn((...args: unknown[]) => {
@@ -605,7 +602,7 @@ describe("App render isolation", () => {
       ],
     }));
     const sendPrompt = vi.fn(async () => undefined);
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: {
@@ -621,7 +618,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "current", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -631,9 +627,9 @@ describe("App render isolation", () => {
       newSession,
       openProject,
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
@@ -655,7 +651,7 @@ describe("App render isolation", () => {
 
     resolveNewSession({ version: 1, updates: [], sessionId: "created", submission: { accepted: true } });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
-    publish?.({
+    client.emit({
       type: "user-message",
       sessionId: "created",
       message: { id: "created-message", clientMessageId: createdClientMessageId, role: "user", text: "background request", timestamp: Date.now() },
@@ -677,7 +673,6 @@ describe("App render isolation", () => {
   });
 
   it("starts a fresh draft in another project while the first message is still being delivered", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let createdClientMessageId = "";
     let resolveNewSession!: (result: { version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }) => void;
     const newSession = vi.fn((...args: unknown[]) => {
@@ -687,7 +682,7 @@ describe("App render isolation", () => {
       createdClientMessageId = (args[3] as { clientMessageId: string }).clientMessageId;
       return new Promise<{ version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }>((resolve) => { resolveNewSession = resolve; });
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: {
@@ -701,7 +696,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "current", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -710,9 +704,9 @@ describe("App render isolation", () => {
       }),
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
     const firstPicker = await screen.findByRole("dialog", { name: "Search projects" });
@@ -732,7 +726,7 @@ describe("App render isolation", () => {
     const freshComposer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     await waitFor(() => expect(freshComposer.value).toBe(""));
     resolveNewSession({ version: 1, updates: [], sessionId: "created", submission: { accepted: true } });
-    publish?.({
+    client.emit({
       type: "user-message",
       sessionId: "created",
       message: { id: "created-message", clientMessageId: createdClientMessageId, role: "user", text: "first request", timestamp: Date.now() },
@@ -756,7 +750,7 @@ describe("App render isolation", () => {
     const getWorkspaceInfo = vi.fn(async (cwd?: string) => cwd === "/other"
       ? { root: "/other", isRepo: true, isDirty: false, branch: "main", worktrees: [], refs: [], worktreeParent: "/" }
       : { root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [
@@ -767,16 +761,15 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo,
         getFileTree: async () => [],
       }),
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     expect(document.querySelector(".title-identity strong")?.textContent).toBe("other");
@@ -868,7 +861,7 @@ describe("App render isolation", () => {
         },
       ],
     }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [
@@ -881,7 +874,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -889,9 +881,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       openProject,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const draftDialog = await screen.findByRole("dialog", { name: "Search projects" });
@@ -912,7 +904,7 @@ describe("App render isolation", () => {
   it("carries a draft and supported attachments across a pre-send project switch", async () => {
     const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
     const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [
@@ -923,7 +915,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -932,9 +923,9 @@ describe("App render isolation", () => {
       }),
       getPreparedThreadCapability,
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const firstDialog = await screen.findByRole("dialog", { name: "Search projects" });
@@ -965,12 +956,8 @@ describe("App render isolation", () => {
   });
 
   it("keeps an in-flight history load when a same-thread action returns detail", async () => {
-    let resolvePage!: (page: {
-      sessionId: string;
-      messages: Array<{ id: string; role: "user" | "assistant"; text: string; timestamp: number }>;
-      hasMore: boolean;
-    }) => void;
-    const loadTranscript = vi.fn(() => new Promise((resolve) => { resolvePage = resolve; }));
+    let resolvePage!: (page: TranscriptPage) => void;
+    const loadTranscript = vi.fn(() => new Promise<TranscriptPage>((resolve) => { resolvePage = resolve; }));
     const setModel = vi.fn(async () => ({
       version: 1 as const,
       updates: [{
@@ -989,7 +976,7 @@ describe("App render isolation", () => {
         },
       }],
     }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -1017,7 +1004,6 @@ describe("App render isolation", () => {
         },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1026,9 +1012,9 @@ describe("App render isolation", () => {
       }),
       loadTranscript,
       setModel,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByText("current reply");
     fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
     await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", asHostTranscriptCursor("opaque:2")));
@@ -1050,7 +1036,7 @@ describe("App render isolation", () => {
   it("keeps a new-thread draft and attachments when host preflight rejects", async () => {
     let rejectNewSession!: (error: Error) => void;
     const newSession = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectNewSession = reject; }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1058,7 +1044,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1067,9 +1052,9 @@ describe("App render isolation", () => {
       }),
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
@@ -1102,9 +1087,8 @@ describe("App render isolation", () => {
   });
 
   it("promotes a bridge new thread from a later detail when the acknowledgement has no updates", async () => {
-    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [], requestId: "1", submission: { accepted: true as const } }));
-    let emitHostEvent: ((event: HostEvent) => void) | undefined;
-    window.tau = {
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [], requestId: createNewThreadRequestId("1"), submission: { accepted: true as const } }));
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1112,7 +1096,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { emitHostEvent = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1121,9 +1104,9 @@ describe("App render isolation", () => {
       }),
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
@@ -1139,7 +1122,7 @@ describe("App render isolation", () => {
       undefined,
     ));
 
-    emitHostEvent?.({
+    client.emit({
       type: "host-update",
       update: {
         version: 1,
@@ -1157,7 +1140,7 @@ describe("App render isolation", () => {
   });
 
   it("shows a whole-column drop target and clears it on leave and drop", async () => {
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -1165,16 +1148,15 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
     const column = heading.closest("main");
     expect(column).toBeTruthy();
@@ -1241,8 +1223,7 @@ describe("App render isolation", () => {
   });
 
   it("updates the drop target when the active runtime changes image capability", async () => {
-    let emit: ((event: HostEvent) => void) | undefined;
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -1250,20 +1231,19 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (handler: (event: HostEvent) => void) => { emit = handler; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
     const attach = screen.getByRole("button", { name: "Attach files" });
     expect(attach.hasAttribute("disabled")).toBe(false);
-    emit?.({
+    client.emit({
       type: "host-update",
       update: {
         version: 1,
@@ -1274,7 +1254,7 @@ describe("App render isolation", () => {
       },
     });
     expect(attach.hasAttribute("disabled")).toBe(false);
-    emit?.({
+    client.emit({
       type: "host-update",
       update: {
         version: 1,
@@ -1285,7 +1265,7 @@ describe("App render isolation", () => {
       },
     });
     expect(attach.hasAttribute("disabled")).toBe(false);
-    emit?.({
+    client.emit({
       type: "host-update",
       update: {
         version: 1,
@@ -1312,14 +1292,14 @@ describe("App render isolation", () => {
   });
 
   it("keeps a new thread draft in memory without persisting image-capable composer data", async () => {
-    const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[], submission: { accepted: true as const } }));
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
     const capabilityResolvers = new Map<string, Array<(capability: { cwd: string; generation: number; supportsImageInput: boolean }) => void>>();
     const getPreparedThreadCapability = vi.fn((cwd: string) => new Promise<{ cwd: string; generation: number; supportsImageInput: boolean }>((resolve) => {
       const pending = capabilityResolvers.get(cwd) ?? [];
       pending.push(resolve);
       capabilityResolvers.set(cwd, pending);
     }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [
@@ -1330,7 +1310,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1339,8 +1318,8 @@ describe("App render isolation", () => {
       }),
       newSession,
       getPreparedThreadCapability,
-    } as unknown as typeof window.tau;
-    const view = render(<App />);
+    });
+    const view = renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     await waitFor(() => expect(document.activeElement).toBe(composer));
@@ -1375,7 +1354,7 @@ describe("App render isolation", () => {
 
     expect(localStorage.getItem("tau.composer-drafts.v1")).toBeNull();
     view.unmount();
-    render(<App />);
+    renderApp(client);
     const restored = await waitFor(() => {
       const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
       expect(textarea.value).toBe("persistent draft");
@@ -1393,7 +1372,7 @@ describe("App render isolation", () => {
   });
 
   it("shows the start screen for a new thread even when the previous thread has activity", async () => {
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: {
@@ -1412,16 +1391,15 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByText("Existing work");
     fireEvent.click(screen.getByRole("button", { name: "Existing thread" }));
     fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
@@ -1439,7 +1417,7 @@ describe("App render isolation", () => {
       removed: 0,
       hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "added" as const, newLine: 1, text: "historical" }] }],
     }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1455,7 +1433,6 @@ describe("App render isolation", () => {
         catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
         project: { cwd: "/project", branch: "main" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1481,9 +1458,9 @@ describe("App render isolation", () => {
           }],
         }),
       }),
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
     expect(document.querySelector(".conversation-files-dock")).toBeNull();
     fireEvent.click(screen.getByText("Open diff"));
@@ -1526,19 +1503,18 @@ describe("App render isolation", () => {
         submission: { accepted: true as const },
       };
     });
-    let publish: ((event: HostEvent) => void) | undefined;
     const generateTitle = vi.fn(async () => {
       // The host renames after its own round trip; the renamed shell arrives as
       // an ordinary host update, never as the command's return value.
       await new Promise((resolve) => setTimeout(resolve, 0));
-      publish?.({
+      client.emit({
         type: "host-update",
         update: { version: 1, type: "thread-shell", update: { sessionId: "created", shell: { ...shell, title: "Created thread title" } } },
       });
       return { title: "Created thread title" };
     });
     const getWorkspaceInfo = vi.fn(async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1555,7 +1531,6 @@ describe("App render isolation", () => {
         },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1563,9 +1538,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }, { "tau.thread-titles": generateTitle }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
@@ -1581,7 +1556,6 @@ describe("App render isolation", () => {
   });
 
   it("promotes and settles an extension command that creates no user turn", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let clientMessageId: string | undefined;
     const newSession = vi.fn(async (...args: unknown[]) => {
       clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
@@ -1592,7 +1566,7 @@ describe("App render isolation", () => {
         submission: { accepted: true as const },
       };
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1609,7 +1583,6 @@ describe("App render isolation", () => {
         },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [{ id: "code", name: "VS Code" }],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1617,9 +1590,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
@@ -1634,8 +1607,8 @@ describe("App render isolation", () => {
 
     // The host reports the missing user turn from prompt(), then commits the
     // detached delivery. Both arrive in that order over one channel.
-    publish?.({ type: "prompt-without-user-turn", sessionId: "extension-session", clientMessageId });
-    publish?.({
+    client.emit({ type: "prompt-without-user-turn", sessionId: "extension-session", clientMessageId });
+    client.emit({
       type: "new-thread-delivery-settled",
       sessionId: "extension-session",
       clientMessageId,
@@ -1650,14 +1623,13 @@ describe("App render isolation", () => {
 
   it("promotes a draft from its correlated user message before the IPC result", async () => {
     let resolveNewSession!: (result: { version: 1; updates: never[]; submission: { accepted: true } }) => void;
-    let publish: ((event: HostEvent) => void) | undefined;
     let identity: { clientMessageId: string; newThreadRequestId?: string } | undefined;
     const generateTitle = vi.fn(async () => undefined);
     const newSession = vi.fn((...args: unknown[]) => {
       identity = args[3] as typeof identity;
       return new Promise<{ version: 1; updates: never[]; submission: { accepted: true } }>((resolve) => { resolveNewSession = resolve; });
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 0 }], sessions: [] },
@@ -1665,7 +1637,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "old", models: [{ provider: "provider", id: "model", name: "Model" }], model: { provider: "provider", id: "model", name: "Model" }, thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [{ id: "code", name: "VS Code" }],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1673,9 +1644,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }, { "tau.thread-titles": generateTitle }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option", { name: /project/u }));
@@ -1685,7 +1656,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(newSession).toHaveBeenCalled());
     if (!identity?.clientMessageId) throw new Error("newSession did not receive a client identity");
 
-    publish?.({
+    client.emit({
       type: "host-update",
       update: {
         version: 1,
@@ -1693,7 +1664,7 @@ describe("App render isolation", () => {
         detail: { sessionId: "created", messages: [], isStreaming: true, activeTools: [], requestId: identity.newThreadRequestId as never },
       },
     });
-    publish?.({
+    client.emit({
       type: "user-message",
       sessionId: "created",
       message: { id: "persisted", clientMessageId: identity.clientMessageId, role: "user", text: "start in the detached runtime", timestamp: Date.now() },
@@ -1714,20 +1685,19 @@ describe("App render isolation", () => {
     resolveNewSession({ version: 1, updates: [], submission: { accepted: true } });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
     // A settled record cannot be reopened by the runtime's late reports.
-    publish?.({ type: "user-message-failed", sessionId: "created", clientMessageId: identity.clientMessageId, message: "late failure" });
+    client.emit({ type: "user-message-failed", sessionId: "created", clientMessageId: identity.clientMessageId, message: "late failure" });
     expect(screen.queryByText("late failure")).toBeNull();
     expect(generateTitle).toHaveBeenCalledOnce();
   });
 
   it("binds a generated session id on detached failure so retry uses sendPrompt", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let clientMessageId: string | undefined;
     const newSession = vi.fn(async (...args: unknown[]) => {
       clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
       return { version: 1 as const, updates: [] as never[], submission: { accepted: true as const } };
     });
     const sendPrompt = vi.fn(async () => undefined);
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1735,7 +1705,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1744,9 +1713,9 @@ describe("App render isolation", () => {
       }),
       newSession,
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
@@ -1756,7 +1725,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
     if (!clientMessageId) throw new Error("newSession did not receive a client message id");
 
-    publish?.({ type: "user-message-failed", sessionId: "generated-session", clientMessageId, message: "runtime failed" });
+    client.emit({ type: "user-message-failed", sessionId: "generated-session", clientMessageId, message: "runtime failed" });
     await waitFor(() => expect(composer.value).toBe("retry this runtime"));
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
@@ -1773,14 +1742,13 @@ describe("App render isolation", () => {
   });
 
   it("restores the draft and runs no prompt hooks when detached delivery is rejected", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let clientMessageId: string | undefined;
     const generateTitle = vi.fn(async () => undefined);
-    const newSession = vi.fn(async (...args: unknown[]) => {
+    const newSession = vi.fn(async (...args: unknown[]): Promise<NewThreadResult> => {
       clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
       return { version: 1 as const, updates: [] as never[], sessionId: "allocated", submission: { accepted: true as const } };
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1788,7 +1756,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "old", models: [{ provider: "provider", id: "model", name: "Model" }], model: { provider: "provider", id: "model", name: "Model" }, thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1796,9 +1763,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }, { "tau.thread-titles": generateTitle }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
@@ -1810,14 +1777,14 @@ describe("App render isolation", () => {
 
     // A rejected delivery reports both: the message that will never exist, and
     // the new-thread settlement that reopens its draft.
-    publish?.({
+    client.emit({
       type: "new-thread-delivery-settled",
       sessionId: "allocated",
       clientMessageId,
       accepted: false,
       message: "the runtime refused the prompt",
     });
-    publish?.({ type: "user-message-failed", sessionId: "allocated", clientMessageId, message: "the runtime refused the prompt" });
+    client.emit({ type: "user-message-failed", sessionId: "allocated", clientMessageId, message: "the runtime refused the prompt" });
 
     await waitFor(() => expect(composer.value).toBe("delivery is refused"));
     expect(screen.getByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
@@ -1828,14 +1795,13 @@ describe("App render isolation", () => {
   });
 
   it("keeps every authoritative update from an acknowledgement that lands after promotion", async () => {
-    let resolveNewSession!: (result: unknown) => void;
-    let publish: ((event: HostEvent) => void) | undefined;
+    let resolveNewSession!: (result: NewThreadResult) => void;
     let clientMessageId: string | undefined;
-    const newSession = vi.fn((...args: unknown[]) => {
+    const newSession = vi.fn((...args: unknown[]): Promise<NewThreadResult> => {
       clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
-      return new Promise((resolve) => { resolveNewSession = resolve as (result: unknown) => void; });
+      return new Promise<NewThreadResult>((resolve) => { resolveNewSession = resolve; });
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1843,7 +1809,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1851,9 +1816,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
@@ -1863,7 +1828,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
     if (!clientMessageId) throw new Error("newSession did not receive a client message id");
 
-    publish?.({
+    client.emit({
       type: "user-message",
       sessionId: "bridge-created",
       message: { id: "persisted", clientMessageId, role: "user", text: "start the bridge thread", timestamp: Date.now() },
@@ -1888,13 +1853,17 @@ describe("App render isolation", () => {
   });
 
   it("promotes a bridge draft whose persisted prompt text was expanded", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let requestId: string | undefined;
-    const newSession = vi.fn(async (...args: unknown[]) => {
+    const newSession = vi.fn(async (...args: unknown[]): Promise<NewThreadResult> => {
       requestId = (args[3] as { newThreadRequestId?: string }).newThreadRequestId;
-      return { version: 1 as const, updates: [] as never[], requestId, submission: { accepted: true as const } };
+      return {
+        version: 1 as const,
+        updates: [] as never[],
+        requestId: requestId ? createNewThreadRequestId(requestId) : undefined,
+        submission: { accepted: true as const },
+      };
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1902,7 +1871,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [{ id: "code", name: "VS Code" }],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1910,9 +1878,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
@@ -1924,7 +1892,7 @@ describe("App render isolation", () => {
 
     // Skill expansion changes what the runtime persists; only the request id
     // and the client identity may decide this promotion.
-    publish?.({
+    client.emit({
       type: "host-update",
       update: {
         version: 1,
@@ -1945,14 +1913,13 @@ describe("App render isolation", () => {
   });
 
   it("prepends a failed prompt to newer text and keeps both attachments persisted", async () => {
-    let publish: ((event: HostEvent) => void) | undefined;
     let clientMessageId: string | undefined;
     const newSession = vi.fn(async (...args: unknown[]) => {
       clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
       return { version: 1 as const, updates: [] as never[], submission: { accepted: true as const } };
     });
     const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
@@ -1960,7 +1927,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "old", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -1969,9 +1935,9 @@ describe("App render isolation", () => {
       }),
       newSession,
       getPreparedThreadCapability,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
@@ -1993,7 +1959,7 @@ describe("App render isolation", () => {
     fireEvent.change(chooseAttachment, { target: { files: [newerImage] } });
     await screen.findByRole("button", { name: "Preview new.png" });
 
-    publish?.({ type: "user-message-failed", sessionId: "generated-session", clientMessageId, message: "runtime failed" });
+    client.emit({ type: "user-message-failed", sessionId: "generated-session", clientMessageId, message: "runtime failed" });
     await waitFor(() => expect(composer.value).toBe("failed first prompt\n\nnewer queued text"));
     expect(screen.getByRole("button", { name: "Preview old.png" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview new.png" })).toBeTruthy();
@@ -2006,18 +1972,18 @@ describe("App render isolation", () => {
     const creation = new Promise<{ path: string }>((resolve) => { resolveCreation = resolve; });
     const sendPrompt = vi.fn(async () => undefined);
     let cwd = "/project";
-    const openProject = vi.fn(async (path: string) => {
+    const openProject = vi.fn(async (path: string): Promise<HostActionResult> => {
       cwd = path;
       return {
         version: 1,
         updates: [
-          { version: 1, type: "thread-shell", update: { sessionId: "worktree-thread", shell: { id: "worktree-thread", path: "/worktree.jsonl", title: "Untitled thread", modifiedAt: 2, projectPath: cwd, projectName: "project", branch: "feat/race", messageCount: 0 } } },
+          { version: 1, type: "thread-shell", update: { sessionId: "worktree-thread", shell: { id: "worktree-thread", path: "/worktree.jsonl", title: "Untitled thread", modifiedAt: 2, projectPath: cwd, projectName: "project", messageCount: 0 } } },
           { version: 1, type: "thread-detail", detail: { sessionId: "worktree-thread", messages: [], isStreaming: false, activeTools: [] } },
-          { version: 1, type: "project", project: { cwd, branch: "feat/race" } },
+          { version: 1, type: "project", project: { cwd } },
         ],
       };
     });
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -2025,7 +1991,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "main-thread", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd, branch: "main" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -2044,9 +2009,9 @@ describe("App render isolation", () => {
       }),
       openProject,
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search worktrees" }), { target: { value: "feat/race" } });
     fireEvent.click(screen.getByRole("option", { name: /Create worktree “feat\/race”/u }));
@@ -2098,7 +2063,7 @@ describe("App render isolation", () => {
       refs: [],
       worktreeParent: "/project-worktrees",
     }));
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -2106,7 +2071,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -2120,9 +2084,9 @@ describe("App render isolation", () => {
           updates: [{ version: 1, type: "project", project: { cwd, branch: "feat/worktree-label" } }],
         };
       },
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
     fireEvent.click(screen.getByRole("option", { name: /feat\/worktree-label/u }));
 
@@ -2131,7 +2095,7 @@ describe("App render isolation", () => {
   });
 
   it("does not rerender existing transcript messages for a composer keystroke", () => {
-    render(<App />);
+    renderApp(undefined);
     const before = messageRenders.count;
     fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "x" } });
     expect(messageRenders.count).toBe(before);
@@ -2141,15 +2105,14 @@ describe("App render isolation", () => {
     let sentClientMessageId: string | undefined;
     const sendPrompt = vi.fn(async (
       _text: string,
-      _attachments: unknown[] | undefined,
-      _sessionId: string | undefined,
-      identity?: { clientMessageId?: string },
+      _attachments?: unknown[],
+      _sessionId?: string,
+      identity?: string | ClientTurnIdentity,
       _prepared?: unknown,
     ) => {
-      sentClientMessageId = identity?.clientMessageId;
+      sentClientMessageId = typeof identity === "string" ? identity : identity?.clientMessageId;
     });
-    let publish: ((event: HostEvent) => void) | undefined;
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -2157,7 +2120,6 @@ describe("App render isolation", () => {
         catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -2165,9 +2127,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       sendPrompt,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "bridge prompt" } });
@@ -2178,7 +2140,7 @@ describe("App render isolation", () => {
     if (!clientMessageId) throw new Error("The renderer did not create a request id.");
     expect(screen.getByText("bridge prompt")).toBeTruthy();
 
-    publish?.({ type: "user-message-failed", sessionId: "session", clientMessageId, message: "runtime failed" });
+    client.emit({ type: "user-message-failed", sessionId: "session", clientMessageId, message: "runtime failed" });
     await waitFor(() => expect(screen.queryByText("bridge prompt")).toBeNull());
   });
 
@@ -2192,8 +2154,7 @@ describe("App render isolation", () => {
         resolveNewSession = resolve;
       });
     });
-    let publish: ((event: HostEvent) => void) | undefined;
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 2 }, { path: "/other", name: "other", lastOpenedAt: 1 }], sessions: [] },
@@ -2201,7 +2162,6 @@ describe("App render isolation", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -2210,9 +2170,9 @@ describe("App render isolation", () => {
       }),
       getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
@@ -2225,11 +2185,11 @@ describe("App render isolation", () => {
     const identity = newSessionArgs?.[3] as { clientMessageId: string } | undefined;
     if (!identity) throw new Error("newSession did not receive client identity");
     const failure: HostEvent = { type: "user-message-failed", sessionId: "new-session", clientMessageId: identity.clientMessageId, message: "prompt failed" };
-    if (order === "before") publish?.(failure);
+    if (order === "before") client.emit(failure);
     resolveNewSession({ version: 1, updates: [], submission: { accepted: true } });
     if (order === "after") {
       await waitFor(() => expect(composer.value).toBe("") );
-      publish?.(failure);
+      client.emit(failure);
     }
     await waitFor(() => expect(composer.value).toBe("restore this prompt"));
     expect(screen.getAllByText("prompt failed").length).toBeGreaterThan(0);
@@ -2237,7 +2197,7 @@ describe("App render isolation", () => {
 
   it("copies the host-resolved skill instruction instead of injected content", async () => {
     const copyText = vi.fn(async () => undefined);
-    window.tau = {
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
@@ -2261,7 +2221,6 @@ describe("App render isolation", () => {
         catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -2269,9 +2228,9 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       copyText,
-    } as unknown as typeof window.tau;
+    });
 
-    render(<App />);
+    renderApp(client);
     await screen.findByText("Review **the parser**");
     const copyButtons = screen.getAllByRole("button", { name: "copy message" });
     fireEvent.click(copyButtons[0]);
@@ -2281,8 +2240,8 @@ describe("App render isolation", () => {
   });
 
   it("keeps a new thread local until its first prompt and restores its draft after reload", async () => {
-    const newSession = vi.fn(async () => ({ version: 1, updates: [] as never[] }));
-    window.tau = {
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
+    const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [
@@ -2293,7 +2252,6 @@ describe("App render isolation", () => {
         catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 },
         project: { cwd: "/project" },
       }),
-      onHostEvent: () => () => {},
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
@@ -2301,8 +2259,8 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
       }),
       newSession,
-    } as unknown as typeof window.tau;
-    const view = render(<App />);
+    });
+    const view = renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     await waitFor(() => expect(document.activeElement).toBe(composer));
@@ -2317,7 +2275,7 @@ describe("App render isolation", () => {
     fireEvent.change(composer, { target: { value: "persistent draft" } });
 
     view.unmount();
-    render(<App />);
+    renderApp(client);
     const restored = await waitFor(() => {
       const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
       expect(textarea.value).toBe("persistent draft");

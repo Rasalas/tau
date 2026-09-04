@@ -24,7 +24,8 @@ export function clientIdentityForRequest(request?: ClientTurnRequest): ClientTur
 }
 
 /** Describes how to re-prepare a prompt whose owning Pi session changed after preflight. */
-export function attachedPromptRebind(
+/** What a prepared prompt must be re-prepared with when its thread changed. */
+export function promptRebindForThread(
   prepared: PreparedPrompt | undefined,
   sessionId: string | undefined,
 ): { skill?: UiSkillDraft } | undefined {

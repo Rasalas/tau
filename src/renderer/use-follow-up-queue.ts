@@ -4,6 +4,7 @@ import { createClientMessageId } from "./app-state";
 import type { SubmitResult } from "./components/Composer";
 import { errorMessage } from "./error-message";
 import { FollowUpQueueStore, type QueuedFollowUp } from "./follow-up-queue";
+import type { HostClient } from "./host-client";
 import { preferences } from "./preferences";
 
 export type SubmitPrompt = (
@@ -17,18 +18,16 @@ const EMPTY: readonly QueuedFollowUp[] = [];
 let backgroundTurnSequence = 0;
 
 /** A thread that is not on screen gets its queued prompt without optimistic transcript state. */
-async function deliverInBackground(sessionId: string, item: QueuedFollowUp): Promise<SubmitResult> {
+async function deliverInBackground(client: HostClient | undefined, sessionId: string, item: QueuedFollowUp): Promise<SubmitResult> {
   try {
-    if (!window.tau) throw new Error("Queued messages require the Electron host.");
+    if (!client) throw new Error("Queued messages require the Electron host.");
     const text = item.skillDraft ? item.text : item.text.trim();
-    const prepared = window.tau.preparePrompt
-      ? await window.tau.preparePrompt(text, sessionId, item.skillDraft)
-      : undefined;
+    const prepared = await client.preparePrompt(text, sessionId, item.skillDraft);
     const clientTurn: ClientTurnIdentity = {
       clientTurnId: `queued-turn-${Date.now()}-${backgroundTurnSequence++}`,
       clientMessageId: createClientMessageId(),
     };
-    await window.tau.sendPrompt(text, item.attachments, sessionId, clientTurn, prepared);
+    await client.sendPrompt(text, item.attachments, sessionId, clientTurn, prepared);
     preferences.unsettle(sessionId);
     return { accepted: true };
   } catch (error) {
@@ -41,10 +40,12 @@ async function deliverInBackground(sessionId: string, item: QueuedFollowUp): Pro
  * then leave one at a time as ordinary prompts. The visible thread submits
  * through the composer path; other threads are delivered directly.
  */
-export function useFollowUpQueue({ sessionId, streamingRef, runningThreadIds, submitRef, setNotice }: {
+export function useFollowUpQueue({ client, sessionId, isRunning, runningThreadIds, submitRef, setNotice }: {
+  client: HostClient | undefined;
   /** The thread on screen, or undefined while a new-thread draft is open. */
   sessionId: string | undefined;
-  streamingRef: RefObject<boolean>;
+  /** Reads the one run-state selector; a steer only steers a thread that is working. */
+  isRunning(): boolean;
   runningThreadIds: readonly string[];
   submitRef: RefObject<SubmitPrompt>;
   setNotice(message: string | undefined, level: "error"): void;
@@ -71,7 +72,7 @@ export function useFollowUpQueue({ sessionId, streamingRef, runningThreadIds, su
       flushingRef.current.add(threadId);
       const delivery = threadId === sessionId
         ? submitRef.current(next.text, next.attachments, undefined, next.skillDraft)
-        : deliverInBackground(threadId, next);
+        : deliverInBackground(client, threadId, next);
       void delivery.then((result) => {
         if (result.accepted) {
           // Release even if the host never reports a run for this prompt.
@@ -84,7 +85,7 @@ export function useFollowUpQueue({ sessionId, streamingRef, runningThreadIds, su
         setNotice(result.message, "error");
       });
     }
-  }, [runningThreadIds, sessionId, setNotice, store, submitRef, version]);
+  }, [client, runningThreadIds, sessionId, setNotice, store, submitRef, version]);
 
   const enqueue = useCallback((threadId: string, item: Omit<QueuedFollowUp, "id">) => {
     store.enqueue(threadId, item);
@@ -101,13 +102,13 @@ export function useFollowUpQueue({ sessionId, streamingRef, runningThreadIds, su
     if (!sessionId) return;
     const item = store.remove(sessionId, id);
     if (!item) return;
-    const result = await submitRef.current(item.text, item.attachments, streamingRef.current ? "steer" : undefined, item.skillDraft);
+    const result = await submitRef.current(item.text, item.attachments, isRunning() ? "steer" : undefined, item.skillDraft);
     if (!result.accepted) {
       store.unshift(sessionId, item);
       store.pause(sessionId);
       setNotice(result.message, "error");
     }
-  }, [sessionId, setNotice, store, streamingRef, submitRef]);
+  }, [isRunning, sessionId, setNotice, store, submitRef]);
 
   return { queue, enqueue, cancelQueued, reorderQueue, steerQueued };
 }

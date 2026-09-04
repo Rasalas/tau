@@ -6,6 +6,7 @@ import type { DesktopExtensionContext, OverlayProps, RegionProps, TranscriptRow,
 import { useWorkbench } from "../workbench-context";
 import { RestoreCheckpointDialog } from "../components/RestoreCheckpointDialog";
 import { errorMessage } from "../error-message";
+import { getHostClient } from "../host-client-context";
 import { workspaceKit } from "./workspace-kit-client";
 import { WorkspaceCheckpointCard } from "./workspace-checkpoint-card";
 import { workspaceStore } from "./workspace-store";
@@ -85,7 +86,7 @@ function createController(store: CheckpointStore, rows: ReturnType<DesktopExtens
     // to them. A thread reset (the active-thread event) empties the list, so it
     // is loaded again whenever the store has nothing for the thread on screen.
     useEffect(() => {
-      if (!sessionId || !window.tau || loaded) return;
+      if (!sessionId || !getHostClient() || loaded) return;
       let cancelled = false;
       workspaceKit.checkpoints(sessionId)
         .then((list) => { if (!cancelled) store.loaded(sessionId, list); })
@@ -101,7 +102,7 @@ function createController(store: CheckpointStore, rows: ReturnType<DesktopExtens
 
     // Verify restorability once per thread and checkpoint set; the host checks refs and workspace.
     useEffect(() => {
-      if (!sessionId || !restoreSupported || !window.tau) { store.update({ restorable: new Set() }); return; }
+      if (!sessionId || !restoreSupported || !getHostClient()) { store.update({ restorable: new Set() }); return; }
       let cancelled = false;
       void Promise.all(checkpoints.map(async (checkpoint) => {
         if (checkpoint.completeness === "partial") return undefined;
@@ -170,7 +171,7 @@ function createController(store: CheckpointStore, rows: ReturnType<DesktopExtens
             onRestore={restoreSupported && checkpoint.completeness !== "partial" && state.restorable.has(checkpoint.id) && !streaming
               ? () => void requestRestore(checkpoint)
               : undefined}
-            loadFiles={window.tau ? (cursor, limit) => workspaceKit.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}
+            loadFiles={getHostClient() ? (cursor, limit) => workspaceKit.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}
           />
         ),
       }));
@@ -201,7 +202,7 @@ function createReviewOverlay(store: CheckpointStore) {
     useEffect(() => { setPath(review?.path ?? review?.checkpoint.files[0]?.path); }, [review]);
     if (!review) return null;
     const { checkpoint } = review;
-    const loadDiff = (filePath: string, options?: DiffLoadOptions) => window.tau
+    const loadDiff = (filePath: string, options?: DiffLoadOptions) => getHostClient()
       ? workspaceKit.getTurnFileDiff(checkpoint.sessionId, checkpoint.id, filePath, options)
       : Promise.resolve({ path: filePath, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." });
     return (
@@ -218,7 +219,7 @@ function createReviewOverlay(store: CheckpointStore) {
           readOnly
           checkpointTitle="Turn changes"
           loadDiff={loadDiff}
-          loadFiles={window.tau ? (cursor, limit) => workspaceKit.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}
+          loadFiles={getHostClient() ? (cursor, limit) => workspaceKit.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}
         />
       </Suspense>
     );

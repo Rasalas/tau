@@ -67,6 +67,18 @@ interface MutationGuard {
 const DEFAULT_STALE_AFTER_MS = 2 * 60_000;
 const DEFAULT_POLL_MS = 50;
 
+/**
+ * Leases stay under the OS temp dir rather than Electron's userData: the Pi
+ * bridge processes that also take this lease run outside Electron and have
+ * no userData path, and leases are keyed by checkout identity, not by app
+ * install, so a shared, machine-wide root is what makes them findable across
+ * processes. The root and every marker file it holds are created 0o700/0o600
+ * so other local users cannot read or race lease metadata.
+ */
+function leaseRoot(): string {
+  return join(tmpdir(), "tau-workspace-leases");
+}
+
 async function defaultRunGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
@@ -199,7 +211,7 @@ export interface LiveWorkspaceLeaseOptions {
 export async function listLiveWorkspaceLeaseSessions(
   options: LiveWorkspaceLeaseOptions = {},
 ): Promise<readonly WorkspaceLeaseMetadata[]> {
-  const root = join(tmpdir(), "tau-workspace-leases");
+  const root = leaseRoot();
   const now = options.now ?? Date.now;
   const staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const isAlive = options.processAlive ?? defaultProcessAlive;
@@ -300,7 +312,7 @@ async function cleanupStaleTickets(
 
 async function writeSequenceCounter(path: string, value: number): Promise<void> {
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  const handle = await open(temporary, "wx");
+  const handle = await open(temporary, "wx", 0o600);
   try {
     await handle.writeFile(`${value}\n`, "utf8");
   } finally {
@@ -324,7 +336,7 @@ async function createFilesystemTicket(
   isAlive: (pid: number) => boolean,
 ): Promise<FilesystemLeaseTicket> {
   const queuePath = ticketQueuePath(key);
-  await mkdir(queuePath, { recursive: true });
+  await mkdir(queuePath, { recursive: true, mode: 0o700 });
   const sequencePath = ticketSequencePath(queuePath);
   const guard = await acquireMutationGuard(
     sequencePath,
@@ -353,7 +365,7 @@ async function createFilesystemTicket(
       heartbeatAt: now(),
     };
     const path = join(queuePath, `${String(sequence).padStart(20, "0")}-${randomUUID()}.json`);
-    const handle = await open(path, "wx");
+    const handle = await open(path, "wx", 0o600);
     try {
       await handle.writeFile(`${JSON.stringify(metadata)}\n`, "utf8");
     } finally {
@@ -419,11 +431,11 @@ async function acquireMutationGuard(
   isAlive: (pid: number) => boolean,
 ): Promise<MutationGuard> {
   const path = mutationGuardPath(lockPath);
-  await mkdir(dirname(path), { recursive: true });
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const ownerId = randomUUID();
   for (;;) {
     try {
-      await mkdir(path);
+      await mkdir(path, { mode: 0o700 });
       const tokenPath = mutationGuardTokenPath(path, ownerId);
       const metadata: WorkspaceLeaseMetadata = {
         ownerId,
@@ -477,7 +489,7 @@ async function acquireMutationGuard(
 }
 
 async function writeGuardToken(path: string, metadata: WorkspaceLeaseMetadata): Promise<void> {
-  const handle = await open(path, "wx");
+  const handle = await open(path, "wx", 0o600);
   try {
     await handle.writeFile(`${JSON.stringify(metadata)}\n`, "utf8");
   } finally {
@@ -535,7 +547,7 @@ async function claimStaleMarker(
   };
   let handle;
   try {
-    handle = await open(claimPath, "wx");
+    handle = await open(claimPath, "wx", 0o600);
     await handle.writeFile(`${JSON.stringify(claim)}\n`, "utf8");
   } catch (error) {
     await handle?.close().catch(() => undefined);
@@ -615,14 +627,14 @@ export class WorkspaceCheckpointLeaseManager {
       const checkout = await canonicalGitCheckout(cwd, this.runGit);
       if (checkout) {
         const digest = createHash("sha256").update(checkout).digest("hex").slice(0, 32);
-        return join(tmpdir(), "tau-workspace-leases", digest);
+        return join(leaseRoot(), digest);
       }
       // Plain folders have no safe metadata directory in which to leave a
       // marker. Hash their canonical path into a private temp namespace
       // instead; symlinked spellings of the same folder share one lease too.
       const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
       const digest = createHash("sha256").update(canonicalCwd).digest("hex").slice(0, 32);
-      return join(tmpdir(), "tau-workspace-leases", digest);
+      return join(leaseRoot(), digest);
     })();
     this.canonicalKeys.set(lookupKey, pending);
     return pending;
@@ -680,7 +692,7 @@ export class WorkspaceCheckpointLeaseManager {
     options: WorkspaceCheckpointLeaseOptions,
   ): Promise<WorkspaceCheckpointLease> {
     const lockPath = leasePath(key, this.lockFileName);
-    await mkdir(dirname(lockPath), { recursive: true });
+    await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
     const now = options.now ?? this.now;
     const staleAfterMs = options.staleAfterMs ?? this.staleAfterMs;
     const pollMs = options.pollMs ?? this.pollMs;
@@ -748,7 +760,7 @@ export class WorkspaceCheckpointLeaseManager {
               shouldWait = true;
             }
           } else {
-            const handle = await open(lockPath, "wx");
+            const handle = await open(lockPath, "wx", 0o600);
             try {
               await handle.writeFile(`${JSON.stringify(metadata)}\n`, "utf8");
             } catch (error) {

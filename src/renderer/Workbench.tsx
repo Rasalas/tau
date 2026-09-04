@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useRef, useState, type ComponentType, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
@@ -25,6 +25,8 @@ import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { preferences } from "./preferences";
 import type { ThreadStore } from "./thread-store";
+import type { ThreadViewStore } from "./thread-view-store";
+import { contextBreakdownFor, conversationMessagesFor } from "./app-state";
 import type { TranscriptHistoryController } from "./transcript-history";
 import type { useThreadDropController } from "./use-thread-drop-controller";
 import {
@@ -85,120 +87,144 @@ export const MountedPanel = memo(function MountedPanel({
 type DropController = ReturnType<typeof useThreadDropController>;
 type Settings = ReturnType<typeof preferences.getSnapshot>;
 
-export interface WorkbenchModel {
+/** Window chrome, slots and the modals that belong to the shell. */
+export interface WorkbenchLayout {
   registry: ExtensionRegistry;
-  actions: WorkbenchActions;
   threadStore: ThreadStore;
-  context: WorkbenchContextValue;
-  shellContext: WorkbenchShellContextValue;
-  observatoryContext: ObservatoryContextValue;
-  snapshot?: HostSnapshot;
+  settings: Settings;
   workspaceCwd?: string;
-  dockOpen: boolean;
-  setDockOpen: Dispatch<SetStateAction<boolean>>;
   sidebarContributions: ReturnType<ExtensionRegistry["getSidebarContributions"]>;
   panels: ReturnType<ExtensionRegistry["getPanels"]>;
   activePanel: string;
   openedPanels: ReadonlySet<string>;
   openPanel(id: string): void;
+  dockOpen: boolean;
+  setDockOpen(open: boolean): void;
   centerRef: RefObject<HTMLDivElement | null>;
   centerCompact: boolean;
-  setCenterCompact: Dispatch<SetStateAction<boolean>>;
+  setCenterCompact(compact: boolean): void;
   chatFocused: boolean;
-  setChatFocused: Dispatch<SetStateAction<boolean>>;
+  setChatFocused(focused: boolean): void;
   stage: StageState;
-  setStage: Dispatch<SetStateAction<StageState>>;
+  activateStageTab(id: string): void;
+  closeStageTab(id: string): void;
+  pinStageTab(id: string): void;
+  setStageFileView(id: string, view: "source" | "diff"): void;
   documentState: { changes: UiWorkspaceChanges; editor?: UiEditor };
   documentSource: ReturnType<ExtensionRegistry["getDocumentSource"]>;
   visibleStreaming: boolean;
+  paletteOpen: boolean;
+  closePalette(): void;
+  commands: ReturnType<ExtensionRegistry["getCommands"]>;
+  projectSourcesOpen: boolean;
+  closeProjectSources(): void;
+  newThreadOpen: boolean;
+  openNewThreadPicker(): void;
+  closeNewThreadPicker(): void;
+  projects: readonly UiProject[];
+  removeProject(project: UiProject): void;
+  createThreadInProject(project: UiProject): void;
+  settingsPage?: string;
+  setSettingsPage(page?: string): void;
+  notice?: string;
+  noticeLevel: "info" | "warning" | "error";
+  setNotice(message?: string, level?: "info" | "warning" | "error"): void;
+  activeOverlayId?: string;
+  closeOverlay(): void;
+}
+
+/** What the visible thread is, and how its transcript is navigated. */
+export interface WorkbenchThread {
+  snapshot?: HostSnapshot;
+  /** The snapshot as the conversation sees it: a draft, or the live run state. */
+  conversationSnapshot?: HostSnapshot;
+  pendingNewThread: boolean;
   showStartScreen: boolean;
   startProjectPath: string;
   startProjectName: string;
-  setNewThreadOpen: Dispatch<SetStateAction<boolean>>;
   dropController: DropController;
-  conversationSnapshot?: HostSnapshot;
-  composerScopeStore: ComposerScopeStore;
-  composerSeed?: string;
+  transcriptHistory: TranscriptHistoryController;
+  transcriptRef: RefObject<HTMLDivElement | null>;
+  loadTranscriptPage(sessionId: string, cursor: HostTranscriptCursor): Promise<import("../shared/host-protocol").TranscriptPage>;
+  applyTranscriptPage(page: import("../shared/host-protocol").TranscriptPage, request: import("./transcript-history").TranscriptHistoryRequest): boolean;
+  transcriptScopeKey: string;
+  transcriptScope: import("./components/transcript-navigation").TranscriptNavigationScope;
+  transcriptTurnStart?: TranscriptTurnStart;
+  visibleTranscriptTurnStart?: TranscriptTurnStart;
+  transcriptActivities: readonly TranscriptActivity[];
+  liveStatusLabel?: string;
+  conversationActivityTools: readonly UiToolRun[];
+  runStartedAt?: number;
   activeDraftKey?: string;
-  queue: readonly QueuedFollowUp[];
-  contextBreakdown: ContextBreakdown;
-  composerRef: RefObject<HTMLTextAreaElement | null>;
-  composerAttachmentRef: RefObject<ComposerAttachmentHandle | null>;
-  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
-  cancelQueued(id: string): void;
-  steerQueued(id: string): void;
-  reorderQueue(id: string, toIndex: number): void;
-  setModel(provider: string, id: string): Promise<void>;
-  setThinking(level: string): Promise<void>;
-  conversationPrompts: ExtensionUiPrompt[];
-  answerUiPrompt(id: string, answer: import("../shared/contracts").ExtensionUiAnswer): void;
-  compactContext(): Promise<void>;
-  composerHolds: number;
-  settings: Settings;
+  copyMessage(message: UiMessage): Promise<void>;
+  forkMessage(message: UiMessage): Promise<void>;
   titleCommands: ReturnType<ExtensionRegistry["getCommandsFor"]>;
   openThreadTree(mode?: ThreadTreeMode): void;
   duplicateThread(): Promise<boolean>;
   settleActiveThread(): void;
   renameThread(title: string): Promise<boolean>;
   copyThreadValue(kind: "chat" | "path" | "thread-id"): Promise<void>;
-  pendingNewThread: boolean;
-  conversationMessages: UiMessage[];
-  transcriptHistory: TranscriptHistoryController;
-  transcriptRef: RefObject<HTMLDivElement | null>;
-  loadTranscriptPage(sessionId: string, cursor: HostTranscriptCursor): Promise<import("../shared/host-protocol").TranscriptPage>;
-  applyTranscriptPage(page: import("../shared/host-protocol").TranscriptPage, request: import("./transcript-history").TranscriptHistoryRequest): boolean;
-  transcriptScopeKey: string;
-  transcriptRevision: number;
-  transcriptLookupRevision: number;
-  transcriptScope: import("./components/transcript-navigation").TranscriptNavigationScope;
-  transcriptTurnStart?: TranscriptTurnStart;
-  visibleTranscriptTurnStart?: TranscriptTurnStart;
-  transcriptActivities: readonly TranscriptActivity[];
-  liveStatusLabel?: string;
-  conversationActivityTools: UiToolRun[];
-  runStartedAt?: number;
-  copyMessage(message: UiMessage): Promise<void>;
-  forkMessage(message: UiMessage): Promise<void>;
   threadTreeModal?: { tree?: UiThreadTree; mode: ThreadTreeMode; busy: boolean; error?: string };
-  setThreadTreeModal: Dispatch<SetStateAction<{ tree?: UiThreadTree; mode: ThreadTreeMode; busy: boolean; error?: string } | undefined>>;
+  closeThreadTree(): void;
   navigateThreadTree(entryId: string, summarize: boolean): Promise<void>;
   forkFromTree(entryId: string): Promise<void>;
-  paletteOpen: boolean;
-  setPaletteOpen: Dispatch<SetStateAction<boolean>>;
-  commands: ReturnType<ExtensionRegistry["getCommands"]>;
-  projectSourcesOpen: boolean;
-  setProjectSourcesOpen: Dispatch<SetStateAction<boolean>>;
-  newThreadOpen: boolean;
-  projects: readonly UiProject[];
-  removeProject(project: UiProject): void;
-  createThreadInProject(project: UiProject): void;
-  settingsPage?: string;
-  setSettingsPage: Dispatch<SetStateAction<string | undefined>>;
-  notice?: string;
-  noticeLevel: "info" | "warning" | "error";
-  setNotice(message?: string, level?: "info" | "warning" | "error"): void;
-  activeOverlayId?: string;
-  setActiveOverlayId: Dispatch<SetStateAction<string | undefined>>;
 }
 
-export function Workbench({ model }: { model: WorkbenchModel }) {
+/** Everything the composer needs, including what it sends and what it waits on. */
+export interface WorkbenchComposer {
+  scopeStore: ComposerScopeStore;
+  seed?: string;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  attachmentRef: RefObject<ComposerAttachmentHandle | null>;
+  queue: readonly QueuedFollowUp[];
+  holds: number;
+  prompts: ExtensionUiPrompt[];
+  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
+  abort(sessionId?: string): void;
+  cancelQueued(id: string): void;
+  steerQueued(id: string): void;
+  reorderQueue(id: string, toIndex: number): void;
+  setModel(provider: string, id: string): Promise<void>;
+  setThinking(level: string): Promise<void>;
+  answerUiPrompt(id: string, answer: import("../shared/contracts").ExtensionUiAnswer): void;
+  compactContext(): Promise<void>;
+}
+
+export interface WorkbenchModel {
+  /** The one store the transcript and the context meter subscribe to themselves. */
+  view: ThreadViewStore;
+  actions: WorkbenchActions;
+  context: WorkbenchContextValue;
+  shellContext: WorkbenchShellContextValue;
+  observatoryContext: ObservatoryContextValue;
+  layout: WorkbenchLayout;
+  thread: WorkbenchThread;
+  composer: WorkbenchComposer;
+}
+
+export const Workbench = memo(function Workbench({ model }: { model: WorkbenchModel }) {
+  const { actions, layout, thread, composer, view } = model;
   const {
-    registry, actions, threadStore, snapshot, workspaceCwd, dockOpen, setDockOpen, sidebarContributions,
-    panels, activePanel, openedPanels, openPanel, centerRef, centerCompact, setCenterCompact, chatFocused,
-    setChatFocused, stage, setStage, documentState, documentSource, visibleStreaming, showStartScreen,
-    startProjectPath, startProjectName, setNewThreadOpen, dropController, conversationSnapshot,
-    composerScopeStore, composerSeed, activeDraftKey, queue, contextBreakdown, composerRef,
-    composerAttachmentRef, submit, cancelQueued, steerQueued, reorderQueue, setModel, setThinking, conversationPrompts, answerUiPrompt,
-    compactContext, composerHolds, settings, titleCommands, openThreadTree, duplicateThread,
-    settleActiveThread, renameThread, copyThreadValue, pendingNewThread, conversationMessages,
-    transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
-    transcriptRevision, transcriptLookupRevision, transcriptScope, transcriptTurnStart,
-    visibleTranscriptTurnStart, transcriptActivities, liveStatusLabel, conversationActivityTools,
-    runStartedAt, copyMessage, forkMessage, threadTreeModal, setThreadTreeModal, navigateThreadTree,
-    forkFromTree, paletteOpen, setPaletteOpen, commands, projectSourcesOpen, setProjectSourcesOpen,
-    newThreadOpen, projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
-    notice, noticeLevel, setNotice, activeOverlayId, setActiveOverlayId,
-  } = model;
+    registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
+    openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
+    chatFocused, setChatFocused, stage, activateStageTab, closeStageTab, pinStageTab, setStageFileView,
+    documentState, documentSource, visibleStreaming, paletteOpen, closePalette, commands,
+    projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
+    projects, removeProject, createThreadInProject, settingsPage, setSettingsPage, notice, noticeLevel,
+    setNotice, activeOverlayId, closeOverlay,
+  } = layout;
+  const {
+    snapshot, conversationSnapshot, pendingNewThread, showStartScreen, startProjectPath, startProjectName,
+    dropController, transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage,
+    transcriptScopeKey, transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart,
+    transcriptActivities, liveStatusLabel, conversationActivityTools, runStartedAt, activeDraftKey,
+    copyMessage, forkMessage, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
+    renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
+  } = thread;
+  const {
+    queue, holds: composerHolds, prompts: conversationPrompts, submit, answerUiPrompt,
+    setModel, setThinking,
+  } = composer;
   const [dockWidth, setDockWidthState] = useState(storedDockWidth);
   const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
 
@@ -250,35 +276,12 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
 
-  const conversationComposer = <Composer
-    snapshot={conversationSnapshot}
-    scopeStore={composerScopeStore}
-    seed={composerSeed}
-    draftStorageKey={activeDraftKey}
-    queue={queue}
-    contextUsage={snapshot?.contextUsage}
-    contextBreakdown={contextBreakdown}
-    textareaRef={composerRef}
-    attachmentRef={composerAttachmentRef}
-    onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
-    onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
-    onCancelQueued={cancelQueued}
-    onSteerQueued={steerQueued}
-    onReorderQueue={reorderQueue}
-    onSetModel={(provider, id) => void setModel(provider, id)}
-    onSetThinking={(level) => void setThinking(level)}
-    prompt={conversationPrompts[0]}
-    promptsPending={Math.max(0, conversationPrompts.length - 1)}
-    onAnswerPrompt={(value, typed) => {
-      const active = conversationPrompts[0];
-      if (active) answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
-    }}
-    onCancelPrompt={() => {
-      const active = conversationPrompts[0];
-      if (active) answerUiPrompt(active.id, { cancelled: true });
-    }}
-    onCompactContext={() => void compactContext()}
-    held={composerHolds > 0}
+  const conversationComposer = <ConversationComposer
+    view={view}
+    composer={composer}
+    snapshot={snapshot}
+    conversationSnapshot={conversationSnapshot}
+    activeDraftKey={activeDraftKey}
   />;
 
   const overlays = <>
@@ -287,7 +290,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
       mode={threadTreeModal.mode}
       busy={threadTreeModal.busy}
       error={threadTreeModal.error}
-      onClose={() => setThreadTreeModal(undefined)}
+      onClose={closeThreadTree}
       onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)}
       onFork={(entryId) => void forkFromTree(entryId)}
     /> : null}
@@ -299,16 +302,16 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
           commands={commands}
           extensionCount={registry.getExtensionNames().length}
           actions={actions}
-          onClose={() => setPaletteOpen(false)}
+          onClose={closePalette}
         />
       </Suspense>
     </LazyFeatureBoundary>
-    {projectSourcesOpen ? <ProjectSourcesModal actions={actions} onClose={() => setProjectSourcesOpen(false)} sources={registry.getProjectSources()} /> : null}
+    {projectSourcesOpen ? <ProjectSourcesModal actions={actions} onClose={closeProjectSources} sources={registry.getProjectSources()} /> : null}
     <ProjectPicker
       open={newThreadOpen}
       projects={projects}
       onBrowse={() => actions.openProjectSources()}
-      onClose={() => setNewThreadOpen(false)}
+      onClose={closeNewThreadPicker}
       onRemove={removeProject}
       onSelect={createThreadInProject}
     />
@@ -342,7 +345,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
   if (activeOverlay) return providers(<>
     <LazyFeatureBoundary label={activeOverlay.id}>
       <Suspense fallback={<LazyFeatureFallback label={activeOverlay.id} />}>
-        <activeOverlay.Component actions={actions} onClose={() => setActiveOverlayId(undefined)} />
+        <activeOverlay.Component actions={actions} onClose={closeOverlay} />
       </Suspense>
     </LazyFeatureBoundary>
     {overlays}
@@ -350,7 +353,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
 
   return providers(<>
     <div className={shellClassName} style={{ "--dock-width": `${dockWidth}px` } as CSSProperties}>
-      <TitleBar cwd={workspaceCwd} dockOpen={dockOpen} registry={registry} snapshot={snapshot} actions={actions} onToggleDock={() => setDockOpen((value) => !value)} />
+      <TitleBar cwd={workspaceCwd} dockOpen={dockOpen} registry={registry} snapshot={snapshot} actions={actions} onToggleDock={() => setDockOpen(!dockOpen)} />
       {sidebarContributions.map((contribution) => <LazyFeatureBoundary key={contribution.id} label="sidebar">
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
       </LazyFeatureBoundary>)}
@@ -372,7 +375,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
             <div className="conversation-start-content">
               {showStartScreen ? <>
                 <h1 id="start-screen-title">What do you want to build?</h1>
-                <button type="button" className="conversation-start-project" aria-label={`Change project, current project ${startProjectName}`} onClick={() => setNewThreadOpen(true)}>
+                <button type="button" className="conversation-start-project" aria-label={`Change project, current project ${startProjectName}`} onClick={openNewThreadPicker}>
                   <i><Folder size={17} /></i>
                   <span><small>Current project</small><strong>{startProjectName}</strong><code title={startProjectPath}>{displayPath(startProjectPath)}</code></span>
                   <b>Change</b><ChevronDown size={15} />
@@ -392,7 +395,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
                   label={snapshot?.projectLabel}
                   pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
                   settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
-                  onNewThread={() => setNewThreadOpen(true)}
+                  onNewThread={openNewThreadPicker}
                   onOpenTree={() => openThreadTree("navigate")}
                   onDuplicate={() => void duplicateThread()}
                   onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
@@ -405,33 +408,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
                 />
                 <span className="title-spacer" />
               </header>
-              <TranscriptHistoryBoundary
-                controller={transcriptHistory}
-                scrollRef={transcriptRef}
-                showControl={!pendingNewThread && conversationMessages.length > 0}
-                loadPage={loadTranscriptPage}
-                applyPage={applyTranscriptPage}
-              >
-                {() => <TranscriptViewport
-                  messages={conversationMessages}
-                  scrollRef={transcriptRef}
-                  sessionId={conversationSnapshot?.sessionId}
-                  scopeKey={transcriptScopeKey}
-                  revision={transcriptRevision}
-                  lookupRevision={transcriptLookupRevision}
-                  scope={transcriptTurnStart?.scope ?? transcriptScope}
-                  turnStart={visibleTranscriptTurnStart}
-                  isStreaming={Boolean(conversationSnapshot?.isStreaming)}
-                  activities={transcriptActivities}
-                  liveStatus={liveStatusLabel !== undefined
-                    ? <LiveStatus label={liveStatusLabel} />
-                    : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
-                      ? <LiveStatus startedAt={runStartedAt} />
-                      : undefined}
-                  onCopyMessage={(message) => void copyMessage(message)}
-                  onForkMessage={(message) => void forkMessage(message)}
-                />}
-              </TranscriptHistoryBoundary>
+              <ConversationTranscript view={view} thread={thread} />
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}
           </div>
@@ -447,10 +424,10 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
               chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}
               loadFile={documentSource?.loadFile ?? loadFileUnavailable}
               loadDiff={documentSource?.loadDiff ?? loadDiffUnavailable}
-              onActivate={(id) => setStage((current) => activateStageTab(current, id))}
-              onClose={(id) => setStage((current) => closeStageTab(current, id))}
-              onPin={(id) => setStage((current) => pinStageTab(current, id))}
-              onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
+              onActivate={activateStageTab}
+              onClose={closeStageTab}
+              onPin={pinStageTab}
+              onChangeView={setStageFileView}
               onOpenInEditor={(path) => documentSource?.openInEditor(path)}
             />
           </Suspense>
@@ -492,7 +469,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
             onClick={() => dockOpen && activePanel === panel.id ? setDockOpen(false) : openPanel(panel.id)}
           ><PanelIcon name={panel.glyph} /></button>)}
           <span className="spacer" />
-          <button title={dockOpen ? "Collapse panel" : "Expand panel"} aria-label={dockOpen ? "Collapse panel" : "Expand panel"} onClick={() => setDockOpen((value) => !value)}>
+          <button title={dockOpen ? "Collapse panel" : "Expand panel"} aria-label={dockOpen ? "Collapse panel" : "Expand panel"} onClick={() => setDockOpen(!dockOpen)}>
             {dockOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
           </button>
         </nav>
@@ -500,4 +477,100 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
     </div>
     {overlays}
   </>);
+});
+
+/**
+ * The transcript follows the store on its own. A streamed delta re-renders
+ * this subtree and leaves the rest of the workbench untouched.
+ */
+function ConversationTranscript({ view, thread }: { view: ThreadViewStore; thread: WorkbenchThread }) {
+  const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
+  const optimistic = useSyncExternalStore(view.subscribeToOptimistic, view.getOptimisticMessages);
+  const {
+    conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
+    applyTranscriptPage, transcriptScopeKey, transcriptScope, transcriptTurnStart,
+    visibleTranscriptTurnStart, transcriptActivities, liveStatusLabel, conversationActivityTools,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage,
+  } = thread;
+  const messages = useMemo(
+    () => conversationMessagesFor(transcript.messages, optimistic, activeDraftKey, pendingNewThread),
+    [activeDraftKey, optimistic, pendingNewThread, transcript],
+  );
+  return <TranscriptHistoryBoundary
+    controller={transcriptHistory}
+    scrollRef={transcriptRef}
+    showControl={!pendingNewThread && messages.length > 0}
+    loadPage={loadTranscriptPage}
+    applyPage={applyTranscriptPage}
+  >
+    {() => <TranscriptViewport
+      messages={messages}
+      scrollRef={transcriptRef}
+      sessionId={conversationSnapshot?.sessionId}
+      scopeKey={transcriptScopeKey}
+      revision={transcript.revision}
+      lookupRevision={transcript.lookupRevision}
+      scope={transcriptTurnStart?.scope ?? transcriptScope}
+      turnStart={visibleTranscriptTurnStart}
+      isStreaming={Boolean(conversationSnapshot?.isStreaming)}
+      activities={transcriptActivities}
+      liveStatus={liveStatusLabel !== undefined
+        ? <LiveStatus label={liveStatusLabel} />
+        : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
+          ? <LiveStatus startedAt={runStartedAt} />
+          : undefined}
+      onCopyMessage={(message) => void copyMessage(message)}
+      onForkMessage={(message) => void forkMessage(message)}
+    />}
+  </TranscriptHistoryBoundary>;
+}
+
+/** The context meter reads the running token estimate, so the composer subscribes too. */
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, activeDraftKey }: {
+  view: ThreadViewStore;
+  composer: WorkbenchComposer;
+  snapshot?: HostSnapshot;
+  conversationSnapshot?: HostSnapshot;
+  activeDraftKey?: string;
+}) {
+  const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
+  const tools = useSyncExternalStore(view.subscribeToTools, view.getToolView).tools;
+  const {
+    scopeStore, seed, textareaRef, attachmentRef, queue, holds, prompts, submit, abort,
+    cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
+  } = composer;
+  const contextBreakdown = useMemo(
+    () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, tools),
+    [snapshot?.contextUsage, tools, transcript.tokenEstimate],
+  );
+  return <Composer
+    snapshot={conversationSnapshot}
+    scopeStore={scopeStore}
+    seed={seed}
+    draftStorageKey={activeDraftKey}
+    queue={queue}
+    contextUsage={snapshot?.contextUsage}
+    contextBreakdown={contextBreakdown}
+    textareaRef={textareaRef}
+    attachmentRef={attachmentRef}
+    onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
+    onAbort={() => abort(snapshot?.sessionId)}
+    onCancelQueued={cancelQueued}
+    onSteerQueued={steerQueued}
+    onReorderQueue={reorderQueue}
+    onSetModel={(provider, id) => void setModel(provider, id)}
+    onSetThinking={(level) => void setThinking(level)}
+    prompt={prompts[0]}
+    promptsPending={Math.max(0, prompts.length - 1)}
+    onAnswerPrompt={(value, typed) => {
+      const active = prompts[0];
+      if (active) answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
+    }}
+    onCancelPrompt={() => {
+      const active = prompts[0];
+      if (active) answerUiPrompt(active.id, { cancelled: true });
+    }}
+    onCompactContext={() => void compactContext()}
+    held={holds > 0}
+  />;
 }

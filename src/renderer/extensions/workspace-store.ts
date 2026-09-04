@@ -6,6 +6,7 @@ import { errorMessage } from "../error-message";
 import { preferences } from "../preferences";
 import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../turn-activity";
 import type { UiToolRun } from "../../shared/contracts";
+import { getHostClient } from "../host-client-context";
 import { workspaceKit } from "./workspace-kit-client";
 
 export const WORKSPACE_KIT_ID = "tau.workspace";
@@ -116,7 +117,7 @@ export class WorkspaceStore {
   }
 
   private hostAvailable(what: string): boolean {
-    if (window.tau) return true;
+    if (getHostClient()) return true;
     this.notify(`${what} requires the Electron host`);
     return false;
   }
@@ -139,7 +140,7 @@ export class WorkspaceStore {
   }
 
   async loadEditors(): Promise<void> {
-    if (!window.tau) return;
+    if (!getHostClient()) return;
     try { this.update({ editors: await workspaceKit.listEditors() }); } catch { this.update({ editors: [] }); }
   }
 
@@ -151,7 +152,7 @@ export class WorkspaceStore {
   chooseEditor(id: string): void { preferences.setValue(WORKSPACE_KIT_ID, "editor", id); }
 
   async refreshChanges(): Promise<void> {
-    if (!window.tau) return;
+    if (!getHostClient()) return;
     const request = ++this.changesRequest;
     const cwd = this.state.cwd;
     if (this.state.draftPending) { this.update({ changes: NO_CHANGES }); return; }
@@ -164,7 +165,7 @@ export class WorkspaceStore {
   }
 
   async refreshWorkspace(): Promise<void> {
-    if (!window.tau) return;
+    if (!getHostClient()) return;
     const request = ++this.workspaceRequest;
     const cwd = this.state.cwd;
     this.update({ workspaceBusy: true });
@@ -179,13 +180,13 @@ export class WorkspaceStore {
   }
 
   async refreshFiles(): Promise<void> {
-    if (!window.tau) return;
+    if (!getHostClient()) return;
     try { this.update({ fileTree: (await workspaceKit.getFileTree()) ?? [] }); }
     catch (error) { this.notify(errorMessage(error)); }
   }
 
   async loadFiles(path: string): Promise<FileNode[]> {
-    const children = window.tau ? ((await workspaceKit.getFileTree(path)) ?? []) : [];
+    const children = getHostClient() ? ((await workspaceKit.getFileTree(path)) ?? []) : [];
     const attach = (nodes: FileNode[]): FileNode[] => nodes.map((node) => node.path === path
       ? { ...node, children }
       : node.children ? { ...node, children: attach(node.children) } : node);
@@ -217,7 +218,7 @@ export class WorkspaceStore {
     if (tool.name === "edit" || tool.name === "write" || /\bgit\b/u.test(command)) void this.refreshChanges();
   }
 
-  turnChanges(tools: UiToolRun[]): UiWorkspaceChanges {
+  turnChanges(tools: readonly UiToolRun[]): UiWorkspaceChanges {
     const { turnBaseline, changes } = this.state;
     return turnBaseline ? changesSinceTurn(turnBaseline, changes) : changesTouchedByTools(tools, changes);
   }

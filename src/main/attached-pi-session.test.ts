@@ -38,7 +38,7 @@ function fakeHost() {
     releaseLocalThread: async () => undefined,
     clearActiveThread: () => undefined,
     setCwd: vi.fn(),
-    onSessionEvent: (event, _turn, sessionId) => { sessionEvents.push({ event, sessionId }); },
+    onSessionEvent: (event, sessionId) => { sessionEvents.push({ event, sessionId }); },
     onSnapshot: (requestId) => { snapshots.push(requestId); },
     onReconnected: async () => undefined,
   };
@@ -60,7 +60,7 @@ function fakeClient(command: (input: { command: string; [key: string]: unknown }
 type Internals = { handleFrame(frame: PiBridgeServerFrame, source: unknown): void };
 
 describe("AttachedPiSession", () => {
-  it("owns only the visible thread and keeps one live-state carrier per session", () => {
+  it("owns only the visible thread", () => {
     const { host } = fakeHost();
     const session = new AttachedPiSession(host);
     expect(session.isAttached).toBe(false);
@@ -70,10 +70,6 @@ describe("AttachedPiSession", () => {
     expect(session.owns(undefined)).toBe(true);
     expect(session.owns("pi-session")).toBe(true);
     expect(session.owns("other")).toBe(false);
-    const turn = session.turnState("pi-session");
-    turn.currentAssistantId = "assistant-1";
-    expect(session.turnState("pi-session").currentAssistantId).toBe("assistant-1");
-    expect(session.turnState("other").currentAssistantId).toBeUndefined();
   });
 
   it("detaches and runs the thread itself when Pi stops answering an ordinary command", async () => {

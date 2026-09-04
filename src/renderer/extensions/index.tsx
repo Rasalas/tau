@@ -1,6 +1,7 @@
 import { lazy } from "react";
 import { HostUnavailableError, type DesktopExtension, type DesktopExtensionContext } from "../extension-system";
 import { errorMessage } from "../error-message";
+import { getHostClient } from "../host-client-context";
 import type { PiKeybindingsState, PiShortcutsState } from "../../shared/keybindings-protocol";
 
 // Keep optional extension UI out of the workbench's first renderer chunk. The
@@ -106,7 +107,7 @@ export const workspaceExtension: DesktopExtension = {
     plugin.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], run: async (app) => {
       const branch = workspaceStore.getSnapshot().workspace?.branch;
       if (!branch) { app.notify("Branch is unavailable."); return; }
-      try { await window.tau?.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(error instanceof Error ? error.message : String(error)); }
+      try { await getHostClient()?.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(error instanceof Error ? error.message : String(error)); }
     } });
     plugin.registerKeybinding({ keys: "mod+p", commandId: "workspace.open-project" });
     plugin.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { skillPresentationForDraft } from "./App";
+import { skillPresentationForDraft } from "./app-state";
 
 describe("optimistic skill presentation", () => {
   it("renders the runtime command already resolved by the host", () => {

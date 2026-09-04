@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../shared/contracts";
 import type { TranscriptTurnStart } from "./components/TranscriptViewport";
-import { useTailScroll } from "./App";
+import { useTailScroll } from "./components/ComposerHost";
 
 function TailScrollFixture({ version, session = "one", preservePosition = false }: { version: number; session?: string; preservePosition?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);

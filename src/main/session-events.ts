@@ -105,7 +105,7 @@ export function handleRuntimeSessionEvent(
 }
 
 function settleRun(thread: LiveTurnState, sessionId: string, services: SessionEventServices): void {
-  if (isThreadRuntime(thread) && thread.backend.isIdle()
+  if (isThreadRuntime(thread) && thread.state.idle
     && (thread.pendingClientMessageIds.length > 0 || thread.inFlightClientMessageIds.size > 0)) {
     for (const clientMessageId of services.trackedClientMessageIds(thread)) {
       services.failClientMessageIfUnpersisted(thread, clientMessageId, sessionId);
@@ -113,7 +113,7 @@ function settleRun(thread: LiveTurnState, sessionId: string, services: SessionEv
     thread.pendingClientMessageIds.length = 0;
     thread.inFlightClientMessageIds.clear();
   }
-  if (!isThreadRuntime(thread) || thread.backend.isIdle()) services.clientTurns.settle(sessionId);
+  if (!isThreadRuntime(thread) || thread.state.idle) services.clientTurns.settle(sessionId);
   services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
   services.emit({ type: "agent-status", sessionId, running: false });
   if (isThreadRuntime(thread)) {
@@ -175,7 +175,7 @@ function publishAssistantAnchor(
   if (!(thread instanceof ThreadRuntime)) return;
   const liveMessageId = message.id;
   queueMicrotask(() => {
-    const branch = thread.backend.branchEntries();
+    const branch = thread.entries;
     const sourceEntryId = assistantAnchorForBranch(branch, rawMessage);
     if (!sourceEntryId) return;
     services.emit({

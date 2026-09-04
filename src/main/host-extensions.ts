@@ -13,7 +13,7 @@ import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
-import type { ThreadRuntimeBackend } from "./thread-runtime-backend.js";
+import type { ThreadRuntimeBackend } from "./runtime-types.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;

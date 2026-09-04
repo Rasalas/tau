@@ -25,8 +25,8 @@ function setup(info = workspace(), draftPending = false) {
   return { openInEditor, openReview, runShellAction };
 }
 
-beforeEach(() => { localStorage.clear(); window.tau = { platform: "darwin" } as typeof window.tau; });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); delete window.tau; });
+beforeEach(() => { localStorage.clear(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("Workspace Kit title actions", () => {
   it("opens the preferred editor and opens a selected editor from the split menu", () => {

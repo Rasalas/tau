@@ -209,11 +209,16 @@ function isHostExtension(value: unknown): value is HostExtension {
  * manifest and must match it when given.
  */
 export async function importHostExtension(code: string, manifest: ExtensionManifest, cacheDir = join(tmpdir(), "tau-host-extensions")): Promise<HostExtension> {
-  await mkdir(cacheDir, { recursive: true });
+  await mkdir(cacheDir, { recursive: true, mode: 0o700 });
   const hash = createHash("sha256").update(code).digest("hex").slice(0, 16);
   const file = join(cacheDir, `${manifest.id}-${hash}.cjs`);
-  await writeFile(file, code, "utf8");
-  // The content hash in the file name keys Node's module cache, so an edited package loads fresh.
+  // The content hash in the file name keys Node's module cache and lets an
+  // unchanged package reuse its compiled file instead of rewriting it.
+  if (!await stat(file).then((info) => info.isFile()).catch(() => false)) {
+    await writeFile(file, code, { encoding: "utf8", flag: "wx", mode: 0o600 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+  }
   const module = requireModule(file) as { default?: unknown; activate?: unknown };
   let candidate: unknown = module.default ?? (typeof module.activate === "function" ? module : undefined);
   if (typeof candidate === "function") candidate = (candidate as () => unknown)();
