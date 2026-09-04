@@ -551,6 +551,172 @@ describe("App render isolation", () => {
     ));
   });
 
+  it("switches projects while a new-thread message is still being delivered", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let createdClientMessageId = "";
+    let resolveNewSession!: (result: { version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }) => void;
+    const newSession = vi.fn((...args: unknown[]) => {
+      createdClientMessageId = (args[3] as { clientMessageId: string }).clientMessageId;
+      return new Promise<{ version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }>((resolve) => { resolveNewSession = resolve; });
+    });
+    const openProject = vi.fn(async () => ({
+      version: 1 as const,
+      updates: [
+        { version: 1 as const, type: "project" as const, project: { cwd: "/second" } },
+        {
+          version: 1 as const,
+          type: "thread-detail" as const,
+          detail: { sessionId: "other-session", messages: [{ id: "other-message", role: "assistant" as const, text: "Other content", timestamp: 1 }], isStreaming: false, activeTools: [] },
+        },
+      ],
+    }));
+    const sendPrompt = vi.fn(async () => undefined);
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [
+            { path: "/project", name: "project", lastOpenedAt: 2 },
+            { path: "/second", name: "second", lastOpenedAt: 1 },
+          ],
+          sessions: [
+            { id: "current", path: "/current.jsonl", title: "Current thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 0 },
+          ],
+        },
+        detail: { sessionId: "current", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "current", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+      newSession,
+      openProject,
+      sendPrompt,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const picker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
+    const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "background request" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalled());
+
+    // The host has not even named the session yet; leaving must still work.
+    fireEvent.click(await screen.findByRole("button", { name: /All projects/u }));
+    const switcher = await screen.findByRole("dialog", { name: "Switch project" });
+    fireEvent.click(within(switcher).getByRole("option", { name: /second/u }));
+    await waitFor(() => expect(openProject).toHaveBeenCalledWith("/second"));
+    expect(screen.queryByText(/Wait for the current message/u)).toBeNull();
+    expect(screen.queryByText(/Wait for the new thread to start/u)).toBeNull();
+    expect(await screen.findByText("Other content")).toBeTruthy();
+    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+
+    resolveNewSession({ version: 1, updates: [], sessionId: "created", submission: { accepted: true } });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+    publish?.({
+      type: "user-message",
+      sessionId: "created",
+      message: { id: "created-message", clientMessageId: createdClientMessageId, role: "user", text: "background request", timestamp: Date.now() },
+    });
+    // The delivery lands in its own thread without pulling the view back.
+    expect(screen.getByText("Other content")).toBeTruthy();
+    expect(screen.queryByText("background request")).toBeNull();
+
+    const otherComposer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(otherComposer, { target: { value: "continue other" } });
+    fireEvent.keyDown(otherComposer, { key: "Enter" });
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
+      "continue other",
+      [],
+      "other-session",
+      expect.objectContaining({ clientMessageId: expect.any(String) }),
+      undefined,
+    ));
+  });
+
+  it("starts a fresh draft in another project while the first message is still being delivered", async () => {
+    let publish: ((event: HostEvent) => void) | undefined;
+    let createdClientMessageId = "";
+    let resolveNewSession!: (result: { version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }) => void;
+    const newSession = vi.fn((...args: unknown[]) => {
+      if (newSession.mock.calls.length > 1) {
+        return Promise.resolve({ version: 1 as const, updates: [] as never[], sessionId: "second", submission: { accepted: true as const } });
+      }
+      createdClientMessageId = (args[3] as { clientMessageId: string }).clientMessageId;
+      return new Promise<{ version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }>((resolve) => { resolveNewSession = resolve; });
+    });
+    window.tau = {
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [
+            { path: "/project", name: "project", lastOpenedAt: 2 },
+            { path: "/second", name: "second", lastOpenedAt: 1 },
+          ],
+          sessions: [],
+        },
+        detail: { sessionId: "current", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "current", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      newSession,
+    } as unknown as typeof window.tau;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    const firstPicker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(firstPicker).getByRole("option", { name: /project/u }));
+    const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "first request" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    const secondPicker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(secondPicker).getByRole("option", { name: /second/u }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull());
+    expect(screen.queryByText(/Wait for the current message/u)).toBeNull();
+
+    // The submitted text belongs to the first thread; the new draft starts empty and usable.
+    const freshComposer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    await waitFor(() => expect(freshComposer.value).toBe(""));
+    resolveNewSession({ version: 1, updates: [], sessionId: "created", submission: { accepted: true } });
+    publish?.({
+      type: "user-message",
+      sessionId: "created",
+      message: { id: "created-message", clientMessageId: createdClientMessageId, role: "user", text: "first request", timestamp: Date.now() },
+    });
+    expect(screen.getByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
+    expect(screen.queryByText("first request")).toBeNull();
+
+    fireEvent.change(freshComposer, { target: { value: "second request" } });
+    fireEvent.keyDown(freshComposer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenLastCalledWith(
+      "second request",
+      [],
+      "/second",
+      expect.objectContaining({ clientMessageId: expect.any(String) }),
+      undefined,
+    ));
+  });
+
   it("keeps restored draft chrome scoped to its pending project", async () => {
     writeNewThreadDraft(localStorage, createNewThreadDraft({ projectPath: "/other", projectName: "other" }));
     const getWorkspaceInfo = vi.fn(async (cwd?: string) => cwd === "/other"

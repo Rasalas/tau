@@ -1145,10 +1145,11 @@ export class PiHost {
       });
     }
     return this.runLifecycle(async () => {
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
+      // A superseded request still creates its thread and delivers its prompt
+      // in the background; it only stops competing for the visible thread.
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
-      this.attached.detach();
+      if (this.isCurrentActivation(activationEpoch)) this.attached.detach();
       const spare = backendKind === "pi" ? await this.takePreparedThread(targetCwd) : undefined;
       const thread = spare
         ?? (backendKind !== "pi"
@@ -1159,6 +1160,7 @@ export class PiHost {
             { adopt: false, prepared: true },
           ));
       let lifecycle: "prepared" | "adopting" | "adopted" | "promoted" = "prepared";
+      let visible = false;
       try {
         if (isPiBackend(thread) && thread.runtime) assertImageInputCapability(thread.runtime.session, attachments);
         else if (!isPiBackend(thread) && attachments.length > 0) {
@@ -1170,12 +1172,10 @@ export class PiHost {
         lifecycle = "adopting";
         await this.adoptThread(thread);
         lifecycle = "adopted";
-        if (!await this.activateThread(thread, true, activationEpoch)) {
-          if (this.threads.get(thread.threadId)?.runtime === thread && this.active !== thread) {
-            await this.threads.release(thread.threadId);
-          }
-          return this.staleNewThreadResult(requestId);
-        }
+        visible = await this.activateThread(thread, true, activationEpoch);
+        // A newer activation owns the visible thread. This one still needs its
+        // shell in the index so the workbench can list and open it.
+        if (!visible) await this.refreshThreadShell(thread, true);
         lifecycle = "promoted";
         if (isPiBackend(thread)) {
           // Shell/index publication precedes releasing buffered runtime events;
@@ -1207,13 +1207,13 @@ export class PiHost {
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
         }
         thread.cancelEventBarrier();
+        if (!visible) return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId, thread.sessionId);
         const active = await this.activeUpdates();
         return { ...active, submission: { accepted: false, message: this.errorMessage(error) }, ...(requestId ? { requestId } : {}) };
       }
-      if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
       if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
-      void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
+      if (visible) void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
         // Delivery is intentionally detached from acceptance. AgentSession may
         // keep its prompt pending while the renderer has already settled the

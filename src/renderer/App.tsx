@@ -658,7 +658,7 @@ export default function App() {
     const keepInBackground = recovery.detached && threadStore.getSnapshot().activeThreadId !== sessionId;
     // A detached delivery must not reclaim the visible new-thread controller.
     const promotedScope = recovery.detached ? undefined : promoteFromUserMessage(sessionId, recovery.pending.projectPath);
-    if (!promotedScope && recovery.sessionId !== sessionId) return false;
+    if (!promotedScope && !recovery.detached && recovery.sessionId !== sessionId) return false;
     recovery.sessionId = sessionId;
     recovery.promoted = true;
     composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
@@ -937,14 +937,28 @@ export default function App() {
     return false;
   }, []);
 
-  // Once the first message is being delivered, its draft scope must stay alive
-  // until it has a session to detach to. An unsubmitted draft has no such host
-  // lifecycle and can be discarded immediately.
-  const allowProjectSwitch = useCallback((): boolean => {
-    if (![...newThreadRecoveryRef.current.values()].some((recovery) => !recovery.detached)) return true;
-    setNotice("Wait for the current message delivery to finish before changing projects.");
-    return false;
-  }, []);
+  /** Bind a detached delivery to its runtime thread once the host names it. */
+  const rehomeDetachedDelivery = useCallback((clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string) => {
+    recovery.sessionId = sessionId;
+    composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
+    setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === clientMessageId
+      ? { ...entry, scope: `session:${sessionId}` } : entry));
+  }, [composerScopeStore]);
+
+  // Leaving a draft never waits for its first message: delivery continues in
+  // the background and follows the runtime thread once the host has named one.
+  const detachNewThreadDelivery = useCallback((): boolean => {
+    const pending = pendingNewThreadRef.current;
+    if (!pending) return false;
+    let detached = false;
+    for (const [clientMessageId, recovery] of newThreadRecoveryRef.current) {
+      if (recovery.pending.draftId !== pending.draftId || recovery.detached) continue;
+      recovery.detached = true;
+      detached = true;
+      if (recovery.sessionId) rehomeDetachedDelivery(clientMessageId, recovery, recovery.sessionId);
+    }
+    return detached;
+  }, [rehomeDetachedDelivery]);
 
   const discardPendingNewThread = useCallback((expected?: NewThreadDraft): boolean => {
     const current = pendingNewThreadRef.current;
@@ -959,7 +973,8 @@ export default function App() {
   const openWorkspace = useCallback(async (path: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
     const pending = pendingNewThreadRef.current;
     if (path === (pending?.projectPath ?? snapshot?.cwd)) return true;
-    if (!allowProjectSwitch() || !requireHost("Project switching")) return false;
+    if (!requireHost("Project switching")) return false;
+    detachNewThreadDelivery();
     // A draft for another project sits above the still-active host thread. If
     // the user picks that host project again, revealing it is the whole switch.
     if (pending && path === snapshot?.cwd) {
@@ -976,7 +991,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [allowProjectSwitch, applyHostResult, discardPendingNewThread, requireHost, snapshot?.cwd]);
+  }, [applyHostResult, detachNewThreadDelivery, discardPendingNewThread, requireHost, snapshot?.cwd]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
@@ -988,23 +1003,17 @@ export default function App() {
   }, [applyActionResult, requireHost]);
 
   const createThreadInProject = useCallback((project: UiProject) => {
-    if ([...newThreadRecoveryRef.current.values()].some((recovery) => !recovery.detached)) {
-      setNotice("Wait for the current message delivery to finish before changing projects.");
-      return;
-    }
-    if (pendingNewThread && activeDraftKey && composerScopeStore.getSnapshot(activeDraftKey).submissionPending) {
-      setNotice("Wait for the current message to be accepted before changing projects.");
-      return;
-    }
+    const activeScope = pendingNewThread && activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey) : undefined;
+    // A submitted draft keeps delivering in the background. Its text is on its
+    // way to the runtime, so there is nothing to carry into the fresh draft.
+    const inFlight = detachNewThreadDelivery() || Boolean(activeScope?.submissionPending);
     const nextDraft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
     const destinationScope = draftKey(undefined, nextDraft);
-    const sourceSnapshot = pendingNewThread && activeDraftKey
-      ? composerScopeStore.getSnapshot(activeDraftKey)
-      : undefined;
+    const sourceSnapshot = inFlight ? undefined : activeScope;
     // Only another unsubmitted draft may carry editor state into this new
     // scope. A real thread's scope can still own a pending submission; moving
     // it would make the fresh draft inherit that lifecycle and stay disabled.
-    if (pendingNewThread && activeDraftKey && destinationScope) {
+    if (sourceSnapshot && activeDraftKey && destinationScope) {
       composerScopeStore.transferDraft(activeDraftKey, destinationScope);
     }
     // A new project is a new draft scope, but changing projects before the
@@ -1014,24 +1023,12 @@ export default function App() {
     beginNewThread(draft);
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [activeDraftKey, beginNewThread, composerScopeStore, pendingNewThread]);
+  }, [activeDraftKey, beginNewThread, composerScopeStore, detachNewThreadDelivery, pendingNewThread]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
-    const currentRecoveryEntry = pendingNewThreadRef.current
-      ? [...newThreadRecoveryRef.current.entries()].find(([, recovery]) => recovery.pending.draftId === pendingNewThreadRef.current?.draftId) : undefined;
-    if (currentRecoveryEntry) {
-      const [, recovery] = currentRecoveryEntry;
-      if (recovery.ipcPending || !recovery.sessionId) {
-        setNotice("Wait for the new thread to start before changing threads.");
-        return false;
-      }
-      recovery.detached = true;
-      composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(recovery.sessionId)));
-      setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === currentRecoveryEntry[0]
-        ? { ...entry, scope: `session:${recovery.sessionId}` } : entry));
-    }
+    detachNewThreadDelivery();
     invalidateNewThread();
     setPendingNewThread(undefined);
     writeNewThreadDraft(window.localStorage);
@@ -1055,7 +1052,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [addEvent, applyActionResult, applySnapshot, composerScopeStore, invalidateNewThread, requireHost, snapshot, threadStore]);
+  }, [addEvent, applyActionResult, applySnapshot, detachNewThreadDelivery, invalidateNewThread, requireHost, snapshot, threadStore]);
 
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
@@ -1440,6 +1437,15 @@ export default function App() {
     if (pendingNewThread) {
       const pending = pendingNewThread;
       const pendingKey = draftKey(undefined, pending);
+      const findPersistedPrompt = (created?: HostUpdate) => created?.type === "thread-detail"
+        ? created.detail.messages.find((message) => matchesTranscriptTurnMessage(message, {
+          turnId: clientTurn.clientTurnId,
+          clientMessageId: clientTurn.clientMessageId,
+          messageId: optimistic.id,
+          text: optimistic.text,
+          timestamp: optimistic.timestamp,
+        }))
+        : undefined;
       const recovery: NewThreadSubmissionRecovery | undefined = submittedDraftKey
         ? {
           pending,
@@ -1456,6 +1462,8 @@ export default function App() {
         }
         : undefined;
       if (recovery) {
+        // The user may have left this draft while the prompt was being prepared.
+        if (pendingNewThreadRef.current?.draftId !== pending.draftId) recovery.detached = true;
         newThreadRecoveryRef.current.set(clientMessageId, recovery);
         setNewThreadRecoveryVersion((version) => version + 1);
       }
@@ -1473,7 +1481,9 @@ export default function App() {
           // Unlike newSession, this call resolves at the runtime's own delivery
           // acceptance, so returning from it is the commit. A correlated user
           // message may have committed it first; then there is nothing to do.
-          if (!recovery?.promoted) {
+          if (recovery?.detached && !recovery.promoted) {
+            promoteRecoveryToSession(clientMessageId, pending.sessionId, recovery.withoutUserTurn ? undefined : recovery.optimistic);
+          } else if (!recovery?.promoted) {
             completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId, recovery });
           }
           releaseNewThreadRecovery(clientMessageId);
@@ -1496,6 +1506,25 @@ export default function App() {
         // They pass through the normal race guard rather than being forced.
         if (recovery?.promoted && result.submission.accepted) {
           result.updates.forEach((update) => applyHostUpdate(update));
+          return { accepted: true };
+        }
+        if (recovery?.detached) {
+          const createdDetail = result.updates.find((update) => update.type === "thread-detail");
+          const detachedSessionId = result.sessionId ?? (createdDetail?.type === "thread-detail" ? createdDetail.detail.sessionId : undefined);
+          if (!result.submission.accepted) {
+            releaseNewThreadRecovery(clientMessageId);
+            return result.submission;
+          }
+          if (detachedSessionId && recovery.sessionId !== detachedSessionId) {
+            rehomeDetachedDelivery(clientMessageId, recovery, detachedSessionId);
+          }
+          // The user is looking at something else now; only the thread list
+          // learns about the new thread.
+          result.updates.forEach((update) => {
+            if (update.type === "thread-index" || update.type === "thread-shell") applyHostUpdate(update);
+          });
+          const persistedPrompt = findPersistedPrompt(createdDetail);
+          if (persistedPrompt && detachedSessionId) promoteRecoveryToSession(clientMessageId, detachedSessionId, persistedPrompt);
           return { accepted: true };
         }
         if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) {
@@ -1539,15 +1568,7 @@ export default function App() {
           setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
             ? { ...entry, scope: `session:${sessionId}` }
             : entry));
-          const persistedPrompt = created?.type === "thread-detail"
-            ? created.detail.messages.find((message) => matchesTranscriptTurnMessage(message, {
-              turnId: clientTurn.clientTurnId,
-              clientMessageId: clientTurn.clientMessageId,
-              messageId: optimistic.id,
-              text: optimistic.text,
-              timestamp: optimistic.timestamp,
-            }))
-            : undefined;
+          const persistedPrompt = findPersistedPrompt(created);
           if (transcriptTurnStartRef.current?.turnId === logicalTurnId) {
             const nextTurnStart = {
               ...transcriptTurnStartRef.current,
@@ -1619,7 +1640,7 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, rehomeDetachedDelivery, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
   submitRef.current = submit;
 
   // Extensions own every chord; core only dispatches. A handler that already

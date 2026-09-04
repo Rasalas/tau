@@ -7,7 +7,7 @@ import { clientMessageFingerprint } from "../shared/client-message-correlation.j
 import { PiHost } from "./pi-host.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, turnActivityHistoryFromMessages } from "./host-messages.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
-import type { HostExtensionContext } from "./host-extensions.js";
+import type { HostExtensionCommandHandler, HostExtensionContext } from "./host-extensions.js";
 import { createThreadTitlesHostExtension } from "./extensions/thread-titles-host-extension.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
@@ -317,6 +317,31 @@ async function titleHost(emit: (event: unknown) => void = () => undefined) {
 }
 
 describe("PiHost.generateThreadTitle", () => {
+  it("forwards title generation to Pi when the attached runtime owns the thread", async () => {
+    const invoke = vi.fn(async () => ({ title: "Attached title" }));
+    let generate: ((input: unknown) => Promise<unknown>) | undefined;
+    await createThreadTitlesHostExtension().activate({
+      id: "tau.thread-titles",
+      services: {
+        runtimeOwner: () => "pi",
+        attachedRuntime: () => ({ sessionId: "session", invoke }),
+      },
+      registerCommand: (_name: string, handler: HostExtensionCommandHandler) => {
+        generate = async (input) => handler(input);
+        return () => undefined;
+      },
+      emit: () => undefined,
+    } as unknown as HostExtensionContext);
+
+    await expect(generate?.({ provider: "provider", modelId: "model", force: false, sessionId: "session" }))
+      .resolves.toEqual({ title: "Attached title" });
+    expect(invoke).toHaveBeenCalledWith("tau.thread-titles", "generate", {
+      provider: "provider",
+      modelId: "model",
+      force: false,
+    });
+  });
+
   it("silently skips automatic title generation until the first message exists", async () => {
     const host = await titleHost();
     const thread = makeActivationThread("session");
@@ -447,7 +472,7 @@ describe("PiHost.generateThreadTitle", () => {
     expect(internals.threads.active?.threadId).toBe("live-thread");
   });
 
-  it("guards the real newSession result when a newer live switch wins", async () => {
+  it("keeps a superseded newSession alive in the background when a newer live switch wins", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as Record<string, any>;
     const staleThread = makeActivationThread("new-thread", "/new.jsonl");
@@ -472,24 +497,30 @@ describe("PiHost.generateThreadTitle", () => {
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
-    internals.threads.release = async () => {};
+    const released: string[] = [];
+    internals.threads.release = async (threadId: string) => { released.push(threadId); };
+    const prompts: string[] = [];
+    internals.prompt = async (text: string) => { prompts.push(text); };
 
     const staleNewSession = host.newSession("stale prompt", [], "/repo");
     await staleStarted;
     await expect(host.switchSession("/live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
     releaseStale();
 
-    // A superseded request reports its rejection so the client stops waiting
-    // for a thread that will never be created.
+    // The live switch owns the visible thread; the new thread still exists and
+    // still receives its prompt, so the renderer can show it in the background.
     await expect(staleNewSession).resolves.toEqual({
       version: 1,
       updates: [],
-      submission: { accepted: false, message: "A newer request replaced this new thread." },
+      submission: { accepted: true },
+      sessionId: "new-thread",
     });
+    await vi.waitFor(() => expect(prompts).toEqual(["stale prompt"]));
+    expect(released).toEqual([]);
     expect(internals.threads.active?.threadId).toBe("live-thread");
   });
 
-  it("admits newSession before the lifecycle queue so a later live switch wins", async () => {
+  it("admits newSession before the lifecycle queue so a later live switch stays visible", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as Record<string, any>;
     const staleThread = makeActivationThread("queued-new-thread", "/queued-new.jsonl");
@@ -511,16 +542,17 @@ describe("PiHost.generateThreadTitle", () => {
     const prompts: string[] = [];
     internals.prompt = async (text: string) => { prompts.push(text); };
 
-    const queuedNewSession = host.newSession("must not be sent", [], "/repo");
+    const queuedNewSession = host.newSession("sent in the background", [], "/repo");
     await expect(host.switchSession("/warm-live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
     releaseLifecycle();
 
     await expect(queuedNewSession).resolves.toEqual({
       version: 1,
       updates: [],
-      submission: { accepted: false, message: "A newer request replaced this new thread." },
+      submission: { accepted: true },
+      sessionId: "queued-new-thread",
     });
-    expect(prompts).toEqual([]);
+    await vi.waitFor(() => expect(prompts).toEqual(["sent in the background"]));
     expect(internals.threads.active?.threadId).toBe("warm-live-thread");
   });
 
