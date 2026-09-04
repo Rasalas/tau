@@ -171,7 +171,7 @@ export class PiHost {
   private readonly pendingHostExtensions: readonly HostExtension[];
   private readonly hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
   private packagedHostExtensionIds = new Set<string>();
-  private readonly platform: HostPlatform;
+  private readonly platform: HostPlatform; private readonly logger?: import("./host-log.js").HostLogger; // injected, not imported at top-level, to spend no more lines against this file's cap
   /** Pi extensions host extensions contribute; loaded into every runtime created afterwards. */
   private readonly runtimeExtensionContributions: RuntimeExtensionContribution[] = [];
   private permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
@@ -315,7 +315,7 @@ export class PiHost {
     this.runtimeCommands = options.runtimeCommands ?? [];
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
     this.hostExtensionPackages = this.safeMode ? undefined : options.hostExtensionPackages;
-    this.platform = options.platform ?? {};
+    this.platform = options.platform ?? {}; this.logger = options.logger;
     this.hostExtensions = new HostExtensionRegistry(this.hostExtensionServices(), (event) => this.emit(event));
     this.attached = new AttachedPiSession(this.attachedSessionHost());
     this.projection = new ThreadProjection(
@@ -2986,7 +2986,7 @@ export class PiHost {
 
   private fail(error: unknown, sessionId?: string, thread?: ThreadRuntime): void {
     if (thread?.deferError(error)) return;
-    const message = this.errorMessage(error);
+    const message = this.errorMessage(error); this.logger?.error("host.error", error); // full error to the log, message only to the renderer
     if (sessionId) this.emit({ type: "error", message, sessionId });
     else this.emit({ type: "error", message });
     const owner = thread instanceof ThreadRuntime

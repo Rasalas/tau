@@ -16,11 +16,27 @@ import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension
 import { installShellEnvironment } from "./shell-environment.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
+import { HostLog } from "./host-log.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
+
+// Identity (and so userData) must be set before anything reads app.getPath("userData").
+configureAppIdentity(app, process.env.TAU_USER_DATA);
+const hostLog = new HostLog({ dir: join(app.getPath("userData"), "logs") });
+
+process.on("uncaughtException", (error) => {
+  hostLog.error("process.uncaughtException", error);
+  dialog.showErrorBox("Tau hit an unexpected error and needs to close", `Details were written to:\n${hostLog.filePath}`);
+  app.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  // Not fatal on its own: log it and keep running, unlike an uncaught exception.
+  hostLog.error("process.unhandledRejection", reason);
+});
+
 /** What a package's `engines` is checked against. */
 const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: PI_VERSION, api: EXTENSION_API_VERSION };
 const hostOptions = {
@@ -33,6 +49,7 @@ const hostOptions = {
     versions: extensionVersions,
     cacheDir: join(app.getPath("userData"), "host-extensions"),
   }),
+  logger: hostLog,
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
@@ -69,11 +86,14 @@ let shutdownStarted = false;
 let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
 let rebuild: Promise<unknown> | undefined;
+/** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
+let lastRenderProcessGoneAt: number | undefined;
 
-configureAppIdentity(app, process.env.TAU_USER_DATA);
 const primaryInstance = installSingleInstance(app, () => mainWindow);
 
 function publish(event: HostEvent): void {
+  // Mirrored to the log file so nothing is lost once the window is gone.
+  if (event.type === "event-log") hostLog.info(event.label, event.detail);
   if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send("tau:host-event", event);
 }
 
@@ -108,6 +128,17 @@ async function createWindow(): Promise<void> {
     event.preventDefault();
     openExternally(url);
   });
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    hostLog.error("renderer.render-process-gone", details);
+    const now = Date.now();
+    const repeatedFailure = lastRenderProcessGoneAt !== undefined && now - lastRenderProcessGoneAt < 30_000;
+    lastRenderProcessGoneAt = now;
+    if (repeatedFailure) {
+      dialog.showErrorBox("Tau's window keeps crashing", `Details were written to:\n${hostLog.filePath}`);
+      return;
+    }
+    mainWindow?.webContents.reload();
+  });
 
   if (process.env.TAU_DEV_SERVER_URL) {
     const url = new URL(process.env.TAU_DEV_SERVER_URL);
@@ -126,10 +157,25 @@ async function requireHostReady(): Promise<PiHost> {
   return host;
 }
 
-/** A host that cannot start (a misconfigured backend, say) says so in a dialog instead of a silent "starting host…". */
+/**
+ * A host that cannot start (a misconfigured backend, say) says so instead of
+ * leaving `hostReady` rejected forever with every IPC call failing silently.
+ * The `.catch()` here also keeps this promise itself from ever looking like
+ * an unhandled rejection.
+ */
 function watchHostStart<T>(ready: Promise<T>): Promise<T> {
   ready.catch((error: unknown) => {
-    dialog.showErrorBox("Tau could not start its runtime", error instanceof Error ? error.message : String(error));
+    hostLog.error("host.start.failed", error);
+    const detail = error instanceof Error ? error.message : String(error);
+    const choice = dialog.showMessageBoxSync({
+      type: "error",
+      buttons: ["Relaunch Tau", "Quit"],
+      defaultId: 0,
+      message: "Tau could not start its runtime",
+      detail: `${detail}\n\nDetails were written to:\n${hostLog.filePath}`,
+    });
+    if (choice === 0) app.relaunch();
+    app.exit(1);
   });
   return ready;
 }
@@ -212,12 +258,19 @@ function installIpc(): void {
 }
 
 if (primaryInstance) app.whenReady().then(async () => {
+  hostLog.info("app.ready", {
+    tauVersion: app.getVersion(),
+    electron: process.versions.electron,
+    node: process.versions.node,
+    pid: process.pid,
+    userData: app.getPath("userData"),
+  });
   app.dock?.setIcon(appIconPath);
   projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"));
   // The host and every tool it spawns (Pi's tools, runtimes, editors) see the
   // login shell's PATH, not the one a Dock launch inherits.
   const [shellEnvironment] = await Promise.all([
-    installShellEnvironment().catch((error: unknown) => { console.warn("Tau could not read the login shell", error); return undefined; }),
+    installShellEnvironment().catch((error: unknown) => { hostLog.warn("shell-environment.failed", error); return undefined; }),
     projectHistory.load(),
   ]);
   if (shellEnvironment?.installed.length) console.log(`shell environment: ${shellEnvironment.installed.join(", ")} from ${shellEnvironment.pathSource}`);
@@ -233,6 +286,10 @@ if (primaryInstance) app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+if (primaryInstance) app.on("child-process-gone", (_event, details) => {
+  hostLog.error("app.child-process-gone", details);
+});
+
 if (primaryInstance) app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
@@ -243,7 +300,7 @@ if (primaryInstance) app.on("before-quit", (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   void host.dispose()
-    .catch((error) => console.error("Tau host shutdown failed", error))
+    .catch((error) => hostLog.error("host.shutdown.failed", error))
     .finally(() => {
       shutdownComplete = true;
       app.quit();

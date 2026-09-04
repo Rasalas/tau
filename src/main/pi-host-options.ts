@@ -1,9 +1,12 @@
 import type { ThreadBackendKind, UiComposerCommand } from "../shared/contracts.js";
 import type { HostPackageLoadResult } from "./extension-packages.js";
 import type { HostExtension, HostPlatform } from "./host-extensions.js";
+import type { HostLogger } from "./host-log.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 
 export interface PiHostOptions {
+  /** Full errors (stack, cause, name) go here; the renderer keeps getting only the message. */
+  logger?: HostLogger;
   /** The Pi adapter; tests substitute one. Other backends register through the seam. */
   runtimeAdapter?: AgentRuntimeAdapter;
   /** Backend for new threads when no existing session metadata applies. */
