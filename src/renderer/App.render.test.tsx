@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
@@ -1550,9 +1550,98 @@ describe("App render isolation", () => {
     fireEvent.change(composer, { target: { value: "Name this thread" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: "provider", modelId: "model", force: false, sessionId: "created" }));
+    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: "provider", modelId: "model", force: false, sessionId: "created", prompt: "Name this thread" }));
     expect(await screen.findByText("Created thread title")).toBeTruthy();
     expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
+  });
+
+  it("keeps a new thread anchored on its prompt while the first answer streams", async () => {
+    const shell = {
+      id: "created",
+      path: "/created.jsonl",
+      title: "Untitled thread",
+      modifiedAt: 2,
+      projectPath: "/project",
+      projectName: "project",
+      messageCount: 1,
+    };
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      const identity = args[3] as { clientTurnId: string; clientMessageId: string };
+      return {
+        version: 1 as const,
+        updates: [
+          { version: 1 as const, type: "thread-shell" as const, update: { sessionId: "created", shell } },
+          {
+            version: 1 as const,
+            type: "thread-detail" as const,
+            detail: {
+              sessionId: "created",
+              messages: [
+                { id: "user", clientTurnId: identity.clientTurnId, clientMessageId: identity.clientMessageId, role: "user" as const, text: "Count slowly", timestamp: 1 },
+              ],
+              isStreaming: true,
+              activeTools: [],
+            },
+          },
+        ],
+        submission: { accepted: true as const },
+      };
+    });
+    const getWorkspaceInfo = vi.fn(async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: {
+          sessionId: "session",
+          models: [{ provider: "provider", id: "model", name: "Model" }],
+          model: { provider: "provider", id: "model", name: "Model" },
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+          allTools: [],
+          extensionCount: 0,
+          supportsImageInput: true,
+        },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo,
+        getFileTree: async () => [],
+      }, { "tau.thread-titles": async () => undefined }),
+      newSession,
+    });
+
+    renderApp(client);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
+    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(dialog).getByRole("option"));
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "Count slowly" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalled());
+    const transcript = await screen.findByRole("log");
+    await waitFor(() => expect(transcript.querySelector('[data-message-id="user"]')).toBeTruthy());
+    // The answer is far taller than the viewport: a tail pin would land at 4500.
+    Object.defineProperties(transcript, {
+      scrollHeight: { configurable: true, get: () => 5_000 },
+      clientHeight: { configurable: true, get: () => 500 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+
+    act(() => client.emit({ type: "assistant-start", sessionId: "created", id: "assistant-live", timestamp: 2 }));
+    for (let index = 0; index < 5; index += 1) {
+      act(() => client.emit({ type: "assistant-delta", sessionId: "created", id: "assistant-live", delta: `line ${index}\n` }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    await waitFor(() => expect(transcript.querySelector('[data-message-id="assistant-live"]')).toBeTruthy());
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    // Anchored on the prompt row near the top, never pulled down to the tail.
+    expect(transcript.scrollTop).toBeLessThan(1_000);
   });
 
   it("promotes and settles an extension command that creates no user turn", async () => {
@@ -1669,7 +1758,7 @@ describe("App render isolation", () => {
       sessionId: "created",
       message: { id: "persisted", clientMessageId: identity.clientMessageId, role: "user", text: "start in the detached runtime", timestamp: Date.now() },
     });
-    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: "provider", modelId: "model", force: false, sessionId: "created" }));
+    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: "provider", modelId: "model", force: false, sessionId: "created", prompt: "start in the detached runtime" }));
     expect(generateTitle).toHaveBeenCalledOnce();
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());

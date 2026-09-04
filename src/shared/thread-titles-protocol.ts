@@ -8,9 +8,11 @@ export interface ThreadTitlesHostCommands {
   /**
    * Titles the thread with a model. Without `force` it stays silent when the
    * thread already has a name or nothing to title yet; with `force` those are errors.
+   * `prompt` is the just-submitted user text, so an automatic title needs neither
+   * the transcript nor the run to have started.
    */
   "generate": {
-    input: { provider: string; modelId: string; force?: boolean; sessionId?: string };
+    input: { provider: string; modelId: string; force?: boolean; sessionId?: string; prompt?: string };
     output: { title: string } | undefined;
   };
 }

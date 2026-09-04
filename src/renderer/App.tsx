@@ -106,7 +106,7 @@ import {
   type OptimisticUserMessage,
   type TranscriptSubmissionIdentity,
 } from "./app-state";
-import { ComposerHost, LiveStatus, useTailScroll } from "./components/ComposerHost";
+import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
 import { useHostClient } from "./host-client-context";
 import { ThreadViewStore } from "./thread-view-store";
@@ -751,7 +751,6 @@ export default function App() {
     return client.loadTranscript(sessionId, cursor);
   }, [client]);
 
-  useTailScroll(transcriptRef, [messages, tools], snapshot?.sessionId, transcriptHistory.preserveScrollRef);
 
   useEffect(() => {
     if (!notice) return;
