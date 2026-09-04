@@ -577,6 +577,36 @@ export class PiHost {
     return thread;
   }
 
+  /**
+   * Resolves the thread a turn names. A thread that is still opening is waited
+   * for rather than refused, and a client that painted from its cache before
+   * this run published anything names last run's thread: that first message
+   * belongs to the empty thread this run put on screen.
+   */
+  private async awaitThread(threadId: string | undefined): Promise<ThreadRuntime> {
+    const live = this.threadFor(threadId);
+    if (live) return live;
+    if (!threadId) return this.requireActive();
+    // Join whatever lifecycle work holds the queue; the thread may be in it.
+    await this.lifecycle.run("await-thread", async () => undefined);
+    const opened = this.threadFor(threadId);
+    if (opened) return opened;
+    const onScreen = this.emptyThreadOnScreen(threadId);
+    if (!onScreen) return this.requireThread(threadId);
+    this.log("prompt.retargeted", `${threadId.slice(0, 8)} → ${onScreen.threadId.slice(0, 8)}`);
+    // The client is showing a thread this run does not have. Publish the one
+    // it is really writing to, so the turn is not delivered out of sight.
+    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(this.snapshotSync([])) });
+    return onScreen;
+  }
+
+  /** The blank thread on screen, when the named one cannot be one of this run's. */
+  private emptyThreadOnScreen(threadId: string): ThreadRuntime | undefined {
+    if (this.sessions.some((session) => session.id === threadId)) return undefined;
+    const active = this.active;
+    return active && !active.state.hasMessages ? active : undefined;
+  }
+
   private beginActivation(): number {
     this.activationEpoch += 1;
     return this.activationEpoch;
@@ -1359,7 +1389,7 @@ export class PiHost {
   /** Resolves a prompt before the renderer creates its optimistic message. */
   async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     const target = sessionId
-      ? this.requireThread(sessionId)
+      ? await this.awaitThread(sessionId)
       : (this.active && threadBackendKind(this.active) === this.defaultBackendKind ? this.active : undefined);
     if (target) return target.backend.preparePrompt(text, skill);
     const adapter = this.adapterFor(this.defaultBackendKind);
@@ -1514,7 +1544,7 @@ export class PiHost {
       ? undefined
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
-    const thread = this.requireThread(sessionId);
+    const thread = await this.awaitThread(sessionId);
     if (!thread.backend.capabilities.journal) {
       try {
         await this.deliverRuntimeTurn(thread, text, attachments, "prompt", identity, prepared);
