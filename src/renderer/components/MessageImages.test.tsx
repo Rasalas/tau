@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { HostClientProvider } from "../host-client-context";
+import { createFakeHostClient } from "../test-support/fake-host-client";
 import { Message } from "./Message";
 import { localImagePaths, visibleUserMessageText } from "./MessageText";
 
-afterEach(() => {
-  cleanup();
-  delete window.tau;
-});
+afterEach(cleanup);
 
 describe("message images", () => {
   it("finds shell-escaped local image paths", () => {
@@ -42,10 +41,12 @@ describe("message images", () => {
   });
 
   it("does not render an empty bubble for a local-path-only message", async () => {
-    window.tau = {
+    const client = createFakeHostClient({
       readImagePreview: vi.fn(async () => ({ name: "preview.png", dataUrl: "data:image/png;base64,iVBORw==" })),
-    } as unknown as typeof window.tau;
-    const view = render(<Message message={{ id: "local-image-only", role: "user", text: "/tmp/preview.png", timestamp: 0 }} />);
+    });
+    const view = render(<HostClientProvider client={client}>
+      <Message message={{ id: "local-image-only", role: "user", text: "/tmp/preview.png", timestamp: 0 }} />
+    </HostClientProvider>);
 
     expect(screen.queryByText("Image attached")).toBeNull();
     expect(view.container.querySelector("article.message.user")).toBeTruthy();
@@ -56,8 +57,10 @@ describe("message images", () => {
 
   it("offers a viewport-safe image context menu and copies persisted image data", async () => {
     const copyImage = vi.fn(async () => undefined);
-    window.tau = { copyImage } as unknown as typeof window.tau;
-    render(<Message message={{ id: "user-image", role: "user", text: "please inspect", images: [{ mimeType: "image/png", data: "iVBORw==" }], timestamp: 0 }} />);
+    const client = createFakeHostClient({ copyImage });
+    render(<HostClientProvider client={client}>
+      <Message message={{ id: "user-image", role: "user", text: "please inspect", images: [{ mimeType: "image/png", data: "iVBORw==" }], timestamp: 0 }} />
+    </HostClientProvider>);
 
     const imageButton = screen.getByRole("button", { name: "Open image 1" });
     fireEvent.contextMenu(imageButton, { clientX: 9999, clientY: 9999 });
@@ -79,11 +82,13 @@ describe("message images", () => {
 
   it("copies a local preview data URL and closes the menu from Escape or outside", async () => {
     const copyImage = vi.fn(async () => undefined);
-    window.tau = {
+    const client = createFakeHostClient({
       copyImage,
       readImagePreview: vi.fn(async () => ({ name: "preview.png", dataUrl: "data:image/png;base64,iVBORw==" })),
-    } as unknown as typeof window.tau;
-    render(<Message message={{ id: "local-image", role: "user", text: "/tmp/preview.png\ninspect", timestamp: 0 }} />);
+    });
+    render(<HostClientProvider client={client}>
+      <Message message={{ id: "local-image", role: "user", text: "/tmp/preview.png\ninspect", timestamp: 0 }} />
+    </HostClientProvider>);
 
     const imageButton = await screen.findByRole("button", { name: "Open image 1" });
     fireEvent.contextMenu(imageButton, { clientX: 12, clientY: 18 });

@@ -1,5 +1,6 @@
 import type { HostEvent, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { HostUpdate } from "../shared/host-protocol";
+import type { HostClient } from "./host-client";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import type { ExtensionRegistry } from "./extension-system";
 import { isSameUserMessage, type NewThreadSubmissionRecovery } from "./app-state";
@@ -9,6 +10,7 @@ import type { ThreadViewStore } from "./thread-view-store";
 
 /** What a host event reaches besides the view store it is reduced into. */
 export interface HostEventTargets {
+  client?: HostClient;
   registry: ExtensionRegistry;
   threadStore: ThreadStore;
   view: ThreadViewStore;
@@ -92,7 +94,7 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       const known = registry.interceptPrompt(event.prompt);
       // An extension that answers its own question never shows a dialog.
       if (known) {
-        void window.tau?.answerExtensionUi(event.prompt.id, known);
+        void targets.client?.answerExtensionUi(event.prompt.id, known);
         return;
       }
       break;
