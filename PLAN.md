@@ -76,12 +76,14 @@ Work completed:
 
 - define permissions for filesystem, process, network, credentials, projects, and host commands (done: `EXTENSION_PERMISSIONS` vocabulary in `src/shared/extension-permissions.ts`, proxy guard on `HostExtensionServices`)
 - separate trusted in-process extensions from isolated extensions (done: bundled kits declare permissions, third-party packages default to none and require user grant; desktop bundles isolate IPC via `window.tau = undefined`)
-- show requested permissions before activation (done: ungranted packages show "wartet auf Freigabe" in Settings with "Erlauben" / "Ablehnen" actions, persisted in `~/.tau/extension-grants.json`)
+- show requested permissions before activation (done: a package without a grant shows as waiting in Settings with Allow / Deny, persisted in `~/.tau/extension-grants.json`; its host entry is not compiled until it is approved, in either scope)
 - isolate renderer UI and validate every host command (done: `guardedServices` validates every method/property call against declared permissions; `LazyFeatureBoundary` wraps all UI slots)
 - define package provenance, update, and revocation behavior (done: `source.url` and `source.commit` manifest fields; revoking via grant removal or settings toggle)
 - add recovery paths for crashing or unresponsive extensions (done: 30s command timeout and 3-strike failure deactivation on the host; automatic boundary catch, deactivation, and toast notifications on the renderer)
 
-Completion check: Tau can explain what an extension may access, enforce that decision, and recover when the extension fails. (Satisfied by Phase 3 implementation in Ticket 17).
+- close the renderer's own boundary (done: desktop bundles are served over the privileged `tau-ext` scheme instead of blob URLs so the CSP drops `blob:`; the window runs sandboxed and the default session denies every permission)
+
+Completion check: Tau can explain what an extension may access, enforce that decision, and recover when the extension fails. Satisfied by ticket 17.
 
 ## Phase 4: make the host transportable
 
