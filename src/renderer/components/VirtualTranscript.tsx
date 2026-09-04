@@ -22,7 +22,7 @@ export interface VirtualTranscriptProps {
   activeTurnStartId?: string;
   /** Changes only when the ordered message ID set changes (not on deltas). */
   messageScopeKey?: string;
-  /** Visible record revision; lets a stable array carry an O(1) delta to rows. */
+  /** Visible record revision; only invalidates this memoized component. */
   revision?: number;
   /** Invalidates the user-message lookup when an existing record's metadata changes. */
   lookupRevision?: number;
@@ -77,7 +77,6 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   activities = [],
   activeTurnStartId,
   messageScopeKey,
-  revision,
   lookupRevision,
   anchorRef,
   onCopyMessage,
@@ -87,27 +86,10 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     ...activities,
     ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, fallbackToTail: true, content: activity }] : []),
   ], [activities, activity, activityAfterMessageId]);
-  const indexRef = useRef<{
-    scopeKey?: string;
-    length: number;
-    firstId?: string;
-    lastId?: string;
-    lookupRevision?: number;
-    revision?: number;
-    ids: Set<string>;
-    positions: Map<string, number>;
-    references: Map<string, string>;
-    version: number;
-  } | undefined>(undefined);
   const firstId = messages[0]?.id;
   const lastId = messages.at(-1)?.id;
-  const currentIndex = indexRef.current;
-  if (!currentIndex
-    || currentIndex.scopeKey !== messageScopeKey
-    || currentIndex.length !== messages.length
-    || currentIndex.firstId !== firstId
-    || currentIndex.lastId !== lastId
-    || currentIndex.lookupRevision !== lookupRevision) {
+  // Rebuilt only when the ordered ID set changes, never for streaming deltas.
+  const messageIndex = useMemo(() => {
     const ids = new Set<string>();
     const positions = new Map<string, number>();
     const references = new Map<string, string>();
@@ -116,28 +98,15 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       positions.set(message.id, index);
       if (message.sourceEntryId) references.set(message.sourceEntryId, message.id);
     });
-    indexRef.current = {
-      scopeKey: messageScopeKey,
-      length: messages.length,
-      firstId,
-      lastId,
-      lookupRevision,
-      revision,
-      ids,
-      positions,
-      references,
-      version: (currentIndex?.version ?? 0) + 1,
-    };
-  } else if (currentIndex.revision !== revision) {
-    indexRef.current = { ...currentIndex, revision };
-  }
-  const messageIndex = indexRef.current!;
+    return { length: messages.length, lastId, ids, positions, references };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageScopeKey, messages.length, firstId, lastId, lookupRevision]);
   const normalizedActivities = useMemo(() => pendingActivities.map((entry) => ({
     ...entry,
     ...(entry.afterMessageId && messageIndex.references.has(entry.afterMessageId)
       ? { afterMessageId: messageIndex.references.get(entry.afterMessageId) }
       : {}),
-  })), [pendingActivities, messageIndex.version]);
+  })), [pendingActivities, messageIndex]);
   const activitiesByMessage = useMemo(
     () => groupTranscriptActivitiesForMessageIds(messageIndex.ids, messageIndex.lastId, normalizedActivities),
     [messageIndex, normalizedActivities],
@@ -164,7 +133,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   // The transcript index already owns this mapping. Reusing it avoids a second
   // full message scan and map allocation on every render of a long transcript.
   const messageIndexes = useRef<Map<string, number>>(messageIndex.positions);
-  messageIndexes.current = messageIndex.positions;
+  useLayoutEffect(() => { messageIndexes.current = messageIndex.positions; }, [messageIndex]);
   useLayoutEffect(() => {
     if (expandedState.sessionKey === sessionKey) return;
     setExpandedState({ sessionKey, ids: new Set() });
@@ -199,7 +168,11 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     rangeExtractor,
     useAnimationFrameWithResizeObserver: true,
   });
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+  // Not a `useVirtualizer` option in virtual-core 3.x. The controller owns
+  // every scroll write, so the virtualizer never compensates on its own.
+  useLayoutEffect(() => {
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+  }, [virtualizer]);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activityLayout = useRef<ActivityLayoutSnapshot>({

@@ -170,6 +170,7 @@ export class TranscriptScrollController {
   private readonly frames = new FrameLoop();
   private readonly intent = new ScrollIntentTracker();
   private readonly scrollListeners = new Set<() => void>();
+  private readonly resizeListeners = new Set<() => void>();
   private seekTarget: { messageId: string; attempts: number } | undefined;
   private observer: ResizeObserver | undefined;
   private attached: HTMLDivElement | undefined;
@@ -185,6 +186,12 @@ export class TranscriptScrollController {
   subscribeScroll(listener: () => void): () => void {
     this.scrollListeners.add(listener);
     return () => { this.scrollListeners.delete(listener); };
+  }
+
+  /** Extra size consumers reuse the controller's single ResizeObserver. */
+  subscribeResize(listener: () => void): () => void {
+    this.resizeListeners.add(listener);
+    return () => { this.resizeListeners.delete(listener); };
   }
 
   attach(node: HTMLDivElement): void {
@@ -206,7 +213,10 @@ export class TranscriptScrollController {
     window.addEventListener("pointercancel", this.onPointerUp, { passive: true });
     window.addEventListener("keydown", this.onWindowKeyDown);
     if (typeof ResizeObserver !== "undefined") {
-      this.observer = new ResizeObserver(() => this.sync());
+      this.observer = new ResizeObserver(() => {
+        this.sync();
+        for (const listener of this.resizeListeners) listener();
+      });
       this.observer.observe(node);
       this.observer.observe(node.firstElementChild ?? node);
     }

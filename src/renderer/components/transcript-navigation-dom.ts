@@ -16,8 +16,9 @@ export interface TranscriptNavigation {
   canJumpToLatest: boolean;
   jumpToLatest: () => void;
   jumpToMessage: (messageId: string) => void;
-  /** Reuses the controller's single scroll listener instead of adding one. */
+  /** Reuse the controller's single scroll listener and ResizeObserver. */
   subscribeScroll: (listener: () => void) => () => void;
+  subscribeResize: (listener: () => void) => () => void;
   mode: () => TranscriptScrollMode;
 }
 
@@ -81,6 +82,7 @@ export function useTranscriptNavigation(
   const jumpToLatest = useCallback(() => controller.jumpToLatest(), [controller]);
   const jumpToMessage = useCallback((messageId: string) => controller.jumpToMessage(messageId), [controller]);
   const subscribeScroll = useCallback((listener: () => void) => controller.subscribeScroll(listener), [controller]);
+  const subscribeResize = useCallback((listener: () => void) => controller.subscribeResize(listener), [controller]);
   const mode = useCallback(() => controller.mode, [controller]);
 
   useEffect(() => {
@@ -194,5 +196,5 @@ export function useTranscriptNavigation(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, updates);
 
-  return { canJumpToLatest, jumpToLatest, jumpToMessage, subscribeScroll, mode };
+  return { canJumpToLatest, jumpToLatest, jumpToMessage, subscribeScroll, subscribeResize, mode };
 }
