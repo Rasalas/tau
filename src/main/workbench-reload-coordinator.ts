@@ -1,15 +1,14 @@
 import type { WorkbenchReloadMode, WorkbenchReloadPreparation } from "../shared/contracts.js";
 
 interface ReloadRun {
+  /** Resolves once the run is over; a runtime in another process is polled. */
   waitForIdle(): Promise<void>;
   abort(): Promise<void>;
 }
 
 export interface WorkbenchReloadCoordinatorOptions {
-  localRuns(): ReloadRun[];
-  attachedRunning(): boolean;
-  refreshAttached(): Promise<void>;
-  abortAttached(): Promise<void>;
+  /** Every thread with work in flight, whichever process runs it. */
+  runs(): ReloadRun[];
   serialize<T>(operation: () => Promise<T>): Promise<T>;
 }
 
@@ -24,16 +23,12 @@ export class WorkbenchReloadCoordinator {
   }
 
   private runningCount(): number {
-    return this.options.localRuns().length + (this.options.attachedRunning() ? 1 : 0);
+    return this.options.runs().length;
   }
 
   private async waitForRuns(): Promise<void> {
     for (;;) {
-      await Promise.all(this.options.localRuns().map((run) => run.waitForIdle()));
-      if (this.options.attachedRunning()) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
-        await this.options.refreshAttached();
-      }
+      await Promise.all(this.options.runs().map((run) => run.waitForIdle()));
       const ready = await this.options.serialize(async () => {
         if (this.runningCount() > 0) return false;
         this.pending = true;
@@ -58,8 +53,7 @@ export class WorkbenchReloadCoordinator {
       }
       if (mode !== "abort") throw new Error(`Unknown workbench reload mode: ${mode}`);
       this.pending = true;
-      if (this.options.attachedRunning()) await this.options.abortAttached();
-      await Promise.all(this.options.localRuns().map((run) => run.abort()));
+      await Promise.all(this.options.runs().map((run) => run.abort()));
       return { ready: true, runningThreads: 0 };
     });
   }

@@ -16,6 +16,7 @@ import { bridgeHostSnapshot, composerCommandsForAdapter } from "./bridge-snapsho
 import { PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { AttachedPiSession, type AttachedSessionHost } from "./attached-pi-session.js";
 import type { AttachedRuntimeBackend } from "./attached-runtime.js";
+import type { HostAttachedRuntime } from "./host-extensions.js";
 import type {
   RuntimeChatTranscript,
   RuntimeNewThreadOutcome,
@@ -149,8 +150,21 @@ export class AttachedThreadBackend implements ThreadRuntimeBackend {
   /** Pi is the sole writer of its session file. */
   async persist(): Promise<void> {}
 
-  /** Pi's terminal owns the run; the host cannot wait on it from outside. */
-  async waitForIdle(): Promise<void> {}
+  /** Pi's terminal owns the run; the host can only watch its snapshot. */
+  async waitForIdle(): Promise<void> {
+    while (this.session.isAttached && this.snapshot?.isStreaming) {
+      await new Promise<void>((resolve) => { setTimeout(resolve, 100).unref?.(); });
+      await this.session.refreshSnapshot();
+    }
+  }
+
+  /** How a host extension reaches its counterpart inside the Pi that owns this thread. */
+  get hostRuntime(): HostAttachedRuntime {
+    return {
+      sessionId: this.threadId,
+      invoke: (extensionId, name, input) => this.session.command({ command: "extension", extensionId, name, input }),
+    };
+  }
 
   async preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     const result = await this.session.command({ command: "prepare_prompt", text, ...(skill ? { skill } : {}) });
