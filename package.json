@@ -16,6 +16,7 @@
     "start:existing": "electron .",
     "start:safe": "TAU_NO_EXTENSIONS=1 npm start",
     "start:report": "node scripts/start-report.mjs",
+    "smoke:remote-host": "node scripts/remote-host-smoke.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
     "typecheck": "npm run typecheck:extension && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "typecheck:extension": "tsc -p tsconfig.extension.json --noEmit",
@@ -45,13 +46,15 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.0.0",
     "concurrently": "^9.0.0",
     "electron": "^36.0.0",

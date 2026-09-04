@@ -4,7 +4,7 @@ import {
   decodeHostHello,
   decodeHostRequest,
   hostErrorInfo,
-  type HostPushEvent,
+  type HostPush,
   type HostResponse,
 } from "../shared/host-transport.js";
 import { helloReply, type HostPushLog } from "./host-push-log.js";
@@ -26,7 +26,8 @@ export interface ElectronHostTransportOptions {
 }
 
 export interface ElectronHostTransport {
-  publish(event: HostPushEvent): void;
+  /** Sends one already-numbered push to the window, if there still is one. */
+  deliver(push: HostPush): void;
 }
 
 /**
@@ -54,6 +55,6 @@ export function installElectronHostTransport(options: ElectronHostTransportOptio
   });
 
   return {
-    publish: (event) => options.send(HOST_EVENT_CHANNEL, pushLog.record(event)),
+    deliver: (push) => options.send(HOST_EVENT_CHANNEL, push),
   };
 }

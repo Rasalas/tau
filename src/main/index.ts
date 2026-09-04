@@ -21,7 +21,9 @@ import { HostPushLog } from "./host-push-log.js";
 import { HostJobRunner } from "./host-jobs.js";
 import { createHostMethods } from "./host-methods.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
-import { HOST_CAPABILITY } from "../shared/host-transport.js";
+import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { readOrCreateHostToken } from "./host-token.js";
+import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
@@ -88,8 +90,9 @@ async function rendererImagePreview(path: string) {
 
 let mainWindow: BrowserWindow | undefined;
 let transport: ElectronHostTransport | undefined;
+let socketTransport: SocketHostTransport | undefined;
 const pushLog = new HostPushLog();
-const jobs = new HostJobRunner((event) => transport?.publish(event));
+const jobs = new HostJobRunner(broadcast);
 let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
 let projectHistory: ProjectHistory;
@@ -105,7 +108,14 @@ const primaryInstance = installSingleInstance(app, () => mainWindow);
 function publish(event: HostEvent): void {
   // Mirrored to the log file so nothing is lost once the window is gone.
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
-  transport?.publish(event);
+  broadcast(event);
+}
+
+/** One sequence for every transport, so a replay is the same list everywhere. */
+function broadcast(event: HostPushEvent): void {
+  const push = pushLog.record(event);
+  transport?.deliver(push);
+  socketTransport?.deliver(push);
 }
 
 async function createWindow(): Promise<void> {
@@ -253,6 +263,19 @@ function installTransport(): void {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
     send: (channel, payload) => { if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send(channel, payload); },
   });
+  // A second transport for a client that is not this window; off unless asked for.
+  const listen = process.env.TAU_HOST_LISTEN;
+  if (!listen) return;
+  void startSocketHostTransport({
+    listen,
+    methods,
+    pushLog,
+    hostVersion: app.getVersion(),
+    capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
+    token: readOrCreateHostToken(),
+    logger: hostLog,
+  }).then((started) => { socketTransport = started; })
+    .catch((error: unknown) => hostLog.error("host-transport-socket.failed", error));
 }
 
 if (primaryInstance) app.whenReady().then(async () => {
