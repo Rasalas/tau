@@ -1,0 +1,302 @@
+import type {
+  ClientTurnIdentity,
+  NewThreadRequestId,
+  PreparedPrompt,
+  UiComposerCommand,
+  UiContextUsage,
+  UiMessage,
+  UiModel,
+  UiPromptAttachment,
+  UiSkillDraft,
+  UiThreadTree,
+  UiToolOutputReadResult,
+  ThreadBackendKind,
+} from "../shared/contracts.js";
+import type { TranscriptPage } from "../shared/host-protocol.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
+import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
+import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
+import type { ExtensionUiBridge } from "./extension-ui.js";
+
+/**
+ * The runtime seam of a thread, in Tau's own vocabulary. Nothing here names a
+ * provider SDK: a backend converts at its own edge, so core never learns which
+ * program answers a thread (ADR 0005).
+ */
+
+/** Where a thread's title came from; a derived title may be replaced by a generated one. */
+export type ThreadTitleSource = "derived" | "generated" | "renamed";
+
+export interface ThreadBackendPromptInput {
+  text: string;
+  delivery: "prompt" | "steer" | "followUp";
+  /** Correlates the turn with the renderer's optimistic message. */
+  identity?: ClientTurnIdentity;
+  prepared?: PreparedPrompt;
+  signal?: AbortSignal;
+  /** Untrusted composer attachments; each backend decodes what its runtime takes. */
+  attachments?: readonly UiPromptAttachment[];
+  /** The prompt queues behind a run that is already in flight. */
+  queued?: boolean;
+  /** Reports whether the runtime admitted the turn, before that turn ends. */
+  onAdmitted?(accepted: boolean): void;
+}
+
+export interface ThreadBackendPromptResult {
+  assistantText?: string;
+}
+
+/** Cheap synchronous view of a thread's live state. */
+export interface ThreadBackendState {
+  streaming: boolean;
+  idle: boolean;
+  /** Whether the runtime holds any message for this thread yet. */
+  hasMessages: boolean;
+  title?: string;
+  titleSource?: ThreadTitleSource;
+  /** Where the runtime persists the thread, when that is a file. */
+  sessionFile?: string;
+  activeTools: readonly string[];
+  supportsImageInput: boolean;
+  /** Runtime extensions loaded for this thread. */
+  extensionCount: number;
+}
+
+/** What the composer and the workbench read from a thread without waiting. */
+export interface ThreadCatalogView {
+  model?: UiModel;
+  thinkingLevel: string;
+  thinkingLevels: readonly string[];
+  allTools: ReadonlyArray<{ name: string; description: string }>;
+  contextUsage?: UiContextUsage;
+}
+
+export interface ShellCommandResult {
+  output: string;
+  exitCode?: number;
+  cancelled: boolean;
+  truncated: boolean;
+}
+
+export interface CompletionRequest {
+  system: string;
+  prompt: string;
+  maxTokens?: number;
+}
+
+/** A raw runtime event; `handleRuntimeSessionEvent` owns its dialect. */
+export type RuntimeEventListener = (event: unknown, threadId: string) => void;
+
+/** What the host binds into a runtime that hosts extensions of its own. */
+export interface RuntimeExtensionBindings {
+  /** The workbench's dialog surface for the runtime's extension questions. */
+  ui: ExtensionUiBridge;
+  onError(error: unknown): void;
+}
+
+/** A chat transcript a runtime normalized itself, for Markdown export. */
+export interface RuntimeChatTranscript {
+  title?: string;
+  cwd?: string;
+  threadId?: string;
+  messages: Array<{ role?: string; content?: unknown }>;
+}
+
+export interface RuntimeNewThreadRequest {
+  requestId: NewThreadRequestId;
+  projectPath: string;
+  initialPrompt?: string;
+  attachments: readonly UiPromptAttachment[];
+  identity?: ClientTurnIdentity;
+  prepared?: PreparedPrompt;
+}
+
+export interface RuntimeNewThreadOutcome {
+  /** The runtime reported the thread and this backend now points at it. */
+  adopted: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Capability groups. A backend offers the ones its runtime can serve; the host
+// asks for one through `requireCapability` and never per-site.
+// ---------------------------------------------------------------------------
+
+/** Raw session entries of a runtime that keeps a durable journal beside its messages. */
+export interface ThreadJournalCapability {
+  /** Entries on the thread's current branch, in order. */
+  entries(): readonly unknown[];
+  appendCustomEntry(customType: string, data?: unknown): void;
+  appendMessage(message: unknown): void;
+}
+
+export interface ThreadTreeCapability {
+  tree(): UiThreadTree;
+  leafEntryId(): string | undefined;
+  navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }>;
+}
+
+export interface ThreadForkCapability {
+  /** The runtime forks itself and reports the result through its own events. */
+  readonly runtimeOwned: boolean;
+  /** Only for a runtime that forks itself. */
+  requestFork?(entryId: string): Promise<void>;
+}
+
+export interface ThreadShellActionCapability {
+  isRunning(): boolean;
+  run(command: string, includeInContext: boolean): Promise<ShellCommandResult>;
+}
+
+export interface ThreadCompactionCapability {
+  compact(): Promise<void>;
+}
+
+/** Selecting the model and thinking level of a thread. */
+export interface ThreadCatalogWriteCapability {
+  setModel(provider: string, id: string): Promise<void>;
+  setThinkingLevel(level: string): Promise<void>;
+}
+
+/** One short answer from a model of this runtime, outside the thread's conversation. */
+export interface ThreadCompletionCapability {
+  complete(provider: string, modelId: string, request: CompletionRequest): Promise<string>;
+  completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
+  /** The provider API of the thread's active model, e.g. "openai-responses". */
+  modelApi(): string | undefined;
+}
+
+/** A runtime whose extensions the host binds its own dialog surface into. */
+export interface ThreadExtensionCapability {
+  bind(bindings: RuntimeExtensionBindings): Promise<void>;
+  unbind(): void;
+  /** The runtime tells the host before it replaces the live session, and asks for a rebind after. */
+  setLifecycleHooks(beforeInvalidate: () => void, rebind: () => Promise<void>): void;
+  shortcuts(userBindings: PiUserKeybindings): PiShortcut[];
+  runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean>;
+}
+
+/** A runtime that can rediscover its resources without losing the thread. */
+export interface ThreadReloadCapability {
+  reload(): Promise<void>;
+}
+
+export interface ThreadEventCapability {
+  subscribe(listener: RuntimeEventListener): () => void;
+}
+
+/**
+ * A runtime that pages its own transcript and keeps its own tool output. The
+ * host preserves its opaque cursor instead of paging the records again.
+ */
+export interface ThreadTranscriptPagingCapability {
+  page(cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
+  readToolOutput(toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
+}
+
+/** A runtime that normalizes its own chat transcript for export. */
+export interface ThreadMarkdownExportCapability {
+  exportTranscript(): Promise<RuntimeChatTranscript>;
+}
+
+/** A runtime that creates new threads itself; the host only publishes what it reports. */
+export interface ThreadNewThreadCapability {
+  create(request: RuntimeNewThreadRequest): Promise<RuntimeNewThreadOutcome>;
+}
+
+export interface ThreadBackendCapabilities {
+  journal?: ThreadJournalCapability;
+  tree?: ThreadTreeCapability;
+  fork?: ThreadForkCapability;
+  shellAction?: ThreadShellActionCapability;
+  compaction?: ThreadCompactionCapability;
+  catalogWrite?: ThreadCatalogWriteCapability;
+  completions?: ThreadCompletionCapability;
+  extensions?: ThreadExtensionCapability;
+  reload?: ThreadReloadCapability;
+  events?: ThreadEventCapability;
+  transcriptPaging?: ThreadTranscriptPagingCapability;
+  markdownExport?: ThreadMarkdownExportCapability;
+  newThread?: ThreadNewThreadCapability;
+}
+
+export type ThreadCapabilityName = keyof ThreadBackendCapabilities;
+
+/** The one error the host raises for anything a thread's runtime cannot do. */
+export class UnsupportedOperationError extends Error {
+  constructor(
+    readonly capability: ThreadCapabilityName,
+    readonly backendKind: ThreadBackendKind,
+    hint?: string,
+  ) {
+    super(`${CAPABILITY_LABELS[capability]} is not available for this thread's runtime (${backendKind}).${hint ? ` ${hint}` : ""}`);
+    this.name = "UnsupportedOperationError";
+  }
+}
+
+const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
+  journal: "The session journal",
+  tree: "The session tree",
+  fork: "Forking",
+  shellAction: "Project actions",
+  compaction: "Context compaction",
+  catalogWrite: "Model selection",
+  completions: "Model completions",
+  extensions: "Runtime extensions",
+  reload: "Reloading runtime resources",
+  events: "Runtime events",
+  transcriptPaging: "Runtime-paged transcripts",
+  markdownExport: "Markdown export",
+  newThread: "Runtime-owned new threads",
+};
+
+/**
+ * One durable runtime per thread (ADR 0005). The required members are what
+ * every runtime must answer; everything else is a capability group.
+ */
+export interface ThreadRuntimeBackend {
+  /** Runtime owner for this thread. This value never changes while live. */
+  readonly kind: ThreadBackendKind;
+  readonly runtimeAdapter: AgentRuntimeAdapter;
+  /** Tau's stable thread id. Provider session ids never cross this boundary. */
+  readonly threadId: string;
+  /** Runtime-owned provider session id. */
+  readonly providerSessionId: string;
+  readonly cwd: string;
+  readonly capabilities: ThreadBackendCapabilities;
+  /**
+   * Who reports run state: a streamed runtime publishes its own events, an
+   * awaited one resolves `prompt` when the turn ends and the host tracks it.
+   */
+  readonly turnReporting: "streamed" | "awaited";
+
+  start(mode: "create" | "resume"): Promise<void>;
+  dispose(): Promise<void>;
+  state(): ThreadBackendState;
+  waitForIdle(): Promise<void>;
+
+  preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt>;
+  prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult>;
+  abort(): Promise<void>;
+
+  /** The thread's visible messages. */
+  transcript(): Promise<UiMessage[]>;
+  /** Records the visible projection the host holds; a runtime that persists on its own may ignore it. */
+  persist(messages: readonly UiMessage[]): Promise<void>;
+  setTitle(title: string, source: ThreadTitleSource): Promise<void>;
+
+  catalogView(): ThreadCatalogView;
+  /** Models this runtime offers; the slow half of the catalog. */
+  models(): Promise<UiModel[]>;
+  composerCommands(): UiComposerCommand[];
+}
+
+/** The one place the host asks whether a thread's runtime can do something. */
+export function requireCapability<K extends ThreadCapabilityName>(
+  backend: ThreadRuntimeBackend,
+  capability: K,
+  hint?: string,
+): NonNullable<ThreadBackendCapabilities[K]> {
+  const group = backend.capabilities[capability];
+  if (!group) throw new UnsupportedOperationError(capability, backend.kind, hint);
+  return group as NonNullable<ThreadBackendCapabilities[K]>;
+}

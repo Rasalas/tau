@@ -7,14 +7,16 @@ import type { ClaudeCodeAgentRuntimeAdapter } from "./extensions/claude-code/run
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { prepareSkillPrompt } from "./skill-invocation.js";
+import { promptImages } from "./prompt-attachments.js";
+import { ThreadRuntime } from "./thread-runtime.js";
 
 const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", description: "Test-driven development" }];
 
 function localHost(adapter: AgentRuntimeAdapter) {
   const emitted: unknown[] = [];
-  const prompt = vi.fn(async () => undefined);
-  const steer = vi.fn(async () => undefined);
-  const followUp = vi.fn(async () => undefined);
+  const prompt = vi.fn(async (_text: string, _options?: unknown) => undefined);
+  const steer = vi.fn(async (_text: string, _images?: unknown) => undefined);
+  const followUp = vi.fn(async (_text: string, _images?: unknown) => undefined);
   const session = {
     sessionId: "session",
     sessionName: undefined as string | undefined,
@@ -63,115 +65,105 @@ function localHost(adapter: AgentRuntimeAdapter) {
       timestamp: message?.timestamp ?? index,
     };
   };
-  const thread: any = {
-    session,
-    threadId: "session",
-    sessionId: "session",
-    cwd: "/repo",
-    sessionFile: "/tmp/session.jsonl",
-    runtimeAdapter: adapter,
-    pendingClientMessageIds: [] as string[],
-    pendingClientMessageFingerprints: new Map<string, string>(),
-    inFlightClientMessageIds: new Set<string>(),
-    adapterQueue: Promise.resolve(),
-    adapterMessages: [],
-    adapterStreaming: false,
-  };
-  thread.runtime = { session };
-  thread.backend = {
+  const isPi = adapter.id === "pi";
+  const entries = () => session.sessionManager.getBranch();
+  const backend: any = {
     kind: adapter.id,
     runtimeAdapter: adapter,
     threadId: "session",
     providerSessionId: "session",
-    sessionId: "session",
     cwd: "/repo",
-    isStreaming: () => session.isStreaming,
-    isIdle: () => session.isIdle,
-    composerCommands: () => commands,
-    sessionFile: () => session.sessionFile,
-    sessionName: () => session.sessionName,
-    branchEntries: () => session.sessionManager.getBranch(),
-    hasMessages: () => session.messages.length > 0 || session.sessionManager.getBranch().some((entry: any) => entry.type === "message"),
-    appendCustomEntry: (customType: string, data: unknown) => { session.sessionManager.appendCustomEntry(customType, data); },
-    appendMessage: (message: unknown) => { session.sessionManager.entries.push({ type: "message", id: `message-${session.sessionManager.entries.length}`, message }); },
-    bind: async () => undefined,
-    unbind: () => undefined,
-    setLifecycleHooks: () => undefined,
-    reload: async () => undefined,
-    extensionCount: () => 0,
-    isBashRunning: () => false,
-    executeBash: async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }),
-    createFork: () => undefined,
+    // Pi streams its own events; an external runtime resolves its prompt when the turn ends.
+    turnReporting: isPi ? "streamed" : "awaited",
+    capabilities: isPi ? {
+      journal: {
+        entries,
+        appendCustomEntry: (customType: string, data: unknown) => { session.sessionManager.appendCustomEntry(customType, data); },
+        appendMessage: (message: unknown) => { session.sessionManager.entries.push({ type: "message", id: `message-${session.sessionManager.entries.length}`, message }); },
+      },
+      extensions: {
+        bind: async () => undefined,
+        unbind: () => undefined,
+        setLifecycleHooks: () => undefined,
+        shortcuts: () => [],
+        runShortcut: async () => false,
+      },
+      reload: { reload: async () => undefined },
+      completions: { complete: async () => "", completeTitle: async () => "Test title", modelApi: () => undefined },
+      shellAction: { isRunning: () => false, run: async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }) },
+      compaction: { compact: async () => undefined },
+      catalogWrite: { setModel: async () => undefined, setThinkingLevel: async () => undefined },
+    } : {},
+    start: async () => undefined,
+    dispose: async () => undefined,
     waitForIdle: async () => undefined,
-    completeTitle: async () => "Test title",
-    modelApi: () => undefined,
-    model: () => ({ provider: session.model.provider, id: session.model.id, name: session.model.id }),
-    thinkingLevel: () => "off",
-    thinkingLevels: () => ["off"],
-    activeToolNames: () => [],
-    allTools: () => [],
-    contextUsage: () => undefined,
-    preparePrompt: async (text: string, selectedSkill?: any) => {
-      const prepared = prepareSkillPrompt(text, adapter, commands, selectedSkill);
-      return {
-        tauThreadId: "session",
-        providerSessionId: "session",
-        sessionId: "session",
-        backendKind: adapter.id,
-        runtimeCapabilities: adapter.capabilities,
-        visibleText: prepared.text,
-        runtimeText: prepared.runtimeText,
-        ...(prepared.skill ? { skill: prepared.skill } : {}),
-        sourceFingerprint: clientMessageFingerprint(text, ["tdd"]),
-      };
-    },
-    transcript: async () => thread.adapterMessages.length > 0
-      ? thread.adapterMessages
-      : session.sessionManager.getBranch().flatMap((entry: any, index: number) => entry.type === "message" ? [visibleMessage(entry, index)] : []),
-    detail: async () => ({
-      backendKind: adapter.id,
-      threadId: "session",
+    state: () => ({
+      streaming: session.isStreaming,
+      idle: session.isIdle,
+      hasMessages: session.messages.length > 0 || entries().some((entry: any) => entry.type === "message"),
+      title: session.sessionName,
+      sessionFile: session.sessionFile,
+      activeTools: [],
+      supportsImageInput: true,
+      extensionCount: 0,
+    }),
+    catalogView: () => ({
+      model: { provider: session.model.provider, id: session.model.id, name: session.model.id },
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      allTools: [],
+    }),
+    models: async () => isPi ? [{ provider: session.model.provider, id: session.model.id, name: session.model.id }] : [],
+    composerCommands: () => commands,
+    persist: async () => undefined,
+    setTitle: async (title: string) => { session.sessionName = title; },
+  };
+  const thread = new ThreadRuntime(backend, isPi ? { session } as never : undefined);
+  backend.preparePrompt = async (text: string, selectedSkill?: any) => {
+    const prepared = prepareSkillPrompt(text, adapter, commands, selectedSkill);
+    return {
+      tauThreadId: "session",
       providerSessionId: "session",
       sessionId: "session",
-      cwd: "/repo",
-      title: session.sessionName,
-      messages: await thread.backend.transcript(),
-      isStreaming: false,
-      activeTools: [],
-      catalog: {
-        models: adapter.id === "pi" ? [{ provider: session.model.provider, id: session.model.id, name: session.model.id }] : [],
-        model: adapter.id === "pi" ? { provider: session.model.provider, id: session.model.id, name: session.model.id } : undefined,
-        runtimeCapabilities: adapter.capabilities,
-        thinkingLevel: "off",
-        thinkingLevels: ["off"],
-        allTools: [],
-        composerCommands: commands,
-      },
-    }),
-    prompt: async (input: { text: string; delivery: "prompt" | "steer" | "followUp"; prepared?: { runtimeText: string }; promptOptions?: unknown; images?: unknown }) => {
-      if (adapter.id === "pi") {
-        const runtimeText = input.prepared?.runtimeText
-          ?? prepareSkillPrompt(input.text, adapter, commands).runtimeText;
-        const invoke = session[input.delivery === "prompt" ? "prompt" : input.delivery === "steer" ? "steer" : "followUp"] as (text: string, options?: unknown) => Promise<unknown>;
-        await invoke(
-          runtimeText,
-          input.promptOptions ?? input.images,
-        );
-        return {};
-      }
-      await adapter.transport!.sendPrompt({
-        cwd: "/repo",
-        tauThreadId: "session",
-        sessionId: "session",
-        text: input.prepared?.runtimeText
-          ?? (input.text.startsWith("$tdd ") ? `/tdd ${input.text.slice("$tdd ".length)}` : input.text),
-        delivery: input.delivery,
-        permissionLevel: "full",
-      });
-      return {};
-    },
-    abort: async () => { if (adapter.id === "claude-code") await adapter.transport?.abort?.("session"); },
+      backendKind: adapter.id,
+      runtimeCapabilities: adapter.capabilities,
+      visibleText: prepared.text,
+      runtimeText: prepared.runtimeText,
+      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      sourceFingerprint: clientMessageFingerprint(text, ["tdd"]),
+    };
   };
+  backend.transcript = async () => thread.adapterMessages.length > 0
+    ? thread.adapterMessages
+    : entries().flatMap((entry: any, index: number) => entry.type === "message" ? [visibleMessage(entry, index)] : []);
+  backend.prompt = async (input: any) => {
+    const runtimeText = input.prepared?.runtimeText ?? prepareSkillPrompt(input.text, adapter, commands).runtimeText;
+    if (isPi) {
+      // The Pi backend assembles Pi's own prompt options at its edge; the fake mirrors that.
+      const images = promptImages(input.attachments ?? []);
+      if (input.delivery === "prompt") {
+        await session.prompt(runtimeText, {
+          images,
+          streamingBehavior: input.queued ? "followUp" : undefined,
+          ...(input.onAdmitted ? { preflightResult: input.onAdmitted } : {}),
+        });
+      } else {
+        const invoke = (input.delivery === "steer" ? session.steer : session.followUp) as (text: string, images?: unknown) => Promise<unknown>;
+        await invoke(runtimeText, images);
+      }
+      return {};
+    }
+    await adapter.transport!.sendPrompt({
+      cwd: "/repo",
+      tauThreadId: "session",
+      sessionId: "session",
+      text: runtimeText,
+      delivery: input.delivery,
+      permissionLevel: "full",
+    });
+    return {};
+  };
+  backend.abort = async () => { if (adapter.id === "claude-code") await adapter.transport?.abort?.("session"); };
   // A non-Pi adapter reaches the host the way it does in production: as a registered backend.
   const host = new PiHost("/repo", (event) => emitted.push(event), {} as never, false, false, adapter.id === "pi"
     ? { runtimeAdapter: adapter }
@@ -203,10 +195,10 @@ describe("PiHost skill delivery", () => {
   it("maps bridge messages through the attached Pi runtime adapter", () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as {
-      attached: { snapshot?: PiBridgeSnapshot };
+      attached: { session: { snapshot?: PiBridgeSnapshot } };
       projection: { attachedHostSnapshot(): HostSnapshot };
     };
-    internals.attached.snapshot = {
+    internals.attached.session.snapshot = {
       sessionId: "bridge",
       sessionFile: "/tmp/bridge.jsonl",
       cwd: "/repo",
@@ -339,11 +331,11 @@ describe("PiHost skill delivery", () => {
     });
     const command = vi.fn(async () => undefined);
     const internals = host as unknown as {
-      attached: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } };
+      attached: { session: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } } };
     };
-    internals.attached.client = { command };
-    internals.attached.snapshot = { sessionId: "bridge" };
-    internals.attached.client!.descriptor = { epoch: "test-epoch" };
+    internals.attached.session.client = { command };
+    internals.attached.session.snapshot = { sessionId: "bridge" };
+    internals.attached.session.client!.descriptor = { epoch: "test-epoch" };
 
     await host.prompt("$tdd fix it", [], "bridge");
     await host.steer("$tdd steer it", [], "bridge");
@@ -351,7 +343,7 @@ describe("PiHost skill delivery", () => {
     // A legacy bridge fixture has no asynchronous snapshot publisher. Clearing
     // the optional snapshot exercises the raw command boundary without waiting
     // forever for a handoff that this unit test does not model.
-    internals.attached.snapshot = undefined;
+    internals.attached.session.snapshot = undefined;
     await host.newSession("$tdd start it");
     expect(command.mock.calls).toEqual([
       [{ command: "prompt", text: "$tdd fix it" }],
@@ -398,10 +390,10 @@ describe("PiHost skill delivery", () => {
       return { accepted: true };
     });
     const internals = host as unknown as {
-      attached: { client?: { command: typeof command; descriptor: { epoch: string } }; snapshot?: PiBridgeSnapshot };
+      attached: { session: { client?: { command: typeof command; descriptor: { epoch: string } }; snapshot?: PiBridgeSnapshot } };
     };
-    internals.attached.client = { command, descriptor: { epoch: "test-epoch" } };
-    internals.attached.snapshot = currentSnapshot;
+    internals.attached.session.client = { command, descriptor: { epoch: "test-epoch" } };
+    internals.attached.session.snapshot = currentSnapshot;
 
     const prepared = await host.preparePrompt("start it");
 
@@ -452,10 +444,10 @@ describe("PiHost skill delivery", () => {
       return { accepted: true };
     });
     const internals = host as unknown as {
-      attached: { client?: { command: typeof command; descriptor: { epoch: string } }; snapshot?: PiBridgeSnapshot };
+      attached: { session: { client?: { command: typeof command; descriptor: { epoch: string } }; snapshot?: PiBridgeSnapshot } };
     };
-    internals.attached.client = { command, descriptor: { epoch: "test-epoch" } };
-    internals.attached.snapshot = currentSnapshot;
+    internals.attached.session.client = { command, descriptor: { epoch: "test-epoch" } };
+    internals.attached.session.snapshot = currentSnapshot;
     const preparedByPreviousRuntime: PreparedPrompt = {
       tauThreadId: "previous-local-pi-thread",
       providerSessionId: "previous-local-pi-thread",
@@ -484,10 +476,10 @@ describe("PiHost skill delivery", () => {
     });
     const command = vi.fn(async () => undefined);
     const internals = host as unknown as {
-      attached: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } };
+      attached: { session: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } } };
     };
-    internals.attached.client = { command };
-    internals.attached.snapshot = {
+    internals.attached.session.client = { command };
+    internals.attached.session.snapshot = {
       sessionId: "bridge",
       sessionFile: "/tmp/bridge.jsonl",
       cwd: "/repo",
@@ -523,10 +515,10 @@ describe("PiHost skill delivery", () => {
       }
       : undefined);
     const internals = host as unknown as {
-      attached: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } };
+      attached: { session: { client?: { command: typeof command; descriptor?: { epoch: string } }; snapshot?: PiBridgeSnapshot | { sessionId: string } } };
     };
-    internals.attached.client = { command };
-    internals.attached.snapshot = {
+    internals.attached.session.client = { command };
+    internals.attached.session.snapshot = {
       sessionId: "bridge",
       sessionFile: "/tmp/bridge.jsonl",
       cwd: "/repo",

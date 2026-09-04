@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { requireCapability } from "./runtime-types.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 
 const message = (id: string, parentId: string | null, role: "user" | "assistant", content: unknown, timestamp = "2026-09-02T10:00:00Z") =>
@@ -34,8 +35,9 @@ describe("Pi thread tree", () => {
       },
       navigateTree: async (targetId: string, options: unknown) => { navigations.push([targetId, options]); return { cancelled: false, editorText: "Take the first option" }; },
     };
-    const backend = new PiThreadRuntimeBackend({ session, cwd: "/repo" } as never, PI_AGENT_RUNTIME_ADAPTER, { mapMessages: () => [], index: async () => ({}) as never });
-    const snapshot = backend.tree();
+    const backend = new PiThreadRuntimeBackend({ session, cwd: "/repo" } as never, PI_AGENT_RUNTIME_ADAPTER, { mapMessages: () => [] });
+    const treeCapability = requireCapability(backend, "tree");
+    const snapshot = treeCapability.tree();
     // The raw leaf is a tool-only assistant entry the tree hides; the thread is "at" the last shown entry of its branch.
     expect(snapshot.leafId).toBe("u2");
     expect(snapshot.nodes.map((node) => [node.id, node.depth, node.kind, node.text, node.onBranch, node.forkable, node.label])).toEqual([
@@ -47,8 +49,8 @@ describe("Pi thread tree", () => {
       ["s1", 3, "summary", "Abandoned the second path", false, false, undefined],
     ]);
     expect(snapshot.nodes.filter((node) => node.isLeaf).map((node) => node.id)).toEqual(["u2"]);
-    expect(backend.leafEntryId()).toBe("a3");
-    await expect(backend.navigateTree("u2", { summarize: true })).resolves.toEqual({ cancelled: false, draftText: "Take the first option" });
+    expect(treeCapability.leafEntryId()).toBe("a3");
+    await expect(treeCapability.navigateTree("u2", { summarize: true })).resolves.toEqual({ cancelled: false, draftText: "Take the first option" });
     expect(navigations).toEqual([["u2", { summarize: true }]]);
   });
 });

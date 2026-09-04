@@ -7,7 +7,6 @@ import type {
   PiBridgeSnapshot,
 } from "../shared/pi-bridge-protocol.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
-import type { LiveTurnState } from "./live-turn-state.js";
 import { findPiBridge, PiBridgeClient, PiBridgeReconnectLoop } from "./pi-bridge-client.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import type { AttachedRuntimeBackend, NewSessionRequest } from "./attached-runtime.js";
@@ -26,8 +25,8 @@ export interface AttachedSessionHost {
   releaseLocalThread(sessionFile: string): Promise<void>;
   clearActiveThread(): void;
   setCwd(cwd: string): void;
-  /** A Pi session event for the attached thread; `turn` carries its live state. */
-  onSessionEvent(event: unknown, turn: LiveTurnState, sessionId: string): void;
+  /** A Pi session event for the attached thread; the host supplies its live-state carrier. */
+  onSessionEvent(event: unknown, sessionId: string): void;
   /** Pi published a fresh snapshot; `stillCurrent` is false once another client took over. */
   onSnapshot(requestId: NewThreadRequestId | undefined, stillCurrent: () => boolean): void;
   /** The socket came back after a disconnect; the host republishes its state. */
@@ -73,8 +72,6 @@ export class AttachedPiSession implements AttachedRuntimeBackend {
    * say where the answer is expected.
    */
   private awaitingPromptId?: string;
-  /** Bridge events have no local runtime; a detached carrier keeps their live state. */
-  private turn?: LiveTurnState & { sessionId: string };
 
   constructor(private readonly host: AttachedSessionHost) {}
 
@@ -89,12 +86,6 @@ export class AttachedPiSession implements AttachedRuntimeBackend {
   /** Whether a Tau thread id names the thread Pi's TUI owns; no id means "the visible one". */
   owns(threadId: string | undefined): boolean {
     return Boolean(this.client) && (!threadId || threadId === this.snapshot?.sessionId);
-  }
-
-  /** Live state carrier for the attached thread's events. */
-  turnState(sessionId: string): LiveTurnState {
-    if (this.turn?.sessionId !== sessionId) this.turn = { sessionId, tools: new Map() };
-    return this.turn;
   }
 
   async attach(
@@ -189,6 +180,28 @@ export class AttachedPiSession implements AttachedRuntimeBackend {
     client.close();
     this.client = undefined;
     this.snapshot = undefined;
+  }
+
+  /**
+   * Takes the thread back from Pi. Only a run that is genuinely in flight is
+   * worth protecting: repairing under Pi's feet mid-turn would race its writer.
+   * An idle or absent peer is not using the session, so Tau takes it over.
+   */
+  async releaseToHost(): Promise<string | undefined> {
+    if (!this.client) return undefined;
+    const sessionFile = this.client.descriptor.sessionFile;
+    let responsive = true;
+    try {
+      await this.send({ command: "ping" }, 2_000);
+    } catch {
+      responsive = false;
+    }
+    if (responsive && this.snapshot?.isStreaming) {
+      throw new Error("Pi is running this thread right now. Stop the run in Pi, then try again.");
+    }
+    this.host.log(responsive ? "bridge.takeover" : "bridge.unresponsive", "recover_thread");
+    this.detach();
+    return sessionFile;
   }
 
   /** Runs `work` with attaching suppressed, e.g. while Tau takes a session over from Pi. */
@@ -472,7 +485,7 @@ export class AttachedPiSession implements AttachedRuntimeBackend {
         if (typeof extensionId === "string" && typeof name === "string") host.emit({ type: "extension-event", extensionId, name, payload });
         return;
       }
-      host.onSessionEvent(event, this.turnState(frame.sessionId), frame.sessionId);
+      host.onSessionEvent(event, frame.sessionId);
       return;
     }
     if (frame.type !== "snapshot") return;

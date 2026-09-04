@@ -11,7 +11,7 @@ const MAX_ID_LENGTH = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 
-import type { ThreadTitleSource } from "../../thread-runtime-backend.js";
+import type { ThreadTitleSource } from "../../runtime-types.js";
 
 export type ClaudeTitleSource = ThreadTitleSource;
 

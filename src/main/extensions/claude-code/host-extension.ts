@@ -87,8 +87,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             permissionLevel: thread.permissionLevel,
             onMessage: thread.onMessage,
           });
-          if (resume) await backend.resume();
-          else await backend.create();
+          await backend.start(resume ? "resume" : "create");
           return backend;
         },
         composerCommands: commands,

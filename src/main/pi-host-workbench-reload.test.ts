@@ -16,8 +16,16 @@ function hostWithRun() {
     kind: "external-test",
     threadId: "thread-running",
     cwd: "/repo",
-    isIdle: () => idle,
-    isStreaming: () => !idle,
+    turnReporting: "awaited",
+    capabilities: {},
+    state: () => ({
+      streaming: !idle,
+      idle,
+      hasMessages: true,
+      activeTools: [],
+      supportsImageInput: false,
+      extensionCount: 0,
+    }),
     waitForIdle,
     abort,
   };

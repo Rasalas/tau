@@ -60,7 +60,7 @@ export class ThreadProjection {
   }
 
   branchMessages(thread: ThreadRuntime): unknown[] {
-    const entries = thread.backend.branchEntries();
+    const entries = thread.entries;
     const messages = branchMessagesWithClientMessageIds(entries, knownSkillNames(this.composerCommands(thread)));
     let messageIndex = 0;
     return entries.flatMap((entry) => {
@@ -110,7 +110,7 @@ export class ThreadProjection {
 
   pinnedEntries(thread: ThreadRuntime): ReadonlySet<string> {
     if (this.entryPinProviders.size === 0 || !isPiBackend(thread)) return EMPTY_PINS;
-    const entries = thread.backend.branchEntries();
+    const entries = thread.entries;
     const leaf = entries.at(-1);
     const cached = this.pinnedCache.get(thread);
     if (cached && cached.size === entries.length && cached.leaf === leaf) return cached.pinned;
@@ -142,7 +142,7 @@ export class ThreadProjection {
       thinkingLevel: "off",
       thinkingLevels: ["off"],
       messages,
-      isStreaming: thread.adapterStreaming || thread.backend.isStreaming(),
+      isStreaming: thread.adapterStreaming || thread.state.streaming,
       activeTools: [],
       taskProgress: undefined,
       taskHistory: [],
@@ -151,35 +151,34 @@ export class ThreadProjection {
       extensionCount: 0,
     };
     const branchMessages = this.branchMessages(thread);
-    const usage = thread.backend.contextUsage();
+    const state = thread.state;
+    const view = thread.backend.catalogView();
     return {
       cwd,
       threadId: thread.threadId,
       providerSessionId: thread.backend.providerSessionId,
       sessionId: thread.threadId,
-      sessionName: safeSessionTitle(thread.backend.sessionName()),
-      sessionTitle: cleanThreadTitle(safeSessionTitle(thread.backend.sessionName()) || safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
-      model: thread.backend.model(),
+      sessionName: safeSessionTitle(state.title),
+      sessionTitle: cleanThreadTitle(safeSessionTitle(state.title) || safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
+      model: view.model,
       runtimeCapabilities: thread.runtimeAdapter.capabilities,
       backendKind: thread.backend.kind,
       models,
-      thinkingLevel: thread.backend.thinkingLevel(),
-      thinkingLevels: thread.backend.thinkingLevels(),
+      thinkingLevel: view.thinkingLevel,
+      thinkingLevels: [...view.thinkingLevels],
       messages,
-      isStreaming: thread.backend.isStreaming() || thread.adapterStreaming,
-      activeTools: thread.backend.activeToolNames(),
+      isStreaming: state.streaming || thread.adapterStreaming,
+      activeTools: [...state.activeTools],
       turnActivity: this.turnActivity(thread, branchMessages),
       turnActivityHistory: turnActivityHistoryFromMessages(branchMessages),
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
-      allTools: thread.backend.allTools(),
+      allTools: [...view.allTools],
       composerCommands: this.composerCommands(thread),
       extensionCount,
       historyCompleteness: "complete",
-      supportsImageInput: modelSupportsImageInput(thread.runtime?.session.model),
-      contextUsage: usage && usage.tokens !== null && usage.percent !== null
-        ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
-        : undefined,
+      supportsImageInput: state.supportsImageInput,
+      contextUsage: view.contextUsage,
     };
   }
 }
