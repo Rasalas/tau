@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, type ComponentType, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState, type ComponentType, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
@@ -40,6 +40,21 @@ import { displayPath } from "./path-display";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
 const CENTER_SPLIT_MIN_WIDTH = 480 + 360;
+const DEFAULT_DOCK_WIDTH = 320;
+const MIN_DOCK_WIDTH = 220;
+const MAX_DOCK_WIDTH = 560;
+const DOCK_WIDTH_KEY = "tau:dock-width";
+
+function clampDockWidth(width: number): number {
+  return Number.isFinite(width)
+    ? Math.min(MAX_DOCK_WIDTH, Math.max(MIN_DOCK_WIDTH, width))
+    : DEFAULT_DOCK_WIDTH;
+}
+
+function storedDockWidth(): number {
+  const width = Number(window.localStorage.getItem(DOCK_WIDTH_KEY));
+  return Number.isFinite(width) && width > 0 ? clampDockWidth(width) : DEFAULT_DOCK_WIDTH;
+}
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
@@ -184,6 +199,35 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
     newThreadOpen, projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
     notice, noticeLevel, setNotice, activeOverlayId, setActiveOverlayId,
   } = model;
+  const [dockWidth, setDockWidthState] = useState(storedDockWidth);
+  const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
+
+  const setDockWidth = (width: number) => {
+    const bounded = clampDockWidth(width);
+    setDockWidthState(bounded);
+    window.localStorage.setItem(DOCK_WIDTH_KEY, String(bounded));
+  };
+
+  const startDockResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dockResizeCleanupRef.current?.();
+    const startX = event.clientX;
+    const startWidth = dockWidth;
+    const onMove = (moveEvent: PointerEvent) => setDockWidth(startWidth - (moveEvent.clientX - startX));
+    const onUp = () => dockResizeCleanupRef.current?.();
+    const cleanup = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("dock-resizing");
+      dockResizeCleanupRef.current = undefined;
+    };
+    dockResizeCleanupRef.current = cleanup;
+    document.body.classList.add("dock-resizing");
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  };
+
+  useEffect(() => () => dockResizeCleanupRef.current?.(), []);
 
   useEffect(() => {
     const element = centerRef.current;
@@ -305,7 +349,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
   </>);
 
   return providers(<>
-    <div className={shellClassName}>
+    <div className={shellClassName} style={{ "--dock-width": `${dockWidth}px` } as CSSProperties}>
       <TitleBar cwd={workspaceCwd} dockOpen={dockOpen} registry={registry} snapshot={snapshot} actions={actions} onToggleDock={() => setDockOpen((value) => !value)} />
       {sidebarContributions.map((contribution) => <LazyFeatureBoundary key={contribution.id} label="sidebar">
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
@@ -413,6 +457,24 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
         </LazyFeatureBoundary> : null}
       </div>
       {panels.length > 0 ? <aside className="instrument-dock">
+        {dockOpen ? <div
+          className="dock-resizer"
+          role="separator"
+          aria-label="Resize right sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_DOCK_WIDTH}
+          aria-valuemax={MAX_DOCK_WIDTH}
+          aria-valuenow={dockWidth}
+          tabIndex={0}
+          title="Drag to resize. Double-click to reset."
+          onPointerDown={startDockResize}
+          onDoubleClick={() => setDockWidth(DEFAULT_DOCK_WIDTH)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home") return;
+            event.preventDefault();
+            setDockWidth(event.key === "Home" ? DEFAULT_DOCK_WIDTH : dockWidth + (event.key === "ArrowLeft" ? 16 : -16));
+          }}
+        /> : null}
         {dockOpen ? <div className="panel-stage">{panels.map((panel) => openedPanels.has(panel.id) ? <MountedPanel
           key={panel.id}
           Component={panel.Component}
@@ -426,7 +488,8 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
             title={panel.label}
             aria-label={panel.label}
             className={dockOpen && activePanel === panel.id ? "active" : ""}
-            onClick={() => openPanel(panel.id)}
+            aria-pressed={dockOpen && activePanel === panel.id}
+            onClick={() => dockOpen && activePanel === panel.id ? setDockOpen(false) : openPanel(panel.id)}
           ><PanelIcon name={panel.glyph} /></button>)}
           <span className="spacer" />
           <button title={dockOpen ? "Collapse panel" : "Expand panel"} aria-label={dockOpen ? "Collapse panel" : "Expand panel"} onClick={() => setDockOpen((value) => !value)}>

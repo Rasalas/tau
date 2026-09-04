@@ -221,6 +221,37 @@ describe("App render isolation", () => {
     expect(renders).toBe(before);
   });
 
+  it("resizes the right sidebar and resets it on double-click", async () => {
+    const view = render(<App />);
+    const shell = view.container.querySelector(".app-shell") as HTMLElement;
+    const resizer = await screen.findByRole("separator", { name: "Resize right sidebar" });
+
+    expect(shell.style.getPropertyValue("--dock-width")).toBe("320px");
+    fireEvent(resizer, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 800 }));
+    fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 700 }));
+    fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
+
+    expect(shell.style.getPropertyValue("--dock-width")).toBe("420px");
+    expect(localStorage.getItem("tau:dock-width")).toBe("420");
+    fireEvent.doubleClick(resizer);
+    expect(shell.style.getPropertyValue("--dock-width")).toBe("320px");
+  });
+
+  it("toggles the right sidebar from its active rail icon", async () => {
+    const view = render(<App />);
+    const shell = view.container.querySelector(".app-shell") as HTMLElement;
+    const filesButton = await screen.findByRole("button", { name: "Files" });
+    await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("true"));
+
+    fireEvent.click(filesButton);
+    expect(shell.classList.contains("dock-closed")).toBe(true);
+    expect(filesButton.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(filesButton);
+    expect(shell.classList.contains("dock-closed")).toBe(false);
+    expect(filesButton.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("does not load a hidden Files panel", async () => {
     const getFileTree = vi.fn(async () => []);
     window.tau = {
