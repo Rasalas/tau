@@ -24,10 +24,8 @@ export interface WorkbenchActions {
   switchSession(path: string): Promise<boolean>;
   settleActiveThread(): void;
   abort(): void;
-  reloadRuntime(): Promise<boolean>;
-  /** Rebuilds the workbench from source and reloads it; a changed host still needs a restart. */
-  rebuildWorkbench(): Promise<boolean>;
-  restartWorkbench(): void;
+  /** Builds Tau, reloads Pi resources and desktop extensions, then restarts the app when required. */
+  reloadWorkbench(): Promise<boolean>;
   /** Pi's /tree and /fork: the session tree of the active thread, to move in or fork from. */
   openThreadTree(mode?: "navigate" | "fork"): void;
   /** Pi's /clone: a new thread continuing from the active thread's current point. */

@@ -36,6 +36,8 @@ import type {
   PreparedPrompt,
   ThreadTreeNavigationResult,
   UiThreadTree,
+  WorkbenchReloadMode,
+  WorkbenchReloadPreparation,
 } from "../shared/contracts.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
@@ -202,6 +204,8 @@ export class PiHost {
   private prewarmTimer?: ReturnType<typeof setTimeout>;
   private sessions: UiSession[] = [];
   private lifecycleQueue: Promise<void> = Promise.resolve();
+  /** Blocks new work after every running thread has drained and while Tau applies a reload. */
+  private workbenchReloadPending = false;
   /** Monotonic ownership epoch; stale lifecycle work may not publish or activate. */
   private activationEpoch = 0;
   private threadIndexRefresh?: Promise<ThreadIndexSnapshot>;
@@ -1072,6 +1076,7 @@ export class PiHost {
     clientMessageIdOrRequestId?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<HostActionResult> {
+    this.assertWorkbenchReloadAvailable();
     // Admit the activation before waiting on the lifecycle queue. A newer live
     // switch must supersede this request even when its queued work starts later.
     const activationEpoch = this.beginActivation();
@@ -1699,6 +1704,7 @@ export class PiHost {
     clientMessageIdOrPreflight?: ClientTurnRequest | PromptPreflight,
     prepared?: PreparedPrompt,
   ): Promise<void> {
+    this.assertWorkbenchReloadAvailable();
     const onPreflightResult = typeof clientMessageIdOrPreflight === "function" ? clientMessageIdOrPreflight : undefined;
     const identity = typeof clientMessageIdOrPreflight === "function"
       ? undefined
@@ -1832,6 +1838,7 @@ export class PiHost {
   }
 
   async runShellAction(command: string, includeInContext = false, expectedCwd?: string): Promise<ShellActionResult> {
+    this.assertWorkbenchReloadAvailable();
     if (this.attached.isAttached) throw new Error("Run project actions in Pi while Tau is attached to its runtime.");
     const shellCommand = command.trim();
     if (!shellCommand) throw new Error("An action command is required.");
@@ -1861,6 +1868,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
+    this.assertWorkbenchReloadAvailable();
     const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
     const clientMessageId = identity?.clientMessageId;
     if (this.attachedOwns(sessionId)) {
@@ -1925,6 +1933,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
+    this.assertWorkbenchReloadAvailable();
     const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
     const clientMessageId = identity?.clientMessageId;
     if (this.attachedOwns(sessionId)) {
@@ -2091,6 +2100,62 @@ export class PiHost {
     };
     this.emitUpdate(update);
     return update;
+  }
+
+  private assertWorkbenchReloadAvailable(): void {
+    if (this.workbenchReloadPending) throw new Error("Tau is waiting to apply changes. Cancel the reload before starting more work.");
+  }
+
+  private runningWorkbenchThreads(): ThreadRuntime[] {
+    return this.threads.list()
+      .map((record) => record.runtime)
+      .filter((thread) => !thread.backend.isIdle() || thread.backend.isStreaming() || thread.adapterPending > 0 || thread.adapterStreaming);
+  }
+
+  private runningWorkbenchThreadCount(): number {
+    return this.runningWorkbenchThreads().length + (this.attached.snapshot?.isStreaming ? 1 : 0);
+  }
+
+  private async waitForWorkbenchRuns(): Promise<void> {
+    while (true) {
+      const local = this.runningWorkbenchThreads();
+      await Promise.all(local.map((thread) => thread.backend.waitForIdle()));
+      if (this.attached.snapshot?.isStreaming) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        if (this.attached.isAttached) await this.attached.refreshSnapshot();
+      }
+      const ready = await this.runLifecycle(async () => {
+        if (this.runningWorkbenchThreadCount() > 0) return false;
+        this.workbenchReloadPending = true;
+        return true;
+      });
+      if (ready) return;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  async prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation> {
+    if (mode === "wait") {
+      await this.waitForWorkbenchRuns();
+      return { ready: true, runningThreads: 0 };
+    }
+    return this.runLifecycle(async () => {
+      if (this.workbenchReloadPending) return { ready: true, runningThreads: 0 };
+      const runningThreads = this.runningWorkbenchThreadCount();
+      if (mode === "inspect") {
+        if (runningThreads === 0) this.workbenchReloadPending = true;
+        return { ready: runningThreads === 0, runningThreads };
+      }
+      if (mode !== "abort") throw new Error(`Unknown workbench reload mode: ${mode}`);
+      this.workbenchReloadPending = true;
+      if (this.attached.snapshot?.isStreaming) await this.attached.send({ command: "abort" });
+      await Promise.all(this.runningWorkbenchThreads().map((thread) => this.abortThread(thread)));
+      return { ready: true, runningThreads: 0 };
+    });
+  }
+
+  async releaseWorkbenchReload(): Promise<void> {
+    this.workbenchReloadPending = false;
   }
 
   async reloadRuntime(): Promise<void> {

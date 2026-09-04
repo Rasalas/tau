@@ -1693,6 +1693,45 @@ button > svg { pointer-events: none; }
 .restore-dialog > footer > button:disabled { color: var(--fainter); border-color: var(--line-soft); cursor: default; }
 .restore-mini-button { color: var(--working); }
 
+/* --------------------------------------------------------- reload conflict */
+
+.reload-conflict-scrim { z-index: 100; }
+.reload-conflict {
+  width: 500px; max-width: calc(100vw - 48px);
+  border: 1px solid var(--line-float); border-radius: 12px;
+  background: var(--overlay); box-shadow: 0 40px 100px #000d;
+  overflow: hidden; animation: fade-up .14s ease;
+}
+.reload-conflict > header { display: flex; align-items: center; gap: 11px; padding: 15px 16px 13px; border-bottom: 1px solid var(--line); }
+.reload-conflict > header > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.reload-conflict > header h2 { margin: 0; font-size: 13.5px; }
+.reload-conflict > header small { color: var(--faint); font: 10px var(--mono); }
+.reload-conflict-mark {
+  width: 27px; height: 27px; flex: none; display: grid; place-items: center;
+  border-radius: 50%; background: var(--acid-bg); color: var(--acid); border: 1px solid var(--acid-line);
+}
+.reload-conflict-body { display: grid; gap: 8px; padding: 14px; }
+.reload-choice {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px;
+  border: 1px solid var(--line-control); border-radius: 9px; background: var(--sunken);
+  color: var(--ink-3); text-align: left; cursor: pointer;
+}
+.reload-choice > span { display: flex; flex-direction: column; gap: 3px; }
+.reload-choice strong { color: var(--ink); font-size: 12px; }
+.reload-choice small { color: var(--muted); font: 10.5px/1.4 var(--sans); }
+.reload-choice:hover { border-color: var(--line-float); background: var(--raised); }
+.reload-choice.primary { border-color: var(--acid-line); color: var(--acid); }
+.reload-choice.danger { color: var(--removed); }
+.reload-choice.danger:hover { border-color: #6f3838; background: #251917; }
+.reload-conflict > footer { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.reload-conflict > footer > span:first-child { color: var(--faint); font: 10px var(--mono); }
+.reload-conflict > footer .spacer { flex: 1; }
+.reload-conflict > footer button {
+  border: 1px solid var(--line-control); border-radius: 8px; background: transparent;
+  color: var(--ink-3); padding: 7px 12px; cursor: pointer;
+}
+.reload-conflict > footer button:hover { background: var(--raised); color: var(--ink); }
+
 /* ---------------------------------------------------------- model picker */
 
 .model-picker {
@@ -2473,6 +2512,49 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .title-generator-actions button:disabled { opacity: .5; cursor: default; }
 .title-generator-actions p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.55; }
 
+/* Reload is a full lifecycle boundary, so the curtain hides stale UI until the new bundle owns the window. */
+.reload-curtain {
+  position: fixed; inset: 0; z-index: 1000;
+  display: grid; place-content: center; justify-items: center;
+  overflow: hidden; cursor: progress;
+  background:
+    radial-gradient(circle at 50% 46%, #25320f 0, #171a10 20%, transparent 48%),
+    var(--shell);
+  color: var(--ink);
+}
+.reload-curtain::before {
+  content: ""; position: absolute; inset: -20%; opacity: .2;
+  background: repeating-radial-gradient(circle at center, transparent 0 42px, #c7ff3d0a 43px 44px);
+  animation: reload-field 4s ease-in-out infinite;
+}
+.reload-mark { position: relative; width: 176px; height: 176px; margin-bottom: 34px; }
+.reload-orbit, .reload-pulse, .reload-constant { position: absolute; border-radius: 50%; }
+.reload-orbit { border: 1px solid #c7ff3d40; }
+.reload-orbit::after {
+  content: ""; position: absolute; left: 50%; top: -4px;
+  width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%;
+  background: var(--acid); box-shadow: 0 0 18px #c7ff3dbb;
+}
+.reload-orbit-outer { inset: 0; border-left-color: transparent; animation: reload-orbit 4.8s linear infinite; }
+.reload-orbit-inner { inset: 22px; border-right-color: transparent; animation: reload-orbit 3.2s linear infinite reverse; }
+.reload-pulse {
+  inset: 39px; background: #c7ff3d12; border: 1px solid #c7ff3d24;
+  box-shadow: 0 0 52px #c7ff3d18; animation: reload-breathe 1.55s cubic-bezier(.4, 0, .2, 1) infinite;
+}
+.reload-constant {
+  inset: 50px; display: grid; place-content: center; justify-items: center;
+  border: 1px solid var(--acid-line); background: #171a11;
+  box-shadow: inset 0 0 24px #c7ff3d0b, 0 12px 45px #000c;
+}
+.reload-constant strong { color: var(--acid); font: 300 43px/38px Georgia, serif; }
+.reload-constant small { margin-top: 5px; color: var(--muted); font: 500 9px var(--mono); letter-spacing: .16em; }
+.reload-curtain p { position: relative; margin: 0 0 8px; color: var(--acid); font: 600 10px var(--mono); letter-spacing: .22em; }
+.reload-curtain h2 { position: relative; margin: 0; color: var(--ink-2); font: 400 15px var(--sans); }
+.reload-ellipsis { display: inline-block; width: 12px; color: var(--muted); animation: blink 1s ease-in-out infinite; }
+@keyframes reload-orbit { to { transform: rotate(360deg); } }
+@keyframes reload-breathe { 50% { transform: scale(1.22); opacity: .55; } }
+@keyframes reload-field { 50% { transform: scale(1.08); opacity: .32; } }
+
 .toast {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 90;
   display: flex; align-items: center; gap: 10px;
@@ -2487,8 +2569,9 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .toast i { color: var(--faint); font-style: normal; }
 
 @media (prefers-reduced-motion: reduce) {
-  .project-picker, .project-modal, .toast, .tool-activity, .tool-activity-detail, .tool-run,
-  .task-progress-spinner, .task-progress.dock .task-progress-list { animation: none; }
+  .project-picker, .project-modal, .toast, .reload-conflict, .tool-activity, .tool-activity-detail, .tool-run,
+  .task-progress-spinner, .task-progress.dock .task-progress-list, .reload-curtain::before,
+  .reload-orbit-outer, .reload-orbit-inner, .reload-pulse, .reload-ellipsis { animation: none; }
 }
 
 @media (max-width: 1240px) {

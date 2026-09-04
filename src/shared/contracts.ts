@@ -460,6 +460,12 @@ export interface WorkbenchBuildResult {
   output: string;
 }
 
+export type WorkbenchReloadMode = "inspect" | "wait" | "abort";
+export interface WorkbenchReloadPreparation {
+  ready: boolean;
+  runningThreads: number;
+}
+
 /** One entry of a thread's session tree, flattened in preorder for display. */
 export interface UiThreadTreeNode {
   id: string;
@@ -544,6 +550,10 @@ export interface TauDesktopApi {
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   /** Turns the host half of an extension package off or on; bundled kits stay as they are. */
   setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
+  /** Atomically checks, waits for, or stops active runs before a workbench reload. */
+  prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation>;
+  /** Releases a prepared reload when applying changes fails or only the renderer reloads. */
+  releaseWorkbenchReload(): Promise<void>;
   /** Rebuilds the workbench from source without leaving the app. */
   rebuildWorkbench(): Promise<WorkbenchBuildResult>;
   /** Restarts the app so a rebuilt main process takes effect. */

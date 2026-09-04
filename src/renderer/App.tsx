@@ -49,6 +49,8 @@ import { preferences } from "./preferences";
 import { ProjectSourcesModal } from "./components/ProjectSources";
 import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
 import { Region, StatusLine } from "./components/Regions";
+import { ReloadCurtain, type ReloadPhase } from "./components/ReloadCurtain";
+import { ReloadConflictDialog } from "./components/ReloadConflictDialog";
 
 const noopSubscribe = () => () => {};
 const EMPTY_DOCUMENTS: { changes: UiWorkspaceChanges; editor?: UiEditor } = { changes: { files: [], added: 0, removed: 0 } };
@@ -257,6 +259,8 @@ export default function App() {
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   const [notice, setNoticeText] = useState<string>();
   const [noticeLevel, setNoticeLevel] = useState<"info" | "warning" | "error">("info");
+  const [reloadPhase, setReloadPhase] = useState<ReloadPhase>();
+  const [reloadConflictCount, setReloadConflictCount] = useState<number>();
   const setNotice = useCallback((message?: string, level: "info" | "warning" | "error" = "info") => {
     setNoticeLevel(level);
     setNoticeText(message);
@@ -1247,45 +1251,62 @@ export default function App() {
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
-  const rebuildWorkbench = useCallback(async () => {
-    if (!requireHost("Rebuilding")) return false;
-    setNotice("Rebuilding Tau from source…");
+  const applyPreparedReload = useCallback(async () => {
+    setReloadPhase("building");
     try {
       const result = await window.tau!.rebuildWorkbench();
       if (!result.ok) {
+        setReloadPhase(undefined);
+        await window.tau!.releaseWorkbenchReload();
         addEvent("workbench.build.failed", result.output);
         setNotice(`Build failed: ${result.output.split("\n").filter(Boolean).at(-1) ?? "see Signals"}`);
         return false;
       }
+      setReloadPhase("extensions");
+      await window.tau!.reloadRuntime();
       if (result.mainChanged) {
-        setNotice(`Rebuilt in ${Math.round(result.durationMs / 100) / 10}s. The host changed too — run /restart to apply it.`);
+        setReloadPhase("restarting");
+        await window.tau!.relaunchWorkbench();
+      } else {
+        await window.tau!.releaseWorkbenchReload();
+        window.location.reload();
+      }
+      return true;
+    } catch (error) {
+      setReloadPhase(undefined);
+      await window.tau!.releaseWorkbenchReload().catch(() => undefined);
+      setNotice(errorMessage(error));
+      return false;
+    }
+  }, [addEvent, setNotice]);
+
+  const reloadWorkbench = useCallback(async () => {
+    if (!requireHost("Reloading")) return false;
+    try {
+      const preparation = await window.tau!.prepareWorkbenchReload("inspect");
+      if (!preparation.ready) {
+        setReloadConflictCount(preparation.runningThreads);
         return true;
       }
-      window.location.reload();
-      return true;
+      return applyPreparedReload();
     } catch (error) {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [addEvent, requireHost]);
+  }, [applyPreparedReload, requireHost, setNotice]);
 
-  const restartWorkbench = useCallback(() => {
-    if (!requireHost("Restarting")) return;
-    void window.tau!.relaunchWorkbench();
-  }, [requireHost]);
-
-  const reloadRuntime = useCallback(async () => {
-    if (!requireHost("Runtime reload")) return false;
+  const continueConflictedReload = useCallback(async (mode: "wait" | "abort") => {
+    setReloadConflictCount(undefined);
+    if (mode === "wait") setNotice("Reload queued until running threads finish.");
     try {
-      setNotice("Reloading Pi and desktop extensions…");
-      await window.tau!.reloadRuntime();
-      window.location.reload();
-      return true;
+      await window.tau!.prepareWorkbenchReload(mode);
+      setNotice(undefined);
+      await applyPreparedReload();
     } catch (error) {
+      await window.tau!.releaseWorkbenchReload().catch(() => undefined);
       setNotice(errorMessage(error));
-      return false;
     }
-  }, [requireHost]);
+  }, [applyPreparedReload, setNotice]);
 
   const actions: WorkbenchActions = useMemo(() => ({
     openPanel,
@@ -1296,9 +1317,7 @@ export default function App() {
     settleActiveThread,
     // Escape is bound to this; only a visibly running thread has anything to stop.
     abort: () => { if (visibleStreamingRef.current) void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined); },
-    reloadRuntime,
-    rebuildWorkbench,
-    restartWorkbench,
+    reloadWorkbench,
     openThreadTree,
     duplicateThread,
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
@@ -1320,7 +1339,7 @@ export default function App() {
     composerDraft: () => activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey).draft : "",
   }), [
     applyHostResult, openPanel,
-    activeDraftKey, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,
+    activeDraftKey, openWorkspace, reloadWorkbench, settleActiveThread, snapshot, switchSession,
     openThreadTree, duplicateThread,
   ]);
   actionsRef.current = actions;
@@ -1794,7 +1813,8 @@ export default function App() {
     ?? projects.find((project) => project.path === startProjectPath)?.name
     ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
     ?? startProjectPath;
-  return <Workbench model={{
+  return <>
+    <Workbench model={{
     registry, actions, threadStore, context: contextValue, shellContext: shellContextValue,
     observatoryContext: observatoryContextValue, snapshot, workspaceCwd, dockOpen, setDockOpen,
     sidebarContributions, panels, activePanel, openedPanels, openPanel, centerRef, centerCompact,
@@ -1813,5 +1833,13 @@ export default function App() {
     setProjectSourcesOpen, newThreadOpen, projects, removeProject, createThreadInProject,
     settingsPage, setSettingsPage, notice, noticeLevel, setNotice, activeOverlayId,
     setActiveOverlayId,
-  }} />;
+  }} />
+    {reloadConflictCount !== undefined ? <ReloadConflictDialog
+      runningThreads={reloadConflictCount}
+      onCancel={() => setReloadConflictCount(undefined)}
+      onWait={() => void continueConflictedReload("wait")}
+      onAbort={() => void continueConflictedReload("abort")}
+    /> : null}
+    {reloadPhase ? <ReloadCurtain phase={reloadPhase} /> : null}
+  </>;
 }
