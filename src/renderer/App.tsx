@@ -327,9 +327,10 @@ export default function App() {
     viewStore.beginThread(next.sessionId);
     const detail = threadDetailFromHostSnapshot(next);
     if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
+    // applyHostSnapshot and setActiveThread both report the thread's run state
+    // to the one writer, so nothing else has to repeat it.
     threadStore.applyHostSnapshot(next);
     if (next.model?.provider) threadStore.setThreadModelProvider(next.sessionId, next.model.provider);
-    threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     viewStore.setSnapshot(next);
     viewStore.setMessages(next.messages);
