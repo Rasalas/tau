@@ -27,7 +27,12 @@ const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
   hostExtensions: safeMode ? [] : bundledHostExtensions(),
-  hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }),
+  // A userData cache dir keeps compiled extension code out of the shared
+  // system temp dir, which every local user can otherwise browse.
+  hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
+    versions: extensionVersions,
+    cacheDir: join(app.getPath("userData"), "host-extensions"),
+  }),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
