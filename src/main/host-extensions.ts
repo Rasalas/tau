@@ -315,7 +315,11 @@ export type HostExtensionCommandHandler = (input: unknown) => unknown;
 export interface HostExtensionContext {
   readonly id: string;
   readonly services: HostExtensionServices;
-  registerCommand(name: string, handler: HostExtensionCommandHandler): () => void;
+  /**
+   * `long: true` marks a command that may run for minutes (a repository copy,
+   * a build): it skips the command timeout and clients run it as a host job.
+   */
+  registerCommand(name: string, handler: HostExtensionCommandHandler, options?: { long?: boolean }): () => void;
   /** Publishes an `extension-event` for this extension's desktop counterpart. */
   emit(name: string, payload?: unknown): void;
 }
@@ -360,6 +364,7 @@ const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 interface ActiveHostExtension {
   extension: HostExtension;
   commands: Map<string, HostExtensionCommandHandler>;
+  longCommands: Set<string>;
   disposers: Array<() => void | Promise<void>>;
 }
 
@@ -393,15 +398,16 @@ export class HostExtensionRegistry {
     this.known.set(extension.id, extension);
     this.failures.delete(extension.id);
     this.consecutiveFailures.set(extension.id, 0);
-    const record: ActiveHostExtension = { extension, commands: new Map(), disposers: [] };
+    const record: ActiveHostExtension = { extension, commands: new Map(), longCommands: new Set(), disposers: [] };
     const guarded = guardedServices(this.services, extension.permissions, extension.id);
     const context: HostExtensionContext = {
       id: extension.id,
       services: guarded,
-      registerCommand: (name, handler) => {
+      registerCommand: (name, handler, options) => {
         if (!COMMAND_NAME.test(name)) throw new Error(`Host extension ${extension.id}: invalid command name "${name}"`);
         if (record.commands.has(name)) throw new Error(`Host extension ${extension.id}: command "${name}" registered twice`);
         record.commands.set(name, handler);
+        if (options?.long) record.longCommands.add(name);
         const dispose = () => { if (record.commands.get(name) === handler) record.commands.delete(name); };
         record.disposers.push(dispose);
         return dispose;
@@ -483,7 +489,9 @@ export class HostExtensionRegistry {
 
     const timeoutMs = this.options.commandTimeoutMs ?? 30_000;
     try {
-      const result = await this.runWithTimeout(() => handler(input), timeoutMs, command);
+      const result = record.longCommands.has(command)
+        ? await handler(input)
+        : await this.runWithTimeout(() => handler(input), timeoutMs, command);
       this.consecutiveFailures.set(extensionId, 0);
       return result;
     } catch (error) {
@@ -501,6 +509,11 @@ export class HostExtensionRegistry {
       }
       throw error;
     }
+  }
+
+  /** Long commands of every active extension, as `<extensionId>/<command>`. */
+  longCommands(): string[] {
+    return [...this.active.values()].flatMap((record) => [...record.longCommands].map((command) => `${record.extension.id}/${command}`)).sort();
   }
 
   summaries(): HostExtensionSummary[] {

@@ -1,4 +1,5 @@
 import type { HostActionResult } from "./host-protocol.js";
+import type { HostPush, HostResponse } from "./host-transport.js";
 import type { TranscriptBundle } from "./transcript-contract.js";
 import type { HostTranscriptCursor } from "./transcript-cursor.js";
 
@@ -510,69 +511,13 @@ export interface ThreadTreeNavigationResult extends HostActionResult {
 export interface TauDesktopApi {
   /** Host platform, so the title bar can leave room for native window controls. */
   readonly platform: string;
-  bootstrap(): Promise<HostBootstrap>;
-  loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<import("./host-protocol.js").TranscriptPage>;
-  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt>;
-  /** Prompts, steering and aborts target one thread; without an id they go to the thread on screen. */
-  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
-  runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
-  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
-  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
-  abort(sessionId?: string): Promise<void>;
-  /** Creates the thread in `cwd` directly; the project does not have to be opened first. */
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<import("./host-protocol.js").NewThreadResult>;
-  getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
-  forkThread(entryId: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
-  /** Pi's /tree: the session tree, moving the thread to another point in it, and /clone. */
-  threadTree(sessionId?: string): Promise<UiThreadTree>;
-  navigateThreadTree(entryId: string, options?: { summarize?: boolean }, expectedSessionId?: string): Promise<ThreadTreeNavigationResult>;
-  duplicateThread(expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
-  switchSession(path: string): Promise<import("./host-protocol.js").HostActionResult>;
-  setModel(provider: string, id: string): Promise<import("./host-protocol.js").HostActionResult>;
-  setThinkingLevel(level: string): Promise<import("./host-protocol.js").HostActionResult>;
-  compactContext(): Promise<import("./host-protocol.js").HostActionResult>;
-  recoverThread(): Promise<import("./host-protocol.js").HostActionResult>;
-  /** Reload Pi resources first; the renderer then reloads its desktop extensions. */
-  reloadRuntime(): Promise<void>;
-  answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
-  /** Re-announces questions raised before this renderer was listening. */
-  syncExtensionUi(): Promise<void>;
-  openProject(path: string): Promise<HostActionResult>;
-  removeProject(path: string): Promise<HostActionResult>;
-  renameThread(title: string, expectedSessionId?: string): Promise<import("./host-protocol.js").HostActionResult>;
-  copyText(text: string): Promise<void>;
-  /** Copies a validated image data URL through the Electron main process. */
-  copyImage(dataUrl: string): Promise<void>;
-  /** Reads the persisted tool result, rather than the bounded transcript preview. */
-  readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
-  copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
-  readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   /**
-   * Compiles the desktop extensions for a workspace. `sharedExports` names what the
-   * renderer publishes on `globalThis.__tauShared`, so bundles can bind to it.
+   * One request of the host protocol. The response carries either a result or
+   * an error; the bridge itself never throws for a failed method.
    */
-  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
-  /**
-   * Invokes a command a host extension registered. Host features that are not
-   * part of the core (Git, files, editors, ...) live behind this one channel.
-   */
-  invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
-  listHostExtensions(): Promise<HostExtensionSummary[]>;
-  /** Scans the package folders a workspace sees, for the settings inspector. */
-  inspectExtensions(cwd: string): Promise<ExtensionInspection>;
-  /** Turns the host half of an extension package off or on; bundled kits stay as they are. */
-  setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
-  /** Grants or revokes the permissions a package asked for; a grant starts both halves. */
-  grantExtension(id: string, grant: boolean): Promise<void>;
-  /** Atomically checks, waits for, or stops active runs before a workbench reload. */
-  prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation>;
-  /** Releases a prepared reload when applying changes fails or only the renderer reloads. */
-  releaseWorkbenchReload(): Promise<void>;
-  /** Rebuilds the workbench from source without leaving the app. */
-  rebuildWorkbench(): Promise<WorkbenchBuildResult>;
-  /** Restarts the app so a rebuilt main process takes effect. */
-  relaunchWorkbench(): Promise<void>;
-  onHostEvent(listener: (event: HostEvent) => void): () => void;
+  request(method: string, params: readonly unknown[]): Promise<HostResponse>;
+  /** Validated pushes, each with the sequence a client needs for replay. */
+  onHostEvent(listener: (push: HostPush) => void): () => void;
 }
 
 declare global {

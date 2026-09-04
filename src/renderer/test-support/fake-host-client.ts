@@ -73,6 +73,8 @@ function defaults(): HostClient {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    getConnectionState: () => "connected",
+    onConnectionState: () => () => undefined,
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

@@ -128,7 +128,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         await execFileAsync(gitExecutable(), ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
         services.log("git.cloned", destination);
         return { path: destination };
-      });
+      }, { long: true });
       context.registerCommand("file-tree", async (input) => {
         const project = cwd();
         const root = optionalString(input, "path") ?? project;

@@ -15,6 +15,7 @@ import { PanelIcon } from "./components/PanelIcon";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { ProjectSourcesModal } from "./components/ProjectSources";
 import { Region, StatusLine } from "./components/Regions";
+import { HostConnectionStatus } from "./host-connection-status";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
@@ -438,6 +439,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}
           </div>
+          <HostConnectionStatus />
           <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
         </main>
         {stage.tabs.length > 0 ? <LazyFeatureBoundary label="stage">

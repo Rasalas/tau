@@ -574,6 +574,11 @@ export class PiHost {
     return this.hostExtensions.invoke(extensionId, command, input);
   }
 
+  /** Extension commands that may run long, so a client runs them as host jobs. */
+  longHostExtensionCommands(): string[] {
+    return this.hostExtensions.longCommands();
+  }
+
   listHostExtensions(): HostExtensionSummary[] {
     const summaries = this.hostExtensions.summaries();
     const known = new Set(summaries.map((summary) => summary.id));

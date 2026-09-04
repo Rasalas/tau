@@ -1,29 +1,64 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { HostJobRunner } from "./host-jobs.js";
+import { createHostMethods } from "./host-methods.js";
 
 /**
- * The preload bridge and the main process agree only by string. A channel added
- * to one and forgotten in the other fails at runtime with "No handler
- * registered", and only when the user happens to hit that button.
+ * The renderer and the host agree only by string. A method added to one and
+ * forgotten in the other fails at runtime with "Unknown method", and only when
+ * the user happens to hit that button. The two channel names of the Electron
+ * transport are checked the same way.
  */
 const root = join(import.meta.dirname, "..");
-const channels = (file: string) =>
-  new Set(readFileSync(join(root, file), "utf8").match(/tau:[a-z-]+/gu) ?? []);
+const read = (file: string) => readFileSync(join(root, file), "utf8");
+const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? []);
 
-describe("IPC contract", () => {
-  const preload = channels("preload/index.cts");
-  const main = channels("main/index.ts");
+/** Names the client itself resolves: they never reach the method table. */
+const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods"]);
 
-  it("registers a main handler for every channel the preload invokes", () => {
-    const missing = [...preload].filter((channel) => !main.has(channel)).sort();
+function tableMethods(): Set<string> {
+  const unavailable = () => { throw new Error("not available in this test"); };
+  const methods = createHostMethods({
+    bootstrap: unavailable,
+    requireHost: unavailable,
+    host: () => undefined,
+    jobs: new HostJobRunner(() => undefined),
+    platform: {
+      copyText: unavailable,
+      copyImage: unavailable,
+      readImagePreview: unavailable,
+      inspectExtensions: unavailable,
+      loadDesktopExtensions: unavailable,
+      rebuildWorkbench: unavailable,
+      relaunchWorkbench: unavailable,
+    },
+  });
+  return new Set(Object.keys(methods));
+}
+
+/** Every protocol method name the renderer's host client sends. */
+function clientMethods(): Set<string> {
+  const source = read("renderer/host-client.ts");
+  return new Set([...source.matchAll(/(?:call|runJob|isJobMethod)(?:<[^>]*>)?\("([a-z-]+)"/gu)].map((match) => match[1]!));
+}
+
+describe("host protocol contract", () => {
+  const methods = tableMethods();
+
+  it("the host implements every method the client calls", () => {
+    const missing = [...clientMethods()].filter((method) => !methods.has(method)).sort();
     expect(missing).toEqual([]);
   });
 
-  it("exposes every handled channel through the preload", () => {
-    // "tau:host-event" is pushed main → renderer, not invoked, so it is exempt.
-    const pushOnly = new Set(["tau:host-event"]);
-    const unreachable = [...main].filter((channel) => !preload.has(channel) && !pushOnly.has(channel)).sort();
+  it("every method in the table is reachable from the client", () => {
+    const client = clientMethods();
+    const unreachable = [...methods].filter((method) => !client.has(method) && !CLIENT_SIDE.has(method)).sort();
     expect(unreachable).toEqual([]);
+  });
+
+  it("preload and the Electron transport name the same channels", () => {
+    expect([...channels("preload/index.cts")].sort()).toEqual(["tau:host-event", "tau:request"]);
+    expect([...channels("main/host-transport-electron.ts")].sort()).toEqual(["tau:host-event", "tau:request"]);
   });
 });

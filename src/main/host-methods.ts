@@ -1,0 +1,218 @@
+import type {
+  DesktopExtensionLoadResult,
+  ExtensionInspection,
+  HostBootstrap,
+  UiImagePreview,
+  WorkbenchBuildResult,
+} from "../shared/contracts.js";
+import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
+import type { PiHost } from "./pi-host.js";
+import { NO_JOB_CONTEXT, type HostJobRunner, type HostMethodContext } from "./host-jobs.js";
+import {
+  decodeBoolean,
+  decodeCommandName,
+  decodeExtensionId,
+  decodeExtensionUiAnswer,
+  decodeHostTranscriptCursor,
+  decodeNavigateOptions,
+  decodeOptionalBoolean,
+  decodeOptionalString,
+  decodeOptionalText,
+  decodePreparedPrompt,
+  decodeSharedExports,
+  decodeString,
+  decodeStringOrClientTurnIdentity,
+  decodeText,
+  decodeUiPromptAttachments,
+  decodeUiSkillDraft,
+  decodeWorkbenchReloadMode,
+} from "./ipc-input.js";
+
+/** One method of the host protocol. Params arrive positionally and untrusted. */
+export type HostMethod = (params: readonly unknown[], context: HostMethodContext) => Promise<unknown>;
+export type HostMethodTable = Record<string, HostMethod>;
+
+/** What a method needs from the machine the host runs on. */
+export interface HostMethodPlatform {
+  copyText(text: string): void;
+  copyImage(dataUrl: string): void;
+  readImagePreview(path: string): Promise<UiImagePreview | undefined>;
+  inspectExtensions(cwd: string): Promise<ExtensionInspection>;
+  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
+  rebuildWorkbench(context: HostMethodContext): Promise<WorkbenchBuildResult>;
+  relaunchWorkbench(): void;
+}
+
+export interface HostMethodDeps {
+  /** Starts the host on the first call; later calls read what is already running. */
+  bootstrap(): Promise<HostBootstrap>;
+  /** Resolves once the host finished starting. */
+  requireHost(): Promise<PiHost>;
+  /** The host as it is, for calls that must not queue behind readiness. */
+  host(): PiHost | undefined;
+  jobs: HostJobRunner;
+  platform: HostMethodPlatform;
+}
+
+const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
+
+function decodePromptArgs(method: string, params: readonly unknown[]) {
+  return {
+    text: decodeText(method, "text", params[0]),
+    attachments: decodeUiPromptAttachments(method, "attachments", params[1]),
+    sessionId: decodeOptionalString(method, "sessionId", params[2]),
+    clientMessageIdOrIdentity: decodeStringOrClientTurnIdentity(method, "clientMessageIdOrIdentity", params[3]),
+    prepared: decodePreparedPrompt(method, "prepared", params[4]),
+  };
+}
+
+/**
+ * Every renderer-callable operation of the host, by protocol method name. The
+ * table is the contract: a transport only moves frames in and out of it.
+ */
+export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
+  const { platform } = deps;
+  const host = () => deps.requireHost();
+
+  const methods: HostMethodTable = {
+    "bootstrap": async () => deps.bootstrap(),
+    "transcript-page": async (params) => (await host()).loadTranscript(
+      decodeString("transcript-page", "sessionId", params[0]),
+      decodeHostTranscriptCursor("transcript-page", "cursor", params[1]),
+    ),
+    "prepare-prompt": async (params) => (await host()).preparePrompt(
+      decodeText("prepare-prompt", "text", params[0]),
+      decodeOptionalString("prepare-prompt", "sessionId", params[1]),
+      decodeUiSkillDraft("prepare-prompt", "skill", params[2]),
+    ),
+    "prompt": async (params) => {
+      const args = decodePromptArgs("prompt", params);
+      return (await host()).prompt(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
+    },
+    "run-shell-action": async (params) => (await host()).runShellAction(
+      decodeString("run-shell-action", "command", params[0]),
+      decodeOptionalBoolean("run-shell-action", "includeInContext", params[1]),
+      decodeOptionalString("run-shell-action", "expectedCwd", params[2]),
+    ),
+    "steer": async (params) => {
+      const args = decodePromptArgs("steer", params);
+      return (await host()).steer(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
+    },
+    "follow-up": async (params) => {
+      const args = decodePromptArgs("follow-up", params);
+      return (await host()).followUp(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
+    },
+    // Stopping must not queue behind host readiness: a thread stuck on a question
+    // is exactly what the user is trying to get out of.
+    "abort": async (params) => deps.host()?.abort(decodeOptionalString("abort", "sessionId", params[0])),
+    "new-session": async (params) => (await host()).newSession(
+      decodeOptionalText("new-session", "initialPrompt", params[0]),
+      decodeUiPromptAttachments("new-session", "attachments", params[1]),
+      decodeOptionalString("new-session", "cwd", params[2]),
+      decodeStringOrClientTurnIdentity("new-session", "clientMessageIdOrRequestId", params[3]),
+      decodePreparedPrompt("new-session", "prepared", params[4]),
+    ),
+    "prepared-thread-capability": async (params) =>
+      (await host()).getPreparedThreadCapability(decodeOptionalString("prepared-thread-capability", "cwd", params[0])),
+    "fork-thread": async (params) => (await host()).forkThread(
+      decodeString("fork-thread", "entryId", params[0]),
+      decodeOptionalString("fork-thread", "expectedSessionId", params[1]),
+    ),
+    "thread-tree": async (params) => (await host()).threadTree(decodeOptionalString("thread-tree", "sessionId", params[0])),
+    "navigate-thread-tree": async (params) => (await host()).navigateThreadTree(
+      decodeString("navigate-thread-tree", "entryId", params[0]),
+      decodeNavigateOptions("navigate-thread-tree", "options", params[1]),
+      decodeOptionalString("navigate-thread-tree", "expectedSessionId", params[2]),
+    ),
+    "duplicate-thread": async (params) => (await host()).duplicateThread(decodeOptionalString("duplicate-thread", "expectedSessionId", params[0])),
+    "switch-session": async (params) => (await host()).switchSession(decodeString("switch-session", "path", params[0])),
+    "set-model": async (params) => (await host()).setModel(
+      decodeString("set-model", "provider", params[0]),
+      decodeString("set-model", "id", params[1]),
+    ),
+    "set-thinking": async (params) => (await host()).setThinkingLevel(decodeString("set-thinking", "level", params[0])),
+    "compact-context": async () => (await host()).compactContext(),
+    "reload-runtime": async () => (await host()).reloadRuntime(),
+    // Answering must never wait for a ready host: the host is blocked on this very
+    // question, so requiring readiness here would deadlock startup.
+    "answer-extension-ui": async (params) => deps.host()?.answerExtensionUi(
+      decodeString("answer-extension-ui", "id", params[0]),
+      decodeExtensionUiAnswer("answer-extension-ui", "answer", params[1]),
+    ),
+    "sync-extension-ui": async () => deps.host()?.replayOpenUiPrompts(),
+    "recover-thread": async () => (await host()).recoverThread(),
+    "rename-thread": async (params) => (await host()).renameThread(
+      decodeString("rename-thread", "title", params[0]),
+      decodeOptionalString("rename-thread", "expectedSessionId", params[1]),
+    ),
+    "copy-text": async (params) => platform.copyText(decodeString("copy-text", "text", params[0])),
+    "copy-image": async (params) => platform.copyImage(decodeString("copy-image", "dataUrl", params[0])),
+    "read-tool-output": async (params) => (await host()).readToolOutput(
+      decodeString("read-tool-output", "sessionId", params[0]),
+      decodeString("read-tool-output", "toolCallId", params[1]),
+    ),
+    "copy-thread-markdown": async (params) => {
+      const markdown = await (await host()).exportThreadMarkdown(decodeOptionalString("copy-thread-markdown", "expectedSessionId", params[0]));
+      platform.copyText(markdown);
+    },
+    "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
+    // Host extensions reach the renderer through this single method; core does
+    // not grow a method per feature. `input` stays unknown: the extension owns it.
+    "host-extension": async (params) => (await host()).invokeHostExtension(
+      decodeExtensionId("host-extension", params[0]),
+      decodeCommandName("host-extension", params[1]),
+      params[2],
+    ),
+    "host-extensions": async () => (await host()).listHostExtensions(),
+    "inspect-extensions": async (params) => platform.inspectExtensions(decodeString("inspect-extensions", "cwd", params[0])),
+    "host-extension-active": async (params) => (await host()).setHostExtensionActive(
+      decodeString("host-extension-active", "id", params[0]),
+      decodeBoolean("host-extension-active", "active", params[1]),
+    ),
+    "extension-grant": async (params) => (await host()).grantExtension(
+      decodeExtensionId("extension-grant", params[0]),
+      decodeBoolean("extension-grant", "grant", params[1]),
+    ),
+    "prepare-workbench-reload": async (params) =>
+      (await host()).prepareWorkbenchReload(decodeWorkbenchReloadMode("prepare-workbench-reload", "mode", params[0])),
+    "release-workbench-reload": async () => (await host()).releaseWorkbenchReload(),
+    "desktop-extensions": async (params) => platform.loadDesktopExtensions(
+      decodeString("desktop-extensions", "cwd", params[0]),
+      decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
+    ),
+    "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context),
+    "relaunch-workbench": async () => platform.relaunchWorkbench(),
+    "open-project": async (params) => (await host()).setWorkspace(decodeString("open-project", "path", params[0])),
+    "remove-project": async (params) => (await host()).removeProject(decodeString("remove-project", "path", params[0])),
+
+    "start-job": async (params) => {
+      const method = decodeString("start-job", "method", params[0]);
+      if (JOB_CONTROL_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
+      const target = methods[method];
+      if (!target) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
+      const jobParams = params[1] === undefined ? [] : params[1];
+      if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
+      return { jobId: deps.jobs.start((context) => target(jobParams as unknown[], context)) };
+    },
+    "cancel-job": async (params) => ({ cancelled: deps.jobs.cancel(decodeString("cancel-job", "jobId", params[0])) }),
+    /** Which calls a client should run as jobs; a host extension marks its own long commands. */
+    "job-methods": async () => {
+      const long = deps.host()?.longHostExtensionCommands() ?? [];
+      return [
+        "rebuild-workbench",
+        ...long.map((entry) => {
+          const [extensionId = "", command = ""] = entry.split("/");
+          return jobMethodKey("host-extension", extensionId, command);
+        }),
+      ];
+    },
+  };
+  return methods;
+}
+
+/** Runs one method outside a job; used by the request path of every transport. */
+export async function invokeHostMethod(methods: HostMethodTable, method: string, params: readonly unknown[]): Promise<unknown> {
+  const handler = methods[method];
+  if (!handler) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
+  return handler(params, NO_JOB_CONTEXT);
+}

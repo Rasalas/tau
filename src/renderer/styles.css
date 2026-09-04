@@ -2709,3 +2709,13 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 }
 .region-composer-below .pi-ui-widget { margin: 6px 0 0; }
 .region-title-bar { flex-direction: row; align-items: center; gap: 8px; }
+
+/* Only rendered while the host link is being repaired. */
+.host-connection-status {
+  align-self: stretch;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-dim, #b9b6ad);
+  background: rgba(255, 176, 46, 0.12);
+  border-top: 1px solid rgba(255, 176, 46, 0.35);
+}

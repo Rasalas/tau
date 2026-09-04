@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, session, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { HostEvent } from "../shared/contracts.js";
+import type { HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { ProjectHistory } from "./project-history.js";
@@ -17,25 +17,11 @@ import { installShellEnvironment } from "./shell-environment.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
-import {
-  decodeBoolean,
-  decodeCommandName,
-  decodeExtensionId,
-  decodeExtensionUiAnswer,
-  decodeHostTranscriptCursor,
-  decodeNavigateOptions,
-  decodeOptionalBoolean,
-  decodeOptionalString,
-  decodePreparedPrompt,
-  decodeSharedExports,
-  decodeString,
-  decodeStringOrClientTurnIdentity,
-  decodeText,
-  decodeOptionalText,
-  decodeUiPromptAttachments,
-  decodeUiSkillDraft,
-  decodeWorkbenchReloadMode,
-} from "./ipc-input.js";
+import { HostPushLog } from "./host-push-log.js";
+import { HostJobRunner } from "./host-jobs.js";
+import { createHostMethods } from "./host-methods.js";
+import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
+import { HOST_CAPABILITY } from "../shared/host-transport.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
@@ -101,13 +87,16 @@ async function rendererImagePreview(path: string) {
 }
 
 let mainWindow: BrowserWindow | undefined;
+let transport: ElectronHostTransport | undefined;
+const pushLog = new HostPushLog();
+const jobs = new HostJobRunner((event) => transport?.publish(event));
 let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
 let projectHistory: ProjectHistory;
 let shutdownStarted = false;
 let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
-let rebuild: Promise<unknown> | undefined;
+let rebuild: Promise<WorkbenchBuildResult> | undefined;
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
@@ -116,7 +105,7 @@ const primaryInstance = installSingleInstance(app, () => mainWindow);
 function publish(event: HostEvent): void {
   // Mirrored to the log file so nothing is lost once the window is gone.
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
-  if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send("tau:host-event", event);
+  transport?.publish(event);
 }
 
 async function createWindow(): Promise<void> {
@@ -210,163 +199,60 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
   return ready;
 }
 
-function installIpc(): void {
-  ipcMain.handle("tau:bootstrap", async () => {
-    if (!host) {
-      host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
-      host.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
-      hostReady = watchHostStart(host.start());
-      return hostReady;
-    }
-    await hostReady;
-    return host.bootstrap();
+function installTransport(): void {
+  const methods = createHostMethods({
+    bootstrap: async () => {
+      if (!host) {
+        host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
+        host.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
+        hostReady = watchHostStart(host.start());
+        return hostReady as Promise<HostBootstrap>;
+      }
+      await hostReady;
+      return host.bootstrap();
+    },
+    requireHost: requireHostReady,
+    host: () => host,
+    jobs,
+    platform: {
+      copyText: (text) => clipboard.writeText(text),
+      copyImage: (dataUrl) => {
+        const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
+        if (image.isEmpty()) throw new Error("Invalid image data.");
+        clipboard.writeImage(image);
+      },
+      readImagePreview: rendererImagePreview,
+      inspectExtensions: async (cwd) => inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }),
+      loadDesktopExtensions: async (cwd, sharedExports) => {
+        const result = await loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions });
+        // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
+        desktopBundles.clear();
+        return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })) };
+      },
+      rebuildWorkbench: (context) => {
+        if (rebuild) return rebuild;
+        rebuild = rebuildWorkbench(app.getAppPath(), {
+          onOutput: (line) => {
+            context.progress(line);
+            publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() });
+          },
+        }).finally(() => { rebuild = undefined; });
+        return rebuild;
+      },
+      relaunchWorkbench: () => {
+        app.relaunch();
+        app.quit();
+      },
+    },
   });
-  ipcMain.handle("tau:transcript-page", async (_event, sessionId: unknown, cursor?: unknown) =>
-    (await requireHostReady()).loadTranscript(
-      decodeString("tau:transcript-page", "sessionId", sessionId),
-      decodeHostTranscriptCursor("tau:transcript-page", "cursor", cursor),
-    ));
-  ipcMain.handle("tau:prepare-prompt", async (_event, text: unknown, sessionId?: unknown, skill?: unknown) =>
-    (await requireHostReady()).preparePrompt(
-      decodeText("tau:prepare-prompt", "text", text),
-      decodeOptionalString("tau:prepare-prompt", "sessionId", sessionId),
-      decodeUiSkillDraft("tau:prepare-prompt", "skill", skill),
-    ));
-  const decodePromptArgs = (channel: string, text: unknown, attachments: unknown, sessionId: unknown, clientMessageIdOrIdentity: unknown, prepared: unknown) => ({
-    text: decodeText(channel, "text", text),
-    attachments: decodeUiPromptAttachments(channel, "attachments", attachments),
-    sessionId: decodeOptionalString(channel, "sessionId", sessionId),
-    clientMessageIdOrIdentity: decodeStringOrClientTurnIdentity(channel, "clientMessageIdOrIdentity", clientMessageIdOrIdentity),
-    prepared: decodePreparedPrompt(channel, "prepared", prepared),
+  transport = installElectronHostTransport({
+    ipcMain,
+    methods,
+    pushLog,
+    hostVersion: app.getVersion(),
+    capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
+    send: (channel, payload) => { if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send(channel, payload); },
   });
-  ipcMain.handle("tau:prompt", async (_event, text: unknown, attachments?: unknown, sessionId?: unknown, clientMessageIdOrIdentity?: unknown, prepared?: unknown) => {
-    const args = decodePromptArgs("tau:prompt", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
-    return (await requireHostReady()).prompt(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
-  });
-  ipcMain.handle("tau:run-shell-action", async (_event, command: unknown, includeInContext?: unknown, expectedCwd?: unknown) =>
-    (await requireHostReady()).runShellAction(
-      decodeString("tau:run-shell-action", "command", command),
-      decodeOptionalBoolean("tau:run-shell-action", "includeInContext", includeInContext),
-      decodeOptionalString("tau:run-shell-action", "expectedCwd", expectedCwd),
-    ));
-  ipcMain.handle("tau:steer", async (_event, text: unknown, attachments?: unknown, sessionId?: unknown, clientMessageIdOrIdentity?: unknown, prepared?: unknown) => {
-    const args = decodePromptArgs("tau:steer", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
-    return (await requireHostReady()).steer(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
-  });
-  ipcMain.handle("tau:follow-up", async (_event, text: unknown, attachments?: unknown, sessionId?: unknown, clientMessageIdOrIdentity?: unknown, prepared?: unknown) => {
-    const args = decodePromptArgs("tau:follow-up", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
-    return (await requireHostReady()).followUp(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
-  });
-  // Stopping must not queue behind host readiness: a thread stuck on a question
-  // is exactly what the user is trying to get out of.
-  ipcMain.handle("tau:abort", async (_event, sessionId?: unknown) => host?.abort(decodeOptionalString("tau:abort", "sessionId", sessionId)));
-  ipcMain.handle("tau:new-session", async (_event, initialPrompt?: unknown, attachments?: unknown, cwd?: unknown, clientMessageIdOrRequestId?: unknown, prepared?: unknown) =>
-    (await requireHostReady()).newSession(
-      decodeOptionalText("tau:new-session", "initialPrompt", initialPrompt),
-      decodeUiPromptAttachments("tau:new-session", "attachments", attachments),
-      decodeOptionalString("tau:new-session", "cwd", cwd),
-      decodeStringOrClientTurnIdentity("tau:new-session", "clientMessageIdOrRequestId", clientMessageIdOrRequestId),
-      decodePreparedPrompt("tau:new-session", "prepared", prepared),
-    ));
-  ipcMain.handle("tau:prepared-thread-capability", async (_event, cwd?: unknown) =>
-    (await requireHostReady()).getPreparedThreadCapability(decodeOptionalString("tau:prepared-thread-capability", "cwd", cwd)));
-  ipcMain.handle("tau:fork-thread", async (_event, entryId: unknown, expectedSessionId?: unknown) =>
-    (await requireHostReady()).forkThread(
-      decodeString("tau:fork-thread", "entryId", entryId),
-      decodeOptionalString("tau:fork-thread", "expectedSessionId", expectedSessionId),
-    ));
-  ipcMain.handle("tau:thread-tree", async (_event, sessionId?: unknown) =>
-    (await requireHostReady()).threadTree(decodeOptionalString("tau:thread-tree", "sessionId", sessionId)));
-  ipcMain.handle("tau:navigate-thread-tree", async (_event, entryId: unknown, options?: unknown, expectedSessionId?: unknown) =>
-    (await requireHostReady()).navigateThreadTree(
-      decodeString("tau:navigate-thread-tree", "entryId", entryId),
-      decodeNavigateOptions("tau:navigate-thread-tree", "options", options),
-      decodeOptionalString("tau:navigate-thread-tree", "expectedSessionId", expectedSessionId),
-    ));
-  ipcMain.handle("tau:duplicate-thread", async (_event, expectedSessionId?: unknown) =>
-    (await requireHostReady()).duplicateThread(decodeOptionalString("tau:duplicate-thread", "expectedSessionId", expectedSessionId)));
-  ipcMain.handle("tau:switch-session", async (_event, path: unknown) =>
-    (await requireHostReady()).switchSession(decodeString("tau:switch-session", "path", path)));
-  ipcMain.handle("tau:set-model", async (_event, provider: unknown, id: unknown) =>
-    (await requireHostReady()).setModel(decodeString("tau:set-model", "provider", provider), decodeString("tau:set-model", "id", id)));
-  ipcMain.handle("tau:set-thinking", async (_event, level: unknown) =>
-    (await requireHostReady()).setThinkingLevel(decodeString("tau:set-thinking", "level", level)));
-  ipcMain.handle("tau:compact-context", async () => (await requireHostReady()).compactContext());
-  ipcMain.handle("tau:reload-runtime", async () => (await requireHostReady()).reloadRuntime());
-  // Answering must never wait for a ready host: the host is blocked on this very
-  // question, so requiring readiness here would deadlock startup.
-  ipcMain.handle("tau:answer-extension-ui", (_event, id: unknown, answer: unknown) =>
-    host?.answerExtensionUi(decodeString("tau:answer-extension-ui", "id", id), decodeExtensionUiAnswer("tau:answer-extension-ui", "answer", answer)));
-  ipcMain.handle("tau:sync-extension-ui", () => host?.replayOpenUiPrompts());
-  ipcMain.handle("tau:recover-thread", async () => (await requireHostReady()).recoverThread());
-  ipcMain.handle("tau:rename-thread", async (_event, title: unknown, expectedSessionId?: unknown) =>
-    (await requireHostReady()).renameThread(
-      decodeString("tau:rename-thread", "title", title),
-      decodeOptionalString("tau:rename-thread", "expectedSessionId", expectedSessionId),
-    ));
-  ipcMain.handle("tau:copy-text", (_event, text: unknown) => clipboard.writeText(decodeString("tau:copy-text", "text", text)));
-  ipcMain.handle("tau:copy-image", (_event, dataUrl: unknown) => {
-    const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
-    if (image.isEmpty()) throw new Error("Invalid image data.");
-    clipboard.writeImage(image);
-  });
-  ipcMain.handle("tau:read-tool-output", async (_event, sessionId: unknown, toolCallId: unknown) =>
-    (await requireHostReady()).readToolOutput(
-      decodeString("tau:read-tool-output", "sessionId", sessionId),
-      decodeString("tau:read-tool-output", "toolCallId", toolCallId),
-    ));
-  ipcMain.handle("tau:copy-thread-markdown", async (_event, expectedSessionId?: unknown) => {
-    clipboard.writeText(await (await requireHostReady()).exportThreadMarkdown(decodeOptionalString("tau:copy-thread-markdown", "expectedSessionId", expectedSessionId)));
-  });
-  ipcMain.handle("tau:read-image-preview", async (_event, path: unknown) => rendererImagePreview(decodeString("tau:read-image-preview", "path", path)));
-  // Host extensions reach the renderer through this single channel; core does
-  // not grow an IPC entry per feature. `input` stays unknown: the extension owns it.
-  ipcMain.handle("tau:host-extension", async (_event, extensionId: unknown, command: unknown, input?: unknown) =>
-    (await requireHostReady()).invokeHostExtension(
-      decodeExtensionId("tau:host-extension", extensionId),
-      decodeCommandName("tau:host-extension", command),
-      input,
-    ));
-  ipcMain.handle("tau:host-extensions", async () => (await requireHostReady()).listHostExtensions());
-  ipcMain.handle("tau:inspect-extensions", async (_event, cwd: unknown) =>
-    inspectExtensionPackages(decodeString("tau:inspect-extensions", "cwd", cwd), getAgentDir(), { versions: extensionVersions }));
-  ipcMain.handle("tau:host-extension-active", async (_event, id: unknown, active: unknown) =>
-    (await requireHostReady()).setHostExtensionActive(
-      decodeString("tau:host-extension-active", "id", id),
-      decodeBoolean("tau:host-extension-active", "active", active),
-    ));
-  ipcMain.handle("tau:extension-grant", async (_event, id: unknown, grant: unknown) =>
-    (await requireHostReady()).grantExtension(
-      decodeExtensionId("tau:extension-grant", id),
-      decodeBoolean("tau:extension-grant", "grant", grant),
-    ));
-  ipcMain.handle("tau:prepare-workbench-reload", async (_event, mode: unknown) =>
-    (await requireHostReady()).prepareWorkbenchReload(decodeWorkbenchReloadMode("tau:prepare-workbench-reload", "mode", mode)));
-  ipcMain.handle("tau:release-workbench-reload", async () => (await requireHostReady()).releaseWorkbenchReload());
-  ipcMain.handle("tau:desktop-extensions", async (_event, cwd: unknown, sharedExports: unknown) => {
-    const result = await loadDesktopExtensions(decodeString("tau:desktop-extensions", "cwd", cwd), getAgentDir(), {
-      sharedExports: decodeSharedExports("tau:desktop-extensions", "sharedExports", sharedExports),
-      versions: extensionVersions,
-    });
-    // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
-    desktopBundles.clear();
-    return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })) };
-  });
-  ipcMain.handle("tau:rebuild-workbench", async () => {
-    if (rebuild) return rebuild;
-    rebuild = rebuildWorkbench(app.getAppPath(), {
-      onOutput: (line) => publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() }),
-    }).finally(() => { rebuild = undefined; });
-    return rebuild;
-  });
-  ipcMain.handle("tau:relaunch-workbench", () => {
-    app.relaunch();
-    app.quit();
-  });
-  ipcMain.handle("tau:open-project", async (_event, path: unknown) =>
-    (await requireHostReady()).setWorkspace(decodeString("tau:open-project", "path", path)));
-  ipcMain.handle("tau:remove-project", async (_event, path: unknown) =>
-    (await requireHostReady()).removeProject(decodeString("tau:remove-project", "path", path)));
 }
 
 if (primaryInstance) app.whenReady().then(async () => {
@@ -393,9 +279,9 @@ if (primaryInstance) app.whenReady().then(async () => {
   if (shellEnvironment?.installed.length) console.log(`shell environment: ${shellEnvironment.installed.join(", ")} from ${shellEnvironment.pathSource}`);
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
+  installTransport();
   host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
   hostReady = watchHostStart(host.start());
-  installIpc();
   await createWindow();
 });
 

@@ -22,11 +22,13 @@ import type {
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
+import { HostConnection, createElectronHostTransport, type HostConnectionState } from "./host-connection";
 
 /**
- * Transport-neutral view of the desktop host. Electron IPC is one
- * implementation (`createElectronHostClient`); a remote host would be another.
- * No renderer module outside this file and `main.tsx` may reach `window.tau`.
+ * Transport-neutral view of the desktop host. Every method is one call of the
+ * versioned host protocol on a `HostConnection`; Electron IPC and the local
+ * socket are two transports under it. No renderer module outside this file and
+ * `main.tsx` may reach `window.tau`.
  */
 export interface HostClient {
   // Thread lifecycle and navigation: create, resume, switch, and manage projects.
@@ -84,62 +86,87 @@ export interface HostClient {
   copyText(text: string): Promise<void>;
   copyImage(dataUrl: string): Promise<void>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
+  /** Whether the link to the host is whole, being repaired, or refetching state. */
+  getConnectionState(): HostConnectionState;
+  onConnectionState(listener: (state: HostConnectionState) => void): () => void;
 }
 
-/** Thin delegation to the Electron preload bridge; carries no logic of its own. */
-export function createElectronHostClient(api: TauDesktopApi): HostClient {
+/** Builds the typed host surface over one connection; the method names are the protocol. */
+export function createHostClient(connection: HostConnection): HostClient {
+  const call = <T>(method: string, params: readonly unknown[] = []) => connection.request<T>(method, params);
   return {
-    bootstrap: () => api.bootstrap(),
+    bootstrap: async () => {
+      const bootstrap = await call<HostBootstrap>("bootstrap");
+      // Which calls run as jobs depends on the extensions the host just started.
+      void connection.refreshJobMethods();
+      return bootstrap;
+    },
     newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared) =>
-      api.newSession(initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared),
-    getPreparedThreadCapability: (cwd) => api.getPreparedThreadCapability(cwd),
-    forkThread: (entryId, expectedSessionId) => api.forkThread(entryId, expectedSessionId),
-    threadTree: (sessionId) => api.threadTree(sessionId),
-    navigateThreadTree: (entryId, options, expectedSessionId) => api.navigateThreadTree(entryId, options, expectedSessionId),
-    duplicateThread: (expectedSessionId) => api.duplicateThread(expectedSessionId),
-    switchSession: (path) => api.switchSession(path),
-    openProject: (path) => api.openProject(path),
-    removeProject: (path) => api.removeProject(path),
-    renameThread: (title, expectedSessionId) => api.renameThread(title, expectedSessionId),
-    recoverThread: () => api.recoverThread(),
+      call<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared]),
+    getPreparedThreadCapability: (cwd) => call<PreparedThreadCapability>("prepared-thread-capability", [cwd]),
+    forkThread: (entryId, expectedSessionId) => call<HostActionResult>("fork-thread", [entryId, expectedSessionId]),
+    threadTree: (sessionId) => call<UiThreadTree>("thread-tree", [sessionId]),
+    navigateThreadTree: (entryId, options, expectedSessionId) =>
+      call<ThreadTreeNavigationResult>("navigate-thread-tree", [entryId, options, expectedSessionId]),
+    duplicateThread: (expectedSessionId) => call<HostActionResult>("duplicate-thread", [expectedSessionId]),
+    switchSession: (path) => call<HostActionResult>("switch-session", [path]),
+    openProject: (path) => call<HostActionResult>("open-project", [path]),
+    removeProject: (path) => call<HostActionResult>("remove-project", [path]),
+    renameThread: (title, expectedSessionId) => call<HostActionResult>("rename-thread", [title, expectedSessionId]),
+    recoverThread: () => call<HostActionResult>("recover-thread"),
 
-    preparePrompt: (text, sessionId, skill) => api.preparePrompt(text, sessionId, skill),
+    preparePrompt: (text, sessionId, skill) => call<PreparedPrompt | undefined>("prepare-prompt", [text, sessionId, skill]),
     sendPrompt: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      api.sendPrompt(text, attachments, sessionId, clientMessageIdOrIdentity, prepared),
+      call<void>("prompt", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     steer: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      api.steer(text, attachments, sessionId, clientMessageIdOrIdentity, prepared),
+      call<void>("steer", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     followUp: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      api.followUp(text, attachments, sessionId, clientMessageIdOrIdentity, prepared),
-    abort: (sessionId) => api.abort(sessionId),
-    runShellAction: (command, includeInContext, expectedCwd) => api.runShellAction(command, includeInContext, expectedCwd),
+      call<void>("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
+    abort: (sessionId) => call<void>("abort", [sessionId]),
+    runShellAction: (command, includeInContext, expectedCwd) =>
+      call<ShellActionResult>("run-shell-action", [command, includeInContext, expectedCwd]),
 
-    loadTranscript: (sessionId, cursor) => api.loadTranscript(sessionId, cursor),
-    readToolOutput: (sessionId, toolCallId) => api.readToolOutput(sessionId, toolCallId),
-    copyThreadMarkdown: (expectedSessionId) => api.copyThreadMarkdown(expectedSessionId),
-    readImagePreview: (path) => api.readImagePreview(path),
+    loadTranscript: (sessionId, cursor) => call<TranscriptPage>("transcript-page", [sessionId, cursor]),
+    readToolOutput: (sessionId, toolCallId) => call<UiToolOutputReadResult | undefined>("read-tool-output", [sessionId, toolCallId]),
+    copyThreadMarkdown: (expectedSessionId) => call<void>("copy-thread-markdown", [expectedSessionId]),
+    readImagePreview: (path) => call<UiImagePreview | undefined>("read-image-preview", [path]),
 
-    setModel: (provider, id) => api.setModel(provider, id),
-    setThinkingLevel: (level) => api.setThinkingLevel(level),
-    compactContext: () => api.compactContext(),
+    setModel: (provider, id) => call<HostActionResult>("set-model", [provider, id]),
+    setThinkingLevel: (level) => call<HostActionResult>("set-thinking", [level]),
+    compactContext: () => call<HostActionResult>("compact-context"),
 
-    reloadRuntime: () => api.reloadRuntime(),
-    answerExtensionUi: (id, answer) => api.answerExtensionUi(id, answer),
-    syncExtensionUi: () => api.syncExtensionUi(),
-    loadDesktopExtensions: (cwd, sharedExports) => api.loadDesktopExtensions(cwd, sharedExports),
-    invokeHostExtension: (extensionId, command, input) => api.invokeHostExtension(extensionId, command, input),
-    listHostExtensions: () => api.listHostExtensions(),
-    inspectExtensions: (cwd) => api.inspectExtensions(cwd),
-    setHostExtensionActive: (id, active) => api.setHostExtensionActive(id, active),
-    grantExtension: (id, grant) => api.grantExtension(id, grant),
+    reloadRuntime: () => call<void>("reload-runtime"),
+    answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),
+    syncExtensionUi: () => call<void>("sync-extension-ui"),
+    loadDesktopExtensions: (cwd, sharedExports) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports]),
+    // A command an extension declared long-running waits on `job-done` instead
+    // of on one long response, so the host can report progress and be cancelled.
+    invokeHostExtension: (extensionId, command, input) => connection.isJobMethod("host-extension", extensionId, command)
+      ? connection.runJob<unknown>("host-extension", [extensionId, command, input])
+      : call<unknown>("host-extension", [extensionId, command, input]),
+    listHostExtensions: () => call<HostExtensionSummary[]>("host-extensions"),
+    inspectExtensions: (cwd) => call<ExtensionInspection>("inspect-extensions", [cwd]),
+    setHostExtensionActive: (id, active) => call<HostExtensionSummary[]>("host-extension-active", [id, active]),
+    grantExtension: (id, grant) => call<void>("extension-grant", [id, grant]),
 
-    prepareWorkbenchReload: (mode) => api.prepareWorkbenchReload(mode),
-    releaseWorkbenchReload: () => api.releaseWorkbenchReload(),
-    rebuildWorkbench: () => api.rebuildWorkbench(),
-    relaunchWorkbench: () => api.relaunchWorkbench(),
+    prepareWorkbenchReload: (mode) => call<WorkbenchReloadPreparation>("prepare-workbench-reload", [mode]),
+    releaseWorkbenchReload: () => call<void>("release-workbench-reload"),
+    rebuildWorkbench: () => connection.isJobMethod("rebuild-workbench")
+      ? connection.runJob<WorkbenchBuildResult>("rebuild-workbench")
+      : call<WorkbenchBuildResult>("rebuild-workbench"),
+    relaunchWorkbench: () => call<void>("relaunch-workbench"),
 
-    platform: api.platform,
-    copyText: (text) => api.copyText(text),
-    copyImage: (dataUrl) => api.copyImage(dataUrl),
-    onHostEvent: (listener) => api.onHostEvent(listener),
+    platform: connection.platform,
+    copyText: (text) => call<void>("copy-text", [text]),
+    copyImage: (dataUrl) => call<void>("copy-image", [dataUrl]),
+    onHostEvent: (listener) => connection.onEvent(listener),
+    getConnectionState: connection.getState,
+    onConnectionState: (listener) => connection.onState(listener),
   };
+}
+
+/** Electron IPC as one transport of the protocol; `main.tsx` builds this one. */
+export function createElectronHostClient(api: TauDesktopApi): { client: HostClient; connection: HostConnection } {
+  const connection = new HostConnection(createElectronHostTransport(api));
+  return { client: createHostClient(connection), connection };
 }
