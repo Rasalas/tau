@@ -1043,9 +1043,10 @@ describe("Pi bridge transcript projection", () => {
 
     let persisted: string | null = null;
     const storage = {
-      getItem: () => persisted,
-      setItem: (_key: string, value: string) => { persisted = value; },
-      removeItem: () => { persisted = null; },
+      get: () => persisted,
+      set: (_key: string, value: string) => { persisted = value; },
+      remove: () => { persisted = null; },
+      keys: () => (persisted === null ? [] : ["cache"]),
     };
     writeBootstrapCache(projected, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
