@@ -1,119 +1,43 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
-import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
-import type {
-  ClientTurnIdentity,
-  ExtensionUiAnswer,
-  ExtensionUiPrompt,
-  HostEvent,
-  HostSnapshot,
-  NewThreadRequestId,
-  PreparedPrompt,
-  ShellActionResult,
-  ThreadIndexSnapshot,
-  UiMessage,
-  UiProject,
-  UiPromptAttachment,
-  UiSession,
-  UiSkillDraft,
-  UiToolRun,
-  UiThreadTree,
-} from "../shared/contracts";
-import type { DiffLoadOptions, FileNode, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges, WorkspaceInfo } from "../shared/workspace-kit-types";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { ExtensionUiAnswer, HostEvent, HostSnapshot, ShellActionResult, ThreadIndexSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
+import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import { ChangedFiles } from "./components/ChangedFiles";
-import { changesSinceTurn, changesTouchedByTools, clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
-import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
-import { Composer, type ComposerAttachmentHandle, type SubmitResult } from "./components/Composer";
-import { allocateAttachmentId, ComposerScopeStore, createDraftKey, type ComposerScopeReference, type DraftKey, type PendingAttachment } from "./composer-scope-store";
-import { errorMessage } from "./error-message";
-import type { ContextBreakdown } from "./components/ContextMeter";
-import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
-import {
-  activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE,
-  openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView,
-} from "./stage";
-const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
-
-import { TitleBar } from "./components/TitleBar";
-import { PanelIcon } from "./components/PanelIcon";
-import { ToolGroup } from "./components/ToolGroup";
-import { TranscriptViewport } from "./components/TranscriptViewport";
+import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type TranscriptPage } from "../shared/host-protocol";
+import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
+import { mockSnapshot, mockThreadIndex, optimisticThreadSnapshot, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "./app-state";
+import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
+import { type ComposerAttachmentHandle } from "./components/Composer";
+import { visibleUserMessageText } from "./components/MessageText";
+import { type ThreadTreeMode } from "./components/ThreadTreeModal";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
-import type { TranscriptActivity } from "./components/transcript-activity";
-import { TaskProgress } from "./components/TaskProgress";
-import { ProjectPicker } from "./components/ProjectPicker";
+import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
+import { useConversationActivities } from "./conversation-activities";
+import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { errorMessage } from "./error-message";
 import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
-import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
+import { FollowUpQueueStore } from "./follow-up-queue";
+import { useHostClient } from "./host-client-context";
+import { applyHostEvent, type HostEventTargets } from "./host-events";
 import { preferences } from "./preferences";
-import { ProjectSourcesModal } from "./components/ProjectSources";
-import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
-import { Region, StatusLine } from "./components/Regions";
-import { useWorkbenchReload } from "./use-workbench-reload";
-
-const noopSubscribe = () => () => {};
-const EMPTY_DOCUMENTS: { changes: UiWorkspaceChanges; editor?: UiEditor } = { changes: { files: [], added: 0, removed: 0 } };
-const emptyDocumentState = () => EMPTY_DOCUMENTS;
-const loadFileUnavailable = async (path: string): Promise<UiFileContent> => ({ path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require a document source." });
-const loadDiffUnavailable = async (path: string): Promise<UiFileDiff> => ({ path, added: 0, removed: 0, hunks: [], note: "Diffs require a document source." });
-import { createNewThreadDraft, draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
-import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
-import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { displayPath } from "./path-display";
-import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
-import { visibleUserMessageText } from "./components/MessageText";
-import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
+import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView } from "./stage";
+import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
+import { ThreadStore } from "./thread-store";
+import { ThreadViewStore } from "./thread-view-store";
+import { TranscriptHistoryController, type TranscriptBootstrapRequest, type TranscriptHistoryRequest, type TransitionToken } from "./transcript-history";
+import { clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
+import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
+import { useNewThreadController } from "./use-new-thread-controller";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
-import { useNewThreadController } from "./use-new-thread-controller";
-import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
-import {
-  ThreadStoreContext,
-  WorkbenchContext,
-  WorkbenchShellContext,
-  ObservatoryContext,
-  type TimelineEvent,
-} from "./workbench-context";
-import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
-
-import {
-  TranscriptHistoryController,
-  type TranscriptBootstrapRequest,
-  type TranscriptHistoryRequest,
-  type TransitionToken,
-} from "./transcript-history";
-import {
-  backgroundNewThreadDetail,
-  conversationMessagesFor,
-  createClientMessageId,
-  estimateTokens,
-  isCurrentTranscriptSubmission,
-  isSameUserMessage,
-  latestActivityAnchor,
-  mergeNewThreadRecoveryAttachments,
-  mergeNewThreadRecoveryDraft,
-  mergeTranscriptMessages,
-  mockSnapshot,
-  mockThreadIndex,
-  optimisticThreadSnapshot,
-  reconcileOptimisticMessages,
-  skillPresentationForDraft,
-  transcriptNavigationScope,
-  transcriptNavigationScopeKey,
-  type NewThreadSubmissionCompletion,
-  type NewThreadSubmissionRecovery,
-  type OptimisticUserMessage,
-  type TranscriptSubmissionIdentity,
-} from "./app-state";
-import { ComposerHost, LiveStatus } from "./components/ComposerHost";
-import { applyHostEvent, type HostEventTargets } from "./host-events";
-import { useHostClient } from "./host-client-context";
-import { ThreadViewStore } from "./thread-view-store";
+import { useWorkbenchReload } from "./use-workbench-reload";
 import { Workbench, type WorkbenchComposer, type WorkbenchLayout, type WorkbenchModel, type WorkbenchThread } from "./Workbench";
-import { useConversationActivities } from "./conversation-activities";
 
-const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+const noopSubscribe = () => () => {};
+const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
+const EMPTY_DOCUMENTS: { changes: UiWorkspaceChanges; editor?: UiEditor } = { changes: { files: [], added: 0, removed: 0 } };
+const emptyDocumentState = () => EMPTY_DOCUMENTS;
 
 export default function App() {
   const client = useHostClient();
@@ -162,7 +86,6 @@ export default function App() {
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
   const snapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
-  const transcript = useSyncExternalStore(viewStore.subscribeToTranscript, viewStore.getTranscript);
   const { tools, toolAnchorId, turnActivityHistory, turnActivitySessionId } = useSyncExternalStore(
     viewStore.subscribeToTools,
     viewStore.getToolView,
@@ -180,13 +103,9 @@ export default function App() {
   // so the composer, the live row and the rail cannot disagree.
   const visibleStreaming = threadActivity.isStreaming;
   const runStartedAt = threadActivity.runningStartedAt[threadActivity.activeThreadId];
-  const messages = transcript.messages;
-  const transcriptRevision = transcript.revision;
-  const transcriptUserRevision = transcript.userRevision;
-  const transcriptTokenEstimate = transcript.tokenEstimate;
-  const transcriptLookupRevision = transcript.lookupRevision;
-  // Legacy sessions may only have the old renderer cache. A settled run with
-  // nothing durable behind it must not leave that stale cache looking current.
+  // Only the user-message slice of the transcript reaches this component: a
+  // streamed delta must re-render the transcript and nothing above it.
+  const transcriptUserRevision = useSyncExternalStore(viewStore.subscribeToUserMessages, viewStore.getUserRevision);
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -217,30 +136,14 @@ export default function App() {
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
-  const [newThreadRecoveries] = useState(() => new Map<string, NewThreadSubmissionRecovery>());
-  // Promotion applies host details and host details can promote. The recovery
-  // side of that pair is reached through this ref so neither has to be declared
-  // inside the other's initializer.
-  const promoteRecoveryRef = useRef<(clientMessageId: string, sessionId: string, message?: UiMessage) => boolean>(() => false);
   const [, setNewThreadRecoveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread);
-  // Follow-ups typed during a run wait in the workbench, not in the runtime.
-  const submitRef = useRef<SubmitPrompt>(async () => ({ accepted: false, message: "The composer is not ready yet." }));
-  const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
-  const { queue, enqueue: enqueueFollowUp, cancelQueued, steerQueued, reorderQueue } = useFollowUpQueue({
-    client,
-    sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
-    isRunning: isVisibleThreadRunning,
-    runningThreadIds: threadActivity.runningThreadIds,
-    submitRef,
-    setNotice,
-  });
   const [dockOpen, setDockOpen] = useState(true);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
   const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
+  const clientRef = useRef(client);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const transcriptTurnSequenceRef = useRef(0);
   const transcriptTurnStartRef = useRef<TranscriptTurnStart | undefined>(undefined);
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
   /** The draft key as of now, for the async paths that must not read a rendered value. */
@@ -248,41 +151,6 @@ export default function App() {
     () => draftKey(viewStore.getSnapshot()?.sessionId, currentPendingNewThread()),
     [currentPendingNewThread, viewStore],
   );
-  const restoreNewThreadSubmission = useCallback((recovery: NewThreadSubmissionRecovery) => {
-    const scope = recovery.scopeRef.scope;
-    const current = composerScopeStore.getSnapshot(scope);
-    const draft = mergeNewThreadRecoveryDraft(recovery.draft, current.draft);
-    const attachments = mergeNewThreadRecoveryAttachments(recovery.attachments, current.attachments);
-    // Keep edits made while the runtime was starting and place the failed
-    // prompt before them, so neither text nor a newly selected image vanishes.
-    if (draft !== current.draft) {
-      composerScopeStore.setDraft(scope, draft);
-      writeComposerDraft(window.localStorage, scope, draft);
-    }
-    if (attachments.length !== current.attachments.length) {
-      composerScopeStore.setAttachments(scope, attachments);
-    }
-    // Draft scopes are persisted through the active-new-thread record. A late
-    // detached failure can otherwise restore the textarea only until reload.
-    if (typeof scope === "string" && scope.startsWith("new:")) {
-      const pending = currentPendingNewThread();
-      if (pending && draftKey(undefined, pending) === scope) {
-        writeNewThreadDraft(window.localStorage, { ...pending, draft: draft || undefined });
-      }
-    }
-  }, [composerScopeStore]);
-  const releaseNewThreadRecovery = useCallback((clientMessageId: string) => {
-    const recovery = newThreadRecoveries.get(clientMessageId);
-    if (!recovery) return;
-    newThreadRecoveries.delete(clientMessageId);
-    composerScopeStore.releaseScopeReference(recovery.scopeRef);
-    setNewThreadRecoveryVersion((version) => version + 1);
-  }, [composerScopeStore]);
-  const settleNewThreadRecoveryIpc = useCallback((clientMessageId: string, recovery?: NewThreadSubmissionRecovery) => {
-    const current = recovery ?? newThreadRecoveries.get(clientMessageId);
-    if (!current) return;
-    current.ipcPending = false;
-  }, []);
   const transcriptScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
   const transcriptScope = useMemo(
     () => transcriptNavigationScope(snapshot, pendingNewThread),
@@ -315,8 +183,61 @@ export default function App() {
   const visibleTranscriptTurnStart = transcriptTurnStart?.scopeKey === transcriptScopeKey
     ? transcriptTurnStart
     : undefined;
+  const [followUpQueue] = useState(() => new FollowUpQueueStore());
+  // Everything between the composer and the runtime. Created once: its ports
+  // are the stores, the new-thread controller and the host-update callbacks
+  // declared below, all of which keep their identity for the whole session.
+  const [submission] = useState<SubmissionController>(() => {
+    const ports: SubmissionControllerPorts = {
+      client: () => clientRef.current,
+      view: viewStore,
+      threads: threadStore,
+      scopes: composerScopeStore,
+      registry,
+      storage: window.localStorage,
+      notify: (message) => viewStore.setNotice(message),
+      actions: () => actionsRef.current,
+      newThread: {
+        current: currentPendingNewThread,
+        set: (draft) => setPendingNewThread(draft),
+        update: (change) => setPendingNewThread((current) => change(current)),
+        requestId: () => newThreadRequestRef.current,
+        isCurrent: isCurrentNewThreadRequest,
+        markAwaitingPromotion,
+        promoteFromUserMessage,
+      },
+      turn: { current: () => transcriptTurnStartRef.current, set: setTranscriptTurnStart },
+      // Host updates promote a delivery and a delivery applies host updates.
+      // These four must stay stable for the controller to keep reaching the
+      // current ones; every dependency they have is a store or a ref.
+      host: {
+        applyHostUpdate: (update) => applyHostUpdate(update),
+        applyActionResult: (result) => applyActionResult(result),
+        applyHostResult: (result, inheritDraft) => applyHostResult(result, inheritDraft),
+        prepareThreadDetail: (sessionId) => transcriptHistory.prepareActionDetail(sessionId),
+      },
+      enqueueFollowUp: (threadId, item) => followUpQueue.enqueue(threadId, item),
+      onRecoveriesChanged: () => setNewThreadRecoveryVersion((version) => version + 1),
+    };
+    return new SubmissionController(ports);
+  });
+  const submitPrompt = useCallback<SubmitPrompt>(
+    (text, attachments, delivery, skillDraft) => submission.submit({ text, attachments, delivery, skillDraft }),
+    [submission],
+  );
+  const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
+  // Follow-ups typed during a run wait in the workbench, not in the runtime.
+  const { queue, cancelQueued, steerQueued, reorderQueue } = useFollowUpQueue({
+    client,
+    store: followUpQueue,
+    sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
+    isRunning: isVisibleThreadRunning,
+    runningThreadIds: threadActivity.runningThreadIds,
+    submit: submitPrompt,
+    setNotice,
+  });
   useEffect(() => {
-    const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
+    const reconciled = reconcileOptimisticMessages(optimisticMessages, viewStore.getTranscript().messages);
     if (reconciled.length === optimisticMessages.length) return;
     if (pendingNewThread && reconciled.every((entry) => entry.scope !== activeDraftKey)) {
       writeNewThreadDraft(window.localStorage);
@@ -327,6 +248,9 @@ export default function App() {
 
   const applySnapshot = useCallback((next: HostSnapshot, request?: TranscriptBootstrapRequest): boolean => {
     if (request && !transcriptHistory.isCurrentBootstrap(request)) return false;
+    // The bootstrap cache paints before the host answers; from here on the
+    // session id on screen is one this host really has open.
+    submission.notifyHostSnapshot();
     viewStore.beginThread(next.sessionId);
     const detail = threadDetailFromHostSnapshot(next);
     if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
@@ -344,7 +268,7 @@ export default function App() {
     cachedSnapshotRef.current = next;
     writeBootstrapCache(next, cachedIndexRef.current);
     return true;
-  }, [threadStore, transcriptHistory, viewStore]);
+  }, [submission, threadStore, transcriptHistory, viewStore]);
 
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
@@ -363,7 +287,7 @@ export default function App() {
     return true;
   }, [transcriptHistory, viewStore]);
 
-  const applyHostUpdate = useCallback((update: HostUpdate) => {
+  const applyHostUpdate = useCallback((update: HostUpdate): void => {
     if (update.version !== 1) return;
     if (update.type === "thread-index") {
       applyThreadIndex(update.index);
@@ -376,6 +300,7 @@ export default function App() {
       return;
     }
     if (update.type === "thread-detail") {
+      submission.notifyHostSnapshot();
       const detail = update.detail;
       const currentSnapshot = transcriptHistory.getCurrentSnapshot();
       const shell = threadStore.getThread(detail.sessionId);
@@ -421,24 +346,8 @@ export default function App() {
       const reportedMessage = detailForRender.messages.find((message) => message.role === "user");
       const pendingForReport = currentPendingNewThread();
       if (isCorrelatedCandidate && reportedMessage && pendingForReport) {
-        // Either identity correlates this report to a detached delivery: the
-        // persisted client message, or the new-thread request it belongs to.
-        const recoveryEntry = detail.requestId
-          ? [...newThreadRecoveries.entries()].find(([, recovery]) => recovery.requestId === detail.requestId)
-          : undefined;
-        const reportedClientMessageId = reportedMessage.clientMessageId;
-        const recoveryClientMessageId = reportedClientMessageId !== undefined
-          && newThreadRecoveries.has(reportedClientMessageId)
-          ? reportedClientMessageId
-          : recoveryEntry?.[0];
-        const promotedRecovery = recoveryClientMessageId
-          ? promoteRecoveryRef.current(recoveryClientMessageId, detail.sessionId, reportedMessage)
-          : false;
-        const promotedByReport = promotedRecovery || promoteFromHostReport(
-          detail.sessionId,
-          shell?.projectPath ?? pendingForReport.projectPath,
-          detail.requestId,
-        );
+        const promotedByReport = submission.promoteReportedThread(detail.sessionId, reportedMessage, detail.requestId)
+          || promoteFromHostReport(detail.sessionId, shell?.projectPath ?? pendingForReport.projectPath, detail.requestId);
         if (promotedByReport) {
           composerScopeStore.moveScope(
             createDraftKey(draftKey(undefined, pendingForReport)),
@@ -496,7 +405,7 @@ export default function App() {
     }
     if (update.type === "run") threadStore.setThreadRunning(update.sessionId, update.event === "started");
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, currentPendingNewThread, promoteFromHostReport, setTranscriptTurnStart, threadStore, transcriptHistory, viewStore]);
+  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, currentPendingNewThread, promoteFromHostReport, setTranscriptTurnStart, submission, threadStore, transcriptHistory, viewStore]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: TransitionToken): boolean => {
     if (expectedTransition !== undefined && !transcriptHistory.isCurrentThreadTransition(expectedTransition)) return false;
@@ -510,157 +419,6 @@ export default function App() {
     result.updates.forEach((update) => applyHostUpdate(update));
     return true;
   }, [applyHostUpdate, transcriptHistory]);
-
-  const notifyNewThreadPromptSubmitted = useCallback((
-    pending: NewThreadDraft,
-    sessionId: string,
-    prompt: string,
-    recovery?: NewThreadSubmissionRecovery,
-  ) => {
-    if (recovery?.notified) return;
-    const currentActions = actionsRef.current;
-    if (!currentActions) return;
-    if (recovery) recovery.notified = true;
-    const currentSnapshot = viewStore.getSnapshot();
-    void registry.notifyPromptSubmitted({
-      prompt,
-      snapshot: currentSnapshot ? {
-        ...currentSnapshot,
-        cwd: pending.projectPath,
-        sessionId,
-        sessionName: undefined,
-        sessionTitle: "Untitled thread",
-        messages: [],
-        isStreaming: false,
-        activeTools: [],
-        turnActivity: undefined,
-        taskProgress: undefined,
-        taskHistory: [],
-      } : undefined,
-    }, currentActions).catch((error) => setNotice(errorMessage(error)));
-  }, [registry]);
-
-  /** Commit a new-thread delivery without changing whichever thread is now visible. */
-  const promoteRecoveryToSession = useCallback((
-    clientMessageId: string,
-    sessionId: string,
-    message?: UiMessage,
-  ): boolean => {
-    const recovery = newThreadRecoveries.get(clientMessageId);
-    if (!recovery || recovery.failed) return false;
-    if (recovery.sessionId && recovery.sessionId !== sessionId) return false;
-    const keepInBackground = recovery.detached && threadStore.getSnapshot().activeThreadId !== sessionId;
-    // A detached delivery must not reclaim the visible new-thread controller.
-    const promotedScope = recovery.detached ? undefined : promoteFromUserMessage(sessionId, recovery.pending.projectPath);
-    if (!promotedScope && !recovery.detached && recovery.sessionId !== sessionId) return false;
-    recovery.sessionId = sessionId;
-    recovery.promoted = true;
-    composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    viewStore.setOptimisticMessages((current) => message
-      ? current.map((entry) => entry.message.clientMessageId === clientMessageId
-        ? { ...entry, scope: `session:${sessionId}` }
-        : entry)
-      : current.filter((entry) => entry.message.clientMessageId !== clientMessageId));
-
-    const turnStart = transcriptTurnStartRef.current;
-    if (turnStart?.clientMessageId === clientMessageId) {
-      setTranscriptTurnStart(message ? {
-        ...turnStart,
-        sessionId,
-        scope: { kind: "session", projectPath: recovery.pending.projectPath, sessionId },
-        scopeKey: transcriptNavigationScopeKey({ cwd: recovery.pending.projectPath, sessionId }),
-      } : undefined, turnStart.turnId);
-    }
-
-    if (keepInBackground) {
-      if (message) {
-        viewStore.details.set(backgroundNewThreadDetail(viewStore.details.get(sessionId), sessionId, message));
-        threadStore.setThreadRunning(sessionId, true);
-      } else {
-        threadStore.setThreadRunning(sessionId, false);
-      }
-    } else if (!message) {
-      // An extension command answered the prompt without a user turn and
-      // without an agent run. The thread exists; nothing is in flight in it.
-      threadStore.setActiveThread(sessionId, false);
-    } else if (!viewStore.details.get(sessionId)?.messages.some((entry) => isSameUserMessage(entry, message))) {
-      // A blank detail may have arrived before this event. Feed the confirmed
-      // message through the normal detail path so the history coordinator and
-      // the active snapshot move together even when no catalog is available.
-      transcriptHistory.prepareActionDetail(sessionId);
-      applyHostUpdate({
-        version: 1,
-        type: "thread-detail",
-        detail: {
-          sessionId,
-          messages: [message],
-          isStreaming: true,
-          activeTools: [],
-        },
-      });
-    } else {
-      threadStore.setActiveThread(sessionId, true);
-    }
-    notifyNewThreadPromptSubmitted(recovery.pending, sessionId, message?.text || recovery.draft, recovery);
-    // Delivery acceptance is the commit point. The later IPC acknowledgement
-    // must not keep thread navigation blocked and is safe because this record
-    // is already promoted before the result can arrive.
-    releaseNewThreadRecovery(clientMessageId);
-    return true;
-  }, [applyHostUpdate, composerScopeStore, notifyNewThreadPromptSubmitted, promoteFromUserMessage, releaseNewThreadRecovery, setTranscriptTurnStart, threadStore, transcriptHistory]);
-
-  const restoreFailedNewThreadRecovery = useCallback((recovery: NewThreadSubmissionRecovery, sessionId: string) => {
-    recovery.sessionId = sessionId || recovery.sessionId;
-    const oldScope = recovery.scopeRef.scope;
-    const visible = currentDraftKey() === oldScope
-      || (recovery.sessionId !== undefined && threadStore.getSnapshot().activeThreadId === recovery.sessionId);
-    let pending = currentPendingNewThread();
-
-    // Once a positive user-message promoted the draft, a later failure must
-    // reopen that same runtime-backed draft. Retrying it then uses sendPrompt
-    // with the generated session id instead of allocating another runtime.
-    if (visible && recovery.promoted
-      && (!pending || pending.draftId !== recovery.pending.draftId)) {
-      pending = { ...recovery.pending, ...(recovery.sessionId ? { sessionId: recovery.sessionId } : {}) };
-      const target = createDraftKey(draftKey(undefined, pending));
-      composerScopeStore.moveScope(oldScope, target);
-      recovery.scopeRef.scope = target;
-      setPendingNewThread(pending);
-      writeNewThreadDraft(window.localStorage, pending);
-    } else if (visible && pending && pending.draftId === recovery.pending.draftId && recovery.sessionId && !pending.sessionId) {
-      pending = { ...pending, sessionId: recovery.sessionId };
-      setPendingNewThread(pending);
-      writeNewThreadDraft(window.localStorage, pending);
-    }
-    restoreNewThreadSubmission(recovery);
-  }, [composerScopeStore, restoreNewThreadSubmission, setPendingNewThread, threadStore]);
-
-  const settleNewThreadDelivery = useCallback((
-    clientMessageId: string,
-    sessionId: string,
-    settlement: { accepted: true } | { accepted: false; message: string },
-  ): boolean => {
-    const recovery = newThreadRecoveries.get(clientMessageId);
-    if (!recovery) return false;
-    if (settlement.accepted) {
-      const promoted = promoteRecoveryToSession(
-        clientMessageId,
-        sessionId,
-        recovery.withoutUserTurn ? undefined : recovery.optimistic,
-      );
-      // The host has committed this delivery. Whether the draft was still there
-      // to promote decides nothing: holding the record would block thread
-      // switching and every guarded workspace action for the rest of the session.
-      if (!promoted) releaseNewThreadRecovery(clientMessageId);
-      return true;
-    }
-    recovery.failed = settlement.message || "The runtime rejected the message.";
-    restoreFailedNewThreadRecovery(recovery, sessionId);
-    // A failed delivery is safe to release once its IPC acknowledgement has
-    // arrived; until then the late accepted result must not clear recovery.
-    if (!recovery.ipcPending) releaseNewThreadRecovery(clientMessageId);
-    return true;
-  }, [promoteRecoveryToSession, releaseNewThreadRecovery, restoreFailedNewThreadRecovery]);
 
   // A prepared thread is not a runtime session yet, so its project is the
   // only trustworthy workspace identity while it is on screen. In
@@ -676,15 +434,13 @@ export default function App() {
     registry,
     threadStore,
     view: viewStore,
-    recoveries: newThreadRecoveries,
+    submission,
     currentDraftKey,
     transcriptTurnStart: () => transcriptTurnStartRef.current,
     setTranscriptTurnStart,
-    settleNewThreadDelivery,
-    promoteRecoveryToSession,
     applyHostUpdate,
     applyThreadIndex,
-  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, newThreadRecoveries, promoteRecoveryToSession, registry, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, viewStore]);
+  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, registry, setTranscriptTurnStart, submission, threadStore, viewStore]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
   useEffect(() => {
@@ -791,14 +547,15 @@ export default function App() {
    */
   const applyHostResult = useCallback((result: HostActionResult, inheritDraft = true) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
+    const previousCwd = viewStore.getSnapshot()?.cwd;
     const pendingDraft = inheritDraft ? composerRef.current?.value ?? "" : "";
     applyActionResult(result);
-    if (cwd && cwd !== snapshot?.cwd) setStage(EMPTY_STAGE);
+    if (cwd && cwd !== previousCwd) setStage(EMPTY_STAGE);
     const detail = result.updates.find((update) => update.type === "thread-detail");
     if (pendingDraft && detail?.type === "thread-detail") {
       composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
     }
-  }, [applyActionResult, composerScopeStore, snapshot?.cwd]);
+  }, [applyActionResult, composerScopeStore, viewStore]);
 
   const requireHost = useCallback((what: string): boolean => {
     if (client) return true;
@@ -809,29 +566,6 @@ export default function App() {
   // Shared by the composer and the activity rail's stop button, so neither
   // recreates it every render and defeats a downstream memo.
   const abortThread = useCallback((sessionId?: string) => { void client?.abort(sessionId); }, [client]);
-
-  /** Bind a detached delivery to its runtime thread once the host names it. */
-  const rehomeDetachedDelivery = useCallback((clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string) => {
-    recovery.sessionId = sessionId;
-    composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    viewStore.setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === clientMessageId
-      ? { ...entry, scope: `session:${sessionId}` } : entry));
-  }, [composerScopeStore]);
-
-  // Leaving a draft never waits for its first message: delivery continues in
-  // the background and follows the runtime thread once the host has named one.
-  const detachNewThreadDelivery = useCallback((): boolean => {
-    const pending = currentPendingNewThread();
-    if (!pending) return false;
-    let detached = false;
-    for (const [clientMessageId, recovery] of newThreadRecoveries) {
-      if (recovery.pending.draftId !== pending.draftId || recovery.detached) continue;
-      recovery.detached = true;
-      detached = true;
-      if (recovery.sessionId) rehomeDetachedDelivery(clientMessageId, recovery, recovery.sessionId);
-    }
-    return detached;
-  }, [rehomeDetachedDelivery]);
 
   const discardPendingNewThread = useCallback((expected?: NewThreadDraft): boolean => {
     const current = currentPendingNewThread();
@@ -846,7 +580,7 @@ export default function App() {
     const pending = currentPendingNewThread();
     if (path === (pending?.projectPath ?? snapshot?.cwd)) return true;
     if (!requireHost("Project switching")) return false;
-    detachNewThreadDelivery();
+    submission.detachPendingDelivery();
     // A draft for another project sits above the still-active host thread. If
     // the user picks that host project again, revealing it is the whole switch.
     if (pending && path === snapshot?.cwd) {
@@ -863,7 +597,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [applyHostResult, detachNewThreadDelivery, discardPendingNewThread, requireHost, snapshot?.cwd]);
+  }, [applyHostResult, discardPendingNewThread, requireHost, snapshot?.cwd, submission]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
@@ -878,7 +612,7 @@ export default function App() {
     const activeScope = pendingNewThread && activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey) : undefined;
     // A submitted draft keeps delivering in the background. Its text is on its
     // way to the runtime, so there is nothing to carry into the fresh draft.
-    const inFlight = detachNewThreadDelivery() || Boolean(activeScope?.submissionPending);
+    const inFlight = submission.detachPendingDelivery() || Boolean(activeScope?.submissionPending);
     const nextDraft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
     const destinationScope = draftKey(undefined, nextDraft);
     const sourceSnapshot = inFlight ? undefined : activeScope;
@@ -895,12 +629,12 @@ export default function App() {
     beginNewThread(draft);
     setNewThreadOpen(false);
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [activeDraftKey, beginNewThread, composerScopeStore, detachNewThreadDelivery, pendingNewThread]);
+  }, [activeDraftKey, beginNewThread, composerScopeStore, pendingNewThread, submission]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
     const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
-    detachNewThreadDelivery();
+    submission.detachPendingDelivery();
     invalidateNewThread();
     setPendingNewThread(undefined);
     writeNewThreadDraft(window.localStorage);
@@ -924,7 +658,7 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [addEvent, applyActionResult, applySnapshot, detachNewThreadDelivery, invalidateNewThread, requireHost, snapshot, threadStore]);
+  }, [addEvent, applyActionResult, applySnapshot, invalidateNewThread, requireHost, snapshot, submission, threadStore]);
 
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
@@ -1164,364 +898,12 @@ export default function App() {
     openThreadTree, duplicateThread,
   ]);
 
-  const completeNewThreadSubmission = useCallback((completion: NewThreadSubmissionCompletion) => {
-    const { pending, sessionId, optimisticId, prompt, scope, requestId, result, recovery } = completion;
-    if (!isCurrentNewThreadRequest(pending, scope, requestId)) return;
-    viewStore.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
-      ? { ...entry, scope: `session:${sessionId}` }
-      : entry));
-    if (scope) {
-      composerScopeStore.moveScope(createDraftKey(scope), createDraftKey(draftKey(sessionId)));
-    }
-    writeNewThreadDraft(window.localStorage);
-    setPendingNewThread(undefined);
-    if (result) applyHostResult(result);
-    threadStore.markRead(sessionId);
-    notifyNewThreadPromptSubmitted(pending, sessionId, prompt, recovery);
-  }, [applyHostResult, composerScopeStore, isCurrentNewThreadRequest, notifyNewThreadPromptSubmitted, setPendingNewThread, threadStore]);
-
-  const submit = useCallback(async (
-    value: string,
-    attachments: UiPromptAttachment[] = [],
-    delivery?: "followUp" | "steer",
-    skillDraft?: UiSkillDraft,
-  ): Promise<SubmitResult> => {
-    const text = skillDraft ? value : value.trim();
-    const commandText = text.trim();
-    if (!commandText && attachments.length === 0) return { accepted: false, message: "Enter a message or attach an image." };
-    // Desktop extensions own slash commands the runtime never sees.
-    const slash = attachments.length === 0 && !skillDraft ? registry.findSlashCommand(commandText) : undefined;
-    if (slash) {
-      try {
-        const message = await slash.command.run(slash.args, actions);
-        return message ? { accepted: false, message } : { accepted: true };
-      } catch (error) {
-        return { accepted: false, message: errorMessage(error) };
-      }
-    }
-    // Enter during a run parks the message above the composer. It is prepared
-    // and sent as a plain prompt once the thread settles, or steered on demand.
-    if (!pendingNewThread && snapshot && visibleStreaming && delivery !== "steer") {
-      enqueueFollowUp(snapshot.sessionId, { text: value, attachments, ...(skillDraft ? { skillDraft } : {}) });
-      return { accepted: true };
-    }
-    let prepared: PreparedPrompt | undefined;
-    if (client) {
-      try {
-        prepared = await client.preparePrompt(
-          text,
-          pendingNewThread ? undefined : snapshot?.sessionId,
-          skillDraft,
-        );
-      } catch (error) {
-        // ComposerScopeStore keeps the captured draft when a submission is
-        // rejected, including edits made while preflight was in flight.
-        // Re-seeding here would overwrite those newer edits.
-        setNotice(String(error));
-        return { accepted: false, message: errorMessage(error) };
-      }
-    }
-    const optimisticText = prepared?.visibleText
-      ?? skillDraft?.visibleText
-      ?? (text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`);
-    const visiblePrompt = prepared?.visibleText ?? skillDraft?.visibleText ?? text;
-    const optimisticSkill = prepared
-      ? prepared.skill
-      : skillDraft ? skillPresentationForDraft(skillDraft) : undefined;
-    const submittedAt = Date.now();
-    const turnSequence = transcriptTurnSequenceRef.current++;
-    const logicalTurnId = `turn-${submittedAt}-${turnSequence}`;
-    const clientMessageId = createClientMessageId();
-    const optimistic: UiMessage = {
-      id: `local-${clientMessageId}`,
-      clientTurnId: logicalTurnId,
-      clientMessageId,
-      role: "user",
-      text: optimisticText,
-      ...(optimisticSkill ? { skill: optimisticSkill } : {}),
-      images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
-      timestamp: submittedAt,
-    };
-    const newThreadRequestId = newThreadRequestRef.current;
-    const clientTurn: ClientTurnIdentity = {
-      clientTurnId: logicalTurnId,
-      clientMessageId,
-      ...(newThreadRequestId ? { newThreadRequestId } : {}),
-    };
-    const submissionScopeKey = transcriptScopeKey;
-    const submissionScope = transcriptNavigationScope(snapshot, pendingNewThread);
-    const submissionDraftId = pendingNewThread?.draftId;
-    const submissionRequestId = logicalTurnId;
-    const submissionIdentity: TranscriptSubmissionIdentity = {
-      turnId: submissionRequestId,
-      scopeKey: submissionScopeKey,
-      scope: submissionScope,
-      draftId: submissionDraftId,
-    };
-    const isCurrentSubmission = () => isCurrentTranscriptSubmission(
-      transcriptTurnStartRef.current,
-      currentTranscriptScopeKey(),
-      currentPendingNewThread()?.draftId,
-      submissionIdentity,
-    );
-    const startTranscriptTurn = (
-      targetSessionId?: string,
-      awaitingMessage = false,
-      preserveAcrossSessionChange = false,
-    ) => {
-      const nextTurnStart: TranscriptTurnStart = {
-        turnId: logicalTurnId,
-        scope: submissionScope,
-        sessionId: targetSessionId,
-        messageId: awaitingMessage ? undefined : optimistic.id,
-        clientMessageId: clientTurn.clientMessageId,
-        text: optimistic.text,
-        timestamp: optimistic.timestamp,
-        awaitingMessage,
-        preserveAcrossSessionChange,
-        scopeKey: submissionScopeKey,
-      };
-      setTranscriptTurnStart(nextTurnStart);
-    };
-    const cancelTranscriptTurn = () => {
-      setTranscriptTurnStart(undefined, logicalTurnId);
-    };
-    const submittedDraftKey = activeDraftKey;
-    const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
-    if (!pendingNewThread && visibleStreaming) {
-      viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
-      startTranscriptTurn(snapshot?.sessionId);
-      try {
-        if (!client) throw new Error("Steering requires the Electron host.");
-        await client.steer(text, attachments, snapshot?.sessionId, clientTurn, prepared);
-      } catch (error) {
-        const currentSubmission = isCurrentSubmission();
-        cancelTranscriptTurn();
-        viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        if (currentSubmission) {
-          setNotice(String(error));
-        }
-        return { accepted: false, message: errorMessage(error) };
-      }
-      return { accepted: true };
-    }
-    if (pendingNewThread) {
-      const pending = pendingNewThread;
-      const pendingKey = draftKey(undefined, pending);
-      const findPersistedPrompt = (created?: HostUpdate) => created?.type === "thread-detail"
-        ? created.detail.messages.find((message) => matchesTranscriptTurnMessage(message, {
-          turnId: clientTurn.clientTurnId,
-          clientMessageId: clientTurn.clientMessageId,
-          messageId: optimistic.id,
-          text: optimistic.text,
-          timestamp: optimistic.timestamp,
-        }))
-        : undefined;
-      const recovery: NewThreadSubmissionRecovery | undefined = submittedDraftKey
-        ? {
-          pending,
-          requestId: newThreadRequestId,
-          scopeRef: composerScopeStore.createScopeReference(submittedDraftKey),
-          draft: text,
-          attachments: attachments.map((attachment) => ({
-            ...attachment,
-            id: allocateAttachmentId(),
-            previewUrl: `data:${attachment.mimeType};base64,${attachment.data}`,
-          })),
-          optimistic,
-          ipcPending: true,
-        }
-        : undefined;
-      if (recovery) {
-        // The user may have left this draft while the prompt was being prepared.
-        if (currentPendingNewThread()?.draftId !== pending.draftId) recovery.detached = true;
-        newThreadRecoveries.set(clientMessageId, recovery);
-        setNewThreadRecoveryVersion((version) => version + 1);
-      }
-      startTranscriptTurn(pending.sessionId, false, true);
-      viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
-      try {
-        if (!client) throw new Error("New thread requires the Electron host.");
-        if (pending.sessionId) {
-          await client.sendPrompt(text, attachments, pending.sessionId, clientTurn, prepared);
-          settleNewThreadRecoveryIpc(clientMessageId, recovery);
-          if (recovery?.failed) {
-            releaseNewThreadRecovery(clientMessageId);
-            return { accepted: false, message: recovery.failed };
-          }
-          // Unlike newSession, this call resolves at the runtime's own delivery
-          // acceptance, so returning from it is the commit. A correlated user
-          // message may have committed it first; then there is nothing to do.
-          if (recovery?.detached && !recovery.promoted) {
-            promoteRecoveryToSession(clientMessageId, pending.sessionId, recovery.withoutUserTurn ? undefined : recovery.optimistic);
-          } else if (!recovery?.promoted) {
-            completeNewThreadSubmission({ pending, sessionId: pending.sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId, recovery });
-          }
-          releaseNewThreadRecovery(clientMessageId);
-          return { accepted: true };
-        }
-        const result = await client.newSession(text, attachments, pending.projectPath, clientTurn, prepared);
-        settleNewThreadRecoveryIpc(clientMessageId, recovery);
-        if (recovery?.failed) {
-          releaseNewThreadRecovery(clientMessageId);
-          return { accepted: false, message: recovery.failed };
-        }
-        // A session id is only the runtime binding, never the delivery commit.
-        // Record it so a late failure retries in this session instead of
-        // allocating a second runtime.
-        if (recovery && result.sessionId) recovery.sessionId = result.sessionId;
-        // A correlated user message may have promoted the draft while the
-        // newSession IPC call was still pending. Its scope and active thread
-        // are already correct, but the result still carries authoritative
-        // shell, detail, catalog and project updates that must not be dropped.
-        // They pass through the normal race guard rather than being forced.
-        if (recovery?.promoted && result.submission.accepted) {
-          result.updates.forEach((update) => applyHostUpdate(update));
-          return { accepted: true };
-        }
-        if (recovery?.detached) {
-          const createdDetail = result.updates.find((update) => update.type === "thread-detail");
-          const detachedSessionId = result.sessionId ?? (createdDetail?.type === "thread-detail" ? createdDetail.detail.sessionId : undefined);
-          if (!result.submission.accepted) {
-            releaseNewThreadRecovery(clientMessageId);
-            return result.submission;
-          }
-          if (detachedSessionId && recovery.sessionId !== detachedSessionId) {
-            rehomeDetachedDelivery(clientMessageId, recovery, detachedSessionId);
-          }
-          // The user is looking at something else now; only the thread list
-          // learns about the new thread.
-          result.updates.forEach((update) => {
-            if (update.type === "thread-index" || update.type === "thread-shell") applyHostUpdate(update);
-          });
-          const persistedPrompt = findPersistedPrompt(createdDetail);
-          if (persistedPrompt && detachedSessionId) promoteRecoveryToSession(clientMessageId, detachedSessionId, persistedPrompt);
-          return { accepted: true };
-        }
-        if (!isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) {
-          releaseNewThreadRecovery(clientMessageId);
-          return result.submission;
-        }
-        const created = result.updates.find((update) => update.type === "thread-detail");
-        if (result.submission.accepted
-          && created?.type !== "thread-detail"
-          && result.requestId === newThreadRequestId) {
-          markAwaitingPromotion({ pending, scope: submittedDraftKey, requestId: newThreadRequestId });
-        }
-        applyActionResult(result);
-        if (!result.submission.accepted) {
-          const rejectedDetail = result.updates.find((update) => update.type === "thread-detail");
-          const sessionId = rejectedDetail?.type === "thread-detail" ? rejectedDetail.detail.sessionId : undefined;
-          if (sessionId) {
-            if (isCurrentNewThreadRequest(pending, submittedDraftKey, newThreadRequestId)) {
-              setPendingNewThread((current) => current ? { ...current, sessionId } : current);
-              writeNewThreadDraft(window.localStorage, { ...pending, sessionId });
-            }
-          }
-          viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          releaseNewThreadRecovery(clientMessageId);
-          return result.submission;
-        }
-        const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
-        if (transcriptTurnStartRef.current?.turnId !== logicalTurnId
-          || currentTranscriptScopeKey() !== submissionScopeKey
-          || currentPendingNewThread()?.draftId !== pending.draftId) {
-          // The draft was abandoned while the host was creating its session.
-          // Do not let a late result switch the newly selected thread back.
-          writeComposerDraft(window.localStorage, pendingKey, "");
-          releaseNewThreadRecovery(clientMessageId);
-          return result.submission;
-        }
-        if (sessionId) {
-          if (recovery) recovery.sessionId = sessionId;
-          // The optimistic message moves to the real thread before the draft
-          // view closes, so nothing flickers while the host confirms it.
-          viewStore.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
-            ? { ...entry, scope: `session:${sessionId}` }
-            : entry));
-          const persistedPrompt = findPersistedPrompt(created);
-          if (transcriptTurnStartRef.current?.turnId === logicalTurnId) {
-            const nextTurnStart = {
-              ...transcriptTurnStartRef.current,
-              sessionId,
-              scope: { kind: "session" as const, projectPath: pending.projectPath, sessionId },
-              messageId: persistedPrompt?.id ?? transcriptTurnStartRef.current.messageId,
-              scopeKey: transcriptNavigationScopeKey({ cwd: pending.projectPath, sessionId }),
-            };
-            setTranscriptTurnStart(nextTurnStart, logicalTurnId);
-          }
-          if (recovery) {
-            // Delivery is detached from this acknowledgement. A prompt already
-            // persisted in the result is itself the commit; otherwise the
-            // host's settlement event completes the submission.
-            if (persistedPrompt) promoteRecoveryToSession(clientMessageId, sessionId, persistedPrompt);
-            return { accepted: true };
-          }
-          completeNewThreadSubmission({ pending, sessionId, optimisticId: optimistic.id, prompt: visiblePrompt, scope: submittedDraftKey, requestId: newThreadRequestId, result });
-          return { accepted: true };
-        } else {
-          // Pi's own TUI creates the thread and reports it later; the draft
-          // view stays until that report arrives.
-          return { accepted: true };
-        }
-      } catch (error) {
-        releaseNewThreadRecovery(clientMessageId);
-        const currentSubmission = isCurrentSubmission();
-        cancelTranscriptTurn();
-        viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        if (currentSubmission) {
-          setNotice(String(error));
-        }
-        return { accepted: false, message: errorMessage(error) };
-      }
-    }
-    if (snapshot) {
-      threadStore.markRead(snapshot.sessionId);
-      preferences.unsettle(snapshot.sessionId);
-    }
-    startTranscriptTurn(snapshot?.sessionId);
-    viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
-    if (client) {
-      try {
-        await client.sendPrompt(text, attachments, snapshot?.sessionId, clientTurn, prepared);
-        void registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions)
-          .catch((error) => setNotice(errorMessage(error)));
-        return { accepted: true };
-      } catch (error) {
-        const currentSubmission = isCurrentSubmission();
-        cancelTranscriptTurn();
-        viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-        if (currentSubmission) {
-          setNotice(String(error));
-        }
-        return { accepted: false, message: errorMessage(error) };
-      }
-    } else {
-      const previewThreadId = viewStore.getSnapshot()?.sessionId ?? "";
-      threadStore.setThreadRunning(previewThreadId, true);
-      window.setTimeout(() => {
-        viewStore.appendMessage({
-          id: `mock-${Date.now()}`,
-          role: "assistant",
-          text: "Preview mode received the prompt. Launch `npm start` to send it through the real Pi SDK.",
-          timestamp: Date.now(),
-        });
-        threadStore.setThreadRunning(previewThreadId, false);
-      }, 650);
-      return { accepted: true };
-    }
-  }, [applyHostResult, actions, activeDraftKey, applyActionResult, client, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, rehomeDetachedDelivery, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
-
-  // Callbacks that outlive a render reach their late callers through these
-  // refs. They are written after the commit, never during it.
+  // Extension commands outlive the render that produced them, so they reach
+  // this render's actions through a ref written after the commit.
   useEffect(() => {
     actionsRef.current = actions;
-    promoteRecoveryRef.current = promoteRecoveryToSession;
-  }, [actions, promoteRecoveryToSession]);
-
-  // The queue flushes in an effect declared above this one, so the ref has to
-  // hold this render's submit before effects run.
-  submitRef.current = submit;
+    clientRef.current = client;
+  }, [actions, client]);
 
   // Extensions own every chord; core only dispatches. A handler that already
   // claimed the key (the composer's menu, a dialog) keeps it, and bare keys
@@ -1572,15 +954,18 @@ export default function App() {
     pendingNewThread?.sessionId ? undefined : pendingNewThread?.projectPath,
     client?.getPreparedThreadCapability,
   );
-  const conversationMessages = useMemo(
-    () => conversationMessagesFor(messages, optimisticMessages, activeDraftKey, Boolean(pendingNewThread)),
-    [activeDraftKey, messages, optimisticMessages, pendingNewThread],
+  // Two facts about the conversation, not its rows: a streamed delta leaves
+  // both unchanged, so the store hands back the same value and nothing here
+  // re-renders. The transcript itself subscribes inside the workbench.
+  const conversation = useSyncExternalStore(
+    viewStore.subscribeToConversation,
+    () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
   const visibleToolAnchorId = visibleStreaming
-    ? latestActivityAnchor(conversationMessages)
+    ? conversation.lastMessageId
     // A submitted prompt is visible before its run starts. Keep the previous
     // settled group on its original turn until agent-status opens new work.
-    : toolAnchorId ?? latestActivityAnchor(conversationMessages);
+    : toolAnchorId ?? conversation.lastMessageId;
   const conversationSnapshot = useMemo(() => pendingNewThread && snapshot ? {
     ...snapshot,
     cwd: pendingNewThread.projectPath,
@@ -1621,7 +1006,7 @@ export default function App() {
     viewStore, recoverThread, copyToolOutput, abortSessionId: snapshot?.sessionId,
     abort: abortThread,
   });
-  const showStartScreen = conversationMessages.length === 0
+  const showStartScreen = conversation.isEmpty
     && !conversationSnapshot?.isStreaming
     && conversationActivityTools.length === 0
     && conversationPrompts.length === 0;
@@ -1668,11 +1053,11 @@ export default function App() {
   const composer = useMemo<WorkbenchComposer>(() => ({
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
-    submit, abort: abortThread,
+    submit: submitPrompt, abort: abortThread,
     cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
   }), [
     abortThread, answerUiPrompt, cancelQueued, compactContext, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, setModel, setThinking, steerQueued, submit,
+    conversationPrompts, queue, reorderQueue, setModel, setThinking, steerQueued, submitPrompt,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({
