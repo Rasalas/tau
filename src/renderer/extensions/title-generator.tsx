@@ -9,7 +9,8 @@ function automatic(): boolean {
 /**
  * Titles are generated with the thread's own model, so there is nothing to
  * configure beyond whether it happens on its own. The host entry renames the
- * thread; the new title arrives like any other rename.
+ * thread; the new title arrives like any other rename. An automatic title is
+ * made from the submitted prompt right away, not after the run ends.
  */
 async function generate(
   host: HostExtensionClient,
@@ -17,9 +18,10 @@ async function generate(
   model: { provider: string; id: string },
   sessionId: string | undefined,
   force: boolean,
+  prompt?: string,
 ): Promise<void> {
   try {
-    await host.invoke("generate", { provider: model.provider, modelId: model.id, force, sessionId });
+    await host.invoke("generate", { provider: model.provider, modelId: model.id, force, sessionId, prompt });
   } catch (error) {
     actions.notify(error instanceof Error ? error.message : String(error));
   }
@@ -37,7 +39,7 @@ export const titleGeneratorExtension: DesktopExtension = {
   name: "Title generator",
   activate(context) {
     context.registerOptions([
-      { id: "automatic", kind: "toggle", label: "Name a thread after its first completed prompt", defaultValue: true },
+      { id: "automatic", kind: "toggle", label: "Name a thread after its first prompt", defaultValue: true },
     ]);
     context.registerCommand({
       id: "thread-titles.regenerate",
@@ -55,7 +57,7 @@ export const titleGeneratorExtension: DesktopExtension = {
       async afterPrompt(event, actions) {
         const model = automaticTitleModel(event);
         if (!model) return;
-        await generate(context.host, actions, model, event.snapshot?.sessionId, false);
+        await generate(context.host, actions, model, event.snapshot?.sessionId, false, event.prompt);
       },
     });
   },

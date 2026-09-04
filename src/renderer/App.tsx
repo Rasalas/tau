@@ -107,7 +107,7 @@ import {
   type OptimisticUserMessage,
   type TranscriptSubmissionIdentity,
 } from "./app-state";
-import { ComposerHost, LiveStatus, useTailScroll } from "./components/ComposerHost";
+import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { applyHostEvent, type HostEventStores } from "./host-events";
 import { Workbench } from "./Workbench";
 import { useConversationActivities } from "./conversation-activities";
@@ -890,7 +890,6 @@ export default function App() {
     return window.tau.loadTranscript(sessionId, cursor);
   }, []);
 
-  useTailScroll(transcriptRef, [messages, tools], snapshot?.sessionId, transcriptHistory.preserveScrollRef);
 
   useEffect(() => {
     if (!notice) return;
