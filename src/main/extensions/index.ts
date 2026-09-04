@@ -8,6 +8,7 @@ import { createQuestionnaireHostExtension } from "./questionnaire-host-extension
 import { createServiceTierHostExtension } from "./service-tier-host-extension.js";
 import { createThreadTitlesHostExtension } from "./thread-titles-host-extension.js";
 import { createWorkspaceHostExtension } from "./workspace-host-extension.js";
+import { createWorktreeNamesHostExtension } from "./worktree-names-host-extension.js";
 
 /** Host entries of the bundled kits. Safe mode starts the host with none of them. */
 export function bundledHostExtensions(): HostExtension[] {
@@ -15,6 +16,7 @@ export function bundledHostExtensions(): HostExtension[] {
     createAccessHostExtension(),
     createWorkspaceHostExtension(),
     createThreadTitlesHostExtension(),
+    createWorktreeNamesHostExtension(),
     createServiceTierHostExtension(),
     createQuestionnaireHostExtension(),
     createComputerUseHostExtension(),

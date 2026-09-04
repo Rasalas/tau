@@ -50,6 +50,7 @@ export function WorkspaceBarControl(_props: ComposerControlProps) {
       onCreateWorktree={(branch, baseRef) => workspaceStore.createWorktree(branch, baseRef)}
       onSwitchRef={(ref) => workspaceStore.switchRef(ref)}
       onLoadWorktreeStatuses={() => workspaceKit.getWorktreeStatuses(state.cwd)}
+      onSuggestName={state.canNameWorktrees ? (hint) => workspaceStore.suggestWorktreeName(hint) : undefined}
     />
   );
 }

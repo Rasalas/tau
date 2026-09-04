@@ -6,9 +6,13 @@ export interface AppIdentity {
   setName(name: string): void;
 }
 
-/** Changes Tau's visible name without abandoning preferences stored under its original package name. */
-export function configureAppIdentity(app: AppIdentity): void {
-  app.setPath("userData", join(app.getPath("appData"), "tau-pi-desktop-prototype"));
+/**
+ * Changes Tau's visible name without abandoning preferences stored under its
+ * original package name. A separate `userData` gives a second, independent
+ * instance (its own lock, window state and preferences) for verification runs.
+ */
+export function configureAppIdentity(app: AppIdentity, userData?: string): void {
+  app.setPath("userData", userData || join(app.getPath("appData"), "tau-pi-desktop-prototype"));
   app.setName("Tau");
 }
 

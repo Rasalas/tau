@@ -1886,6 +1886,13 @@ button > svg { pointer-events: none; }
 .switch.on > i { left: 15px; background: var(--acid); }
 
 .option-list { display: flex; flex-direction: column; gap: 11px; max-width: 460px; }
+.model-option-row { position: relative; display: flex; align-items: center; gap: 6px; }
+.model-option-row > .settings-field { flex: 1; min-width: 0; margin: 0; }
+.model-option-clear {
+  flex: none; display: grid; place-items: center; width: 26px; height: 26px;
+  border: 1px solid var(--line-control); border-radius: 7px; background: transparent; color: var(--faint); cursor: pointer;
+}
+.model-option-clear:hover:not(:disabled) { color: var(--ink); border-color: var(--line-field); }
 .option-row {
   display: flex; align-items: center; gap: 10px;
   border: 0; background: transparent; color: inherit;

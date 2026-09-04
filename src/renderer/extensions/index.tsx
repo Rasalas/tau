@@ -24,6 +24,7 @@ import { workspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
+import { worktreeNamesExtension } from "./worktree-names";
 import { piUiExtension } from "./pi-ui";
 import { questionnaireExtension } from "./questionnaire-kit";
 
@@ -271,6 +272,7 @@ export const bundledExtensions = [
   observatoryExtension,
   computerUsePresentationExtension,
   titleGeneratorExtension,
+  worktreeNamesExtension,
   piUiExtension,
   questionnaireExtension,
   settingsExtension,

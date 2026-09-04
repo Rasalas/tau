@@ -29,7 +29,21 @@ export interface WorkspaceKitState {
   /** The turn ended without a checkpoint replacing the dock. */
   turnSettled: boolean;
   review?: { path?: string; primaryPush: boolean };
+  /** An extension offers to name new worktrees. */
+  canNameWorktrees: boolean;
 }
+
+export interface WorktreeNameRequest {
+  /** What the user typed into the worktree search, if anything. */
+  hint: string;
+  /** The unsent composer text describing the task. */
+  description: string;
+  /** Branch names already in the repository. */
+  taken: string[];
+  actions: WorkbenchActions;
+}
+
+export type WorktreeNamer = (request: WorktreeNameRequest) => Promise<string>;
 
 const INITIAL: WorkspaceKitState = {
   draftPending: false,
@@ -41,6 +55,7 @@ const INITIAL: WorkspaceKitState = {
   pushPrimary: false,
   commitFocusToken: 0,
   turnSettled: false,
+  canNameWorktrees: false,
 };
 
 function readBaseline(sessionId: string): UiWorkspaceChanges | undefined {
@@ -72,6 +87,7 @@ export class WorkspaceStore {
   private changesRequest = 0;
   private workspaceRequest = 0;
   private sessionId?: string;
+  private namer?: WorktreeNamer;
 
   getSnapshot = (): WorkspaceKitState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -301,7 +317,51 @@ export class WorkspaceStore {
     }
   }
 
-  createWorktree(branch: string, baseRef?: string): Promise<boolean> { return this.workspaceAction(() => workspaceKit.createWorktree(branch, baseRef)); }
+  /**
+   * Adds a worktree beside the followed project and moves there with the text
+   * typed so far. Works for a pending draft too: the draft's project is named
+   * explicitly instead of relying on the host's thread.
+   */
+  async createWorktree(branch: string, baseRef?: string): Promise<boolean> {
+    if (!this.hostAvailable("Worktrees") || !this.actions) return false;
+    // A prompt sent now would land in the thread being replaced.
+    const release = this.actions.holdComposer();
+    this.update({ workspaceBusy: true });
+    try {
+      const { path } = await workspaceKit.createWorktree(branch, baseRef, this.state.cwd);
+      return await this.actions.openWorkspace(path, { inheritDraft: true });
+    } catch (error) {
+      this.notify(errorMessage(error));
+      return false;
+    } finally {
+      this.update({ workspaceBusy: false });
+      release();
+    }
+  }
+
+  /** Another extension may offer to name a worktree; the picker shows the offer only while one is registered. */
+  registerWorktreeNamer(namer: WorktreeNamer): () => void {
+    this.namer = namer;
+    this.update({ canNameWorktrees: true });
+    return () => {
+      if (this.namer !== namer) return;
+      this.namer = undefined;
+      this.update({ canNameWorktrees: false });
+    };
+  }
+
+  /** A branch name for the task at hand, from the draft text and whatever the user typed into the picker. */
+  async suggestWorktreeName(hint: string): Promise<string | undefined> {
+    if (!this.namer || !this.actions) return undefined;
+    try {
+      const taken = this.state.workspace?.refs.map((ref) => ref.name) ?? [];
+      return await this.namer({ hint, description: this.actions.composerDraft(), taken, actions: this.actions });
+    } catch (error) {
+      this.notify(errorMessage(error));
+      return undefined;
+    }
+  }
+
   switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => workspaceKit.switchRef(ref)); }
   async openWorktree(path: string): Promise<boolean> {
     if (path === this.state.cwd) return true;

@@ -285,6 +285,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   async completeTitle(): Promise<string> {
     throw new Error("Claude Code title generation is owned by the Claude runtime.");
   }
+  async complete(): Promise<string> {
+    throw new Error("Claude Code threads have no model runtime for one-off completions.");
+  }
   modelApi(): string | undefined { return undefined; }
   tree(): UiThreadTree { return { sessionId: this.threadId, nodes: [] }; }
   leafEntryId(): string | undefined { return undefined; }

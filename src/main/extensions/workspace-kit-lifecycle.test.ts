@@ -50,6 +50,7 @@ function thread(overrides: Partial<HostThread> = {}): HostThread {
     sessionName: () => undefined,
     transcript: async () => [],
     completeTitle: async () => "",
+    complete: async () => "",
     modelApi: () => undefined,
     shortcuts: () => [],
     runShortcut: async () => false,

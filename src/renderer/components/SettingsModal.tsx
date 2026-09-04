@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
-import type { ExtensionInspection, HostExtensionSummary, HostSnapshot } from "../../shared/contracts";
+import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { preferences } from "../preferences";
 import { ModelPicker, modelKey } from "./ModelPicker";
@@ -56,14 +56,59 @@ function DefaultsPage({
   );
 }
 
+/** A model choice an extension declared; empty means the thread's own model. */
+function ModelOptionRow({
+  label,
+  value,
+  models,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value?: string;
+  models: readonly UiModel[];
+  disabled: boolean;
+  onChange(value: string): void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const chosen = value ? models.find((model) => modelKey(model) === value) : undefined;
+  return (
+    <div className="model-option-row">
+      <button className="settings-field" disabled={disabled} onClick={() => setPickerOpen(true)}>
+        <Sparkles size={14} className="accent" />
+        <span>
+          <strong>{chosen?.name ?? (value || "Thread's model")}</strong>
+          <small>{label}{chosen ? ` · ${chosen.provider}` : ""}</small>
+        </span>
+        <b><ChevronDown size={13} /></b>
+      </button>
+      {value ? (
+        <button className="model-option-clear" disabled={disabled} aria-label={`Use the thread's model for ${label}`} onClick={() => onChange("")}>
+          <X size={12} />
+        </button>
+      ) : null}
+      {pickerOpen ? (
+        <ModelPicker
+          models={models}
+          activeKey={value}
+          onSelect={(model) => onChange(modelKey(model))}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function ExtensionPage({
   summary,
   registry,
+  models,
   onChanged,
   onNotify,
 }: {
   summary: ExtensionSummary;
   registry: ExtensionRegistry;
+  models: readonly UiModel[];
   onChanged(): void;
   onNotify(message: string): void;
 }) {
@@ -112,6 +157,18 @@ function ExtensionPage({
           <div className="settings-label">OPTIONS</div>
           <div className="option-list">
             {summary.options.map((option) => {
+              if (option.kind === "model") {
+                return (
+                  <ModelOptionRow
+                    key={option.id}
+                    label={option.label}
+                    value={state.extensionValues[`${summary.id}.${option.id}`] || undefined}
+                    models={models}
+                    disabled={!summary.active}
+                    onChange={(value) => preferences.setValue(summary.id, option.id, value)}
+                  />
+                );
+              }
               if (option.kind === "chips") {
                 return (
                   <div className="chip-row" key={option.id}>
@@ -355,7 +412,7 @@ export function SettingsModal({
           ) : page === "inspector" ? (
             <InspectorPage registry={registry} cwd={snapshot?.cwd} />
           ) : active ? (
-            <ExtensionPage summary={active} registry={registry} onChanged={() => onSetPage(active.id)} onNotify={onNotify} />
+            <ExtensionPage summary={active} registry={registry} models={snapshot?.models ?? []} onChanged={() => onSetPage(active.id)} onNotify={onNotify} />
           ) : (
             <div className="settings-page"><p className="lede">Select a page.</p></div>
           )}

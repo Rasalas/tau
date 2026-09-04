@@ -73,7 +73,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "push": return client.push();
       case "workspace-info": return client.getWorkspaceInfo(...optional(field<string>(input, "cwd")));
       case "worktree-statuses": return client.getWorktreeStatuses(...optional(field<string>(input, "cwd")));
-      case "create-worktree": return client.createWorktree(field(input, "branch")!, field(input, "baseRef"));
+      case "create-worktree": return client.createWorktree(field(input, "branch")!, field(input, "baseRef"), field(input, "cwd"));
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();
       case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "path"));

@@ -1801,17 +1801,22 @@ describe("App render isolation", () => {
   });
 
   it("does not send a prompt to the previous thread while a worktree is opening", async () => {
-    let resolveCreation!: (result: {
-      version: 1;
-      updates: Array<
-        | { version: 1; type: "thread-shell"; update: { sessionId: string; shell: { id: string; path: string; title: string; modifiedAt: number; projectPath: string; projectName: string; branch: string; messageCount: number } } }
-        | { version: 1; type: "thread-detail"; detail: { sessionId: string; messages: never[]; isStreaming: false; activeTools: never[] } }
-        | { version: 1; type: "project"; project: { cwd: string; branch: string } }
-      >;
-    }) => void;
-    const creation = new Promise<Parameters<typeof resolveCreation>[0]>((resolve) => { resolveCreation = resolve; });
+    // The kit creates the worktree, then opens it like any project; the composer stays held across both.
+    let resolveCreation!: (result: { path: string }) => void;
+    const creation = new Promise<{ path: string }>((resolve) => { resolveCreation = resolve; });
     const sendPrompt = vi.fn(async () => undefined);
     let cwd = "/project";
+    const openProject = vi.fn(async (path: string) => {
+      cwd = path;
+      return {
+        version: 1,
+        updates: [
+          { version: 1, type: "thread-shell", update: { sessionId: "worktree-thread", shell: { id: "worktree-thread", path: "/worktree.jsonl", title: "Untitled thread", modifiedAt: 2, projectPath: cwd, projectName: "project", branch: "feat/race", messageCount: 0 } } },
+          { version: 1, type: "thread-detail", detail: { sessionId: "worktree-thread", messages: [], isStreaming: false, activeTools: [] } },
+          { version: 1, type: "project", project: { cwd, branch: "feat/race" } },
+        ],
+      };
+    });
     window.tau = {
       bootstrap: async () => ({
         version: 1,
@@ -1837,6 +1842,7 @@ describe("App render isolation", () => {
         getFileTree: async () => [],
         createWorktree: async () => creation,
       }),
+      openProject,
       sendPrompt,
     } as unknown as typeof window.tau;
 
@@ -1853,16 +1859,9 @@ describe("App render isolation", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(composer.value).toBe("Must run in the worktree");
 
-    cwd = "/project-worktrees/feat-race";
-    resolveCreation({
-      version: 1,
-      updates: [
-        { version: 1, type: "thread-shell", update: { sessionId: "worktree-thread", shell: { id: "worktree-thread", path: "/worktree.jsonl", title: "Untitled thread", modifiedAt: 2, projectPath: cwd, projectName: "project", branch: "feat/race", messageCount: 0 } } },
-        { version: 1, type: "thread-detail", detail: { sessionId: "worktree-thread", messages: [], isStreaming: false, activeTools: [] } },
-        { version: 1, type: "project", project: { cwd, branch: "feat/race" } },
-      ],
-    });
+    resolveCreation({ path: "/project-worktrees/feat-race" });
 
+    await waitFor(() => expect(openProject).toHaveBeenCalledWith("/project-worktrees/feat-race"));
     await waitFor(() => expect(screen.getByRole("button", { name: "feat-race" })).toBeTruthy());
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(

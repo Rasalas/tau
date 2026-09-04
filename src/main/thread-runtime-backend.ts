@@ -65,6 +65,12 @@ export interface ThreadBackendSnapshot {
   catalog: ThreadBackendCatalog;
 }
 
+export interface CompletionRequest {
+  system: string;
+  prompt: string;
+  maxTokens?: number;
+}
+
 export interface ThreadRuntimeBackend {
   /** Runtime owner for this thread. This value never changes while live. */
   readonly kind: ThreadBackendKind;
@@ -119,6 +125,8 @@ export interface ThreadRuntimeBackend {
   navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }>;
   waitForIdle(): Promise<void>;
   completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
+  /** One short answer from a model of this runtime, outside the thread's conversation. */
+  complete(provider: string, modelId: string, request: CompletionRequest): Promise<string>;
   modelApi(): string | undefined;
   /** Shortcuts the runtime's extensions registered; Pi resolves them against the user's keybindings.json. */
   shortcuts(userBindings: PiUserKeybindings): PiShortcut[];
@@ -361,23 +369,26 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
   createFork(entryId: string): string | undefined { return this.session.sessionManager.createBranchedSession(entryId); }
   waitForIdle(): Promise<void> { return this.session.waitForIdle(); }
-  async completeTitle(provider: string, modelId: string, conversation: string): Promise<string> {
+  completeTitle(provider: string, modelId: string, conversation: string): Promise<string> {
+    return this.complete(provider, modelId, {
+      system: "Create a concise coding-thread title as one plain-text noun phrase. Use 3-7 words and at most 60 characters. Name the concrete task, change, or decision. Never use Markdown, quotes, terminal punctuation, a label, a complete sentence, or meta wording such as working on, help with, discussion about, or implementing.",
+      prompt: `Return only the plain-text title for this thread. Match the conversation's language.\n\n${conversation}`,
+      maxTokens: 48,
+    });
+  }
+  async complete(provider: string, modelId: string, request: CompletionRequest): Promise<string> {
     const model = this.session.modelRuntime.getModel(provider, modelId);
-    if (!model) throw new Error(`Unknown title model: ${provider}/${modelId}`);
+    if (!model) throw new Error(`Unknown model: ${provider}/${modelId}`);
     const response = await this.session.modelRuntime.completeSimple(
       model,
       {
-        systemPrompt: "Create a concise coding-thread title as one plain-text noun phrase. Use 3-7 words and at most 60 characters. Name the concrete task, change, or decision. Never use Markdown, quotes, terminal punctuation, a label, a complete sentence, or meta wording such as working on, help with, discussion about, or implementing.",
-        messages: [{
-          role: "user",
-          content: [{ type: "text", text: `Return only the plain-text title for this thread. Match the conversation's language.\n\n${conversation}` }],
-          timestamp: Date.now(),
-        }],
+        systemPrompt: request.system,
+        messages: [{ role: "user", content: [{ type: "text", text: request.prompt }], timestamp: Date.now() }],
       },
-      { maxTokens: 48, cacheRetention: "none", timeoutMs: 30_000 },
+      { maxTokens: request.maxTokens ?? 48, cacheRetention: "none", timeoutMs: 30_000 },
     );
     if (response.stopReason === "error" || response.stopReason === "aborted") {
-      throw new Error(response.errorMessage || "The title model did not complete.");
+      throw new Error(response.errorMessage || "The model did not complete.");
     }
     const content = response.content;
     return Array.isArray(content)

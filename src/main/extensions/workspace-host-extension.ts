@@ -197,7 +197,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         return git.getWorktreeStatuses(canonical, sessions.map((session) => session.cwd));
       });
       context.registerCommand("create-worktree", async (input) => {
-        const project = cwd();
+        // A pending draft may sit on another project than the host's thread.
+        const project = await services.knownWorkspacePath(optionalString(input, "cwd") ?? cwd());
         const branch = requiredString(input, "branch");
         const baseRef = optionalString(input, "baseRef");
         try {
@@ -205,7 +206,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
-          return services.openWorkspace(destination);
+          return { path: destination };
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           throw error;

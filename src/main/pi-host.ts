@@ -458,9 +458,7 @@ export class PiHost {
 
   private hostThreadFor(thread: ThreadRuntime): HostThread {
     return {
-      sessionId: thread.threadId,
-      cwd: thread.cwd,
-      backendKind: thread.backend.kind,
+      sessionId: thread.threadId, cwd: thread.cwd, backendKind: thread.backend.kind,
       get sessionFile() { return thread.sessionFile; },
       isStreaming: () => thread.backend.isStreaming() || thread.adapterStreaming,
       isIdle: () => !thread.backend.isStreaming() && thread.backend.isIdle() && !thread.adapterStreaming
@@ -470,6 +468,7 @@ export class PiHost {
       sessionName: () => thread.backend.sessionName(),
       transcript: () => thread.backend.transcript(),
       completeTitle: (provider, modelId, conversation) => thread.backend.completeTitle(provider, modelId, conversation),
+      complete: (provider, modelId, request) => thread.backend.complete(provider, modelId, request),
       modelApi: () => thread.backend.modelApi(),
       shortcuts: (userBindings) => thread.backend.shortcuts(userBindings),
       runShortcut: (keys, userBindings) => thread.backend.runShortcut(keys, userBindings),

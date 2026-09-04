@@ -945,7 +945,7 @@ export default function App() {
     return true;
   }, [invalidateNewThread, setPendingNewThread]);
 
-  const openWorkspace = useCallback(async (path: string): Promise<boolean> => {
+  const openWorkspace = useCallback(async (path: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
     const pending = pendingNewThreadRef.current;
     if (path === (pending?.projectPath ?? snapshot?.cwd)) return true;
     if (!allowProjectSwitch() || !requireHost("Project switching")) return false;
@@ -959,7 +959,7 @@ export default function App() {
     try {
       const result = await window.tau!.openProject(path);
       if (pending) discardPendingNewThread(pending);
-      applyHostResult(result, false);
+      applyHostResult(result, options?.inheritDraft ?? false);
       return true;
     } catch (error) {
       setNotice(errorMessage(error));
@@ -1316,10 +1316,8 @@ export default function App() {
     }),
     openFile,
     runShellAction,
-    holdComposer: () => {
-      setComposerHolds((count) => count + 1);
-      return () => setComposerHolds((count) => Math.max(0, count - 1));
-    },
+    holdComposer: () => { setComposerHolds((count) => count + 1); return () => setComposerHolds((count) => Math.max(0, count - 1)); },
+    composerDraft: () => activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey).draft : "",
   }), [
     applyHostResult, openPanel,
     activeDraftKey, openWorkspace, rebuildWorkbench, reloadRuntime, restartWorkbench, settleActiveThread, snapshot, switchSession,

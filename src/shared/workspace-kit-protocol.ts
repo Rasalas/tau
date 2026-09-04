@@ -50,7 +50,8 @@ export interface WorkspaceHostCommands {
   "workspace-info": { input: { cwd?: string } | undefined; output: WorkspaceInfo };
   /** Reads every linked checkout only when the picker needs cleanup safety facts. */
   "worktree-statuses": { input: { cwd?: string } | undefined; output: UiWorktreeStatus[] };
-  "create-worktree": { input: { branch: string; baseRef?: string }; output: HostActionResult };
+  /** Adds a worktree next to `cwd` (the host's workspace by default) and answers with its path; opening it is the caller's move. */
+  "create-worktree": { input: { branch: string; baseRef?: string; cwd?: string }; output: { path: string } };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   "open-in-editor": { input: { editorId: string; path?: string }; output: void };
@@ -99,7 +100,7 @@ export interface WorkspaceHostClient {
   push(): Promise<PushResult>;
   getWorkspaceInfo(cwd?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(cwd?: string): Promise<UiWorktreeStatus[]>;
-  createWorktree(branch: string, baseRef?: string): Promise<HostActionResult>;
+  createWorktree(branch: string, baseRef?: string, cwd?: string): Promise<{ path: string }>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, path?: string): Promise<void>;
@@ -131,7 +132,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     push: () => call("push", undefined),
     getWorkspaceInfo: (cwd) => call("workspace-info", cwd === undefined ? undefined : { cwd }),
     getWorktreeStatuses: (cwd) => call("worktree-statuses", cwd === undefined ? undefined : { cwd }),
-    createWorktree: (branch, baseRef) => call("create-worktree", { branch, baseRef }),
+    createWorktree: (branch, baseRef, cwd) => call("create-worktree", { branch, baseRef, cwd }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, path) => call("open-in-editor", { editorId, path }),

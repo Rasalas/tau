@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Folder, FolderGit2, GitBranch, History, Plus, Search } from "lucide-react";
+import { ChevronDown, Folder, FolderGit2, GitBranch, History, Plus, Search, Sparkles } from "lucide-react";
 import type { UiWorktree, UiWorktreeStatus, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import { VirtualList } from "./VirtualList";
 
 type OpenPanel = "workspace" | "refs" | undefined;
+
+/** Rows of the worktree picker: existing worktrees, then the typed name as a new one. */
+type PickerItem = { kind: "worktree"; tree: UiWorktree } | { kind: "create"; branch: string };
+
+const worktreeSlug = (branch: string) => branch.trim().replace(/[^a-z0-9._-]+/giu, "-").replace(/^-+|-+$/gu, "");
 
 function pathName(path: string): string {
   return path.replace(/[\\/]+$/u, "").split(/[\\/]/u).at(-1) ?? path;
@@ -36,17 +41,19 @@ function worktreeStatusLabel(status?: UiWorktreeStatus, loading = false): string
 function WorktreeForm({
   info,
   busy,
+  initialBranch = "",
   onCreate,
   onCancel,
 }: {
   info: WorkspaceInfo;
   busy: boolean;
+  initialBranch?: string;
   onCreate(branch: string, baseRef: string): Promise<boolean>;
   onCancel(): void;
 }) {
-  const [branch, setBranch] = useState("");
+  const [branch, setBranch] = useState(initialBranch);
   const [baseRef, setBaseRef] = useState(info.branch || "HEAD");
-  const slug = branch.trim().replace(/[^a-z0-9._-]+/giu, "-").replace(/^-+|-+$/gu, "");
+  const slug = worktreeSlug(branch);
   const baseRefs = [...new Set([
     info.branch,
     ...info.refs.map((ref) => ref.name),
@@ -92,6 +99,7 @@ export function WorkspaceBar({
   onCreateWorktree,
   onSwitchRef,
   onLoadWorktreeStatuses,
+  onSuggestName,
 }: {
   info?: WorkspaceInfo;
   busy: boolean;
@@ -99,9 +107,14 @@ export function WorkspaceBar({
   onCreateWorktree(branch: string, baseRef: string): Promise<boolean>;
   onSwitchRef(ref: string): Promise<boolean>;
   onLoadWorktreeStatuses(): Promise<UiWorktreeStatus[]>;
+  /** Present while an extension can name a worktree from the task; resolves undefined when it could not. */
+  onSuggestName?(hint: string): Promise<string | undefined>;
 }) {
   const [open, setOpen] = useState<OpenPanel>();
-  const [creating, setCreating] = useState(false);
+  /** The form is open, seeded with this branch name. */
+  const [creating, setCreating] = useState<{ branch: string }>();
+  const [naming, setNaming] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [worktreeQuery, setWorktreeQuery] = useState("");
   const [refCursor, setRefCursor] = useState(0);
@@ -137,20 +150,38 @@ export function WorkspaceBar({
       if (event.key !== "Escape") return;
       event.stopPropagation();
       setOpen(undefined);
-      setCreating(false);
+      setCreating(undefined);
+    };
+    // The scrim sits in the bar's stacking context, so overlays above it still get the click; watch the document too.
+    const onPointerDown = (event: PointerEvent) => {
+      if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) {
+        setOpen(undefined);
+        setCreating(undefined);
+      }
     };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
   }, [open]);
 
   const current = info?.worktrees.find((tree) => tree.isCurrent);
   const label = !info?.isRepo ? "Local folder" : current?.isMain ? "Current checkout" : current?.name ?? "Worktree";
 
   const worktreeNeedle = worktreeQuery.trim();
-  const worktrees = useMemo(
-    () => (info?.worktrees ?? []).filter((tree) => !worktreeNeedle || fuzzyMatch(`${tree.branch ?? ""} ${tree.name} ${tree.path}`, worktreeNeedle)),
-    [info?.worktrees, worktreeNeedle],
-  );
+  const baseRef = info?.branch || "HEAD";
+  const pickerItems = useMemo<PickerItem[]>(() => {
+    const trees = info?.worktrees ?? [];
+    const items: PickerItem[] = trees
+      .filter((tree) => !worktreeNeedle || fuzzyMatch(`${tree.branch ?? ""} ${tree.name} ${tree.path}`, worktreeNeedle))
+      .map((tree) => ({ kind: "worktree", tree }));
+    // A name no worktree carries is offered as a new one, after the matches so Enter still opens the best match.
+    const exact = trees.some((tree) => tree.branch === worktreeNeedle || tree.name === worktreeNeedle);
+    if (worktreeNeedle && info?.isRepo && !exact) items.push({ kind: "create", branch: worktreeNeedle });
+    return items;
+  }, [info?.isRepo, info?.worktrees, worktreeNeedle]);
   const statusesByPath = useMemo(() => new Map(worktreeStatuses?.map((status) => [status.path, status]) ?? []), [worktreeStatuses]);
   useEffect(() => setWorktreeCursor(0), [worktreeNeedle]);
 
@@ -161,7 +192,7 @@ export function WorkspaceBar({
   );
 
   useEffect(() => setRefCursor(0), [needle]);
-  const close = () => { setOpen(undefined); setCreating(false); };
+  const close = () => { setOpen(undefined); setCreating(undefined); };
   const chooseRef = (refName: string) => {
     if (refs.find((ref) => ref.name === refName)?.isCurrent) { close(); return; }
     void onSwitchRef(refName).then((changed) => { if (changed) close(); });
@@ -170,9 +201,24 @@ export function WorkspaceBar({
     if (tree.isCurrent) { close(); return; }
     void onOpenWorktree(tree.path).then((changed) => { if (changed) close(); });
   };
+  const createWorktree = (branch: string, base: string) => onCreateWorktree(branch, base).then((created) => { if (created) close(); return created; });
+  const choosePickerItem = (item: PickerItem) => {
+    if (item.kind === "worktree") chooseWorktree(item.tree);
+    else void createWorktree(item.branch, baseRef);
+  };
+  const nameWorktree = async () => {
+    if (!onSuggestName) return;
+    setNaming(true);
+    try {
+      const branch = await onSuggestName(worktreeNeedle);
+      if (branch) setCreating({ branch });
+    } finally {
+      setNaming(false);
+    }
+  };
 
   return (
-    <div className="workspace-bar">
+    <div className="workspace-bar" ref={rootRef}>
       {open ? <button className="menu-scrim" aria-label="Close" onClick={close} /> : null}
 
       <div className="menu-anchor">
@@ -192,12 +238,9 @@ export function WorkspaceBar({
               <WorktreeForm
                 info={info}
                 busy={busy}
-                onCreate={async (branch, baseRef) => {
-                  const created = await onCreateWorktree(branch, baseRef);
-                  if (created) close();
-                  return created;
-                }}
-                onCancel={() => setCreating(false)}
+                initialBranch={creating.branch}
+                onCreate={createWorktree}
+                onCancel={() => setCreating(undefined)}
               />
             ) : (
               <>
@@ -209,27 +252,51 @@ export function WorkspaceBar({
                     value={worktreeQuery}
                     onChange={(event) => setWorktreeQuery(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === "ArrowDown") { event.preventDefault(); setWorktreeCursor((value) => worktrees.length ? (value + 1) % worktrees.length : 0); }
-                      if (event.key === "ArrowUp") { event.preventDefault(); setWorktreeCursor((value) => worktrees.length ? (value - 1 + worktrees.length) % worktrees.length : 0); }
-                      if (event.key === "Enter" && worktrees[worktreeCursor]) { event.preventDefault(); chooseWorktree(worktrees[worktreeCursor]); }
+                      const count = pickerItems.length;
+                      if (event.key === "ArrowDown") { event.preventDefault(); setWorktreeCursor((value) => count ? (value + 1) % count : 0); }
+                      if (event.key === "ArrowUp") { event.preventDefault(); setWorktreeCursor((value) => count ? (value - 1 + count) % count : 0); }
+                      if (event.key === "Enter" && pickerItems[worktreeCursor]) { event.preventDefault(); choosePickerItem(pickerItems[worktreeCursor]); }
                     }}
                     placeholder="Search worktrees…"
                     aria-label="Search worktrees"
                   />
                 </div>
-                <button className="new-worktree" onClick={() => setCreating(true)} disabled={!info?.isRepo}>
+                <button className="new-worktree" onClick={() => setCreating({ branch: worktreeNeedle })} disabled={!info?.isRepo}>
                   <Plus size={13} />
                   <span>New worktree…</span>
                 </button>
+                {onSuggestName ? (
+                  <button className="new-worktree" onClick={() => void nameWorktree()} disabled={!info?.isRepo || naming}>
+                    <Sparkles size={13} />
+                    <span>New worktree</span>
+                    <small>{naming ? "naming…" : "automatic naming"}</small>
+                  </button>
+                ) : null}
                 <VirtualList
-                  items={worktrees}
+                  items={pickerItems}
                   itemHeight={49}
                   className="worktree-list"
                   empty={<p>No worktree matches “{worktreeQuery}”.</p>}
                   scrollToIndex={worktreeCursor}
                   role="listbox"
                   ariaLabel="Worktrees"
-                  renderItem={(tree, index) => {
+                  renderItem={(item, index) => {
+                    if (item.kind === "create") {
+                      return <button
+                        key="create"
+                        className={index === worktreeCursor ? "selected" : ""}
+                        onClick={() => void createWorktree(item.branch, baseRef)}
+                        role="option"
+                        aria-selected={false}
+                      >
+                        <Plus size={13} />
+                        <span className="menu-label">
+                          <em>Create worktree “{item.branch}”</em>
+                          <small>with exactly this name · from {baseRef} · ../{pathName(info?.worktreeParent ?? "")}/{worktreeSlug(item.branch) || "…"}</small>
+                        </span>
+                      </button>;
+                    }
+                    const { tree } = item;
                     const status = statusesByPath.get(tree.path);
                     return <button
                       key={tree.path}

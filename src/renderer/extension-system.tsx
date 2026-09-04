@@ -36,7 +36,8 @@ export interface WorkbenchActions {
   notify(message: string): void;
   /** Opens the list of project sources extensions registered. */
   openProjectSources(): void;
-  openWorkspace(path: string): Promise<boolean>;
+  /** Opens a project like the sidebar does; `inheritDraft` carries the unsent composer text into the thread that opens there. */
+  openWorkspace(path: string, options?: { inheritDraft?: boolean }): Promise<boolean>;
   /**
    * The thread on screen: its id and model, the project it runs in (a pending
    * draft's project while the thread does not exist yet), and whether that draft is still pending.
@@ -48,6 +49,8 @@ export interface WorkbenchActions {
   runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
   /** Keeps the composer from submitting until the returned release is called. */
   holdComposer(): () => void;
+  /** What the user has typed into the visible composer and not sent yet. */
+  composerDraft(): string;
   /** Applies a host action result the way core actions do, refreshing what it touched. */
   applyHostResult(result: HostActionResult): void;
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
@@ -291,7 +294,9 @@ export interface ToolPresentation {
 /** Options an extension declares at activation; Tau renders the settings page from these. */
 export type ExtensionOption =
   | { id: string; kind: "toggle"; label: string; defaultValue: boolean }
-  | { id: string; kind: "chips"; label: string; values: string[] };
+  | { id: string; kind: "chips"; label: string; values: string[] }
+  /** A model choice, stored as `provider/id` under the extension's values; unset means the thread's model. */
+  | { id: string; kind: "model"; label: string };
 
 /** The host entry of the same extension package, reached by extension id. */
 export interface HostExtensionClient {

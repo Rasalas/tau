@@ -65,7 +65,7 @@ let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
 let rebuild: Promise<unknown> | undefined;
 
-configureAppIdentity(app);
+configureAppIdentity(app, process.env.TAU_USER_DATA);
 const primaryInstance = installSingleInstance(app, () => mainWindow);
 
 function publish(event: HostEvent): void {

@@ -119,6 +119,70 @@ describe("WorkspaceBar", () => {
     expect(screen.getByText("clean · behind 2 · unused")).toBeTruthy();
   });
 
+  it("offers the typed name as a new worktree after the matches, and not when a worktree carries it", async () => {
+    const linked = { path: "/Users/dev/code/tau-worktrees/feat-new-thing", name: "feat-new-thing", branch: "feat/new-thing", isMain: false, isCurrent: false };
+    setup(workspace({ worktrees: [workspace().worktrees[0], linked] }));
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    const search = await screen.findByRole("searchbox", { name: "Search worktrees" });
+
+    fireEvent.change(search, { target: { value: "feat/new" } });
+    const options = screen.getAllByRole("option").map((option) => option.textContent ?? "");
+    expect(options[0]).toContain("feat/new-thing");
+    expect(options[1]).toContain("Create worktree “feat/new”");
+    expect(options[1]).toContain("with exactly this name · from main · ../tau-worktrees/feat-new");
+
+    fireEvent.change(search, { target: { value: "feat/new-thing" } });
+    expect(screen.queryByRole("option", { name: /Create worktree/u })).toBeNull();
+
+    fireEvent.change(search, { target: { value: "fix/worktree-handling" } });
+    fireEvent.click(screen.getByRole("option", { name: /Create worktree “fix\/worktree-handling”/u }));
+    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/worktree-handling", "main");
+  });
+
+  it("creates the typed name with Enter when nothing else matches", async () => {
+    setup(workspace());
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    const search = await screen.findByRole("searchbox", { name: "Search worktrees" });
+    fireEvent.change(search, { target: { value: "fix/only-new" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/only-new", "main");
+  });
+
+  it("seeds the form with the typed name so the base can still be chosen", async () => {
+    setup(workspace({ hasRemote: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search worktrees" }), { target: { value: "fix/from-remote" } });
+    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
+    expect((screen.getByPlaceholderText("feat/my-branch") as HTMLInputElement).value).toBe("fix/from-remote");
+    fireEvent.change(screen.getByRole("combobox", { name: "START FROM" }), { target: { value: "origin/main" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/from-remote", "origin/main");
+  });
+
+  it("offers automatic naming only with a namer, and reviews the suggestion in the form", async () => {
+    setup(workspace());
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    await screen.findByRole("searchbox", { name: "Search worktrees" });
+    expect(screen.queryByRole("button", { name: /automatic naming/u })).toBeNull();
+    cleanup();
+
+    const onSuggestName = vi.fn(async () => "fix/steer-queue-messages");
+    render(<WorkspaceBar info={workspace()} busy={false} {...handlers} onSuggestName={onSuggestName} />);
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search worktrees" }), { target: { value: "steer" } });
+    fireEvent.click(screen.getByRole("button", { name: /automatic naming/u }));
+    expect(onSuggestName).toHaveBeenCalledWith("steer");
+    expect(((await screen.findByPlaceholderText("feat/my-branch")) as HTMLInputElement).value).toBe("fix/steer-queue-messages");
+  });
+
+  it("closes the picker on a click outside of the bar", async () => {
+    setup(workspace());
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    await screen.findByRole("searchbox", { name: "Search worktrees" });
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("searchbox", { name: "Search worktrees" })).toBeNull();
+  });
+
   it("lets a new worktree start from origin/main", () => {
     setup(workspace({ hasRemote: true }));
     fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
