@@ -85,6 +85,7 @@ import {
 } from "./transcript-history";
 import {
   backgroundNewThreadDetail,
+  conversationMessagesFor,
   createClientMessageId,
   estimateTokens,
   isCurrentTranscriptSubmission,
@@ -108,7 +109,7 @@ import {
 import { ComposerHost, LiveStatus, useTailScroll } from "./components/ComposerHost";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
 import { ThreadViewStore } from "./thread-view-store";
-import { Workbench } from "./Workbench";
+import { Workbench, type WorkbenchComposer, type WorkbenchLayout, type WorkbenchModel, type WorkbenchThread } from "./Workbench";
 import { useConversationActivities } from "./conversation-activities";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
@@ -767,6 +768,15 @@ export default function App() {
     setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
     setDockOpen(true);
   }, []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const closeProjectSources = useCallback(() => setProjectSourcesOpen(false), []);
+  const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
+  const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
+  const closeOverlay = useCallback(() => setActiveOverlayId(undefined), []);
+  const activateStage = useCallback((id: string) => setStage((current) => activateStageTab(current, id)), []);
+  const closeStage = useCallback((id: string) => setStage((current) => closeStageTab(current, id)), []);
+  const pinStage = useCallback((id: string) => setStage((current) => pinStageTab(current, id)), []);
+  const setStageView = useCallback((id: string, view: StageView) => setStage((current) => setFileView(current, id, view)), []);
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => {
     setStage((current) => openFileTab(current, path, options));
     setChatFocused(false);
@@ -1064,6 +1074,7 @@ export default function App() {
 
   // Pi's /tree, /fork and /clone for the thread on screen.
   const [threadTreeModal, setThreadTreeModal] = useState<{ mode: ThreadTreeMode; tree?: UiThreadTree; error?: string; busy: boolean }>();
+  const closeThreadTree = useCallback(() => setThreadTreeModal(undefined), []);
   const openThreadTree = useCallback((mode: ThreadTreeMode = "navigate") => {
     if (!requireHost("Thread tree")) return;
     setThreadTreeModal({ mode, busy: false });
@@ -1530,53 +1541,33 @@ export default function App() {
     });
   }, [snapshot?.sessionId, toolAnchorId, tools, turnActivitySessionId]);
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
-  const contextBreakdown: ContextBreakdown = useMemo(() => {
-    const usage = snapshot?.contextUsage;
-    if (!usage) return { messages: 0, toolOutput: 0, system: 0 };
-    const messageTokens = transcriptTokenEstimate;
-    const toolTokens = tools.reduce((total, tool) => total + estimateTokens(tool.output ?? ""), 0);
-    const accounted = Math.min(usage.tokens, messageTokens + toolTokens);
-    const scale = messageTokens + toolTokens > 0 ? accounted / (messageTokens + toolTokens) : 0;
-    return {
-      messages: Math.round(messageTokens * scale),
-      toolOutput: Math.round(toolTokens * scale),
-      system: Math.max(0, usage.tokens - accounted),
-    };
-  }, [snapshot?.contextUsage, tools, transcriptTokenEstimate]);
 
+  const liveSnapshot = useMemo(
+    () => snapshot ? { ...snapshot, isStreaming: visibleStreaming } : undefined,
+    [snapshot, visibleStreaming],
+  );
   const stageTab = activeStageTab(stage);
   const stageFilePath = stageTab?.path;
   const contextValue = useMemo(
-    () => ({ snapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
-    [snapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
+    () => ({ snapshot: liveSnapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
+    [liveSnapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
   );
-  const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
-  const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
+  const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry }), [liveSnapshot, registry]);
+  const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, tools, registry }), [events, liveSnapshot, tools, registry]);
   // The stage shows documents; whoever registered the document source loads them.
   const documentSource = registry.getDocumentSource();
   const documentState = useSyncExternalStore(documentSource?.subscribe ?? noopSubscribe, documentSource?.getState ?? emptyDocumentState, documentSource?.getState ?? emptyDocumentState);
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const titleCommands = registry.getCommandsFor("thread-title");
-  const scopedOptimisticMessages = useMemo(
-    () => optimisticMessages.filter((entry) => entry.scope === activeDraftKey),
-    [activeDraftKey, optimisticMessages],
-  );
-  const unconfirmedOptimisticMessages = useMemo(
-    () => reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message),
-    // `userRevision` lives in the mutable transcript index and can become
-    // visible in a higher-priority render before the matching messages state.
-    // The array dependency makes the later authoritative commit reconcile too.
-    [messages, scopedOptimisticMessages, transcriptUserRevision],
-  );
   const preparedThreadCapability = usePreparedThreadCapability(
     pendingNewThread?.sessionId ? undefined : pendingNewThread?.projectPath,
     window.tau?.getPreparedThreadCapability,
   );
-  const conversationMessages = useMemo(() => pendingNewThread
-    ? unconfirmedOptimisticMessages
-    : mergeTranscriptMessages(messages, unconfirmedOptimisticMessages),
-  [messages, pendingNewThread, unconfirmedOptimisticMessages]);
+  const conversationMessages = useMemo(
+    () => conversationMessagesFor(messages, optimisticMessages, activeDraftKey, Boolean(pendingNewThread)),
+    [activeDraftKey, messages, optimisticMessages, pendingNewThread],
+  );
   const visibleToolAnchorId = visibleStreaming
     ? latestActivityAnchor(conversationMessages)
     // A submitted prompt is visible before its run starts. Keep the previous
@@ -1630,27 +1621,57 @@ export default function App() {
     ?? projects.find((project) => project.path === startProjectPath)?.name
     ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
     ?? startProjectPath;
-  return <>
-    <Workbench model={{
-    registry, actions, threadStore, context: contextValue, shellContext: shellContextValue,
-    observatoryContext: observatoryContextValue, snapshot, workspaceCwd, dockOpen, setDockOpen,
-    sidebarContributions, panels, activePanel, openedPanels, openPanel, centerRef, centerCompact,
-    setCenterCompact, chatFocused, setChatFocused, stage, setStage, documentState, documentSource,
-    visibleStreaming, showStartScreen, startProjectPath, startProjectName, setNewThreadOpen,
-    dropController: threadDropController, conversationSnapshot, composerScopeStore, composerSeed,
-    activeDraftKey, queue, contextBreakdown, composerRef, composerAttachmentRef, submit, cancelQueued, steerQueued, reorderQueue,
-    setModel, setThinking, conversationPrompts, answerUiPrompt, compactContext, composerHolds,
-    settings, titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread,
-    copyThreadValue, pendingNewThread: Boolean(pendingNewThread), conversationMessages,
+  const layout = useMemo<WorkbenchLayout>(() => ({
+    registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
+    openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
+    chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
+    pinStageTab: pinStage, setStageFileView: setStageView, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
+    commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
+    closeNewThreadPicker, projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
+    notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId, closeOverlay,
+  }), [
+    activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker,
+    closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
+    documentSource, documentState, dockOpen, newThreadOpen, notice, openNewThreadPicker, openPanel,
+    openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
+    removeProject, setNotice, setStageView, settings, settingsPage,
+    sidebarContributions, stage, threadStore, visibleStreaming, workspaceCwd,
+  ]);
+
+  const thread = useMemo<WorkbenchThread>(() => ({
+    snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread),
+    showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
-    transcriptRevision, transcriptLookupRevision, transcriptScope, transcriptTurnStart,
-    visibleTranscriptTurnStart, transcriptActivities, liveStatusLabel, conversationActivityTools,
-    runStartedAt, copyMessage, forkMessage, threadTreeModal, setThreadTreeModal,
-    navigateThreadTree, forkFromTree, paletteOpen, setPaletteOpen, commands, projectSourcesOpen,
-    setProjectSourcesOpen, newThreadOpen, projects, removeProject, createThreadInProject,
-    settingsPage, setSettingsPage, notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId,
-    setActiveOverlayId,
-  }} />
+    transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, transcriptActivities,
+    liveStatusLabel, conversationActivityTools, runStartedAt, activeDraftKey, copyMessage, forkMessage,
+    titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread, copyThreadValue,
+    threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
+  }), [
+    activeDraftKey, applyTranscriptPage, closeThreadTree, conversationActivityTools,
+    conversationSnapshot, copyMessage, copyThreadValue, duplicateThread, forkFromTree, forkMessage,
+    liveSnapshot, liveStatusLabel, loadTranscriptPage, navigateThreadTree, openThreadTree,
+    pendingNewThread, renameThread, runStartedAt, settleActiveThread, showStartScreen,
+    startProjectName, startProjectPath, threadDropController, threadTreeModal, titleCommands,
+    transcriptActivities, transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart,
+    visibleTranscriptTurnStart,
+  ]);
+
+  const composer = useMemo<WorkbenchComposer>(() => ({
+    scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
+    attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
+    submit, cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
+  }), [
+    answerUiPrompt, cancelQueued, compactContext, composerHolds, composerScopeStore, composerSeed,
+    conversationPrompts, queue, reorderQueue, setModel, setThinking, steerQueued, submit,
+  ]);
+
+  const workbenchModel = useMemo<WorkbenchModel>(() => ({
+    view: viewStore, actions, context: contextValue, shellContext: shellContextValue,
+    observatoryContext: observatoryContextValue, layout, thread, composer,
+  }), [actions, composer, contextValue, layout, observatoryContextValue, shellContextValue, thread, viewStore]);
+
+  return <>
+    <Workbench model={workbenchModel} />
     {reloadUi}
   </>;
 }

@@ -22,16 +22,20 @@ export interface ConversationActivityInput {
   abortSessionId?: string;
 }
 
+const NO_TOOLS: readonly UiToolRun[] = [];
+const NO_PROMPTS: ExtensionUiPrompt[] = [];
+const NO_HISTORY: NonNullable<HostSnapshot["turnActivityHistory"]> = [];
+
 export function useConversationActivities(input: ConversationActivityInput) {
   const {
     pendingNewThread, activityTools, turnActivityHistory, conversationSnapshot, toolAnchorId,
     visibleToolAnchorId, threadPrompts, registry, registryVersion, viewStore,
     recoverThread, copyToolOutput, abortSessionId,
   } = input;
-  const conversationActivityTools = pendingNewThread ? [] : activityTools;
+  const conversationActivityTools: readonly UiToolRun[] = pendingNewThread ? NO_TOOLS : activityTools;
   const conversationActivityHistory = pendingNewThread
-    ? []
-    : (turnActivityHistory.length > 0 ? turnActivityHistory : conversationSnapshot?.turnActivityHistory ?? []);
+    ? NO_HISTORY
+    : (turnActivityHistory.length > 0 ? turnActivityHistory : conversationSnapshot?.turnActivityHistory ?? NO_HISTORY);
   const currentActivityToolIds = new Set(conversationActivityTools.map((tool) => tool.id));
   const currentActivityHistoryId = conversationActivityTools.length > 0
     ? [...conversationActivityHistory].reverse().find((entry) => (
@@ -39,7 +43,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
       || entry.tools.some((tool) => currentActivityToolIds.has(tool.id))
     ))?.id
     : undefined;
-  const historicalActivityRows = conversationActivityHistory
+  const historicalActivityRows = useMemo(() => conversationActivityHistory
     .filter((entry) => entry.id !== currentActivityHistoryId)
     .filter((entry) => entry.tools.some((tool) => tool.name !== "todo"))
     .map((entry) => ({
@@ -53,8 +57,8 @@ export function useConversationActivities(input: ConversationActivityInput) {
         onRecover={entry.status === "interrupted" ? () => void recoverThread() : undefined}
         onCopyOutput={copyToolOutput}
       />,
-    }));
-  const conversationPrompts = pendingNewThread ? [] : threadPrompts;
+    })), [conversationActivityHistory, copyToolOutput, currentActivityHistoryId, recoverThread, registry]);
+  const conversationPrompts = pendingNewThread ? NO_PROMPTS : threadPrompts;
   const liveTaskProgress = conversationSnapshot?.isStreaming && conversationSnapshot.taskProgress
     ? <TaskProgress progress={conversationSnapshot.taskProgress} placement="transcript" />
     : undefined;

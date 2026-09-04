@@ -117,7 +117,7 @@ const ToolRun = memo(function ToolRun({
 
 export const TOOL_PREVIEW_MIN_MS = 3_000;
 
-function useToolPreview(tools: UiToolRun[], keepLatest: boolean, suppressRunning = false): UiToolRun | undefined {
+function useToolPreview(tools: readonly UiToolRun[], keepLatest: boolean, suppressRunning = false): UiToolRun | undefined {
   const newestRunning = suppressRunning ? undefined : [...tools].reverse().find((tool) => tool.status === "running");
   const initialPreview = newestRunning ?? (keepLatest ? tools.at(-1) : undefined);
   const [previewId, setPreviewId] = useState<string | undefined>(initialPreview?.id);
@@ -159,7 +159,7 @@ function useToolPreview(tools: UiToolRun[], keepLatest: boolean, suppressRunning
   return suppressRunning || !previewId ? undefined : tools.find((tool) => tool.id === previewId);
 }
 
-function activitySummary(tools: UiToolRun[], live: number): string {
+function activitySummary(tools: readonly UiToolRun[], live: number): string {
   const commands = tools.filter((tool) => tool.name === "bash" || tool.name === "powershell").length;
   const otherTools = tools.length - commands;
   const toolLabel = `${otherTools} ${otherTools === 1 ? "tool" : "tools"}`;
@@ -185,7 +185,7 @@ export function ToolGroup({
   onStop,
   onCopyOutput,
 }: {
-  tools: UiToolRun[];
+  tools: readonly UiToolRun[];
   registry: ExtensionRegistry;
   /** Whether a run is actually in flight for this thread. */
   streaming?: boolean;
