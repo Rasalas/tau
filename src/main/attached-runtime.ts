@@ -1,6 +1,5 @@
 import type { ClientTurnIdentity, NewThreadRequestId, UiPromptAttachment } from "../shared/contracts.js";
 import type { PiBridgeCommand, PiBridgeDescriptor, PiBridgePreparedPrompt, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
-import type { LiveTurnState } from "./live-turn-state.js";
 
 export interface NewSessionRequest {
   requestId: NewThreadRequestId;
@@ -20,9 +19,14 @@ export interface AttachedRuntimeBackend {
   readonly descriptor?: PiBridgeDescriptor;
   readonly snapshot?: PiBridgeSnapshot;
   owns(threadId: string | undefined): boolean;
-  turnState(sessionId: string): LiveTurnState;
   attach(cwd: string, sessionFile: string | undefined, options: { ownerPid?: number }, activationEpoch: number): Promise<boolean>;
   detach(cancelReconnect?: boolean): void;
+  /**
+   * Takes the thread back from Pi and returns its session file, or undefined
+   * when Tau is not attached. Throws while Pi is actually running the thread:
+   * repairing under its writer would race it.
+   */
+  releaseToHost(): Promise<string | undefined>;
   withoutAttaching<T>(work: () => Promise<T>): Promise<T>;
   send(command: PiBridgeCommand, timeoutMs?: number): Promise<unknown>;
   command(command: PiBridgeCommand, retainOnDisconnect?: boolean): Promise<unknown>;

@@ -27,7 +27,7 @@ export class ClientMessageTracker {
     const fingerprint = preparedFingerprint ?? (correlationText === undefined
       ? undefined
       : clientMessageFingerprint(correlationText, this.skillNames(thread)));
-    thread.backend.appendCustomEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId, fingerprint).data);
+    thread.appendJournalEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId, fingerprint).data);
     thread.pendingClientMessageIds.push(clientMessageId);
     if (fingerprint) thread.pendingClientMessageFingerprints.set(clientMessageId, fingerprint);
     return true;
@@ -38,7 +38,7 @@ export class ClientMessageTracker {
   }
 
   persistedIds(thread: ThreadRuntime): Set<string> {
-    return new Set(branchMessagesWithClientMessageIds(thread.backend.branchEntries(), this.skillNames(thread)).flatMap((message) => {
+    return new Set(branchMessagesWithClientMessageIds(thread.entries, this.skillNames(thread)).flatMap((message) => {
       if (!message || typeof message !== "object") return [];
       const value = message as { role?: unknown; clientMessageId?: unknown };
       return value.role === "user" && typeof value.clientMessageId === "string" && value.clientMessageId.length > 0
@@ -62,7 +62,7 @@ export class ClientMessageTracker {
     const wasPending = thread.pendingClientMessageIds.includes(clientMessageId);
     const wasInFlight = thread.inFlightClientMessageIds.has(clientMessageId);
     if (!wasPending && !wasInFlight) return false;
-    thread.backend.appendCustomEntry(CLIENT_MESSAGE_CANCEL_MARKER, clientMessageCancelMarker(clientMessageId).data);
+    thread.appendJournalEntry(CLIENT_MESSAGE_CANCEL_MARKER, clientMessageCancelMarker(clientMessageId).data);
     this.forget(thread, clientMessageId);
     return true;
   }
@@ -130,7 +130,7 @@ export class ClientMessageTracker {
       this.skillNames(thread),
     );
     const clientMessageId = directId
-      ?? clientMessageIdForMessage(thread.backend.branchEntries(), message, this.skillNames(thread))
+      ?? clientMessageIdForMessage(thread.entries, message, this.skillNames(thread))
       ?? fingerprintId;
     if (clientMessageId) this.forget(thread, clientMessageId);
     return directId || !clientMessageId ? message : { ...value, clientMessageId };

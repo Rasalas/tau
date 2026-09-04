@@ -1,21 +1,24 @@
 import type {
   PreparedPrompt,
   UiComposerCommand,
-  UiContextUsage,
   UiMessage,
   UiModel,
-  UiSession,
   UiSkillDraft,
-  UiThreadTree,
 } from "../../../shared/contracts.js";
 import { clientMessageFingerprint } from "../../../shared/client-message-correlation.js";
 import { validatePreparedPrompt } from "../../../shared/prepared-prompt.js";
 import { knownSkillNames } from "../../../shared/skill-envelope.js";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import type { PiShortcut, PiUserKeybindings } from "../../../shared/keybindings-protocol.js";
 import { prepareSkillPrompt } from "../../skill-invocation.js";
 import type { RuntimePermissionLevel } from "../../runtime-adapters.js";
-import type { ThreadBackendCatalog, ThreadBackendPromptInput, ThreadBackendSnapshot, ThreadRuntimeBackend, ThreadTitleSource } from "../../thread-runtime-backend.js";
+import type {
+  ThreadBackendCapabilities,
+  ThreadBackendPromptInput,
+  ThreadBackendPromptResult,
+  ThreadBackendState,
+  ThreadCatalogView,
+  ThreadRuntimeBackend,
+  ThreadTitleSource,
+} from "../../runtime-types.js";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
@@ -47,6 +50,9 @@ export interface ClaudeThreadBackendOptions {
 export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly kind = "claude-code" as const;
   readonly runtimeAdapter: ClaudeCodeAgentRuntimeAdapter;
+  /** Print mode owns its turn: nothing streams, and no Pi-shaped operation exists. */
+  readonly turnReporting = "awaited" as const;
+  readonly capabilities: ThreadBackendCapabilities = {};
   private record?: Awaited<ReturnType<ClaudeRuntimeSessionStore["get"]>>;
   private messages: UiMessage[] = [];
   private streaming = false;
@@ -72,14 +78,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return this.record?.claudeSessionId ?? this.threadId;
   }
 
- async create(): Promise<void> {
-   this.record = await this.store.ensure(this.threadId, this.cwd);
-   this.restoreRecord(this.record);
- }
-
- async resume(): Promise<void> {
-   this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
-    if (this.record.cwd !== this.cwd) throw new Error("Claude session belongs to another workspace.");
+  async start(mode: "create" | "resume"): Promise<void> {
+    if (mode === "create") {
+      this.record = await this.store.ensure(this.threadId, this.cwd);
+    } else {
+      this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
+      if (this.record.cwd !== this.cwd) throw new Error("Claude session belongs to another workspace.");
+    }
     this.restoreRecord(this.record);
   }
 
@@ -96,24 +101,6 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.titleSource = record.titleSource;
   }
 
-  async index(): Promise<UiSession> {
-    const firstUser = this.messages.find((message) => message.role === "user");
-    return {
-      id: this.threadId,
-      path: `tau-claude-session:${this.threadId}`,
-      // The first message is user-controlled and may be an unknown or
-      // malformed runtime-looking wrapper. Reuse the same sanitized title
-      // path instead of copying its opening tag into the sidebar.
-      title: this.title || (firstUser ? derivedClaudeTitle(firstUser.text) : undefined) || "Untitled thread",
-      modifiedAt: this.record?.updatedAt ?? Date.now(),
-      projectPath: this.cwd,
-      projectName: this.options.projectName,
-      projectLabel: this.options.branch,
-      messageCount: this.messages.length,
-      backendKind: this.kind,
-    };
-  }
-
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message, ...(message.skill ? { skill: { ...message.skill } } : {}) })); }
   async skills(): Promise<UiComposerCommand[]> {
     const commands = this.options.commands;
@@ -127,32 +114,24 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return commands.map((command) => ({ ...command }));
   }
 
-  async catalog(): Promise<ThreadBackendCatalog> {
+  state(): ThreadBackendState {
     return {
-      models: [],
-      runtimeCapabilities: this.runtimeAdapter.capabilities,
-      thinkingLevel: "off",
-      thinkingLevels: ["off"],
-      allTools: [],
-      composerCommands: await this.skills(),
+      streaming: this.streaming,
+      idle: !this.streaming,
+      hasMessages: this.messages.length > 0,
+      ...(this.title ? { title: this.title } : {}),
+      ...(this.titleSource ? { titleSource: this.titleSource } : {}),
+      activeTools: [],
+      supportsImageInput: false,
+      extensionCount: 0,
     };
   }
 
-  async detail(): Promise<ThreadBackendSnapshot> {
-    return {
-      backendKind: this.kind,
-      threadId: this.threadId,
-      providerSessionId: this.providerSessionId,
-      sessionId: this.threadId,
-      cwd: this.cwd,
-      title: this.title,
-      titleSource: this.titleSource,
-      messages: await this.transcript(),
-      isStreaming: this.streaming,
-      activeTools: [],
-      catalog: await this.catalog(),
-    };
+  catalogView(): ThreadCatalogView {
+    return { thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] };
   }
+
+  async models(): Promise<UiModel[]> { return []; }
 
   async preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.options.permissionLevel?.() ?? "full"));
@@ -180,26 +159,28 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return result;
   }
 
-  async prompt(input: ThreadBackendPromptInput): Promise<{ assistantText?: string }> {
+  async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Claude delivery.");
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
     assertClaudePermissionPolicySupported(runtimePermissionPolicy(permissionLevel));
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     this.assertPreparedPrompt(input.text, prepared, await this.skills());
-    if (input.clientMessageId) {
-      const existing = this.messages.find((message) => message.role === "user" && message.clientMessageId === input.clientMessageId);
+    const clientMessageId = input.identity?.clientMessageId;
+    if (input.attachments?.length) throw new Error("Image attachments are not supported by the selected runtime adapter.");
+    if (clientMessageId) {
+      const existing = this.messages.find((message) => message.role === "user" && message.clientMessageId === clientMessageId);
       if (existing) {
         const sameSkill = JSON.stringify(existing.skill ?? null) === JSON.stringify(prepared.skill ?? null);
         if (existing.text === prepared.visibleText && sameSkill) return {};
-        throw new Error(`Claude transcript already contains a conflicting message id '${input.clientMessageId}'.`);
+        throw new Error(`Claude transcript already contains a conflicting message id '${clientMessageId}'.`);
       }
     }
     if (input.delivery !== "prompt" && this.streaming) throw new Error("Claude Code print mode cannot steer or queue a live turn.");
     // Persist the visible message as soon as the runtime accepts it; the
     // transport separately records the attempt before creating a child.
     const user: UiMessage = {
-      id: `claude-user-${input.clientMessageId ?? Date.now()}`,
-      ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
+      id: `claude-user-${clientMessageId ?? Date.now()}`,
+      ...(clientMessageId ? { clientMessageId } : {}),
       role: "user",
       text: prepared.visibleText,
       ...(prepared.skill ? { skill: prepared.skill } : {}),
@@ -224,7 +205,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         sessionId: this.providerSessionId,
         text: prepared.runtimeText,
         delivery: input.delivery,
-        ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
+        ...(clientMessageId ? { clientMessageId } : {}),
         permissionLevel,
         signal: input.signal,
       });
@@ -254,27 +235,6 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.titleSource = source;
     await this.store.setTitle(this.threadId, this.cwd, safeTitle, source);
   }
-  async setModel(): Promise<void> { throw new Error("Claude Code chooses its model in the Claude runtime; Tau model selection is unavailable for this thread."); }
-  async setThinkingLevel(): Promise<void> { throw new Error("Claude Code does not expose Pi thinking levels."); }
-  async compact(): Promise<void> { throw new Error("Claude Code context compaction is owned by the Claude runtime."); }
-  sessionFile(): string | undefined { return undefined; }
-  sessionName(): string | undefined { return this.title; }
-  branchEntries(): readonly unknown[] {
-    return this.messages.map((message) => ({ type: "message", id: message.id, message }));
-  }
-  hasMessages(): boolean { return this.messages.length > 0; }
-  appendCustomEntry(): void { throw new Error("Claude Code does not expose Pi custom entries."); }
-  appendMessage(): void { throw new Error("Claude Code owns transcript persistence through its backend store."); }
-  async bind(): Promise<void> { /* Claude has no Pi extension carrier. */ }
-  unbind(): void { /* Claude has no Pi extension carrier. */ }
-  setLifecycleHooks(): void { /* Claude transport owns its own lifecycle. */ }
-  async reload(): Promise<void> { await this.resume(); }
-  extensionCount(): number { return 0; }
-  isBashRunning(): boolean { return false; }
-  async executeBash(): Promise<Awaited<ReturnType<AgentSession["executeBash"]>>> {
-    throw new Error("Project actions are unavailable for Claude Code threads.");
-  }
-  createFork(): string | undefined { throw new Error("Claude Code threads cannot be forked by the Pi session manager."); }
   async waitForIdle(): Promise<void> {
     if (!this.streaming) return;
     await new Promise<void>((resolve) => {
@@ -282,27 +242,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       check();
     });
   }
-  async completeTitle(): Promise<string> {
-    throw new Error("Claude Code title generation is owned by the Claude runtime.");
-  }
-  async complete(): Promise<string> {
-    throw new Error("Claude Code threads have no model runtime for one-off completions.");
-  }
-  modelApi(): string | undefined { return undefined; }
-  tree(): UiThreadTree { return { sessionId: this.threadId, nodes: [] }; }
-  leafEntryId(): string | undefined { return undefined; }
-  async navigateTree(): Promise<{ cancelled: boolean }> { throw new Error("Claude Code threads have no session tree to move in."); }
-  shortcuts(): PiShortcut[] { return []; }
-  async runShortcut(): Promise<boolean> { return false; }
-  model(): UiModel | undefined { return undefined; }
-  thinkingLevel(): string { return "off"; }
-  thinkingLevels(): string[] { return ["off"]; }
-  activeToolNames(): string[] { return []; }
-  allTools(): Array<{ name: string; description: string }> { return []; }
-  contextUsage(): UiContextUsage | undefined { return undefined; }
-  isStreaming(): boolean { return this.streaming; }
-  isIdle(): boolean { return !this.streaming; }
- async dispose(): Promise<void> { if (this.streaming) await this.abort(); }
+  async dispose(): Promise<void> { if (this.streaming) await this.abort(); }
 
   private assertPreparedPrompt(
     text: string,

@@ -5,6 +5,7 @@ import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { PiHost } from "./pi-host.js";
+import { ThreadRuntime } from "./thread-runtime.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, turnActivityHistoryFromMessages } from "./host-messages.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import type { HostExtensionCommandHandler, HostExtensionContext } from "./host-extensions.js";
@@ -54,14 +55,17 @@ function piPromptThread(session: {
   model: { input?: readonly string[] };
   isStreaming: boolean;
   prompt(text: string, options?: { preflightResult?: (success: boolean) => void }): Promise<unknown>;
-}) {
+}, entries: unknown[] = []) {
   const backend = {
     kind: "pi" as const,
     runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
     threadId: "session",
     providerSessionId: "session",
-    sessionId: "session",
     cwd: "/repo",
+    turnReporting: "streamed" as const,
+    capabilities: {
+      journal: { entries: () => entries, appendCustomEntry: () => undefined, appendMessage: () => undefined },
+    },
     preparePrompt: async (text: string) => ({
       tauThreadId: "session",
       providerSessionId: "session",
@@ -73,27 +77,29 @@ function piPromptThread(session: {
       sourceFingerprint: clientMessageFingerprint(text, []),
     }),
     composerCommands: () => [],
-    prompt: async (input: { text: string; promptOptions?: unknown }) => {
-      await session.prompt(input.text, input.promptOptions as { preflightResult?: (success: boolean) => void });
+    prompt: async (input: { text: string; onAdmitted?: (accepted: boolean) => void }) => {
+      await session.prompt(input.text, { preflightResult: input.onAdmitted });
       return {};
     },
-    isStreaming: () => session.isStreaming,
-    isIdle: () => !session.isStreaming,
-    branchEntries: (): unknown[] => [],
-    appendCustomEntry: () => undefined,
+    state: () => ({
+      streaming: session.isStreaming,
+      idle: !session.isStreaming,
+      hasMessages: entries.length > 0,
+      activeTools: [],
+      supportsImageInput: session.model.input?.includes("image") === true,
+      extensionCount: 0,
+    }),
+    catalogView: () => ({ thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] }),
+    models: async () => [],
+    transcript: async () => [],
+    persist: async () => undefined,
+    setTitle: async () => undefined,
+    abort: async () => undefined,
+    dispose: async () => undefined,
+    start: async () => undefined,
+    waitForIdle: async () => undefined,
   };
-  return {
-    threadId: "session",
-    sessionId: "session",
-    cwd: "/repo",
-    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
-    backend,
-    runtime: { session },
-    pendingClientMessageIds: [],
-    pendingClientMessageFingerprints: new Map<string, string>(),
-    inFlightClientMessageIds: new Set<string>(),
-    deferError: () => false,
-  };
+  return new ThreadRuntime(backend as never, { session } as never);
 }
 
 async function adoptPiPromptThread(host: PiHost, session: Parameters<typeof piPromptThread>[0]): Promise<void> {
@@ -108,50 +114,47 @@ function makeActivationThread(threadId: string, sessionFile = `/${threadId}.json
     sessionFile,
     resourceLoader: { getExtensions: () => ({ extensions: [] }) },
   };
-  const backend = {
+  const backend: any = {
     kind: "pi" as const,
     runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
     threadId,
     providerSessionId: threadId,
-    sessionId: threadId,
     cwd: "/repo",
-    sessionFile: () => sessionFile,
-    extensionCount: () => 0,
+    turnReporting: "streamed" as const,
+    capabilities: {
+      journal: { entries: () => [], appendCustomEntry: () => undefined, appendMessage: () => undefined },
+      extensions: {
+        bind: async () => undefined,
+        unbind: () => undefined,
+        setLifecycleHooks: () => undefined,
+        shortcuts: () => [],
+        runShortcut: async () => false,
+      },
+      completions: { complete: async () => "", completeTitle: async () => "Test title", modelApi: () => undefined },
+    },
+    state: () => ({
+      streaming: false,
+      idle: true,
+      hasMessages: true,
+      sessionFile,
+      activeTools: [],
+      supportsImageInput: false,
+      extensionCount: 0,
+    }),
+    catalogView: () => ({ thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] }),
+    models: async () => [],
     composerCommands: () => [],
-    branchEntries: () => [],
-    appendCustomEntry: () => undefined,
-    hasMessages: () => true,
-    isStreaming: () => false,
-    isIdle: () => true,
-    contextUsage: () => undefined,
-    model: () => undefined,
-    thinkingLevel: () => "off",
-    thinkingLevels: () => ["off"],
-    activeToolNames: () => [],
-    allTools: () => [],
-    unbind: () => {},
-    abort: async () => {},
-    dispose: async () => {},
+    transcript: async () => [],
+    persist: async () => undefined,
+    setTitle: async () => undefined,
     preparePrompt: async () => undefined,
+    prompt: async () => ({}),
+    abort: async () => undefined,
+    dispose: async () => undefined,
+    start: async () => undefined,
+    waitForIdle: async () => undefined,
   };
-  return {
-    threadId,
-    sessionId: threadId,
-    cwd: "/repo",
-    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
-    backend,
-    runtime: { session },
-    pendingClientMessageIds: [],
-    pendingClientMessageFingerprints: new Map<string, string>(),
-    inFlightClientMessageIds: new Set<string>(),
-    adapterPending: 0,
-    adapterStreaming: false,
-    adapterMessages: [],
-    adapterAbortControllers: new Set<AbortController>(),
-    releaseEventBarrier: () => {},
-    cancelEventBarrier: () => {},
-    deferError: () => false,
-  } as any;
+  return new ThreadRuntime(backend, { session } as never) as any;
 }
 
 describe("PiHost prompt preflight", () => {
@@ -236,12 +239,11 @@ describe("PiHost deliberate tool-output reads", () => {
       prompt: vi.fn(),
     };
     const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
-    const thread = piPromptThread(session);
-    thread.backend.branchEntries = () => [
+    const thread = piPromptThread(session, [
       { type: "message", id: "user", message: { role: "user", content: "inspect" } },
       { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
       { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
-    ];
+    ]);
     const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
     await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
 
@@ -262,12 +264,11 @@ describe("PiHost deliberate tool-output reads", () => {
       prompt: vi.fn(),
     };
     const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
-    const thread = piPromptThread(session);
-    thread.backend.branchEntries = () => [
+    const thread = piPromptThread(session, [
       { type: "message", id: "user", message: { role: "user", content: "inspect" } },
       { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
       { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
-    ];
+    ]);
     const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
     await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
 
@@ -294,11 +295,11 @@ describe("PiHost deliberate tool-output reads", () => {
       };
     });
     const internals = host as unknown as {
-      attached: { client?: object; snapshot?: PiBridgeSnapshot; command: typeof bridgeCommand };
+      attached: { session: { client?: object; snapshot?: PiBridgeSnapshot; command: typeof bridgeCommand } };
     };
-    internals.attached.client = {};
-    internals.attached.snapshot = { sessionId: "session" } as PiBridgeSnapshot;
-    internals.attached.command = bridgeCommand;
+    internals.attached.session.client = {};
+    internals.attached.session.snapshot = { sessionId: "session" } as PiBridgeSnapshot;
+    internals.attached.session.command = bridgeCommand;
 
     await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
       toolCallId: "call",
@@ -346,7 +347,7 @@ describe("PiHost.generateThreadTitle", () => {
     const host = await titleHost();
     const thread = makeActivationThread("session");
     Object.assign(thread.backend, {
-      sessionName: () => undefined,
+      state: () => ({ streaming: false, idle: true, hasMessages: false, activeTools: [], supportsImageInput: false, extensionCount: 0 }),
       transcript: async () => [],
     });
     const internals = host as unknown as {
@@ -391,21 +392,40 @@ describe("PiHost.generateThreadTitle", () => {
       runtimeAdapter: { id: "pi" as const, capabilities: { skillInvocationDialect: "pi" as const } },
       threadId: "session",
       providerSessionId: "session",
-      sessionId: "session",
       cwd: "/repo",
-      isStreaming: () => session.isStreaming,
-      isIdle: () => !session.isStreaming,
+      turnReporting: "streamed" as const,
+      capabilities: {
+        journal: { entries: () => [], appendCustomEntry: () => undefined, appendMessage: () => undefined },
+        completions: {
+          complete: async () => "",
+          completeTitle: async () => session.modelRuntime.completeSimple().then((result) => result.content[0].text),
+          modelApi: () => undefined,
+        },
+      },
+      state: () => ({
+        streaming: session.isStreaming,
+        idle: !session.isStreaming,
+        hasMessages: true,
+        title: session.sessionName,
+        sessionFile: "/session.jsonl",
+        activeTools: [],
+        supportsImageInput: false,
+        extensionCount: 0,
+      }),
+      catalogView: () => ({ thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] }),
+      models: async () => [],
+      composerCommands: () => [],
       waitForIdle: session.waitForIdle,
-      sessionName: () => session.sessionName,
       transcript: async () => [{ id: "user", role: "user" as const, text: "Fix automatic titles", timestamp: 1 }],
-      completeTitle: async () => session.modelRuntime.completeSimple().then((result) => result.content[0].text),
       setTitle: async (title: string) => { session.setSessionName(title); },
-      // The title path does not use the remaining backend operations; these
-      // stubs keep this test's runtime-owner seam explicit and typed enough for
-      // the host's registry fixture.
-      detail: async () => ({ title: session.sessionName }),
+      persist: async () => undefined,
+      preparePrompt: async () => undefined,
+      prompt: async () => ({}),
+      abort: async () => undefined,
+      dispose: async () => undefined,
+      start: async () => undefined,
     };
-    const thread = { backend, runtime: { session }, threadId: "session", sessionId: "session", cwd: "/repo" };
+    const thread = new ThreadRuntime(backend as never, { session } as never);
     const published: unknown[] = [];
     const host = await titleHost((event) => published.push(event));
     const internals = host as unknown as {
@@ -529,7 +549,8 @@ describe("PiHost.generateThreadTitle", () => {
     await internals.threads.adopt({ threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
 
     let releaseLifecycle!: () => void;
-    internals.lifecycleQueue = new Promise<void>((resolve) => { releaseLifecycle = resolve; });
+    // Occupy the queue the way a slow lifecycle operation would.
+    void internals.lifecycle.run("test-block", () => new Promise<void>((resolve) => { releaseLifecycle = resolve; }));
     internals.rememberProject = async () => {};
     internals.refreshThreadShell = async () => {};
     internals.detachBridge = () => {};
@@ -809,8 +830,9 @@ describe("PiHost.generateThreadTitle", () => {
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     // The real prompt() runs here so the marker bookkeeping is exercised.
-    thread.backend.prompt = async (options: { promptOptions?: { preflightResult?: (success: boolean) => void } }) => {
-      options.promptOptions?.preflightResult?.(true);
+    thread.backend.prompt = async (input: { onAdmitted?: (accepted: boolean) => void }) => {
+      input.onAdmitted?.(true);
+      return {};
     };
     thread.backend.preparePrompt = async (text: string) => ({ runtimeText: text, visibleText: text });
     internals.assertPreparedPrompt = () => {};
@@ -992,11 +1014,11 @@ describe("Pi bridge transcript projection", () => {
     };
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as {
-      attached: { snapshot?: PiBridgeSnapshot };
+      attached: { session: { snapshot?: PiBridgeSnapshot } };
       projection: { attachedHostSnapshot(): HostSnapshot };
       detailForSnapshot(snapshot: HostSnapshot): ThreadDetail;
     };
-    internals.attached.snapshot = bridgeSnapshot;
+    internals.attached.session.snapshot = bridgeSnapshot;
 
     const projected = internals.projection.attachedHostSnapshot();
     expect(projected.transcriptWindow).toBe("bounded");

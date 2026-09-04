@@ -30,7 +30,7 @@ describe("thread runtime backends", () => {
       permissionLevel: () => "full",
     });
 
-    await first.create();
+    await first.start("create");
     const prepared = await first.preparePrompt("$tdd\n    preserve this", { source: "skill", name: "tdd", command: "/tdd", visibleText: "\n    preserve this" });
     expect(prepared).toMatchObject({
       backendKind: "claude-code",
@@ -38,7 +38,7 @@ describe("thread runtime backends", () => {
       runtimeText: "/tdd \n    preserve this",
       skill: { name: "tdd", command: "/tdd" },
     });
-    await first.prompt({ text: "$tdd\n    preserve this", clientMessageId: "request-1", delivery: "prompt", prepared });
+    await first.prompt({ text: "$tdd\n    preserve this", identity: { clientTurnId: "turn-1", clientMessageId: "request-1" }, delivery: "prompt", prepared });
     expect(sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
       text: "/tdd \n    preserve this",
       sessionId: expect.any(String),
@@ -49,7 +49,9 @@ describe("thread runtime backends", () => {
       { role: "user", text: "\n    preserve this", clientMessageId: "request-1", skill: { name: "tdd", command: "/tdd" } },
       { role: "assistant", text: "Claude answer" },
     ]);
-    expect((await first.detail()).catalog.models).toEqual([]);
+    expect(await first.models()).toEqual([]);
+    // Claude offers no Pi-shaped capability at all; every such operation is refused in one place.
+    expect(first.capabilities).toEqual({});
 
     const restored = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", {
       adapter,
@@ -57,12 +59,13 @@ describe("thread runtime backends", () => {
       commands,
       projectName: "repo",
     });
-    await restored.resume();
+    await restored.start("resume");
     expect(await restored.transcript()).toMatchObject([
       { role: "user", text: "\n    preserve this", clientMessageId: "request-1" },
       { role: "assistant", text: "Claude answer" },
     ]);
-    expect((await restored.index()).backendKind).toBe("claude-code");
+    expect(restored.kind).toBe("claude-code");
+    expect(restored.state().title).toBe("preserve this");
   });
 
   it("rejects manual approvals during prompt preparation before transport use", async () => {
@@ -79,7 +82,7 @@ describe("thread runtime backends", () => {
       projectName: "repo",
       permissionLevel: () => "ask",
     });
-    await backend.create();
+    await backend.start("create");
     await expect(backend.preparePrompt("$tdd inspect", { source: "skill", name: "tdd", command: "/tdd", visibleText: "inspect" })).rejects.toThrow("manual approvals are unsupported");
     expect(sendPrompt).not.toHaveBeenCalled();
   });

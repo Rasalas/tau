@@ -1,15 +1,10 @@
 import type {
   PreparedPrompt,
-  RuntimeCapabilities,
-  ThreadBackendKind,
   UiComposerCommand,
   UiContextUsage,
   UiMessage,
   UiModel,
-  UiSession,
   UiSkillDraft,
-  UiSkillInvocation,
-  UiToolRun,
   UiThreadTree,
   UiThreadTreeNode,
 } from "../shared/contracts.js";
@@ -17,134 +12,28 @@ import { clientMessageFingerprint } from "../shared/client-message-correlation.j
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { prepareSkillPrompt, skillInvocationCommand } from "./skill-invocation.js";
+import { createExtensionUiContext } from "./extension-ui.js";
+import { promptImages } from "./prompt-attachments.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { AgentSession, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { basename } from "node:path";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
-
-/** Where a thread's title came from; a derived title may be replaced by a generated one. */
-export type ThreadTitleSource = "derived" | "generated" | "renamed";
-
-export interface ThreadBackendPromptInput {
-  text: string;
-  delivery: "prompt" | "steer" | "followUp";
-  clientMessageId?: string;
-  prepared?: PreparedPrompt;
-  signal?: AbortSignal;
-  /** SDK-specific prompt options stay inside the Pi backend boundary. */
-  promptOptions?: Parameters<AgentSession["prompt"]>[1];
-  images?: Parameters<AgentSession["steer"]>[1];
-}
-
-export interface ThreadBackendCatalog {
-  models: UiModel[];
-  model?: UiModel;
-  runtimeCapabilities: RuntimeCapabilities;
-  thinkingLevel: string;
-  thinkingLevels: string[];
-  allTools: Array<{ name: string; description: string }>;
-  composerCommands: UiComposerCommand[];
-}
-
-export interface ThreadBackendSnapshot {
-  backendKind: ThreadBackendKind;
-  /** Tau's stable thread id. Provider session ids never cross this boundary. */
-  threadId: string;
-  /** Provider/runtime session id, when the backend has one. */
-  providerSessionId: string;
-  /** Compatibility field for the v1 wire contract. */
-  sessionId: string;
-  cwd: string;
-  title?: string;
-  titleSource?: ThreadTitleSource;
-  messages: UiMessage[];
-  isStreaming: boolean;
-  activeTools: string[];
-  model?: UiModel;
-  contextUsage?: { tokens: number; contextWindow: number; percent: number };
-  catalog: ThreadBackendCatalog;
-}
-
-export interface CompletionRequest {
-  system: string;
-  prompt: string;
-  maxTokens?: number;
-}
-
-export interface ThreadRuntimeBackend {
-  /** Runtime owner for this thread. This value never changes while live. */
-  readonly kind: ThreadBackendKind;
-  readonly runtimeAdapter: AgentRuntimeAdapter;
-  /** Tau's stable thread id. */
-  readonly threadId: string;
-  /** Runtime-owned provider session id. */
-  readonly providerSessionId: string;
-  /** @deprecated Use threadId. Kept only for v1 IPC callers. */
-  readonly sessionId: string;
-  readonly cwd: string;
-
-  /** Lifecycle operations are owned by the backend, not by the host's Pi carrier. */
-  create(): Promise<void>;
-  resume(): Promise<void>;
-  index(): Promise<UiSession>;
-  detail(): Promise<ThreadBackendSnapshot>;
-  transcript(cursor?: string): Promise<UiMessage[]>;
-  catalog(): Promise<ThreadBackendCatalog>;
-  skills(): Promise<UiComposerCommand[]>;
-  /** Synchronous command projection for event/correlation paths. */
-  composerCommands(): UiComposerCommand[];
-  preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt>;
-  prompt(input: ThreadBackendPromptInput): Promise<{ assistantText?: string }>;
-  abort(): Promise<void>;
-  persist(messages: readonly UiMessage[]): Promise<void>;
-  setTitle(title: string, source: ThreadTitleSource): Promise<void>;
-  setModel(provider: string, id: string): Promise<void>;
-  setThinkingLevel(level: string): Promise<void>;
-  compact(): Promise<void>;
-  /** Backend-owned session operations used by the host's event/persistence seam. */
-  sessionFile(): string | undefined;
-  sessionName(): string | undefined;
-  branchEntries(): readonly unknown[];
-  hasMessages(): boolean;
-  appendCustomEntry(customType: string, data?: unknown): void;
-  appendMessage(message: unknown): void;
-  bind(
-    bindings: Parameters<AgentSession["bindExtensions"]>[0],
-    listener: Parameters<AgentSession["subscribe"]>[0],
-  ): Promise<void>;
-  unbind(): void;
-  setLifecycleHooks(beforeInvalidate: () => void, rebind: () => Promise<void>): void;
-  reload(): Promise<void>;
-  extensionCount(): number;
-  isBashRunning(): boolean;
-  executeBash(command: string, includeInContext: boolean): Promise<Awaited<ReturnType<AgentSession["executeBash"]>>>;
-  createFork(entryId: string): string | undefined;
-  /** The session tree and the entry the thread continues from. */
-  tree(): UiThreadTree;
-  leafEntryId(): string | undefined;
-  navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }>;
-  waitForIdle(): Promise<void>;
-  completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
-  /** One short answer from a model of this runtime, outside the thread's conversation. */
-  complete(provider: string, modelId: string, request: CompletionRequest): Promise<string>;
-  modelApi(): string | undefined;
-  /** Shortcuts the runtime's extensions registered; Pi resolves them against the user's keybindings.json. */
-  shortcuts(userBindings: PiUserKeybindings): PiShortcut[];
-  runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean>;
-  model(): UiModel | undefined;
-  thinkingLevel(): string;
-  thinkingLevels(): string[];
-  activeToolNames(): string[];
-  allTools(): Array<{ name: string; description: string }>;
-  contextUsage(): UiContextUsage | undefined;
-  isStreaming(): boolean;
-  isIdle(): boolean;
-  dispose(): Promise<void>;
-}
+import type {
+  CompletionRequest,
+  RuntimeEventListener,
+  RuntimeExtensionBindings,
+  ShellCommandResult,
+  ThreadBackendCapabilities,
+  ThreadBackendPromptInput,
+  ThreadBackendPromptResult,
+  ThreadBackendState,
+  ThreadCatalogView,
+  ThreadRuntimeBackend,
+  ThreadTitleSource,
+} from "./runtime-types.js";
 
 export interface PiThreadBackendOptions {
   mapMessages(messages: readonly unknown[]): UiMessage[];
-  index(backend: PiThreadRuntimeBackend): Promise<UiSession>;
 }
 
 interface SessionTreeEntry {
@@ -184,12 +73,14 @@ function modelOf(model: { provider: string; id: string; name?: string } | undefi
   return model ? { provider: model.provider, id: model.id, name: model.name ?? model.id } : undefined;
 }
 
-
 /** Deep adapter around the Pi SDK. It keeps Pi transcript/context state in Pi. */
 export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly kind = "pi" as const;
   readonly runtimeAdapter: AgentRuntimeAdapter;
+  readonly turnReporting = "streamed" as const;
+  readonly capabilities: ThreadBackendCapabilities;
   private lifecycle: "new" | "created" | "resumed" | "disposed" = "new";
+  private unsubscribe?: () => void;
 
   constructor(
     private readonly runtime: AgentSessionRuntime,
@@ -198,26 +89,92 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   ) {
     if (adapter.id !== "pi") throw new Error("Pi backend requires the Pi runtime adapter.");
     this.runtimeAdapter = adapter;
+    this.capabilities = {
+      journal: {
+        entries: () => this.session.sessionManager.getBranch(),
+        appendCustomEntry: (customType, data) => { this.session.sessionManager.appendCustomEntry(customType, data); },
+        appendMessage: (message) => {
+          this.session.sessionManager.appendMessage(message as Parameters<AgentSession["sessionManager"]["appendMessage"]>[0]);
+        },
+      },
+      tree: {
+        tree: () => this.tree(),
+        leafEntryId: () => this.session.sessionManager.getLeafId() ?? undefined,
+        navigateTree: (entryId, options) => this.navigateTree(entryId, options),
+      },
+      // Pi's fork is a new session file the host opens itself.
+      fork: { runtimeOwned: false },
+      shellAction: {
+        isRunning: () => this.session.isBashRunning,
+        run: (command, includeInContext) => this.runShellCommand(command, includeInContext),
+      },
+      compaction: { compact: async () => { await this.session.compact(); } },
+      catalogWrite: {
+        setModel: (provider, id) => this.setModel(provider, id),
+        setThinkingLevel: async (level) => { this.session.setThinkingLevel(level as never); },
+      },
+      completions: {
+        complete: (provider, modelId, request) => this.complete(provider, modelId, request),
+        completeTitle: (provider, modelId, conversation) => this.completeTitle(provider, modelId, conversation),
+        modelApi: () => (this.session.model as { api?: string } | undefined)?.api,
+      },
+      extensions: {
+        bind: (bindings) => this.bind(bindings),
+        unbind: () => { this.unsubscribe?.(); this.unsubscribe = undefined; },
+        setLifecycleHooks: (beforeInvalidate, rebind) => {
+          this.runtime.setBeforeSessionInvalidate(beforeInvalidate);
+          this.runtime.setRebindSession(async () => { await rebind(); });
+        },
+        shortcuts: (userBindings) => this.shortcuts(userBindings),
+        runShortcut: (keys, userBindings) => this.runShortcut(keys, userBindings),
+      },
+      reload: { reload: () => this.session.reload() },
+      events: { subscribe: (listener) => this.subscribe(listener) },
+    };
   }
 
   /** The SDK session is deliberately private to this backend implementation. */
   private get session(): AgentSession { return this.runtime.session; }
   get threadId(): string { return this.runtime.session.sessionId; }
   get providerSessionId(): string { return this.runtime.session.sessionId; }
-  /** @deprecated Use threadId. */
-  get sessionId(): string { return this.threadId; }
   get cwd(): string { return this.runtime.cwd; }
 
-  async create(): Promise<void> {
+  async start(mode: "create" | "resume"): Promise<void> {
     if (this.lifecycle === "disposed") throw new Error("The Pi runtime backend has been disposed.");
-    if (this.lifecycle === "new") this.lifecycle = "created";
+    if (this.lifecycle === "new") this.lifecycle = mode === "resume" ? "resumed" : "created";
   }
-  async resume(): Promise<void> {
-    if (this.lifecycle === "disposed") throw new Error("The Pi runtime backend has been disposed.");
-    if (this.lifecycle === "new") this.lifecycle = "resumed";
+
+  state(): ThreadBackendState {
+    const sessionFile = this.session.sessionFile ?? this.session.sessionManager.getSessionFile();
+    return {
+      streaming: this.session.isStreaming,
+      idle: this.session.isIdle,
+      hasMessages: this.session.messages.length > 0,
+      title: this.session.sessionName,
+      ...(sessionFile ? { sessionFile } : {}),
+      activeTools: this.session.getActiveToolNames(),
+      supportsImageInput: (this.session.model as { input?: readonly string[] } | undefined)?.input?.includes("image") === true,
+      extensionCount: this.session.resourceLoader.getExtensions().extensions.length,
+    };
   }
-  async index(): Promise<UiSession> { return this.options.index(this); }
+
+  catalogView(): ThreadCatalogView {
+    const usage = this.contextUsage();
+    return {
+      model: modelOf(this.session.model),
+      thinkingLevel: this.session.thinkingLevel,
+      thinkingLevels: this.session.getAvailableThinkingLevels(),
+      allTools: this.session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+      ...(usage ? { contextUsage: usage } : {}),
+    };
+  }
+
+  async models(): Promise<UiModel[]> {
+    return (await this.session.modelRuntime.getAvailable()).map((model) => modelOf(model)!);
+  }
+
   async transcript(): Promise<UiMessage[]> { return this.options.mapMessages(this.session.messages); }
+
   private resourceCommands(): UiComposerCommand[] {
     const loader = this.session.resourceLoader;
     const commands = new Map<string, UiComposerCommand>();
@@ -244,47 +201,11 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
     return [...commands.values()].sort((left, right) => left.name.localeCompare(right.name));
   }
+
   composerCommands(): UiComposerCommand[] { return this.resourceCommands(); }
-  async skills(): Promise<UiComposerCommand[]> { return this.resourceCommands(); }
-
-  async catalog(): Promise<ThreadBackendCatalog> {
-    return {
-      models: (await this.session.modelRuntime.getAvailable()).map((model) => modelOf(model)!),
-      model: modelOf(this.session.model),
-      runtimeCapabilities: this.runtimeAdapter.capabilities,
-      thinkingLevel: this.session.thinkingLevel,
-      thinkingLevels: this.session.getAvailableThinkingLevels(),
-      allTools: this.session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
-      composerCommands: await this.skills(),
-    };
-  }
-
-  async detail(): Promise<ThreadBackendSnapshot> {
-    const catalog = await this.catalog();
-    return {
-      backendKind: this.kind,
-      threadId: this.threadId,
-      providerSessionId: this.providerSessionId,
-      sessionId: this.threadId,
-      cwd: this.cwd,
-      title: this.session.sessionName,
-      messages: await this.transcript(),
-      isStreaming: this.session.isStreaming,
-      activeTools: this.session.getActiveToolNames(),
-      model: catalog.model,
-      catalog,
-      contextUsage: (() => {
-        const usage = this.session.getContextUsage();
-        return usage && usage.tokens !== null && usage.percent !== null
-          ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
-          : undefined;
-      })(),
-    };
-  }
 
   async preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
-    const commands = await this.skills();
-    const effectiveCommands = commands;
+    const effectiveCommands = this.composerCommands();
     const prepared = prepareSkillPrompt(text, this.runtimeAdapter, effectiveCommands, skill);
     const result: PreparedPrompt = {
       tauThreadId: this.threadId,
@@ -307,25 +228,34 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     return result;
   }
 
-  async prompt(input: ThreadBackendPromptInput): Promise<{ assistantText?: string }> {
+  async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     validatePreparedPrompt(input.text, prepared, {
       backendKind: this.kind,
       threadId: this.threadId,
       providerSessionId: this.providerSessionId,
       runtimeCapabilities: this.runtimeAdapter.capabilities,
-      commands: await this.skills(),
+      commands: this.composerCommands(),
     });
-    if (input.delivery === "steer") await this.session.steer(prepared.runtimeText, input.images);
-    else if (input.delivery === "followUp") await this.session.followUp(prepared.runtimeText, input.images);
-    else await this.session.prompt(prepared.runtimeText, input.promptOptions);
+    // Pi's own prompt options are assembled here and nowhere else.
+    const images = input.attachments?.length ? promptImages(input.attachments) : undefined;
+    if (input.delivery === "steer") await this.session.steer(prepared.runtimeText, images);
+    else if (input.delivery === "followUp") await this.session.followUp(prepared.runtimeText, images);
+    else {
+      await this.session.prompt(prepared.runtimeText, {
+        images,
+        streamingBehavior: input.queued ? "followUp" : undefined,
+        ...(input.onAdmitted ? { preflightResult: (success: boolean) => input.onAdmitted?.(success) } : {}),
+      });
+    }
     return {};
   }
 
   async abort(): Promise<void> { await this.session.abort(); }
+
   async persist(messages: readonly UiMessage[]): Promise<void> {
     if (this.lifecycle === "disposed") throw new Error("The Pi runtime backend has been disposed.");
-    if (this.lifecycle === "new") await this.resume();
+    if (this.lifecycle === "new") await this.start("resume");
     // SessionManager is Pi's durable writer. Reading its active branch here
     // gives callers an explicit completion point without duplicating entries
     // or attempting to serialize Pi's private message format in Tau.
@@ -333,50 +263,51 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       throw new Error("Pi did not expose a durable session branch.");
     }
   }
+
   async setTitle(title: string, _source: ThreadTitleSource): Promise<void> { this.session.setSessionName(title); }
-  async setModel(provider: string, id: string): Promise<void> {
+
+  private async setModel(provider: string, id: string): Promise<void> {
     const model = this.session.modelRuntime.getModel(provider, id);
     if (!model) throw new Error(`Unknown model: ${provider}/${id}`);
     await this.session.setModel(model);
   }
-  async setThinkingLevel(level: string): Promise<void> { this.session.setThinkingLevel(level as never); }
-  async compact(): Promise<void> { await this.session.compact(); }
-  sessionFile(): string | undefined { return this.session.sessionFile ?? this.session.sessionManager.getSessionFile(); }
-  sessionName(): string | undefined { return this.session.sessionName; }
-  branchEntries(): readonly unknown[] { return this.session.sessionManager.getBranch(); }
-  hasMessages(): boolean { return this.session.messages.length > 0; }
-  appendCustomEntry(customType: string, data?: unknown): void { this.session.sessionManager.appendCustomEntry(customType, data); }
-  appendMessage(message: unknown): void { this.session.sessionManager.appendMessage(message as Parameters<AgentSession["sessionManager"]["appendMessage"]>[0]); }
-  async bind(
-    bindings: Parameters<AgentSession["bindExtensions"]>[0],
-    listener: Parameters<AgentSession["subscribe"]>[0],
-  ): Promise<void> {
-    await this.session.bindExtensions(bindings);
+
+  private async bind(bindings: RuntimeExtensionBindings): Promise<void> {
+    await this.session.bindExtensions({
+      uiContext: createExtensionUiContext(bindings.ui),
+      mode: "rpc",
+      onError: bindings.onError,
+    });
+  }
+
+  private subscribe(listener: RuntimeEventListener): () => void {
     this.unsubscribe?.();
-    this.unsubscribe = this.session.subscribe(listener);
+    const stop = this.session.subscribe((event) => listener(event, this.threadId));
+    this.unsubscribe = stop;
+    return () => { if (this.unsubscribe === stop) this.unsubscribe = undefined; stop(); };
   }
-  unbind(): void { this.unsubscribe?.(); this.unsubscribe = undefined; }
-  private unsubscribe?: () => void;
-  setLifecycleHooks(beforeInvalidate: () => void, rebind: () => Promise<void>): void {
-    this.runtime.setBeforeSessionInvalidate(beforeInvalidate);
-    this.runtime.setRebindSession(async () => { await rebind(); });
+
+  private async runShellCommand(command: string, includeInContext: boolean): Promise<ShellCommandResult> {
+    const result = await this.session.executeBash(command, undefined, { excludeFromContext: !includeInContext });
+    return {
+      output: result.output,
+      ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+      cancelled: result.cancelled,
+      truncated: result.truncated,
+    };
   }
-  async reload(): Promise<void> { await this.session.reload(); }
-  extensionCount(): number { return this.session.resourceLoader.getExtensions().extensions.length; }
-  isBashRunning(): boolean { return this.session.isBashRunning; }
-  async executeBash(command: string, includeInContext: boolean): Promise<Awaited<ReturnType<AgentSession["executeBash"]>>> {
-    return this.session.executeBash(command, undefined, { excludeFromContext: !includeInContext });
-  }
-  createFork(entryId: string): string | undefined { return this.session.sessionManager.createBranchedSession(entryId); }
+
   waitForIdle(): Promise<void> { return this.session.waitForIdle(); }
-  completeTitle(provider: string, modelId: string, conversation: string): Promise<string> {
+
+  private completeTitle(provider: string, modelId: string, conversation: string): Promise<string> {
     return this.complete(provider, modelId, {
       system: "Create a concise coding-thread title as one plain-text noun phrase. Use 3-7 words and at most 60 characters. Name the concrete task, change, or decision. Never use Markdown, quotes, terminal punctuation, a label, a complete sentence, or meta wording such as working on, help with, discussion about, or implementing.",
       prompt: `Return only the plain-text title for this thread. Match the conversation's language.\n\n${conversation}`,
       maxTokens: 48,
     });
   }
-  async complete(provider: string, modelId: string, request: CompletionRequest): Promise<string> {
+
+  private async complete(provider: string, modelId: string, request: CompletionRequest): Promise<string> {
     const model = this.session.modelRuntime.getModel(provider, modelId);
     if (!model) throw new Error(`Unknown model: ${provider}/${modelId}`);
     const response = await this.session.modelRuntime.completeSimple(
@@ -395,7 +326,8 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       ? content.map((part) => part && typeof part === "object" && "text" in part ? String((part as { text?: unknown }).text ?? "") : "").join("")
       : String(content ?? "");
   }
-  tree(): UiThreadTree {
+
+  private tree(): UiThreadTree {
     const manager = this.session.sessionManager;
     const branch = (manager.getBranch() as Array<{ id?: string }>).map((entry) => entry.id).filter((id): id is string => typeof id === "string");
     const onBranch = new Set(branch);
@@ -419,48 +351,42 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     for (const node of nodes) node.isLeaf = node.id === leafId;
     return { sessionId: this.threadId, leafId, nodes };
   }
-  leafEntryId(): string | undefined { return this.session.sessionManager.getLeafId() ?? undefined; }
-  async navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }> {
+
+  private async navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }> {
     const result = await this.session.navigateTree(entryId, { summarize: options.summarize ?? false });
     return { cancelled: result.cancelled, ...(result.editorText ? { draftText: result.editorText } : {}) };
   }
-  modelApi(): string | undefined { return (this.session.model as { api?: string } | undefined)?.api; }
+
   private shortcutMap(userBindings: PiUserKeybindings) {
     type Config = Parameters<AgentSession["extensionRunner"]["getShortcuts"]>[0];
     return this.session.extensionRunner.getShortcuts(userBindings as Config);
   }
-  shortcuts(userBindings: PiUserKeybindings): PiShortcut[] {
+
+  private shortcuts(userBindings: PiUserKeybindings): PiShortcut[] {
     return [...this.shortcutMap(userBindings).entries()].map(([keys, shortcut]) => ({
       keys: keys.toLowerCase(),
       ...(shortcut.description ? { description: shortcut.description } : {}),
       source: basename(shortcut.extensionPath),
     }));
   }
-  async runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean> {
+
+  private async runShortcut(keys: string, userBindings: PiUserKeybindings): Promise<boolean> {
     const shortcut = this.shortcutMap(userBindings).get(keys.toLowerCase() as never);
     if (!shortcut) return false;
     await shortcut.handler(this.session.extensionRunner.createContext());
     return true;
   }
-  model(): UiModel | undefined { return modelOf(this.session.model); }
-  thinkingLevel(): string { return this.session.thinkingLevel; }
-  thinkingLevels(): string[] { return this.session.getAvailableThinkingLevels(); }
-  activeToolNames(): string[] { return this.session.getActiveToolNames(); }
-  allTools(): Array<{ name: string; description: string }> {
-    return this.session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description }));
-  }
-  contextUsage(): UiContextUsage | undefined {
+
+  private contextUsage(): UiContextUsage | undefined {
     const usage = this.session.getContextUsage();
     return usage && usage.tokens !== null && usage.percent !== null
       ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
       : undefined;
   }
-  isStreaming(): boolean { return this.session.isStreaming; }
-  isIdle(): boolean { return this.session.isIdle; }
+
   async dispose(): Promise<void> {
     if (this.lifecycle === "disposed") return;
     this.lifecycle = "disposed";
     await this.runtime.dispose();
   }
 }
-

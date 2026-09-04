@@ -2,7 +2,7 @@ import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import type { ThreadBackendKind, ThreadHostEvent, UiMessage, UiToolRun } from "../shared/contracts.js";
 import type { LiveAssistant, LiveTurnState } from "./live-turn-state.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
-import type { ThreadRuntimeBackend, ThreadTitleSource } from "./thread-runtime-backend.js";
+import { requireCapability, type ThreadBackendState, type ThreadRuntimeBackend, type ThreadTitleSource } from "./runtime-types.js";
 
 type DeferredThreadRecord =
   | { kind: "event"; event: any; sessionId: string; cwd: string }
@@ -40,7 +40,14 @@ export class ThreadRuntime implements LiveTurnState {
   /** @deprecated External v1 calls still use sessionId; internal code uses threadId. */
   get sessionId(): string { return this.threadId; }
   get cwd(): string { return this.backend.cwd; }
-  get sessionFile(): string | undefined { return this.backend.sessionFile(); }
+  /** Cheap live state of the runtime; the adapter fields beside it are the host's own bookkeeping. */
+  get state(): ThreadBackendState { return this.backend.state(); }
+  get sessionFile(): string | undefined { return this.backend.state().sessionFile; }
+  /** Raw journal entries of this thread's branch; empty for a runtime that keeps none. */
+  get entries(): readonly unknown[] { return this.backend.capabilities.journal?.entries() ?? []; }
+  appendJournalEntry(customType: string, data?: unknown): void {
+    requireCapability(this.backend, "journal").appendCustomEntry(customType, data);
+  }
 
   resetLiveState(): void {
     this.tools.clear();
@@ -99,6 +106,11 @@ export class ThreadRuntime implements LiveTurnState {
   cancelEventBarrier(): void {
     this.deferredRecords = undefined;
   }
+}
+
+/** True when the host itself runs this thread's Pi session in its own process. */
+export function isLocalPiRuntime(thread: ThreadRuntime | undefined): boolean {
+  return Boolean(thread?.runtime);
 }
 
 export function isThreadRuntime(thread: LiveTurnState | undefined): thread is ThreadRuntime {
