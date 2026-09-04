@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render } from "@testing-library/react";
-import { createRef } from "react";
+import { createRef, useCallback, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import { VirtualTranscript } from "./VirtualTranscript";
@@ -10,11 +10,21 @@ const globalMeasure = vi.fn();
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count, getItemKey }: { count: number; getItemKey(index: number): string }) => {
     observedCounts.push(count);
+    const [activityHeight, setActivityHeight] = useState(0);
+    const measureElement = useCallback((node: HTMLElement | null) => {
+      if (!node) return;
+      globalMeasure(node);
+      if (node.querySelector(".inline-transcript-activity")) setActivityHeight(220);
+    }, []);
     return {
-      getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, key: getItemKey(index), start: index * 180 })),
-      getTotalSize: () => count * 180,
-      measureElement: vi.fn(),
-      measure: globalMeasure,
+      getVirtualItems: () => Array.from({ length: count }, (_, index) => ({
+        index,
+        key: getItemKey(index),
+        start: index * 180 + (index > 0 ? activityHeight : 0),
+      })),
+      getTotalSize: () => count * 180 + activityHeight,
+      measureElement,
+      measure: vi.fn(),
     };
   },
 }));
@@ -30,10 +40,11 @@ describe("VirtualTranscript activity measurement", () => {
     globalMeasure.mockClear();
   });
 
-  it("keeps virtual row indexes stable when an activity is inserted", () => {
+  it("remeasures rows when an activity is inserted so the next message cannot overlap it", () => {
     const scrollRef = createRef<HTMLDivElement>();
     const view = render(<VirtualTranscript messages={messages} scrollRef={scrollRef} isStreaming={false} />);
 
+    globalMeasure.mockClear();
     view.rerender(<VirtualTranscript
       messages={messages}
       scrollRef={scrollRef}
@@ -41,9 +52,13 @@ describe("VirtualTranscript activity measurement", () => {
       activities={[{ id: "tasks-user", afterMessageId: "user", content: <div>Tasks</div> }]}
     />);
 
-    expect(observedCounts).toEqual([messages.length, messages.length]);
-    expect(globalMeasure).not.toHaveBeenCalled();
-    expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(messages.length);
-    expect(view.container.querySelector(".virtual-transcript-row")?.textContent).toContain("Tasks");
+    const rows = view.container.querySelectorAll<HTMLElement>(".virtual-transcript-row");
+    const nextRowTop = Number.parseFloat(rows[1]!.style.transform.match(/translateY\(([^p]+)px\)/u)?.[1] ?? "0");
+
+    expect(observedCounts.every((count) => count === messages.length)).toBe(true);
+    expect(rows).toHaveLength(messages.length);
+    expect(rows[0]?.textContent).toContain("Tasks");
+    expect(nextRowTop).toBeGreaterThanOrEqual(400);
+    expect(globalMeasure).toHaveBeenCalledTimes(messages.length);
   });
 });

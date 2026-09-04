@@ -49,6 +49,27 @@ interface PendingActivityViewportRestore {
   position: ActivityViewportPosition;
 }
 
+interface ActivityLayoutSnapshot {
+  activities: readonly TranscriptActivity[];
+  messageIds: ReadonlySet<string>;
+  tailMessageId?: string;
+}
+
+function activityAnchor(activity: TranscriptActivity, messageIds: ReadonlySet<string>, tailMessageId?: string): string | undefined {
+  if (!activity.afterMessageId) return tailMessageId;
+  if (messageIds.has(activity.afterMessageId)) return activity.afterMessageId;
+  return activity.fallbackToTail ? tailMessageId : undefined;
+}
+
+function sameActivityLayout(previous: ActivityLayoutSnapshot, activities: readonly TranscriptActivity[], messageIds: ReadonlySet<string>, tailMessageId?: string): boolean {
+  if (previous.activities.length !== activities.length) return false;
+  return activities.every((activity, index) => {
+    const old = previous.activities[index];
+    return old?.id === activity.id
+      && activityAnchor(old, previous.messageIds, previous.tailMessageId) === activityAnchor(activity, messageIds, tailMessageId);
+  });
+}
+
 function resolveMessageId(messages: readonly UiMessage[], requestedId?: string): string | undefined {
   if (!requestedId) return undefined;
   return messages.find((message) => message.id === requestedId || message.sourceEntryId === requestedId)?.id;
@@ -194,6 +215,20 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
 
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const activityLayout = useRef<ActivityLayoutSnapshot>({
+    activities: normalizedActivities,
+    messageIds: messageIndex.ids,
+    tailMessageId: messageIndex.lastId,
+  });
+  useLayoutEffect(() => {
+    const previous = activityLayout.current;
+    activityLayout.current = { activities: normalizedActivities, messageIds: messageIndex.ids, tailMessageId: messageIndex.lastId };
+    if (sameActivityLayout(previous, normalizedActivities, messageIndex.ids, messageIndex.lastId)) return;
+    transcriptRef.current?.querySelectorAll<HTMLElement>(".virtual-transcript-row")
+      .forEach((row) => virtualizer.measureElement(row));
+  }, [messageIndex.lastId, normalizedActivities, virtualizer]);
+
   const pendingActivityRestore = useRef<PendingActivityViewportRestore | undefined>(undefined);
   const activityRestoreFrames = useRef<[number, number?] | undefined>(undefined);
   const activityRestoreToken = useRef(0);
@@ -276,12 +311,13 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   const visibleRangeEnd = virtualizer.range?.endIndex;
 
   if (messages.length === 0 && unanchoredActivities.length > 0) {
-    return <div className="virtual-transcript static-activity-transcript">
+    return <div ref={transcriptRef} className="virtual-transcript static-activity-transcript">
       {unanchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
     </div>;
   }
 
   return <div
+    ref={transcriptRef}
     className="virtual-transcript"
     style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}
     data-visible-start-index={visibleRangeStart}
