@@ -2153,10 +2153,15 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-file-status.renamed { color: var(--acid); }
 .review-stage-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .review-diff-stream { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 12px 12px 80px; scroll-padding-top: 12px; }
-.review-file-section { overflow: clip; margin: 0 0 14px; border: 1px solid var(--line-control); border-radius: 8px; background: var(--stage); box-shadow: 0 2px 10px #0002; scroll-margin-top: 12px; }
-.review-file-section.active { border-color: var(--line-float); }
-.review-file-section:last-child { margin-bottom: 0; }
-.review-file-section > .diff-empty { min-height: 76px; }
+.review-diff-stream .diff-stream-row { border-left: 1px solid var(--line-control); border-right: 1px solid var(--line-control); background: var(--stage); }
+.review-diff-stream .diff-stream-row.file-start { border-top: 1px solid var(--line-control); border-radius: 8px 8px 0 0; }
+.review-diff-stream .diff-stream-row.file-end { border-bottom: 1px solid var(--line-control); border-radius: 0 0 8px 8px; }
+.review-diff-stream .diff-stream-row.active { border-left-color: var(--line-float); border-right-color: var(--line-float); }
+.review-diff-stream .diff-stream-row.active.file-start { border-top-color: var(--line-float); }
+.review-diff-stream .diff-stream-row.active.file-end { border-bottom-color: var(--line-float); }
+.review-diff-stream .diff-stream-row.separator { border: 0; background: transparent; }
+.review-diff-stream .diff-stream-row > .diff-empty { min-height: 76px; }
+.review-diff-stream .diff-stream-row > .review-file-header { position: static; }
 .review-diff { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .review-diff > .diff-scroll, .review-diff > .diff-empty { flex: 1; }
 .review-comment-composer {
@@ -2283,7 +2288,6 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .changes-action-popover small { color: var(--faint); font: 9.5px var(--mono); }
 .changes-action-popover > span { display: flex; justify-content: flex-end; gap: 5px; margin-top: 5px; }
 .changes-action-popover > span button { width: auto; padding: 0 8px; border-color: var(--line-control); }
-.diff-virtual-list { flex: 1; min-height: 0; overflow: auto; }
 .diff-context-gap {
   width: calc(100% - 8px); height: 24px; display: flex; align-items: center; gap: 12px; margin: 1px 4px; padding: 0 17px;
   border: 0; border-radius: 6px; background: #2b2b29; color: var(--muted); font: 10.5px var(--mono); text-align: left;
@@ -2331,10 +2335,10 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .toggle-group > button:disabled { opacity: .4; cursor: default; }
 .review-read-only { color: var(--muted); font: 500 11px var(--mono); }
 
-.diff-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: 12px/26px var(--mono); }
-.diff-scroll.embedded { overflow: visible; display: block; }
-.diff-rows { min-width: 0; }
-.diff-scroll:not(.embedded) .diff-rows { overflow: auto; }
+.diff-scroll { flex: 1; min-height: 0; overflow: auto; display: block; font: 12px/26px var(--mono); }
+.diff-stream { min-width: 0; }
+/* Rows are absolutely placed by the virtualizer and measured for wrapped text. */
+.diff-stream-row { overflow: clip; }
 .diff-hunk-header {
   display: flex; align-items: center; gap: 8px; padding: 7px 18px;
   background: var(--field); color: var(--muted);

@@ -23,9 +23,37 @@ const branch: UiWorkspaceChanges = {
   removed: 0,
 };
 
+const ROW_HEIGHT = 26;
+const VIEWPORT_HEIGHT = 260;
+
+function stubbedHeight(element: HTMLElement): number {
+  if (element.classList.contains("review-diff-stream")) return VIEWPORT_HEIGHT;
+  return element.classList.contains("diff-stream-row") ? ROW_HEIGHT : 0;
+}
+
+/** jsdom reports no layout. Give the diff virtualizer a viewport and uniform rows. */
+function stubDiffLayout(): void {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function measure(this: HTMLElement) {
+    const height = stubbedHeight(this);
+    return { x: 0, y: 0, top: 0, left: 0, right: 900, bottom: height, width: 900, height, toJSON: () => ({}) };
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function height(this: HTMLElement) {
+    return stubbedHeight(this);
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(900);
+  Object.defineProperty(Element.prototype, "scrollTo", {
+    configurable: true,
+    writable: true,
+    value(this: Element, options: ScrollToOptions) {
+      this.scrollTop = options.top ?? 0;
+      this.dispatchEvent(new Event("scroll"));
+    },
+  });
+}
+
 describe("ReviewMode", () => {
   beforeEach(() => localStorage.clear());
-  afterEach(() => cleanup());
+  afterEach(() => { vi.restoreAllMocks(); cleanup(); });
 
   it("switches to branch changes and persists viewed files and line notes", async () => {
     const onSelect = vi.fn();
@@ -148,5 +176,48 @@ describe("ReviewMode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Toggle file tree" }));
     expect(screen.getByRole("button", { name: "Toggle file tree" }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("searchbox", { name: "Filter changed files" })).toBeNull();
+  });
+
+  it("windows every file into one virtualized stream and jumps to a file on demand", async () => {
+    stubDiffLayout();
+    const files = ["src/a.ts", "src/b.ts"].map((path) => ({
+      path,
+      name: path.slice(4),
+      directory: "src",
+      status: "modified" as const,
+      added: 400,
+      removed: 0,
+    }));
+    const changes: UiWorkspaceChanges = { branch: "feat/review", files, fileCount: 2, added: 800, removed: 0 };
+    const loadDiff = async (path: string): Promise<UiFileDiff> => ({
+      path,
+      added: 400,
+      removed: 0,
+      hunks: [{
+        header: "@@ -1 +1 @@",
+        lines: Array.from({ length: 400 }, (_, index) => ({ kind: "added" as const, newLine: index + 1, text: `${path} line ${index};` })),
+      }],
+    });
+    const { container } = render(<ReviewMode
+      changes={changes}
+      selectedPath="src/a.ts"
+      busy={false}
+      primaryPush={false}
+      onSelect={() => undefined}
+      onBack={() => undefined}
+      onCommit={() => undefined}
+      onOpenInEditor={() => undefined}
+      loadDiff={loadDiff}
+    />);
+
+    await waitFor(() => expect(container.textContent).toContain("src/a.ts line 0;"));
+    // 804 rows exist; only the window plus overscan may be mounted.
+    expect(container.querySelectorAll(".diff-stream-row").length).toBeLessThan(40);
+    expect(container.textContent).not.toContain("src/b.ts line 0;");
+
+    fireEvent.click(screen.getByTitle("src/b.ts"));
+    await waitFor(() => expect(container.textContent).toContain("src/b.ts line 0;"));
+    expect(container.textContent).not.toContain("src/a.ts line 0;");
+    expect(container.querySelectorAll(".diff-stream-row").length).toBeLessThan(40);
   });
 });

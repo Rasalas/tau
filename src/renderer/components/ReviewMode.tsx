@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type {
   DiffLoadOptions,
+  UiChangedFile,
   UiEditor,
   UiFileDiff,
   UiWorkspaceChanges,
@@ -24,7 +25,7 @@ import type {
   WorkspaceDiffScope,
 } from "../../shared/workspace-kit-types";
 import { readReviewState, writeReviewState, type PersistedReviewState } from "../review-state";
-import { DiffView } from "./DiffView";
+import { DiffStream, diffLanguage, fileDiffRows, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { WindowControlsInset } from "./WindowControlsInset";
@@ -139,7 +140,7 @@ export function ReviewMode({
   const [messageError, setMessageError] = useState<string>();
   const stageRef = useRef<HTMLElement>(null);
   const diffScrollRef = useRef<HTMLDivElement>(null);
-  const fileSectionRefs = useRef(new Map<string, HTMLElement>());
+  const streamRef = useRef<DiffStreamHandle>(null);
   const selectedPathRef = useRef(selectedPath);
   selectedPathRef.current = selectedPath;
   const suggestedFingerprintRef = useRef<string | undefined>(undefined);
@@ -153,7 +154,6 @@ export function ReviewMode({
     return paged.files.filter((file) => file.path.toLocaleLowerCase().includes(query));
   }, [filter, paged.files]);
   const selectedFilteredIndex = filteredFiles.findIndex((file) => file.path === selectedPath);
-  const filePathsFingerprint = paged.files.map((file) => file.path).join("\0");
 
   useEffect(() => {
     if (scope === "worktree") setVisibleChanges(changes);
@@ -189,17 +189,9 @@ export function ReviewMode({
     return () => { cancelled = true; };
   }, [contextLines, loadDiff, paged.files, readOnly, scope, visibleChanges.baseCommit, visibleChanges.baseRef]);
 
-  useEffect(() => {
-    const root = diffScrollRef.current;
-    if (!root || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries.filter((entry) => entry.isIntersecting).sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
-      const path = visible?.target.getAttribute("data-path");
-      if (path && path !== selectedPathRef.current) onSelect(path);
-    }, { root, rootMargin: "-48px 0px -70% 0px", threshold: 0 });
-    fileSectionRefs.current.forEach((section) => observer.observe(section));
-    return () => observer.disconnect();
-  }, [filePathsFingerprint, onSelect]);
+  const onVisiblePathChange = useCallback((path: string) => {
+    if (path !== selectedPathRef.current) onSelect(path);
+  }, [onSelect]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -213,8 +205,7 @@ export function ReviewMode({
 
   const scrollToFile = (path: string) => {
     onSelect(path);
-    const section = fileSectionRefs.current.get(path);
-    if (section && typeof section.scrollIntoView === "function") section.scrollIntoView({ behavior: "smooth", block: "start" });
+    streamRef.current?.scrollToPath(path);
   };
 
   const cycleFile = (offset: -1 | 1) => {
@@ -305,12 +296,20 @@ export function ReviewMode({
 
   const readPaths = useMemo(() => new Set(reviewState.readPaths), [reviewState.readPaths]);
   const visibleReadCount = paged.files.filter((file) => readPaths.has(file.path)).length;
-  const annotationCounts = (path: string) => {
-    const counts = new Map<number, number>();
-    reviewState.comments.filter((comment) => comment.path === path && !comment.resolved && comment.line !== undefined)
-      .forEach((comment) => counts.set(comment.line!, (counts.get(comment.line!) ?? 0) + 1));
+  const annotationsByPath = useMemo(() => {
+    const counts = new Map<string, Map<number, number>>();
+    for (const comment of reviewState.comments) {
+      if (comment.resolved || comment.line === undefined) continue;
+      const lines = counts.get(comment.path) ?? new Map<number, number>();
+      lines.set(comment.line, (lines.get(comment.line) ?? 0) + 1);
+      counts.set(comment.path, lines);
+    }
     return counts;
-  };
+  }, [reviewState.comments]);
+  const annotationCount = useCallback(
+    (path: string, line: number) => annotationsByPath.get(path)?.get(line) ?? 0,
+    [annotationsByPath],
+  );
 
   const toggleRead = (path: string) => updateReviewState((current) => ({
     ...current,
@@ -349,6 +348,35 @@ export function ReviewMode({
     ? checkpointTitle ?? "Turn changes"
     : scope === "branch" ? "Branch changes" : "Changes";
   const effectiveMode = splitAvailable ? mode : "unified";
+  // One flat row model over every file, so the review renders a single window
+  // instead of every line of every diff.
+  const streamRows = useMemo<DiffStreamRow[]>(() => paged.files.flatMap((file) => {
+    const diff = diffs.get(file.path);
+    const error = diffErrors.get(file.path);
+    return [
+      { kind: "file", key: `${file.path}\0header`, path: file.path, file, ...(diff ? { diff } : {}) } satisfies DiffStreamRow,
+      ...fileDiffRows(file.path, diff, { collapsible: true, ...(error ? { error } : {}) }),
+      { kind: "separator", key: `${file.path}\0end`, path: "" } satisfies DiffStreamRow,
+    ];
+  }), [diffErrors, diffs, paged.files]);
+  const streamLanguages = useMemo(
+    () => [...new Set(paged.files.map((file) => diffLanguage(file.path)).filter((language): language is string => language !== undefined))],
+    [paged.files],
+  );
+  const annotate = useCallback((path: string, line: number) => {
+    setDraft({ path, line });
+    setDraftBody("");
+  }, []);
+  const renderFileHeader = useCallback((file: UiChangedFile, diff?: UiFileDiff) => <header className="review-file-header">
+    <span className={`review-file-status ${file.status}`}>{file.status.charAt(0).toUpperCase()}</span>
+    <FileKindIcon name={file.name} />
+    <strong>{file.name}</strong>
+    {file.directory ? <span>{file.directory}</span> : null}
+    <span className="spacer" />
+    <span className="stat-add">+{diff?.added ?? file.added}</span>
+    <span className="stat-del">−{diff?.removed ?? file.removed}</span>
+    {editor ? <button className="icon-button compact" aria-label={`Open ${file.path} in ${editor.name}`} title={`Open in ${editor.name}`} onClick={() => onOpenInEditor(file.path)}><ExternalLink size={12} /></button> : null}
+  </header>, [editor, onOpenInEditor]);
   const generateCommitMessage = async () => {
     if (!suggestCommitMessage || generatingMessage) return;
     setGeneratingMessage(true);
@@ -468,37 +496,20 @@ export function ReviewMode({
 
         <div className="review-stage-content">
           <div className="review-diff-stream" ref={diffScrollRef}>
-            {paged.files.length === 0 ? <div className="diff-empty">No changes in this scope.</div> : paged.files.map((file) => {
-              const diff = diffs.get(file.path);
-              const error = diffErrors.get(file.path);
-              return <section
-                className={`review-file-section ${file.path === selectedPath ? "active" : ""}`}
-                data-path={file.path}
-                key={file.path}
-                ref={(node) => { if (node) fileSectionRefs.current.set(file.path, node); else fileSectionRefs.current.delete(file.path); }}
-              >
-                <header className="review-file-header">
-                  <span className={`review-file-status ${file.status}`}>{file.status.charAt(0).toUpperCase()}</span>
-                  <FileKindIcon name={file.name} />
-                  <strong>{file.name}</strong>
-                  {file.directory ? <span>{file.directory}</span> : null}
-                  <span className="spacer" />
-                  <span className="stat-add">+{diff?.added ?? file.added}</span>
-                  <span className="stat-del">−{diff?.removed ?? file.removed}</span>
-                  {editor ? <button className="icon-button compact" aria-label={`Open ${file.path} in ${editor.name}`} title={`Open in ${editor.name}`} onClick={() => onOpenInEditor(file.path)}><ExternalLink size={12} /></button> : null}
-                </header>
-                {error && !diff ? <div className="diff-empty diff-error"><strong>Failed to load diff</strong><span>{error}</span></div> : <DiffView
-                  diff={diff}
-                  path={file.path}
-                  embedded
-                  mode={effectiveMode}
-                  annotationCounts={annotationCounts(file.path)}
-                  onExpandContext={() => setContextMode("expand")}
-                  onAnnotate={!readOnly ? (line) => { setDraft({ path: file.path, line }); setDraftBody(""); } : undefined}
-                  onLoadMore={diff?.truncated && diff.nextHunkOffset !== undefined ? () => loadMore(file.path) : undefined}
-                />}
-              </section>;
-            })}
+            {paged.files.length === 0 ? <div className="diff-empty">No changes in this scope.</div> : <DiffStream
+              ref={streamRef}
+              rows={streamRows}
+              mode={effectiveMode}
+              scrollRef={diffScrollRef}
+              languages={streamLanguages}
+              {...(selectedPath ? { activePath: selectedPath } : {})}
+              annotationCount={annotationCount}
+              {...(readOnly ? {} : { onAnnotate: annotate })}
+              onExpandContext={() => setContextMode("expand")}
+              onLoadMore={loadMore}
+              renderFileHeader={renderFileHeader}
+              onVisiblePathChange={onVisiblePathChange}
+            />}
           </div>
           {notesOpen ? <aside className="review-notes">
             <header><strong>Review notes</strong><button className="icon-button compact" aria-label="Close notes" onClick={() => setNotesOpen(false)}><X size={13} /></button></header>
