@@ -29,7 +29,7 @@ Workbench
 - the window, the two layout slots (left sidebar, right dock) and shared modals
 - command palette and keybinding dispatch; the chords themselves are extension contributions
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
-- typed messages between renderer and host, including the one generic channel host extensions use
+- one versioned request/push protocol between client and host, with reconnect and replay; Electron IPC is one transport of it, and the one generic method host extensions use travels on it
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
 - enough persisted state to restore the workbench
 
@@ -54,7 +54,7 @@ These exist today, some still inside core files. They are extension work, and Ph
 
 - `start:safe` shows the core list and nothing more. That includes no access gate: safe mode runs tools the way Pi does.
 - Removing a bundled kit removes its behavior on both sides without editing core.
-- `src/shared/contracts.ts` and `src/main/index.ts` name no feature. Feature commands travel through `invokeHostExtension`.
+- `src/shared/contracts.ts` and `src/main/index.ts` name no feature. Feature commands travel through `invokeHostExtension`. Core operations are the method table in `src/main/host-methods.ts`; `src/main/ipc-contract.test.ts` fails when the client and the table stop naming the same methods.
 - `PiHost` delegates attached-Pi ownership, transcript projection, client-message correlation, extension questions and session-event translation to focused modules. A thread's runtime answers through `ThreadRuntimeBackend` (`src/main/runtime-types.ts`): twenty required members in Tau's own vocabulary plus capability groups, with `requireCapability` as the one place that refuses what a runtime cannot do. The Pi terminal Tau attaches to is one of those backends (`attached-thread-backend.ts`), its collaborators receive named ports (`host-ports.ts`), and thread lifecycle work is serialised by a reentrant `LifecycleQueue` (`lifecycle-queue.ts`). The renderer delegates layout to `Workbench` and keeps per-thread composer data in `ComposerScopeStore`.
 - Tests keep this true: `src/shared/core-boundary.test.ts` fails on a feature name in those two files outside a listed debt and caps `pi-host.ts` at 3,000 lines and `App.tsx` at 1,800. `src/main/pi-host-safe-mode.test.ts` proves safe mode loads no host or Pi extension, and `src/renderer/extensions/kit-lifecycle.test.tsx` activates and removes every bundled kit against the core slots.
 - The renderer reaches the desktop host only through `HostClient` (see "Renderer host client" in [host-protocol.md](host-protocol.md)); `src/renderer/host-client-boundary.test.ts` fails on any renderer module outside `main.tsx` touching `window.tau`.

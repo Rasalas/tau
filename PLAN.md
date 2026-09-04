@@ -87,16 +87,16 @@ Completion check: Tau can explain what an extension may access, enforce that dec
 
 ## Phase 4: make the host transportable
 
-Turn the current Electron IPC adapter into one implementation of a client-to-host protocol.
+Turn the current Electron IPC adapter into one implementation of a client-to-host protocol. See `docs/adr/0010-host-protocol.md`.
 
 Planned work:
 
-- define versioned commands, events, snapshots, and capability negotiation
-- support reconnect, event replay, cancellation, and partial failure
-- distinguish local paths from remote workspace identities
-- move long-running project operations behind host jobs with progress events
-- add authentication and encrypted remote connections
-- test a desktop client against Pi running on another machine
+- define versioned commands, events, snapshots, and capability negotiation (done: `HOST_TRANSPORT_VERSION = 1` in `src/shared/host-transport.ts`, one method table in `src/main/host-methods.ts`, capabilities in the hello reply)
+- support reconnect, event replay, cancellation, and partial failure (done: pushes carry `seq`, the host buffers the last 500, `hello` with `lastSeq` replays or answers `resync`; `HostConnection` shows `connected / reconnecting / resyncing`)
+- distinguish local paths from remote workspace identities (open: `cwd` and file paths are still the host's absolute paths; the `local-files` capability exists but nothing reads it yet)
+- move long-running project operations behind host jobs with progress events (done for the workbench rebuild and Workspace Kit's clone: `start-job`, `job-progress`, `job-done`, `cancel-job`; a host extension marks its own long commands)
+- add authentication and encrypted remote connections (done for authentication: a 32-byte token in `~/.tau/host-token` on the socket transport; encryption stays an SSH tunnel's job, TLS is follow-up)
+- test a desktop client against Pi running on another machine (done headless: `npm run smoke:remote-host` drives `src/main/headless.ts` over the socket, including a reconnect that replays what it missed)
 
 Completion check: the desktop workbench can reconnect to a remote host and continue an existing thread without treating remote files as local paths.
 

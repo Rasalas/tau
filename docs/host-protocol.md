@@ -65,6 +65,43 @@ presents that bounded view as the beginning of history and reports that older
 history availability cannot be determined. Unknown commands are rejected
 explicitly so a client cannot mistake an unsupported extension for an empty page.
 
+## Client-to-host transport (v1)
+
+The updates above are the payloads; how they travel is `src/shared/host-transport.ts`,
+`HOST_TRANSPORT_VERSION = 1`. A client sends `HostRequest { id, method, params }`
+and receives `HostResponse { id, result? | error? { message, code } }`; the host
+sends `HostPush { seq, event }`. Method names are the operations of `HostClient`
+(`prompt`, `transcript-page`, `host-extension`, …) and params travel positionally,
+in that method's argument order. The host implements them in one table
+(`src/main/host-methods.ts`) which decodes every argument through `ipc-input.ts`;
+a transport only moves frames in and out of it.
+
+A connection opens with `hello { protocol, token?, lastSeq? }`. The reply names
+the host version, its capabilities (`jobs`, `replay`, `local-files`), the pushes
+the client missed, and `resync: true` when it cannot be repaired from the
+buffer. The host numbers every push and keeps the last 500; a client that sees a
+gap in `seq` re-hellos with its `lastSeq`, applies what comes back, and on a
+resync refetches the bootstrap. `HostConnection` in the renderer owns that and
+reports `connected`, `reconnecting` or `resyncing`.
+
+Long operations are jobs, not long responses: `start-job { method, params }`
+answers with a `jobId`, progress arrives as `job-progress { jobId, message,
+fraction? }`, the outcome as `job-done { jobId, result | error }`, and
+`cancel-job` stops waiting. `HostClient` awaits `job-done` internally, so its
+callers keep a promise. A job failure is a partial failure: the connection
+stays. Which calls are jobs is data: a host extension marks its long commands
+with `registerCommand(name, handler, { long: true })` (those also skip the
+command timeout), and the client asks with `job-methods`.
+
+Two transports implement this. Electron IPC uses two channels, `tau:request` and
+`tau:host-event`; `src/main/ipc-contract.test.ts` checks that the client and the
+method table name the same methods. The socket transport (`ws`) serves the same
+table on `TAU_HOST_LISTEN=host:port`, authenticated by the 32-byte token in
+`~/.tau/host-token` that every hello repeats; a wrong token, or a request before
+a hello, closes the connection. Absolute host paths still travel in results
+(`cwd`, changed files, `read-file`), so a remote client shows the host's paths;
+workspace identity is the open part of Phase 4.
+
 ## Host extension channel
 
 Host features that are not core do not get an IPC entry each. A host extension registers commands under its id, and the renderer reaches them through one call, `invokeHostExtension(extensionId, command, input)`. Input is untrusted at the host: every command re-reads its fields. A host extension publishes to its desktop counterpart with the `extension-event` global event, `{ extensionId, name, payload }`; core routes it by id and otherwise ignores it. Which commands exist is the extension package's own contract (for Workspace Kit, `src/shared/workspace-kit-protocol.ts`), never part of this protocol.
@@ -74,17 +111,16 @@ Host features that are not core do not get an IPC entry each. A host extension r
 The renderer never calls the desktop API directly. `src/renderer/host-client.ts`
 declares `HostClient`, a transport-neutral interface grouped by concern
 (threads, turns, transcript, catalog, extensions, workbench, platform).
-`createElectronHostClient(api)` adapts the Electron preload bridge
-(`TauDesktopApi`) to it with no logic beyond delegation; Electron IPC is one
-implementation of `HostClient`, not the renderer's only way to reach a host. A
-later transport (a WebSocket client talking to a remote host) is another
-implementation of the same interface, with no renderer changes beyond
+`createHostClient(connection)` implements it over a `HostConnection`: every
+method is one call of the protocol above. `createElectronHostClient(api)` builds
+that connection on the preload bridge, `createSocketHostClient(url, token)` on a
+socket; a new transport is a `HostTransport`, with no renderer change beyond
 `main.tsx`.
 
 `main.tsx` is the only place a renderer module reads `window.tau`. It builds
-the client (or leaves it `undefined` in the browser-preview build, where
-`window.tau` does not exist) and mounts `<HostClientProvider client={...}>`
-around `App`. Components read it with `useHostClient()`; a handful of
+the client — from `window.tau`, or from `?host=ws://…&token=…` when a socket
+host is named, or leaves it `undefined` in the browser-preview build — says
+hello, and mounts `<HostClientProvider client={...}>` around `App`. Components read it with `useHostClient()`; a handful of
 module-scope singletons that exist outside the component tree (Workspace
 Kit's store and its host-extension client) read the same instance through
 `getHostClient()`, which `main.tsx` and the test-only `renderApp` helper keep
