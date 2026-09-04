@@ -57,6 +57,23 @@ describe("ThreadStore selective navigation subscriptions", () => {
     expect(store.getThreadIds()).toEqual(["two"]);
   });
 
+  it("keeps an observed provider when a later index shell omits it", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")] });
+    store.setThreadModelProvider("two", "openai-codex");
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")] });
+    expect(store.getThread("two")?.modelProvider).toBe("openai-codex");
+  });
+
+  it("updates a thread's observed model provider without replacing other shells", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")] });
+    const two = store.getThread("two");
+    store.setThreadModelProvider("one", "google");
+    expect(store.getThread("one")?.modelProvider).toBe("google");
+    expect(store.getThread("two")).toBe(two);
+  });
+
   it("records a stable start time for each running thread", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T12:00:00Z"));

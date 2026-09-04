@@ -176,6 +176,8 @@ export interface UiSession {
   messageCount: number;
   /** Lifecycle owner; older index entries default to Pi. */
   backendKind?: ThreadBackendKind;
+  /** Provider of the thread's selected model, when the host has observed it. */
+  modelProvider?: string;
 }
 
 export interface UiProject {

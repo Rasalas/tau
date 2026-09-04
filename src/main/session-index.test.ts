@@ -81,7 +81,7 @@ describe("session index reconciliation", () => {
   });
 
   it("does not rename or reorder an existing shell merely because it was selected", () => {
-    const existing = shell("selected", 100, "Stable title");
+    const existing = { ...shell("selected", 100, "Stable title"), modelProvider: "anthropic" };
     const selected = reconcileActiveThreadShell({
       id: existing.id,
       path: existing.path,
@@ -94,6 +94,7 @@ describe("session index reconciliation", () => {
     }, existing, false);
     expect(selected.title).toBe("Stable title");
     expect(selected.modifiedAt).toBe(100);
+    expect(selected.modelProvider).toBe("anthropic");
   });
 
   it("publishes create, rename, project move, and delete as focused shell updates", () => {

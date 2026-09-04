@@ -34,6 +34,7 @@
   "dependencies": {
     "@amaster.ai/pi-computer-use": "^0.1.12",
     "@earendil-works/pi-coding-agent": "0.84.4",
+    "@lobehub/icons-static-svg": "^1.94.0",
     "@tanstack/react-virtual": "^3.13.12",
     "esbuild": "^0.25.12",
     "highlight.js": "^11.12.0",

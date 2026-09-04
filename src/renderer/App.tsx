@@ -434,6 +434,7 @@ export default function App() {
     const detail = threadDetailFromHostSnapshot(next);
     if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
     threadStore.applyHostSnapshot(next);
+    if (next.model?.provider) threadStore.setThreadModelProvider(next.sessionId, next.model.provider);
     threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
     setSnapshot(next);
@@ -582,6 +583,7 @@ export default function App() {
       return;
     }
     if (update.type === "catalog") {
+      if (update.catalog.model?.provider) threadStore.setThreadModelProvider(threadStore.getSnapshot().activeThreadId, update.catalog.model.provider);
       setSnapshot((current) => {
         if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
         const { sessionId: _sessionId, supportsImageInput, ...legacyCatalog } = update.catalog;

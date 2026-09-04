@@ -63,7 +63,24 @@ describe("ThreadRow project mark", () => {
 
     expect(container.querySelector(".thread-project-line .thread-status-age")?.textContent).toBe("WORKING1:05");
     expect(container.querySelector(".thread-meta-line .thread-activity")).toBeNull();
-    expect(getByLabelText("Claude Code provider").closest(".thread-meta-line")).toBeTruthy();
+    expect(getByLabelText("Claude Code").closest(".thread-meta-line")).toBeTruthy();
+  });
+
+  it("overlaps the model provider over its runtime", () => {
+    const { container, getByLabelText } = render(<ThreadRow
+      activity="idle"
+      active={false}
+      age="now"
+      session={{ ...session, backendKind: "opencode", modelProvider: "google" }}
+      onSelect={() => {}}
+      onToggleSettled={() => {}}
+    />);
+
+    const stack = getByLabelText("Google Gemini via OpenCode");
+    expect(stack.classList).toContain("stacked");
+    expect(container.querySelectorAll(".provider-icon")).toHaveLength(2);
+    expect(container.querySelector(".provider-icon-runtime img")).toBeTruthy();
+    expect(container.querySelector(".provider-icon-model img")).toBeTruthy();
   });
 
   it("does not replace WORKING with the active tool name", () => {

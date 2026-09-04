@@ -1,6 +1,7 @@
 import { memo, useEffect, useState, type CSSProperties } from "react";
 import { ArchiveRestore, Check } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
+import { ProviderIconStack } from "./ProviderIconStack";
 
 export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled";
 
@@ -11,6 +12,7 @@ interface ThreadRowProps {
   age: string;
   compact?: boolean;
   projectIcon?: string;
+  modelProvider?: string;
   session: UiSession;
   startedAt?: number;
   onSelect(path: string): void;
@@ -52,13 +54,6 @@ function ThreadStatus({ activity, label, startedAt }: { activity: ThreadActivity
   );
 }
 
-function ProviderMark({ backendKind = "pi" }: { backendKind?: string }) {
-  const claude = backendKind === "claude-code";
-  const label = claude ? "Claude Code" : backendKind === "pi" ? "Pi" : backendKind;
-  const mark = claude ? "✳" : backendKind === "pi" ? "π" : backendKind.charAt(0).toUpperCase();
-  return <span className={`thread-provider-mark provider-${backendKind}`} title={label} aria-label={`${label} provider`}>{mark}</span>;
-}
-
 export const ThreadRow = memo(function ThreadRow({
   activity,
   activityLabel,
@@ -66,6 +61,7 @@ export const ThreadRow = memo(function ThreadRow({
   age,
   compact,
   projectIcon,
+  modelProvider,
   session,
   startedAt,
   onSelect,
@@ -115,7 +111,7 @@ export const ThreadRow = memo(function ThreadRow({
         <span className="thread-title">{session.title}</span>
         <span className="thread-meta-line">
           {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
-          <ProviderMark backendKind={session.backendKind} />
+          <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
         </span>
       </button>
       <button

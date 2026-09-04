@@ -2027,6 +2027,7 @@ export class PiHost {
     }
     const thread = this.requireActive();
     await thread.backend.setModel(provider, id);
+    await this.refreshThreadShell(thread, false);
     this.log("model.changed", `${provider}/${id}`);
     return this.catalogResult();
   }
@@ -2798,6 +2799,7 @@ export class PiHost {
           projectLabel: this.labelFor(record.cwd),
           messageCount: record.messages.length,
           backendKind: provider.kind,
+          ...(provider.kind === "claude-code" ? { modelProvider: "anthropic" } : {}),
         });
       }
     }
@@ -2900,6 +2902,7 @@ export class PiHost {
       projectLabel: this.labelFor(projectPath),
       messageCount: visibleMessages.length,
       backendKind: threadBackendKind(thread),
+      modelProvider: thread.backend.model()?.provider ?? (threadBackendKind(thread) === "claude-code" ? "anthropic" : undefined),
     }, existing, touch);
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishThreadShellSoon(shell);

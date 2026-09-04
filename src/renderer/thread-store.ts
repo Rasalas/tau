@@ -48,7 +48,14 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.projectName === right.projectName &&
     left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount &&
-    left.backendKind === right.backendKind;
+    left.backendKind === right.backendKind &&
+    left.modelProvider === right.modelProvider;
+}
+
+function preserveObservedModelProvider(incoming: UiSession, existing: UiSession | undefined): UiSession {
+  return incoming.modelProvider === undefined && existing?.modelProvider !== undefined
+    ? { ...incoming, modelProvider: existing.modelProvider }
+    : incoming;
 }
 
 function stabilizeProjects(
@@ -69,8 +76,9 @@ function stabilizeThreads(
 ): readonly UiSession[] {
   if (previous === incoming) return previous;
   const previousById = new Map(previous.map((thread) => [thread.id, thread] as const));
-  const next = incoming.map((thread) => {
-    const old = previousById.get(thread.id);
+  const next = incoming.map((incomingThread) => {
+    const old = previousById.get(incomingThread.id);
+    const thread = preserveObservedModelProvider(incomingThread, old);
     return old && threadEqual(old, thread) ? old : thread;
   });
   return next.length === previous.length && next.every((thread, index) => thread === previous[index])
@@ -147,6 +155,11 @@ export class ThreadStore {
     });
   }
 
+  setThreadModelProvider(sessionId: string, modelProvider: string | undefined): void {
+    const shell = this.getThread(sessionId);
+    if (shell && shell.modelProvider !== modelProvider) this.applyThreadShell(sessionId, { ...shell, modelProvider });
+  }
+
   applyThreadShell(sessionId: string, shell?: UiSession, removed = false): void {
     const current = this.snapshot.threads;
     const existingIndex = current.findIndex((thread) => thread.id === sessionId);
@@ -154,10 +167,11 @@ export class ThreadStore {
     if (removed) {
       if (existingIndex >= 0) threads = current.filter((thread) => thread.id !== sessionId);
     } else if (shell) {
-      if (existingIndex < 0) threads = [shell, ...current];
-      else if (!threadEqual(current[existingIndex], shell)) {
+      const mergedShell = preserveObservedModelProvider(shell, current[existingIndex]);
+      if (existingIndex < 0) threads = [mergedShell, ...current];
+      else if (!threadEqual(current[existingIndex], mergedShell)) {
         const next = [...current];
-        next[existingIndex] = shell;
+        next[existingIndex] = mergedShell;
         threads = next;
       }
     }

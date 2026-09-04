@@ -274,6 +274,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity,
   activityLabel,
   compact,
+  modelProvider,
   startedAt,
   onSelect,
 }: {
@@ -282,6 +283,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity: ThreadActivity;
   activityLabel?: string;
   compact: boolean;
+  modelProvider?: string;
   startedAt?: number;
   onSelect(path: string): Promise<boolean>;
 }) {
@@ -301,6 +303,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       compact={compact}
+      modelProvider={modelProvider}
       startedAt={startedAt}
       onSelect={onSelect}
       onToggleSettled={(threadId) => preferences.toggleSettled(threadId)}
@@ -404,6 +407,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={activity}
       activityLabel={label}
       compact={compactRows && activity !== "settled"}
+      modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}
     />

@@ -541,7 +541,8 @@ export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
   return left.id === right.id && left.path === right.path && left.title === right.title &&
     left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
     left.projectName === right.projectName && left.projectLabel === right.projectLabel &&
-    left.messageCount === right.messageCount && left.backendKind === right.backendKind;
+    left.messageCount === right.messageCount && left.backendKind === right.backendKind &&
+    left.modelProvider === right.modelProvider;
 }
 
 export function sessionIndexUpdates(previous: UiSession[], next: UiSession[]): HostUpdate[] {
@@ -573,6 +574,7 @@ export interface ActiveThreadShellInput {
   projectLabel?: string;
   messageCount: number;
   backendKind?: ThreadBackendKind;
+  modelProvider?: string;
 }
 
 export function reconcileActiveThreadShell(
@@ -590,6 +592,7 @@ export function reconcileActiveThreadShell(
     projectLabel: input.projectLabel,
     messageCount: input.messageCount,
     ...(input.backendKind ? { backendKind: input.backendKind } : {}),
+    ...(input.modelProvider ?? existing?.modelProvider ? { modelProvider: input.modelProvider ?? existing?.modelProvider } : {}),
   };
 }
 
