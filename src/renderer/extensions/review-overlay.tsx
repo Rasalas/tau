@@ -2,10 +2,11 @@ import { lazy, Suspense, useCallback } from "react";
 import type { OverlayProps } from "../extension-system";
 import { LazyFeatureFallback } from "../components/LazyFeature";
 import { useHostClient } from "../host-client-context";
+import { usePreferences, useWorkspaceStore } from "../renderer-services-context";
 import { workspaceKit } from "./workspace-kit-client";
 import { automaticCommitMessages } from "./commit-messages";
 import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, WorkspaceChangesQuery } from "../../shared/workspace-kit-types";
-import { useWorkspaceKit, workspaceStore } from "./workspace-store";
+import { useWorkspaceKit } from "./workspace-store";
 
 const LazyReview = lazy(() => import("../components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 
@@ -14,18 +15,20 @@ export const REVIEW_OVERLAY = "review.workspace";
 /** Review Kit's full-workbench review of the live worktree, over Workspace Kit's state. */
 export function ReviewOverlay({ onClose }: OverlayProps) {
   const client = useHostClient();
+  const preferences = usePreferences();
+  const workspaceStore = useWorkspaceStore();
   const state = useWorkspaceKit();
   const review = state.review ?? { primaryPush: false };
-  const selectPath = useCallback((path: string) => workspaceStore.selectReviewPath(path), []);
+  const selectPath = useCallback((path: string) => workspaceStore.selectReviewPath(path), [workspaceStore]);
   const closeReview = useCallback(() => {
     workspaceStore.closeReview();
     onClose();
-  }, [onClose]);
-  const commit = useCallback((message: string, push: boolean) => void workspaceStore.commit(message, push), []);
-  const openInEditor = useCallback((path: string) => void workspaceStore.openInEditor(path), []);
+  }, [onClose, workspaceStore]);
+  const commit = useCallback((message: string, push: boolean) => void workspaceStore.commit(message, push), [workspaceStore]);
+  const openInEditor = useCallback((path: string) => void workspaceStore.openInEditor(path), [workspaceStore]);
   const suggestCommitMessage = useCallback(
     (changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]) => workspaceStore.suggestCommitMessage(changes, diffs),
-    [],
+    [workspaceStore],
   );
   const loadChanges = useCallback((query?: WorkspaceChangesQuery) => workspaceKit.getChanges(query), []);
   const loadDiff = useCallback(async (path: string, options?: DiffLoadOptions) => client
@@ -44,7 +47,7 @@ export function ReviewOverlay({ onClose }: OverlayProps) {
         onCommit={commit}
         onOpenInEditor={openInEditor}
         workspaceKey={state.cwd}
-        autoSuggestCommitMessage={automaticCommitMessages()}
+        autoSuggestCommitMessage={automaticCommitMessages(preferences)}
         suggestCommitMessage={suggestCommitMessage}
         loadChanges={client ? loadChanges : undefined}
         loadDiff={loadDiff}

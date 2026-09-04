@@ -2,29 +2,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "../../shared/worktree-names-protocol";
 import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
-import { preferences } from "../preferences";
+import { PreferencesStore } from "../preferences";
 import { namingModel, worktreeNamesExtension } from "./worktree-names";
-import { workspaceStore } from "./workspace-store";
+import { WorkspaceStore } from "./workspace-store";
 
 const threadModel = { provider: "anthropic", id: "claude" };
 
-beforeEach(() => localStorage.clear());
+let preferences: PreferencesStore;
+let workspaceStore: WorkspaceStore;
+
+beforeEach(() => {
+  preferences = new PreferencesStore();
+  workspaceStore = new WorkspaceStore(preferences);
+});
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("naming model", () => {
   it("prefers the model chosen in settings and falls back to the thread's", () => {
-    expect(namingModel(threadModel)).toEqual(threadModel);
+    expect(namingModel(threadModel, preferences)).toEqual(threadModel);
     preferences.setValue(WORKTREE_NAMES_HOST_EXTENSION_ID, "model", "openai/gpt-5.6");
-    expect(namingModel(threadModel)).toEqual({ provider: "openai", id: "gpt-5.6" });
+    expect(namingModel(threadModel, preferences)).toEqual({ provider: "openai", id: "gpt-5.6" });
     preferences.setValue(WORKTREE_NAMES_HOST_EXTENSION_ID, "model", "");
-    expect(namingModel(undefined)).toBeUndefined();
+    expect(namingModel(undefined, preferences)).toBeUndefined();
   });
 });
 
 describe("Worktree Names desktop extension", () => {
   it("offers naming to Workspace Kit while active and asks the host with the task", async () => {
     const invoke = vi.fn(async () => ({ branch: "fix/steer-queue-messages" }));
-    const registry = new ExtensionRegistry({ invoke });
+    const registry = new ExtensionRegistry({ invoke }, { preferences, workspaceStore });
     const notify = vi.fn();
     const actions = {
       notify,

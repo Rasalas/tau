@@ -1,8 +1,8 @@
 import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../shared/thread-titles-protocol";
 import type { DesktopExtension, HostExtensionClient, PromptSubmittedEvent, WorkbenchActions } from "../extension-system";
-import { preferences } from "../preferences";
+import type { PreferencesStore } from "../preferences";
 
-function automatic(): boolean {
+function automatic(preferences: PreferencesStore): boolean {
   return preferences.optionValue(THREAD_TITLES_HOST_EXTENSION_ID, "automatic", true);
 }
 
@@ -27,9 +27,9 @@ async function generate(
   }
 }
 
-export function automaticTitleModel(event: PromptSubmittedEvent): { provider: string; id: string } | undefined {
+export function automaticTitleModel(event: PromptSubmittedEvent, preferences: PreferencesStore): { provider: string; id: string } | undefined {
   const snapshot = event.snapshot;
-  if (!automatic() || !snapshot?.model) return undefined;
+  if (!automatic(preferences) || !snapshot?.model) return undefined;
   if (snapshot.messages.some((message) => message.role === "user")) return undefined;
   return snapshot.model;
 }
@@ -55,7 +55,7 @@ export const titleGeneratorExtension: DesktopExtension = {
     context.registerPromptHook({
       id: "thread-titles.auto-generate",
       async afterPrompt(event, actions) {
-        const model = automaticTitleModel(event);
+        const model = automaticTitleModel(event, context.preferences);
         if (!model) return;
         await generate(context.host, actions, model, event.snapshot?.sessionId, false, event.prompt);
       },

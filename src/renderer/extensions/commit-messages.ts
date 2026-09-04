@@ -1,24 +1,23 @@
 import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "../../shared/review-protocol";
 import type { DesktopExtensionContext, ExtensionOption } from "../extension-system";
-import { preferences } from "../preferences";
-import { workspaceStore } from "./workspace-store";
+import type { PreferencesStore } from "../preferences";
 
 const MODEL_OPTION = "commit-model";
 const STYLE_OPTION = "commit-style";
 const AUTO_OPTION = "propose-message";
 
-export function commitMessageModel(threadModel: { provider: string; id: string } | undefined): { provider: string; id: string } | undefined {
+export function commitMessageModel(threadModel: { provider: string; id: string } | undefined, preferences: PreferencesStore): { provider: string; id: string } | undefined {
   const stored = preferences.value(REVIEW_HOST_EXTENSION_ID, MODEL_OPTION) ?? "";
   const at = stored.indexOf("/");
   return at > 0 && at < stored.length - 1 ? { provider: stored.slice(0, at), id: stored.slice(at + 1) } : threadModel;
 }
 
-export function commitMessageStyle(): CommitMessageStyle {
+export function commitMessageStyle(preferences: PreferencesStore): CommitMessageStyle {
   const stored = preferences.value(REVIEW_HOST_EXTENSION_ID, STYLE_OPTION);
   return stored === "gitmoji" || stored === "plain" ? stored : "conventional";
 }
 
-export function automaticCommitMessages(): boolean {
+export function automaticCommitMessages(preferences: PreferencesStore): boolean {
   return preferences.optionValue(REVIEW_HOST_EXTENSION_ID, AUTO_OPTION, true);
 }
 
@@ -39,13 +38,13 @@ export const COMMIT_MESSAGE_OPTIONS: ExtensionOption[] = [
 ];
 
 export function registerCommitMessages(plugin: DesktopExtensionContext): () => void {
-  return workspaceStore.registerCommitMessageSuggester(async ({ changes, diffs, actions }) => {
-    const model = commitMessageModel(actions.activeThread()?.model);
+  return plugin.workspaceStore.registerCommitMessageSuggester(async ({ changes, diffs, actions }) => {
+    const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
     if (!model) throw new Error("No model is selected for commit message generation.");
     const result = await plugin.host.invoke("suggest-commit-message", {
       provider: model.provider,
       modelId: model.id,
-      style: commitMessageStyle(),
+      style: commitMessageStyle(plugin.preferences),
       branch: changes.branch,
       files: changes.files.map(({ path, added, removed }) => ({ path, added, removed })),
       diffs: diffs.map((diff) => ({

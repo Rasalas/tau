@@ -1,7 +1,9 @@
 import type { UiToolRun } from "../shared/contracts";
 import type { UiChangedFile, UiWorkspaceChanges } from "../shared/workspace-kit-types";
+import type { ClientStorage } from "./client-storage";
+import { STORAGE_KEYS } from "./storage-keys";
 
-const TURN_ACTIVITY_CACHE_KEY = "tau.turn-activity.v1";
+const TURN_ACTIVITY_CACHE_KEY = STORAGE_KEYS.turnActivityCache;
 
 export interface CachedTurnActivity {
   sessionId: string;
@@ -20,9 +22,9 @@ function boundedTools(tools: UiToolRun[]): UiToolRun[] {
   }));
 }
 
-export function readCachedTurnActivity(storage: Storage, sessionId: string): CachedTurnActivity | undefined {
+export function readCachedTurnActivity(storage: ClientStorage, sessionId: string): CachedTurnActivity | undefined {
   try {
-    const entries = JSON.parse(storage.getItem(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
+    const entries = JSON.parse(storage.get(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
     const entry = entries[sessionId];
     return entry?.sessionId === sessionId ? entry : undefined;
   } catch {
@@ -30,25 +32,25 @@ export function readCachedTurnActivity(storage: Storage, sessionId: string): Cac
   }
 }
 
-export function writeCachedTurnActivity(storage: Storage, activity: CachedTurnActivity): void {
+export function writeCachedTurnActivity(storage: ClientStorage, activity: CachedTurnActivity): void {
   try {
-    const entries = JSON.parse(storage.getItem(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
+    const entries = JSON.parse(storage.get(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
     delete entries[activity.sessionId];
     entries[activity.sessionId] = { ...activity, tools: boundedTools(activity.tools) };
     const recent = Object.fromEntries(Object.entries(entries).slice(-12));
-    storage.setItem(TURN_ACTIVITY_CACHE_KEY, JSON.stringify(recent));
+    storage.set(TURN_ACTIVITY_CACHE_KEY, JSON.stringify(recent));
   } catch {
     // A full storage area must not break the transcript.
   }
 }
 
 /** Drops a thread's cached turn, so a run that died leaves no ghost activity behind. */
-export function clearCachedTurnActivity(storage: Storage, sessionId: string): void {
+export function clearCachedTurnActivity(storage: ClientStorage, sessionId: string): void {
   try {
-    const entries = JSON.parse(storage.getItem(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
+    const entries = JSON.parse(storage.get(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
     if (!(sessionId in entries)) return;
     delete entries[sessionId];
-    storage.setItem(TURN_ACTIVITY_CACHE_KEY, JSON.stringify(entries));
+    storage.set(TURN_ACTIVITY_CACHE_KEY, JSON.stringify(entries));
   } catch {
     // A full or blocked storage area must not break recovery.
   }

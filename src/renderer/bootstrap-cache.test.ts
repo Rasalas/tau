@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { HostSnapshot } from "../shared/contracts";
 import { detailFromSnapshot } from "../shared/host-protocol";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
+import { createMemoryStorage, type ClientStorage } from "./client-storage";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 
 const snapshot: HostSnapshot = {
@@ -11,10 +12,14 @@ const snapshot: HostSnapshot = {
   supportsImageInput: true,
 };
 
+/** A read-only storage that answers `legacy` for `cacheKey` and nothing else. */
+function legacyStorage(cacheKey: string, legacy: string): ClientStorage {
+  return { get: (key) => key === cacheKey ? legacy : null, set: () => undefined, remove: () => undefined, keys: () => [] };
+}
+
 describe("bootstrap cache", () => {
   it("stores a bounded renderable shell without catalogs or running state", () => {
-    let value: string | null = null;
-    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const storage = createMemoryStorage();
     writeBootstrapCache(snapshot, { projects: [], sessions: [] }, storage);
     const cached = readBootstrapCache(storage);
     expect(cached?.snapshot.messages).toHaveLength(10);
@@ -24,8 +29,7 @@ describe("bootstrap cache", () => {
   });
 
   it("moves the cursor to the oldest retained turn after caching a paged transcript", () => {
-    let value: string | null = null;
-    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const storage = createMemoryStorage();
     const paged = {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
@@ -41,8 +45,7 @@ describe("bootstrap cache", () => {
   });
 
   it("keeps an opaque boundary when trimming a retained window", () => {
-    let value: string | null = null;
-    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const storage = createMemoryStorage();
     const bridged = {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index + 20), role: "user" as const, text: String(index + 20), timestamp: index + 20 })),
@@ -56,8 +59,7 @@ describe("bootstrap cache", () => {
   });
 
   it("retains an opaque host cursor without exposing its adapter coordinate", () => {
-    let value: string | null = null;
-    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const storage = createMemoryStorage();
     const bridged = {
       ...snapshot,
       messages: Array.from({ length: 30 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
@@ -80,19 +82,13 @@ describe("bootstrap cache", () => {
       },
       threadIndex: { projects: [], sessions: [] },
     });
-    const storage = {
-      getItem: (key: string) => key === cacheKey ? legacy : null,
-      setItem: () => undefined,
-      removeItem: () => undefined,
-    };
-    const cached = readBootstrapCache(storage);
+    const cached = readBootstrapCache(legacyStorage(cacheKey, legacy));
     expect(cached?.snapshot.olderCursor).toBeUndefined();
     expect(cached?.snapshot.historyCompleteness).toBe("unknown");
   });
 
   it("keeps an unavailable cache limited without retaining a discarded cursor", () => {
-    let value: string | null = null;
-    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const storage = createMemoryStorage();
     writeBootstrapCache({
       ...snapshot,
       messages: Array.from({ length: 160 }, (_, index) => ({ id: String(index), role: "user" as const, text: String(index), timestamp: index })),
@@ -116,12 +112,7 @@ describe("bootstrap cache", () => {
       },
       threadIndex: { projects: [], sessions: [] },
     });
-    const storage = {
-      getItem: (key: string) => key === cacheKey ? legacy : null,
-      setItem: () => undefined,
-      removeItem: () => undefined,
-    };
-    const cached = readBootstrapCache(storage);
+    const cached = readBootstrapCache(legacyStorage(cacheKey, legacy));
     expect(cached?.snapshot.olderCursor).toBeUndefined();
     expect(cached?.snapshot.historyCompleteness).toBe("unknown");
     expect(detailFromSnapshot(cached!.snapshot).historyCompleteness).toBe("unknown");
@@ -129,29 +120,24 @@ describe("bootstrap cache", () => {
 
   it("normalizes a stale v3 payload before first paint and ignores older cache keys", () => {
     const stale = JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } });
-    const storage = {
-      getItem: (key: string) => key === "tau.bootstrap-cache.v3" ? stale : null,
-      setItem: () => undefined,
-      removeItem: () => undefined,
-    };
-    const cached = readBootstrapCache(storage);
+    const cached = readBootstrapCache(legacyStorage("tau.bootstrap-cache.v3", stale));
     expect(cached?.snapshot.messages).toHaveLength(10);
     expect(cached?.snapshot.messages[0]?.id).toBe("40");
     expect(cached?.snapshot.olderCursor).toBeUndefined();
     expect(cached?.snapshot.historyCompleteness).toBe("unknown");
     expect(detailFromSnapshot(cached!.snapshot).historyCompleteness).toBe("unknown");
 
-    const oldOnly = {
-      getItem: (key: string) => key === "tau.bootstrap-cache.v2" || key === "tau.bootstrap-cache.v1" ? stale : null,
-      setItem: () => undefined,
-      removeItem: () => undefined,
+    const oldOnly: ClientStorage = {
+      get: (key) => key === "tau.bootstrap-cache.v2" || key === "tau.bootstrap-cache.v1" ? stale : null,
+      set: () => undefined,
+      remove: () => undefined,
+      keys: () => [],
     };
     expect(readBootstrapCache(oldOnly)).toBeUndefined();
   });
 
   it("does not cache a cursor for leading orphan activities", () => {
-    let value: string | null = null;
-    const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; }, removeItem: () => { value = null; } };
+    const storage = createMemoryStorage();
     writeBootstrapCache({
       ...snapshot,
       messages: [
@@ -163,11 +149,11 @@ describe("bootstrap cache", () => {
   });
 
   it("does not hydrate legacy snapshots that may contain raw skill envelopes", () => {
-    const storage = {
-      getItem: (key: string) => key === "tau.bootstrap-cache.v1"
-        ? JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } })
-        : null,
-    };
+    const storage = legacyStorage("tau.bootstrap-cache.v1", JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } }));
     expect(readBootstrapCache(storage)).toBeUndefined();
+  });
+
+  it("returns undefined without an installed storage", () => {
+    expect(readBootstrapCache(undefined)).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Search, Star } from "lucide-react";
 import type { UiModel } from "../../shared/contracts";
-import { preferences } from "../preferences";
+import { usePreferences } from "../renderer-services-context";
 import { VirtualList } from "./VirtualList";
 
 /** Sentinel for the pinned tab; never rendered verbatim. */
@@ -33,6 +33,7 @@ export function ModelPicker({
   onSelect(model: UiModel): void;
   onClose(): void;
 }) {
+  const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [query, setQuery] = useState("");
   const [provider, setProvider] = useState<string>();

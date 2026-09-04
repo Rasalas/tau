@@ -2,6 +2,7 @@
 import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setHostClient } from "./host-client-context";
+import { setClientStorage } from "./client-storage";
 import { createFakeHostClient, type FakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
@@ -16,14 +17,13 @@ vi.mock("./components/TitleBar", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); setHostClient(undefined); });
+afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
 describe("workbench render isolation", () => {
   let client: FakeHostClient;
 
   beforeEach(() => {
     titleBarRenders.count = 0;
-    localStorage.clear();
     client = createFakeHostClient({
       platform: "darwin",
       bootstrap: async () => ({

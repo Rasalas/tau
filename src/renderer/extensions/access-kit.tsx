@@ -4,19 +4,20 @@ import type { AccessLevel } from "../../shared/access-kit-protocol";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "../../shared/access-kit-protocol";
 import { HostUnavailableError, type ComposerControlProps, type DesktopExtension, type HostExtensionClient } from "../extension-system";
 import { Menu } from "../components/Menu";
-import { preferences } from "../preferences";
+import type { PreferencesStore } from "../preferences";
+import { usePreferences } from "../renderer-services-context";
 
 const LEVEL_KEY = "level";
 
-function storedLevel(): AccessLevel {
+function storedLevel(preferences: PreferencesStore): AccessLevel {
   const value = preferences.value(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY);
   return isAccessLevel(value) ? value : DEFAULT_ACCESS_LEVEL;
 }
 
-function readLevel(): AccessLevel { return storedLevel(); }
-
 /** The chip and menu that used to be hard-wired into the composer. */
 function AccessControl({ snapshot }: ComposerControlProps) {
+  const preferences = usePreferences();
+  const readLevel = () => storedLevel(preferences);
   const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
   const [open, setOpen] = useState(false);
   const noInteractiveApprovals = snapshot?.runtimeCapabilities?.interactiveApprovals === false;
@@ -53,10 +54,10 @@ function AccessControl({ snapshot }: ComposerControlProps) {
  * Keeps the host gate at the level the person chose. The preference is the
  * source of truth; the host is told on activation and after every change.
  */
-function syncLevel(host: HostExtensionClient): () => void {
+function syncLevel(host: HostExtensionClient, preferences: PreferencesStore): () => void {
   let pushed: AccessLevel | undefined;
   const push = () => {
-    const level = storedLevel();
+    const level = storedLevel(preferences);
     if (level === pushed) return;
     pushed = level;
     void host.invoke("set-level", { level }).catch((error: unknown) => {
@@ -79,9 +80,9 @@ export const accessKitExtension: DesktopExtension = {
         id: `access.${entry.id}`,
         label: `Access: ${entry.label}`,
         group: "Runtime",
-        run: () => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, entry.id); },
+        run: () => { plugin.preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, entry.id); },
       });
     }
-    return syncLevel(plugin.host);
+    return syncLevel(plugin.host, plugin.preferences);
   },
 };

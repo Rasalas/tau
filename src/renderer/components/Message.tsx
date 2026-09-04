@@ -4,7 +4,8 @@ import type { UiMessage } from "../../shared/contracts";
 import { MessageActions } from "./MessageActions";
 import { UserMessage } from "./UserMessage";
 import { Markdown } from "./Markdown";
-import { preferences } from "../preferences";
+import type { PreferencesStore } from "../preferences";
+import { usePreferences } from "../renderer-services-context";
 
 interface AsyncActivity {
   label: string;
@@ -25,11 +26,12 @@ export function parseAsyncActivity(text: string): AsyncActivity | undefined {
   return { label, detail: text };
 }
 
-const readShowThinking = () => preferences.getSnapshot().showThinking;
+const readShowThinking = (preferences: PreferencesStore) => preferences.getSnapshot().showThinking;
 
 /** Pi shows thinking as a collapsible block; Ctrl+T there is the palette command here. */
 function ThinkingDisclosure({ thinking, streaming }: { thinking: string; streaming?: boolean }) {
-  const expandedByDefault = useSyncExternalStore(preferences.subscribe, readShowThinking, readShowThinking);
+  const preferences = usePreferences();
+  const expandedByDefault = useSyncExternalStore(preferences.subscribe, () => readShowThinking(preferences), () => readShowThinking(preferences));
   const [toggled, setToggled] = useState<boolean>();
   const open = toggled ?? expandedByDefault;
   return (

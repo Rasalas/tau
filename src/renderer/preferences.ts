@@ -1,3 +1,6 @@
+import { getClientStorage } from "./client-storage";
+import { STORAGE_KEYS } from "./storage-keys";
+
 export interface PreferencesState {
   /** Whether assistant thinking blocks start expanded, like Ctrl+T in Pi's terminal. */
   showThinking: boolean;
@@ -12,8 +15,6 @@ export interface PreferencesState {
   extensionValues: Readonly<Record<string, string>>;
   disabledExtensions: readonly string[];
 }
-
-const STORAGE_KEY = "tau.preferences";
 
 const DEFAULTS: PreferencesState = {
   showThinking: false,
@@ -31,7 +32,7 @@ function stringList(value: unknown): string[] {
 
 function load(): PreferencesState {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
+    const raw = JSON.parse(getClientStorage()?.get(STORAGE_KEYS.preferences) ?? "{}") as Record<string, unknown>;
     const options: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(raw.extensionOptions ?? {})) {
       if (typeof value === "boolean") options[key] = value;
@@ -147,12 +148,10 @@ export class PreferencesStore {
   private update(patch: Partial<PreferencesState>): void {
     this.state = { ...this.state, ...patch };
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      getClientStorage()?.set(STORAGE_KEYS.preferences, JSON.stringify(this.state));
     } catch {
       // Preferences are a convenience; a full or blocked store is not worth surfacing.
     }
     this.listeners.forEach((listener) => listener());
   }
 }
-
-export const preferences = new PreferencesStore();

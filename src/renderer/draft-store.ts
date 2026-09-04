@@ -1,7 +1,9 @@
+import type { ClientStorage } from "./client-storage";
+import { STORAGE_KEYS } from "./storage-keys";
 import { createDraftKey, type DraftKey } from "./composer-scope-store";
 
-const DRAFTS_KEY = "tau.composer-drafts.v1";
-const NEW_THREAD_KEY = "tau.active-new-thread.v1";
+const DRAFTS_KEY = STORAGE_KEYS.composerDrafts;
+const NEW_THREAD_KEY = STORAGE_KEYS.activeNewThread;
 
 export interface NewThreadDraft {
   kind: "draft";
@@ -37,16 +39,16 @@ export function draftKey(sessionId?: string, pending?: NewThreadDraft): DraftKey
   return sessionId ? createDraftKey(`session:${sessionId}`) : undefined;
 }
 
-function readComposerDrafts(storage: Storage): Record<string, string> {
+function readComposerDrafts(storage: ClientStorage): Record<string, string> {
   try {
-    const value = JSON.parse(storage.getItem(DRAFTS_KEY) ?? "{}");
+    const value = JSON.parse(storage.get(DRAFTS_KEY) ?? "{}");
     return value && typeof value === "object" ? value as Record<string, string> : {};
   } catch {
     return {};
   }
 }
 
-export function readComposerDraft(storage: Storage, key?: DraftKey | string): string {
+export function readComposerDraft(storage: ClientStorage, key?: DraftKey | string): string {
   // A pending new thread is intentionally persisted in its lifecycle record,
   // not in the generic composer map: that map may contain attachment-adjacent
   // state and must stay empty until a real thread exists.
@@ -54,7 +56,7 @@ export function readComposerDraft(storage: Storage, key?: DraftKey | string): st
   return key ? readComposerDrafts(storage)[key] ?? "" : "";
 }
 
-export function writeComposerDraft(storage: Storage, key: DraftKey | string | undefined, text: string): void {
+export function writeComposerDraft(storage: ClientStorage, key: DraftKey | string | undefined, text: string): void {
   if (!key) return;
   if (typeof key === "string" && key.startsWith("new:")) {
     const pending = readNewThreadDraft(storage);
@@ -64,12 +66,12 @@ export function writeComposerDraft(storage: Storage, key: DraftKey | string | un
   const drafts = readComposerDrafts(storage);
   if (text) drafts[key] = text;
   else delete drafts[key];
-  storage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  storage.set(DRAFTS_KEY, JSON.stringify(drafts));
 }
 
-export function readNewThreadDraft(storage: Storage): NewThreadDraft | undefined {
+export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | undefined {
   try {
-    const value = JSON.parse(storage.getItem(NEW_THREAD_KEY) ?? "null") as Partial<NewThreadDraft> | null;
+    const value = JSON.parse(storage.get(NEW_THREAD_KEY) ?? "null") as Partial<NewThreadDraft> | null;
     if (!value || typeof value.projectPath !== "string" || typeof value.projectName !== "string") return undefined;
     const draft: NewThreadDraft = {
       kind: "draft",
@@ -86,7 +88,7 @@ export function readNewThreadDraft(storage: Storage): NewThreadDraft | undefined
   } catch { return undefined; }
 }
 
-export function writeNewThreadDraft(storage: Storage, draft?: NewThreadDraft): void {
-  if (draft) storage.setItem(NEW_THREAD_KEY, JSON.stringify(draft));
-  else storage.removeItem(NEW_THREAD_KEY);
+export function writeNewThreadDraft(storage: ClientStorage, draft?: NewThreadDraft): void {
+  if (draft) storage.set(NEW_THREAD_KEY, JSON.stringify(draft));
+  else storage.remove(NEW_THREAD_KEY);
 }

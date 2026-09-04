@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Message } from "./Message";
 import { visibleUserMessageText } from "./MessageText";
+import { TestProviders } from "../test-support/test-providers";
 
 afterEach(cleanup);
 
@@ -85,13 +86,13 @@ describe("Message actions", () => {
 
 describe("Message reasoning presentation", () => {
   it("shows thinking as a collapsed block that opens on demand, like Pi's terminal", () => {
-    const view = render(<Message message={{
+    const view = render(<TestProviders><Message message={{
       id: "assistant",
       role: "assistant",
       text: "Visible answer",
       thinking: "Internal reasoning summary",
       timestamp: 0,
-    }} />);
+    }} /></TestProviders>);
 
     expect(screen.getByText("Visible answer")).toBeTruthy();
     expect(screen.queryByText("Internal reasoning summary")).toBeNull();
@@ -104,7 +105,7 @@ describe("Message reasoning presentation", () => {
   });
 
   it("renders thinking alone while the answer has not started", () => {
-    render(<Message message={{ id: "assistant", role: "assistant", text: "", thinking: "Considering options", timestamp: 0 }} streaming />);
+    render(<TestProviders><Message message={{ id: "assistant", role: "assistant", text: "", thinking: "Considering options", timestamp: 0 }} streaming /></TestProviders>);
     expect(screen.getByText(/Thinking/u)).toBeTruthy();
   });
 

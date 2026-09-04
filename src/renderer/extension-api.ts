@@ -9,7 +9,6 @@ export {
   useObservatory,
   useThreadStore,
 } from "./workbench-context";
-export { preferences } from "./preferences";
 export { HostUnavailableError } from "./extension-system";
 export type {
   DesktopExtension,

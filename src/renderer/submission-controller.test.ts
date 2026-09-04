@@ -5,8 +5,10 @@ import { createNewThreadRequestId } from "../shared/contracts";
 import type { HostClient } from "./host-client";
 import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
+import { createMemoryStorage } from "./client-storage";
 import { draftKey, type NewThreadDraft } from "./draft-store";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
+import { PreferencesStore } from "./preferences";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
@@ -63,7 +65,8 @@ function harness(options: {
     threads,
     scopes,
     registry,
-    storage: window.localStorage,
+    storage: createMemoryStorage(),
+    preferences: new PreferencesStore(),
     notify: (message) => view.setNotice(message),
     actions: () => actions,
     newThread: {

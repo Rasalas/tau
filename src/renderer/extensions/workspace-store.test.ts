@@ -4,12 +4,14 @@ import type { WorkbenchActions } from "../extension-system";
 import { setHostClient } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { workspaceHostStub } from "../test-support/workspace-host-stub";
-import { workspaceStore } from "./workspace-store";
+import { PreferencesStore } from "../preferences";
+import { WorkspaceStore } from "./workspace-store";
 
 afterEach(() => { setHostClient(undefined); vi.restoreAllMocks(); });
 
 describe("Workspace Kit worktree creation", () => {
   it("names the draft's project, then opens the worktree with the composer text", async () => {
+    const workspaceStore = new WorkspaceStore(new PreferencesStore());
     const createWorktree = vi.fn(async () => ({ path: "/draft-project-worktrees/fix-queue" }));
     setHostClient(createFakeHostClient({ invokeHostExtension: workspaceHostStub({ createWorktree }) }));
     const release = vi.fn();
@@ -31,6 +33,7 @@ describe("Workspace Kit worktree creation", () => {
   });
 
   it("reports a failed creation and releases the composer", async () => {
+    const workspaceStore = new WorkspaceStore(new PreferencesStore());
     setHostClient(createFakeHostClient({ invokeHostExtension: workspaceHostStub({ createWorktree: async () => { throw new Error("fix/queue is already checked out in a worktree."); } }) }));
     const release = vi.fn();
     const actions = { holdComposer: () => release, openWorkspace: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;

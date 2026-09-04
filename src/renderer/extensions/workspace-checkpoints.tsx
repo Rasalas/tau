@@ -9,7 +9,6 @@ import { errorMessage } from "../error-message";
 import { getHostClient } from "../host-client-context";
 import { workspaceKit } from "./workspace-kit-client";
 import { WorkspaceCheckpointCard } from "./workspace-checkpoint-card";
-import { workspaceStore } from "./workspace-store";
 
 const LazyReview = lazy(() => import("../components/ReviewMode").then(({ ReviewMode }) => ({ default: ReviewMode })));
 
@@ -233,7 +232,7 @@ export function registerCheckpoints(plugin: DesktopExtensionContext): void {
   plugin.events.on("active-thread-changed", () => store.resetThread());
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
-    if (event?.type === "turn-checkpoint") { store.announce(event.checkpoint); workspaceStore.checkpointRecorded(event.sessionId); }
+    if (event?.type === "turn-checkpoint") { store.announce(event.checkpoint); plugin.workspaceStore.checkpointRecorded(event.sessionId); }
     // The capture briefly waits for the workspace lease before Pi starts; say so in place of the spinner.
     else if (event?.type === "turn-checkpoint-status") {
       plugin.setLiveStatus(event.sessionId, event.status === "queued" || event.status === "waiting" ? "Waiting for workspace…" : undefined);

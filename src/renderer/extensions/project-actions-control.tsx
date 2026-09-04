@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { ChevronDown, Play, Plus, TerminalSquare, Trash2 } from "lucide-react";
 import { parseShellActionDraft } from "./workspace-actions";
 import { Menu } from "../components/Menu";
+import { useClientStorage } from "../client-storage-context";
+import type { ClientStorage } from "../client-storage";
+import { projectActionsKey } from "../storage-keys";
 
 interface ProjectAction {
   id: string;
@@ -10,13 +13,9 @@ interface ProjectAction {
   includeInContext: boolean;
 }
 
-function storageKey(cwd?: string): string {
-  return `tau.project-actions:${cwd ?? "unknown"}`;
-}
-
-function loadActions(cwd?: string): ProjectAction[] {
+function loadActions(storage: ClientStorage, cwd?: string): ProjectAction[] {
   try {
-    const value = JSON.parse(localStorage.getItem(storageKey(cwd)) ?? "[]") as unknown;
+    const value = JSON.parse(storage.get(projectActionsKey(cwd)) ?? "[]") as unknown;
     if (!Array.isArray(value)) return [];
     return value.filter((item): item is ProjectAction => Boolean(
       item && typeof item === "object" &&
@@ -37,21 +36,22 @@ export function ProjectActionsControl({
   cwd?: string;
   onRun(command: string, includeInContext: boolean, name: string): void;
 }) {
-  const [actions, setActions] = useState<ProjectAction[]>(() => loadActions(cwd));
+  const clientStorage = useClientStorage();
+  const [actions, setActions] = useState<ProjectAction[]>(() => loadActions(clientStorage, cwd));
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [commandDraft, setCommandDraft] = useState("");
 
   useEffect(() => {
-    setActions(loadActions(cwd));
+    setActions(loadActions(clientStorage, cwd));
     setMenuOpen(false);
     setEditing(false);
-  }, [cwd]);
+  }, [clientStorage, cwd]);
 
   const save = (next: ProjectAction[]) => {
     setActions(next);
-    try { localStorage.setItem(storageKey(cwd), JSON.stringify(next)); } catch { /* optional preference */ }
+    try { clientStorage.set(projectActionsKey(cwd), JSON.stringify(next)); } catch { /* optional preference */ }
   };
   const openEditor = () => {
     setName("");
