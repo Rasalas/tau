@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, ChevronDown, CornerDownRight, Paperclip, Sparkles, X, Zap } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -31,6 +31,7 @@ import {
   type PendingAttachment,
 } from "../composer-scope-store";
 import { errorMessage } from "../error-message";
+import type { QueuedFollowUp } from "../follow-up-queue";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
 
 type OpenMenu = "thinking" | undefined;
@@ -148,6 +149,8 @@ export function Composer({
   onSubmit,
   onAbort,
   onCancelQueued,
+  onSteerQueued,
+  onReorderQueue,
   onSetModel,
   onSetThinking,
   prompt,
@@ -162,7 +165,7 @@ export function Composer({
   value?: string;
   seed?: string;
   draftStorageKey?: string;
-  queue: string[];
+  queue: readonly QueuedFollowUp[];
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -170,7 +173,10 @@ export function Composer({
   onChange?(value: string): void;
   onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: UiSkillDraft): Promise<SubmitResult>;
   onAbort(): void;
-  onCancelQueued(index: number): void;
+  onCancelQueued(id: string): void;
+  /** Sends one queued message now, ahead of the rest of the queue. */
+  onSteerQueued(id: string): void;
+  onReorderQueue(id: string, toIndex: number): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   prompt?: ExtensionUiPrompt;
@@ -268,6 +274,9 @@ export function Composer({
     setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  // Only a drag that starts on the grip reorders; text drags inside a row do not.
+  const queueDragArmRef = useRef<string | undefined>(undefined);
+  const [draggingQueuedId, setDraggingQueuedId] = useState<string>();
   const supportsImageInput = snapshot?.supportsImageInput ?? false;
   const streaming = Boolean(snapshot?.isStreaming);
   // An external runtime may pick model and reasoning itself; the pickers then only show what it reports.
@@ -390,16 +399,71 @@ export function Composer({
       <div className="composer-surface" data-composer-surface="true">
       {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
       {queue.length > 0 ? (
-        <div className="composer-queue">
-          {queue.map((entry, index) => (
-            <div className="composer-queue-item" key={`${index}-${entry}`}>
-              <CornerDownRight size={13} />
-              <span title={entry}>{entry}</span>
-              <button onClick={() => onCancelQueued(index)} title="Drop this queued message">
-                <X size={13} />
-              </button>
-            </div>
-          ))}
+        <div className="composer-queue" role="list" aria-label="Queued messages">
+          {queue.map((entry, index) => {
+            const label = entry.text.trim() || `Attached ${entry.attachments.map((attachment) => attachment.name).join(", ")}`;
+            return (
+              <div
+                className={`composer-queue-item${draggingQueuedId === entry.id ? " dragging" : ""}`}
+                key={entry.id}
+                role="listitem"
+                draggable
+                onDragStart={(event) => {
+                  if (queueDragArmRef.current !== entry.id) { event.preventDefault(); return; }
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", entry.id);
+                  setDraggingQueuedId(entry.id);
+                }}
+                onDragOver={(event) => {
+                  if (!draggingQueuedId) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  if (!draggingQueuedId) return;
+                  event.preventDefault();
+                  if (draggingQueuedId !== entry.id) onReorderQueue(draggingQueuedId, index);
+                  queueDragArmRef.current = undefined;
+                  setDraggingQueuedId(undefined);
+                }}
+                onDragEnd={() => { queueDragArmRef.current = undefined; setDraggingQueuedId(undefined); }}
+              >
+                <button
+                  className="composer-queue-grip"
+                  type="button"
+                  title="Drag to reorder — ⌥↑ / ⌥↓ also moves it"
+                  aria-label={`Reorder queued message ${index + 1} of ${queue.length}`}
+                  onPointerDown={() => { queueDragArmRef.current = entry.id; }}
+                  onPointerUp={() => { queueDragArmRef.current = undefined; }}
+                  onKeyDown={(event) => {
+                    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                    event.preventDefault();
+                    onReorderQueue(entry.id, event.key === "ArrowUp" ? index - 1 : index + 1);
+                  }}
+                >
+                  <GripVertical size={13} />
+                </button>
+                <span title={label}>{label}</span>
+                <button
+                  className="composer-queue-steer"
+                  type="button"
+                  onClick={() => onSteerQueued(entry.id)}
+                  title={streaming ? "Send now, interrupting the current turn" : "Send now"}
+                >
+                  {streaming ? "Steer" : "Send"}
+                </button>
+                <button
+                  className="composer-queue-drop"
+                  type="button"
+                  onClick={() => onCancelQueued(entry.id)}
+                  title="Drop this queued message"
+                  aria-label="Drop this queued message"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       ) : null}
       {prompt ? (() => {
@@ -542,9 +606,13 @@ export function Composer({
             }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              submitCurrent(streaming
-                ? event.metaKey || event.ctrlKey ? "steer" : "followUp"
-                : undefined);
+              const now = event.metaKey || event.ctrlKey;
+              // ⌘↵ on an empty field releases the message at the head of the queue.
+              if (now && !text.trim() && attachments.length === 0 && queue[0] && !answerable) {
+                onSteerQueued(queue[0].id);
+                return;
+              }
+              submitCurrent(streaming ? (now ? "steer" : "followUp") : undefined);
             }
           }}
           placeholder={
@@ -582,7 +650,7 @@ export function Composer({
                 if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
               }}
             >
-              <Zap size={13} />
+              <Brain size={13} />
               {snapshot?.thinkingLevel ?? "—"}
               {thinkingSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
             </button>

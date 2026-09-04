@@ -58,6 +58,7 @@ const emptyDocumentState = () => EMPTY_DOCUMENTS;
 const loadFileUnavailable = async (path: string): Promise<UiFileContent> => ({ path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require a document source." });
 const loadDiffUnavailable = async (path: string): Promise<UiFileDiff> => ({ path, added: 0, removed: 0, hunks: [], note: "Diffs require a document source." });
 import { createNewThreadDraft, draftKey, readNewThreadDraft, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { ThreadStore } from "./thread-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { displayPath } from "./path-display";
@@ -212,7 +213,6 @@ export default function App() {
   const [toolAnchorId, setToolAnchorId] = useState<string>();
   const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [queue, setQueue] = useState<string[]>([]);
   const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
   const uiPromptsRef = useRef(uiPrompts);
   uiPromptsRef.current = uiPrompts;
@@ -265,6 +265,15 @@ export default function App() {
     setNoticeLevel(level);
     setNoticeText(message);
   }, []);
+  // Follow-ups typed during a run wait in the workbench, not in the runtime.
+  const submitRef = useRef<SubmitPrompt>(async () => ({ accepted: false, message: "The composer is not ready yet." }));
+  const { queue, enqueue: enqueueFollowUp, cancelQueued, steerQueued, reorderQueue } = useFollowUpQueue({
+    sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
+    streamingRef: visibleStreamingRef,
+    runningThreadIds: threadActivity.runningThreadIds,
+    submitRef,
+    setNotice,
+  });
   const [dockOpen, setDockOpen] = useState(true);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
@@ -815,7 +824,6 @@ export default function App() {
     queueToolUpdate,
     addEvent,
     setUiPrompts,
-    setQueue,
   }), [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, flushToolUpdates, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, registry, replaceTranscriptMessages, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, updateTranscriptMessages, updateTools]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventStores), [hostEventStores]);
 
@@ -1379,6 +1387,12 @@ export default function App() {
         return { accepted: false, message: errorMessage(error) };
       }
     }
+    // Enter during a run parks the message above the composer. It is prepared
+    // and sent as a plain prompt once the thread settles, or steered on demand.
+    if (!pendingNewThread && snapshot && visibleStreaming && delivery !== "steer") {
+      enqueueFollowUp(snapshot.sessionId, { text: value, attachments, ...(skillDraft ? { skillDraft } : {}) });
+      return { accepted: true };
+    }
     let prepared: PreparedPrompt | undefined;
     if (window.tau?.preparePrompt) {
       try {
@@ -1464,43 +1478,20 @@ export default function App() {
     const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
       setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
-      if (delivery === "steer") {
-        startTranscriptTurn(snapshot?.sessionId);
-        try {
-          if (!window.tau) throw new Error("Steering requires the Electron host.");
-          await window.tau.steer(text, attachments, snapshot?.sessionId, clientTurn, prepared);
-        } catch (error) {
-          const currentSubmission = isCurrentSubmission();
-          cancelTranscriptTurn();
-          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          if (currentSubmission) {
-            setNotice(String(error));
-          }
-          return { accepted: false, message: errorMessage(error) };
+      startTranscriptTurn(snapshot?.sessionId);
+      try {
+        if (!window.tau) throw new Error("Steering requires the Electron host.");
+        await window.tau.steer(text, attachments, snapshot?.sessionId, clientTurn, prepared);
+      } catch (error) {
+        const currentSubmission = isCurrentSubmission();
+        cancelTranscriptTurn();
+        setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+        if (currentSubmission) {
+          setNotice(String(error));
         }
-        return { accepted: true };
-      } else {
-        startTranscriptTurn(snapshot?.sessionId, true);
-        const queuedText = optimisticText;
-        setQueue((current) => [...current, queuedText]);
-        try {
-          if (!window.tau) throw new Error("Follow-up messages require the Electron host.");
-          await window.tau.followUp(text, attachments, snapshot?.sessionId, clientTurn, prepared);
-        } catch (error) {
-          const currentSubmission = isCurrentSubmission();
-          cancelTranscriptTurn();
-          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
-          setQueue((current) => {
-            const index = current.lastIndexOf(queuedText);
-            return index < 0 ? current : current.filter((_, at) => at !== index);
-          });
-          if (currentSubmission) {
-            setNotice(String(error));
-          }
-          return { accepted: false, message: errorMessage(error) };
-        }
-        return { accepted: true };
+        return { accepted: false, message: errorMessage(error) };
       }
+      return { accepted: true };
     }
     if (pendingNewThread) {
       const pending = pendingNewThread;
@@ -1684,7 +1675,8 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  submitRef.current = submit;
 
   // Extensions own every chord; core only dispatches. A handler that already
   // claimed the key (the composer's menu, a dialog) keeps it, and bare keys
@@ -1821,7 +1813,7 @@ export default function App() {
     setCenterCompact, chatFocused, setChatFocused, stage, setStage, documentState, documentSource,
     visibleStreaming, showStartScreen, startProjectPath, startProjectName, setNewThreadOpen,
     dropController: threadDropController, conversationSnapshot, composerScopeStore, composerSeed,
-    activeDraftKey, queue, contextBreakdown, composerRef, composerAttachmentRef, submit, setQueue,
+    activeDraftKey, queue, contextBreakdown, composerRef, composerAttachmentRef, submit, cancelQueued, steerQueued, reorderQueue,
     setModel, setThinking, conversationPrompts, answerUiPrompt, compactContext, composerHolds,
     settings, titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread,
     copyThreadValue, pendingNewThread: Boolean(pendingNewThread), conversationMessages,

@@ -48,7 +48,6 @@ function fixture() {
     queueToolUpdate: vi.fn(),
     addEvent: vi.fn(),
     setUiPrompts: vi.fn(),
-    setQueue: vi.fn(),
   } as unknown as HostEventStores;
   return { stores, threadStore };
 }

@@ -47,7 +47,6 @@ export interface HostEventStores {
   queueToolUpdate(id: string, output: string): void;
   addEvent(label: string, detail?: string, timestamp?: number): void;
   setUiPrompts: Dispatch<SetStateAction<ExtensionUiPrompt[]>>;
-  setQueue: Dispatch<SetStateAction<string[]>>;
 }
 
 /** Applies one host event to renderer-owned stores and transient view state. */
@@ -171,7 +170,8 @@ export function applyHostEvent(event: HostEvent, stores: HostEventStores): void 
       if (!event.sessionId || event.sessionId === threadStore.getSnapshot().activeThreadId) stores.setNotice(event.message, event.level);
       break;
     case "queue":
-      stores.setQueue([...event.steering, ...event.followUp]);
+      // Follow-ups wait in the workbench queue; this only mirrors the runtime's
+      // own steering queue into the event log.
       stores.addEvent("queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
       break;
   }

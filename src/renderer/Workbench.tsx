@@ -7,6 +7,7 @@ import { activateTab as activateStageTab, closeTab as closeStageTab, pinTab as p
 import type { ComposerAttachmentHandle, SubmitResult } from "./components/Composer";
 import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "./composer-scope-store";
+import type { QueuedFollowUp } from "./follow-up-queue";
 import type { ContextBreakdown } from "./components/ContextMeter";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
@@ -104,12 +105,14 @@ export interface WorkbenchModel {
   composerScopeStore: ComposerScopeStore;
   composerSeed?: string;
   activeDraftKey?: string;
-  queue: string[];
+  queue: readonly QueuedFollowUp[];
   contextBreakdown: ContextBreakdown;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   composerAttachmentRef: RefObject<ComposerAttachmentHandle | null>;
   submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
-  setQueue: Dispatch<SetStateAction<string[]>>;
+  cancelQueued(id: string): void;
+  steerQueued(id: string): void;
+  reorderQueue(id: string, toIndex: number): void;
   setModel(provider: string, id: string): Promise<void>;
   setThinking(level: string): Promise<void>;
   conversationPrompts: ExtensionUiPrompt[];
@@ -170,7 +173,7 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
     setChatFocused, stage, setStage, documentState, documentSource, visibleStreaming, showStartScreen,
     startProjectPath, startProjectName, setNewThreadOpen, dropController, conversationSnapshot,
     composerScopeStore, composerSeed, activeDraftKey, queue, contextBreakdown, composerRef,
-    composerAttachmentRef, submit, setQueue, setModel, setThinking, conversationPrompts, answerUiPrompt,
+    composerAttachmentRef, submit, cancelQueued, steerQueued, reorderQueue, setModel, setThinking, conversationPrompts, answerUiPrompt,
     compactContext, composerHolds, settings, titleCommands, openThreadTree, duplicateThread,
     settleActiveThread, renameThread, copyThreadValue, pendingNewThread, conversationMessages,
     transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
@@ -215,7 +218,9 @@ export function Workbench({ model }: { model: WorkbenchModel }) {
     attachmentRef={composerAttachmentRef}
     onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
     onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
-    onCancelQueued={(index) => setQueue((current) => current.filter((_, at) => at !== index))}
+    onCancelQueued={cancelQueued}
+    onSteerQueued={steerQueued}
+    onReorderQueue={reorderQueue}
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     prompt={conversationPrompts[0]}

@@ -327,20 +327,30 @@ describe("last-turn activity", () => {
     expect(view.container.querySelector(".transcript")?.contains(dock)).toBe(false);
   });
 
-  it("keeps an Enter follow-up visible until the current run can process it", async () => {
+  it("holds an Enter follow-up in the workbench queue and sends it once the run settles", async () => {
     const followUp = vi.fn(async () => undefined);
     const steer = vi.fn(async () => undefined);
+    const sendPrompt = vi.fn(async () => undefined);
     window.tau!.followUp = followUp;
     window.tau!.steer = steer;
-    render(<App />);
+    window.tau!.sendPrompt = sendPrompt;
+    const view = render(<App />);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
 
-    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    const composer = screen.getByPlaceholderText(/Queue after this turn/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "after this turn" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(followUp).toHaveBeenCalledWith(
+    await waitFor(() => expect(screen.getByRole("listitem").textContent).toContain("after this turn"));
+    expect(composer.value).toBe("");
+    // The runtime never holds the follow-up, and it is not a transcript bubble yet.
+    expect(followUp).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(view.container.querySelector(".transcript")?.textContent ?? "").not.toContain("after this turn");
+
+    act(() => publish({ type: "agent-status", sessionId: "session", running: false }));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
       "after this turn",
       [],
       "session",
@@ -348,7 +358,61 @@ describe("last-turn activity", () => {
       undefined,
     ));
     expect(steer).not.toHaveBeenCalled();
-    expect(screen.getByTitle("after this turn")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
+  });
+
+  it("sends only the head of the queue when the run settles and keeps the rest waiting", async () => {
+    const sendPrompt = vi.fn(async (..._args: unknown[]) => undefined);
+    window.tau!.followUp = vi.fn(async () => undefined);
+    window.tau!.sendPrompt = sendPrompt;
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+
+    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    fireEvent.change(composer, { target: { value: "first" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    fireEvent.change(composer, { target: { value: "second" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
+
+    act(() => publish({ type: "agent-status", sessionId: "session", running: false }));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(1));
+    expect(sendPrompt.mock.calls[0]?.[0]).toBe("first");
+    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("span")?.textContent)).toEqual(["second"]));
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+
+    act(() => publish({ type: "agent-status", sessionId: "session", running: false }));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(2));
+    expect(sendPrompt.mock.calls[1]?.[0]).toBe("second");
+  });
+
+  it("steers the head of the queue with Cmd+Enter on an empty field or its Steer button", async () => {
+    const steer = vi.fn(async () => undefined);
+    window.tau!.followUp = vi.fn(async () => undefined);
+    window.tau!.steer = steer;
+    render(<App />);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+
+    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    fireEvent.change(composer, { target: { value: "first" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    fireEvent.change(composer, { target: { value: "second" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
+
+    fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(steer).toHaveBeenCalledWith("first", [], "session", expect.anything(), undefined));
+    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("span")?.textContent)).toEqual(["second"]));
+    expect(screen.getByText("first")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+    await waitFor(() => expect(steer).toHaveBeenCalledWith("second", [], "session", expect.anything(), undefined));
+    await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
   });
 
   it("steers with Cmd+Enter and shows the message in the transcript immediately", async () => {

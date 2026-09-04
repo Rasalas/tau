@@ -30,6 +30,8 @@ function renderComposer(
       onSubmit={onSubmit}
       onAbort={() => {}}
       onCancelQueued={() => {}}
+      onSteerQueued={() => {}}
+      onReorderQueue={() => {}}
       onSetModel={() => {}}
       onSetThinking={() => {}}
       onCompactContext={() => {}}
