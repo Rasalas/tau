@@ -90,3 +90,29 @@ Kit's store and its host-extension client) read the same instance through
 `getHostClient()`, which `main.tsx` and the test-only `renderApp` helper keep
 in sync with the provider. `src/renderer/host-client-boundary.test.ts` fails
 on any other renderer module touching `window.tau`.
+
+## Persisted host state
+
+Every JSON file the host owns on disk goes through `src/main/persisted-json.ts`
+(`readPersistedJson` / `writePersistedJson`), not ad hoc `fs` calls. The rules
+are the same everywhere:
+
+- A write is `JSON.stringify({ version, ...data }, null, 2)` to a sibling temp
+  file (`<name>.<uuid>.tmp`, flag `wx`, mode `0o600`), then a rename; the
+  parent directory is created `0o700`. Concurrent writes to the same path are
+  queued so the file on disk always ends up as the last call's value.
+- A read that hits invalid JSON quarantines the file to
+  `<name>.corrupt-<ISO timestamp>` and logs a warning instead of silently
+  discarding it; a missing file is not an error.
+- `decode(value, version)` accepts legacy shapes (no `version` field, or a
+  bare array) so old files keep loading.
+- A stored `version` newer than the build's `expectedVersion` is decoded
+  best-effort and flagged `readOnly: true`; a mere load never writes the file
+  back, so an older build never downgrades a newer one's data.
+
+Current stores:
+
+| File | Owner | Version |
+| --- | --- | --- |
+| `<userData>/projects.json` | `src/main/project-history.ts` | 1 |
+| `<agentDir>/tau/claude-runtime-sessions.json` | `src/main/extensions/claude-code/session-store.ts` | 1 |
