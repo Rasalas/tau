@@ -5,6 +5,10 @@ import { createElectronHostClient, type HostClient } from "./host-client";
 import { createSocketHostClient } from "./host-connection-socket";
 import type { HostConnection } from "./host-connection";
 import { HostClientProvider, setHostClient } from "./host-client-context";
+import { createLocalStorageAdapter, setClientStorage } from "./client-storage";
+import { ClientStorageProvider } from "./client-storage-context";
+import { createRendererServices } from "./renderer-services";
+import { RendererServicesProvider } from "./renderer-services-context";
 import "./styles.css";
 
 const search = new URLSearchParams(window.location.search);
@@ -24,9 +28,25 @@ setHostClient(client);
 // sequence starts and which capabilities this host has.
 void host?.connection.start().catch(() => undefined);
 
+// The browser storage adapter works in Electron's renderer like any browser; a
+// future web or mobile client installs its own ClientStorage here instead.
+const clientStorage = createLocalStorageAdapter();
+setClientStorage(clientStorage);
+const services = createRendererServices();
+
 const root = createRoot(document.getElementById("root")!);
 if (search.has("rendererBenchmark")) {
   void import("./RendererBenchmark").then(({ default: RendererBenchmark }) => root.render(<RendererBenchmark />));
 } else {
-  root.render(<StrictMode><HostClientProvider client={client}><App /></HostClientProvider></StrictMode>);
+  root.render(
+    <StrictMode>
+      <HostClientProvider client={client}>
+        <ClientStorageProvider storage={clientStorage}>
+          <RendererServicesProvider services={services}>
+            <App />
+          </RendererServicesProvider>
+        </ClientStorageProvider>
+      </HostClientProvider>
+    </StrictMode>,
+  );
 }

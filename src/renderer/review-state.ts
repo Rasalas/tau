@@ -1,3 +1,6 @@
+import { getClientStorage } from "./client-storage";
+import { reviewStateKey } from "./storage-keys";
+
 export interface ReviewComment {
   id: string;
   path: string;
@@ -14,13 +17,9 @@ export interface PersistedReviewState {
 
 export const EMPTY_REVIEW_STATE: PersistedReviewState = { readPaths: [], comments: [] };
 
-export function reviewStorageKey(workspace: string, scope: string): string {
-  return `tau.review.v1:${workspace}:${scope}`;
-}
-
 export function readReviewState(workspace: string, scope: string): PersistedReviewState {
   try {
-    const parsed = JSON.parse(localStorage.getItem(reviewStorageKey(workspace, scope)) ?? "null") as Partial<PersistedReviewState> | null;
+    const parsed = JSON.parse(getClientStorage()?.get(reviewStateKey(workspace, scope)) ?? "null") as Partial<PersistedReviewState> | null;
     return {
       readPaths: Array.isArray(parsed?.readPaths) ? parsed.readPaths.filter((path): path is string => typeof path === "string") : [],
       comments: Array.isArray(parsed?.comments) ? parsed.comments.filter((comment): comment is ReviewComment => Boolean(comment)
@@ -32,5 +31,5 @@ export function readReviewState(workspace: string, scope: string): PersistedRevi
 }
 
 export function writeReviewState(workspace: string, scope: string, state: PersistedReviewState): void {
-  localStorage.setItem(reviewStorageKey(workspace, scope), JSON.stringify(state));
+  getClientStorage()?.set(reviewStateKey(workspace, scope), JSON.stringify(state));
 }

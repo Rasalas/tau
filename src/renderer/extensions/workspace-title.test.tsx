@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceInfo } from "../../shared/workspace-kit-types";
 import type { WorkbenchActions } from "../extension-system";
+import { createMemoryStorage } from "../client-storage";
+import { ClientStorageProvider } from "../client-storage-context";
+import { PreferencesStore } from "../preferences";
+import { RendererServicesProvider } from "../renderer-services-context";
 import { WorkspaceTitleActions } from "./workspace-title";
-import { workspaceStore } from "./workspace-store";
+import { WorkspaceStore } from "./workspace-store";
 
 const dirty = {
   files: [{ path: "src/a.ts", name: "a.ts", directory: "src", status: "modified" as const, added: 1, removed: 0 }],
@@ -17,15 +21,22 @@ function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
 }
 
 function setup(info = workspace(), draftPending = false) {
+  const preferences = new PreferencesStore();
+  const workspaceStore = new WorkspaceStore(preferences);
   workspaceStore.update({ cwd: "/project", draftPending, changes: dirty, workspace: info, committing: false, editors: [{ id: "code", name: "VS Code" }, { id: "zed", name: "Zed" }] });
   const openInEditor = vi.spyOn(workspaceStore, "openInEditor").mockResolvedValue(undefined);
   const openReview = vi.spyOn(workspaceStore, "openReview").mockImplementation(() => undefined);
   const runShellAction = vi.spyOn(workspaceStore, "runShellAction").mockResolvedValue(undefined);
-  render(<WorkspaceTitleActions actions={{} as WorkbenchActions} />);
+  render(
+    <ClientStorageProvider storage={createMemoryStorage()}>
+      <RendererServicesProvider services={{ preferences, workspaceStore }}>
+        <WorkspaceTitleActions actions={{} as WorkbenchActions} />
+      </RendererServicesProvider>
+    </ClientStorageProvider>,
+  );
   return { openInEditor, openReview, runShellAction };
 }
 
-beforeEach(() => { localStorage.clear(); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("Workspace Kit title actions", () => {

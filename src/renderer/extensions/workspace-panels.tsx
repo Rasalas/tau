@@ -6,7 +6,8 @@ import { FileKindIcon } from "../components/FileKindIcon";
 import { ChangesTree } from "../components/ChangesTree";
 import type { PanelProps } from "../extension-system";
 import { useWorkbench } from "../workbench-context";
-import { useWorkspaceKit, workspaceStore } from "./workspace-store";
+import { useWorkspaceKit } from "./workspace-store";
+import { useWorkspaceStore } from "../renderer-services-context";
 
 interface FlatNode { node: FileNode; depth: number; }
 
@@ -82,12 +83,13 @@ function FileTree({ nodes, changedPaths, cwd, activePath, loadFiles, openFile }:
 }
 
 export function FilesPanel({ active, extensionName }: PanelProps) {
+  const workspaceStore = useWorkspaceStore();
   const { fileTree, changes, cwd } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
   const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
   const refreshFiles = () => workspaceStore.refreshFiles();
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
-  useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd]);
+  useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
   const changedPaths = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
 
   return <section className="panel-body">
@@ -102,6 +104,7 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
 }
 
 export function ChangesPanel({ active, extensionName }: PanelProps) {
+  const workspaceStore = useWorkspaceStore();
   const { changes, committing, pushPrimary, commitFocusToken, cwd, workspace } = useWorkspaceKit();
   const { activeDocumentPath: activePath } = useWorkbench();
   const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
@@ -114,7 +117,7 @@ export function ChangesPanel({ active, extensionName }: PanelProps) {
   const stageAll = () => workspaceStore.stageAll();
   const revertFile = (path: string) => workspaceStore.revertFile(path);
   const commit = (message: string, push: boolean) => workspaceStore.commit(message, push);
-  useEffect(() => { if (active) void workspaceStore.refreshChanges(); }, [active, cwd]);
+  useEffect(() => { if (active) void workspaceStore.refreshChanges(); }, [active, cwd, workspaceStore]);
   const [message, setMessage] = useState(changes.proposedMessage ?? "");
   const [dirty, setDirty] = useState(false);
   // Follow the host's proposal until the user types; a commit resets to following.

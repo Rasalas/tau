@@ -5,32 +5,35 @@ import { useWorkbench } from "../workbench-context";
 import { ChangedFiles } from "../components/ChangedFiles";
 import { WorkspaceBar } from "../components/WorkspaceBar";
 import { workspaceKit } from "./workspace-kit-client";
-import { useWorkspaceKit, workspaceStore } from "./workspace-store";
+import { useWorkspaceKit } from "./workspace-store";
+import { useWorkspaceStore } from "../renderer-services-context";
 
 /**
  * Keeps the kit's store following the workbench: which project, which thread,
  * whether a draft is still pending. Renders nothing; lives in an always-mounted region.
  */
 export function WorkspaceFollower({ actions }: RegionProps) {
+  const workspaceStore = useWorkspaceStore();
   const thread = actions.activeThread();
   const cwd = thread?.cwd;
   const sessionId = thread?.sessionId;
   const draftPending = thread?.draftPending ?? false;
   useEffect(() => {
     workspaceStore.bind(actions);
-  }, [actions]);
+  }, [actions, workspaceStore]);
   useEffect(() => {
     workspaceStore.follow({ cwd, sessionId, draftPending });
-  }, [cwd, sessionId, draftPending]);
-  useEffect(() => { void workspaceStore.loadEditors(); }, []);
+  }, [cwd, sessionId, draftPending, workspaceStore]);
+  useEffect(() => { void workspaceStore.loadEditors(); }, [workspaceStore]);
   return null;
 }
 
 /** The files a running turn touched, shown under the transcript until a checkpoint replaces it. */
 export function TurnChangesDock() {
+  const workspaceStore = useWorkspaceStore();
   const state = useWorkspaceKit();
   const { tools } = useWorkbench();
-  const turnChanges = useMemo(() => workspaceStore.turnChanges(tools), [state.changes, state.turnBaseline, tools]);
+  const turnChanges = useMemo(() => workspaceStore.turnChanges(tools), [state.changes, state.turnBaseline, tools, workspaceStore]);
   if (state.draftPending || state.turnSettled || turnChanges.files.length === 0) return null;
   return (
     <div className="conversation-files-dock">
@@ -41,6 +44,7 @@ export function TurnChangesDock() {
 
 /** Worktree and branch switching, below the composer. */
 export function WorkspaceBarControl(_props: ComposerControlProps) {
+  const workspaceStore = useWorkspaceStore();
   const state = useSyncExternalStore(workspaceStore.subscribe, workspaceStore.getSnapshot, workspaceStore.getSnapshot);
   return (
     <WorkspaceBar

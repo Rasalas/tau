@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { preferences } from "./preferences";
+import { PreferencesStore } from "./preferences";
+
+let preferences: PreferencesStore;
 
 beforeEach(() => {
-  for (const id of [...preferences.getSnapshot().settledThreadIds]) preferences.unsettle(id);
+  preferences = new PreferencesStore();
 });
 
 describe("settled threads", () => {

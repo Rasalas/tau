@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionRegistry } from "./extension-system";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
+import { PreferencesStore } from "./preferences";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
 
@@ -15,6 +16,7 @@ function fixture() {
     registry: registry as unknown as ExtensionRegistry,
     threadStore,
     view,
+    preferences: new PreferencesStore(),
     submission: {
       hasRecovery: vi.fn(() => false),
       recoveryScope: vi.fn(() => undefined),

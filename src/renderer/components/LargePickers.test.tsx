@@ -5,6 +5,7 @@ import type { UiModel } from "../../shared/contracts";
 import type { WorkbenchActions } from "../extension-system";
 import { CommandPalette } from "./CommandPalette";
 import { ModelPicker } from "./ModelPicker";
+import { TestProviders } from "../test-support/test-providers";
 
 afterEach(cleanup);
 
@@ -26,7 +27,7 @@ const commands = Array.from({ length: 10_000 }, (_, index) => ({
 describe("large picker catalogs", () => {
   it("keeps model search and keyboard selection bounded", () => {
     const onSelect = vi.fn();
-    render(<ModelPicker models={models} onSelect={onSelect} onClose={() => {}} />);
+    render(<TestProviders><ModelPicker models={models} onSelect={onSelect} onClose={() => {}} /></TestProviders>);
     expect(document.querySelectorAll(".model-row").length).toBeLessThan(50);
     const input = screen.getByRole("textbox", { name: "Search models" });
     fireEvent.change(input, { target: { value: "Model 9999" } });

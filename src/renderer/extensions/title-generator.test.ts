@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
+import { PreferencesStore } from "../preferences";
 import { automaticTitleModel } from "./title-generator";
 
 function snapshot(messages: HostSnapshot["messages"]): HostSnapshot {
@@ -21,11 +22,15 @@ function snapshot(messages: HostSnapshot["messages"]): HostSnapshot {
   };
 }
 
-beforeEach(() => localStorage.clear());
+let preferences: PreferencesStore;
+
+beforeEach(() => {
+  preferences = new PreferencesStore();
+});
 
 describe("automatic title generation", () => {
   it("selects a model only before the first user prompt", () => {
-    expect(automaticTitleModel({ prompt: "first", snapshot: snapshot([]) })).toEqual({
+    expect(automaticTitleModel({ prompt: "first", snapshot: snapshot([]) }, preferences)).toEqual({
       provider: "provider",
       id: "model",
       name: "Model",
@@ -33,6 +38,6 @@ describe("automatic title generation", () => {
     expect(automaticTitleModel({
       prompt: "later",
       snapshot: snapshot([{ id: "user", role: "user", text: "first", timestamp: 1 }]),
-    })).toBeUndefined();
+    }, preferences)).toBeUndefined();
   });
 });

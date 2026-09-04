@@ -3,13 +3,14 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientTurnIdentity, UiToolRun } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
-import { preferences } from "./preferences";
+import { createMemoryStorage, setClientStorage } from "./client-storage";
+import { STORAGE_KEYS } from "./storage-keys";
 import { createFakeHostClient, type FakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { writeCachedTurnActivity } from "./turn-activity";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
 
-afterEach(() => { cleanup(); setHostClient(undefined); });
+afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
 function tool(id: string): UiToolRun {
   return { id, name: "read", args: { path: `${id}.ts` }, status: "done", startedAt: 1, endedAt: 2 };
@@ -19,7 +20,6 @@ describe("last-turn activity", () => {
   let client: FakeHostClient;
 
   beforeEach(() => {
-    localStorage.clear();
     client = createFakeHostClient({
       platform: "darwin",
       bootstrap: async () => ({
@@ -43,23 +43,21 @@ describe("last-turn activity", () => {
   });
 
   it("does not unsettle a thread for a recovered run without a new user message", async () => {
-    preferences.unsettle("session");
-    preferences.toggleSettled("session");
-    renderApp(client);
+    const view = renderApp(client, { seed: ({ preferences }) => { preferences.unsettle("session"); preferences.toggleSettled("session"); } });
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
       client.emit({ type: "agent-status", sessionId: "session", running: true });
       client.emit({ type: "agent-status", sessionId: "session", running: false });
     });
-    expect(preferences.isSettled("session")).toBe(true);
+    expect(view.services.preferences.isSettled("session")).toBe(true);
 
     act(() => client.emit({
       type: "user-message",
       sessionId: "session",
       message: { id: "new-work", role: "user", text: "new work", timestamp: Date.now() },
     }));
-    expect(preferences.isSettled("session")).toBe(false);
+    expect(view.services.preferences.isSettled("session")).toBe(false);
   });
 
   it("keeps a settled thread settled when the host replays its existing user message", async () => {
@@ -74,9 +72,7 @@ describe("last-turn activity", () => {
         },
       };
     };
-    preferences.unsettle("session");
-    preferences.toggleSettled("session");
-    renderApp(client);
+    const view = renderApp(client, { seed: ({ preferences }) => { preferences.unsettle("session"); preferences.toggleSettled("session"); } });
     await screen.findByText("existing work");
 
     act(() => client.emit({
@@ -85,7 +81,7 @@ describe("last-turn activity", () => {
       message: { id: "user-1-0", role: "user", text: "existing work", timestamp: 1 },
     }));
 
-    expect(preferences.isSettled("session")).toBe(true);
+    expect(view.services.preferences.isSettled("session")).toBe(true);
   });
 
   it("keeps an uncached settled thread settled when the host replays its existing user message", async () => {
@@ -111,9 +107,7 @@ describe("last-turn activity", () => {
         },
       };
     };
-    preferences.unsettle("background-session");
-    preferences.toggleSettled("background-session");
-    renderApp(client);
+    const view = renderApp(client, { seed: ({ preferences }) => { preferences.unsettle("background-session"); preferences.toggleSettled("background-session"); } });
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => client.emit({
@@ -122,11 +116,11 @@ describe("last-turn activity", () => {
       message: { id: "replayed-user", role: "user", text: "existing work", timestamp: 1 },
     }));
 
-    expect(preferences.isSettled("background-session")).toBe(true);
+    expect(view.services.preferences.isSettled("background-session")).toBe(true);
   });
 
   it("keeps a tool without a terminal frame visibly interrupted after settling", async () => {
-    renderApp(client);
+    const view = renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
@@ -141,11 +135,11 @@ describe("last-turn activity", () => {
 
     expect(await screen.findByText("1 tool call interrupted")).toBeTruthy();
     expect(screen.getByText("interrupted")).toBeTruthy();
-    expect(localStorage.getItem("tau.bootstrap-cache.v6") ?? "").not.toContain('"status":"interrupted"');
+    expect(view.storage.get(STORAGE_KEYS.bootstrapCache) ?? "").not.toContain('"status":"interrupted"');
   });
 
   it("does not persist renderer-derived completion when agent status settles", async () => {
-    renderApp(client);
+    const view = renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
@@ -157,13 +151,14 @@ describe("last-turn activity", () => {
       client.emit({ type: "agent-status", sessionId: "session", running: false });
     });
 
-    const bootstrapCache = localStorage.getItem("tau.bootstrap-cache.v6") ?? "";
+    const bootstrapCache = view.storage.get(STORAGE_KEYS.bootstrapCache) ?? "";
     expect(bootstrapCache).not.toContain("turn-activity-settled");
     expect(bootstrapCache).not.toContain("turn-activity-failed");
   });
 
   it("prefers authoritative completed tools over stale running cache entries", async () => {
-    writeCachedTurnActivity(localStorage, {
+    const storage = createMemoryStorage();
+    writeCachedTurnActivity(storage, {
       sessionId: "session",
       baseline: { files: [], added: 0, removed: 0 },
       tools: [{ id: "tool", name: "read", args: {}, status: "running", startedAt: 1 }],
@@ -182,7 +177,7 @@ describe("last-turn activity", () => {
       };
     };
 
-    renderApp(client);
+    renderApp(client, { storage });
     expect(await screen.findByText("Used 1 tool")).toBeTruthy();
     expect(screen.queryByText(/1 running/)).toBeNull();
   });
@@ -299,7 +294,8 @@ describe("last-turn activity", () => {
   });
 
   it("keeps changed files in the fixed dock outside the scrolling transcript", async () => {
-    writeCachedTurnActivity(localStorage, {
+    const storage = createMemoryStorage();
+    writeCachedTurnActivity(storage, {
       sessionId: "session",
       baseline: { files: [], added: 0, removed: 0 },
       tools: [],
@@ -321,7 +317,7 @@ describe("last-turn activity", () => {
       removed: 1,
     }) });
 
-    const view = renderApp(client);
+    const view = renderApp(client, { storage });
     await screen.findByText("1 changed file");
 
     const dock = view.container.querySelector(".conversation-files-dock");

@@ -24,7 +24,11 @@ import { TranscriptViewport } from "./components/TranscriptViewport";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
-import { preferences } from "./preferences";
+import { useClientStorage } from "./client-storage-context";
+import type { ClientStorage } from "./client-storage";
+import { STORAGE_KEYS } from "./storage-keys";
+import { usePreferences } from "./renderer-services-context";
+import type { PreferencesState } from "./preferences";
 import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
 import { contextBreakdownFor, conversationMessagesFor } from "./app-state";
@@ -46,7 +50,7 @@ const CENTER_SPLIT_MIN_WIDTH = 480 + 360;
 const DEFAULT_DOCK_WIDTH = 320;
 const MIN_DOCK_WIDTH = 220;
 const MAX_DOCK_WIDTH = 560;
-const DOCK_WIDTH_KEY = "tau:dock-width";
+const DOCK_WIDTH_KEY = STORAGE_KEYS.dockWidth;
 
 function clampDockWidth(width: number): number {
   return Number.isFinite(width)
@@ -54,8 +58,8 @@ function clampDockWidth(width: number): number {
     : DEFAULT_DOCK_WIDTH;
 }
 
-function storedDockWidth(): number {
-  const width = Number(window.localStorage.getItem(DOCK_WIDTH_KEY));
+function storedDockWidth(storage: ClientStorage): number {
+  const width = Number(storage.get(DOCK_WIDTH_KEY));
   return Number.isFinite(width) && width > 0 ? clampDockWidth(width) : DEFAULT_DOCK_WIDTH;
 }
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
@@ -98,7 +102,7 @@ export const MountedPanel = memo(function MountedPanel({
 });
 
 type DropController = ReturnType<typeof useThreadDropController>;
-type Settings = ReturnType<typeof preferences.getSnapshot>;
+type Settings = PreferencesState;
 
 /** Window chrome, slots and the modals that belong to the shell. */
 export interface WorkbenchLayout {
@@ -238,13 +242,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     queue, holds: composerHolds, prompts: conversationPrompts, submit, answerUiPrompt,
     setModel, setThinking,
   } = composer;
-  const [dockWidth, setDockWidthState] = useState(storedDockWidth);
+  const clientStorage = useClientStorage();
+  const preferences = usePreferences();
+  const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
   const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
 
   const setDockWidth = (width: number) => {
     const bounded = clampDockWidth(width);
     setDockWidthState(bounded);
-    window.localStorage.setItem(DOCK_WIDTH_KEY, String(bounded));
+    clientStorage.set(DOCK_WIDTH_KEY, String(bounded));
   };
 
   const startDockResize = (event: React.PointerEvent<HTMLDivElement>) => {

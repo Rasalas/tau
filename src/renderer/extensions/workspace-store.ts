@@ -3,15 +3,18 @@ import type { FileNode, UiEditor, UiFileDiff, UiWorkspaceChanges, WorkspaceInfo 
 import type { HostActionResult } from "../../shared/host-protocol";
 import type { WorkbenchActions } from "../extension-system";
 import { errorMessage } from "../error-message";
-import { preferences } from "../preferences";
+import type { PreferencesStore } from "../preferences";
 import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../turn-activity";
 import type { UiToolRun } from "../../shared/contracts";
 import { getHostClient } from "../host-client-context";
+import { getClientStorage } from "../client-storage";
+import { STORAGE_KEYS } from "../storage-keys";
+import { useWorkspaceStore } from "../renderer-services-context";
 import { workspaceKit } from "./workspace-kit-client";
 
 export const WORKSPACE_KIT_ID = "tau.workspace";
 export const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
-const BASELINE_CACHE_KEY = "tau.workspace.turn-baseline.v1";
+const BASELINE_CACHE_KEY = STORAGE_KEYS.workspaceTurnBaseline;
 
 export interface WorkspaceKitState {
   /** The project the store follows: the draft's project while a new thread is pending, else the thread's. */
@@ -66,18 +69,22 @@ const INITIAL: WorkspaceKitState = {
 
 function readBaseline(sessionId: string): UiWorkspaceChanges | undefined {
   try {
-    const all = JSON.parse(localStorage.getItem(BASELINE_CACHE_KEY) ?? "{}") as Record<string, UiWorkspaceChanges>;
+    const storage = getClientStorage();
+    if (!storage) return undefined;
+    const all = JSON.parse(storage.get(BASELINE_CACHE_KEY) ?? "{}") as Record<string, UiWorkspaceChanges>;
     // Baselines written before the kit owned them live in core's turn-activity cache.
-    return all[sessionId] ?? readCachedTurnActivity(localStorage, sessionId)?.baseline;
+    return all[sessionId] ?? readCachedTurnActivity(storage, sessionId)?.baseline;
   } catch { return undefined; }
 }
 
 function writeBaseline(sessionId: string, baseline: UiWorkspaceChanges | undefined): void {
   try {
-    const all = JSON.parse(localStorage.getItem(BASELINE_CACHE_KEY) ?? "{}") as Record<string, UiWorkspaceChanges>;
+    const storage = getClientStorage();
+    if (!storage) return;
+    const all = JSON.parse(storage.get(BASELINE_CACHE_KEY) ?? "{}") as Record<string, UiWorkspaceChanges>;
     if (baseline) all[sessionId] = baseline; else delete all[sessionId];
     const entries = Object.entries(all).slice(-12);
-    localStorage.setItem(BASELINE_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+    storage.set(BASELINE_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch { /* cache only */ }
 }
 
@@ -95,6 +102,8 @@ export class WorkspaceStore {
   private sessionId?: string;
   private namer?: WorktreeNamer;
   private commitMessageSuggester?: CommitMessageSuggester;
+
+  constructor(private readonly preferences: PreferencesStore) {}
 
   getSnapshot = (): WorkspaceKitState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -145,11 +154,11 @@ export class WorkspaceStore {
   }
 
   activeEditor(): UiEditor | undefined {
-    const preferred = preferences.value(WORKSPACE_KIT_ID, "editor");
+    const preferred = this.preferences.value(WORKSPACE_KIT_ID, "editor");
     return this.state.editors.find((editor) => editor.id === preferred) ?? this.state.editors[0];
   }
 
-  chooseEditor(id: string): void { preferences.setValue(WORKSPACE_KIT_ID, "editor", id); }
+  chooseEditor(id: string): void { this.preferences.setValue(WORKSPACE_KIT_ID, "editor", id); }
 
   async refreshChanges(): Promise<void> {
     if (!getHostClient()) return;
@@ -387,9 +396,8 @@ export class WorkspaceStore {
   }
 }
 
-/** One store per activation; the kit's components read it through this hook. */
-export const workspaceStore = new WorkspaceStore();
-
+/** The kit's components read the active store through this hook. */
 export function useWorkspaceKit(): WorkspaceKitState {
-  return useSyncExternalStore(workspaceStore.subscribe, workspaceStore.getSnapshot, workspaceStore.getSnapshot);
+  const store = useWorkspaceStore();
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }

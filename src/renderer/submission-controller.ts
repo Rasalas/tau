@@ -23,13 +23,14 @@ import {
   type TranscriptSubmissionIdentity,
 } from "./app-state";
 import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "./composer-scope-store";
+import type { ClientStorage } from "./client-storage";
 import type { SubmitResult } from "./components/Composer";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import { draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { errorMessage } from "./error-message";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import type { HostClient } from "./host-client";
-import { preferences } from "./preferences";
+import type { PreferencesStore } from "./preferences";
 import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
 
@@ -74,7 +75,8 @@ export interface SubmissionControllerPorts {
   threads: ThreadStore;
   scopes: ComposerScopeStore;
   registry: ExtensionRegistry;
-  storage: Storage;
+  storage: ClientStorage;
+  preferences: PreferencesStore;
   notify(message?: string): void;
   actions(): WorkbenchActions | undefined;
   newThread: NewThreadPort;
@@ -395,7 +397,7 @@ export class SubmissionController {
     }
     if (snapshot) {
       threads.markRead(snapshot.sessionId);
-      preferences.unsettle(snapshot.sessionId);
+      this.ports.preferences.unsettle(snapshot.sessionId);
     }
     startTranscriptTurn(snapshot?.sessionId);
     view.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);

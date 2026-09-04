@@ -34,6 +34,7 @@ import {
 import { errorMessage } from "../error-message";
 import type { QueuedFollowUp } from "../follow-up-queue";
 import { readComposerDraft, writeComposerDraft } from "../draft-store";
+import { useClientStorage } from "../client-storage-context";
 
 type OpenMenu = "thinking" | undefined;
 
@@ -192,6 +193,7 @@ export function Composer({
   onNotify?(message: string): void;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
+  const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
   const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
   const readScope = useCallback(() => scopeStore.getSnapshot(attachmentScope), [attachmentScope, scopeStore]);
@@ -257,7 +259,7 @@ export function Composer({
   useEffect(() => {
     if (value !== undefined || draftStorageKey === undefined) return;
     if (activeScopeSnapshot.draft === "") {
-      const persisted = readComposerDraft(window.localStorage, draftStorageKey);
+      const persisted = readComposerDraft(clientStorage, draftStorageKey);
       if (persisted) scopeStore.setDraft(attachmentScope, persisted);
     }
   // The scope key is the lifecycle boundary; draft changes must not reload
@@ -272,7 +274,7 @@ export function Composer({
   }, [attachmentScope, scopeStore, seed, value]);
   const updateDraft = (next: string) => {
     scopeStore.setDraft(attachmentScope, next);
-    writeComposerDraft(window.localStorage, draftStorageKey, next);
+    writeComposerDraft(clientStorage, draftStorageKey, next);
     onChange?.(next);
     setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
   };

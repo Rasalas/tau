@@ -4,7 +4,7 @@ import type { HostClient } from "./host-client";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import type { ExtensionRegistry } from "./extension-system";
 import { isSameUserMessage } from "./app-state";
-import { preferences } from "./preferences";
+import type { PreferencesStore } from "./preferences";
 import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
 
@@ -24,6 +24,7 @@ export interface HostEventTargets {
   threadStore: ThreadStore;
   view: ThreadViewStore;
   submission: SubmissionPort;
+  preferences: PreferencesStore;
   currentDraftKey(): string | undefined;
   transcriptTurnStart(): TranscriptTurnStart | undefined;
   setTranscriptTurnStart(value: TranscriptTurnStart | undefined, expectedTurnId?: string): void;
@@ -65,7 +66,7 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       }
       const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
       const known = active ? view.getTranscript().messages : view.details.get(event.sessionId)?.messages;
-      if (known && !known.some((message) => isSameUserMessage(message, event.message))) preferences.unsettle(event.sessionId);
+      if (known && !known.some((message) => isSameUserMessage(message, event.message))) targets.preferences.unsettle(event.sessionId);
       break;
     }
     case "prompt-without-user-turn": {

@@ -6,6 +6,7 @@ import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, type SubmitResult } from "./Composer";
 import type { ComposerAttachmentHandle } from "./Composer";
 import { ComposerScopeStore, createDraftKey } from "../composer-scope-store";
+import { TestProviders } from "../test-support/test-providers";
 
 function renderComposer(
   onSubmit = vi.fn(),
@@ -19,23 +20,25 @@ function renderComposer(
 ) {
   const scopeStore = new ComposerScopeStore();
   const element = (scope: string) => (
-    <Composer
-      scopeStore={scopeStore}
-      draftStorageKey={scope}
-      queue={[]}
-      contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
-      textareaRef={createRef<HTMLTextAreaElement>()}
-      attachmentRef={attachmentRef}
-      snapshot={snapshot}
-      onSubmit={onSubmit}
-      onAbort={() => {}}
-      onCancelQueued={() => {}}
-      onSteerQueued={() => {}}
-      onReorderQueue={() => {}}
-      onSetModel={() => {}}
-      onSetThinking={() => {}}
-      onCompactContext={() => {}}
-    />
+    <TestProviders>
+      <Composer
+        scopeStore={scopeStore}
+        draftStorageKey={scope}
+        queue={[]}
+        contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+        textareaRef={createRef<HTMLTextAreaElement>()}
+        attachmentRef={attachmentRef}
+        snapshot={snapshot}
+        onSubmit={onSubmit}
+        onAbort={() => {}}
+        onCancelQueued={() => {}}
+        onSteerQueued={() => {}}
+        onReorderQueue={() => {}}
+        onSetModel={() => {}}
+        onSetThinking={() => {}}
+        onCompactContext={() => {}}
+      />
+    </TestProviders>
   );
   const view = render(element(draftStorageKey));
   return Object.assign(onSubmit, {

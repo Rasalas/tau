@@ -1,8 +1,18 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
+import { createMemoryStorage, setClientStorage, type ClientStorage } from "../client-storage";
+import { ClientStorageProvider } from "../client-storage-context";
 import { ReviewMode } from "./ReviewMode";
+
+let storage: ClientStorage;
+
+/** Wraps a `<ReviewMode>` element in the same storage the test's `beforeEach` installed ambiently. */
+function withStorage(node: ReactElement): ReactElement {
+  return <ClientStorageProvider storage={storage}>{node}</ClientStorageProvider>;
+}
 
 const worktree: UiWorkspaceChanges = {
   branch: "feat/review",
@@ -52,13 +62,13 @@ function stubDiffLayout(): void {
 }
 
 describe("ReviewMode", () => {
-  beforeEach(() => localStorage.clear());
-  afterEach(() => { vi.restoreAllMocks(); cleanup(); });
+  beforeEach(() => { storage = createMemoryStorage(); setClientStorage(storage); });
+  afterEach(() => { vi.restoreAllMocks(); cleanup(); setClientStorage(undefined); });
 
   it("switches to branch changes and persists viewed files and line notes", async () => {
     const onSelect = vi.fn();
     const loadChanges = vi.fn(async () => branch);
-    render(<ReviewMode
+    render(withStorage(<ReviewMode
       changes={worktree}
       selectedPath="src/a.ts"
       busy={false}
@@ -70,7 +80,7 @@ describe("ReviewMode", () => {
       workspaceKey="/repo"
       loadChanges={loadChanges}
       loadDiff={async (path) => ({ path, added: 1, removed: 0, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added", newLine: 1, text: "hello" }] }] })}
-    />);
+    />));
 
     fireEvent.click(screen.getByRole("button", { name: "Mark viewed src/a.ts" }));
     expect(screen.getByText("1/1 viewed")).toBeTruthy();
@@ -107,13 +117,13 @@ describe("ReviewMode", () => {
       onOpenInEditor: () => undefined,
       loadDiff,
     };
-    const view = render(<ReviewMode changes={worktree} {...props} />);
+    const view = render(withStorage(<ReviewMode changes={worktree} {...props} />));
 
     await waitFor(() => expect(document.querySelector(".diff-code")?.textContent).toContain("const stable = true;"));
-    view.rerender(<ReviewMode
+    view.rerender(withStorage(<ReviewMode
       changes={{ ...worktree, files: worktree.files.map((file) => ({ ...file })) }}
       {...props}
-    />);
+    />));
 
     await waitFor(() => expect(loadDiff).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Loading diff…")).toBeNull();
@@ -144,7 +154,7 @@ describe("ReviewMode", () => {
       removed: 0,
       hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added" as const, newLine: 1, text: "hello" }] }],
     }));
-    render(<ReviewMode
+    render(withStorage(<ReviewMode
       changes={changes}
       selectedPath="src/a.ts"
       busy={false}
@@ -154,7 +164,7 @@ describe("ReviewMode", () => {
       onCommit={() => undefined}
       onOpenInEditor={() => undefined}
       loadDiff={loadDiff}
-    />);
+    />));
 
     await waitFor(() => {
       expect(loadDiff).toHaveBeenCalledWith("src/a.ts", expect.objectContaining({ contextLines: 3 }));
@@ -198,7 +208,7 @@ describe("ReviewMode", () => {
         lines: Array.from({ length: 400 }, (_, index) => ({ kind: "added" as const, newLine: index + 1, text: `${path} line ${index};` })),
       }],
     });
-    const { container } = render(<ReviewMode
+    const { container } = render(withStorage(<ReviewMode
       changes={changes}
       selectedPath="src/a.ts"
       busy={false}
@@ -208,7 +218,7 @@ describe("ReviewMode", () => {
       onCommit={() => undefined}
       onOpenInEditor={() => undefined}
       loadDiff={loadDiff}
-    />);
+    />));
 
     await waitFor(() => expect(container.textContent).toContain("src/a.ts line 0;"));
     // 804 rows exist; only the window plus overscan may be mounted.

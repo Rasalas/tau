@@ -9,7 +9,38 @@ import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
-import { TranscriptMessageIndex } from "../shared/transcript-index";
+
+/**
+ * Just enough of a live transcript index to drive the streaming scenario:
+ * one message updated by ID each frame, with the two revision counters
+ * `TranscriptViewport` renders from. The full `TranscriptMessageIndex` (with
+ * token/user-revision bookkeeping) lived in shared/ for this one caller;
+ * moved here since nothing else used it.
+ */
+class BenchmarkTranscriptIndex {
+  private readonly positions = new Map<string, number>();
+  private revisionValue = 0;
+  private lookupRevisionValue = 0;
+
+  constructor(private records: UiMessage[]) {
+    records.forEach((record, index) => this.positions.set(record.id, index));
+  }
+
+  get messages(): UiMessage[] { return this.records; }
+  get revision(): number { return this.revisionValue; }
+  get lookupRevision(): number { return this.lookupRevisionValue; }
+
+  update(id: string, updater: (message: UiMessage) => UiMessage | undefined): void {
+    const index = this.positions.get(id);
+    if (index === undefined) return;
+    const current = this.records[index]!;
+    const next = updater(current);
+    if (!next || next === current) return;
+    this.records[index] = next;
+    if (current.role === "user" || next.role === "user") this.lookupRevisionValue += 1;
+    this.revisionValue += 1;
+  }
+}
 
 interface BenchmarkResult {
   ready: true;
@@ -72,8 +103,8 @@ function StreamingTranscriptScenario({
   activities: readonly TranscriptActivity[];
   onTick(tick: number): void;
 }) {
-  const indexRef = useRef<TranscriptMessageIndex | undefined>(undefined);
-  if (!indexRef.current) indexRef.current = new TranscriptMessageIndex(makeTranscript(1_000));
+  const indexRef = useRef<BenchmarkTranscriptIndex | undefined>(undefined);
+  if (!indexRef.current) indexRef.current = new BenchmarkTranscriptIndex(makeTranscript(1_000));
   const activeMessageId = "turn-999";
   const scrollRef = useRef<HTMLDivElement>(null);
 

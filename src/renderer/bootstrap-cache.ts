@@ -4,9 +4,11 @@ import type { TranscriptCursorBoundary } from "../shared/transcript-contract.js"
 import { normalizeTranscriptCursorBoundaries, turnActivityHistoryForMessages } from "../shared/host-protocol.js";
 import { parseTranscriptHistoryCompleteness } from "../shared/transcript-completeness.js";
 import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../shared/transcript-pager.js";
+import { getClientStorage, type ClientStorage } from "./client-storage.js";
+import { STORAGE_KEYS } from "./storage-keys.js";
 
-const CACHE_KEY = "tau.bootstrap-cache.v6";
-const LEGACY_CACHE_KEYS = ["tau.bootstrap-cache.v4", "tau.bootstrap-cache.v3"] as const;
+const CACHE_KEY = STORAGE_KEYS.bootstrapCache;
+const LEGACY_CACHE_KEYS = STORAGE_KEYS.bootstrapCacheLegacy;
 const MAX_BYTES = 512 * 1024;
 
 export interface CachedBootstrap {
@@ -66,9 +68,10 @@ function boundedSnapshot(snapshot: HostSnapshot): HostSnapshot {
   };
 }
 
-export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStorage): CachedBootstrap | undefined {
+export function readBootstrapCache(storage: ClientStorage | undefined = getClientStorage()): CachedBootstrap | undefined {
   try {
-    const raw = [storage.getItem(CACHE_KEY), ...LEGACY_CACHE_KEYS.map((key) => storage.getItem(key))].find(Boolean);
+    if (!storage) return undefined;
+    const raw = [storage.get(CACHE_KEY), ...LEGACY_CACHE_KEYS.map((key) => storage.get(key))].find(Boolean);
     if (!raw || raw.length > MAX_BYTES) return undefined;
     const value = JSON.parse(raw) as CachedBootstrap;
     if (!value?.snapshot?.sessionId || !Array.isArray(value.snapshot.messages) || !Array.isArray(value.threadIndex?.sessions)) return undefined;
@@ -84,13 +87,13 @@ export function readBootstrapCache(storage: Pick<Storage, "getItem"> = localStor
 export function writeBootstrapCache(
   snapshot: HostSnapshot | undefined,
   threadIndex: ThreadIndexSnapshot | undefined,
-  storage: Pick<Storage, "setItem" | "removeItem"> = localStorage,
+  storage: ClientStorage | undefined = getClientStorage(),
 ): void {
-  if (!snapshot || !threadIndex) return;
+  if (!snapshot || !threadIndex || !storage) return;
   try {
     const raw = JSON.stringify({ snapshot: boundedSnapshot(snapshot), threadIndex } satisfies CachedBootstrap);
-    if (raw.length > MAX_BYTES) { storage.removeItem(CACHE_KEY); return; }
-    storage.setItem(CACHE_KEY, raw);
+    if (raw.length > MAX_BYTES) { storage.remove(CACHE_KEY); return; }
+    storage.set(CACHE_KEY, raw);
   } catch {
     // A cache miss is safe. Quota or privacy errors must not block the workbench.
   }

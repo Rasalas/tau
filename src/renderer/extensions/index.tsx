@@ -15,13 +15,12 @@ const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ 
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
 import { accessKitExtension } from "./access-kit";
 import { claudeCodeExtension } from "./claude-code-kit";
-import { preferences } from "../preferences";
 import { workspaceKit } from "./workspace-kit-client";
 import { registerCheckpoints } from "./workspace-checkpoints";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./workspace-dock";
 import { WorkspaceTitleActions } from "./workspace-title";
 import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
-import { workspaceStore } from "./workspace-store";
+import type { WorkspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
@@ -33,7 +32,7 @@ import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-message
 let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
-function documentState() {
+function documentState(workspaceStore: WorkspaceStore) {
   const state = workspaceStore.getSnapshot();
   const editor = workspaceStore.activeEditor();
   const inputs: [unknown, unknown, string | undefined] = [state.changes, state.editors, editor?.id];
@@ -48,6 +47,7 @@ export const workspaceExtension: DesktopExtension = {
   id: "tau.workspace",
   name: "Workspace Kit",
   activate(plugin) {
+    const workspaceStore = plugin.workspaceStore;
     plugin.registerSidebar({ id: "workspace.sidebar", order: 10, Component: LazyWorkspaceSidebar });
     plugin.registerProjectSource({
       id: "workspace.local-folder",
@@ -80,7 +80,7 @@ export const workspaceExtension: DesktopExtension = {
       loadFile: (path) => workspaceKit.readFile(path),
       loadDiff: (path, options) => workspaceKit.getFileDiff(path, options),
       openInEditor: (path) => void workspaceStore.openInEditor(path),
-      getState: () => documentState(),
+      getState: () => documentState(workspaceStore),
       subscribe: workspaceStore.subscribe,
     });
     plugin.events.on("user-message", (event) => workspaceStore.turnStarted(event.sessionId));
@@ -145,7 +145,7 @@ export const reviewExtension: DesktopExtension = {
       ...COMMIT_MESSAGE_OPTIONS,
     ]);
     const disposeCommitMessages = registerCommitMessages(plugin);
-    plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => workspaceStore.openReview() });
+    plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => plugin.workspaceStore.openReview() });
     plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" });
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel("changes") });
     return disposeCommitMessages;
@@ -246,7 +246,7 @@ export const settingsExtension: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", run: (app) => app.newSession() });
-    plugin.registerCommand({ id: "runtime.toggle-thinking", label: "Expand or collapse thinking blocks", group: "Thread", run: () => preferences.setShowThinking(!preferences.getSnapshot().showThinking) });
+    plugin.registerCommand({ id: "runtime.toggle-thinking", label: "Expand or collapse thinking blocks", group: "Thread", run: () => plugin.preferences.setShowThinking(!plugin.preferences.getSnapshot().showThinking) });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
     plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", run: (app) => app.openCommandPalette() });
     plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", run: (app) => app.openThreadTree("navigate") });

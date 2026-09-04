@@ -4,6 +4,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
+import { createMemoryStorage, getClientStorage, setClientStorage } from "./client-storage";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
@@ -25,12 +26,11 @@ import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transc
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 
-afterEach(() => { cleanup(); setHostClient(undefined); });
+afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
 describe("App render isolation", () => {
   beforeEach(() => {
     messageRenders.count = 0;
-    localStorage.clear();
   });
 
   it("merges detached draft recovery ahead of newer composer input", () => {
@@ -238,7 +238,7 @@ describe("App render isolation", () => {
     fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
 
     expect(shell.style.getPropertyValue("--dock-width")).toBe("420px");
-    expect(localStorage.getItem("tau:dock-width")).toBe("420");
+    expect(view.storage.get("tau:dock-width")).toBe("420");
     fireEvent.doubleClick(resizer);
     expect(shell.style.getPropertyValue("--dock-width")).toBe("320px");
   });
@@ -647,7 +647,7 @@ describe("App render isolation", () => {
     expect(screen.queryByText(/Wait for the current message/u)).toBeNull();
     expect(screen.queryByText(/Wait for the new thread to start/u)).toBeNull();
     expect(await screen.findByText("Other content")).toBeTruthy();
-    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+    expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
 
     resolveNewSession({ version: 1, updates: [], sessionId: "created", submission: { accepted: true } });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
@@ -746,7 +746,8 @@ describe("App render isolation", () => {
   });
 
   it("keeps restored draft chrome scoped to its pending project", async () => {
-    writeNewThreadDraft(localStorage, createNewThreadDraft({ projectPath: "/other", projectName: "other" }));
+    const storage = createMemoryStorage();
+    writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: "/other", projectName: "other" }));
     const getWorkspaceInfo = vi.fn(async (cwd?: string) => cwd === "/other"
       ? { root: "/other", isRepo: true, isDirty: false, branch: "main", worktrees: [], refs: [], worktreeParent: "/" }
       : { root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] });
@@ -769,7 +770,7 @@ describe("App render isolation", () => {
       }),
     });
 
-    renderApp(client);
+    renderApp(client, { storage });
     await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     expect(document.querySelector(".title-identity strong")?.textContent).toBe("other");
@@ -898,7 +899,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(openProject).toHaveBeenCalledWith("/other"));
     await waitFor(() => expect(composer.value).toBe(""));
     expect(screen.queryByText(/Project switching is unavailable/u)).toBeNull();
-    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+    expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
   });
 
   it("carries a draft and supported attachments across a pre-send project switch", async () => {
@@ -1352,9 +1353,10 @@ describe("App render isolation", () => {
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.change(composer, { target: { value: "persistent draft" } });
 
-    expect(localStorage.getItem("tau.composer-drafts.v1")).toBeNull();
+    expect(getClientStorage()?.get("tau.composer-drafts.v1")).toBeNull();
+    const { storage } = view;
     view.unmount();
-    renderApp(client);
+    renderApp(client, { storage });
     const restored = await waitFor(() => {
       const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
       expect(textarea.value).toBe("persistent draft");
@@ -1705,7 +1707,7 @@ describe("App render isolation", () => {
     });
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
-    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+    expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
     // No user turn was persisted, so the optimistic prompt must not linger.
     expect(screen.queryByText("/extension-command")).toBeNull();
   });
@@ -1827,7 +1829,7 @@ describe("App render isolation", () => {
     expect(newSession).toHaveBeenCalledOnce();
     // sendPrompt resolves at the runtime's delivery acceptance, so the retry
     // commits with it and stops holding the workspace.
-    await waitFor(() => expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull());
+    await waitFor(() => expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull());
   });
 
   it("restores the draft and runs no prompt hooks when detached delivery is rejected", async () => {
@@ -1880,7 +1882,7 @@ describe("App render isolation", () => {
     // The prompt never reached the runtime, so no afterPrompt hook may run.
     expect(generateTitle).not.toHaveBeenCalled();
     // A retry reuses the allocated runtime rather than leaking another one.
-    expect(JSON.parse(localStorage.getItem("tau.active-new-thread.v1") ?? "{}").sessionId).toBe("allocated");
+    expect(JSON.parse(getClientStorage()?.get("tau.active-new-thread.v1") ?? "{}").sessionId).toBe("allocated");
   });
 
   it("keeps every authoritative update from an acknowledgement that lands after promotion", async () => {
@@ -1998,7 +2000,7 @@ describe("App render isolation", () => {
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
     await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
-    expect(localStorage.getItem("tau.active-new-thread.v1")).toBeNull();
+    expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
   });
 
   it("prepends a failed prompt to newer text and keeps both attachments persisted", async () => {
@@ -2052,7 +2054,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(composer.value).toBe("failed first prompt\n\nnewer queued text"));
     expect(screen.getByRole("button", { name: "Preview old.png" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview new.png" })).toBeTruthy();
-    expect(JSON.parse(localStorage.getItem("tau.active-new-thread.v1") ?? "{}").draft).toBe("failed first prompt\n\nnewer queued text");
+    expect(JSON.parse(getClientStorage()?.get("tau.active-new-thread.v1") ?? "{}").draft).toBe("failed first prompt\n\nnewer queued text");
   });
 
   it("does not send a prompt to the previous thread while a worktree is opening", async () => {
@@ -2234,7 +2236,6 @@ describe("App render isolation", () => {
   });
 
   it.each(["before", "after"] as const)("restores a detached new-thread draft when failure arrives %s the IPC response", async (order) => {
-    localStorage.clear();
     let resolveNewSession!: (result: { version: 1; updates: never[]; submission: { accepted: true } }) => void;
     let newSessionArgs: unknown[] | undefined;
     const newSession = vi.fn((...args: unknown[]) => {
@@ -2363,8 +2364,9 @@ describe("App render isolation", () => {
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.change(composer, { target: { value: "persistent draft" } });
 
+    const { storage } = view;
     view.unmount();
-    renderApp(client);
+    renderApp(client, { storage });
     const restored = await waitFor(() => {
       const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
       expect(textarea.value).toBe("persistent draft");

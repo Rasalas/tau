@@ -18,8 +18,9 @@ import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from ".
 import { bundledExtensions } from "./extensions";
 import { FollowUpQueueStore } from "./follow-up-queue";
 import { useHostClient } from "./host-client-context";
+import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
-import { preferences } from "./preferences";
+import { usePreferences, useWorkspaceStore } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView } from "./stage";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
@@ -41,10 +42,13 @@ const emptyDocumentState = () => EMPTY_DOCUMENTS;
 
 export default function App() {
   const client = useHostClient();
+  const clientStorage = useClientStorage();
+  const preferences = usePreferences();
+  const workspaceStore = useWorkspaceStore();
   const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
-  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
+  const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
   const [registry] = useState(() => {
-    const value = new ExtensionRegistry(hostExtensionBridge(client));
+    const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, workspaceStore });
     bundledExtensions.forEach((extension) => {
       value.addKnown(extension);
       if (!safeMode && preferences.isExtensionEnabled(extension.id)) value.activate(extension);
@@ -112,7 +116,7 @@ export default function App() {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [projectSourcesOpen, setProjectSourcesOpen] = useState(false);
   const [activeOverlayId, setActiveOverlayId] = useState<string>();
-  const newThreadController = useNewThreadController(window.localStorage);
+  const newThreadController = useNewThreadController(clientStorage);
   const {
     pendingNewThread,
     setPendingNewThread,
@@ -196,7 +200,8 @@ export default function App() {
       threads: threadStore,
       scopes: composerScopeStore,
       registry,
-      storage: window.localStorage,
+      storage: clientStorage,
+      preferences,
       notify: (message) => viewStore.setNotice(message),
       actions: () => actionsRef.current,
       newThread: {
@@ -242,7 +247,7 @@ export default function App() {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, viewStore.getTranscript().messages);
     if (reconciled.length === optimisticMessages.length) return;
     if (pendingNewThread && reconciled.every((entry) => entry.scope !== activeDraftKey)) {
-      writeNewThreadDraft(window.localStorage);
+      writeNewThreadDraft(clientStorage);
       setPendingNewThread(undefined);
     }
     viewStore.setOptimisticMessages(reconciled);
@@ -260,7 +265,7 @@ export default function App() {
     // to the one writer, so nothing else has to repeat it.
     threadStore.applyHostSnapshot(next);
     if (next.model?.provider) threadStore.setThreadModelProvider(next.sessionId, next.model.provider);
-    const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
+    const cachedActivity = readCachedTurnActivity(clientStorage, next.sessionId);
     viewStore.setSnapshot(next);
     viewStore.setMessages(next.messages);
     const restoredActivity = next.turnActivity ?? cachedActivity;
@@ -360,7 +365,7 @@ export default function App() {
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
       if (detailForRender.sessionId !== viewStore.getState().activeThreadId) viewStore.beginThread(detailForRender.sessionId);
       viewStore.setMessages(detailForRender.messages);
-      const cachedActivity = readCachedTurnActivity(window.localStorage, detailForRender.sessionId);
+      const cachedActivity = readCachedTurnActivity(clientStorage, detailForRender.sessionId);
       const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
       viewStore.setTools(restoredActivity?.tools ?? []);
       viewStore.setToolAnchorId(restoredActivity?.anchorMessageId);
@@ -437,12 +442,13 @@ export default function App() {
     threadStore,
     view: viewStore,
     submission,
+    preferences,
     currentDraftKey,
     transcriptTurnStart: () => transcriptTurnStartRef.current,
     setTranscriptTurnStart,
     applyHostUpdate,
     applyThreadIndex,
-  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, registry, setTranscriptTurnStart, submission, threadStore, viewStore]);
+  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, preferences, registry, setTranscriptTurnStart, submission, threadStore, viewStore]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
   useEffect(() => {
@@ -574,7 +580,7 @@ export default function App() {
     if (!current || (expected && current.draftId !== expected.draftId)) return false;
     invalidateNewThread();
     setPendingNewThread(undefined);
-    writeNewThreadDraft(window.localStorage);
+    writeNewThreadDraft(clientStorage);
     return true;
   }, [invalidateNewThread, setPendingNewThread]);
 
@@ -639,7 +645,7 @@ export default function App() {
     submission.detachPendingDelivery();
     invalidateNewThread();
     setPendingNewThread(undefined);
-    writeNewThreadDraft(window.localStorage);
+    writeNewThreadDraft(clientStorage);
     const startedAt = performance.now();
     const previous = snapshot;
     const cached = target ? transcriptHistory.getDetail(target.id) : undefined;
@@ -701,7 +707,7 @@ export default function App() {
       applyActionResult(await client!.recoverThread());
       // The stalled row is restored from a renderer-side cache, so clearing the
       // session alone would leave the ghost on screen.
-      if (sessionId) clearCachedTurnActivity(window.localStorage, sessionId);
+      if (sessionId) clearCachedTurnActivity(clientStorage, sessionId);
       viewStore.setTools([]);
       viewStore.setToolAnchorId(undefined);
       setNotice("Closed the interrupted call. The thread can continue.");
@@ -926,7 +932,7 @@ export default function App() {
   useEffect(() => {
     const sessionId = snapshot?.sessionId;
     if (!sessionId || turnActivitySessionId !== sessionId) return;
-    writeCachedTurnActivity(window.localStorage, {
+    writeCachedTurnActivity(clientStorage, {
       sessionId,
       tools: [...tools],
       anchorMessageId: toolAnchorId,

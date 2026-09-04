@@ -6,6 +6,7 @@ import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, normalizeSkillInvocation } from "./Composer";
 import { ComposerScopeStore } from "../composer-scope-store";
 import type { QueuedFollowUp } from "../follow-up-queue";
+import { TestProviders } from "../test-support/test-providers";
 
 const queued = (id: string, text: string): QueuedFollowUp => ({ id, text, attachments: [] });
 
@@ -38,21 +39,23 @@ function renderComposer(
   queueHandlers: { queue?: QueuedFollowUp[]; onSteerQueued?: (id: string) => void; onReorderQueue?: (id: string, toIndex: number) => void; onCancelQueued?: (id: string) => void } = {},
 ) {
   const scopeStore = new ComposerScopeStore();
-  render(<Composer
-    scopeStore={scopeStore}
-    snapshot={{ ...snapshotOverride, isStreaming: streaming }}
-    queue={queueHandlers.queue ?? []}
-    contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
-    textareaRef={createRef<HTMLTextAreaElement>()}
-    onSubmit={onSubmit}
-    onAbort={() => {}}
-    onCancelQueued={queueHandlers.onCancelQueued ?? (() => {})}
-    onSteerQueued={queueHandlers.onSteerQueued ?? (() => {})}
-    onReorderQueue={queueHandlers.onReorderQueue ?? (() => {})}
-    onSetModel={() => {}}
-    onSetThinking={() => {}}
-    onCompactContext={() => {}}
-  />);
+  render(<TestProviders>
+    <Composer
+      scopeStore={scopeStore}
+      snapshot={{ ...snapshotOverride, isStreaming: streaming }}
+      queue={queueHandlers.queue ?? []}
+      contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+      textareaRef={createRef<HTMLTextAreaElement>()}
+      onSubmit={onSubmit}
+      onAbort={() => {}}
+      onCancelQueued={queueHandlers.onCancelQueued ?? (() => {})}
+      onSteerQueued={queueHandlers.onSteerQueued ?? (() => {})}
+      onReorderQueue={queueHandlers.onReorderQueue ?? (() => {})}
+      onSetModel={() => {}}
+      onSetThinking={() => {}}
+      onCompactContext={() => {}}
+    />
+  </TestProviders>);
   return onSubmit;
 }
 
@@ -164,7 +167,7 @@ describe("Composer command menu", () => {
   });
 
   it("keeps a blocking question attached to its answer field below the queue", () => {
-    const { container } = render(<Composer
+    const { container } = render(<TestProviders><Composer
       snapshot={{ ...snapshot, isStreaming: true }}
       scopeStore={new ComposerScopeStore()}
       queue={[queued("first", "after this turn")]}
@@ -179,7 +182,7 @@ describe("Composer command menu", () => {
       onSetThinking={() => {}}
       prompt={{ id: "question", sessionId: "session", kind: "input", title: "Choose the scope" }}
       onCompactContext={() => {}}
-    />);
+    /></TestProviders>);
 
     const stack = container.querySelector(".composer-surface");
     expect(Array.from(stack?.children ?? []).slice(0, 3).map((element) => element.classList[0]))

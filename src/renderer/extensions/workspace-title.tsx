@@ -5,14 +5,16 @@ import { EditorIcon } from "../components/EditorIcon";
 import { Menu } from "../components/Menu";
 import { ProjectActionsControl } from "./project-actions-control";
 import { resolveGitQuickAction, type GitQuickActionKind } from "./workspace-actions";
-import { useWorkspaceKit, workspaceStore } from "./workspace-store";
-import { preferences } from "../preferences";
+import { useWorkspaceKit } from "./workspace-store";
+import { usePreferences, useWorkspaceStore } from "../renderer-services-context";
 
 /**
  * The title-bar controls Workspace Kit owns: project actions, "Open in
  * editor", and the Git quick action. Core's title bar only lends the place.
  */
 export function WorkspaceTitleActions({ actions }: RegionProps) {
+  const workspaceStore = useWorkspaceStore();
+  const preferences = usePreferences();
   const state = useWorkspaceKit();
   // Re-render when the editor preference changes.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);

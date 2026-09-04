@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type SetStateAction } from "react";
 import { createNewThreadRequestId, type NewThreadRequestId } from "../shared/contracts";
+import type { ClientStorage } from "./client-storage";
 import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { createDraftKey, type DraftKey } from "./composer-scope-store";
 
@@ -19,7 +20,7 @@ export interface NewThreadPromotionContext {
   requestId: NewThreadRequestId;
 }
 
-export function useNewThreadController(storage: Storage) {
+export function useNewThreadController(storage: ClientStorage) {
   const [pendingNewThread, setPendingState] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
   const pendingRef = useRef(pendingNewThread);
   // The ref moves with the setter, not with rendering: a submission that

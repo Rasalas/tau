@@ -5,7 +5,8 @@ import type { SubmitResult } from "./components/Composer";
 import { errorMessage } from "./error-message";
 import { FollowUpQueueStore, type QueuedFollowUp } from "./follow-up-queue";
 import type { HostClient } from "./host-client";
-import { preferences } from "./preferences";
+import type { PreferencesStore } from "./preferences";
+import { usePreferences } from "./renderer-services-context";
 
 export type SubmitPrompt = (
   value: string,
@@ -18,7 +19,7 @@ const EMPTY: readonly QueuedFollowUp[] = [];
 let backgroundTurnSequence = 0;
 
 /** A thread that is not on screen gets its queued prompt without optimistic transcript state. */
-async function deliverInBackground(client: HostClient | undefined, sessionId: string, item: QueuedFollowUp): Promise<SubmitResult> {
+async function deliverInBackground(client: HostClient | undefined, sessionId: string, item: QueuedFollowUp, preferences: PreferencesStore): Promise<SubmitResult> {
   try {
     if (!client) throw new Error("Queued messages require the Electron host.");
     const text = item.skillDraft ? item.text : item.text.trim();
@@ -53,6 +54,7 @@ export function useFollowUpQueue({ client, store, sessionId, isRunning, runningT
   submit: SubmitPrompt;
   setNotice(message: string | undefined, level: "error"): void;
 }) {
+  const preferences = usePreferences();
   const version = useSyncExternalStore(store.subscribe, store.getVersion);
   // The version is the change signal; the list is derived from it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,7 +76,7 @@ export function useFollowUpQueue({ client, store, sessionId, isRunning, runningT
       flushingRef.current.add(threadId);
       const delivery = threadId === sessionId
         ? submit(next.text, next.attachments, undefined, next.skillDraft)
-        : deliverInBackground(client, threadId, next);
+        : deliverInBackground(client, threadId, next, preferences);
       void delivery.then((result) => {
         if (result.accepted) {
           // Release even if the host never reports a run for this prompt.
@@ -87,7 +89,7 @@ export function useFollowUpQueue({ client, store, sessionId, isRunning, runningT
         setNotice(result.message, "error");
       });
     }
-  }, [client, runningThreadIds, sessionId, setNotice, store, submit, version]);
+  }, [client, preferences, runningThreadIds, sessionId, setNotice, store, submit, version]);
 
   const cancelQueued = useCallback((id: string) => {
     if (sessionId) store.remove(sessionId, id);

@@ -5,7 +5,7 @@ import type { UiProject, UiSession } from "../../shared/contracts";
 import type { UiDirectoryListing } from "../../shared/workspace-kit-protocol";
 import { workspaceKit } from "./workspace-kit-client";
 import type { ProjectSourceProps, SidebarContributionProps } from "../extension-system";
-import { preferences } from "../preferences";
+import { usePreferences } from "../renderer-services-context";
 import { useThreadStore, useWorkbenchShell } from "../workbench-context";
 import { VirtualList } from "../components/VirtualList";
 import { ThreadRow, type ThreadActivity } from "../components/ThreadRow";
@@ -288,6 +288,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   onSelect(path: string): Promise<boolean>;
 }) {
   const store = useThreadStore();
+  const preferences = usePreferences();
   const session = useSyncExternalStore(
     useCallback((listener: () => void) => store.subscribeToThread(id, listener), [id, store]),
     useCallback(() => store.getThread(id), [id, store]),
@@ -321,6 +322,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   );
   const activityState = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
   const threads = navigationSnapshot.threads;
+  const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [settledOpen, setSettledOpen] = useState(true);
   const [settledLimit, setSettledLimit] = useState(40);

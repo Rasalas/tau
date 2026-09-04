@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
-import { preferences } from "../preferences";
+import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
 
@@ -144,6 +144,7 @@ function ExtensionPage({
   onNotify(message: string): void;
 }) {
   const client = useHostClient();
+  const preferences = usePreferences();
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   // The host half of the same package, if the package has one.
   const [hostHalves, setHostHalves] = useState<HostExtensionSummary[]>([]);
@@ -412,6 +413,7 @@ export function SettingsModal({
   onClose(): void;
   onNotify(message: string): void;
 }) {
+  const preferences = usePreferences();
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const loaded = registry.getExtensionSummaries();

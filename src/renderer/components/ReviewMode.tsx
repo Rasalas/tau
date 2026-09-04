@@ -25,21 +25,24 @@ import type {
   WorkspaceDiffScope,
 } from "../../shared/workspace-kit-types";
 import { readReviewState, writeReviewState, type PersistedReviewState } from "../review-state";
+import { useClientStorage } from "../client-storage-context";
+import type { ClientStorage } from "../client-storage";
+import { STORAGE_KEYS } from "../storage-keys";
 import { DiffStream, diffLanguage, fileDiffRows, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
 
-const SIDEBAR_WIDTH_KEY = "tau:review-sidebar-width";
-const SIDEBAR_OPEN_KEY = "tau:review-sidebar-open";
+const SIDEBAR_WIDTH_KEY = STORAGE_KEYS.reviewSidebarWidth;
+const SIDEBAR_OPEN_KEY = STORAGE_KEYS.reviewSidebarOpen;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 480;
 const COLLAPSED_CONTEXT_LINES = 3;
 const EXPANDED_CONTEXT_LINES = 100_000;
 
-function storedSidebarWidth(): number {
-  const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+function storedSidebarWidth(storage: ClientStorage): number {
+  const stored = storage.get(SIDEBAR_WIDTH_KEY);
   if (stored === null) return 280;
   const value = Number(stored);
   return Number.isFinite(value)
@@ -47,8 +50,8 @@ function storedSidebarWidth(): number {
     : 280;
 }
 
-function storedSidebarOpen(): boolean {
-  return localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false";
+function storedSidebarOpen(storage: ClientStorage): boolean {
+  return storage.get(SIDEBAR_OPEN_KEY) !== "false";
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -133,8 +136,9 @@ export function ReviewMode({
   const [draft, setDraft] = useState<{ path: string; line?: number }>();
   const [draftBody, setDraftBody] = useState("");
   const [filter, setFilter] = useState("");
-  const [sidebarOpen, setSidebarOpenState] = useState(storedSidebarOpen);
-  const [sidebarWidth, setSidebarWidthState] = useState(storedSidebarWidth);
+  const clientStorage = useClientStorage();
+  const [sidebarOpen, setSidebarOpenState] = useState(() => storedSidebarOpen(clientStorage));
+  const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage));
   const [splitAvailable, setSplitAvailable] = useState(true);
   const [generatingMessage, setGeneratingMessage] = useState(false);
   const [messageError, setMessageError] = useState<string>();
@@ -240,13 +244,13 @@ export function ReviewMode({
 
   const setSidebarOpen = (open: boolean) => {
     setSidebarOpenState(open);
-    localStorage.setItem(SIDEBAR_OPEN_KEY, String(open));
+    clientStorage.set(SIDEBAR_OPEN_KEY, String(open));
   };
 
   const setSidebarWidth = (width: number) => {
     const bounded = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));
     setSidebarWidthState(bounded);
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(bounded));
+    clientStorage.set(SIDEBAR_WIDTH_KEY, String(bounded));
   };
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {

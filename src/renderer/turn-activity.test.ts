@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiChangedFile, UiWorkspaceChanges } from "../shared/workspace-kit-types";
+import { createMemoryStorage } from "./client-storage";
 import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
 
 function file(path: string, added: number, removed: number): UiChangedFile {
@@ -22,21 +23,9 @@ function changes(files: UiChangedFile[]): UiWorkspaceChanges {
   };
 }
 
-function memoryStorage(): Storage {
-  const values = new Map<string, string>();
-  return {
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => { values.set(key, value); },
-    removeItem: (key) => { values.delete(key); },
-    clear: () => values.clear(),
-    key: (index) => [...values.keys()][index] ?? null,
-    get length() { return values.size; },
-  };
-}
-
 describe("turn activity cache", () => {
   it("restores the last turn after a renderer reload", () => {
-    const storage = memoryStorage();
+    const storage = createMemoryStorage();
     const baseline = changes([file("already-dirty.ts", 2, 0)]);
     writeCachedTurnActivity(storage, {
       sessionId: "session",
