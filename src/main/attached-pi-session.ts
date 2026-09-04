@@ -108,7 +108,7 @@ export class AttachedPiSession implements AttachedRuntimeBackend {
       client.close();
       host.log("bridge.connect.failed", host.errorMessage(error));
       if (!processIsAlive(descriptor.pid)) return false;
-      throw new Error(`Pi owns this session, but Tau could not connect to it: ${host.errorMessage(error)}`);
+      throw new Error(`Pi owns this session, but Tau could not connect to it: ${host.errorMessage(error)}`, { cause: error });
     }
     if (!host.isCurrentActivation(activationEpoch)) {
       client.close();
@@ -258,7 +258,7 @@ export class AttachedPiSession implements AttachedRuntimeBackend {
       this.host.log("bridge.unresponsive", command.command);
       if (retainOnDisconnect) return undefined;
       this.detach();
-      throw new Error("Pi stopped responding, so Tau detached from it and now runs this thread itself.");
+      throw new Error("Pi stopped responding, so Tau detached from it and now runs this thread itself.", { cause: error });
     }
   }
 

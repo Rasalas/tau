@@ -126,7 +126,7 @@ function parseEngines(value: unknown): ExtensionEngines | undefined {
     if (typeof range !== "string" || !range.trim()) throw new Error(`"engines.${engine}" must be a version range like "^1.0.0"`);
     engines[engine as keyof ExtensionEngines] = range.trim();
   }
-  try { assertEngineRanges(engines); } catch (error) { throw new Error(`"engines": ${error instanceof Error ? error.message : String(error)}`); }
+  try { assertEngineRanges(engines); } catch (error) { throw new Error(`"engines": ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
   return engines;
 }
 

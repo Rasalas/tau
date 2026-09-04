@@ -811,7 +811,7 @@ describe("Pi bridge command-to-snapshot integration", () => {
   it("carries expanded commands and out-of-order duplicate identities through the real bridge handler", async () => {
     const sessionId = `bridge-test-${randomUUID()}`;
     const sessionFile = `/tmp/${sessionId}.jsonl`;
-    const branch: Array<{ type: string; id: string; message?: Record<string, unknown> }> = [];
+    const sessionBranch: Array<{ type: string; id: string; message?: Record<string, unknown> }> = [];
     const handlers = new Map<string, Array<(event: Record<string, unknown>, context: ExtensionContext) => unknown>>();
     const commands = new Map<string, { handler: (args: string, context: ExtensionContext) => unknown }>();
     const sent: Array<{ content: unknown; options?: unknown }> = [];
@@ -838,7 +838,7 @@ describe("Pi bridge command-to-snapshot integration", () => {
       sessionManager: {
         getSessionId: () => sessionId,
         getSessionFile: () => sessionFile,
-        getBranch: () => branch,
+        getBranch: () => sessionBranch,
       },
       isIdle: () => true,
       getContextUsage: () => ({ tokens: 0, contextWindow: 100_000, percent: 0 }),
@@ -864,7 +864,7 @@ describe("Pi bridge command-to-snapshot integration", () => {
         expect(sent[index]?.content).toBe(item.submitted);
         expect(sent[index]?.options).toMatchObject({ expandPromptTemplates: true });
         const message = { role: "user", content: [{ type: "text", text: item.expanded }], timestamp: index + 1 };
-        branch.push({ type: "message", id: `entry-${index}`, message });
+        sessionBranch.push({ type: "message", id: `entry-${index}`, message });
         await emit("message_end", { message });
       }
 
@@ -886,9 +886,9 @@ describe("Pi bridge command-to-snapshot integration", () => {
         tauClientTurnId: duplicateFirst.clientTurnId,
         tauClientMessageId: duplicateFirst.clientMessageId,
       };
-      branch.push({ type: "message", id: "entry-duplicate-second", message: secondMessage });
+      sessionBranch.push({ type: "message", id: "entry-duplicate-second", message: secondMessage });
       await emit("message_end", { message: secondMessage });
-      branch.push({ type: "message", id: "entry-duplicate-first", message: firstMessage });
+      sessionBranch.push({ type: "message", id: "entry-duplicate-first", message: firstMessage });
       await emit("message_end", { message: firstMessage });
 
       const snapshot = await client.command({ command: "snapshot" }) as { messages: Array<Record<string, unknown>> };

@@ -189,7 +189,7 @@ describe("immutable turn snapshots", () => {
       execFileSync("git", ["add", "tracked.txt"], { cwd });
       execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
 
-      const targetBefore = await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "before" });
+      await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "before" });
       await writeFile(join(cwd, "tracked.txt"), "checkpoint\n");
       await writeFile(join(cwd, "checkpoint.txt"), "kept\n");
       const targetAfter = await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "after" });
@@ -292,13 +292,13 @@ describe("immutable turn snapshots", () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-folder-restore-"));
     try {
       await writeFile(join(cwd, "tracked.txt"), "base\n");
-      const targetBefore = await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "before" });
+      await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "before" });
       await writeFile(join(cwd, "tracked.txt"), "checkpoint\n");
       const targetAfter = await createWorkspaceSnapshot(cwd, { namespace: "source/turn", phase: "after" });
       await writeFile(join(cwd, "tracked.txt"), "current\n");
       await writeFile(join(cwd, "current.txt"), "unsaved\n");
-      const backupBefore = await createWorkspaceSnapshot(cwd, { namespace: "backup/restore", phase: "before" });
-      const backupAfter = await createWorkspaceSnapshot(cwd, { namespace: "backup/restore", phase: "after" });
+      await createWorkspaceSnapshot(cwd, { namespace: "backup/restore", phase: "before" });
+      await createWorkspaceSnapshot(cwd, { namespace: "backup/restore", phase: "after" });
 
       await restoreWorkspaceSnapshot(cwd, targetAfter.id, {
         target: { sessionId: "source", turnId: "turn" },

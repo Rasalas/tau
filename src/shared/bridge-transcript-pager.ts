@@ -60,6 +60,7 @@ function boundValue(value: unknown, depth: number, seen: WeakSet<object>): unkno
   const result: Record<string, unknown> = {};
   const entries = Object.entries(value);
   for (const [key, item] of entries.slice(0, MAX_OBJECT_KEYS)) result[key] = boundValue(item, depth + 1, seen);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- __tauBridgeTruncated is a wire-protocol key read by the bridge client.
   if (entries.length > MAX_OBJECT_KEYS) result.__tauBridgeTruncated = `${entries.length - MAX_OBJECT_KEYS} object keys truncated`;
   return result;
 }

@@ -329,13 +329,13 @@ export function Composer({
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
-    const snapshot = Array.from(files);
+    const fileSnapshot = Array.from(files);
     const scopeRef = scopeStore.createScopeReference(attachmentScope);
     const state = scopeStore.getSnapshot(attachmentScope);
     const previous = state.attachmentProcessing;
     let generation = 0;
     const operation = previous
-      .then(() => processFiles(snapshot, scopeRef, supportsImageInput, generation))
+      .then(() => processFiles(fileSnapshot, scopeRef, supportsImageInput, generation))
       .finally(() => scopeStore.releaseScopeReference(scopeRef));
     generation = scopeStore.setAttachmentProcessing(attachmentScope, operation);
     return operation;
@@ -486,7 +486,7 @@ export function Composer({
             <Renderer
               prompt={prompt}
               pending={promptsPending}
-              onAnswer={(value, typed) => { onAnswerPrompt?.(value, typed); updateDraft(""); }}
+              onAnswer={(answer, typed) => { onAnswerPrompt?.(answer, typed); updateDraft(""); }}
               onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
             />
           </LazyFeatureBoundary>
@@ -685,8 +685,8 @@ export function Composer({
                   },
                 ]}
                 onSelect={(id) => {
-                  const [group, value] = id.split(":");
-                  if (group === "thinking" && value) onSetThinking(value);
+                  const [group, thinkingLevel] = id.split(":");
+                  if (group === "thinking" && thinkingLevel) onSetThinking(thinkingLevel);
                 }}
                 onClose={() => setMenu(undefined)}
               />

@@ -170,6 +170,7 @@ export function ReviewMode({
       : { hunkLimit: 40, contextLines, scope, baseRef: visibleChanges.baseRef, baseCommit: visibleChanges.baseCommit };
     let nextIndex = 0;
     const loadNext = async (): Promise<void> => {
+      // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- cancelled flips in the effect cleanup below, which aborts this in-flight loop.
       while (!cancelled) {
         const file = paged.files[nextIndex++];
         if (!file) return;

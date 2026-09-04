@@ -4,23 +4,16 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { ThreadDetailStore } from "../shared/thread-detail-store";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
 import {
-  captureTranscriptScrollAnchor,
-  mergeTranscriptMessages,
   applyTranscriptBundleMerge,
-  mergeTaskHistory,
-  mergeTurnActivityHistory,
   retainsLoadedHistory,
-  restoreTranscriptScrollAnchor,
   TranscriptHistoryPageState,
 } from "./transcript-history-page-state";
 import { TranscriptHistoryCoordinator } from "./transcript-history-coordinator";
 import type {
-  TranscriptAnchorRestoreResult,
   TranscriptBootstrapRequest,
   TranscriptDetailApplication,
   TranscriptHistoryRequest,
   TranscriptHistoryState,
-  TranscriptHistoryStatus,
   TranscriptPageApplication,
   TranscriptScrollAnchor,
   TransitionToken,

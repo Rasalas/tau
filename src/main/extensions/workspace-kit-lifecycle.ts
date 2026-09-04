@@ -263,7 +263,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       if (target?.path && target.path !== backup.path) await rm(target.path, { force: true });
       backup.appendEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, { ...transaction, state: "recovered" });
     } catch (error) {
-      throw new Error(`Restore recovery failed for backup ${transaction.backupSessionId.slice(0, 12)}; the workspace was not exposed as restored. ${errorMessage(error)}`);
+      throw new Error(`Restore recovery failed for backup ${transaction.backupSessionId.slice(0, 12)}; the workspace was not exposed as restored. ${errorMessage(error)}`, { cause: error });
     } finally {
       await lease.release();
     }
@@ -388,8 +388,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       }
       if (recovered) await cleanupRollback().catch((cleanupError) => recoveryErrors.push(cleanupError));
       const message = `The restore backup could not be applied safely; the selected thread was not opened. ${errorMessage(error)}`;
-      if (recoveryErrors.length > 0) throw new AggregateError([error, ...recoveryErrors], `${message} Workspace recovery needs attention.`);
-      throw new Error(message);
+      if (recoveryErrors.length > 0) throw new AggregateError([error, ...recoveryErrors], `${message} Workspace recovery needs attention.`, { cause: error });
+      throw new Error(message, { cause: error });
     } finally {
       // The lease stays held while the host publishes the selected thread;
       // commit or rollback releases it.
@@ -618,9 +618,9 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         await cleanupUncommittedBackup();
         const message = errorMessage(error);
         if (recoveryErrors.length > 0) {
-          throw new AggregateError([error, ...recoveryErrors], `Restore failed and workspace rollback needs attention: ${message}`);
+          throw new AggregateError([error, ...recoveryErrors], `Restore failed and workspace rollback needs attention: ${message}`, { cause: error });
         }
-        throw new Error(`Restore failed; the original thread and workspace were kept unchanged. ${message}`);
+        throw new Error(`Restore failed; the original thread and workspace were kept unchanged. ${message}`, { cause: error });
       } finally {
         restoringCwd = undefined;
         await lease?.release();
@@ -806,10 +806,10 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       });
     },
     restore,
-    turnFileDiff: async (sessionId, checkpointId, path, options) => {
+    turnFileDiff: async (sessionId, checkpointId, path, diffOptions) => {
       if (services.attachedRuntime(sessionId)) {
         await workspaceGit.assertWorkspacePath(services.cwd(), path);
-        const result = await attachedInvoke(sessionId, "turn-file-diff", { sessionId, checkpointId, path, options });
+        const result = await attachedInvoke(sessionId, "turn-file-diff", { sessionId, checkpointId, path, options: diffOptions });
         if (result && typeof result === "object" && Array.isArray((result as { hunks?: unknown }).hunks)) return result as UiFileDiff;
         return { path, added: 0, removed: 0, hunks: [], note: "Pi did not return this historical diff." };
       }
@@ -819,7 +819,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       if (!feature) return { path, added: 0, removed: 0, hunks: [], note: "Turn checkpoint history is unavailable." };
       // Never fall back to the live workspace: an old card must not change when
       // a later turn edits the same file or commits the work.
-      return feature.historicalDiff(thread.cwd, checkpoint, path, options);
+      return feature.historicalDiff(thread.cwd, checkpoint, path, diffOptions);
     },
     turnFiles: async (sessionId, checkpointId, cursor, limit) => {
       if (services.attachedRuntime(sessionId)) {

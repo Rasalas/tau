@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClientTurnIdentity, UiToolRun } from "../shared/contracts";
+import type { UiToolRun } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, setClientStorage } from "./client-storage";
 import { STORAGE_KEYS } from "./storage-keys";

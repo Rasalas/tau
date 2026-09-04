@@ -46,12 +46,12 @@ export function useNewThreadController(storage: ClientStorage) {
   }, []);
 
   const isCurrent = useCallback((pending: NewThreadDraft, scope: DraftKey | undefined, requestId: NewThreadRequestId): boolean => {
-    const current = pendingRef.current;
+    const pendingDraft = pendingRef.current;
     return requestRef.current === requestId
-      && current !== undefined
-      && draftKey(undefined, current) === scope
-      && current.projectPath === pending.projectPath
-      && current.sessionId === pending.sessionId;
+      && pendingDraft !== undefined
+      && draftKey(undefined, pendingDraft) === scope
+      && pendingDraft.projectPath === pending.projectPath
+      && pendingDraft.sessionId === pending.sessionId;
   }, []);
 
   const markAwaitingPromotion = useCallback((context: NewThreadPromotionContext) => {
@@ -66,11 +66,11 @@ export function useNewThreadController(storage: ClientStorage) {
    * change what the runtime persists.
    */
   const promoteFromHostReport = useCallback((sessionId: string, projectPath: string, requestId?: NewThreadRequestId): boolean => {
-    const current = pendingRef.current;
+    const pendingDraft = pendingRef.current;
     const awaiting = awaitingPromotionRef.current;
-    if (!current || !awaiting || current.projectPath !== projectPath || current.sessionId) return false;
+    if (!pendingDraft || !awaiting || pendingDraft.projectPath !== projectPath || pendingDraft.sessionId) return false;
     if (awaiting.requestId !== requestRef.current
-      || awaiting.scope !== createDraftKey(draftKey(undefined, current))
+      || awaiting.scope !== createDraftKey(draftKey(undefined, pendingDraft))
       || requestId !== awaiting.requestId) return false;
     awaitingPromotionRef.current = undefined;
     writeNewThreadDraft(storage);
@@ -84,9 +84,9 @@ export function useNewThreadController(storage: ClientStorage) {
    * draft from that correlated event without waiting for catalog discovery.
    */
   const promoteFromUserMessage = useCallback((sessionId: string, projectPath: string): DraftKey | undefined => {
-    const current = pendingRef.current;
-    if (!sessionId || !current || current.sessionId || current.projectPath !== projectPath) return undefined;
-    const scope = draftKey(undefined, current);
+    const pendingDraft = pendingRef.current;
+    if (!sessionId || !pendingDraft || pendingDraft.sessionId || pendingDraft.projectPath !== projectPath) return undefined;
+    const scope = draftKey(undefined, pendingDraft);
     if (!scope) return undefined;
     awaitingPromotionRef.current = undefined;
     writeNewThreadDraft(storage);

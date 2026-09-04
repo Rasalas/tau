@@ -3,12 +3,11 @@ import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import { activateTab as activateStageTab, closeTab as closeStageTab, pinTab as pinStageTab, setFileView, type StageState } from "./stage";
+import type { StageState } from "./stage";
 import type { ComposerAttachmentHandle, SubmitResult } from "./components/Composer";
 import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "./composer-scope-store";
 import type { QueuedFollowUp } from "./follow-up-queue";
-import type { ContextBreakdown } from "./components/ContextMeter";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { PanelIcon } from "./components/PanelIcon";
@@ -231,15 +230,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     setNotice, activeOverlayId, closeOverlay,
   } = layout;
   const {
-    snapshot, conversationSnapshot, pendingNewThread, showStartScreen, startProjectPath, startProjectName,
-    dropController, transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage,
-    transcriptScopeKey, transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart,
-    transcriptActivities, liveStatusLabel, conversationActivityTools, runStartedAt, activeDraftKey,
-    copyMessage, forkMessage, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
+    snapshot, conversationSnapshot, showStartScreen, startProjectPath, startProjectName,
+    dropController, activeDraftKey, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
     renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   } = thread;
   const {
-    queue, holds: composerHolds, prompts: conversationPrompts, submit, answerUiPrompt,
     setModel, setThinking,
   } = composer;
   const clientStorage = useClientStorage();

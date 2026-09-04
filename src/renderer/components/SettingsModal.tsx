@@ -414,7 +414,7 @@ export function SettingsModal({
   onNotify(message: string): void;
 }) {
   const preferences = usePreferences();
-  const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const loaded = registry.getExtensionSummaries();
   const awaiting = useAwaitingApproval(snapshot?.cwd, loaded);

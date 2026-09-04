@@ -4,7 +4,6 @@ import type {
   GlobalHostEvent,
   HostExtensionSummary,
   ThreadBackendKind,
-  ThreadHostEvent,
   UiComposerCommand,
   UiMessage,
   UiToolRun,

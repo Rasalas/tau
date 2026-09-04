@@ -98,8 +98,8 @@ describe("thread runtime registry", () => {
     const busy = new Set(["a"]);
     const reg = new ThreadRuntimeRegistry<Fake>({
       maxLive: 1,
-      dispose: async (record) => { disposed.push(record.threadId); },
-      canEvict: (record) => !busy.has(record.threadId),
+      dispose: async (entry) => { disposed.push(entry.threadId); },
+      canEvict: (entry) => !busy.has(entry.threadId),
     });
     await reg.adopt(record("a"));
     await reg.adopt(record("b"));

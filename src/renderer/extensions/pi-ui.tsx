@@ -3,6 +3,7 @@ import { EMPTY_PI_UI_STATE, PI_UI_EVENT, PI_UI_HOST_EXTENSION_ID, type PiUiThrea
 import { HostUnavailableError, type DesktopExtension, type RegionProps } from "../extension-system";
 
 // Pi themes colour widget lines with ANSI sequences; the workbench shows plain text.
+// oxlint-disable-next-line eslint/no-control-regex -- ESC (\u001b) is the ANSI escape-sequence marker this strips.
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/gu;
 export const stripAnsi = (text: string): string => text.replace(ANSI, "");
 

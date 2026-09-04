@@ -123,7 +123,7 @@ describe("TranscriptHistoryController", () => {
 
     expect(controller.isCurrentBootstrap(bootstrap)).toBe(false);
     expect(controller.syncSnapshot(snapshot("thread-a", ["stale"]), detail("thread-a", ["stale"]), bootstrap)).toBe(false);
-    expect(controller.getCurrentSnapshot()?.messages.map((message) => message.id)).toEqual(["a"]);
+    expect(controller.getCurrentSnapshot()?.messages.map((entry) => entry.id)).toEqual(["a"]);
   });
 
   it("accepts only the newest bootstrap request generation", () => {

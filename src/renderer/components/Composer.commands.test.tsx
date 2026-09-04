@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
-import { Composer, normalizeSkillInvocation } from "./Composer";
+import { Composer } from "./Composer";
 import { ComposerScopeStore } from "../composer-scope-store";
 import type { QueuedFollowUp } from "../follow-up-queue";
 import { TestProviders } from "../test-support/test-providers";

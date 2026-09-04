@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   createAgentSessionFromServices,
@@ -63,16 +63,13 @@ import {
   HostProjectFactsSet,
   HostThreadLifecycleSet,
   HostTurnObserverSet,
-  type HostAttachedRuntime,
   type HostExtension,
-  type HostExtensionServices,
   type HostPlatform,
   type HostPreparedThread,
   type HostRuntimeBackendProvider,
   type HostSessionFile,
   type HostThread,
   type HostUiPresenter,
-  type RuntimeExtensionContribution,
   type RuntimeSessionInfo,
 } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
@@ -113,9 +110,8 @@ import { knownSkillNames } from "../shared/skill-envelope.js";
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import { loadExternalSessionShells } from "./external-session-shells.js";
-import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
+import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
-import { findExecutable } from "./shell-environment.js";
 import type { HostLogger } from "./host-log.js";
 import {
   textFromContent,
@@ -2063,7 +2059,7 @@ export class PiHost {
       if (runtime) {
         const cleanupErrors = await this.teardownRuntime(runtime);
         thread?.cancelEventBarrier();
-        if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed");
+        if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed", { cause: error });
       } else thread?.cancelEventBarrier();
       throw error;
     } finally {
@@ -2214,7 +2210,7 @@ export class PiHost {
         try {
           await restore.rollback();
         } catch (recoveryError) {
-          throw new AggregateError([error, recoveryError], "Thread activation failed and workspace recovery needs attention.");
+          throw new AggregateError([error, recoveryError], "Thread activation failed and workspace recovery needs attention.", { cause: recoveryError });
         }
       }
       throw error;

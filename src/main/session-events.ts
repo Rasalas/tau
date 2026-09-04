@@ -38,7 +38,7 @@ export function handleRuntimeSessionEvent(
   services: SessionEventServices,
 ): void {
   if (thread instanceof ThreadRuntime && thread.deferEvent(event, sessionId, cwd)) return;
-  const { clientTurns, emit, emitUpdate, log } = services;
+  const { emit, emitUpdate, log } = services;
   switch (event.type) {
     case "user_message_failed":
       if (typeof event.clientMessageId === "string") emit({

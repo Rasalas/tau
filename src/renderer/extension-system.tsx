@@ -11,7 +11,7 @@ import type {
   ExtensionUiAnswer,
   ExtensionUiPrompt,
 } from "../shared/contracts";
-import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges, WorkspaceChangesQuery } from "../shared/workspace-kit-types";
+import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { PreferencesStore } from "./preferences";
 import { WorkspaceStore } from "./extensions/workspace-store";
 
@@ -615,7 +615,7 @@ export class ExtensionRegistry {
       try { this.disposeAll(disposers); } catch (failure) { cleanupError = failure; }
       this.contributionKinds.delete(extension.id);
       this.activeExtensions.delete(extension.id);
-      if (cleanupError) throw new AggregateError([error, cleanupError], `Extension ${extension.id} activation and cleanup failed`);
+      if (cleanupError) throw new AggregateError([error, cleanupError], `Extension ${extension.id} activation and cleanup failed`, { cause: error });
       throw error;
     }
   }

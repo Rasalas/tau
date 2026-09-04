@@ -1,5 +1,5 @@
 import type { UiToolRun } from "../shared/contracts";
-import type { UiChangedFile, UiWorkspaceChanges } from "../shared/workspace-kit-types";
+import type { UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { ClientStorage } from "./client-storage";
 import { STORAGE_KEYS } from "./storage-keys";
 

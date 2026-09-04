@@ -8,7 +8,6 @@ import type {
   UiTaskProgress,
   UiTaskProgressEntry,
   UiTurnActivityEntry,
-  UiToolRun,
   UiTurnActivity,
   SubmissionResult,
   NewThreadRequestId,

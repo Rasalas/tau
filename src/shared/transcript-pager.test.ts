@@ -71,7 +71,7 @@ describe("TranscriptPager", () => {
   });
 
   it("shares the same user-boundary policy with Pi records that include tool roles", () => {
-    const rawRecords = Array.from({ length: 14 }, (_, index) => [
+    const rawRecords = Array.from({ length: 14 }, () => [
       { role: "user" },
       { role: "assistant" },
       { role: "toolResult" },

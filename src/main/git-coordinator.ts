@@ -169,7 +169,7 @@ export class GitCoordinator {
       };
       record.inFlight = { generation, promise: run(), controller };
     }
-    const promise = record.inFlight.promise.catch((error) => {
+    const promise = record.inFlight.promise.catch(() => {
       // A failed refresh must not erase a previously useful project view.
       if (record.lastValid) return record.lastValid;
       return emptyProjectGitState(cwd);

@@ -1234,9 +1234,9 @@ export async function restoreWorkspaceSnapshot(
     try {
       await rollback();
     } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], "Workspace restore failed and rollback could not be completed.");
+      throw new AggregateError([error, rollbackError], "Workspace restore failed and rollback could not be completed.", { cause: rollbackError });
     }
-    throw new Error(`Workspace restore failed; the original workspace was restored. ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Workspace restore failed; the original workspace was restored. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }
 
@@ -2024,7 +2024,7 @@ async function streamFilePatch(
   allowNoIndexDifference = false,
 ): Promise<StreamedPatch> {
   const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
-  return new Promise((resolve, reject) => {
+  return new Promise((settle, reject) => {
     const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -2082,6 +2082,7 @@ async function streamFilePatch(
         discardingLine = false;
       }
       let newline = pending.indexOf("\n");
+      // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- stopped is set by stop(), called from consumeLine below; the linter can't trace that call chain.
       while (!stopped && newline >= 0) {
         consumeLine(pending.slice(0, newline));
         pending = pending.slice(newline + 1);
@@ -2115,7 +2116,7 @@ async function streamFilePatch(
         reject(new Error(stderr.trim() || `git diff exited with ${code}`));
         return;
       }
-      resolve({ patch: header + selected, capturedHunks, hasMoreHunks, terminalTruncation });
+      settle({ patch: header + selected, capturedHunks, hasMoreHunks, terminalTruncation });
     });
   });
 }
@@ -2299,7 +2300,7 @@ export async function getSnapshotFileDiff(
 export async function commit(
   cwd: string,
   message: string,
-  push: boolean,
+  shouldPush: boolean,
   readChanges: (cwd: string) => Promise<UiWorkspaceChanges> = async (path) => (await readProjectGitState(path)).changes,
 ): Promise<CommitResult> {
   const subject = message.trim();
@@ -2310,7 +2311,7 @@ export async function commit(
   const committed = (await git(cwd, ["rev-parse", "--short", "HEAD"])).trim();
   let pushed = false;
   let detail = `Committed ${committed}`;
-  if (push) {
+  if (shouldPush) {
     await git(cwd, ["push"], 8 * 1024 * 1024);
     pushed = true;
     detail = `Committed ${committed} and pushed`;

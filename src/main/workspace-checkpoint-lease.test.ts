@@ -61,6 +61,7 @@ describe("workspace checkpoint leases", { timeout: 60_000 }, () => {
           turnId: "turn",
           onState: (state) => { if (state === "waiting") secondWaiting = true; },
         }).then((lease) => { order.push("second"); return lease; });
+        // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- secondWaiting flips inside the onState callback above.
         for (let attempt = 0; attempt < 100 && !secondWaiting; attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 2));
         }
@@ -71,6 +72,7 @@ describe("workspace checkpoint leases", { timeout: 60_000 }, () => {
           turnId: "turn",
           onState: (state) => { if (state === "waiting") thirdWaiting = true; },
         }).then((lease) => { order.push("third"); return lease; });
+        // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- thirdWaiting flips inside the onState callback above.
         for (let attempt = 0; attempt < 100 && !thirdWaiting; attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 2));
         }

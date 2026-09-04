@@ -57,11 +57,6 @@ function sameActivityLayout(previous: ActivityLayoutSnapshot, activities: readon
   });
 }
 
-function resolveMessageId(messages: readonly UiMessage[], requestedId?: string): string | undefined {
-  if (!requestedId) return undefined;
-  return messages.find((message) => message.id === requestedId || message.sourceEntryId === requestedId)?.id;
-}
-
 export interface TranscriptVisibleRange {
   startIndex: number;
   endIndex: number;

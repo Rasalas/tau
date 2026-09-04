@@ -13,7 +13,6 @@ import {
   isVisibleMessage,
   lastTurnActivityFromMessages,
   mapMessage,
-  modelSupportsImageInput,
   safeSessionTitle,
   turnActivityHistoryFromMessages,
   visibleTitleText,

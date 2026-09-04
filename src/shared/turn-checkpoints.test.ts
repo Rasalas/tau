@@ -16,7 +16,6 @@ import {
   recordTurnAssistant,
   recordTurnOutcome,
   shouldPersistTurnCapture,
-  startTurnCapture,
   TurnCheckpointLifecycle,
   type TurnCaptureState,
 } from "./turn-checkpoint-lifecycle.js";
@@ -483,6 +482,7 @@ describe("turn checkpoints", () => {
     await lifecycle.beginTurn();
     await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant");
     const settling = lifecycle.close();
+    // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- persistStarted flips inside the onPersist callback above, invoked from the code under test.
     while (!persistStarted) await new Promise((resolve) => setTimeout(resolve, 0));
     expect(released).toEqual([]);
     resolvePersist();
@@ -622,6 +622,7 @@ describe("turn checkpoints", () => {
     await lifecycle.beginTurn();
     await lifecycle.endTurn({ role: "assistant", stopReason: "stop" }, "assistant-first");
     const settling = lifecycle.settle();
+    // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- persistCalls increments inside the persist callback above, invoked from the code under test.
     while (persistCalls === 0) await new Promise((resolve) => setTimeout(resolve, 0));
 
     lifecycle.acceptUserTurn("second", { deferBefore: true });

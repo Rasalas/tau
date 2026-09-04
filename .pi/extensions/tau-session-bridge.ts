@@ -3,13 +3,12 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatChatTranscript } from "../../src/shared/chat-transcript.js";
+import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ClientTurnIdentity, NewThreadRequestId, UiPromptAttachment } from "../../src/shared/contracts.js";
 import { ClientTurnLedgerStore, type ClientTurnLedgerObservation } from "../../src/shared/client-turn-ledger.js";
 import { clientIdentityMatches, hasExplicitClientIdentity, resolveClientTurnIdentity } from "../../src/shared/transcript-turn.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../../src/shared/task-progress.js";
-import { INITIAL_TRANSCRIPT_TURN_LIMIT, OLDER_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
+import { INITIAL_TRANSCRIPT_TURN_LIMIT, transcriptPageBounds } from "../../src/shared/transcript-pager.js";
 import type { TranscriptHistoryCompleteness } from "../../src/shared/transcript-completeness.js";
 import {
   branchMessagesWithClientMessageIds,
@@ -393,14 +392,6 @@ export function bridgeNewSessionCommand(
     ? { initialPrompt, requestId, ...(identity ?? {}), prepared, attachments }
     : initialPrompt;
   return `/tau-bridge-new ${Buffer.from(JSON.stringify(value), "utf8").toString("base64url")}`;
-}
-
-async function createPiSession(ctx: ExtensionCommandContext, initialPrompt?: string): Promise<{ cancelled: boolean }> {
-  const result = await ctx.newSession({
-    ...(initialPrompt ? { withSession: async (fresh) => { await fresh.sendUserMessage(initialPrompt); } } : {}),
-  });
-  if (result.cancelled) throw new Error("Pi cancelled creation of the new thread.");
-  return result;
 }
 
 export interface NewSessionRequestTracker {
@@ -940,7 +931,6 @@ export default function tauSessionBridge(pi: ExtensionAPI) {
   // back to the mutable session tail would make a switch during a queued turn
   // attach its refs or checkpoint entry to the wrong session.
   const contextForTurn = (turnId: string): ExtensionContext | undefined => turnContexts.get(turnId);
-  const contextForNewTurn = (turnId: string): ExtensionContext | undefined => turnContexts.get(turnId);
   const releaseTurnContext = (turnId: string): void => {
     const ctx = turnContexts.get(turnId);
     turnContexts.delete(turnId);

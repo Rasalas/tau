@@ -500,7 +500,7 @@ export function cleanThreadTitle(value: string): string {
     .replace(/^\s*(?:#{1,6}|>|[-+*])\s+/u, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
     .replace(/(?:\*\*|__|~~|`)+/gu, "")
-    .replace(/^(?:(?:the\s+)?(?:thread\s+)?title|titel)\s*(?:is|lautet)?\s*[:\-]\s*/iu, "")
+    .replace(/^(?:(?:the\s+)?(?:thread\s+)?title|titel)\s*(?:is|lautet)?\s*[:-]\s*/iu, "")
     .replace(/^["'“”‘’]+|["'“”‘’]+$/gu, "")
     .replace(/[.!?:;]+$/u, "")
     .replace(/\s+/gu, " ")

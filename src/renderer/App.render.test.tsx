@@ -17,7 +17,6 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import App from "./App";
 import { isCurrentTranscriptSubmission, latestActivityAnchor, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./app-state";
 import { ComposerHost, measureComposerGeometry } from "./components/ComposerHost";
 import { MountedPanel } from "./Workbench";

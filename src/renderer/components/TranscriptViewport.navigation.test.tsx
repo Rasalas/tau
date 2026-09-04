@@ -350,7 +350,7 @@ describe("TranscriptViewport navigation", () => {
     const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
     const turnStart = { turnId: "turn-2", sessionId: "one", messageId: "local-2", text: prompt.text, timestamp: prompt.timestamp };
     view.rerender(<Fixture messages={[oldMessage, originalPrompt, prompt]} turnStart={turnStart} />);
-    const current = await waitFor(() => view.container.querySelector(".transcript-current-row"));
+    await waitFor(() => view.container.querySelector(".transcript-current-row"));
     const promptRow = view.container.querySelector('[data-message-id="local-2"]');
     expect(promptRow).toBeTruthy();
 

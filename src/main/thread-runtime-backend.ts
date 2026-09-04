@@ -100,7 +100,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       tree: {
         tree: () => this.tree(),
         leafEntryId: () => this.session.sessionManager.getLeafId() ?? undefined,
-        navigateTree: (entryId, options) => this.navigateTree(entryId, options),
+        navigateTree: (entryId, navigateOptions) => this.navigateTree(entryId, navigateOptions),
       },
       // Pi's fork is a new session file the host opens itself.
       fork: { runtimeOwned: false },

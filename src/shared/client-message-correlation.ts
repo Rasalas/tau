@@ -190,7 +190,7 @@ export function branchMessagesWithClientMessageIds(entries: readonly unknown[], 
     const persistedId = value.role === "user" ? messageClientMessageId(value) : undefined;
     if (persistedId) removePending(pending, persistedId);
     const clientMessageId = value.role === "user"
-      ? persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(value, knownSkillNames))?.clientMessageId
+      ? persistedId ?? pending.find((candidate) => candidate.fingerprint === clientMessageFingerprint(value, knownSkillNames))?.clientMessageId
       : undefined;
     if (clientMessageId) removePending(pending, clientMessageId);
     messages.push(clientMessageId ? { ...value, clientMessageId } : { ...value });
@@ -216,7 +216,7 @@ export function unclaimedClientMessageIds(entries: readonly unknown[], knownSkil
     const message = messageEntry(entry);
     if (!message || message.message.role !== "user") continue;
     const persistedId = messageClientMessageId(message.message);
-    const matchedId = persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(message.message, knownSkillNames))?.clientMessageId;
+    const matchedId = persistedId ?? pending.find((candidate) => candidate.fingerprint === clientMessageFingerprint(message.message, knownSkillNames))?.clientMessageId;
     if (matchedId) removePending(pending, matchedId);
   }
   return pending.map((marker) => marker.clientMessageId);
@@ -251,7 +251,7 @@ export function clientMessageIdForMessage(entries: readonly unknown[], target: u
     const value = message.message;
     const persistedId = value.role === "user" ? messageClientMessageId(value) : undefined;
     const id = value.role === "user"
-      ? persistedId ?? pending.find((marker) => marker.fingerprint === clientMessageFingerprint(value, knownSkillNames))?.clientMessageId
+      ? persistedId ?? pending.find((candidate) => candidate.fingerprint === clientMessageFingerprint(value, knownSkillNames))?.clientMessageId
       : undefined;
     if (id) removePending(pending, id);
     if (value === target) return id;

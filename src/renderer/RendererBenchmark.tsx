@@ -284,6 +284,7 @@ export default function RendererBenchmark() {
         stopped = true;
         longTaskCapture.observer?.disconnect();
         const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- __TAU_RENDERER_BENCHMARK__ is a cross-process marker read by scripts/renderer-benchmark-fixture.cjs over CDP.
         window.__TAU_RENDERER_BENCHMARK__ = {
           ready: true,
           scenario,

@@ -71,7 +71,7 @@ describe("bridge transcript paging", () => {
   it("keeps a full 160-record page addressable after bridge transport bounding", () => {
     const records = Array.from({ length: 40 }, (_, index) => [
       { role: "user", content: `question ${index}`, tauEntryId: `user-${index}` },
-      ...Array.from({ length: 3 }, (_, retry) => ({
+      ...Array.from({ length: 3 }, (__, retry) => ({
         role: "assistant",
         content: [{ type: "text", text: `answer ${index}.${retry}` }],
         tauEntryId: `assistant-${index}-${retry}`,
@@ -147,7 +147,7 @@ describe("bridge transcript paging", () => {
   it("keeps the mapped page and duplicated activity payload below one byte budget", () => {
     const records = Array.from({ length: 40 }, (_, index) => [
       { role: "user", content: `question ${index}`, tauEntryId: `user-${index}` },
-      ...Array.from({ length: 4 }, (_, retry) => ({
+      ...Array.from({ length: 4 }, (__, retry) => ({
         role: "assistant",
         content: [{ type: "text", text: "x".repeat(80_000) }],
         tauEntryId: `assistant-${index}-${retry}`,

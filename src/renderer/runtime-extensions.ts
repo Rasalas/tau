@@ -18,6 +18,7 @@ export function sharedExportNames(modules: Record<string, object> = SHARED_MODUL
 }
 
 export function installSharedModules(target: { __tauShared?: Record<string, object> } = globalThis as never): void {
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- __tauShared is a cross-file global protocol name (see extension-api.ts, desktop-extensions.ts).
   target.__tauShared = SHARED_MODULES;
 }
 

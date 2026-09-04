@@ -22,10 +22,6 @@ export function navigationRowKey(rows: readonly NavigationRow[], index: number):
   return rows[index]?.id ?? index;
 }
 
-function projectName(cwd?: string): string {
-  return cwd?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "workspace";
-}
-
 function projectInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "·";
 }
