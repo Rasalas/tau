@@ -2,31 +2,13 @@
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiMessage } from "../shared/contracts";
-import type { TranscriptTurnStart } from "./components/TranscriptViewport";
-import { useTailScroll } from "./components/ComposerHost";
+import type { UiMessage } from "../../shared/contracts";
+import type { TranscriptTurnStart } from "./TranscriptViewport";
 
-function TailScrollFixture({ version, session = "one", preservePosition = false }: { version: number; session?: string; preservePosition?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useTailScroll(ref, [version], session, preservePosition);
-  return <div
-    data-testid="transcript"
-    ref={(node) => {
-      ref.current = node;
-      if (!node || Object.prototype.hasOwnProperty.call(node, "scrollHeight")) return;
-      Object.defineProperties(node, {
-        scrollHeight: { configurable: true, get: () => 1_000 },
-        clientHeight: { configurable: true, get: () => 200 },
-        scrollTop: { configurable: true, writable: true, value: 0 },
-      });
-    }}
-  ><div className="transcript-inner" /></div>;
-}
-
-vi.mock("./components/Message", () => ({
+vi.mock("./Message", () => ({
   Message: ({ message }: { message: UiMessage }) => <div>{message.text}</div>,
 }));
-vi.mock("./components/VirtualTranscript", () => ({
+vi.mock("./VirtualTranscript", () => ({
   VirtualTranscript: ({ messages, activeTurnStartId }: { messages: UiMessage[]; activeTurnStartId?: string }) => {
     const activeIndex = activeTurnStartId ? messages.findIndex((message) => message.id === activeTurnStartId) : -1;
     return <div
@@ -45,7 +27,7 @@ vi.mock("./components/VirtualTranscript", () => ({
   },
 }));
 
-import { TranscriptViewport } from "./components/TranscriptViewport";
+import { TranscriptViewport } from "./TranscriptViewport";
 
 const oldMessage: UiMessage = {
   id: "old",
@@ -105,67 +87,6 @@ function Fixture({
 }
 
 afterEach(cleanup);
-
-describe("useTailScroll", () => {
-  it("starts at the newest chat position", async () => {
-    const view = render(<TailScrollFixture version={1} />);
-    const transcript = view.getByTestId("transcript");
-    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
-  });
-
-  it("does not pull the user down after they scroll upward", async () => {
-    const view = render(<TailScrollFixture version={1} />);
-    const transcript = view.getByTestId("transcript");
-    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
-    act(() => {
-      transcript.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
-      transcript.scrollTop = 300;
-      transcript.dispatchEvent(new Event("scroll"));
-    });
-    view.rerender(<TailScrollFixture version={2} />);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(transcript.scrollTop).toBe(300);
-  });
-
-  it("does not mistake layout-driven scroll events for user intent", async () => {
-    const view = render(<TailScrollFixture version={1} />);
-    const transcript = view.getByTestId("transcript");
-    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
-    act(() => {
-      transcript.scrollTop = 500;
-      transcript.dispatchEvent(new Event("scroll"));
-    });
-    view.rerender(<TailScrollFixture version={2} />);
-    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
-  });
-
-  it("starts a newly selected session at its tail", async () => {
-    const view = render(<TailScrollFixture version={1} session="one" />);
-    const transcript = view.getByTestId("transcript");
-    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
-    act(() => {
-      transcript.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
-      transcript.scrollTop = 300;
-      transcript.dispatchEvent(new Event("scroll"));
-    });
-    view.rerender(<TailScrollFixture version={2} session="two" />);
-    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
-  });
-
-  it("preserves the viewport while an older page is inserted", async () => {
-    const view = render(<TailScrollFixture version={1} />);
-    const transcript = view.getByTestId("transcript");
-    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
-    act(() => {
-      transcript.scrollTop = 120;
-      transcript.dispatchEvent(new Event("scroll"));
-    });
-    view.rerender(<TailScrollFixture version={2} preservePosition />);
-    view.rerender(<TailScrollFixture version={3} />);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(transcript.scrollTop).toBe(120);
-  });
-});
 
 describe("TranscriptViewport navigation", () => {
   it("follows the newest content without putting scroll state in App", async () => {
