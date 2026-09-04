@@ -336,25 +336,25 @@ describe("PiHost.generateThreadTitle", () => {
       .resolves.toBeUndefined();
   });
 
-  it("waits for a new thread's active first run before generating its title", async () => {
-    let streaming = true;
-    let finishRun!: () => void;
-    const runFinished = new Promise<void>((resolve) => { finishRun = resolve; });
+  it("titles a new thread from its first prompt while the first run is still streaming", async () => {
+    const streaming = true;
     const callOrder: string[] = [];
+    const conversations: string[] = [];
     const session = {
       sessionId: "session",
       get isStreaming() { return streaming; },
       sessionName: undefined as string | undefined,
-      messages: [{ role: "user", content: [{ type: "text", text: "Fix automatic titles" }], timestamp: 1 }],
+      // The prompt has not been persisted yet: Pi appends it when the loop starts.
+      messages: [] as unknown[],
       waitForIdle: async () => {
         callOrder.push("wait");
-        await runFinished;
-        streaming = false;
+        await new Promise<void>(() => undefined);
       },
       modelRuntime: {
         getModel: () => ({ provider: "provider", id: "model" }),
-        completeSimple: async () => {
+        completeSimple: async (conversation: string) => {
           callOrder.push("complete");
+          conversations.push(conversation);
           return { stopReason: "stop", content: [{ type: "text", text: "Automatic Thread Titles" }] };
         },
       },
@@ -372,8 +372,9 @@ describe("PiHost.generateThreadTitle", () => {
       isIdle: () => !session.isStreaming,
       waitForIdle: session.waitForIdle,
       sessionName: () => session.sessionName,
-      transcript: async () => [{ id: "user", role: "user" as const, text: "Fix automatic titles", timestamp: 1 }],
-      completeTitle: async () => session.modelRuntime.completeSimple().then((result) => result.content[0].text),
+      transcript: async () => [],
+      completeTitle: async (_provider: string, _modelId: string, conversation: string) =>
+        session.modelRuntime.completeSimple(conversation).then((result) => result.content[0].text),
       setTitle: async (title: string) => { session.setSessionName(title); },
       // The title path does not use the remaining backend operations; these
       // stubs keep this test's runtime-owner seam explicit and typed enough for
@@ -391,18 +392,19 @@ describe("PiHost.generateThreadTitle", () => {
     internals.threads.setActive("session");
     internals.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 1 }];
 
-    const generated = host.invokeHostExtension("tau.thread-titles", "generate", { provider: "provider", modelId: "model", force: false, sessionId: "session" });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(callOrder).toEqual(["wait"]);
-
-    finishRun();
+    const generated = host.invokeHostExtension("tau.thread-titles", "generate", {
+      provider: "provider", modelId: "model", force: false, sessionId: "session", prompt: "Fix automatic titles",
+    });
     await expect(generated).resolves.toEqual({ title: "Automatic Thread Titles" });
-    expect(callOrder).toEqual(["wait", "complete"]);
+    expect(callOrder).toEqual(["complete"]);
+    expect(conversations).toEqual(["user: Fix automatic titles"]);
     expect(published).toContainEqual(expect.objectContaining({
       type: "host-update",
       update: expect.objectContaining({ type: "thread-shell", update: { sessionId: "session", shell: expect.objectContaining({ title: "Automatic Thread Titles" }) } }),
     }));
+
+    await expect(host.invokeHostExtension("tau.thread-titles", "generate", { provider: "provider", modelId: "model", force: true, sessionId: "session" }))
+      .rejects.toThrow("Wait for the active agent run before generating a title.");
   });
 
   it("does not let a stale new-thread activation replace a newer live switch", async () => {
