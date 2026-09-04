@@ -5,6 +5,7 @@ import { createComputerUseHostExtension } from "./computer-use-host-extension.js
 import { createKeybindingsHostExtension } from "./keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
 import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
+import { createReviewHostExtension } from "./review-host-extension.js";
 import { createServiceTierHostExtension } from "./service-tier-host-extension.js";
 import { createThreadTitlesHostExtension } from "./thread-titles-host-extension.js";
 import { createWorkspaceHostExtension } from "./workspace-host-extension.js";
@@ -15,6 +16,7 @@ export function bundledHostExtensions(): HostExtension[] {
   return [
     createAccessHostExtension(),
     createWorkspaceHostExtension(),
+    createReviewHostExtension(),
     createThreadTitlesHostExtension(),
     createWorktreeNamesHostExtension(),
     createServiceTierHostExtension(),

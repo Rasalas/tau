@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UiWorkspaceChanges } from "../../shared/workspace-kit-types";
+import type { UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { ReviewMode } from "./ReviewMode";
 
 const worktree: UiWorkspaceChanges = {
@@ -58,6 +58,46 @@ describe("ReviewMode", () => {
     expect(screen.getByRole("link", { name: "PR #42" }).getAttribute("href")).toBe("https://github.com/acme/tau/pull/42");
   });
 
+  it("keeps loaded diffs mounted while a workspace refresh revalidates them", async () => {
+    let resolveRefresh!: (diff: UiFileDiff) => void;
+    const initialDiff = async (path: string) => ({
+      path,
+      added: 1,
+      removed: 0,
+      hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added" as const, newLine: 1, text: "const stable = true;" }] }],
+    });
+    const loadDiff = vi.fn((path: string) => loadDiff.mock.calls.length === 1
+      ? initialDiff(path)
+      : new Promise<UiFileDiff>((resolve) => { resolveRefresh = resolve; }));
+    const props = {
+      selectedPath: "src/a.ts",
+      busy: false,
+      primaryPush: false,
+      onSelect: () => undefined,
+      onBack: () => undefined,
+      onCommit: () => undefined,
+      onOpenInEditor: () => undefined,
+      loadDiff,
+    };
+    const view = render(<ReviewMode changes={worktree} {...props} />);
+
+    await waitFor(() => expect(document.querySelector(".diff-code")?.textContent).toContain("const stable = true;"));
+    view.rerender(<ReviewMode
+      changes={{ ...worktree, files: worktree.files.map((file) => ({ ...file })) }}
+      {...props}
+    />);
+
+    await waitFor(() => expect(loadDiff).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("Loading diff…")).toBeNull();
+    expect(document.querySelector(".diff-code")?.textContent).toContain("const stable = true;");
+
+    resolveRefresh({
+      ...await initialDiff("src/a.ts"),
+      hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added", newLine: 1, text: "const stable = false;" }] }],
+    });
+    await waitFor(() => expect(document.querySelector(".diff-code")?.textContent).toContain("const stable = false;"));
+  });
+
   it("uses a filterable tree, cycles files, and expands context only on request", async () => {
     const changes: UiWorkspaceChanges = {
       branch: "feat/review",
@@ -88,9 +128,15 @@ describe("ReviewMode", () => {
       loadDiff={loadDiff}
     />);
 
-    await waitFor(() => expect(loadDiff).toHaveBeenCalledWith("src/a.ts", expect.objectContaining({ contextLines: 3 })));
+    await waitFor(() => {
+      expect(loadDiff).toHaveBeenCalledWith("src/a.ts", expect.objectContaining({ contextLines: 3 }));
+      expect(loadDiff).toHaveBeenCalledWith("src/nested/b.ts", expect.objectContaining({ contextLines: 3 }));
+    });
     fireEvent.click(screen.getByRole("button", { name: "All lines" }));
-    await waitFor(() => expect(loadDiff).toHaveBeenLastCalledWith("src/a.ts", expect.objectContaining({ contextLines: 100_000 })));
+    await waitFor(() => {
+      expect(loadDiff).toHaveBeenCalledWith("src/a.ts", expect.objectContaining({ contextLines: 100_000 }));
+      expect(loadDiff).toHaveBeenCalledWith("src/nested/b.ts", expect.objectContaining({ contextLines: 100_000 }));
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Next changed file" }));
     expect(onSelect).toHaveBeenCalledWith("src/nested/b.ts");

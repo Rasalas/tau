@@ -9,7 +9,9 @@ import {
   MessagesSquare,
   PanelRightClose,
   PanelRightOpen,
+  RefreshCw,
   Search,
+  Sparkles,
   X,
 } from "lucide-react";
 import type {
@@ -53,6 +55,31 @@ function isTypingTarget(target: EventTarget | null): boolean {
     && (target.isContentEditable || Boolean(target.closest("input, textarea, select")));
 }
 
+function sameDiff(left: UiFileDiff | undefined, right: UiFileDiff): boolean {
+  if (!left
+    || left.path !== right.path
+    || left.added !== right.added
+    || left.removed !== right.removed
+    || left.note !== right.note
+    || left.truncated !== right.truncated
+    || left.nextHunkOffset !== right.nextHunkOffset
+    || left.hunks.length !== right.hunks.length) return false;
+  return left.hunks.every((hunk, hunkIndex) => {
+    const other = right.hunks[hunkIndex];
+    return other !== undefined
+      && hunk.header === other.header
+      && hunk.lines.length === other.lines.length
+      && hunk.lines.every((line, lineIndex) => {
+        const otherLine = other.lines[lineIndex];
+        return otherLine !== undefined
+          && line.kind === otherLine.kind
+          && line.oldLine === otherLine.oldLine
+          && line.newLine === otherLine.newLine
+          && line.text === otherLine.text;
+      });
+  });
+}
+
 export function ReviewMode({
   changes,
   selectedPath,
@@ -69,6 +96,8 @@ export function ReviewMode({
   workspaceKey = "workspace",
   readOnly = false,
   checkpointTitle,
+  suggestCommitMessage,
+  autoSuggestCommitMessage = true,
 }: {
   changes: UiWorkspaceChanges;
   selectedPath?: string;
@@ -85,16 +114,18 @@ export function ReviewMode({
   workspaceKey?: string;
   readOnly?: boolean;
   checkpointTitle?: string;
+  suggestCommitMessage?(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined>;
+  autoSuggestCommitMessage?: boolean;
 }) {
   const [scope, setScope] = useState<WorkspaceDiffScope>("worktree");
   const [visibleChanges, setVisibleChanges] = useState(changes);
   const [loadingScope, setLoadingScope] = useState(false);
   const [scopeError, setScopeError] = useState<string>();
-  const [diff, setDiff] = useState<UiFileDiff>();
-  const [diffError, setDiffError] = useState<string>();
+  const [diffs, setDiffs] = useState<Map<string, UiFileDiff>>(() => new Map());
+  const [diffErrors, setDiffErrors] = useState<Map<string, string>>(() => new Map());
   const [mode, setMode] = useState<"unified" | "split">("unified");
   const [contextMode, setContextMode] = useState<"collapse" | "expand">("collapse");
-  const [message, setMessage] = useState(changes.proposedMessage ?? "");
+  const [message, setMessage] = useState(autoSuggestCommitMessage && suggestCommitMessage ? "" : changes.proposedMessage ?? "");
   const [editingMessage, setEditingMessage] = useState(false);
   const [reviewState, setReviewState] = useState<PersistedReviewState>(() => readReviewState(workspaceKey, scope));
   const [notesOpen, setNotesOpen] = useState(false);
@@ -104,7 +135,14 @@ export function ReviewMode({
   const [sidebarOpen, setSidebarOpenState] = useState(storedSidebarOpen);
   const [sidebarWidth, setSidebarWidthState] = useState(storedSidebarWidth);
   const [splitAvailable, setSplitAvailable] = useState(true);
+  const [generatingMessage, setGeneratingMessage] = useState(false);
+  const [messageError, setMessageError] = useState<string>();
   const stageRef = useRef<HTMLElement>(null);
+  const diffScrollRef = useRef<HTMLDivElement>(null);
+  const fileSectionRefs = useRef(new Map<string, HTMLElement>());
+  const selectedPathRef = useRef(selectedPath);
+  selectedPathRef.current = selectedPath;
+  const suggestedFingerprintRef = useRef<string | undefined>(undefined);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const paged = usePagedWorkspaceFiles(visibleChanges, readOnly ? loadFiles : undefined);
 
@@ -114,42 +152,54 @@ export function ReviewMode({
     if (!query) return paged.files;
     return paged.files.filter((file) => file.path.toLocaleLowerCase().includes(query));
   }, [filter, paged.files]);
-  const selectedFile = paged.files.find((file) => file.path === selectedPath);
   const selectedFilteredIndex = filteredFiles.findIndex((file) => file.path === selectedPath);
+  const filePathsFingerprint = paged.files.map((file) => file.path).join("\0");
 
   useEffect(() => {
     if (scope === "worktree") setVisibleChanges(changes);
   }, [changes, scope]);
 
   useEffect(() => {
-    if (!selectedPath) {
-      setDiff(undefined);
-      setDiffError(undefined);
-      return;
-    }
     let cancelled = false;
-    setDiff(undefined);
-    setDiffError(undefined);
     const options: DiffLoadOptions = readOnly
       ? { hunkLimit: 40, contextLines }
-      : {
-          hunkLimit: 40,
-          contextLines,
-          scope,
-          baseRef: visibleChanges.baseRef,
-          baseCommit: visibleChanges.baseCommit,
-        };
-    void loadDiff(selectedPath, options)
-      .then((next) => {
-        if (!cancelled) setDiff(next);
-      })
-      .catch((error) => {
-        if (!cancelled) setDiffError(error instanceof Error ? error.message : "Could not load this diff.");
-      });
-    return () => {
-      cancelled = true;
+      : { hunkLimit: 40, contextLines, scope, baseRef: visibleChanges.baseRef, baseCommit: visibleChanges.baseCommit };
+    let nextIndex = 0;
+    const loadNext = async (): Promise<void> => {
+      while (!cancelled) {
+        const file = paged.files[nextIndex++];
+        if (!file) return;
+        try {
+          const next = await loadDiff(file.path, options);
+          if (!cancelled) {
+            setDiffs((current) => sameDiff(current.get(file.path), next) ? current : new Map(current).set(file.path, next));
+            setDiffErrors((current) => {
+              if (!current.has(file.path)) return current;
+              const updated = new Map(current);
+              updated.delete(file.path);
+              return updated;
+            });
+          }
+        } catch (error) {
+          if (!cancelled) setDiffErrors((current) => new Map(current).set(file.path, error instanceof Error ? error.message : "Could not load this diff."));
+        }
+      }
     };
-  }, [contextLines, loadDiff, readOnly, scope, selectedPath, visibleChanges.baseCommit, visibleChanges.baseRef]);
+    void Promise.all(Array.from({ length: Math.min(4, paged.files.length) }, () => loadNext()));
+    return () => { cancelled = true; };
+  }, [contextLines, loadDiff, paged.files, readOnly, scope, visibleChanges.baseCommit, visibleChanges.baseRef]);
+
+  useEffect(() => {
+    const root = diffScrollRef.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
+      const path = visible?.target.getAttribute("data-path");
+      if (path && path !== selectedPathRef.current) onSelect(path);
+    }, { root, rootMargin: "-48px 0px -70% 0px", threshold: 0 });
+    fileSectionRefs.current.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, [filePathsFingerprint, onSelect]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -161,12 +211,18 @@ export function ReviewMode({
 
   useEffect(() => () => resizeCleanupRef.current?.(), []);
 
+  const scrollToFile = (path: string) => {
+    onSelect(path);
+    const section = fileSectionRefs.current.get(path);
+    if (section && typeof section.scrollIntoView === "function") section.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const cycleFile = (offset: -1 | 1) => {
     if (filteredFiles.length === 0) return;
     const current = selectedFilteredIndex < 0 ? (offset < 0 ? 0 : -1) : selectedFilteredIndex;
     const next = (current + offset + filteredFiles.length) % filteredFiles.length;
     const file = filteredFiles[next];
-    if (file) onSelect(file.path);
+    if (file) scrollToFile(file.path);
   };
 
   useEffect(() => {
@@ -249,14 +305,12 @@ export function ReviewMode({
 
   const readPaths = useMemo(() => new Set(reviewState.readPaths), [reviewState.readPaths]);
   const visibleReadCount = paged.files.filter((file) => readPaths.has(file.path)).length;
-  const selectedComments = reviewState.comments.filter((comment) => comment.path === selectedPath);
-  const annotationCounts = useMemo(() => {
+  const annotationCounts = (path: string) => {
     const counts = new Map<number, number>();
-    selectedComments
-      .filter((comment) => !comment.resolved && comment.line !== undefined)
+    reviewState.comments.filter((comment) => comment.path === path && !comment.resolved && comment.line !== undefined)
       .forEach((comment) => counts.set(comment.line!, (counts.get(comment.line!) ?? 0) + 1));
     return counts;
-  }, [selectedComments]);
+  };
 
   const toggleRead = (path: string) => updateReviewState((current) => ({
     ...current,
@@ -277,29 +331,44 @@ export function ReviewMode({
     setNotesOpen(true);
   };
 
-  const loadMore = () => {
-    if (!selectedPath || !diff?.truncated || diff.nextHunkOffset === undefined) return;
+  const loadMore = (path: string) => {
+    const diff = diffs.get(path);
+    if (!diff?.truncated || diff.nextHunkOffset === undefined) return;
     const options: DiffLoadOptions = {
       hunkOffset: diff.nextHunkOffset,
       hunkLimit: 40,
       contextLines,
-      ...(readOnly ? {} : {
-        scope,
-        baseRef: visibleChanges.baseRef,
-        baseCommit: visibleChanges.baseCommit,
-      }),
+      ...(readOnly ? {} : { scope, baseRef: visibleChanges.baseRef, baseCommit: visibleChanges.baseCommit }),
     };
-    void loadDiff(selectedPath, options)
-      .then((next) => setDiff((current) => current
-        ? { ...next, hunks: [...current.hunks, ...next.hunks] }
-        : next))
-      .catch((error) => setDiffError(error instanceof Error ? error.message : "Could not load more diff hunks."));
+    void loadDiff(path, options)
+      .then((next) => setDiffs((current) => new Map(current).set(path, { ...next, hunks: [...diff.hunks, ...next.hunks] })))
+      .catch((error) => setDiffErrors((current) => new Map(current).set(path, error instanceof Error ? error.message : "Could not load more diff hunks.")));
   };
 
   const scopeTitle = readOnly
     ? checkpointTitle ?? "Turn changes"
     : scope === "branch" ? "Branch changes" : "Changes";
   const effectiveMode = splitAvailable ? mode : "unified";
+  const generateCommitMessage = async () => {
+    if (!suggestCommitMessage || generatingMessage) return;
+    setGeneratingMessage(true);
+    setMessageError(undefined);
+    try {
+      const next = await suggestCommitMessage(visibleChanges, [...diffs.values()]);
+      if (next) { setMessage(next); setEditingMessage(false); }
+    } catch (error) {
+      setMessageError(error instanceof Error ? error.message : "Could not generate a commit message.");
+    } finally {
+      setGeneratingMessage(false);
+    }
+  };
+  const suggestionFingerprint = `${scope}:${visibleChanges.baseCommit ?? ""}:${paged.files.map((file) => `${file.path}:${file.added}:${file.removed}`).join("|")}`;
+  useEffect(() => {
+    if (readOnly || !autoSuggestCommitMessage || !suggestCommitMessage || paged.files.length === 0 || diffs.size + diffErrors.size < paged.files.length) return;
+    if (suggestedFingerprintRef.current === suggestionFingerprint) return;
+    suggestedFingerprintRef.current = suggestionFingerprint;
+    void generateCommitMessage();
+  }, [autoSuggestCommitMessage, diffErrors.size, diffs.size, paged.files.length, readOnly, suggestionFingerprint, suggestCommitMessage]);
 
   return <div className="review-shell">
     <header className="title-bar">
@@ -363,12 +432,12 @@ export function ReviewMode({
             <MessagesSquare size={12} /> {reviewState.comments.filter((comment) => !comment.resolved).length} notes
           </button> : null}
           <div className="toggle-group" aria-label="Diff context">
-            <button disabled={!selectedPath} className={contextMode === "collapse" ? "active" : ""} onClick={() => setContextMode("collapse")}>Diff only</button>
-            <button disabled={!selectedPath} className={contextMode === "expand" ? "active" : ""} onClick={() => setContextMode("expand")}>All lines</button>
+            <button disabled={paged.files.length === 0} className={contextMode === "collapse" ? "active" : ""} onClick={() => setContextMode("collapse")}>Diff only</button>
+            <button disabled={paged.files.length === 0} className={contextMode === "expand" ? "active" : ""} onClick={() => setContextMode("expand")}>All lines</button>
           </div>
           <div className="toggle-group" aria-label="Diff layout">
-            <button disabled={!selectedPath} className={effectiveMode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
-            <button className={effectiveMode === "split" ? "active" : ""} disabled={!selectedPath || !splitAvailable} title={!splitAvailable ? "Split view needs more width" : undefined} onClick={() => setMode("split")}>Split</button>
+            <button disabled={paged.files.length === 0} className={effectiveMode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
+            <button className={effectiveMode === "split" ? "active" : ""} disabled={paged.files.length === 0 || !splitAvailable} title={!splitAvailable ? "Split view needs more width" : undefined} onClick={() => setMode("split")}>Split</button>
           </div>
           {editor && selectedPath ? <button className="text-button review-editor-action" onClick={() => onOpenInEditor(selectedPath)}>
             Open in {editor.name} <ExternalLink size={11} />
@@ -381,16 +450,6 @@ export function ReviewMode({
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >{sidebarOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}</button>
         </header>
-
-        {selectedFile ? <div className="review-file-header">
-          <span className={`review-file-status ${selectedFile.status}`}>{selectedFile.status.charAt(0).toUpperCase()}</span>
-          <FileKindIcon name={selectedFile.name} />
-          <strong>{selectedFile.name}</strong>
-          {selectedFile.directory ? <span>{selectedFile.directory}</span> : null}
-          <span className="spacer" />
-          <span className="stat-add">+{diff?.added ?? selectedFile.added}</span>
-          <span className="stat-del">−{diff?.removed ?? selectedFile.removed}</span>
-        </div> : null}
 
         {draft ? <div className="review-comment-composer" role="dialog" aria-label="Add review note">
           <strong>{draft.line ? `${draft.path}:${draft.line}` : draft.path}</strong>
@@ -408,20 +467,38 @@ export function ReviewMode({
         </div> : null}
 
         <div className="review-stage-content">
-          <div className="review-diff">
-            {diffError ? <div className="diff-empty diff-error"><strong>Failed to load diff</strong><span>{diffError}</span></div>
-              : selectedPath ? <DiffView
+          <div className="review-diff-stream" ref={diffScrollRef}>
+            {paged.files.length === 0 ? <div className="diff-empty">No changes in this scope.</div> : paged.files.map((file) => {
+              const diff = diffs.get(file.path);
+              const error = diffErrors.get(file.path);
+              return <section
+                className={`review-file-section ${file.path === selectedPath ? "active" : ""}`}
+                data-path={file.path}
+                key={file.path}
+                ref={(node) => { if (node) fileSectionRefs.current.set(file.path, node); else fileSectionRefs.current.delete(file.path); }}
+              >
+                <header className="review-file-header">
+                  <span className={`review-file-status ${file.status}`}>{file.status.charAt(0).toUpperCase()}</span>
+                  <FileKindIcon name={file.name} />
+                  <strong>{file.name}</strong>
+                  {file.directory ? <span>{file.directory}</span> : null}
+                  <span className="spacer" />
+                  <span className="stat-add">+{diff?.added ?? file.added}</span>
+                  <span className="stat-del">−{diff?.removed ?? file.removed}</span>
+                  {editor ? <button className="icon-button compact" aria-label={`Open ${file.path} in ${editor.name}`} title={`Open in ${editor.name}`} onClick={() => onOpenInEditor(file.path)}><ExternalLink size={12} /></button> : null}
+                </header>
+                {error && !diff ? <div className="diff-empty diff-error"><strong>Failed to load diff</strong><span>{error}</span></div> : <DiffView
                   diff={diff}
+                  path={file.path}
+                  embedded
                   mode={effectiveMode}
-                  annotationCounts={annotationCounts}
+                  annotationCounts={annotationCounts(file.path)}
                   onExpandContext={() => setContextMode("expand")}
-                  onAnnotate={!readOnly ? (line) => {
-                    setDraft({ path: selectedPath, line });
-                    setDraftBody("");
-                  } : undefined}
-                  onLoadMore={diff?.truncated && diff.nextHunkOffset !== undefined ? loadMore : undefined}
-                />
-              : <div className="diff-empty">Pick a file to review.</div>}
+                  onAnnotate={!readOnly ? (line) => { setDraft({ path: file.path, line }); setDraftBody(""); } : undefined}
+                  onLoadMore={diff?.truncated && diff.nextHunkOffset !== undefined ? () => loadMore(file.path) : undefined}
+                />}
+              </section>;
+            })}
           </div>
           {notesOpen ? <aside className="review-notes">
             <header><strong>Review notes</strong><button className="icon-button compact" aria-label="Close notes" onClick={() => setNotesOpen(false)}><X size={13} /></button></header>
@@ -471,7 +548,7 @@ export function ReviewMode({
             activePath={selectedPath}
             viewedPaths={readPaths}
             readOnly={readOnly}
-            onOpen={onSelect}
+            onOpen={scrollToFile}
             onToggleViewed={toggleRead}
           /> : <p className="empty-copy">{filter ? "No matching changed files." : "No changes in this scope."}</p>}
           {loadFiles && paged.hasMore ? <div className="changed-files-more-row">
@@ -481,10 +558,11 @@ export function ReviewMode({
             {paged.error ? <small className="file-tree-error">{paged.error}</small> : null}
           </div> : null}
           {paged.fileCount > 0 && !readOnly && scope === "worktree" ? <div className="commit-proposal">
-            Commit message: {editingMessage ? null : <em>“{message || "none"}”</em>}
-            {editingMessage ? <textarea autoFocus value={message} onChange={(event) => setMessage(event.target.value)} onBlur={() => setEditingMessage(false)} /> : null}
+            <div className="commit-proposal-heading"><span><Sparkles size={12} /> Commit message</span>{suggestCommitMessage ? <button className="icon-button compact" aria-label="Generate commit message" title="Generate a new commit message" disabled={generatingMessage} onClick={() => void generateCommitMessage()}><RefreshCw className={generatingMessage ? "spinning" : ""} size={12} /></button> : null}</div>
+            {editingMessage ? <textarea autoFocus value={message} onChange={(event) => setMessage(event.target.value)} onBlur={() => setEditingMessage(false)} /> : <button className="commit-message-preview" onClick={() => setEditingMessage(true)}>{generatingMessage ? "Writing from the diff…" : message || "No suggestion yet"}</button>}
+            {messageError ? <small className="commit-message-error">{messageError}</small> : null}
             <div className="commit-actions">
-              <button className="primary" disabled={busy || message.trim().length === 0} onClick={() => onCommit(message, false)}>Commit</button>
+              <button className="primary" disabled={busy || generatingMessage || message.trim().length === 0} onClick={() => onCommit(message, false)}>Commit</button>
               <button onClick={() => setEditingMessage((value) => !value)}>{editingMessage ? "Done" : "Edit"}</button>
             </div>
           </div> : null}

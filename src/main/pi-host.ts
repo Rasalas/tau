@@ -36,8 +36,6 @@ import type {
   PreparedPrompt,
   ThreadTreeNavigationResult,
   UiThreadTree,
-  WorkbenchReloadMode,
-  WorkbenchReloadPreparation,
 } from "../shared/contracts.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
@@ -113,6 +111,8 @@ import {
 } from "./skill-invocation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
+import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
+import { loadExternalSessionShells } from "./external-session-shells.js";
 import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import { findExecutable } from "./shell-environment.js";
@@ -204,8 +204,14 @@ export class PiHost {
   private prewarmTimer?: ReturnType<typeof setTimeout>;
   private sessions: UiSession[] = [];
   private lifecycleQueue: Promise<void> = Promise.resolve();
-  /** Blocks new work after every running thread has drained and while Tau applies a reload. */
-  private workbenchReloadPending = false;
+  private readonly workbenchReload = new WorkbenchReloadCoordinator({
+    localRuns: () => this.threads.list().map((record) => record.runtime)
+      .filter((thread) => !thread.backend.isIdle() || thread.backend.isStreaming() || thread.adapterPending > 0 || thread.adapterStreaming)
+      .map((thread) => ({ waitForIdle: () => thread.backend.waitForIdle(), abort: () => this.abortThread(thread) })),
+    attachedRunning: () => Boolean(this.attached.snapshot?.isStreaming),
+    refreshAttached: async () => { if (this.attached.isAttached) await this.attached.refreshSnapshot(); },
+    abortAttached: async () => { await this.attached.send({ command: "abort" }); }, serialize: (operation) => this.runLifecycle(operation),
+  });
   /** Monotonic ownership epoch; stale lifecycle work may not publish or activate. */
   private activationEpoch = 0;
   private threadIndexRefresh?: Promise<ThreadIndexSnapshot>;
@@ -1076,7 +1082,7 @@ export class PiHost {
     clientMessageIdOrRequestId?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<HostActionResult> {
-    this.assertWorkbenchReloadAvailable();
+    this.workbenchReload.assertAvailable();
     // Admit the activation before waiting on the lifecycle queue. A newer live
     // switch must supersede this request even when its queued work starts later.
     const activationEpoch = this.beginActivation();
@@ -1704,7 +1710,7 @@ export class PiHost {
     clientMessageIdOrPreflight?: ClientTurnRequest | PromptPreflight,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    this.assertWorkbenchReloadAvailable();
+    this.workbenchReload.assertAvailable();
     const onPreflightResult = typeof clientMessageIdOrPreflight === "function" ? clientMessageIdOrPreflight : undefined;
     const identity = typeof clientMessageIdOrPreflight === "function"
       ? undefined
@@ -1838,7 +1844,7 @@ export class PiHost {
   }
 
   async runShellAction(command: string, includeInContext = false, expectedCwd?: string): Promise<ShellActionResult> {
-    this.assertWorkbenchReloadAvailable();
+    this.workbenchReload.assertAvailable();
     if (this.attached.isAttached) throw new Error("Run project actions in Pi while Tau is attached to its runtime.");
     const shellCommand = command.trim();
     if (!shellCommand) throw new Error("An action command is required.");
@@ -1868,7 +1874,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    this.assertWorkbenchReloadAvailable();
+    this.workbenchReload.assertAvailable();
     const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
     const clientMessageId = identity?.clientMessageId;
     if (this.attachedOwns(sessionId)) {
@@ -1933,7 +1939,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    this.assertWorkbenchReloadAvailable();
+    this.workbenchReload.assertAvailable();
     const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
     const clientMessageId = identity?.clientMessageId;
     if (this.attachedOwns(sessionId)) {
@@ -2103,61 +2109,8 @@ export class PiHost {
     return update;
   }
 
-  private assertWorkbenchReloadAvailable(): void {
-    if (this.workbenchReloadPending) throw new Error("Tau is waiting to apply changes. Cancel the reload before starting more work.");
-  }
-
-  private runningWorkbenchThreads(): ThreadRuntime[] {
-    return this.threads.list()
-      .map((record) => record.runtime)
-      .filter((thread) => !thread.backend.isIdle() || thread.backend.isStreaming() || thread.adapterPending > 0 || thread.adapterStreaming);
-  }
-
-  private runningWorkbenchThreadCount(): number {
-    return this.runningWorkbenchThreads().length + (this.attached.snapshot?.isStreaming ? 1 : 0);
-  }
-
-  private async waitForWorkbenchRuns(): Promise<void> {
-    while (true) {
-      const local = this.runningWorkbenchThreads();
-      await Promise.all(local.map((thread) => thread.backend.waitForIdle()));
-      if (this.attached.snapshot?.isStreaming) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
-        if (this.attached.isAttached) await this.attached.refreshSnapshot();
-      }
-      const ready = await this.runLifecycle(async () => {
-        if (this.runningWorkbenchThreadCount() > 0) return false;
-        this.workbenchReloadPending = true;
-        return true;
-      });
-      if (ready) return;
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    }
-  }
-
-  async prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation> {
-    if (mode === "wait") {
-      await this.waitForWorkbenchRuns();
-      return { ready: true, runningThreads: 0 };
-    }
-    return this.runLifecycle(async () => {
-      if (this.workbenchReloadPending) return { ready: true, runningThreads: 0 };
-      const runningThreads = this.runningWorkbenchThreadCount();
-      if (mode === "inspect") {
-        if (runningThreads === 0) this.workbenchReloadPending = true;
-        return { ready: runningThreads === 0, runningThreads };
-      }
-      if (mode !== "abort") throw new Error(`Unknown workbench reload mode: ${mode}`);
-      this.workbenchReloadPending = true;
-      if (this.attached.snapshot?.isStreaming) await this.attached.send({ command: "abort" });
-      await Promise.all(this.runningWorkbenchThreads().map((thread) => this.abortThread(thread)));
-      return { ready: true, runningThreads: 0 };
-    });
-  }
-
-  async releaseWorkbenchReload(): Promise<void> {
-    this.workbenchReloadPending = false;
-  }
+  prepareWorkbenchReload(mode: import("../shared/contracts.js").WorkbenchReloadMode): Promise<import("../shared/contracts.js").WorkbenchReloadPreparation> { return this.workbenchReload.prepare(mode); }
+  async releaseWorkbenchReload(): Promise<void> { this.workbenchReload.release(); }
 
   async reloadRuntime(): Promise<void> {
     return this.runLifecycle(async () => {
@@ -2778,32 +2731,12 @@ export class PiHost {
     });
   }
 
-  private async externalSessionShells(): Promise<UiSession[]> {
-    if (this.safeMode) return [];
-    const shells: UiSession[] = [];
-    for (const provider of this.backends.values()) {
-      let records: Awaited<ReturnType<HostRuntimeBackendProvider["listThreads"]>>;
-      try { records = await provider.listThreads(); } catch (error) {
-        this.log("runtime-backend.list.failed", `${provider.kind}: ${this.errorMessage(error)}`);
-        continue;
-      }
-      for (const record of records) {
-        const firstUser = record.messages.find((message) => message.role === "user");
-        shells.push({
-          id: record.threadId,
-          path: externalThreadPath(provider.kind, record.threadId),
-          title: cleanThreadTitle(safeSessionTitle(record.title) || firstSentence(visibleTitleText(firstUser?.text ?? ""))),
-          modifiedAt: record.updatedAt,
-          projectPath: record.cwd,
-          projectName: this.projectNameFor(record.cwd),
-          projectLabel: this.labelFor(record.cwd),
-          messageCount: record.messages.length,
-          backendKind: provider.kind,
-          ...(provider.kind === "claude-code" ? { modelProvider: "anthropic" } : {}),
-        });
-      }
-    }
-    return shells;
+  private externalSessionShells(): Promise<UiSession[]> {
+    return loadExternalSessionShells({
+      safeMode: this.safeMode, providers: this.backends.values(),
+      projectName: (cwd) => this.projectNameFor(cwd), projectLabel: (cwd) => this.labelFor(cwd),
+      onError: (provider, error) => this.log("runtime-backend.list.failed", `${provider.kind}: ${this.errorMessage(error)}`),
+    });
   }
 
   private async refreshThreadIndex(publish: boolean): Promise<ThreadIndexSnapshot> {
@@ -2902,7 +2835,7 @@ export class PiHost {
       projectLabel: this.labelFor(projectPath),
       messageCount: visibleMessages.length,
       backendKind: threadBackendKind(thread),
-      modelProvider: thread.backend.model()?.provider ?? (threadBackendKind(thread) === "claude-code" ? "anthropic" : undefined),
+      modelProvider: thread.backend.model()?.provider ?? this.backends.get(threadBackendKind(thread))?.modelProvider,
     }, existing, touch);
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishThreadShellSoon(shell);

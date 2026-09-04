@@ -479,6 +479,18 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+const toolOutputCache = new WeakMap<object, { content: unknown; output: string; totalBytes: number }>();
+
+function cachedToolOutput(record: object): { output: string; totalBytes: number } {
+  const content = (record as { content?: unknown }).content;
+  const cached = toolOutputCache.get(record);
+  if (cached && cached.content === content) return cached;
+  const output = textFromContent(content);
+  const value = { content, output, totalBytes: toolOutputByteLength(output) };
+  toolOutputCache.set(record, value);
+  return value;
+}
+
 /** Return one bounded page from the durable branch for the host read seam. */
 export function toolOutputPageForMessages(
   messages: readonly unknown[],
@@ -492,14 +504,14 @@ export function toolOutputPageForMessages(
     return value.role === "toolResult" && value.toolCallId === toolCallId;
   });
   if (!record || typeof record !== "object") return undefined;
-  const output = textFromContent((record as { content?: unknown }).content);
+  const { output, totalBytes } = cachedToolOutput(record);
   if (offset > output.length) throw new Error("Invalid tool output cursor.");
   const end = Math.min(output.length, offset + TOOL_OUTPUT_READ_PAGE_CHARACTERS);
   return {
     toolCallId,
     offset,
     output: output.slice(offset, end),
-    totalBytes: toolOutputByteLength(output),
+    totalBytes,
     ...(end < output.length ? { nextOffset: end } : {}),
   };
 }

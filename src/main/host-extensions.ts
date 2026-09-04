@@ -53,6 +53,8 @@ export interface HostBackendOpenContext {
 export interface HostRuntimeBackendProvider {
   readonly kind: ThreadBackendKind;
   readonly adapter: AgentRuntimeAdapter;
+  /** Provider identity used for the thread index when the backend has no selectable model. */
+  readonly modelProvider?: string;
   /** Every thread the backend persisted, for the index. */
   listThreads(): Promise<HostBackendThreadRecord[]>;
   lookup(threadId: string): Promise<HostBackendThreadRecord | undefined>;

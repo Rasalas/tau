@@ -49,8 +49,7 @@ import { preferences } from "./preferences";
 import { ProjectSourcesModal } from "./components/ProjectSources";
 import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
 import { Region, StatusLine } from "./components/Regions";
-import { ReloadCurtain, type ReloadPhase } from "./components/ReloadCurtain";
-import { ReloadConflictDialog } from "./components/ReloadConflictDialog";
+import { useWorkbenchReload } from "./use-workbench-reload";
 
 const noopSubscribe = () => () => {};
 const EMPTY_DOCUMENTS: { changes: UiWorkspaceChanges; editor?: UiEditor } = { changes: { files: [], added: 0, removed: 0 } };
@@ -259,8 +258,6 @@ export default function App() {
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   const [notice, setNoticeText] = useState<string>();
   const [noticeLevel, setNoticeLevel] = useState<"info" | "warning" | "error">("info");
-  const [reloadPhase, setReloadPhase] = useState<ReloadPhase>();
-  const [reloadConflictCount, setReloadConflictCount] = useState<number>();
   const setNotice = useCallback((message?: string, level: "info" | "warning" | "error" = "info") => {
     setNoticeLevel(level);
     setNoticeText(message);
@@ -1261,62 +1258,7 @@ export default function App() {
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
-  const applyPreparedReload = useCallback(async () => {
-    setReloadPhase("building");
-    try {
-      const result = await window.tau!.rebuildWorkbench();
-      if (!result.ok) {
-        setReloadPhase(undefined);
-        await window.tau!.releaseWorkbenchReload();
-        addEvent("workbench.build.failed", result.output);
-        setNotice(`Build failed: ${result.output.split("\n").filter(Boolean).at(-1) ?? "see Signals"}`);
-        return false;
-      }
-      setReloadPhase("extensions");
-      await window.tau!.reloadRuntime();
-      if (result.mainChanged) {
-        setReloadPhase("restarting");
-        await window.tau!.relaunchWorkbench();
-      } else {
-        await window.tau!.releaseWorkbenchReload();
-        window.location.reload();
-      }
-      return true;
-    } catch (error) {
-      setReloadPhase(undefined);
-      await window.tau!.releaseWorkbenchReload().catch(() => undefined);
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [addEvent, setNotice]);
-
-  const reloadWorkbench = useCallback(async () => {
-    if (!requireHost("Reloading")) return false;
-    try {
-      const preparation = await window.tau!.prepareWorkbenchReload("inspect");
-      if (!preparation.ready) {
-        setReloadConflictCount(preparation.runningThreads);
-        return true;
-      }
-      return applyPreparedReload();
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [applyPreparedReload, requireHost, setNotice]);
-
-  const continueConflictedReload = useCallback(async (mode: "wait" | "abort") => {
-    setReloadConflictCount(undefined);
-    if (mode === "wait") setNotice("Reload queued until running threads finish.");
-    try {
-      await window.tau!.prepareWorkbenchReload(mode);
-      setNotice(undefined);
-      await applyPreparedReload();
-    } catch (error) {
-      await window.tau!.releaseWorkbenchReload().catch(() => undefined);
-      setNotice(errorMessage(error));
-    }
-  }, [applyPreparedReload, setNotice]);
+  const { reloadWorkbench, reloadUi } = useWorkbenchReload({ requireHost, addEvent, setNotice });
 
   const actions: WorkbenchActions = useMemo(() => ({
     openPanel,
@@ -1828,12 +1770,6 @@ export default function App() {
     settingsPage, setSettingsPage, notice, noticeLevel, setNotice, activeOverlayId,
     setActiveOverlayId,
   }} />
-    {reloadConflictCount !== undefined ? <ReloadConflictDialog
-      runningThreads={reloadConflictCount}
-      onCancel={() => setReloadConflictCount(undefined)}
-      onWait={() => void continueConflictedReload("wait")}
-      onAbort={() => void continueConflictedReload("abort")}
-    /> : null}
-    {reloadPhase ? <ReloadCurtain phase={reloadPhase} /> : null}
+    {reloadUi}
   </>;
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findPiBridge, PiBridgeClient } from "../../src/main/pi-bridge-client.js";
 import type { PiBridgeDescriptor } from "../../src/shared/pi-bridge-protocol.js";
@@ -15,6 +15,13 @@ import tauSessionBridge, {
   toolOutputPageForMessages,
 } from "../extensions/tau-session-bridge.js";
 import { createNewThreadRequestId } from "../../src/shared/contracts.js";
+
+const inheritedHostRuntime = process.env.TAU_HOST_RUNTIME;
+beforeEach(() => { delete process.env.TAU_HOST_RUNTIME; });
+afterEach(() => {
+  if (inheritedHostRuntime === undefined) delete process.env.TAU_HOST_RUNTIME;
+  else process.env.TAU_HOST_RUNTIME = inheritedHostRuntime;
+});
 
 const branch = Array.from({ length: 25 }, (_, turn) => [
   { role: "user", text: `request ${turn}` },

@@ -293,6 +293,7 @@ export interface ToolPresentation {
 export type ExtensionOption =
   | { id: string; kind: "toggle"; label: string; defaultValue: boolean }
   | { id: string; kind: "chips"; label: string; values: string[] }
+  | { id: string; kind: "select"; label: string; values: Array<{ value: string; label: string }>; defaultValue: string }
   /** A model choice, stored as `provider/id` under the extension's values; unset means the thread's model. */
   | { id: string; kind: "model"; label: string };
 

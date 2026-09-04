@@ -178,6 +178,17 @@ function ExtensionPage({
                   </div>
                 );
               }
+              if (option.kind === "select") {
+                const value = state.extensionValues[`${summary.id}.${option.id}`] || option.defaultValue;
+                return (
+                  <label className="option-select" key={option.id}>
+                    <span>{option.label}</span>
+                    <select disabled={!summary.active} value={value} onChange={(event) => preferences.setValue(summary.id, option.id, event.target.value)}>
+                      {option.values.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                    </select>
+                  </label>
+                );
+              }
               const checked = state.extensionOptions[`${summary.id}.${option.id}`] ?? option.defaultValue;
               return (
                 <button

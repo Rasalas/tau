@@ -27,6 +27,7 @@ import { titleGeneratorExtension } from "./title-generator";
 import { worktreeNamesExtension } from "./worktree-names";
 import { piUiExtension } from "./pi-ui";
 import { questionnaireExtension } from "./questionnaire-kit";
+import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages";
 
 let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
@@ -140,11 +141,13 @@ export const reviewExtension: DesktopExtension = {
     plugin.registerOverlay({ id: REVIEW_OVERLAY, Component: ReviewOverlay });
     plugin.registerOptions([
       { id: "split-diff", kind: "toggle", label: "Open diffs in split view", defaultValue: false },
-      { id: "propose-message", kind: "toggle", label: "Propose a commit message from the diff", defaultValue: true },
+      ...COMMIT_MESSAGE_OPTIONS,
     ]);
+    const disposeCommitMessages = registerCommitMessages(plugin);
     plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => workspaceStore.openReview() });
     plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" });
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel("changes") });
+    return disposeCommitMessages;
   },
 };
 

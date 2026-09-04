@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { FileNode, UiEditor, UiWorkspaceChanges, WorkspaceInfo } from "../../shared/workspace-kit-types";
+import type { FileNode, UiEditor, UiFileDiff, UiWorkspaceChanges, WorkspaceInfo } from "../../shared/workspace-kit-types";
 import type { HostActionResult } from "../../shared/host-protocol";
 import type { WorkbenchActions } from "../extension-system";
 import { errorMessage } from "../error-message";
@@ -44,6 +44,11 @@ export interface WorktreeNameRequest {
 }
 
 export type WorktreeNamer = (request: WorktreeNameRequest) => Promise<string>;
+export type CommitMessageSuggester = (request: {
+  changes: UiWorkspaceChanges;
+  diffs: readonly UiFileDiff[];
+  actions: WorkbenchActions;
+}) => Promise<string>;
 
 const INITIAL: WorkspaceKitState = {
   draftPending: false,
@@ -88,6 +93,7 @@ export class WorkspaceStore {
   private workspaceRequest = 0;
   private sessionId?: string;
   private namer?: WorktreeNamer;
+  private commitMessageSuggester?: CommitMessageSuggester;
 
   getSnapshot = (): WorkspaceKitState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -360,6 +366,17 @@ export class WorkspaceStore {
       this.notify(errorMessage(error));
       return undefined;
     }
+  }
+
+  registerCommitMessageSuggester(suggester: CommitMessageSuggester): () => void {
+    this.commitMessageSuggester = suggester;
+    return () => { if (this.commitMessageSuggester === suggester) this.commitMessageSuggester = undefined; };
+  }
+
+  async suggestCommitMessage(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined> {
+    if (!this.commitMessageSuggester || !this.actions) return undefined;
+    try { return await this.commitMessageSuggester({ changes, diffs, actions: this.actions }); }
+    catch (error) { this.notify(errorMessage(error)); return undefined; }
   }
 
   switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => workspaceKit.switchRef(ref)); }
