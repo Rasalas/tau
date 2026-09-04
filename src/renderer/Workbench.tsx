@@ -165,6 +165,7 @@ export interface WorkbenchComposer {
   holds: number;
   prompts: ExtensionUiPrompt[];
   submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
+  abort(sessionId?: string): void;
   cancelQueued(id: string): void;
   steerQueued(id: string): void;
   reorderQueue(id: string, toIndex: number): void;
@@ -472,7 +473,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   const tools = useSyncExternalStore(view.subscribeToTools, view.getToolView).tools;
   const {
-    scopeStore, seed, textareaRef, attachmentRef, queue, holds, prompts, submit,
+    scopeStore, seed, textareaRef, attachmentRef, queue, holds, prompts, submit, abort,
     cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
   const contextBreakdown = useMemo(
@@ -490,7 +491,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     textareaRef={textareaRef}
     attachmentRef={attachmentRef}
     onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
-    onAbort={() => void window.tau?.abort(snapshot?.sessionId)}
+    onAbort={() => abort(snapshot?.sessionId)}
     onCancelQueued={cancelQueued}
     onSteerQueued={steerQueued}
     onReorderQueue={reorderQueue}

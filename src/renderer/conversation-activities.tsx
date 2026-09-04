@@ -20,6 +20,7 @@ export interface ConversationActivityInput {
   recoverThread(): Promise<unknown>;
   copyToolOutput(tool: UiToolRun): Promise<void>;
   abortSessionId?: string;
+  abort(sessionId?: string): void;
 }
 
 const NO_TOOLS: readonly UiToolRun[] = [];
@@ -30,7 +31,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
   const {
     pendingNewThread, activityTools, turnActivityHistory, conversationSnapshot, toolAnchorId,
     visibleToolAnchorId, threadPrompts, registry, registryVersion, viewStore,
-    recoverThread, copyToolOutput, abortSessionId,
+    recoverThread, copyToolOutput, abortSessionId, abort,
   } = input;
   const conversationActivityTools: readonly UiToolRun[] = pendingNewThread ? NO_TOOLS : activityTools;
   const conversationActivityHistory = pendingNewThread
@@ -90,11 +91,11 @@ export function useConversationActivities(input: ConversationActivityInput) {
         streaming={conversationSnapshot?.isStreaming}
         waiting={conversationPrompts.length > 0}
         onRecover={() => void recoverThread()}
-        onStop={() => void window.tau?.abort(abortSessionId)}
+        onStop={() => abort(abortSessionId)}
         onCopyOutput={copyToolOutput}
       />,
     }] : []),
-  ], [abortSessionId, conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, visibleToolAnchorId]);
+  ], [abort, abortSessionId, conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, visibleToolAnchorId]);
 
   return { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities };
 }

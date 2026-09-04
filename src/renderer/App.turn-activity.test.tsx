@@ -1,24 +1,26 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClientTurnIdentity, HostEvent, TauDesktopApi, UiToolRun } from "../shared/contracts";
-import App from "./App";
+import type { ClientTurnIdentity, UiToolRun } from "../shared/contracts";
+import { setHostClient } from "./host-client-context";
 import { preferences } from "./preferences";
+import { createFakeHostClient, type FakeHostClient } from "./test-support/fake-host-client";
+import { renderApp } from "./test-support/render-app";
 import { writeCachedTurnActivity } from "./turn-activity";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); setHostClient(undefined); });
 
 function tool(id: string): UiToolRun {
   return { id, name: "read", args: { path: `${id}.ts` }, status: "done", startedAt: 1, endedAt: 2 };
 }
 
 describe("last-turn activity", () => {
-  let publish: (event: HostEvent) => void;
+  let client: FakeHostClient;
 
   beforeEach(() => {
     localStorage.clear();
-    window.tau = {
+    client = createFakeHostClient({
       platform: "darwin",
       bootstrap: async () => ({
         version: 1,
@@ -30,29 +32,29 @@ describe("last-turn activity", () => {
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
-      onHostEvent: (listener: (event: HostEvent) => void) => { publish = listener; return () => {}; },
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-    } as unknown as TauDesktopApi;
+    });
+    setHostClient(client);
   });
 
   it("does not unsettle a thread for a recovered run without a new user message", async () => {
     preferences.unsettle("session");
     preferences.toggleSettled("session");
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
-      publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({ type: "agent-status", sessionId: "session", running: false });
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "agent-status", sessionId: "session", running: false });
     });
     expect(preferences.isSettled("session")).toBe(true);
 
-    act(() => publish({
+    act(() => client.emit({
       type: "user-message",
       sessionId: "session",
       message: { id: "new-work", role: "user", text: "new work", timestamp: Date.now() },
@@ -61,8 +63,8 @@ describe("last-turn activity", () => {
   });
 
   it("keeps a settled thread settled when the host replays its existing user message", async () => {
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -74,10 +76,10 @@ describe("last-turn activity", () => {
     };
     preferences.unsettle("session");
     preferences.toggleSettled("session");
-    render(<App />);
+    renderApp(client);
     await screen.findByText("existing work");
 
-    act(() => publish({
+    act(() => client.emit({
       type: "user-message",
       sessionId: "session",
       message: { id: "user-1-0", role: "user", text: "existing work", timestamp: 1 },
@@ -87,8 +89,8 @@ describe("last-turn activity", () => {
   });
 
   it("keeps an uncached settled thread settled when the host replays its existing user message", async () => {
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -111,10 +113,10 @@ describe("last-turn activity", () => {
     };
     preferences.unsettle("background-session");
     preferences.toggleSettled("background-session");
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
-    act(() => publish({
+    act(() => client.emit({
       type: "user-message",
       sessionId: "background-session",
       message: { id: "replayed-user", role: "user", text: "existing work", timestamp: 1 },
@@ -124,17 +126,17 @@ describe("last-turn activity", () => {
   });
 
   it("keeps a tool without a terminal frame visibly interrupted after settling", async () => {
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
-      publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({
         type: "tool-start",
         sessionId: "session",
         tool: { ...tool("stalled"), status: "running", endedAt: undefined },
       });
-      publish({ type: "agent-status", sessionId: "session", running: false });
+      client.emit({ type: "agent-status", sessionId: "session", running: false });
     });
 
     expect(await screen.findByText("1 tool call interrupted")).toBeTruthy();
@@ -143,16 +145,16 @@ describe("last-turn activity", () => {
   });
 
   it("does not persist renderer-derived completion when agent status settles", async () => {
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
-      publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("settled"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", sessionId: "session", tool: tool("settled") });
-      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("failed"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", sessionId: "session", tool: { ...tool("failed"), status: "error" } });
-      publish({ type: "agent-status", sessionId: "session", running: false });
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("settled"), status: "running", endedAt: undefined } });
+      client.emit({ type: "tool-end", sessionId: "session", tool: tool("settled") });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("failed"), status: "running", endedAt: undefined } });
+      client.emit({ type: "tool-end", sessionId: "session", tool: { ...tool("failed"), status: "error" } });
+      client.emit({ type: "agent-status", sessionId: "session", running: false });
     });
 
     const bootstrapCache = localStorage.getItem("tau.bootstrap-cache.v6") ?? "";
@@ -166,8 +168,8 @@ describe("last-turn activity", () => {
       baseline: { files: [], added: 0, removed: 0 },
       tools: [{ id: "tool", name: "read", args: {}, status: "running", startedAt: 1 }],
     });
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -180,19 +182,19 @@ describe("last-turn activity", () => {
       };
     };
 
-    render(<App />);
+    renderApp(client);
     expect(await screen.findByText("Used 1 tool")).toBeTruthy();
     expect(screen.queryByText(/1 running/)).toBeNull();
   });
 
   it("does not mount virtual rows for tool-only assistant messages", async () => {
-    const view = render(<App />);
+    const view = renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
-    act(() => publish({ type: "assistant-start", sessionId: "session", id: "tool-only", timestamp: 1 }));
+    act(() => client.emit({ type: "assistant-start", sessionId: "session", id: "tool-only", timestamp: 1 }));
     expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(0);
 
-    act(() => publish({
+    act(() => client.emit({
       type: "assistant-end",
       sessionId: "session",
       message: { id: "tool-only", role: "assistant", text: "", timestamp: 1 },
@@ -201,8 +203,8 @@ describe("last-turn activity", () => {
   });
 
   it("keeps working activity below a steering message", async () => {
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -222,7 +224,7 @@ describe("last-turn activity", () => {
       };
     };
 
-    const view = render(<App />);
+    const view = renderApp(client);
     await screen.findByText("fahre bitte fort");
 
     const rows = Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent);
@@ -234,8 +236,8 @@ describe("last-turn activity", () => {
   });
 
   it("keeps completed tools between the user prompt and the final reply", async () => {
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -245,19 +247,19 @@ describe("last-turn activity", () => {
         },
       };
     };
-    const view = render(<App />);
+    const view = renderApp(client);
     await screen.findByText("Do the work");
 
     act(() => {
-      publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("one"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", sessionId: "session", tool: tool("one") });
-      publish({
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("one"), status: "running", endedAt: undefined } });
+      client.emit({ type: "tool-end", sessionId: "session", tool: tool("one") });
+      client.emit({
         type: "assistant-end",
         sessionId: "session",
         message: { id: "assistant", role: "assistant", text: "Finished", timestamp: 2 },
       });
-      publish({ type: "agent-status", sessionId: "session", running: false });
+      client.emit({ type: "agent-status", sessionId: "session", running: false });
     });
 
     await screen.findByText("Finished");
@@ -268,7 +270,7 @@ describe("last-turn activity", () => {
     ]);
 
     act(() => {
-      publish({
+      client.emit({
         type: "host-update",
         update: {
           version: 1,
@@ -290,7 +292,7 @@ describe("last-turn activity", () => {
           },
         },
       });
-      publish({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
     });
     expect(await screen.findByText("Used 1 tool")).toBeTruthy();
     expect(screen.queryByText("Completed")).toBeNull();
@@ -302,8 +304,8 @@ describe("last-turn activity", () => {
       baseline: { files: [], added: 0, removed: 0 },
       tools: [],
     });
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -313,13 +315,13 @@ describe("last-turn activity", () => {
         },
       };
     };
-    window.tau!.invokeHostExtension = workspaceHostStub({ getChanges: async () => ({
+    client.invokeHostExtension = workspaceHostStub({ getChanges: async () => ({
       files: [{ path: "src/App.tsx", name: "App.tsx", directory: "src", status: "modified", added: 4, removed: 1 }],
       added: 4,
       removed: 1,
     }) });
 
-    const view = render(<App />);
+    const view = renderApp(client);
     await screen.findByText("1 changed file");
 
     const dock = view.container.querySelector(".conversation-files-dock");
@@ -331,12 +333,12 @@ describe("last-turn activity", () => {
     const followUp = vi.fn(async () => undefined);
     const steer = vi.fn(async () => undefined);
     const sendPrompt = vi.fn(async () => undefined);
-    window.tau!.followUp = followUp;
-    window.tau!.steer = steer;
-    window.tau!.sendPrompt = sendPrompt;
-    const view = render(<App />);
+    client.followUp = followUp;
+    client.steer = steer;
+    client.sendPrompt = sendPrompt;
+    const view = renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "after this turn" } });
@@ -349,7 +351,7 @@ describe("last-turn activity", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(view.container.querySelector(".transcript")?.textContent ?? "").not.toContain("after this turn");
 
-    act(() => publish({ type: "agent-status", sessionId: "session", running: false }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
       "after this turn",
       [],
@@ -363,11 +365,11 @@ describe("last-turn activity", () => {
 
   it("sends only the head of the queue when the run settles and keeps the rest waiting", async () => {
     const sendPrompt = vi.fn(async (..._args: unknown[]) => undefined);
-    window.tau!.followUp = vi.fn(async () => undefined);
-    window.tau!.sendPrompt = sendPrompt;
-    render(<App />);
+    client.followUp = vi.fn(async () => undefined);
+    client.sendPrompt = sendPrompt;
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u);
     fireEvent.change(composer, { target: { value: "first" } });
@@ -377,25 +379,25 @@ describe("last-turn activity", () => {
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
 
-    act(() => publish({ type: "agent-status", sessionId: "session", running: false }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(1));
     expect(sendPrompt.mock.calls[0]?.[0]).toBe("first");
-    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
     await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("span")?.textContent)).toEqual(["second"]));
     expect(sendPrompt).toHaveBeenCalledTimes(1);
 
-    act(() => publish({ type: "agent-status", sessionId: "session", running: false }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(2));
     expect(sendPrompt.mock.calls[1]?.[0]).toBe("second");
   });
 
   it("steers the head of the queue with Cmd+Enter on an empty field or its Steer button", async () => {
     const steer = vi.fn(async () => undefined);
-    window.tau!.followUp = vi.fn(async () => undefined);
-    window.tau!.steer = steer;
-    render(<App />);
+    client.followUp = vi.fn(async () => undefined);
+    client.steer = steer;
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u);
     fireEvent.change(composer, { target: { value: "first" } });
@@ -417,11 +419,11 @@ describe("last-turn activity", () => {
 
   it("steers with Cmd+Enter and shows the message in the transcript immediately", async () => {
     const steer = vi.fn(async () => undefined);
-    window.tau!.followUp = vi.fn(async () => undefined);
-    window.tau!.steer = steer;
-    render(<App />);
+    client.followUp = vi.fn(async () => undefined);
+    client.steer = steer;
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    act(() => publish({ type: "agent-status", sessionId: "session", running: true }));
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u);
     fireEvent.change(composer, { target: { value: "use this now" } });
@@ -446,8 +448,8 @@ describe("last-turn activity", () => {
       startedAt: 1,
       endedAt: 2,
     };
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -467,53 +469,55 @@ describe("last-turn activity", () => {
         },
       };
     };
-    window.tau!.sendPrompt = vi.fn(() => new Promise<void>(() => {}));
+    client.sendPrompt = vi.fn(() => new Promise<void>(() => {}));
 
-    render(<App />);
+    renderApp(client);
     await screen.findByText("old reply");
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "new request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    const newPrompt = (await screen.findAllByText("new request")).find((element) => element.tagName === "P");
+    // The composer keeps the text until sendPrompt settles (it never does
+    // here); wait for the transcript's own paragraph, not the textarea echo.
+    const newPrompt = await screen.findByText("new request", { selector: "p" });
     expect(newPrompt).toBeDefined();
     expect(newPrompt?.closest(".virtual-transcript-row")?.textContent).not.toContain("Ran 1 command");
     expect(screen.getByText("old request").closest(".virtual-transcript-row")?.textContent).toContain("Ran 1 command");
   });
 
   it("aggregates steering into the current run and resets on the next run", async () => {
-    render(<App />);
+    renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
 
     act(() => {
-      publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("one"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", sessionId: "session", tool: tool("one") });
-      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("two"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", sessionId: "session", tool: tool("two") });
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("one"), status: "running", endedAt: undefined } });
+      client.emit({ type: "tool-end", sessionId: "session", tool: tool("one") });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("two"), status: "running", endedAt: undefined } });
+      client.emit({ type: "tool-end", sessionId: "session", tool: tool("two") });
     });
     expect(await screen.findByText(/Working · Used 2 tools/u)).toBeTruthy();
 
     act(() => {
-      publish({ type: "queue", sessionId: "session", steering: ["keep going"], followUp: [] });
-      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("three"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", sessionId: "session", tool: tool("three") });
+      client.emit({ type: "queue", sessionId: "session", steering: ["keep going"], followUp: [] });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("three"), status: "running", endedAt: undefined } });
+      client.emit({ type: "tool-end", sessionId: "session", tool: tool("three") });
     });
     expect(await screen.findByText(/Working · Used 3 tools/u)).toBeTruthy();
 
     act(() => {
-      publish({ type: "agent-status", sessionId: "session", running: false });
-      publish({ type: "agent-status", sessionId: "session", running: true });
-      publish({ type: "tool-start", sessionId: "session", tool: { ...tool("four"), status: "running", endedAt: undefined } });
-      publish({ type: "tool-end", sessionId: "session", tool: tool("four") });
+      client.emit({ type: "agent-status", sessionId: "session", running: false });
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("four"), status: "running", endedAt: undefined } });
+      client.emit({ type: "tool-end", sessionId: "session", tool: tool("four") });
     });
     await waitFor(() => expect(screen.queryByText(/Used 3 tools/u)).toBeNull());
     expect(screen.getByText(/Working · Used 1 tool/u)).toBeTruthy();
   });
 
   it("renders completed activity at each persisted turn anchor", async () => {
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       return {
         ...bootstrap,
@@ -533,7 +537,7 @@ describe("last-turn activity", () => {
       };
     };
 
-    const view = render(<App />);
+    const view = renderApp(client);
     await screen.findByText("second reply");
     const activityRows = view.container.querySelectorAll(".inline-transcript-activity");
     expect(activityRows).toHaveLength(2);
@@ -544,8 +548,8 @@ describe("last-turn activity", () => {
   });
 
   it("does not duplicate the live group when its anchor is an assistant message", async () => {
-    const originalBootstrap = window.tau!.bootstrap;
-    window.tau!.bootstrap = async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
       const bootstrap = await originalBootstrap();
       const currentTool = { ...tool("current"), status: "running" as const, endedAt: undefined };
       return {
@@ -568,7 +572,7 @@ describe("last-turn activity", () => {
       };
     };
 
-    const view = render(<App />);
+    const view = renderApp(client);
     await screen.findByText("I will inspect this");
     expect(view.container.querySelectorAll(".inline-transcript-activity")).toHaveLength(1);
   });

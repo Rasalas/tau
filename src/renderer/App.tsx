@@ -42,7 +42,7 @@ import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import { TaskProgress } from "./components/TaskProgress";
 import { ProjectPicker } from "./components/ProjectPicker";
-import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
+import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
 import { bundledExtensions } from "./extensions";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { preferences } from "./preferences";
@@ -108,6 +108,7 @@ import {
 } from "./app-state";
 import { ComposerHost, LiveStatus, useTailScroll } from "./components/ComposerHost";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
+import { useHostClient } from "./host-client-context";
 import { ThreadViewStore } from "./thread-view-store";
 import { Workbench, type WorkbenchComposer, type WorkbenchLayout, type WorkbenchModel, type WorkbenchThread } from "./Workbench";
 import { useConversationActivities } from "./conversation-activities";
@@ -115,10 +116,11 @@ import { useConversationActivities } from "./conversation-activities";
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 
 export default function App() {
+  const client = useHostClient();
   const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
   const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
   const [registry] = useState(() => {
-    const value = new ExtensionRegistry();
+    const value = new ExtensionRegistry(hostExtensionBridge(client));
     bundledExtensions.forEach((extension) => {
       value.addKnown(extension);
       if (!safeMode && preferences.isExtensionEnabled(extension.id)) value.activate(extension);
@@ -134,8 +136,8 @@ export default function App() {
   const [runtimeExtensions] = useState(() => {
     installSharedModules();
     return new RuntimeExtensions(registry, {
-      load: (cwd, sharedExports) => window.tau?.loadDesktopExtensions
-        ? window.tau.loadDesktopExtensions(cwd, sharedExports)
+      load: (cwd, sharedExports) => client
+        ? client.loadDesktopExtensions(cwd, sharedExports)
         : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
       isEnabled: (id) => preferences.isExtensionEnabled(id),
       notify: (message) => viewStore.setNotice(message),
@@ -226,6 +228,7 @@ export default function App() {
   const submitRef = useRef<SubmitPrompt>(async () => ({ accepted: false, message: "The composer is not ready yet." }));
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   const { queue, enqueue: enqueueFollowUp, cancelQueued, steerQueued, reorderQueue } = useFollowUpQueue({
+    client,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
     isRunning: isVisibleThreadRunning,
     runningThreadIds: threadActivity.runningThreadIds,
@@ -664,11 +667,12 @@ export default function App() {
   // particular, do not expose the last real thread's worktree in the chrome.
   const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
   useEffect(() => {
-    if (!workspaceCwd || !window.tau) return;
+    if (!workspaceCwd || !client) return;
     void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
-  }, [runtimeExtensions, workspaceCwd]);
+  }, [client, runtimeExtensions, workspaceCwd]);
 
   const hostEventTargets = useMemo<HostEventTargets>(() => ({
+    client,
     registry,
     threadStore,
     view: viewStore,
@@ -680,18 +684,18 @@ export default function App() {
     promoteRecoveryToSession,
     applyHostUpdate,
     applyThreadIndex,
-  }), [applyHostUpdate, applyThreadIndex, currentDraftKey, newThreadRecoveries, promoteRecoveryToSession, registry, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, viewStore]);
+  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, newThreadRecoveries, promoteRecoveryToSession, registry, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, viewStore]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
   useEffect(() => {
     let unsubscribe = () => {};
-    if (window.tau) {
-      unsubscribe = window.tau.onHostEvent(handleHostEvent);
+    if (client) {
+      unsubscribe = client.onHostEvent(handleHostEvent);
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
-      void window.tau.syncExtensionUi?.().catch(() => undefined);
+      void client.syncExtensionUi().catch(() => undefined);
       const bootstrapRequest = transcriptHistory.beginBootstrap();
-      window.tau.bootstrap().then((bootstrap) => {
+      client.bootstrap().then((bootstrap) => {
         if (!transcriptHistory.isCurrentBootstrap(bootstrapRequest)) return;
         applyThreadIndex(bootstrap.threadIndex);
         const current = hostSnapshotFromThreadDetail({
@@ -723,7 +727,7 @@ export default function App() {
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
     return unsubscribe;
-  }, [addEvent, applySnapshot, applyThreadIndex, handleHostEvent, transcriptHistory]);
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, transcriptHistory]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {
@@ -743,9 +747,9 @@ export default function App() {
   }, [snapshot?.sessionId]);
 
   const loadTranscriptPage = useCallback(async (sessionId: string, cursor: HostTranscriptCursor) => {
-    if (!window.tau) throw new Error("Transcript history requires the Electron host.");
-    return window.tau.loadTranscript(sessionId, cursor);
-  }, []);
+    if (!client) throw new Error("Transcript history requires the Electron host.");
+    return client.loadTranscript(sessionId, cursor);
+  }, [client]);
 
   useTailScroll(transcriptRef, [messages, tools], snapshot?.sessionId, transcriptHistory.preserveScrollRef);
 
@@ -798,10 +802,14 @@ export default function App() {
   }, [applyActionResult, composerScopeStore, snapshot?.cwd]);
 
   const requireHost = useCallback((what: string): boolean => {
-    if (window.tau) return true;
+    if (client) return true;
     setNotice(`${what} requires the Electron host`);
     return false;
-  }, []);
+  }, [client]);
+
+  // Shared by the composer and the activity rail's stop button, so neither
+  // recreates it every render and defeats a downstream memo.
+  const abortThread = useCallback((sessionId?: string) => { void client?.abort(sessionId); }, [client]);
 
   /** Bind a detached delivery to its runtime thread once the host names it. */
   const rehomeDetachedDelivery = useCallback((clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string) => {
@@ -848,7 +856,7 @@ export default function App() {
       return true;
     }
     try {
-      const result = await window.tau!.openProject(path);
+      const result = await client!.openProject(path);
       if (pending) discardPendingNewThread(pending);
       applyHostResult(result, options?.inheritDraft ?? false);
       return true;
@@ -861,7 +869,7 @@ export default function App() {
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
     try {
-      applyActionResult(await window.tau!.removeProject(project.path));
+      applyActionResult(await client!.removeProject(project.path));
     } catch (error) {
       setNotice(errorMessage(error));
     }
@@ -906,7 +914,7 @@ export default function App() {
     }
     const transition = transcriptHistory.beginThreadSwitch(target?.id);
     try {
-      const next = await window.tau!.switchSession(path);
+      const next = await client!.switchSession(path);
       if (!applyActionResult(next, transition)) return false;
       threadStore.markRead(target?.id ?? "");
       addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
@@ -922,7 +930,7 @@ export default function App() {
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
     try {
-      applyActionResult(await window.tau!.renameThread(
+      applyActionResult(await client!.renameThread(
         title,
         threadStore.getSnapshot().activeThreadId,
       ));
@@ -936,7 +944,7 @@ export default function App() {
   const setModel = useCallback(async (provider: string, id: string) => {
     if (!requireHost("Model selection")) return;
     try {
-      applyActionResult(await window.tau!.setModel(provider, id));
+      applyActionResult(await client!.setModel(provider, id));
     } catch (error) {
       setNotice(errorMessage(error));
     }
@@ -945,7 +953,7 @@ export default function App() {
   const setThinking = useCallback(async (level: string) => {
     if (!requireHost("Thinking level")) return;
     try {
-      applyActionResult(await window.tau!.setThinkingLevel(level));
+      applyActionResult(await client!.setThinkingLevel(level));
     } catch (error) {
       setNotice(errorMessage(error));
     }
@@ -955,7 +963,7 @@ export default function App() {
     if (!requireHost("Thread recovery")) return;
     try {
       const sessionId = snapshot?.sessionId;
-      applyActionResult(await window.tau!.recoverThread());
+      applyActionResult(await client!.recoverThread());
       // The stalled row is restored from a renderer-side cache, so clearing the
       // session alone would leave the ghost on screen.
       if (sessionId) clearCachedTurnActivity(window.localStorage, sessionId);
@@ -970,7 +978,7 @@ export default function App() {
   const compactContext = useCallback(async () => {
     if (!requireHost("Compaction")) return;
     try {
-      applyActionResult(await window.tau!.compactContext());
+      applyActionResult(await client!.compactContext());
       setNotice("Context compacted.");
     } catch (error) {
       setNotice(errorMessage(error));
@@ -979,9 +987,9 @@ export default function App() {
 
   /** Pi's `!command` for extensions: runs in the active thread's project. */
   const runShellAction = useCallback(async (command: string, includeInContext: boolean): Promise<ShellActionResult> => {
-    if (!window.tau) throw new Error("Project actions require the Electron host");
-    return window.tau.runShellAction(command, includeInContext, snapshot?.cwd);
-  }, [snapshot?.cwd]);
+    if (!client) throw new Error("Project actions require the Electron host");
+    return client.runShellAction(command, includeInContext, snapshot?.cwd);
+  }, [client, snapshot?.cwd]);
 
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -1001,8 +1009,8 @@ export default function App() {
     const prompt = viewStore.getUiPrompts().find((entry) => entry.id === id);
     if (prompt) registry.notifyPromptAnswered(prompt, answer);
     viewStore.setUiPrompts((current) => current.filter((entry) => entry.id !== id));
-    void window.tau?.answerExtensionUi(id, answer);
-  }, [registry]);
+    void client?.answerExtensionUi(id, answer);
+  }, [client, registry]);
 
   const settleActiveThread = useCallback(() => {
     const activeId = threadStore.getSnapshot().activeThreadId;
@@ -1012,9 +1020,9 @@ export default function App() {
 
   const copyThreadValue = useCallback(async (kind: "chat" | "path" | "thread-id") => {
     if (kind === "chat") {
-      if (!snapshot?.sessionId || !window.tau) return;
+      if (!snapshot?.sessionId || !client) return;
       try {
-        await window.tau.copyThreadMarkdown(snapshot.sessionId);
+        await client.copyThreadMarkdown(snapshot.sessionId);
         setNotice("Chat copied as Markdown.");
       } catch (error) {
         setNotice(errorMessage(error));
@@ -1027,34 +1035,34 @@ export default function App() {
       return;
     }
     try {
-      await window.tau?.copyText(value);
+      await client?.copyText(value);
       setNotice(`${kind === "path" ? "Path" : "Thread ID"} copied.`);
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, [snapshot?.cwd, snapshot?.sessionId]);
+  }, [client, snapshot?.cwd, snapshot?.sessionId]);
 
   const copyMessage = useCallback(async (message: UiMessage) => {
     try {
       const copyText = message.role === "user"
         ? message.skill?.copyText ?? visibleUserMessageText(message.text)
         : message.text;
-      await window.tau?.copyText(copyText);
+      await client?.copyText(copyText);
       setNotice("Message copied.");
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, []);
+  }, [client]);
 
   const copyToolOutput = useCallback(async (tool: UiToolRun) => {
-    if (!snapshot?.sessionId || !window.tau) {
+    if (!snapshot?.sessionId || !client) {
       setNotice("Tool output is unavailable.");
       return;
     }
     try {
-      const result = await window.tau.readToolOutput(snapshot.sessionId, tool.id);
+      const result = await client.readToolOutput(snapshot.sessionId, tool.id);
       if (!result) throw new Error("The complete tool output is no longer available.");
-      await window.tau.copyText(result.output);
+      await client.copyText(result.output);
       setNotice(result.truncated
         ? "Tool output exceeded the read limit; the bounded result was copied."
         : "Full tool output copied.");
@@ -1067,7 +1075,7 @@ export default function App() {
     if (!message.sourceEntryId || !snapshot?.sessionId || !requireHost("Fork thread")) return;
     try {
       setNotice("Forking thread…");
-      applyActionResult(await window.tau!.forkThread(message.sourceEntryId, snapshot.sessionId));
+      applyActionResult(await client!.forkThread(message.sourceEntryId, snapshot.sessionId));
     } catch (error) {
       setNotice(errorMessage(error));
     }
@@ -1079,14 +1087,14 @@ export default function App() {
   const openThreadTree = useCallback((mode: ThreadTreeMode = "navigate") => {
     if (!requireHost("Thread tree")) return;
     setThreadTreeModal({ mode, busy: false });
-    window.tau!.threadTree(snapshot?.sessionId)
+    client!.threadTree(snapshot?.sessionId)
       .then((tree) => setThreadTreeModal((current) => current && { ...current, tree }))
       .catch((error) => setThreadTreeModal((current) => current && { ...current, error: errorMessage(error) }));
   }, [requireHost, snapshot?.sessionId]);
   const navigateThreadTree = useCallback(async (entryId: string, summarize: boolean) => {
     setThreadTreeModal((current) => current && { ...current, busy: true, error: undefined });
     try {
-      const result = await window.tau!.navigateThreadTree(entryId, { summarize }, snapshot?.sessionId);
+      const result = await client!.navigateThreadTree(entryId, { summarize }, snapshot?.sessionId);
       if (result.cancelled) {
         setThreadTreeModal((current) => current && { ...current, busy: false });
         return;
@@ -1102,7 +1110,7 @@ export default function App() {
   const forkFromTree = useCallback(async (entryId: string) => {
     setThreadTreeModal((current) => current && { ...current, busy: true, error: undefined });
     try {
-      applyActionResult(await window.tau!.forkThread(entryId, snapshot?.sessionId));
+      applyActionResult(await client!.forkThread(entryId, snapshot?.sessionId));
       setThreadTreeModal(undefined);
     } catch (error) {
       setThreadTreeModal((current) => current && { ...current, busy: false, error: errorMessage(error) });
@@ -1112,7 +1120,7 @@ export default function App() {
     if (!requireHost("Duplicate thread")) return false;
     try {
       setNotice("Duplicating thread…");
-      applyActionResult(await window.tau!.duplicateThread(snapshot?.sessionId));
+      applyActionResult(await client!.duplicateThread(snapshot?.sessionId));
       return true;
     } catch (error) {
       setNotice(errorMessage(error));
@@ -1120,7 +1128,7 @@ export default function App() {
     }
   }, [applyActionResult, requireHost, snapshot?.sessionId]);
 
-  const { reloadWorkbench, reloadUi } = useWorkbenchReload({ requireHost, addEvent, setNotice });
+  const { reloadWorkbench, reloadUi } = useWorkbenchReload({ client, requireHost, addEvent, setNotice });
 
   const actions: WorkbenchActions = useMemo(() => ({
     openPanel,
@@ -1130,7 +1138,7 @@ export default function App() {
     switchSession,
     settleActiveThread,
     // Escape is bound to this; only a visibly running thread has anything to stop.
-    abort: () => { if (isVisibleThreadRunning()) void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined); },
+    abort: () => { if (isVisibleThreadRunning()) void client?.abort(threadStore.getSnapshot().activeThreadId || undefined); },
     reloadWorkbench,
     openThreadTree,
     duplicateThread,
@@ -1152,7 +1160,7 @@ export default function App() {
     holdComposer: () => { setComposerHolds((count) => count + 1); return () => setComposerHolds((count) => Math.max(0, count - 1)); },
     composerDraft: () => activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey).draft : "",
   }), [
-    applyHostResult, openPanel,
+    applyHostResult, client, openPanel,
     activeDraftKey, openWorkspace, reloadWorkbench, settleActiveThread, snapshot, switchSession,
     openThreadTree, duplicateThread,
   ]);
@@ -1199,9 +1207,9 @@ export default function App() {
       return { accepted: true };
     }
     let prepared: PreparedPrompt | undefined;
-    if (window.tau?.preparePrompt) {
+    if (client) {
       try {
-        prepared = await window.tau.preparePrompt(
+        prepared = await client.preparePrompt(
           text,
           pendingNewThread ? undefined : snapshot?.sessionId,
           skillDraft,
@@ -1285,8 +1293,8 @@ export default function App() {
       viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       startTranscriptTurn(snapshot?.sessionId);
       try {
-        if (!window.tau) throw new Error("Steering requires the Electron host.");
-        await window.tau.steer(text, attachments, snapshot?.sessionId, clientTurn, prepared);
+        if (!client) throw new Error("Steering requires the Electron host.");
+        await client.steer(text, attachments, snapshot?.sessionId, clientTurn, prepared);
       } catch (error) {
         const currentSubmission = isCurrentSubmission();
         cancelTranscriptTurn();
@@ -1334,9 +1342,9 @@ export default function App() {
       startTranscriptTurn(pending.sessionId, false, true);
       viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
-        if (!window.tau) throw new Error("New thread requires the Electron host.");
+        if (!client) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
-          await window.tau.sendPrompt(text, attachments, pending.sessionId, clientTurn, prepared);
+          await client.sendPrompt(text, attachments, pending.sessionId, clientTurn, prepared);
           settleNewThreadRecoveryIpc(clientMessageId, recovery);
           if (recovery?.failed) {
             releaseNewThreadRecovery(clientMessageId);
@@ -1353,7 +1361,7 @@ export default function App() {
           releaseNewThreadRecovery(clientMessageId);
           return { accepted: true };
         }
-        const result = await window.tau.newSession(text, attachments, pending.projectPath, clientTurn, prepared);
+        const result = await client.newSession(text, attachments, pending.projectPath, clientTurn, prepared);
         settleNewThreadRecoveryIpc(clientMessageId, recovery);
         if (recovery?.failed) {
           releaseNewThreadRecovery(clientMessageId);
@@ -1474,9 +1482,9 @@ export default function App() {
     }
     startTranscriptTurn(snapshot?.sessionId);
     viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
-    if (window.tau) {
+    if (client) {
       try {
-        await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientTurn, prepared);
+        await client.sendPrompt(text, attachments, snapshot?.sessionId, clientTurn, prepared);
         void registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions)
           .catch((error) => setNotice(errorMessage(error)));
         return { accepted: true };
@@ -1503,7 +1511,7 @@ export default function App() {
       }, 650);
       return { accepted: true };
     }
-  }, [applyHostResult, actions, activeDraftKey, applyActionResult, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, rehomeDetachedDelivery, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [applyHostResult, actions, activeDraftKey, applyActionResult, client, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, rehomeDetachedDelivery, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
 
   // Callbacks that outlive a render reach their late callers through these
   // refs. They are written after the commit, never during it.
@@ -1563,7 +1571,7 @@ export default function App() {
   const titleCommands = registry.getCommandsFor("thread-title");
   const preparedThreadCapability = usePreparedThreadCapability(
     pendingNewThread?.sessionId ? undefined : pendingNewThread?.projectPath,
-    window.tau?.getPreparedThreadCapability,
+    client?.getPreparedThreadCapability,
   );
   const conversationMessages = useMemo(
     () => conversationMessagesFor(messages, optimisticMessages, activeDraftKey, Boolean(pendingNewThread)),
@@ -1612,6 +1620,7 @@ export default function App() {
     pendingNewThread: Boolean(pendingNewThread), activityTools, turnActivityHistory, conversationSnapshot,
     toolAnchorId, visibleToolAnchorId, threadPrompts, registry, registryVersion,
     viewStore, recoverThread, copyToolOutput, abortSessionId: snapshot?.sessionId,
+    abort: abortThread,
   });
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
@@ -1660,9 +1669,10 @@ export default function App() {
   const composer = useMemo<WorkbenchComposer>(() => ({
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
-    submit, cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
+    submit, abort: abortThread,
+    cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
   }), [
-    answerUiPrompt, cancelQueued, compactContext, composerHolds, composerScopeStore, composerSeed,
+    abortThread, answerUiPrompt, cancelQueued, compactContext, composerHolds, composerScopeStore, composerSeed,
     conversationPrompts, queue, reorderQueue, setModel, setThinking, steerQueued, submit,
   ]);
 
