@@ -357,7 +357,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     userData: app.getPath("userData"),
   });
   app.dock?.setIcon(appIconPath);
-  projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"));
+  projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"), undefined, hostLog);
   // The host and every tool it spawns (Pi's tools, runtimes, editors) see the
   // login shell's PATH, not the one a Dock launch inherits.
   const [shellEnvironment] = await Promise.all([
