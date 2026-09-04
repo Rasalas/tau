@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState, type MouseEvent } from "react";
 import {
-  TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE,
+  transcriptTurnNavigationHeight,
+  transcriptTurnNavigationIndexFromPointer,
+  transcriptTurnNavigationMarkerIndexes,
+  transcriptTurnNavigationTopPercent,
   type TranscriptTurnNavigationEntry,
 } from "./transcript-turn-navigation";
 
@@ -11,27 +14,46 @@ export interface TranscriptTurnNavigationProps {
   onSelect: (messageId: string) => void;
 }
 
-/** A compact, keyboard-friendly index for the loaded user turns. */
+/** A compact timeline minimap for the loaded user turns. */
 export function TranscriptTurnNavigation({
   entries,
   activeMessageId,
   transcriptId,
   onSelect,
 }: TranscriptTurnNavigationProps) {
-  const pageCount = Math.max(1, Math.ceil(entries.length / TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE));
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const activeIndex = entries.findIndex((entry) => entry.messageId === activeMessageId);
-  const activePage = activeIndex >= 0
-    ? Math.floor(activeIndex / TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE)
-    : 0;
-  const [page, setPage] = useState(activePage);
-  const visiblePage = Math.min(page, pageCount - 1);
-  useEffect(() => {
-    setPage((current) => current === activePage ? current : activePage);
-  }, [activePage]);
+  const resolvedHoveredIndex = hoveredIndex !== null && hoveredIndex < entries.length
+    ? hoveredIndex
+    : null;
+  const hoveredEntry = resolvedHoveredIndex === null ? undefined : entries[resolvedHoveredIndex];
+  const markerIndexes = transcriptTurnNavigationMarkerIndexes(entries.length);
 
-  const pageStart = visiblePage * TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE;
-  const pageEntries = entries.slice(pageStart, pageStart + TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE);
-  const hasPages = pageCount > 1;
+  const indexFromPointer = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return transcriptTurnNavigationIndexFromPointer({
+      entryCount: entries.length,
+      railTop: bounds.top,
+      railHeight: bounds.height,
+      pointerY: event.clientY,
+    });
+  }, [entries.length]);
+
+  const moveHoveredTurn = useCallback((delta: number) => {
+    setHoveredIndex((current) => {
+      const initial = activeIndex >= 0 ? activeIndex : 0;
+      return Math.max(0, Math.min(entries.length - 1, (current ?? initial) + delta));
+    });
+  }, [activeIndex, entries.length]);
+
+  const hoveredTop = resolvedHoveredIndex === null
+    ? 0
+    : transcriptTurnNavigationTopPercent(resolvedHoveredIndex, entries.length);
+  const tooltipTranslate = resolvedHoveredIndex === 0
+    ? "0%"
+    : resolvedHoveredIndex === entries.length - 1
+      ? "-100%"
+      : "-50%";
 
   return (
     <nav
@@ -39,67 +61,72 @@ export function TranscriptTurnNavigation({
       aria-label="Transcript turns"
       aria-controls={transcriptId}
     >
-      <div className="transcript-turn-navigation-heading">
-        <span>Turns</span>
-        <small>{entries.length}</small>
-      </div>
-      <ol className="transcript-turn-navigation-list">
-        {pageEntries.map((entry) => {
-          const active = entry.messageId === activeMessageId;
+      <button
+        type="button"
+        className="transcript-turn-navigation-rail"
+        aria-label={`Jump to turn: ${hoveredEntry?.preview || "User message"}`}
+        onBlur={() => setHoveredIndex(null)}
+        onClick={(event) => {
+          const index = indexFromPointer(event);
+          if (index !== null) onSelect(entries[index]!.messageId);
+          event.currentTarget.blur();
+        }}
+        onFocus={() => setHoveredIndex((current) => current ?? (activeIndex >= 0 ? activeIndex : 0))}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            moveHoveredTurn(1);
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            moveHoveredTurn(-1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            setHoveredIndex(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            setHoveredIndex(entries.length - 1);
+          } else if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            if (hoveredEntry) onSelect(hoveredEntry.messageId);
+          }
+        }}
+        onMouseDown={(event) => event.preventDefault()}
+        onMouseLeave={() => setHoveredIndex(null)}
+        onMouseMove={(event) => setHoveredIndex(indexFromPointer(event))}
+        style={{ height: transcriptTurnNavigationHeight(entries.length) }}
+      >
+        <span className="transcript-turn-navigation-spine" aria-hidden="true" />
+        {markerIndexes.map((entryIndex) => {
+          const distance = resolvedHoveredIndex === null
+            ? null
+            : Math.abs(entryIndex - resolvedHoveredIndex);
           return (
-            <li
-              key={entry.messageId}
-              data-turn-navigation-entry="true"
-              aria-setsize={entries.length}
-              aria-posinset={entry.turnNumber}
-            >
-              <button
-                type="button"
-                className={active ? "active" : undefined}
-                aria-current={active ? "true" : undefined}
-                aria-label={`Go to turn ${entry.turnNumber}: ${entry.preview || "Image attachment"}`}
-                title={entry.preview || "Image attachment"}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  // Keep keyboard activation deterministic in browsers and
-                  // test environments while avoiding a second native click.
-                  event.preventDefault();
-                  onSelect(entry.messageId);
-                }}
-                onClick={() => onSelect(entry.messageId)}
-              >
-                <span className="transcript-turn-number" aria-hidden="true">{entry.turnNumber}</span>
-                <span className="transcript-turn-preview">{entry.preview || "Image attachment"}</span>
-              </button>
-            </li>
+            <span
+              key={entries[entryIndex]!.messageId}
+              className="transcript-turn-navigation-marker"
+              data-distance={distance !== null && distance <= 2 ? String(distance) : undefined}
+              aria-hidden="true"
+              style={{ top: `${transcriptTurnNavigationTopPercent(entryIndex, entries.length)}%` }}
+            />
           );
         })}
-      </ol>
-      {hasPages ? (
-        <div className="transcript-turn-navigation-pager" role="group" aria-label="Turn pages">
-          <button
-            type="button"
-            aria-label="Previous turn page"
-            title="Previous turn page"
-            disabled={visiblePage === 0}
-            onClick={() => setPage((current) => Math.max(0, current - 1))}
+        {activeIndex >= 0 ? (
+          <span
+            className="transcript-turn-navigation-current"
+            aria-hidden="true"
+            style={{ top: `${transcriptTurnNavigationTopPercent(activeIndex, entries.length)}%` }}
+          />
+        ) : null}
+        {hoveredEntry ? (
+          <span
+            className="transcript-turn-navigation-preview"
+            style={{ top: `${hoveredTop}%`, transform: `translateY(${tooltipTranslate})` }}
           >
-            ‹
-          </button>
-          <span aria-live="polite">
-            Turns {pageStart + 1}–{Math.min(pageStart + pageEntries.length, entries.length)} of {entries.length}
+            <span className="transcript-turn-navigation-preview-number">Turn {hoveredEntry.turnNumber}</span>
+            <span className="transcript-turn-navigation-preview-text">{hoveredEntry.preview || "Image attachment"}</span>
           </span>
-          <button
-            type="button"
-            aria-label="Next turn page"
-            title="Next turn page"
-            disabled={visiblePage >= pageCount - 1}
-            onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
-          >
-            ›
-          </button>
-        </div>
-      ) : null}
+        ) : null}
+      </button>
     </nav>
   );
 }

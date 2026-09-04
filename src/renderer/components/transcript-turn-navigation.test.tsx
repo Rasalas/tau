@@ -5,10 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import {
   buildTranscriptTurnNavigation,
+  MAX_TRANSCRIPT_TURN_NAVIGATION_MARKERS,
   MIN_TRANSCRIPT_TURN_NAVIGATION_TURNS,
-  TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE,
   normalizePromptPreview,
   shouldShowTranscriptTurnNavigation,
+  transcriptTurnNavigationHeight,
+  transcriptTurnNavigationIndexFromPointer,
+  transcriptTurnNavigationMarkerIndexes,
+  transcriptTurnNavigationTopPercent,
   truncatePromptPreview,
 } from "./transcript-turn-navigation";
 import { visibleTranscriptTurnId } from "./TranscriptViewport";
@@ -97,6 +101,30 @@ describe("transcript turn navigation data", () => {
     expect(shouldShowTranscriptTurnNavigation(below)).toBe(false);
     expect(shouldShowTranscriptTurnNavigation(atThreshold)).toBe(true);
   });
+
+  it("maps turns and pointer positions across the full minimap", () => {
+    expect(transcriptTurnNavigationHeight(5)).toBe("min(32px, calc(100% - 10rem))");
+    expect(transcriptTurnNavigationTopPercent(2, 5)).toBe(50);
+    expect(transcriptTurnNavigationIndexFromPointer({
+      entryCount: 101,
+      railTop: 100,
+      railHeight: 500,
+      pointerY: 350,
+    })).toBe(50);
+    expect(transcriptTurnNavigationIndexFromPointer({
+      entryCount: 101,
+      railTop: 100,
+      railHeight: 500,
+      pointerY: 999,
+    })).toBe(100);
+  });
+
+  it("caps decorative markers without losing the first or last turn", () => {
+    const indexes = transcriptTurnNavigationMarkerIndexes(1_000);
+    expect(indexes).toHaveLength(MAX_TRANSCRIPT_TURN_NAVIGATION_MARKERS);
+    expect(indexes[0]).toBe(0);
+    expect(indexes.at(-1)).toBe(999);
+  });
 });
 
 describe("TranscriptViewport turn navigation", () => {
@@ -111,9 +139,9 @@ describe("TranscriptViewport turn navigation", () => {
 
     const navigation = await waitFor(() => view.getByRole("navigation", { name: "Transcript turns" }));
     expect(navigation.getAttribute("aria-controls")).toBe("thread-transcript");
-    expect(navigation.querySelectorAll("button")).toHaveLength(8);
-    expect(navigation.querySelectorAll("button")[7]?.getAttribute("aria-label")).toContain("Go to turn 8:");
-    expect([...navigation.querySelectorAll("button")].every((button) => button.getAttribute("aria-label")?.startsWith("Go to turn "))).toBe(true);
+    expect(navigation.querySelectorAll("button")).toHaveLength(1);
+    expect(navigation.querySelectorAll(".transcript-turn-navigation-marker")).toHaveLength(8);
+    await waitFor(() => expect(navigation.querySelector(".transcript-turn-navigation-current")).toBeTruthy());
     expect(navigation.textContent).not.toContain("\n\n");
   });
 
@@ -122,17 +150,18 @@ describe("TranscriptViewport turn navigation", () => {
     const transcript = view.getByRole("log");
     await waitFor(() => expect(transcript.scrollTop).toBe(1_440));
 
-    const firstTurn = view.getByRole("button", { name: "Go to turn 1: Prompt 1" });
-    firstTurn.focus();
-    expect(document.activeElement).toBe(firstTurn);
-    fireEvent.keyDown(firstTurn, { key: "Enter" });
+    const minimap = view.getByRole("button", { name: /Jump to turn:/ });
+    minimap.focus();
+    expect(document.activeElement).toBe(minimap);
+    fireEvent.keyDown(minimap, { key: "Home" });
+    fireEvent.keyDown(minimap, { key: "Enter" });
     await waitFor(() => expect(transcript.scrollTop).toBe(0));
 
-    const secondTurn = view.getByRole("button", { name: "Go to turn 2: Prompt 2" });
-    secondTurn.focus();
-    fireEvent.keyDown(secondTurn, { key: " " });
+    minimap.focus();
+    fireEvent.keyDown(minimap, { key: "ArrowDown" });
+    fireEvent.keyDown(minimap, { key: " " });
     await waitFor(() => expect(transcript.scrollTop).toBe(180));
-    expect(secondTurn.getAttribute("aria-current")).toBe("true");
+    expect(view.getByText("Turn 2")).toBeTruthy();
   });
 
   it("selects a turn with a button, enters reading mode, and stays there as content grows", async () => {
@@ -140,10 +169,22 @@ describe("TranscriptViewport turn navigation", () => {
     const transcript = view.getByRole("log");
     await waitFor(() => expect(transcript.scrollTop).toBe(1_440));
 
-    const firstTurn = view.getByRole("button", { name: "Go to turn 1: Prompt 1" });
-    fireEvent.click(firstTurn);
+    const minimap = view.getByRole("button", { name: /Jump to turn:/ });
+    vi.spyOn(minimap, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      bottom: 156,
+      left: 12,
+      right: 52,
+      width: 40,
+      height: 56,
+      x: 12,
+      y: 100,
+      toJSON: () => ({}),
+    });
+    fireEvent.mouseMove(minimap, { clientY: 100 });
+    expect(navigationPreview(view.container)?.textContent).toBe("Prompt 1");
+    fireEvent.click(minimap, { clientY: 100 });
     await waitFor(() => expect(transcript.scrollTop).toBe(0));
-    expect(firstTurn.getAttribute("aria-current")).toBe("true");
     expect(view.getByRole("button", { name: "Jump to latest" })).toBeTruthy();
 
     view.rerender(<Fixture messages={[
@@ -165,7 +206,10 @@ describe("TranscriptViewport turn navigation", () => {
     // before applying the deterministic fixture position.
     fireEvent.wheel(transcript, { deltaY: -100 });
     actScroll(transcript, 650);
-    await waitFor(() => expect(view.getByRole("button", { name: "Go to turn 5: Prompt 5" }).getAttribute("aria-current")).toBe("true"));
+    await waitFor(() => expect(
+      view.getByRole("navigation", { name: "Transcript turns" })
+        .querySelector<HTMLElement>(".transcript-turn-navigation-current")?.style.top,
+    ).toBe(`${transcriptTurnNavigationTopPercent(4, 8)}%`));
   });
 
   it("uses measured row geometry and virtual range for variable-height turns", () => {
@@ -212,7 +256,7 @@ describe("TranscriptViewport turn navigation", () => {
     expect(navigation.nextElementSibling).toBe(transcript);
   });
 
-  it("keeps the turn rail DOM-bounded and preserves focus order for 1000 turns", async () => {
+  it("keeps decorative turn markers DOM-bounded for 1000 turns", async () => {
     const entries = buildTranscriptTurnNavigation(userMessages(1_000));
     const view = render(
       <TranscriptTurnNavigation
@@ -223,16 +267,12 @@ describe("TranscriptViewport turn navigation", () => {
       />,
     );
     const navigation = view.getByRole("navigation", { name: "Transcript turns" });
-    const firstTurn = navigation.querySelector("[data-turn-navigation-entry] button") as HTMLButtonElement;
-    const previous = view.getByRole("button", { name: "Previous turn page" });
-    const next = view.getByRole("button", { name: "Next turn page" });
-    expect(navigation.querySelectorAll("[data-turn-navigation-entry]")).toHaveLength(TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE);
-    expect(navigation.querySelectorAll("button").length).toBeLessThanOrEqual(TRANSCRIPT_TURN_NAVIGATION_PAGE_SIZE + 2);
-    expect(firstTurn.getAttribute("aria-label")).toContain("Go to turn");
-    expect(previous.getAttribute("aria-label")).toBe("Previous turn page");
-    expect(next.getAttribute("aria-label")).toBe("Next turn page");
-    expect(navigation.querySelector('[aria-current="true"]')?.getAttribute("aria-label")).toContain("Go to turn 1000:");
-    await waitFor(() => expect(firstTurn.tabIndex).toBe(0));
+    const minimap = view.getByRole("button", { name: /Jump to turn:/ });
+    expect(navigation.querySelectorAll(".transcript-turn-navigation-marker"))
+      .toHaveLength(MAX_TRANSCRIPT_TURN_NAVIGATION_MARKERS);
+    expect(navigation.querySelectorAll("button")).toHaveLength(1);
+    expect(navigation.querySelector<HTMLElement>(".transcript-turn-navigation-current")?.style.top).toBe("100%");
+    await waitFor(() => expect(minimap.tabIndex).toBe(0));
   });
 
   it("places rail controls before the transcript and composer in tab order", async () => {
@@ -240,19 +280,23 @@ describe("TranscriptViewport turn navigation", () => {
     const navigation = await waitFor(() => view.getByRole("navigation", { name: "Transcript turns" }));
     const transcript = view.getByRole("log");
     const composer = view.getByRole("textbox", { name: "Composer" });
-    const firstTurn = view.getByRole("button", { name: "Go to turn 1: Prompt 1" });
-    expect(firstTurn.tabIndex).toBe(0);
+    const minimap = view.getByRole("button", { name: /Jump to turn:/ });
+    expect(minimap.tabIndex).toBe(0);
     expect(transcript.tabIndex).toBe(0);
     expect(Boolean(navigation.compareDocumentPosition(transcript) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(Boolean(transcript.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    firstTurn.focus();
-    expect(document.activeElement).toBe(firstTurn);
+    minimap.focus();
+    expect(document.activeElement).toBe(minimap);
     transcript.focus();
     expect(document.activeElement).toBe(transcript);
     composer.focus();
     expect(document.activeElement).toBe(composer);
   });
 });
+
+function navigationPreview(container: HTMLElement): HTMLElement | null {
+  return container.querySelector(".transcript-turn-navigation-preview-text");
+}
 
 function actScroll(node: HTMLElement, top: number): void {
   node.scrollTop = top;
