@@ -10,7 +10,7 @@ import {
   type TranscriptTurnStart,
 } from "./transcript-navigation";
 import { useTranscriptNavigation } from "./transcript-navigation-dom";
-import { contentTop } from "./transcript-scroll-controller";
+import { contentTop, FrameLoop } from "./transcript-scroll-controller";
 import {
   buildTranscriptTurnNavigation,
   shouldShowTranscriptTurnNavigation,
@@ -181,6 +181,9 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     () => turnEntries.at(-1)?.messageId,
   );
   const updateVisibleTurnRef = useRef<() => void>(() => {});
+  // One frame slot for the turn marker: a scroll burst and an explicit
+  // selection coalesce into a single follow-up measurement.
+  const [turnMarkerFrame] = useState(() => new FrameLoop());
   const [currentTurnAnchor, setCurrentTurnAnchor] = useState<{ sessionId?: string; id?: string }>(
     () => ({ sessionId, id: resolveTurnMessage(messages, turnStart, lookup)?.id }),
   );
@@ -216,16 +219,11 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     update();
     if (!node) return;
 
-    let frame: number | undefined;
     const schedule = () => {
       // Keep the active marker in sync with an explicit scroll immediately;
       // the frame still coalesces the follow-up measurement after virtualization.
       update();
-      if (frame !== undefined) return;
-      frame = window.requestAnimationFrame(() => {
-        frame = undefined;
-        update();
-      });
+      turnMarkerFrame.schedule(update);
     };
     const unsubscribeScroll = navigation.subscribeScroll(schedule);
     const unsubscribeResize = navigation.subscribeResize(schedule);
@@ -233,10 +231,10 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     return () => {
       unsubscribeScroll();
       unsubscribeResize();
-      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      turnMarkerFrame.cancel();
       if (updateVisibleTurnRef.current === update) updateVisibleTurnRef.current = () => {};
     };
-  }, [messages, navigation.subscribeResize, navigation.subscribeScroll, scrollRef, turnEntries]);
+  }, [messages, navigation.subscribeResize, navigation.subscribeScroll, scrollRef, turnEntries, turnMarkerFrame]);
 
   const selectTurn = useCallback((messageId: string) => {
     // Reflect the explicit choice immediately; the scroll listener will refine
@@ -244,10 +242,8 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     setVisibleTurnMessageId(messageId);
     navigation.jumpToMessage(messageId);
     updateVisibleTurnRef.current();
-    if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(() => updateVisibleTurnRef.current());
-    }
-  }, [navigation.jumpToMessage]);
+    turnMarkerFrame.schedule(() => updateVisibleTurnRef.current());
+  }, [navigation.jumpToMessage, turnMarkerFrame]);
   const onReachStartRef = useRef(onReachStart);
   useLayoutEffect(() => { onReachStartRef.current = onReachStart; }, [onReachStart]);
 
