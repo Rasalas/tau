@@ -16,6 +16,7 @@ export interface ThreadStoreSnapshot {
   projects: readonly UiProject[];
   threads: readonly UiSession[];
   activeThreadId: string;
+  /** Derived: the active thread has a run in flight. Never assigned directly. */
   isStreaming: boolean;
   runningToolName?: string;
   /** Threads whose last run finished without the user watching. Cleared on open. */
@@ -139,12 +140,8 @@ export class ThreadStore {
 
   applyHostSnapshot(snapshot: HostSnapshot): void {
     this.runningTools.clear();
-    this.publish({
-      ...this.snapshot,
-      activeThreadId: snapshot.sessionId,
-      isStreaming: snapshot.isStreaming,
-      runningToolName: undefined,
-    });
+    this.publish({ ...this.snapshot, activeThreadId: snapshot.sessionId, runningToolName: undefined });
+    this.setThreadRunning(snapshot.sessionId, snapshot.isStreaming);
   }
 
   applyThreadIndex(threadIndex: ThreadIndexSnapshot): void {
@@ -178,10 +175,6 @@ export class ThreadStore {
     if (threads !== current) this.publish({ ...this.snapshot, threads });
   }
 
-  setStreaming(isStreaming: boolean): void {
-    this.publish({ ...this.snapshot, isStreaming });
-  }
-
   /** Run state belongs to the thread, not to whichever thread is on screen. */
   setThreadRunning(threadId: string, running: boolean): void {
     if (!threadId) return;
@@ -200,7 +193,8 @@ export class ThreadStore {
   }
 
   setActiveThread(activeThreadId: string, isStreaming = false): void {
-    this.publish({ ...this.snapshot, activeThreadId, isStreaming, runningToolName: undefined });
+    this.publish({ ...this.snapshot, activeThreadId, runningToolName: undefined });
+    this.setThreadRunning(activeThreadId, isStreaming);
   }
 
   toolStarted(id: string, name: string): void {
@@ -234,7 +228,11 @@ export class ThreadStore {
     });
   }
 
-  private publish(next: ThreadStoreSnapshot): void {
+  private publish(candidate: ThreadStoreSnapshot): void {
+    // `isStreaming` is not stored: it is the run state of whichever thread is
+    // on screen, so `setThreadRunning` stays its only writer.
+    const isStreaming = Boolean(candidate.activeThreadId) && candidate.runningThreadIds.includes(candidate.activeThreadId);
+    const next = candidate.isStreaming === isStreaming ? candidate : { ...candidate, isStreaming };
     if (
       next.projects === this.snapshot.projects &&
       next.threads === this.snapshot.threads &&

@@ -61,7 +61,7 @@ function pathFromTool(tool: UiToolRun): string | undefined {
   return typeof value === "string" ? value.replaceAll("\\", "/") : undefined;
 }
 
-export function changesTouchedByTools(tools: UiToolRun[], current: UiWorkspaceChanges): UiWorkspaceChanges {
+export function changesTouchedByTools(tools: readonly UiToolRun[], current: UiWorkspaceChanges): UiWorkspaceChanges {
   const paths = tools.map(pathFromTool).filter((path): path is string => Boolean(path));
   const files = current.files.filter((file) => paths.some((path) => path === file.path || path.endsWith(`/${file.path}`)));
   return {

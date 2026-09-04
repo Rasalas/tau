@@ -1,6 +1,7 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import { hostSnapshotFromThreadDetail, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
+import type { ThreadDetailStore } from "../shared/thread-detail-store";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
 import {
   captureTranscriptScrollAnchor,
@@ -74,11 +75,11 @@ export class TranscriptHistoryController {
   private readonly coordinator: TranscriptHistoryCoordinator;
   private readonly pageState: TranscriptHistoryPageState;
 
-  constructor(initialSnapshot?: HostSnapshot, initialIndex?: ThreadIndexSnapshot) {
+  constructor(initialSnapshot?: HostSnapshot, initialIndex?: ThreadIndexSnapshot, details?: ThreadDetailStore) {
     const initialDetail = initialSnapshot
       ? threadDetailFromHostSnapshot(initialSnapshot)
       : undefined;
-    this.cache = new TranscriptHistoryCache(initialSnapshot, initialIndex);
+    this.cache = new TranscriptHistoryCache(initialSnapshot, initialIndex, details);
     this.coordinator = new TranscriptHistoryCoordinator(initialSnapshot?.sessionId);
     this.pageState = new TranscriptHistoryPageState();
     this.preserveScrollRef = this.pageState.preserveScrollRef;

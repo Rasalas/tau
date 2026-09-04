@@ -67,8 +67,6 @@ import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { useNewThreadController } from "./use-new-thread-controller";
-import { ThreadDetailStore } from "../shared/thread-detail-store";
-import { estimateTranscriptTokens, TranscriptMessageIndex, type TranscriptMessageUpdate } from "../shared/transcript-index";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   ThreadStoreContext,
@@ -87,6 +85,7 @@ import {
 } from "./transcript-history";
 import {
   backgroundNewThreadDetail,
+  conversationMessagesFor,
   createClientMessageId,
   estimateTokens,
   isCurrentTranscriptSubmission,
@@ -108,22 +107,10 @@ import {
   type TranscriptSubmissionIdentity,
 } from "./app-state";
 import { ComposerHost, LiveStatus, useTailScroll } from "./components/ComposerHost";
-import { applyHostEvent, type HostEventStores } from "./host-events";
-import { Workbench } from "./Workbench";
+import { applyHostEvent, type HostEventTargets } from "./host-events";
+import { ThreadViewStore } from "./thread-view-store";
+import { Workbench, type WorkbenchComposer, type WorkbenchLayout, type WorkbenchModel, type WorkbenchThread } from "./Workbench";
 import { useConversationActivities } from "./conversation-activities";
-
-export {
-  isCurrentTranscriptSubmission,
-  latestActivityAnchor,
-  mergeNewThreadRecoveryAttachments,
-  mergeNewThreadRecoveryDraft,
-  optimisticThreadSnapshot,
-  reconcileOptimisticMessages,
-  skillPresentationForDraft,
-  transcriptNavigationScopeKey,
-} from "./app-state";
-export { ComposerHost, measureComposerGeometry, useTailScroll } from "./components/ComposerHost";
-export { MountedPanel } from "./Workbench";
 
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 
@@ -139,10 +126,11 @@ export default function App() {
     return value;
   });
   const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
+  // One store owns everything about the thread on screen: its snapshot, the
+  // ordered transcript, tools, prompts and the optimistic rows waiting on it.
+  const [viewStore] = useState(() => new ThreadViewStore(cachedBootstrap?.snapshot));
   // Extensions from ~/.tau/extensions and <project>/.tau/extensions load at
   // runtime, like Pi's own; the project set follows the open workspace.
-  const noticeRef = useRef<(message: string) => void>(() => {});
-  const eventRef = useRef<(label: string, detail?: string) => void>(() => {});
   const [runtimeExtensions] = useState(() => {
     installSharedModules();
     return new RuntimeExtensions(registry, {
@@ -150,8 +138,8 @@ export default function App() {
         ? window.tau.loadDesktopExtensions(cwd, sharedExports)
         : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
       isEnabled: (id) => preferences.isExtensionEnabled(id),
-      notify: (message) => noticeRef.current(message),
-      log: (label, detail) => eventRef.current(label, detail),
+      notify: (message) => viewStore.setNotice(message),
+      log: (label, detail) => viewStore.addEvent(label, detail),
     });
   });
   const [threadStore] = useState(() => {
@@ -165,57 +153,36 @@ export default function App() {
   const [transcriptHistory] = useState(() => new TranscriptHistoryController(
     cachedBootstrap?.snapshot,
     cachedBootstrap?.threadIndex,
+    viewStore.details,
   ));
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
-  const [snapshot, setSnapshot] = useState<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
-  const snapshotRef = useRef<HostSnapshot | undefined>(snapshot);
-  snapshotRef.current = snapshot;
+  const snapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
+  const transcript = useSyncExternalStore(viewStore.subscribeToTranscript, viewStore.getTranscript);
+  const { tools, toolAnchorId, turnActivityHistory, turnActivitySessionId } = useSyncExternalStore(
+    viewStore.subscribeToTools,
+    viewStore.getToolView,
+  );
+  const uiPrompts = useSyncExternalStore(viewStore.subscribeToPrompts, viewStore.getUiPrompts);
+  const optimisticMessages = useSyncExternalStore(viewStore.subscribeToOptimistic, viewStore.getOptimisticMessages);
+  const notice = useSyncExternalStore(viewStore.subscribeToNotice, viewStore.getNotice);
+  const events = useSyncExternalStore(viewStore.subscribeToEvents, viewStore.getEvents);
+  const setNotice = viewStore.setNotice;
+  const addEvent = viewStore.addEvent;
   const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
   const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
   // Run state lives in the thread store, fed by the host's per-thread status
-  // events. Deriving it here keeps the composer, the live row and the rail from
-  // ever disagreeing about whether the visible thread is working.
-  const visibleStreaming = Boolean(snapshot && threadActivity.runningThreadIds.includes(snapshot.sessionId));
-  const visibleStreamingRef = useRef(false);
-  visibleStreamingRef.current = visibleStreaming;
-  const transcriptMessageIndexRef = useRef<TranscriptMessageIndex | undefined>(undefined);
-  if (!transcriptMessageIndexRef.current) {
-    transcriptMessageIndexRef.current = new TranscriptMessageIndex(cachedBootstrap?.snapshot.messages ?? []);
-  }
-  const [messages, setMessages] = useState<UiMessage[]>(() => transcriptMessageIndexRef.current!.messages);
-  const [transcriptRevision, setTranscriptRevision] = useState(() => transcriptMessageIndexRef.current!.revision);
-  const transcriptUserRevision = transcriptMessageIndexRef.current.userRevision;
-  const transcriptTokenEstimate = transcriptMessageIndexRef.current.tokenEstimate;
-  const transcriptLookupRevision = transcriptMessageIndexRef.current.lookupRevision;
-  const replaceTranscriptMessages = useCallback((next: readonly UiMessage[]) => {
-    setMessages(transcriptMessageIndexRef.current!.replace(next));
-    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
-  }, []);
-  const updateTranscriptMessages = useCallback((updates: ReadonlyMap<string, TranscriptMessageUpdate>) => {
-    setMessages(transcriptMessageIndexRef.current!.updateMany(updates));
-    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
-  }, []);
-  const appendTranscriptMessage = useCallback((message: UiMessage) => {
-    setMessages(transcriptMessageIndexRef.current!.append(message));
-    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
-  }, []);
-  const prependTranscriptMessages = useCallback((next: readonly UiMessage[]) => {
-    setMessages(transcriptMessageIndexRef.current!.prepend(next));
-    setTranscriptRevision(transcriptMessageIndexRef.current!.revision);
-  }, []);
-  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
-  const [tools, setTools] = useState<UiToolRun[]>([]);
-  const [turnActivityHistory, setTurnActivityHistory] = useState(cachedBootstrap?.snapshot.turnActivityHistory ?? []);
-  const [toolAnchorId, setToolAnchorId] = useState<string>();
-  const [turnActivitySessionId, setTurnActivitySessionId] = useState<string>();
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [uiPrompts, setUiPrompts] = useState<ExtensionUiPrompt[]>([]);
-  const uiPromptsRef = useRef(uiPrompts);
-  uiPromptsRef.current = uiPrompts;
-  const [runStartedAt, setRunStartedAt] = useState<number>();
+  // events. Every other reading of "is this thread working" is this selector,
+  // so the composer, the live row and the rail cannot disagree.
+  const visibleStreaming = threadActivity.isStreaming;
+  const runStartedAt = threadActivity.runningStartedAt[threadActivity.activeThreadId];
+  const messages = transcript.messages;
+  const transcriptRevision = transcript.revision;
+  const transcriptUserRevision = transcript.userRevision;
+  const transcriptTokenEstimate = transcript.tokenEstimate;
+  const transcriptLookupRevision = transcript.lookupRevision;
   // Legacy sessions may only have the old renderer cache. A settled run with
   // nothing durable behind it must not leave that stale cache looking current.
   const [activePanel, setActivePanel] = useState("");
@@ -235,9 +202,8 @@ export default function App() {
     markAwaitingPromotion,
     promoteFromHostReport,
     promoteFromUserMessage,
+    current: currentPendingNewThread,
   } = newThreadController;
-  const pendingNewThreadRef = useRef(pendingNewThread);
-  pendingNewThreadRef.current = pendingNewThread;
   const [transcriptTurnStart, setTranscriptTurnStartState] = useState<TranscriptTurnStart>();
   const [settingsPage, setSettingsPage] = useState<string>();
   const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
@@ -249,24 +215,19 @@ export default function App() {
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const [composerScopeStore] = useState(() => new ComposerScopeStore());
-  const newThreadRecoveryRef = useRef(new Map<string, NewThreadSubmissionRecovery>());
+  const [newThreadRecoveries] = useState(() => new Map<string, NewThreadSubmissionRecovery>());
   // Promotion applies host details and host details can promote. The recovery
   // side of that pair is reached through this ref so neither has to be declared
   // inside the other's initializer.
   const promoteRecoveryRef = useRef<(clientMessageId: string, sessionId: string, message?: UiMessage) => boolean>(() => false);
   const [, setNewThreadRecoveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread);
-  const [notice, setNoticeText] = useState<string>();
-  const [noticeLevel, setNoticeLevel] = useState<"info" | "warning" | "error">("info");
-  const setNotice = useCallback((message?: string, level: "info" | "warning" | "error" = "info") => {
-    setNoticeLevel(level);
-    setNoticeText(message);
-  }, []);
   // Follow-ups typed during a run wait in the workbench, not in the runtime.
   const submitRef = useRef<SubmitPrompt>(async () => ({ accepted: false, message: "The composer is not ready yet." }));
+  const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   const { queue, enqueue: enqueueFollowUp, cancelQueued, steerQueued, reorderQueue } = useFollowUpQueue({
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
-    streamingRef: visibleStreamingRef,
+    isRunning: isVisibleThreadRunning,
     runningThreadIds: threadActivity.runningThreadIds,
     submitRef,
     setNotice,
@@ -278,24 +239,12 @@ export default function App() {
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptTurnSequenceRef = useRef(0);
   const transcriptTurnStartRef = useRef<TranscriptTurnStart | undefined>(undefined);
-  const detailStoreRef = useRef(new ThreadDetailStore(5));
-  const messagesRef = useRef(messages);
-  messagesRef.current = messages;
-  const toolsRef = useRef(tools);
-  toolsRef.current = tools;
-  const toolAnchorRef = useRef<string | undefined>(undefined);
-  toolAnchorRef.current = toolAnchorId;
-  const assistantStartsRef = useRef(new Map<string, number>());
-  /** Empty live assistant rows wait here until an extension row asks for their entry. */
-  const pendingAssistantAnchorsRef = useRef(new Map<string, { id: string; timestamp: number; beforeMessageId?: string }>());
-  const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
-  const deltaFrameRef = useRef<number | undefined>(undefined);
-  const pendingToolUpdatesRef = useRef(new Map<string, string>());
-  const toolFrameRef = useRef<number | undefined>(undefined);
-  const runningThreadRef = useRef<string>("");
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
-  const activeDraftKeyRef = useRef(activeDraftKey);
-  activeDraftKeyRef.current = activeDraftKey;
+  /** The draft key as of now, for the async paths that must not read a rendered value. */
+  const currentDraftKey = useCallback(
+    () => draftKey(viewStore.getSnapshot()?.sessionId, currentPendingNewThread()),
+    [currentPendingNewThread, viewStore],
+  );
   const restoreNewThreadSubmission = useCallback((recovery: NewThreadSubmissionRecovery) => {
     const scope = recovery.scopeRef.scope;
     const current = composerScopeStore.getSnapshot(scope);
@@ -313,21 +262,21 @@ export default function App() {
     // Draft scopes are persisted through the active-new-thread record. A late
     // detached failure can otherwise restore the textarea only until reload.
     if (typeof scope === "string" && scope.startsWith("new:")) {
-      const pending = pendingNewThreadRef.current;
+      const pending = currentPendingNewThread();
       if (pending && draftKey(undefined, pending) === scope) {
         writeNewThreadDraft(window.localStorage, { ...pending, draft: draft || undefined });
       }
     }
   }, [composerScopeStore]);
   const releaseNewThreadRecovery = useCallback((clientMessageId: string) => {
-    const recovery = newThreadRecoveryRef.current.get(clientMessageId);
+    const recovery = newThreadRecoveries.get(clientMessageId);
     if (!recovery) return;
-    newThreadRecoveryRef.current.delete(clientMessageId);
+    newThreadRecoveries.delete(clientMessageId);
     composerScopeStore.releaseScopeReference(recovery.scopeRef);
     setNewThreadRecoveryVersion((version) => version + 1);
   }, [composerScopeStore]);
   const settleNewThreadRecoveryIpc = useCallback((clientMessageId: string, recovery?: NewThreadSubmissionRecovery) => {
-    const current = recovery ?? newThreadRecoveryRef.current.get(clientMessageId);
+    const current = recovery ?? newThreadRecoveries.get(clientMessageId);
     if (!current) return;
     current.ipcPending = false;
   }, []);
@@ -336,24 +285,26 @@ export default function App() {
     () => transcriptNavigationScope(snapshot, pendingNewThread),
     [pendingNewThread, snapshot?.cwd, snapshot?.sessionId],
   );
-  const transcriptScopeKeyRef = useRef(transcriptScopeKey);
   const committedTranscriptScopeKeyRef = useRef(transcriptScopeKey);
-  transcriptScopeKeyRef.current = transcriptScopeKey;
+  /** The navigation scope as of now; a submission compares against it after every await. */
+  const currentTranscriptScopeKey = useCallback(
+    () => transcriptNavigationScopeKey(viewStore.getSnapshot(), currentPendingNewThread()),
+    [currentPendingNewThread, viewStore],
+  );
   const setTranscriptTurnStart = useCallback((
     next: TranscriptTurnStart | undefined,
     expectedTurnId?: string,
   ): boolean => {
     if (expectedTurnId !== undefined && transcriptTurnStartRef.current?.turnId !== expectedTurnId) return false;
-    const scoped = next ? { ...next, scopeKey: next.scopeKey ?? transcriptScopeKeyRef.current } : undefined;
+    const scoped = next ? { ...next, scopeKey: next.scopeKey ?? currentTranscriptScopeKey() } : undefined;
     transcriptTurnStartRef.current = scoped;
     setTranscriptTurnStartState(scoped);
     return true;
-  }, []);
+  }, [currentTranscriptScopeKey]);
   useEffect(() => {
     const previous = committedTranscriptScopeKeyRef.current;
     if (previous === transcriptScopeKey) return;
     committedTranscriptScopeKeyRef.current = transcriptScopeKey;
-    transcriptScopeKeyRef.current = transcriptScopeKey;
     const currentTurnStart = transcriptTurnStartRef.current;
     if (currentTurnStart?.scopeKey === transcriptScopeKey && currentTurnStart.preserveAcrossSessionChange) return;
     setTranscriptTurnStart(undefined);
@@ -361,11 +312,6 @@ export default function App() {
   const visibleTranscriptTurnStart = transcriptTurnStart?.scopeKey === transcriptScopeKey
     ? transcriptTurnStart
     : undefined;
-  const updateTools = useCallback((update: UiToolRun[] | ((current: UiToolRun[]) => UiToolRun[])) => {
-    const next = typeof update === "function" ? update(toolsRef.current) : update;
-    toolsRef.current = next;
-    setTools(next);
-  }, []);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -373,79 +319,29 @@ export default function App() {
       writeNewThreadDraft(window.localStorage);
       setPendingNewThread(undefined);
     }
-    setOptimisticMessages(reconciled);
+    viewStore.setOptimisticMessages(reconciled);
   }, [activeDraftKey, optimisticMessages, pendingNewThread, transcriptUserRevision]);
-
-  const flushAssistantDeltas = useCallback(() => {
-    if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
-    deltaFrameRef.current = undefined;
-    const pending = pendingDeltasRef.current;
-    if (pending.size === 0) return;
-    pendingDeltasRef.current = new Map();
-    const updates = new Map<string, TranscriptMessageUpdate>();
-    for (const [id, delta] of pending) {
-      updates.set(id, (message) => ({
-        ...message,
-        text: message.text + delta.text,
-        thinking: delta.thinking ? (message.thinking ?? "") + delta.thinking : message.thinking,
-      }));
-    }
-    updateTranscriptMessages(updates);
-  }, [updateTranscriptMessages]);
-
-  const queueAssistantDelta = useCallback((id: string, kind: "text" | "thinking", delta: string) => {
-    const current = pendingDeltasRef.current.get(id) ?? { text: "", thinking: "" };
-    current[kind] += delta;
-    pendingDeltasRef.current.set(id, current);
-    if (deltaFrameRef.current === undefined) {
-      deltaFrameRef.current = requestAnimationFrame(flushAssistantDeltas);
-    }
-  }, [flushAssistantDeltas]);
-
-  const flushToolUpdates = useCallback(() => {
-    toolFrameRef.current = undefined;
-    const pending = pendingToolUpdatesRef.current;
-    if (pending.size === 0) return;
-    pendingToolUpdatesRef.current = new Map();
-    updateTools((current) => current.map((tool) => {
-      const output = pending.get(tool.id);
-      return output === undefined || output === tool.output ? tool : { ...tool, output };
-    }));
-  }, [updateTools]);
-
-  const queueToolUpdate = useCallback((id: string, output: string) => {
-    pendingToolUpdatesRef.current.set(id, output);
-    if (toolFrameRef.current === undefined) toolFrameRef.current = requestAnimationFrame(flushToolUpdates);
-  }, [flushToolUpdates]);
 
   const applySnapshot = useCallback((next: HostSnapshot, request?: TranscriptBootstrapRequest): boolean => {
     if (request && !transcriptHistory.isCurrentBootstrap(request)) return false;
-    assistantStartsRef.current.clear();
-    pendingAssistantAnchorsRef.current.clear();
-    pendingDeltasRef.current.clear();
-    pendingToolUpdatesRef.current.clear();
-    if (toolFrameRef.current !== undefined) cancelAnimationFrame(toolFrameRef.current);
-    toolFrameRef.current = undefined;
-    if (deltaFrameRef.current !== undefined) cancelAnimationFrame(deltaFrameRef.current);
-    deltaFrameRef.current = undefined;
+    viewStore.beginThread(next.sessionId);
     const detail = threadDetailFromHostSnapshot(next);
     if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
+    // applyHostSnapshot and setActiveThread both report the thread's run state
+    // to the one writer, so nothing else has to repeat it.
     threadStore.applyHostSnapshot(next);
     if (next.model?.provider) threadStore.setThreadModelProvider(next.sessionId, next.model.provider);
-    threadStore.setThreadRunning(next.sessionId, next.isStreaming);
     const cachedActivity = readCachedTurnActivity(window.localStorage, next.sessionId);
-    setSnapshot(next);
-    replaceTranscriptMessages(next.messages);
+    viewStore.setSnapshot(next);
+    viewStore.setMessages(next.messages);
     const restoredActivity = next.turnActivity ?? cachedActivity;
-    updateTools(restoredActivity?.tools ?? []);
-    toolAnchorRef.current = restoredActivity?.anchorMessageId;
-    setToolAnchorId(restoredActivity?.anchorMessageId);
-    setTurnActivityHistory(next.turnActivityHistory ?? []);
-    setTurnActivitySessionId(restoredActivity ? next.sessionId : undefined);
+    viewStore.setTools(restoredActivity?.tools ?? []);
+    viewStore.setToolAnchorId(restoredActivity?.anchorMessageId);
+    viewStore.setTurnActivity(next.turnActivityHistory ?? [], restoredActivity ? next.sessionId : undefined);
     cachedSnapshotRef.current = next;
     writeBootstrapCache(next, cachedIndexRef.current);
     return true;
-  }, [replaceTranscriptMessages, threadStore, transcriptHistory, updateTools]);
+  }, [threadStore, transcriptHistory, viewStore]);
 
   const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
     threadStore.applyThreadIndex(threadIndex);
@@ -455,14 +351,14 @@ export default function App() {
   }, [threadStore, transcriptHistory]);
 
   const applyTranscriptPage = useCallback((page: TranscriptPage, request?: TranscriptHistoryRequest) => {
-    const application = transcriptHistory.applyPage(page, messagesRef.current, request);
+    const application = transcriptHistory.applyPage(page, viewStore.getTranscript().messages, request);
     if (!application) return false;
-    setMessages(application.messages);
+    viewStore.setMessages(application.messages);
     const nextActivityHistory = application.snapshot?.turnActivityHistory ?? application.detail?.turnActivityHistory ?? [];
-    setTurnActivityHistory(nextActivityHistory);
-    if (application.snapshot) setSnapshot(application.snapshot);
+    viewStore.setTurnActivityHistory(nextActivityHistory);
+    if (application.snapshot) viewStore.setSnapshot(application.snapshot);
     return true;
-  }, [transcriptHistory]);
+  }, [transcriptHistory, viewStore]);
 
   const applyHostUpdate = useCallback((update: HostUpdate) => {
     if (update.version !== 1) return;
@@ -473,7 +369,7 @@ export default function App() {
     if (update.type === "thread-shell") {
       const shell = update.update.shell;
       threadStore.applyThreadShell(update.update.sessionId, shell, update.update.removed);
-      if (shell) setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, projectLabel: shell.projectLabel } : current);
+      if (shell) viewStore.setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, projectLabel: shell.projectLabel } : current);
       return;
     }
     if (update.type === "thread-detail") {
@@ -481,7 +377,7 @@ export default function App() {
       const currentSnapshot = transcriptHistory.getCurrentSnapshot();
       const shell = threadStore.getThread(detail.sessionId);
       const prompt = detail.messages.find((message) => message.role === "user")?.text;
-      const pending = pendingNewThreadRef.current;
+      const pending = currentPendingNewThread();
       const isCorrelatedCandidate = Boolean(shell) || detail.sessionId !== currentSnapshot?.sessionId;
       // A bridge-created session can arrive after the new-session call has
       // returned with no updates. Prepare the history coordinator for that
@@ -503,7 +399,7 @@ export default function App() {
       if (!application) return;
       const detailForRender = application.detail;
       const currentTurnStart = transcriptTurnStartRef.current;
-      const pendingDraft = pendingNewThreadRef.current;
+      const pendingDraft = currentPendingNewThread();
       if (currentTurnStart?.scope?.kind === "draft"
         && pendingDraft
         && currentTurnStart.scope.draftId === pendingDraft.draftId) {
@@ -518,18 +414,18 @@ export default function App() {
           }, currentTurnStart.turnId);
         }
       }
-      detailStoreRef.current.set(detailForRender);
+      viewStore.details.set(detailForRender);
       const reportedMessage = detailForRender.messages.find((message) => message.role === "user");
-      if (isCorrelatedCandidate && reportedMessage && pendingNewThreadRef.current) {
-        const pending = pendingNewThreadRef.current;
+      const pendingForReport = currentPendingNewThread();
+      if (isCorrelatedCandidate && reportedMessage && pendingForReport) {
         // Either identity correlates this report to a detached delivery: the
         // persisted client message, or the new-thread request it belongs to.
         const recoveryEntry = detail.requestId
-          ? [...newThreadRecoveryRef.current.entries()].find(([, recovery]) => recovery.requestId === detail.requestId)
+          ? [...newThreadRecoveries.entries()].find(([, recovery]) => recovery.requestId === detail.requestId)
           : undefined;
         const reportedClientMessageId = reportedMessage.clientMessageId;
         const recoveryClientMessageId = reportedClientMessageId !== undefined
-          && newThreadRecoveryRef.current.has(reportedClientMessageId)
+          && newThreadRecoveries.has(reportedClientMessageId)
           ? reportedClientMessageId
           : recoveryEntry?.[0];
         const promotedRecovery = recoveryClientMessageId
@@ -537,28 +433,25 @@ export default function App() {
           : false;
         const promotedByReport = promotedRecovery || promoteFromHostReport(
           detail.sessionId,
-          shell?.projectPath ?? pending.projectPath,
+          shell?.projectPath ?? pendingForReport.projectPath,
           detail.requestId,
         );
         if (promotedByReport) {
           composerScopeStore.moveScope(
-            createDraftKey(draftKey(undefined, pending)),
+            createDraftKey(draftKey(undefined, pendingForReport)),
             createDraftKey(draftKey(detail.sessionId)),
           );
         }
       }
       threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
-      threadStore.setThreadRunning(detail.sessionId, detail.isStreaming);
-      replaceTranscriptMessages(detailForRender.messages);
+      if (detailForRender.sessionId !== viewStore.getState().activeThreadId) viewStore.beginThread(detailForRender.sessionId);
+      viewStore.setMessages(detailForRender.messages);
       const cachedActivity = readCachedTurnActivity(window.localStorage, detailForRender.sessionId);
       const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
-      updateTools(restoredActivity?.tools ?? []);
-      toolAnchorRef.current = restoredActivity?.anchorMessageId;
-      setToolAnchorId(restoredActivity?.anchorMessageId);
-      const nextActivityHistory = detailForRender.turnActivityHistory ?? [];
-      setTurnActivityHistory(nextActivityHistory);
-      setTurnActivitySessionId(restoredActivity ? detailForRender.sessionId : undefined);
-      setSnapshot((current) => {
+      viewStore.setTools(restoredActivity?.tools ?? []);
+      viewStore.setToolAnchorId(restoredActivity?.anchorMessageId);
+      viewStore.setTurnActivity(detailForRender.turnActivityHistory ?? [], restoredActivity ? detailForRender.sessionId : undefined);
+      viewStore.setSnapshot((current) => {
         const next = application.snapshot ?? current;
         if (!next) return current;
         const enriched = {
@@ -581,7 +474,7 @@ export default function App() {
     }
     if (update.type === "catalog") {
       if (update.catalog.model?.provider) threadStore.setThreadModelProvider(threadStore.getSnapshot().activeThreadId, update.catalog.model.provider);
-      setSnapshot((current) => {
+      viewStore.setSnapshot((current) => {
         if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
         const { sessionId: _sessionId, supportsImageInput, ...legacyCatalog } = update.catalog;
           return {
@@ -595,14 +488,12 @@ export default function App() {
       return;
     }
     if (update.type === "project") {
-      setSnapshot((current) => current ? { ...current, ...update.project } : current);
+      viewStore.setSnapshot((current) => current ? { ...current, ...update.project } : current);
       return;
     }
-    if (update.type === "run" && update.sessionId === threadStore.getSnapshot().activeThreadId) {
-      threadStore.setStreaming(update.event === "started");
-    }
+    if (update.type === "run") threadStore.setThreadRunning(update.sessionId, update.event === "started");
     if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, promoteFromHostReport, replaceTranscriptMessages, setTranscriptTurnStart, threadStore, transcriptHistory, updateTools]);
+  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, currentPendingNewThread, promoteFromHostReport, setTranscriptTurnStart, threadStore, transcriptHistory, viewStore]);
 
   const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: TransitionToken): boolean => {
     if (expectedTransition !== undefined && !transcriptHistory.isCurrentThreadTransition(expectedTransition)) return false;
@@ -627,7 +518,7 @@ export default function App() {
     const currentActions = actionsRef.current;
     if (!currentActions) return;
     if (recovery) recovery.notified = true;
-    const currentSnapshot = snapshotRef.current;
+    const currentSnapshot = viewStore.getSnapshot();
     void registry.notifyPromptSubmitted({
       prompt,
       snapshot: currentSnapshot ? {
@@ -652,7 +543,7 @@ export default function App() {
     sessionId: string,
     message?: UiMessage,
   ): boolean => {
-    const recovery = newThreadRecoveryRef.current.get(clientMessageId);
+    const recovery = newThreadRecoveries.get(clientMessageId);
     if (!recovery || recovery.failed) return false;
     if (recovery.sessionId && recovery.sessionId !== sessionId) return false;
     const keepInBackground = recovery.detached && threadStore.getSnapshot().activeThreadId !== sessionId;
@@ -662,7 +553,7 @@ export default function App() {
     recovery.sessionId = sessionId;
     recovery.promoted = true;
     composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    setOptimisticMessages((current) => message
+    viewStore.setOptimisticMessages((current) => message
       ? current.map((entry) => entry.message.clientMessageId === clientMessageId
         ? { ...entry, scope: `session:${sessionId}` }
         : entry)
@@ -680,7 +571,7 @@ export default function App() {
 
     if (keepInBackground) {
       if (message) {
-        detailStoreRef.current.set(backgroundNewThreadDetail(detailStoreRef.current.get(sessionId), sessionId, message));
+        viewStore.details.set(backgroundNewThreadDetail(viewStore.details.get(sessionId), sessionId, message));
         threadStore.setThreadRunning(sessionId, true);
       } else {
         threadStore.setThreadRunning(sessionId, false);
@@ -689,7 +580,7 @@ export default function App() {
       // An extension command answered the prompt without a user turn and
       // without an agent run. The thread exists; nothing is in flight in it.
       threadStore.setActiveThread(sessionId, false);
-    } else if (!detailStoreRef.current.get(sessionId)?.messages.some((entry) => isSameUserMessage(entry, message))) {
+    } else if (!viewStore.details.get(sessionId)?.messages.some((entry) => isSameUserMessage(entry, message))) {
       // A blank detail may have arrived before this event. Feed the confirmed
       // message through the normal detail path so the history coordinator and
       // the active snapshot move together even when no catalog is available.
@@ -714,14 +605,13 @@ export default function App() {
     releaseNewThreadRecovery(clientMessageId);
     return true;
   }, [applyHostUpdate, composerScopeStore, notifyNewThreadPromptSubmitted, promoteFromUserMessage, releaseNewThreadRecovery, setTranscriptTurnStart, threadStore, transcriptHistory]);
-  promoteRecoveryRef.current = promoteRecoveryToSession;
 
   const restoreFailedNewThreadRecovery = useCallback((recovery: NewThreadSubmissionRecovery, sessionId: string) => {
     recovery.sessionId = sessionId || recovery.sessionId;
     const oldScope = recovery.scopeRef.scope;
-    const visible = activeDraftKeyRef.current === oldScope
+    const visible = currentDraftKey() === oldScope
       || (recovery.sessionId !== undefined && threadStore.getSnapshot().activeThreadId === recovery.sessionId);
-    let pending = pendingNewThreadRef.current;
+    let pending = currentPendingNewThread();
 
     // Once a positive user-message promoted the draft, a later failure must
     // reopen that same runtime-backed draft. Retrying it then uses sendPrompt
@@ -732,12 +622,10 @@ export default function App() {
       const target = createDraftKey(draftKey(undefined, pending));
       composerScopeStore.moveScope(oldScope, target);
       recovery.scopeRef.scope = target;
-      pendingNewThreadRef.current = pending;
       setPendingNewThread(pending);
       writeNewThreadDraft(window.localStorage, pending);
     } else if (visible && pending && pending.draftId === recovery.pending.draftId && recovery.sessionId && !pending.sessionId) {
       pending = { ...pending, sessionId: recovery.sessionId };
-      pendingNewThreadRef.current = pending;
       setPendingNewThread(pending);
       writeNewThreadDraft(window.localStorage, pending);
     }
@@ -749,7 +637,7 @@ export default function App() {
     sessionId: string,
     settlement: { accepted: true } | { accepted: false; message: string },
   ): boolean => {
-    const recovery = newThreadRecoveryRef.current.get(clientMessageId);
+    const recovery = newThreadRecoveries.get(clientMessageId);
     if (!recovery) return false;
     if (settlement.accepted) {
       const promoted = promoteRecoveryToSession(
@@ -771,12 +659,6 @@ export default function App() {
     return true;
   }, [promoteRecoveryToSession, releaseNewThreadRecovery, restoreFailedNewThreadRecovery]);
 
-  const addEvent = useCallback((label: string, detail?: string, timestamp = Date.now()) => {
-    setEvents((current) => [...current.slice(-99), { id: `${timestamp}-${Math.random()}`, label, detail, timestamp }]);
-  }, []);
-  noticeRef.current = setNotice;
-  eventRef.current = addEvent;
-
   // A prepared thread is not a runtime session yet, so its project is the
   // only trustworthy workspace identity while it is on screen. In
   // particular, do not expose the last real thread's worktree in the chrome.
@@ -786,45 +668,20 @@ export default function App() {
     void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, workspaceCwd]);
 
-  const hostEventStores = useMemo<HostEventStores>(() => ({
+  const hostEventTargets = useMemo<HostEventTargets>(() => ({
     registry,
     threadStore,
-    detailStore: detailStoreRef.current,
-    messages: messagesRef,
-    transcriptTurnStart: transcriptTurnStartRef,
-    recoveries: newThreadRecoveryRef,
-    activeDraftKey: activeDraftKeyRef,
-    assistantStarts: assistantStartsRef,
-    pendingToolUpdates: pendingToolUpdatesRef,
-    toolFrame: toolFrameRef,
-    toolAnchor: toolAnchorRef,
-    runningThread: runningThreadRef,
-    assistantAnchors: pendingAssistantAnchorsRef,
-    transcriptIndex: transcriptMessageIndexRef as { current: TranscriptMessageIndex },
-    setOptimisticMessages,
+    view: viewStore,
+    recoveries: newThreadRecoveries,
+    currentDraftKey,
+    transcriptTurnStart: () => transcriptTurnStartRef.current,
     setTranscriptTurnStart,
-    setNotice,
     settleNewThreadDelivery,
     promoteRecoveryToSession,
     applyHostUpdate,
     applyThreadIndex,
-    flushAssistantDeltas,
-    flushToolUpdates,
-    updateTools,
-    setToolAnchorId,
-    setTurnActivitySessionId,
-    setSnapshot,
-    setRunStartedAt,
-    appendTranscriptMessage,
-    queueAssistantDelta,
-    replaceTranscriptMessages,
-    updateTranscriptMessages,
-    setMessages,
-    queueToolUpdate,
-    addEvent,
-    setUiPrompts,
-  }), [addEvent, appendTranscriptMessage, applyHostUpdate, applyThreadIndex, flushAssistantDeltas, flushToolUpdates, promoteRecoveryToSession, queueAssistantDelta, queueToolUpdate, registry, replaceTranscriptMessages, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, updateTranscriptMessages, updateTools]);
-  const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventStores), [hostEventStores]);
+  }), [applyHostUpdate, applyThreadIndex, currentDraftKey, newThreadRecoveries, promoteRecoveryToSession, registry, setTranscriptTurnStart, settleNewThreadDelivery, threadStore, viewStore]);
+  const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -912,6 +769,15 @@ export default function App() {
     setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
     setDockOpen(true);
   }, []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const closeProjectSources = useCallback(() => setProjectSourcesOpen(false), []);
+  const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
+  const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
+  const closeOverlay = useCallback(() => setActiveOverlayId(undefined), []);
+  const activateStage = useCallback((id: string) => setStage((current) => activateStageTab(current, id)), []);
+  const closeStage = useCallback((id: string) => setStage((current) => closeStageTab(current, id)), []);
+  const pinStage = useCallback((id: string) => setStage((current) => pinStageTab(current, id)), []);
+  const setStageView = useCallback((id: string, view: StageView) => setStage((current) => setFileView(current, id, view)), []);
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => {
     setStage((current) => openFileTab(current, path, options));
     setChatFocused(false);
@@ -941,17 +807,17 @@ export default function App() {
   const rehomeDetachedDelivery = useCallback((clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string) => {
     recovery.sessionId = sessionId;
     composerScopeStore.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === clientMessageId
+    viewStore.setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === clientMessageId
       ? { ...entry, scope: `session:${sessionId}` } : entry));
   }, [composerScopeStore]);
 
   // Leaving a draft never waits for its first message: delivery continues in
   // the background and follows the runtime thread once the host has named one.
   const detachNewThreadDelivery = useCallback((): boolean => {
-    const pending = pendingNewThreadRef.current;
+    const pending = currentPendingNewThread();
     if (!pending) return false;
     let detached = false;
-    for (const [clientMessageId, recovery] of newThreadRecoveryRef.current) {
+    for (const [clientMessageId, recovery] of newThreadRecoveries) {
       if (recovery.pending.draftId !== pending.draftId || recovery.detached) continue;
       recovery.detached = true;
       detached = true;
@@ -961,17 +827,16 @@ export default function App() {
   }, [rehomeDetachedDelivery]);
 
   const discardPendingNewThread = useCallback((expected?: NewThreadDraft): boolean => {
-    const current = pendingNewThreadRef.current;
+    const current = currentPendingNewThread();
     if (!current || (expected && current.draftId !== expected.draftId)) return false;
     invalidateNewThread();
-    pendingNewThreadRef.current = undefined;
     setPendingNewThread(undefined);
     writeNewThreadDraft(window.localStorage);
     return true;
   }, [invalidateNewThread, setPendingNewThread]);
 
   const openWorkspace = useCallback(async (path: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
-    const pending = pendingNewThreadRef.current;
+    const pending = currentPendingNewThread();
     if (path === (pending?.projectPath ?? snapshot?.cwd)) return true;
     if (!requireHost("Project switching")) return false;
     detachNewThreadDelivery();
@@ -1094,14 +959,13 @@ export default function App() {
       // The stalled row is restored from a renderer-side cache, so clearing the
       // session alone would leave the ghost on screen.
       if (sessionId) clearCachedTurnActivity(window.localStorage, sessionId);
-      updateTools([]);
-      toolAnchorRef.current = undefined;
-      setToolAnchorId(undefined);
+      viewStore.setTools([]);
+      viewStore.setToolAnchorId(undefined);
       setNotice("Closed the interrupted call. The thread can continue.");
     } catch (error) {
       setNotice(errorMessage(error));
     }
-  }, [applyActionResult, requireHost, snapshot?.sessionId, updateTools]);
+  }, [applyActionResult, requireHost, snapshot?.sessionId, viewStore]);
 
   const compactContext = useCallback(async () => {
     if (!requireHost("Compaction")) return;
@@ -1134,9 +998,9 @@ export default function App() {
   }, [snapshot?.sessionId, threadStore, uiPrompts]);
 
   const answerUiPrompt = useCallback((id: string, answer: ExtensionUiAnswer) => {
-    const prompt = uiPromptsRef.current.find((entry) => entry.id === id);
+    const prompt = viewStore.getUiPrompts().find((entry) => entry.id === id);
     if (prompt) registry.notifyPromptAnswered(prompt, answer);
-    setUiPrompts((current) => current.filter((entry) => entry.id !== id));
+    viewStore.setUiPrompts((current) => current.filter((entry) => entry.id !== id));
     void window.tau?.answerExtensionUi(id, answer);
   }, [registry]);
 
@@ -1211,6 +1075,7 @@ export default function App() {
 
   // Pi's /tree, /fork and /clone for the thread on screen.
   const [threadTreeModal, setThreadTreeModal] = useState<{ mode: ThreadTreeMode; tree?: UiThreadTree; error?: string; busy: boolean }>();
+  const closeThreadTree = useCallback(() => setThreadTreeModal(undefined), []);
   const openThreadTree = useCallback((mode: ThreadTreeMode = "navigate") => {
     if (!requireHost("Thread tree")) return;
     setThreadTreeModal({ mode, busy: false });
@@ -1265,7 +1130,7 @@ export default function App() {
     switchSession,
     settleActiveThread,
     // Escape is bound to this; only a visibly running thread has anything to stop.
-    abort: () => { if (visibleStreamingRef.current) void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined); },
+    abort: () => { if (isVisibleThreadRunning()) void window.tau?.abort(threadStore.getSnapshot().activeThreadId || undefined); },
     reloadWorkbench,
     openThreadTree,
     duplicateThread,
@@ -1291,12 +1156,11 @@ export default function App() {
     activeDraftKey, openWorkspace, reloadWorkbench, settleActiveThread, snapshot, switchSession,
     openThreadTree, duplicateThread,
   ]);
-  actionsRef.current = actions;
 
   const completeNewThreadSubmission = useCallback((completion: NewThreadSubmissionCompletion) => {
     const { pending, sessionId, optimisticId, prompt, scope, requestId, result, recovery } = completion;
     if (!isCurrentNewThreadRequest(pending, scope, requestId)) return;
-    setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
+    viewStore.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
       ? { ...entry, scope: `session:${sessionId}` }
       : entry));
     if (scope) {
@@ -1389,8 +1253,8 @@ export default function App() {
     };
     const isCurrentSubmission = () => isCurrentTranscriptSubmission(
       transcriptTurnStartRef.current,
-      transcriptScopeKeyRef.current,
-      pendingNewThreadRef.current?.draftId,
+      currentTranscriptScopeKey(),
+      currentPendingNewThread()?.draftId,
       submissionIdentity,
     );
     const startTranscriptTurn = (
@@ -1418,7 +1282,7 @@ export default function App() {
     const submittedDraftKey = activeDraftKey;
     const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
-      setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+      viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       startTranscriptTurn(snapshot?.sessionId);
       try {
         if (!window.tau) throw new Error("Steering requires the Electron host.");
@@ -1426,7 +1290,7 @@ export default function App() {
       } catch (error) {
         const currentSubmission = isCurrentSubmission();
         cancelTranscriptTurn();
-        setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+        viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         if (currentSubmission) {
           setNotice(String(error));
         }
@@ -1463,12 +1327,12 @@ export default function App() {
         : undefined;
       if (recovery) {
         // The user may have left this draft while the prompt was being prepared.
-        if (pendingNewThreadRef.current?.draftId !== pending.draftId) recovery.detached = true;
-        newThreadRecoveryRef.current.set(clientMessageId, recovery);
+        if (currentPendingNewThread()?.draftId !== pending.draftId) recovery.detached = true;
+        newThreadRecoveries.set(clientMessageId, recovery);
         setNewThreadRecoveryVersion((version) => version + 1);
       }
       startTranscriptTurn(pending.sessionId, false, true);
-      setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+      viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
       try {
         if (!window.tau) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
@@ -1547,14 +1411,14 @@ export default function App() {
               writeNewThreadDraft(window.localStorage, { ...pending, sessionId });
             }
           }
-          setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+          viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
           releaseNewThreadRecovery(clientMessageId);
           return result.submission;
         }
         const sessionId = created?.type === "thread-detail" ? created.detail.sessionId : undefined;
         if (transcriptTurnStartRef.current?.turnId !== logicalTurnId
-          || transcriptScopeKeyRef.current !== submissionScopeKey
-          || pendingNewThreadRef.current?.draftId !== pending.draftId) {
+          || currentTranscriptScopeKey() !== submissionScopeKey
+          || currentPendingNewThread()?.draftId !== pending.draftId) {
           // The draft was abandoned while the host was creating its session.
           // Do not let a late result switch the newly selected thread back.
           writeComposerDraft(window.localStorage, pendingKey, "");
@@ -1565,7 +1429,7 @@ export default function App() {
           if (recovery) recovery.sessionId = sessionId;
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
-          setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
+          viewStore.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
             ? { ...entry, scope: `session:${sessionId}` }
             : entry));
           const persistedPrompt = findPersistedPrompt(created);
@@ -1597,7 +1461,7 @@ export default function App() {
         releaseNewThreadRecovery(clientMessageId);
         const currentSubmission = isCurrentSubmission();
         cancelTranscriptTurn();
-        setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+        viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         if (currentSubmission) {
           setNotice(String(error));
         }
@@ -1609,7 +1473,7 @@ export default function App() {
       preferences.unsettle(snapshot.sessionId);
     }
     startTranscriptTurn(snapshot?.sessionId);
-    setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+    viewStore.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
     if (window.tau) {
       try {
         await window.tau.sendPrompt(text, attachments, snapshot?.sessionId, clientTurn, prepared);
@@ -1619,28 +1483,37 @@ export default function App() {
       } catch (error) {
         const currentSubmission = isCurrentSubmission();
         cancelTranscriptTurn();
-        setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+        viewStore.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
         if (currentSubmission) {
           setNotice(String(error));
         }
         return { accepted: false, message: errorMessage(error) };
       }
     } else {
-      setSnapshot((current) => current ? { ...current, isStreaming: true } : current);
-      setRunStartedAt(Date.now());
+      const previewThreadId = viewStore.getSnapshot()?.sessionId ?? "";
+      threadStore.setThreadRunning(previewThreadId, true);
       window.setTimeout(() => {
-        appendTranscriptMessage({
+        viewStore.appendMessage({
           id: `mock-${Date.now()}`,
           role: "assistant",
           text: "Preview mode received the prompt. Launch `npm start` to send it through the real Pi SDK.",
           timestamp: Date.now(),
         });
-        setSnapshot((current) => current ? { ...current, isStreaming: false } : current);
-        setRunStartedAt(undefined);
+        threadStore.setThreadRunning(previewThreadId, false);
       }, 650);
       return { accepted: true };
     }
-  }, [applyHostResult, actions, activeDraftKey, appendTranscriptMessage, applyActionResult, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, rehomeDetachedDelivery, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+  }, [applyHostResult, actions, activeDraftKey, applyActionResult, completeNewThreadSubmission, enqueueFollowUp, isCurrentNewThreadRequest, pendingNewThread, promoteRecoveryToSession, registry, rehomeDetachedDelivery, setTranscriptTurnStart, snapshot, threadStore, transcriptScopeKey, visibleStreaming]);
+
+  // Callbacks that outlive a render reach their late callers through these
+  // refs. They are written after the commit, never during it.
+  useEffect(() => {
+    actionsRef.current = actions;
+    promoteRecoveryRef.current = promoteRecoveryToSession;
+  }, [actions, promoteRecoveryToSession]);
+
+  // The queue flushes in an effect declared above this one, so the ref has to
+  // hold this render's submit before effects run.
   submitRef.current = submit;
 
   // Extensions own every chord; core only dispatches. A handler that already
@@ -1664,58 +1537,38 @@ export default function App() {
     if (!sessionId || turnActivitySessionId !== sessionId) return;
     writeCachedTurnActivity(window.localStorage, {
       sessionId,
-      tools,
+      tools: [...tools],
       anchorMessageId: toolAnchorId,
     });
   }, [snapshot?.sessionId, toolAnchorId, tools, turnActivitySessionId]);
   const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
-  const contextBreakdown: ContextBreakdown = useMemo(() => {
-    const usage = snapshot?.contextUsage;
-    if (!usage) return { messages: 0, toolOutput: 0, system: 0 };
-    const messageTokens = transcriptTokenEstimate;
-    const toolTokens = tools.reduce((total, tool) => total + estimateTokens(tool.output ?? ""), 0);
-    const accounted = Math.min(usage.tokens, messageTokens + toolTokens);
-    const scale = messageTokens + toolTokens > 0 ? accounted / (messageTokens + toolTokens) : 0;
-    return {
-      messages: Math.round(messageTokens * scale),
-      toolOutput: Math.round(toolTokens * scale),
-      system: Math.max(0, usage.tokens - accounted),
-    };
-  }, [snapshot?.contextUsage, tools, transcriptTokenEstimate]);
 
+  const liveSnapshot = useMemo(
+    () => snapshot ? { ...snapshot, isStreaming: visibleStreaming } : undefined,
+    [snapshot, visibleStreaming],
+  );
   const stageTab = activeStageTab(stage);
   const stageFilePath = stageTab?.path;
   const contextValue = useMemo(
-    () => ({ snapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
-    [snapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
+    () => ({ snapshot: liveSnapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
+    [liveSnapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
   );
-  const shellContextValue = useMemo(() => ({ snapshot, registry }), [snapshot, registry]);
-  const observatoryContextValue = useMemo(() => ({ events, snapshot, tools, registry }), [events, snapshot, tools, registry]);
+  const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry }), [liveSnapshot, registry]);
+  const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, tools, registry }), [events, liveSnapshot, tools, registry]);
   // The stage shows documents; whoever registered the document source loads them.
   const documentSource = registry.getDocumentSource();
   const documentState = useSyncExternalStore(documentSource?.subscribe ?? noopSubscribe, documentSource?.getState ?? emptyDocumentState, documentSource?.getState ?? emptyDocumentState);
   const sidebarContributions = registry.getSidebarContributions();
   const commands = registry.getCommands();
   const titleCommands = registry.getCommandsFor("thread-title");
-  const scopedOptimisticMessages = useMemo(
-    () => optimisticMessages.filter((entry) => entry.scope === activeDraftKey),
-    [activeDraftKey, optimisticMessages],
-  );
-  const unconfirmedOptimisticMessages = useMemo(
-    () => reconcileOptimisticMessages(scopedOptimisticMessages, messages).map((entry) => entry.message),
-    // `userRevision` lives in the mutable transcript index and can become
-    // visible in a higher-priority render before the matching messages state.
-    // The array dependency makes the later authoritative commit reconcile too.
-    [messages, scopedOptimisticMessages, transcriptUserRevision],
-  );
   const preparedThreadCapability = usePreparedThreadCapability(
     pendingNewThread?.sessionId ? undefined : pendingNewThread?.projectPath,
     window.tau?.getPreparedThreadCapability,
   );
-  const conversationMessages = useMemo(() => pendingNewThread
-    ? unconfirmedOptimisticMessages
-    : mergeTranscriptMessages(messages, unconfirmedOptimisticMessages),
-  [messages, pendingNewThread, unconfirmedOptimisticMessages]);
+  const conversationMessages = useMemo(
+    () => conversationMessagesFor(messages, optimisticMessages, activeDraftKey, Boolean(pendingNewThread)),
+    [activeDraftKey, messages, optimisticMessages, pendingNewThread],
+  );
   const visibleToolAnchorId = visibleStreaming
     ? latestActivityAnchor(conversationMessages)
     // A submitted prompt is visible before its run starts. Keep the previous
@@ -1758,8 +1611,7 @@ export default function App() {
   const { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread: Boolean(pendingNewThread), activityTools, turnActivityHistory, conversationSnapshot,
     toolAnchorId, visibleToolAnchorId, threadPrompts, registry, registryVersion,
-    pendingAssistantAnchors: pendingAssistantAnchorsRef, messages: messagesRef, setMessages,
-    recoverThread, copyToolOutput, abortSessionId: snapshot?.sessionId,
+    viewStore, recoverThread, copyToolOutput, abortSessionId: snapshot?.sessionId,
   });
   const showStartScreen = conversationMessages.length === 0
     && !conversationSnapshot?.isStreaming
@@ -1770,27 +1622,57 @@ export default function App() {
     ?? projects.find((project) => project.path === startProjectPath)?.name
     ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
     ?? startProjectPath;
-  return <>
-    <Workbench model={{
-    registry, actions, threadStore, context: contextValue, shellContext: shellContextValue,
-    observatoryContext: observatoryContextValue, snapshot, workspaceCwd, dockOpen, setDockOpen,
-    sidebarContributions, panels, activePanel, openedPanels, openPanel, centerRef, centerCompact,
-    setCenterCompact, chatFocused, setChatFocused, stage, setStage, documentState, documentSource,
-    visibleStreaming, showStartScreen, startProjectPath, startProjectName, setNewThreadOpen,
-    dropController: threadDropController, conversationSnapshot, composerScopeStore, composerSeed,
-    activeDraftKey, queue, contextBreakdown, composerRef, composerAttachmentRef, submit, cancelQueued, steerQueued, reorderQueue,
-    setModel, setThinking, conversationPrompts, answerUiPrompt, compactContext, composerHolds,
-    settings, titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread,
-    copyThreadValue, pendingNewThread: Boolean(pendingNewThread), conversationMessages,
+  const layout = useMemo<WorkbenchLayout>(() => ({
+    registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
+    openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
+    chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
+    pinStageTab: pinStage, setStageFileView: setStageView, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
+    commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
+    closeNewThreadPicker, projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
+    notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId, closeOverlay,
+  }), [
+    activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker,
+    closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
+    documentSource, documentState, dockOpen, newThreadOpen, notice, openNewThreadPicker, openPanel,
+    openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
+    removeProject, setNotice, setStageView, settings, settingsPage,
+    sidebarContributions, stage, threadStore, visibleStreaming, workspaceCwd,
+  ]);
+
+  const thread = useMemo<WorkbenchThread>(() => ({
+    snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread),
+    showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
-    transcriptRevision, transcriptLookupRevision, transcriptScope, transcriptTurnStart,
-    visibleTranscriptTurnStart, transcriptActivities, liveStatusLabel, conversationActivityTools,
-    runStartedAt, copyMessage, forkMessage, threadTreeModal, setThreadTreeModal,
-    navigateThreadTree, forkFromTree, paletteOpen, setPaletteOpen, commands, projectSourcesOpen,
-    setProjectSourcesOpen, newThreadOpen, projects, removeProject, createThreadInProject,
-    settingsPage, setSettingsPage, notice, noticeLevel, setNotice, activeOverlayId,
-    setActiveOverlayId,
-  }} />
+    transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, transcriptActivities,
+    liveStatusLabel, conversationActivityTools, runStartedAt, activeDraftKey, copyMessage, forkMessage,
+    titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread, copyThreadValue,
+    threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
+  }), [
+    activeDraftKey, applyTranscriptPage, closeThreadTree, conversationActivityTools,
+    conversationSnapshot, copyMessage, copyThreadValue, duplicateThread, forkFromTree, forkMessage,
+    liveSnapshot, liveStatusLabel, loadTranscriptPage, navigateThreadTree, openThreadTree,
+    pendingNewThread, renameThread, runStartedAt, settleActiveThread, showStartScreen,
+    startProjectName, startProjectPath, threadDropController, threadTreeModal, titleCommands,
+    transcriptActivities, transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart,
+    visibleTranscriptTurnStart,
+  ]);
+
+  const composer = useMemo<WorkbenchComposer>(() => ({
+    scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
+    attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
+    submit, cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
+  }), [
+    answerUiPrompt, cancelQueued, compactContext, composerHolds, composerScopeStore, composerSeed,
+    conversationPrompts, queue, reorderQueue, setModel, setThinking, steerQueued, submit,
+  ]);
+
+  const workbenchModel = useMemo<WorkbenchModel>(() => ({
+    view: viewStore, actions, context: contextValue, shellContext: shellContextValue,
+    observatoryContext: observatoryContextValue, layout, thread, composer,
+  }), [actions, composer, contextValue, layout, observatoryContextValue, shellContextValue, thread, viewStore]);
+
+  return <>
+    <Workbench model={workbenchModel} />
     {reloadUi}
   </>;
 }

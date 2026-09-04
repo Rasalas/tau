@@ -41,10 +41,11 @@ async function deliverInBackground(sessionId: string, item: QueuedFollowUp): Pro
  * then leave one at a time as ordinary prompts. The visible thread submits
  * through the composer path; other threads are delivered directly.
  */
-export function useFollowUpQueue({ sessionId, streamingRef, runningThreadIds, submitRef, setNotice }: {
+export function useFollowUpQueue({ sessionId, isRunning, runningThreadIds, submitRef, setNotice }: {
   /** The thread on screen, or undefined while a new-thread draft is open. */
   sessionId: string | undefined;
-  streamingRef: RefObject<boolean>;
+  /** Reads the one run-state selector; a steer only steers a thread that is working. */
+  isRunning(): boolean;
   runningThreadIds: readonly string[];
   submitRef: RefObject<SubmitPrompt>;
   setNotice(message: string | undefined, level: "error"): void;
@@ -101,13 +102,13 @@ export function useFollowUpQueue({ sessionId, streamingRef, runningThreadIds, su
     if (!sessionId) return;
     const item = store.remove(sessionId, id);
     if (!item) return;
-    const result = await submitRef.current(item.text, item.attachments, streamingRef.current ? "steer" : undefined, item.skillDraft);
+    const result = await submitRef.current(item.text, item.attachments, isRunning() ? "steer" : undefined, item.skillDraft);
     if (!result.accepted) {
       store.unshift(sessionId, item);
       store.pause(sessionId);
       setNotice(result.message, "error");
     }
-  }, [sessionId, setNotice, store, streamingRef, submitRef]);
+  }, [isRunning, sessionId, setNotice, store, submitRef]);
 
   return { queue, enqueue, cancelQueued, reorderQueue, steerQueued };
 }

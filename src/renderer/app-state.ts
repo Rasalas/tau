@@ -1,4 +1,4 @@
-import type { HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiMessage, UiSession, UiSkillDraft } from "../shared/contracts";
+import type { HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiContextUsage, UiMessage, UiSession, UiSkillDraft, UiToolRun } from "../shared/contracts";
 import { hostSnapshotFromThreadDetail, type HostActionResult, type ThreadDetail } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import type { ComposerScopeReference, DraftKey, PendingAttachment } from "./composer-scope-store";
@@ -148,6 +148,12 @@ export function reconcileOptimisticMessages(
 
 export function isSameUserMessage(left: UiMessage, right: UiMessage): boolean {
   if (left.role !== "user" || right.role !== "user") return false;
+  // The client identity outranks persistence ids: the same turn keeps it
+  // across the optimistic row, the live event and the persisted entry.
+  if (left.clientMessageId && right.clientMessageId) {
+    if (left.clientTurnId && right.clientTurnId && left.clientTurnId !== right.clientTurnId) return false;
+    return left.clientMessageId === right.clientMessageId;
+  }
   if (left.sourceEntryId && right.sourceEntryId) return left.sourceEntryId === right.sourceEntryId;
   if (left.id === right.id) return true;
   return left.timestamp === right.timestamp
@@ -235,4 +241,33 @@ export function mergeNewThreadRecoveryAttachments(
     seen.add(key);
     return true;
   });
+}
+
+/** The rows the conversation shows: confirmed history plus this scope's unconfirmed prompts. */
+export function conversationMessagesFor(
+  messages: readonly UiMessage[],
+  optimistic: readonly OptimisticUserMessage[],
+  activeDraftKey: string | undefined,
+  pendingNewThread: boolean,
+): UiMessage[] {
+  const scoped = optimistic.filter((entry) => entry.scope === activeDraftKey);
+  const unconfirmed = reconcileOptimisticMessages(scoped, messages).map((entry) => entry.message);
+  return pendingNewThread ? unconfirmed : mergeTranscriptMessages(messages, unconfirmed);
+}
+
+/** Splits the host's reported context usage over transcript and tool output. */
+export function contextBreakdownFor(
+  usage: UiContextUsage | undefined,
+  messageTokens: number,
+  tools: readonly UiToolRun[],
+): { messages: number; toolOutput: number; system: number } {
+  if (!usage) return { messages: 0, toolOutput: 0, system: 0 };
+  const toolTokens = tools.reduce((total, tool) => total + estimateTokens(tool.output ?? ""), 0);
+  const accounted = Math.min(usage.tokens, messageTokens + toolTokens);
+  const scale = messageTokens + toolTokens > 0 ? accounted / (messageTokens + toolTokens) : 0;
+  return {
+    messages: Math.round(messageTokens * scale),
+    toolOutput: Math.round(toolTokens * scale),
+    system: Math.max(0, usage.tokens - accounted),
+  };
 }

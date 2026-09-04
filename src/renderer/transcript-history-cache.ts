@@ -3,13 +3,18 @@ import type { ThreadDetail } from "../shared/host-protocol";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import { writeBootstrapCache } from "./bootstrap-cache";
 
-/** Persistence and bounded detail ownership, kept out of request coordination. */
+/**
+ * Persistence and bounded detail ownership, kept out of request coordination.
+ * The detail store is passed in: the renderer keeps exactly one, shared with
+ * the thread view store, so no thread is cached twice in memory.
+ */
 export class TranscriptHistoryCache {
-  readonly details = new ThreadDetailStore(5);
+  readonly details: ThreadDetailStore;
   private snapshot?: HostSnapshot;
   private index?: ThreadIndexSnapshot;
 
-  constructor(snapshot?: HostSnapshot, index?: ThreadIndexSnapshot) {
+  constructor(snapshot?: HostSnapshot, index?: ThreadIndexSnapshot, details = new ThreadDetailStore(5)) {
+    this.details = details;
     this.snapshot = snapshot;
     this.index = index;
   }

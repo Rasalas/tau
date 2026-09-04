@@ -638,7 +638,12 @@ export class ExtensionRegistry {
   }
 
   getRegions(placement: RegionPlacement): Array<Owned<RegionContribution>> {
-    return this.sorted(`regions:${placement}`, this.regions).filter((region) => region.placement === placement);
+    const key = `regions:placed:${placement}`;
+    const cached = this.sortedCache.get(key);
+    if (cached?.version === this.version) return cached.value as Array<Owned<RegionContribution>>;
+    const value = this.sorted(`regions:${placement}`, this.regions).filter((region) => region.placement === placement);
+    this.sortedCache.set(key, { version: this.version, value });
+    return value;
   }
 
   getStatusItems(): Array<Owned<StatusItemContribution>> {
@@ -675,7 +680,12 @@ export class ExtensionRegistry {
   }
 
   getCommandsFor(surface: CommandSurface): Array<Owned<CommandContribution>> {
-    return this.getCommands().filter((command) => command.surfaces?.includes(surface));
+    const key = `commands:${surface}`;
+    const cached = this.sortedCache.get(key);
+    if (cached?.version === this.version) return cached.value as Array<Owned<CommandContribution>>;
+    const value = this.getCommands().filter((command) => command.surfaces?.includes(surface));
+    this.sortedCache.set(key, { version: this.version, value });
+    return value;
   }
 
   getKeybindings(): ResolvedKeybinding[] {

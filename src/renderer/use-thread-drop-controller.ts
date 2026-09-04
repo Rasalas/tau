@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { THREAD_DROP_FEEDBACK, classifyThreadDrop, type ThreadDropState } from "../shared/thread-drop";
 
 export function useThreadDropController(
@@ -80,5 +80,8 @@ export function useThreadDropController(
     if (event.dataTransfer.files.length > 0) addFiles(event.dataTransfer.files);
   }, [addFiles, classify]);
 
-  return { state, onDragEnter, onDragOver, onDragLeave, onDrop };
+  return useMemo(
+    () => ({ state, onDragEnter, onDragOver, onDragLeave, onDrop }),
+    [onDragEnter, onDragLeave, onDragOver, onDrop, state],
+  );
 }
