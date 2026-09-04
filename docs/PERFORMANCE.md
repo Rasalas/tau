@@ -304,7 +304,40 @@ Record the fixture, machine class, build mode, median, p95, and maximum with eac
 - startup fixture records paint entries, loaded resources, external requests, and overlay style measurements in `reports/start-report.json`
 - project-scoped Git coordinator deduplicates status/branch/worktree reads, bounds subprocess concurrency, supports cancellation, and keeps the last valid state on timeout
 - file diffs stream only the requested hunk window from Git, discard skipped hunks, and stop the subprocess at page, byte, or line ceilings
+- review diffs render one virtualized row window across every changed file, with syntax highlighting computed per rendered row
 - pull requests run the type, test, build, host, renderer, and startup budgets in `.github/workflows/performance.yml`
+
+### Virtualized review diffs
+
+Review mode renders one virtualized window over the rows of every changed file
+instead of one list per file. `fileDiffRows` flattens a `UiFileDiff` into typed
+rows (file header, hunk header, context gap, line, load-more, status, and the
+gap between two file cards), and `DiffStream` renders that array through
+`useVirtualizer` with per-kind size estimates plus dynamic measurement, so
+wrapped long lines keep their real height in both unified and split layouts. Row
+`path` values carry navigation: jumping to a file scrolls to that file's first
+row index, and the first row of the visible range selects the active file. This
+replaces the per-section `IntersectionObserver` and the per-file scroll anchors.
+
+Syntax highlighting and intra-line change detection run only for rows the window
+renders. Both cache their results in `WeakMap`s keyed by the `UiDiffLine` object,
+so results are released with the diff rather than evicting the bounded streaming
+Markdown cache, and a scrolled-back row re-renders without re-highlighting.
+
+The `diff-2mb` fixture now builds its 2.1 MB patch from about 12,500 ordinary
+96-column lines instead of 1,000 lines of 2,098 characters. Row count, not line
+length, is the pressure a large review has to absorb, and the realistic width
+keeps the scenario measuring the highlighting path. Sizing the fixture payload
+moved out of the profiled render because it is harness instrumentation.
+
+Measured on the same machine class as the table above. On the fixture that
+produced the regression (1,000 lines of 2,098 characters) the scenario measured
+7,018 DOM nodes, 275.2 ms mount p95, and a 10,205 ms Long Task before the change,
+and 90 DOM nodes, 15.9 ms mount p95, and a 96 ms Long Task after it; the residual
+Long Task is Highlight.js on 2 KB lines, which the realistic fixture no longer
+produces. On the current fixture the scenario reports frame p95 17.1 ms, mount
+p95 19.7 ms, commit p95 2.3 ms, no Long Task, and 333 DOM nodes, inside every
+existing budget and the 5,000-node fixture sanity cap.
 
 ### Build and startup budget evidence
 

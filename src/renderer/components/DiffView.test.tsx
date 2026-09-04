@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiFileDiff } from "../../shared/workspace-kit-types";
 import { DiffView, diffLanguage, intralineParts } from "./DiffView";
@@ -14,7 +14,50 @@ const contextDiff: UiFileDiff = {
   ],
 };
 
-afterEach(cleanup);
+const ROW_HEIGHT = 26;
+const VIEWPORT_HEIGHT = 260;
+
+function stubbedHeight(element: HTMLElement): number {
+  if (element.classList.contains("diff-scroll") || element.classList.contains("review-diff-stream")) return VIEWPORT_HEIGHT;
+  return element.classList.contains("diff-stream-row") ? ROW_HEIGHT : 0;
+}
+
+/** jsdom reports no layout. Give the virtualizer a viewport and uniform rows. */
+function stubDiffLayout(): void {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function measure(this: HTMLElement) {
+    const height = stubbedHeight(this);
+    return { x: 0, y: 0, top: 0, left: 0, right: 900, bottom: height, width: 900, height, toJSON: () => ({}) };
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function height(this: HTMLElement) {
+    return stubbedHeight(this);
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(900);
+  Object.defineProperty(Element.prototype, "scrollTo", {
+    configurable: true,
+    writable: true,
+    value(this: Element, options: ScrollToOptions) {
+      this.scrollTop = options.top ?? 0;
+      this.dispatchEvent(new Event("scroll"));
+    },
+  });
+}
+
+function largeDiff(lines: number): UiFileDiff {
+  return {
+    path: "src/large.ts",
+    added: lines,
+    removed: 0,
+    hunks: [{
+      header: "@@ -1 +1 @@",
+      lines: Array.from({ length: lines }, (_, index) => ({ kind: "added" as const, newLine: index + 1, text: `const line${index} = ${index};` })),
+    }],
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  cleanup();
+});
 
 describe("DiffView", () => {
   it("turns omitted context into compact, expandable rows", () => {
@@ -35,7 +78,7 @@ describe("DiffView", () => {
   });
 
   it("renders syntax markup and intra-line change marks", async () => {
-    const { container } = render(<DiffView embedded path="src/a.ts" mode="unified" diff={{
+    const { container } = render(<DiffView path="src/a.ts" mode="unified" diff={{
       path: "src/a.ts",
       added: 1,
       removed: 1,
@@ -48,5 +91,26 @@ describe("DiffView", () => {
     expect(container.querySelectorAll(".diff-inline-change")).toHaveLength(2);
     expect(screen.getByText(",").classList.contains("diff-inline-change")).toBe(true);
     expect(screen.getByText(";").classList.contains("diff-inline-change")).toBe(true);
+  });
+
+  it("keeps only a window of a large diff in the DOM and renders rows on scroll", async () => {
+    stubDiffLayout();
+    const { container } = render(<DiffView path="src/large.ts" mode="unified" diff={largeDiff(600)} />);
+    const scroll = container.querySelector<HTMLElement>(".diff-scroll")!;
+
+    await waitFor(() => expect(container.querySelectorAll(".diff-stream-row").length).toBeGreaterThan(0));
+    expect(container.querySelectorAll(".diff-stream-row").length).toBeLessThan(40);
+    expect(container.textContent).toContain("const line0 = 0;");
+    expect(container.textContent).not.toContain("const line500 = 500;");
+    // The spacer keeps the scrollbar proportional to every row, not the window.
+    expect(container.querySelector<HTMLElement>(".diff-stream")!.style.height).toBe(`${601 * ROW_HEIGHT}px`);
+
+    await act(async () => {
+      scroll.scrollTop = 500 * ROW_HEIGHT;
+      fireEvent.scroll(scroll);
+    });
+    await waitFor(() => expect(container.textContent).toContain("const line500 = 500;"));
+    expect(container.textContent).not.toContain("const line0 = 0;");
+    expect(container.querySelectorAll(".diff-stream-row").length).toBeLessThan(40);
   });
 });
