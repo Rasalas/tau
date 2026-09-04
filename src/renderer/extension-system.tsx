@@ -1,5 +1,6 @@
 import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, type KeyChord } from "./keybindings";
 import type { ComponentType, ReactNode } from "react";
+import type { HostClient } from "./host-client";
 import type { HostActionResult } from "../shared/host-protocol";
 import type {
   GlobalHostEvent,
@@ -373,16 +374,23 @@ export class HostUnavailableError extends Error {
   constructor() { super("The Electron host is not available."); this.name = "HostUnavailableError"; }
 }
 
-const desktopApiBridge: HostExtensionBridge = {
-  invoke: (extensionId, command, input) => typeof window !== "undefined" && window.tau
-    ? window.tau.invokeHostExtension(extensionId, command, input)
-    : Promise.reject(new HostUnavailableError()),
+const noHostBridge: HostExtensionBridge = {
+  invoke: () => Promise.reject(new HostUnavailableError()),
 };
+
+/** Generalizes the desktop API's `invokeHostExtension` to whatever `HostClient` is active. */
+export function hostExtensionBridge(client: HostClient | undefined): HostExtensionBridge {
+  return {
+    invoke: (extensionId, command, input) => client
+      ? client.invokeHostExtension(extensionId, command, input)
+      : Promise.reject(new HostUnavailableError()),
+  };
+}
 
 export class ExtensionRegistry {
   private readonly hostEventListeners = new Map<string, Map<string, Set<(payload: unknown) => void>>>();
 
-  constructor(private readonly hostBridge: HostExtensionBridge = desktopApiBridge) {}
+  constructor(private readonly hostBridge: HostExtensionBridge = noHostBridge) {}
 
   private panels = new Map<string, Owned<PanelContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();

@@ -3,6 +3,7 @@ import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { preferences } from "../preferences";
+import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
 
 function DefaultsPage({
@@ -112,14 +113,15 @@ function ExtensionPage({
   onChanged(): void;
   onNotify(message: string): void;
 }) {
+  const client = useHostClient();
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   // The host half of the same package, if the package has one.
   const [hostHalves, setHostHalves] = useState<HostExtensionSummary[]>([]);
   useEffect(() => {
     let cancelled = false;
-    window.tau?.listHostExtensions().then((summaries) => { if (!cancelled) setHostHalves(summaries); }).catch(() => undefined);
+    client?.listHostExtensions().then((summaries) => { if (!cancelled) setHostHalves(summaries); }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [summary.id]);
+  }, [client, summary.id]);
   const hostHalf = hostHalves.find((entry) => entry.id === summary.id);
 
   const toggleExtension = () => {
@@ -127,7 +129,7 @@ function ExtensionPage({
     preferences.setExtensionEnabled(summary.id, next);
     registry.setActive(summary.id, next);
     if (hostHalf) {
-      window.tau?.setHostExtensionActive(summary.id, next).then(setHostHalves).catch((error: unknown) => {
+      client?.setHostExtensionActive(summary.id, next).then(setHostHalves).catch((error: unknown) => {
         onNotify(error instanceof Error ? error.message : String(error));
       });
     }
@@ -227,20 +229,21 @@ function ExtensionPage({
  * versions a package's `engines` is checked against.
  */
 function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: string }) {
+  const client = useHostClient();
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [hostHalves, setHostHalves] = useState<HostExtensionSummary[]>([]);
   const [inspection, setInspection] = useState<ExtensionInspection>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     let cancelled = false;
-    window.tau?.listHostExtensions().then((summaries) => { if (!cancelled) setHostHalves(summaries); }).catch(() => undefined);
+    client?.listHostExtensions().then((summaries) => { if (!cancelled) setHostHalves(summaries); }).catch(() => undefined);
     if (cwd) {
-      window.tau?.inspectExtensions(cwd)
+      client?.inspectExtensions(cwd)
         .then((result) => { if (!cancelled) setInspection(result); })
         .catch((failure: unknown) => { if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure)); });
     }
     return () => { cancelled = true; };
-  }, [cwd]);
+  }, [client, cwd]);
 
   const desktop = registry.getExtensionSummaries();
   const ids = [...new Set([...desktop.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)])].sort();

@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "../extension-system";
+import { setHostClient } from "../host-client-context";
+import { createFakeHostClient } from "../test-support/fake-host-client";
 import { workspaceHostStub } from "../test-support/workspace-host-stub";
 import { workspaceStore } from "./workspace-store";
 
-afterEach(() => { delete window.tau; vi.restoreAllMocks(); });
+afterEach(() => { setHostClient(undefined); vi.restoreAllMocks(); });
 
 describe("Workspace Kit worktree creation", () => {
   it("names the draft's project, then opens the worktree with the composer text", async () => {
     const createWorktree = vi.fn(async () => ({ path: "/draft-project-worktrees/fix-queue" }));
-    window.tau = { invokeHostExtension: workspaceHostStub({ createWorktree }) } as unknown as typeof window.tau;
+    setHostClient(createFakeHostClient({ invokeHostExtension: workspaceHostStub({ createWorktree }) }));
     const release = vi.fn();
     const actions = {
       holdComposer: vi.fn(() => release),
@@ -29,7 +31,7 @@ describe("Workspace Kit worktree creation", () => {
   });
 
   it("reports a failed creation and releases the composer", async () => {
-    window.tau = { invokeHostExtension: workspaceHostStub({ createWorktree: async () => { throw new Error("fix/queue is already checked out in a worktree."); } }) } as unknown as typeof window.tau;
+    setHostClient(createFakeHostClient({ invokeHostExtension: workspaceHostStub({ createWorktree: async () => { throw new Error("fix/queue is already checked out in a worktree."); } }) }));
     const release = vi.fn();
     const actions = { holdComposer: () => release, openWorkspace: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
     workspaceStore.bind(actions);
