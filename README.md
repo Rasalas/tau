@@ -56,6 +56,8 @@ An extension with a host half is a package: a folder under one of those two dire
   "name": "Hello",
   "version": "1.0.0",
   "engines": { "api": "^1.0.0", "pi": ">=0.84" },
+  "permissions": ["workspace:read", "process"],
+  "source": { "url": "https://github.com/acme/hello", "commit": "0123456789abcdef" },
   "desktop": "./desktop.tsx",
   "host": "./host.ts"
 }
@@ -63,7 +65,22 @@ An extension with a host half is a package: a folder under one of those two dire
 
 `id` is shared by both halves (lowercase, dot-separated) and must equal the id the desktop module exports; `desktop` and `host` are relative entry paths, either may be omitted. `version` is the package's own semver. `engines` names the ranges of `tau` (the app version), `pi` (the bundled Pi) and `api` (the contribution interfaces, `EXTENSION_API_VERSION` in `src/shared/extension-compat.ts`) the package runs on; ranges take `*`, `1.2.3`, `^1.2.0`, `~1.2.0`, `>=1 <2` and `||`. A package whose engines do not fit stays off on both sides and is listed with the reason in the Inspector. Both fields are optional; while Tau's own version is `0.0.0`, pin `api` rather than `tau`.
 
-Settings → Inspector shows every extension both halves know (desktop registry, host registry, commands, activation failures), the package folders on disk with their versions and engines, and the three versions the check runs against. The desktop entry is loaded like a plain desktop extension. The host entry runs in the Electron main process: the host compiles it with esbuild (Node builtins and Electron stay external, everything else is bundled), imports it and activates the default export, a `HostExtension` (`{ id?, name?, activate(context) }`) or a factory returning one; `context.services` is the same facade the bundled kits use (see `docs/adr/0006-host-extensions-own-host-features.md`), `context.registerCommand` and `context.emit` reach the desktop half through `context.host`. Packages are synced when Tau starts, when the project changes and on `/reload`, so installing, updating or removing a folder never needs a rebuild. A project's packages load only where Pi trusts the project; an activation failure is shown on the extension's settings page, not thrown. The settings toggle of a package turns both halves off and on.
+#### Permissions, Provenance and Isolation
+
+- **Permissions (`permissions`)**: Packages declare required capabilities explicitly from the permission vocabulary:
+  - `workspace:read`: Inspect project files and paths.
+  - `workspace:write`: Modify files and stage git modifications.
+  - `workspace:switch`: Switch or open active projects.
+  - `sessions`: Access session files, branch threads, sweep indexes.
+  - `runtime:extend`: Register custom runtimes and background task adapters.
+  - `process`: Spawn and execute tracked child processes.
+  - `network`: Perform outbound HTTP/TCP network requests.
+  Accessing an undeclared host service throws an error and logs an audit failure (`host-extension.denied`). Packages without a `permissions` field default to no permissions.
+- **Grants & Consent (`~/.tau/extension-grants.json`)**: When an extension package is first encountered or requests new permissions, it stays unactivated with status "wartet auf Freigabe" in Settings. The user reviews requested permissions and approves with "Erlauben" or rejects with "Ablehnen".
+- **Provenance (`source`)**: Optional `url` and `commit` fields record the git repository and commit hash from which the extension was published, shown in Settings → Inspector.
+- **Isolation & Crash Protection**: Third-party desktop extensions have `window.tau` stripped via build define (`undefined`) to prevent arbitrary IPC invocation. Host extensions have a 30s command timeout and auto-deactivate after 3 consecutive failures. In the renderer, all contribution slots (sidebar, panels, regions, statusline, composer controls, prompts, transcript rows) are guarded by `LazyFeatureBoundary`: render crashes automatically deactivate the extension in the registry and surface a toast notification without crashing the workbench shell.
+
+Settings → Inspector shows every extension both halves know (desktop registry, host registry, commands, activation failures), the package folders on disk with their versions, engines, permissions, and source provenance, and the three versions the check runs against. The desktop entry is loaded like a plain desktop extension. The host entry runs in the Electron main process: the host compiles it with esbuild (Node builtins and Electron stay external, everything else is bundled), imports it and activates the default export, a `HostExtension` (`{ id?, name?, activate(context) }`) or a factory returning one; `context.services` is the same facade the bundled kits use (see `docs/adr/0006-host-extensions-own-host-features.md`), `context.registerCommand` and `context.emit` reach the desktop half through `context.host`. Packages are synced when Tau starts, when the project changes and on `/reload`, so installing, updating or removing a folder never needs a rebuild. A project's packages load only where Pi trusts the project; an activation failure is shown on the extension's settings page, not thrown. The settings toggle of a package turns both halves off and on.
 
 Tau's own source can be changed from inside Tau too. `/reload` is the single apply-changes command for Tau source, Pi resources and desktop extensions. If threads are still running, Tau offers to wait or stop them first. It reloads the renderer after a successful build, or relaunches the app when the main process or preload changed.
 

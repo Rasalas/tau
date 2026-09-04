@@ -51,6 +51,7 @@ export function createThreadTitlesHostExtension(): HostExtension {
   return {
     id: THREAD_TITLES_HOST_EXTENSION_ID,
     name: "Thread Title Generator",
+    permissions: ["sessions"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       context.registerCommand("generate", async (input) => {

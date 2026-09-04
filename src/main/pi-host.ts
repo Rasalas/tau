@@ -54,7 +54,8 @@ import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
-import type { HostPackageLoadResult } from "./extension-packages.js";
+import { listExtensionPackages, type ExtensionPackage, type HostPackageLoadResult } from "./extension-packages.js";
+import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import {
@@ -170,6 +171,8 @@ export class PiHost {
   private readonly pendingHostExtensions: readonly HostExtension[];
   private readonly hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
   private packagedHostExtensionIds = new Set<string>();
+  private packagedHostExtensionEntries = new Map<string, { extension: HostExtension; package: ExtensionPackage }>();
+  private readonly grantsFilePath?: string;
   private readonly platform: HostPlatform;
   private readonly logger?: HostLogger;
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
@@ -308,6 +311,7 @@ export class PiHost {
     this.runtimeCommands = options.runtimeCommands ?? [];
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
     this.hostExtensionPackages = this.safeMode ? undefined : options.hostExtensionPackages;
+    this.grantsFilePath = options.grantsFilePath;
     this.platform = options.platform ?? {};
     this.logger = options.logger;
     const port = this.hostPort();
@@ -503,11 +507,23 @@ export class PiHost {
     for (const skip of loaded.skipped) this.log("host-extension.package.skipped", `${skip.directory}: ${skip.reason}`);
     const next = new Set(loaded.extensions.map((entry) => entry.extension.id));
     for (const id of this.packagedHostExtensionIds) {
-      if (!next.has(id)) await this.hostExtensions.remove(id).catch((error) => this.log("host-extension.remove.failed", `${id}: ${this.errorMessage(error)}`));
+      if (!next.has(id)) {
+        this.packagedHostExtensionEntries.delete(id);
+        await this.hostExtensions.remove(id).catch((error) => this.log("host-extension.remove.failed", `${id}: ${this.errorMessage(error)}`));
+      }
     }
-    for (const { extension, package: pkg } of loaded.extensions) {
+    const grantsFile = await readExtensionGrants(this.grantsFilePath).catch(() => ({ grants: [] }));
+    for (const entry of loaded.extensions) {
+      const { extension, package: pkg } = entry;
+      this.packagedHostExtensionEntries.set(extension.id, entry);
       if (this.pendingHostExtensions.some((bundled) => bundled.id === extension.id)) {
         this.log("host-extension.package.failed", `${pkg.directory}: id ${extension.id} belongs to a bundled kit`);
+        continue;
+      }
+      this.hostExtensions.addKnown(extension);
+      const granted = isPackageGranted(pkg.manifest, grantsFile.grants);
+      if (!granted) {
+        this.log("host-extension.package.ungranted", `${extension.name} · awaiting permission grant`);
         continue;
       }
       await this.hostExtensions.activate(extension);
@@ -522,6 +538,27 @@ export class PiHost {
     else await this.hostExtensions.deactivate(id);
     this.log(active ? "host-extension.enabled" : "host-extension.disabled", id);
     return this.listHostExtensions();
+  }
+
+  /** Grants or revokes permissions for an extension package and activates/deactivates accordingly. */
+  async grantExtension(id: string, grant: boolean): Promise<void> {
+    const entry = this.packagedHostExtensionEntries.get(id);
+    if (!entry) {
+      const scanned = await listExtensionPackages(this.cwd, this.agentDir);
+      const found = scanned.packages.find((p) => p.manifest.id === id);
+      if (found) {
+        await grantPackage(found.manifest, grant, this.grantsFilePath);
+      }
+      return;
+    }
+    await grantPackage(entry.package.manifest, grant, this.grantsFilePath);
+    if (grant) {
+      await this.hostExtensions.activate(entry.extension);
+      this.log("host-extension.enabled", id);
+    } else {
+      await this.hostExtensions.deactivate(id);
+      this.log("host-extension.disabled", id);
+    }
   }
 
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown> {

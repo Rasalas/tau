@@ -11,6 +11,7 @@ export function createServiceTierHostExtension(): HostExtension {
   return {
     id: SERVICE_TIER_HOST_EXTENSION_ID,
     name: "Service Tier",
+    permissions: ["runtime:extend", "sessions"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       let tier: ServiceTier = "standard";

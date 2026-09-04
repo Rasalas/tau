@@ -323,6 +323,11 @@ function installIpc(): void {
       decodeString("tau:host-extension-active", "id", id),
       decodeBoolean("tau:host-extension-active", "active", active),
     ));
+  ipcMain.handle("tau:extension-grant", async (_event, id: unknown, grant: unknown) =>
+    (await requireHostReady()).grantExtension(
+      decodeExtensionId("tau:extension-grant", id),
+      decodeBoolean("tau:extension-grant", "grant", grant),
+    ));
   ipcMain.handle("tau:prepare-workbench-reload", async (_event, mode: unknown) =>
     (await requireHostReady()).prepareWorkbenchReload(decodeWorkbenchReloadMode("tau:prepare-workbench-reload", "mode", mode)));
   ipcMain.handle("tau:release-workbench-reload", async () => (await requireHostReady()).releaseWorkbenchReload());

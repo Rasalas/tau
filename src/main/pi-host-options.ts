@@ -19,4 +19,6 @@ export interface PiHostOptions {
   platform?: HostPlatform;
   /** Host halves of extension packages on disk for the active workspace. */
   hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
+  /** Where user grants live; tests point this at a temp file. */
+  grantsFilePath?: string;
 }

@@ -34,12 +34,54 @@ describe("extension packages", () => {
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "Bad Id", name: "x", host: "./h.ts" }))).toThrow('"id"');
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x" }))).toThrow("neither");
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", host: "../h.ts" }))).toThrow("inside the package folder");
-    expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: " Hello ", desktop: "./d.tsx" }))).toEqual({ manifest: { id: "a.b", name: "Hello", desktop: "./d.tsx" }, desktopEntry: "/p/d.tsx" });
+    expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: " Hello ", desktop: "./d.tsx" }))).toEqual({
+      manifest: { id: "a.b", name: "Hello", permissions: [], desktop: "./d.tsx" },
+      desktopEntry: "/p/d.tsx",
+    });
+  });
+
+  it("parses permissions and refuses unknown ones", () => {
+    expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", host: "./h.ts" })).manifest.permissions).toEqual([]);
+    const withPerms = parseExtensionManifest("/p", JSON.stringify({
+      id: "a.b",
+      name: "x",
+      permissions: ["sessions", "workspace:read", "process"],
+      host: "./h.ts",
+    }));
+    expect(withPerms.manifest.permissions).toEqual(["process", "sessions", "workspace:read"]);
+    expect(() => parseExtensionManifest("/p", JSON.stringify({
+      id: "a.b",
+      name: "x",
+      permissions: ["sessions", "invalid:perm"],
+      host: "./h.ts",
+    }))).toThrow('unknown permission "invalid:perm"');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({
+      id: "a.b",
+      name: "x",
+      permissions: "sessions",
+      host: "./h.ts",
+    }))).toThrow('"permissions" must be an array of strings');
+  });
+
+  it("parses optional provenance source", () => {
+    const parsed = parseExtensionManifest("/p", JSON.stringify({
+      id: "a.b",
+      name: "x",
+      source: { url: "https://github.com/example/ext", commit: "abcdef1" },
+      host: "./h.ts",
+    }));
+    expect(parsed.manifest.source).toEqual({ url: "https://github.com/example/ext", commit: "abcdef1" });
+    expect(() => parseExtensionManifest("/p", JSON.stringify({
+      id: "a.b",
+      name: "x",
+      source: { commit: "abc" },
+      host: "./h.ts",
+    }))).toThrow('"source.url" must be a non-empty string');
   });
 
   it("reads version and engines and refuses ranges it cannot check", () => {
     const parsed = parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", version: "1.2.0", engines: { api: "^1.0.0", pi: ">=0.80 <1" }, host: "./h.ts" }));
-    expect(parsed.manifest).toEqual({ id: "a.b", name: "x", version: "1.2.0", engines: { api: "^1.0.0", pi: ">=0.80 <1" }, host: "./h.ts" });
+    expect(parsed.manifest).toEqual({ id: "a.b", name: "x", version: "1.2.0", engines: { api: "^1.0.0", pi: ">=0.80 <1" }, permissions: [], host: "./h.ts" });
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", version: "latest", host: "./h.ts" }))).toThrow('"version" must be a semver string');
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", engines: { node: ">=20" }, host: "./h.ts" }))).toThrow('not "node"');
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", engines: { api: "newest" }, host: "./h.ts" }))).toThrow('"engines": "newest" is not a version range');
@@ -53,13 +95,25 @@ describe("extension packages", () => {
   it("summarizes the package folders for the inspector without loading code", async () => {
     const home = await scratch();
     const project = await scratch();
-    await writePackage(home, "hello", { id: "acme.hello", name: "Hello", version: "0.3.0", engines: { api: "^1" }, desktop: "./d.tsx", host: "./h.ts" }, { "d.tsx": "export default {}", "h.ts": "export default { activate() {} }" });
+    await writePackage(home, "hello", { id: "acme.hello", name: "Hello", version: "0.3.0", engines: { api: "^1" }, permissions: ["workspace:read"], source: { url: "https://example.com/repo" }, desktop: "./d.tsx", host: "./h.ts" }, { "d.tsx": "export default {}", "h.ts": "export default { activate() {} }" });
     await writePackage(project, "local", { id: "acme.local", name: "Local", desktop: "./d.tsx" }, { "d.tsx": "export default {}" });
     const versions = { tau: "0.0.0", pi: "0.84.4", api: "1.0.0" };
     const inspection = await inspectExtensionPackages(project, "/agent", { home, trusted: () => false, versions });
     expect(inspection.versions).toEqual(versions);
     expect(inspection.directories.map((entry) => entry.scope)).toEqual(["global", "project"]);
-    expect(inspection.packages).toEqual([{ id: "acme.hello", name: "Hello", version: "0.3.0", engines: { api: "^1" }, scope: "global", directory: join(home, ".tau", "extensions", "hello"), desktop: true, host: true }]);
+    expect(inspection.packages).toEqual([{
+      id: "acme.hello",
+      name: "Hello",
+      version: "0.3.0",
+      engines: { api: "^1" },
+      permissions: ["workspace:read"],
+      granted: false,
+      source: { url: "https://example.com/repo" },
+      scope: "global",
+      directory: join(home, ".tau", "extensions", "hello"),
+      desktop: true,
+      host: true,
+    }]);
     expect(inspection.skipped).toHaveLength(1);
     expect(inspection.errors).toEqual([]);
   });
@@ -89,7 +143,7 @@ describe("extension packages", () => {
   it("bundles and imports a host entry that then serves commands through the registry", async () => {
     const home = await scratch();
     const cache = await scratch();
-    const dir = await writePackage(home, "hello", { id: "acme.hello", name: "Hello" , host: "./host.ts" }, {
+    const dir = await writePackage(home, "hello", { id: "acme.hello", name: "Hello", permissions: ["workspace:read"], host: "./host.ts" }, {
       "host.ts": `
         import { basename } from "node:path";
         import { double } from "./lib.js";
@@ -99,7 +153,7 @@ describe("extension packages", () => {
     });
     const code = await bundleHostExtension(join(dir, "host.ts"));
     expect(code).toContain("node:path");
-    const extension = await importHostExtension(code, { id: "acme.hello", name: "Hello" }, cache);
+    const extension = await importHostExtension(code, { id: "acme.hello", name: "Hello", permissions: ["workspace:read"] }, cache);
     expect(extension).toMatchObject({ id: "acme.hello", name: "Hello Host" });
     const events: GlobalHostEvent[] = [];
     const registry = new HostExtensionRegistry(services, (event) => events.push(event));

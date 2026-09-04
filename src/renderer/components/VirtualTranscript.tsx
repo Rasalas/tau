@@ -9,6 +9,7 @@ import {
   type TranscriptActivity,
 } from "./transcript-activity";
 import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
+import { LazyFeatureBoundary } from "./LazyFeature";
 
 export interface VirtualTranscriptProps {
   messages: UiMessage[];
@@ -312,7 +313,13 @@ export const VirtualTranscript = memo(function VirtualTranscript({
 
   if (messages.length === 0 && unanchoredActivities.length > 0) {
     return <div ref={transcriptRef} className="virtual-transcript static-activity-transcript">
-      {unanchoredActivities.map((entry) => <div className="inline-transcript-activity" key={entry.id}>{entry.content}</div>)}
+      {unanchoredActivities.map((entry) => (
+        <div className="inline-transcript-activity" key={entry.id}>
+          <LazyFeatureBoundary label={entry.id}>
+            {entry.content}
+          </LazyFeatureBoundary>
+        </div>
+      ))}
     </div>;
   }
 
@@ -357,7 +364,9 @@ export const VirtualTranscript = memo(function VirtualTranscript({
             key={entry.id}
             onClickCapture={captureActivityViewport}
           >
-            {entry.content}
+            <LazyFeatureBoundary label={entry.id}>
+              {entry.content}
+            </LazyFeatureBoundary>
           </div>
         ))}
       </div>;

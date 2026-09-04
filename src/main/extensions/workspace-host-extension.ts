@@ -85,6 +85,14 @@ export function createWorkspaceHostExtension(): HostExtension {
   return {
     id: WORKSPACE_HOST_EXTENSION_ID,
     name: "Workspace Kit",
+    permissions: [
+      "workspace:read",
+      "workspace:write",
+      "workspace:switch",
+      "sessions",
+      "runtime:extend",
+      "process",
+    ],
     activate(context: HostExtensionContext) {
       const { services } = context;
       // The kit owns the Git cache; core only learns project facts from it.

@@ -83,4 +83,39 @@ describe("desktop extension packages", () => {
     expect(await listDesktopExtensionEntries(dir, { versions: { ...versions, api: "2.1.0" } })).toEqual([join(dir, "future", "main.tsx")]);
     expect(await listDesktopExtensionEntries(dir)).toEqual([join(dir, "future", "main.tsx")]);
   });
+
+  it("replaces window.tau with undefined in bundled code", async () => {
+    const dir = await scratch();
+    await writeFile(join(dir, "leak.ts"), `
+      console.log(window.tau);
+      export default { id: "leak", name: "Leak", activate() {} };
+    `);
+    const code = await bundleDesktopExtension(join(dir, "leak.ts"), { sharedExports: {} });
+    expect(code).toContain("console.log(void 0)");
+    expect(code).not.toContain("window.tau");
+  });
+
+  it("populates permissions, granted, and source on loaded bundles", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    await mkdir(join(home, ".tau", "extensions", "my-pkg"), { recursive: true });
+    await writeFile(join(home, ".tau", "extensions", "my-pkg", "tau-extension.json"), JSON.stringify({
+      id: "acme.pkg",
+      name: "Pkg",
+      permissions: ["workspace:read"],
+      source: { url: "https://github.com/foo/bar" },
+      desktop: "./index.ts",
+    }));
+    await writeFile(join(home, ".tau", "extensions", "my-pkg", "index.ts"), "export default { id: 'acme.pkg', name: 'Pkg', activate() {} };");
+
+    const result = await loadDesktopExtensions(project, home, {
+      sharedExports: {},
+      home,
+      trusted: () => true,
+    });
+    expect(result.bundles).toHaveLength(1);
+    expect(result.bundles[0].permissions).toEqual(["workspace:read"]);
+    expect(result.bundles[0].granted).toBe(false);
+    expect(result.bundles[0].source).toEqual({ url: "https://github.com/foo/bar" });
+  });
 });
