@@ -81,6 +81,20 @@ describe("applyHostEvent", () => {
     expect(view.getTranscript().messages).toEqual([]);
   });
 
+  it("keeps a background thread's tools out of the active rail", () => {
+    const { targets, threadStore, view } = fixture();
+    const tool = { id: "tool-9", name: "bash", args: {}, status: "running" as const, startedAt: 1 };
+
+    applyHostEvent({ type: "tool-start", sessionId: "other", tool }, targets);
+
+    expect(threadStore.getSnapshot().runningToolName).toBeUndefined();
+    expect(view.getToolView().tools).toEqual([]);
+
+    applyHostEvent({ type: "tool-start", sessionId: "active", tool }, targets);
+
+    expect(threadStore.getSnapshot().runningToolName).toBe("bash");
+  });
+
   it("does not show a prompt an extension answered itself", () => {
     const { targets, view, registry } = fixture();
     registry.interceptPrompt.mockReturnValue({ confirmed: true } as never);

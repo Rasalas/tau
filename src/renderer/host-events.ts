@@ -82,10 +82,11 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       applyAgentStatus(event, targets);
       break;
     case "tool-start":
-      threadStore.toolStarted(event.tool.id, event.tool.name);
+      // The rail's running-tool name describes the thread on screen only.
+      if (event.sessionId === threadStore.getSnapshot().activeThreadId) threadStore.toolStarted(event.tool.id, event.tool.name);
       break;
     case "tool-end":
-      threadStore.toolEnded(event.tool.id);
+      if (event.sessionId === threadStore.getSnapshot().activeThreadId) threadStore.toolEnded(event.tool.id);
       break;
     case "extension-ui-prompt": {
       const known = registry.interceptPrompt(event.prompt);
