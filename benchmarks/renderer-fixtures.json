@@ -6,7 +6,7 @@
     "viewport": "1440x900",
     "throttle": "none",
     "warmupRuns": 2,
-    "sampleRuns": 5
+    "sampleRuns": 9
   },
   "scenarios": [
     { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript", "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },

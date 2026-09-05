@@ -16,8 +16,8 @@
   "rendererScenarioBudgets": {
     "transcript-1000-turns": { "mountP95Ms": 40, "longTaskMs": 60 },
     "transcript-legacy-comparison-1000-turns": { "commitP95Ms": 40 },
-    "transcript-viewport-anchored-1000-turns": { "commitP95Ms": 40 },
-    "transcript-viewport-streaming-1000-turns": { "commitP95Ms": 40 }
+    "transcript-viewport-anchored-1000-turns": { "mountP95Ms": 30, "commitP95Ms": 40 },
+    "transcript-viewport-streaming-1000-turns": { "mountP95Ms": 30, "commitP95Ms": 40 }
   },
   "rendererDomNodes": 5000,
   "gitSubprocesses": 6,

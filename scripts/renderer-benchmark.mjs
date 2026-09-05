@@ -25,10 +25,15 @@ if (!Number.isInteger(archiveSequenceOffset) || archiveSequenceOffset < 0) throw
 let archiveSequence = archiveSequenceOffset;
 if (archivePath && (!seriesId || !seriesSide)) throw new Error("benchmark archive requires a series ID and side");
 
+// Linear interpolation (Hyndman-Fan type 7). With the handful of samples a
+// scenario gets, nearest-rank p95 collapsed to the single worst run.
 function percentile(values, p) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
+  const position = (sorted.length - 1) * p;
+  const lower = Math.floor(position);
+  const upper = Math.min(sorted.length - 1, lower + 1);
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
 }
 
 function run(command, commandArgs) {
@@ -237,7 +242,7 @@ const report = {
   },
   machine: machineClass(),
   startConditions: fixture.startConditions,
-  aggregation: { warmupRuns: fixture.startConditions.warmupRuns, sampleRuns: fixture.startConditions.sampleRuns, percentile: "nearest-rank", rawSamples: true },
+  aggregation: { warmupRuns: fixture.startConditions.warmupRuns, sampleRuns: fixture.startConditions.sampleRuns, percentile: "linear-interpolation", rawSamples: true },
   scenarios: fixture.scenarios.map(sampleScenario),
 };
 report.execution.gpu = {
