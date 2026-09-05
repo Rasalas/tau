@@ -17,6 +17,7 @@
     "start:safe": "TAU_NO_EXTENSIONS=1 npm start",
     "start:report": "node scripts/start-report.mjs",
     "smoke:remote-host": "node scripts/remote-host-smoke.mjs",
+    "smoke:extension-install": "node scripts/extension-install-smoke.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
     "lint": "oxlint .",
     "typecheck": "npm run typecheck:extension && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",

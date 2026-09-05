@@ -111,6 +111,7 @@ describe("extension packages", () => {
       permissions: ["workspace:read"],
       granted: false,
       source: { url: "https://example.com/repo" },
+      signature: { state: "unsigned", label: "unsigned" },
       scope: "global",
       directory: join(home, ".tau", "extensions", "hello"),
       desktop: true,

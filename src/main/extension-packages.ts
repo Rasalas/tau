@@ -10,6 +10,8 @@ import type { ExtensionInspection } from "../shared/contracts.js";
 import { assertEngineRanges, describeIncompatibility, parseVersion, type ExtensionEngines, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { isExtensionPermission } from "../shared/extension-permissions.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
+import { listInstalledSources } from "./extension-sources.js";
+import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher } from "./extension-signature.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
@@ -43,6 +45,10 @@ export interface ExtensionPackage {
   manifest: ExtensionManifest;
   desktopEntry?: string;
   hostEntry?: string;
+  /** The source string `packages.json` lists, for a package the installer put there. */
+  installedFrom?: string;
+  /** What `tau-extension.sig` proved; a package that fails its own hashes never gets here. */
+  signature?: SignatureState;
 }
 
 export function extensionPackageDirectories(cwd: string, home = homedir()): Array<{ scope: "global" | "project"; directory: string }> {
@@ -148,6 +154,28 @@ export interface PackageScanOptions {
   trusted?: (cwd: string) => boolean;
   /** Versions to check `engines` against; without them every package passes. */
   versions?: ExtensionHostVersions;
+  /** Where the Ed25519 keys a signature may be trusted against live. */
+  publishersFilePath?: string;
+}
+
+/** Reads one package folder, engines and signature included. */
+async function readPackageFolder(
+  scope: "global" | "project",
+  packageDir: string,
+  options: PackageScanOptions,
+  publishers: readonly TrustedPublisher[],
+): Promise<ExtensionPackage> {
+  const parsed = parseExtensionManifest(packageDir, await readFile(join(packageDir, MANIFEST_FILE), "utf8"));
+  const incompatible = manifestIncompatibility(parsed.manifest, options.versions);
+  if (incompatible) throw new Error(incompatible);
+  for (const entry of [parsed.desktopEntry, parsed.hostEntry]) {
+    if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new Error(`entry ${entry} does not exist`);
+  }
+  const signature = await verifyExtensionSignature(packageDir, parsed.manifest, publishers);
+  // A hash that no longer matches means the folder changed after it was signed:
+  // that is a broken package, not a weaker one, so it does not load at all.
+  if (signature.state === "tampered") throw new Error(describeSignature(signature));
+  return { scope, directory: packageDir, ...parsed, signature };
 }
 
 /** Every package folder with a manifest; project folders only where Pi trusts the project. */
@@ -157,8 +185,11 @@ export async function listExtensionPackages(
   options: PackageScanOptions = {},
 ): Promise<PackageScanResult> {
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
+  const home = options.home ?? homedir();
+  const publishers = await readTrustedPublishers(options.publishersFilePath ?? undefined);
   const result: PackageScanResult = { packages: [], errors: [], skipped: [] };
-  for (const { scope, directory } of extensionPackageDirectories(cwd, options.home)) {
+  const seen = new Set<string>();
+  for (const { scope, directory } of extensionPackageDirectories(cwd, home)) {
     let names: string[];
     try { names = await readdir(directory); } catch { continue; }
     const found: ExtensionPackage[] = [];
@@ -169,13 +200,7 @@ export async function listExtensionPackages(
       const info = await stat(manifestPath).catch(() => undefined);
       if (!info?.isFile()) continue;
       try {
-        const parsed = parseExtensionManifest(packageDir, await readFile(manifestPath, "utf8"));
-        const incompatible = manifestIncompatibility(parsed.manifest, options.versions);
-        if (incompatible) throw new Error(incompatible);
-        for (const entry of [parsed.desktopEntry, parsed.hostEntry]) {
-          if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new Error(`entry ${entry} does not exist`);
-        }
-        found.push({ scope, directory: packageDir, ...parsed });
+        found.push(await readPackageFolder(scope, packageDir, options, publishers));
       } catch (error) {
         result.errors.push({ path: manifestPath, message: error instanceof Error ? error.message : String(error) });
       }
@@ -185,9 +210,54 @@ export async function listExtensionPackages(
       result.skipped.push({ directory, reason: "The project is not trusted in Pi, so its extension packages stay off." });
       continue;
     }
-    result.packages.push(...found);
+    for (const pkg of found) {
+      if (seen.has(pkg.directory)) continue;
+      seen.add(pkg.directory);
+      result.packages.push(pkg);
+    }
   }
+  await addInstalledSources(cwd, home, options, publishers, trusted, result, seen);
   return result;
+}
+
+/** Adds the packages `packages.json` names, wherever the installer put them. */
+async function addInstalledSources(
+  cwd: string,
+  home: string,
+  options: PackageScanOptions,
+  publishers: readonly TrustedPublisher[],
+  trusted: (cwd: string) => boolean,
+  result: PackageScanResult,
+  seen: Set<string>,
+): Promise<void> {
+  const installed = await listInstalledSources(cwd, home);
+  let projectSkipped = false;
+  for (const entry of installed) {
+    if (entry.error) {
+      result.errors.push({ path: entry.source.raw, message: entry.error });
+      continue;
+    }
+    if (entry.scope === "project" && !trusted(cwd)) {
+      if (!projectSkipped) {
+        projectSkipped = true;
+        result.skipped.push({ directory: join(cwd, ".tau"), reason: "The project is not trusted in Pi, so the packages it installs stay off." });
+      }
+      continue;
+    }
+    if (seen.has(entry.directory)) continue;
+    const manifestPath = join(entry.directory, MANIFEST_FILE);
+    if (!await stat(manifestPath).then((info) => info.isFile()).catch(() => false)) {
+      result.errors.push({ path: manifestPath, message: `${entry.source.raw} is listed in packages.json but is not installed; run install again.` });
+      continue;
+    }
+    try {
+      const pkg = await readPackageFolder(entry.scope, entry.directory, options, publishers);
+      seen.add(entry.directory);
+      result.packages.push({ ...pkg, installedFrom: entry.source.raw });
+    } catch (error) {
+      result.errors.push({ path: manifestPath, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
 }
 
 /** What the settings inspector shows about the package folders: no code is loaded. */
@@ -207,6 +277,8 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       permissions: pkg.manifest.permissions ?? [],
       granted: isPackageGranted(pkg.manifest, grantsFile.grants),
       ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
+      ...(pkg.installedFrom ? { installedFrom: pkg.installedFrom } : {}),
+      ...(pkg.signature ? { signature: { state: pkg.signature.state, label: describeSignature(pkg.signature) } } : {}),
       scope: pkg.scope,
       directory: pkg.directory,
       desktop: Boolean(pkg.desktopEntry),
