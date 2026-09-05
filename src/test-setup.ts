@@ -10,8 +10,13 @@ configure({ asyncUtilTimeout: 5_000 });
 // tree keeps observers and frame callbacks alive past the test that made them.
 afterEach(async () => {
   if (typeof document === "undefined") return;
-  const { cleanup } = await import("@testing-library/react");
+  const { act, cleanup } = await import("@testing-library/react");
   cleanup();
+  // Virtualized lists remeasure inside a frame callback they never cancel; let
+  // that frame run while `window` still exists instead of after teardown.
+  if (typeof requestAnimationFrame === "function") {
+    await act(async () => { await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))); });
+  }
 });
 
 // A test that leaves fake timers armed hands them to whatever runs next, which

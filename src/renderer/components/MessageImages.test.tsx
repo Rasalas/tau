@@ -77,7 +77,8 @@ describe("message images", () => {
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Copy image" }));
     fireEvent.keyDown(screen.getByRole("menuitem", { name: "Copy image" }), { key: "Enter" });
     await waitFor(() => expect(copyImage).toHaveBeenCalledWith("data:image/png;base64,iVBORw=="));
-    expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull();
+    // The menu closes once the copy promise settles, one tick after the call.
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull());
   });
 
   it("copies a local preview data URL and closes the menu from Escape or outside", async () => {
