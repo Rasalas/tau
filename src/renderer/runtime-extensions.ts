@@ -1,6 +1,5 @@
 import * as React from "react";
 import * as JsxRuntime from "react/jsx-runtime";
-import * as Lucide from "lucide-react";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
 import * as tauApi from "./extension-api";
@@ -9,12 +8,29 @@ import * as tauApi from "./extension-api";
 export const SHARED_MODULES: Record<string, object> = {
   react: React,
   "react/jsx-runtime": JsxRuntime,
-  "lucide-react": Lucide,
   tau: tauApi,
 };
 
+/**
+ * The icon set is the one shared module the workbench itself barely uses; a
+ * namespace import would put every icon into the initial bundle. It is
+ * fetched as its own chunk the first time a package actually needs it.
+ */
+let iconModule: Promise<object> | undefined;
+export function loadSharedIcons(): Promise<object> {
+  iconModule ??= import("lucide-react").then((module) => {
+    SHARED_MODULES["lucide-react"] = module;
+    return module;
+  });
+  return iconModule;
+}
+
 export function sharedExportNames(modules: Record<string, object> = SHARED_MODULES): Record<string, string[]> {
-  return Object.fromEntries(Object.entries(modules).map(([name, module]) => [name, Object.keys(module)]));
+  const names = Object.fromEntries(Object.entries(modules).map(([name, module]) => [name, Object.keys(module)]));
+  // Still a shared specifier before the icon set is loaded; the host fills in
+  // the export names from its own copy when the list is empty.
+  if (modules === SHARED_MODULES && !("lucide-react" in names)) names["lucide-react"] = [];
+  return names;
 }
 
 export function installSharedModules(target: { __tauShared?: Record<string, object> } = globalThis as never): void {
@@ -77,6 +93,12 @@ export class RuntimeExtensions {
     const generation = ++this.generation;
     const result = await this.host.load(cwd, sharedExportNames());
     if (generation !== this.generation) return this.loaded;
+    // Only a workspace with packages pays for the icon set; it must be in
+    // place before a bundle's shim reads its named exports.
+    if (result.bundles.length > 0) {
+      await loadSharedIcons();
+      if (generation !== this.generation) return this.loaded;
+    }
     for (const failure of result.errors) {
       this.host.log("desktop-extension.failed", `${failure.path}: ${failure.message}`);
       this.host.notify(`Desktop extension failed to build: ${failure.message.split("\n")[0]}`);

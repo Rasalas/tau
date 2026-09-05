@@ -267,6 +267,7 @@ Initial local targets:
 - one transcript commit per animation frame while streaming
 - 150 KB plain-text and fenced-code streams below 24 ms frame p95 after initial block parsing
 - renderer mount work below 24 ms mount p95, with the transcript setup exception documented below
+- build budgets recalibrated on 2026-09-05: the initial script had grown to 1.62 MB because the icon set shared with extension packages was bundled as a namespace import; it is now a lazy 935 KB chunk fetched only when a workspace has packages, and the initial script is 721 KB (221 KB gzip). The initial JavaScript budget is 800 KB raw with the 275 KB gzip budget unchanged, the CSS budgets follow the 128 KB stylesheet (140 KB raw, 30 KB gzip), the total budgets include the lazy icon chunk (1.9 MB raw, 500 KB gzip), and the build-time budget allows a CI runner (20 s)
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95

@@ -110,6 +110,25 @@ export interface BundleOptions {
   sharedExports: Record<string, string[]>;
 }
 
+/**
+ * Shared modules the renderer only fetches on demand: it reports them with an
+ * empty export list, and the host reads the names from its own copy so the
+ * shim still binds every named import.
+ */
+const HOST_RESOLVED_SHARED = new Set(["lucide-react"]);
+const hostExportNames = new Map<string, Promise<string[]>>();
+
+function sharedExportNamesFor(specifier: string, reported: readonly string[] | undefined): Promise<string[]> {
+  if (reported && reported.length > 0) return Promise.resolve([...reported]);
+  if (!HOST_RESOLVED_SHARED.has(specifier)) return Promise.resolve([]);
+  let names = hostExportNames.get(specifier);
+  if (!names) {
+    names = import(specifier).then((module: object) => Object.keys(module));
+    hostExportNames.set(specifier, names);
+  }
+  return names;
+}
+
 /** Compiles one extension entry to a self-contained ES module. */
 export async function bundleDesktopExtension(entry: string, options: BundleOptions): Promise<string> {
   const shared = new Set(Object.keys(options.sharedExports));
@@ -133,8 +152,8 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
           if (!shared.has(args.path)) return undefined;
           return { path: args.path, namespace: "tau-shared" };
         });
-        api.onLoad({ filter: /.*/, namespace: "tau-shared" }, (args) => ({
-          contents: sharedModuleSource(args.path, options.sharedExports[args.path] ?? []),
+        api.onLoad({ filter: /.*/, namespace: "tau-shared" }, async (args) => ({
+          contents: sharedModuleSource(args.path, await sharedExportNamesFor(args.path, options.sharedExports[args.path])),
           loader: "js",
         }));
       },
