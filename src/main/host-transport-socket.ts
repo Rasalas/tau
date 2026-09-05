@@ -10,6 +10,7 @@ import {
 import { helloReply, type HostPushLog } from "./host-push-log.js";
 import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
+import { socketCapabilities } from "./host-local-files.js";
 import type { HostLogger } from "./host-log.js";
 
 /** Closed with this when the hello carried no token or the wrong one. */
@@ -54,7 +55,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
   };
 
-  server.on("connection", (socket) => {
+  server.on("connection", (socket, request) => {
+    // Only a peer on this machine may be told that the host's files are local.
+    const capabilities = socketCapabilities(options.capabilities, request.socket.remoteAddress);
     socket.on("message", (data) => {
       let payload: unknown;
       try { payload = JSON.parse(String(data)) as unknown; }
@@ -72,7 +75,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           return;
         }
         authenticated.add(socket);
-        send(socket, { type: "hello-reply", id: frame.id, reply: helloReply(options.pushLog, frame.hello, options) });
+        send(socket, { type: "hello-reply", id: frame.id, reply: helloReply(options.pushLog, frame.hello, { ...options, capabilities }) });
         return;
       }
       if (!authenticated.has(socket)) {

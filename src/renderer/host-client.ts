@@ -86,6 +86,12 @@ export interface HostClient {
   copyText(text: string): Promise<void>;
   copyImage(dataUrl: string): Promise<void>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
+  /**
+   * Whether the host announced a capability in its hello. `local-files` means
+   * the host's paths are paths of this machine, so opening or copying one makes
+   * sense; without it the workbench offers neither.
+   */
+  hasCapability(capability: string): boolean;
   /** Whether the link to the host is whole, being repaired, or refetching state. */
   getConnectionState(): HostConnectionState;
   onConnectionState(listener: (state: HostConnectionState) => void): () => void;
@@ -160,6 +166,7 @@ export function createHostClient(connection: HostConnection): HostClient {
     copyText: (text) => call<void>("copy-text", [text]),
     copyImage: (dataUrl) => call<void>("copy-image", [dataUrl]),
     onHostEvent: (listener) => connection.onEvent(listener),
+    hasCapability: connection.hasCapability,
     getConnectionState: connection.getState,
     onConnectionState: (listener) => connection.onState(listener),
   };

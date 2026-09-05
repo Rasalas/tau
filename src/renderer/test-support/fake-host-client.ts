@@ -73,6 +73,7 @@ function defaults(): HostClient {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    hasCapability: () => true,
     getConnectionState: () => "connected",
     onConnectionState: () => () => undefined,
     // Exposed only through the FakeHostClient wrapper below; kept here so

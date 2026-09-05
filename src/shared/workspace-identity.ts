@@ -25,3 +25,8 @@ export function isWorkspaceRelativePath(value: string): boolean {
   if (!value || value.startsWith("/") || value.startsWith("\\") || /^[a-z]:/iu.test(value)) return false;
   return !value.split("/").some((segment) => segment === ".." || segment === "");
 }
+
+/** Whether a value names one workspace: its id, or its path for a host that has none. */
+export function namesWorkspace(value: string, workspaceId: string | undefined, path: string | undefined): boolean {
+  return value === workspaceId || value === path;
+}

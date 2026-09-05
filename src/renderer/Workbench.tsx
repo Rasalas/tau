@@ -27,6 +27,7 @@ import { useClientStorage } from "./client-storage-context";
 import type { ClientStorage } from "./client-storage";
 import { STORAGE_KEYS } from "./storage-keys";
 import { usePreferences } from "./renderer-services-context";
+import { useHostCapabilities } from "./use-host-capabilities";
 import type { PreferencesState } from "./preferences";
 import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
@@ -239,6 +240,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   } = composer;
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
+  const hostCapabilities = useHostCapabilities();
   const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
   const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
 
@@ -433,6 +435,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                   onCommand={(id) => { void titleCommands.find((command) => command.id === id)?.run(actions); }}
                   onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
                   onCopy={(kind) => void copyThreadValue(kind)}
+                  canCopyPath={hostCapabilities.localFiles}
                 />
                 <span className="title-spacer" />
               </header>

@@ -7,6 +7,7 @@ import type { PreferencesStore } from "../preferences";
 import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../turn-activity";
 import type { UiToolRun } from "../../shared/contracts";
 import { getHostClient } from "../host-client-context";
+import { hostHasLocalFiles } from "../use-host-capabilities";
 import { getClientStorage } from "../client-storage";
 import { STORAGE_KEYS } from "../storage-keys";
 import { useWorkspaceStore } from "../renderer-services-context";
@@ -156,8 +157,10 @@ export class WorkspaceStore {
     }
   }
 
+  /** Editors run on the host's machine; a client elsewhere is offered none. */
   async loadEditors(): Promise<void> {
     if (!getHostClient()) return;
+    if (!hostHasLocalFiles(getHostClient())) { this.update({ editors: [] }); return; }
     try { this.update({ editors: await workspaceKit.listEditors() }); } catch { this.update({ editors: [] }); }
   }
 
@@ -301,12 +304,13 @@ export class WorkspaceStore {
     }
   }
 
-  async openInEditor(path?: string, editorOverride?: string): Promise<void> {
+  async openInEditor(relPath?: string, editorOverride?: string): Promise<void> {
     if (!this.allowed("Opening an editor")) return;
+    if (!hostHasLocalFiles(getHostClient())) { this.notify("This host's files are not on this machine."); return; }
     const editorId = editorOverride ?? this.activeEditor()?.id;
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.hostAvailable("Opening an editor")) return;
-    try { await workspaceKit.openInEditor(editorId, path); }
+    try { await workspaceKit.openInEditor(editorId, relPath); }
     catch (error) { this.notify(errorMessage(error)); }
   }
 
