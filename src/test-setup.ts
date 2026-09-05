@@ -1,5 +1,5 @@
 import { configure } from "@testing-library/dom";
-import { afterEach, vi } from "vitest";
+import { afterAll, afterEach, vi } from "vitest";
 
 // Integration-heavy renderer tests share the machine with Git and runtime
 // subprocess fixtures. Keep DOM polling tolerant of scheduler contention while
@@ -26,4 +26,12 @@ afterEach(() => {
   const pending = vi.getTimerCount();
   vi.useRealTimers();
   if (pending > 0) throw new Error(`Test left ${pending} pending fake timer(s); drain or clear them before it ends.`);
+});
+
+// @tanstack/virtual-core resets its scrolling flag on a 150 ms timer it does
+// not cancel on unmount; if the file's jsdom is torn down first, that timer
+// throws "window is not defined". Let it lapse before the environment goes.
+afterAll(async () => {
+  if (typeof document === "undefined") return;
+  await new Promise((resolve) => setTimeout(resolve, 200));
 });
