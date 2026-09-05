@@ -427,6 +427,10 @@ export interface ExtensionPackageSummary {
   permissions?: string[];
   granted?: boolean;
   source?: { url: string; commit?: string };
+  /** The source string the package was installed from, when an installer put it there. */
+  installedFrom?: string;
+  /** What the package's optional signature proved, and one line for the user. */
+  signature?: { state: "unsigned" | "signed" | "untrusted" | "tampered"; label: string };
   scope: "global" | "project";
   directory: string;
   desktop: boolean;
