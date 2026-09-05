@@ -33,6 +33,31 @@ describe("session index reconciliation", () => {
     expect(mapped.map((thread) => thread.id)).toContain("thread-119");
   });
 
+  it("includes the selected model provider for persisted Pi threads", async () => {
+    const directory = await mkdtemp(`${tmpdir()}/tau-session-provider-`);
+    const path = `${directory}/thread.jsonl`;
+    try {
+      await writeFile(path, [
+        JSON.stringify({ type: "session", version: 3, id: "thread", timestamp: "2026-09-01T12:00:00.000Z", cwd: "/project" }),
+        JSON.stringify({ type: "model_change", id: "model", parentId: null, timestamp: "2026-09-01T12:00:01.000Z", provider: "openai-codex", modelId: "gpt-5" }),
+      ].join("\n"));
+      const [mapped] = await mapSessions([{
+        id: "thread",
+        path,
+        cwd: "/project",
+        created: new Date("2026-09-01T12:00:00.000Z"),
+        modified: new Date("2026-09-01T12:00:01.000Z"),
+        messageCount: 0,
+        firstMessage: "Provider test",
+        allMessagesText: "Provider test",
+      }], "/fallback", async () => "main");
+
+      expect(mapped?.modelProvider).toBe("openai-codex");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("titles a persisted conversation when the fresh runtime buffer is not ready", () => {
     expect(buildTitleConversation([], [
       { role: "user", content: "Persisted question" },

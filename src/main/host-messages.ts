@@ -32,6 +32,7 @@ import { hostCursorAtBridgeValue, providerCursorValue } from "./transcript-curso
 import { skillMessagePresentation } from "./skill-invocation.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { promptImages } from "./prompt-attachments.js";
+import { readSessionModelProvider } from "./session-model-provider.js";
 
 /**
  * Pure projections of Pi's raw session data into the workbench contract:
@@ -514,6 +515,7 @@ export async function mapSessions(
   fallbackCwd: string,
   resolveLabel: (cwd: string) => Promise<string | undefined>,
   resolveProjectName: (cwd: string) => string = (cwd) => basename(cwd) || cwd,
+  knownModelProviders: ReadonlyMap<string, string> = new Map(),
 ): Promise<UiSession[]> {
   const recent = [...sessions]
     .sort((a, b) => b.modified.getTime() - a.modified.getTime());
@@ -521,9 +523,21 @@ export async function mapSessions(
   const labels = new Map(
     await Promise.all(projectPaths.map(async (path) => [path, await resolveLabel(path)] as const)),
   );
+  const modelProviders = new Map(knownModelProviders);
+  const unresolved = recent.filter((session) => !modelProviders.has(session.id));
+  const concurrency = Math.min(10, unresolved.length);
+  async function readProviders(index: number): Promise<void> {
+    const session = unresolved[index];
+    if (!session) return;
+    const provider = await readSessionModelProvider(session.path);
+    if (provider) modelProviders.set(session.id, provider);
+    await readProviders(index + concurrency);
+  }
+  await Promise.all(Array.from({ length: concurrency }, (_, index) => readProviders(index)));
   return recent.map((session) => {
     const projectPath = session.cwd || fallbackCwd;
-    return {
+    const modelProvider = modelProviders.get(session.id);
+    const shell: UiSession = {
       id: session.id,
       path: session.path,
       title: cleanThreadTitle(safeSessionTitle(session.name) || firstSentence(visibleTitleText(session.firstMessage))),
@@ -534,6 +548,8 @@ export async function mapSessions(
       messageCount: session.messageCount,
       backendKind: "pi",
     };
+    if (modelProvider) shell.modelProvider = modelProvider;
+    return shell;
   });
 }
 

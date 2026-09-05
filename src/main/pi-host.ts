@@ -1,13 +1,12 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
   getAgentDir,
-  ModelRuntime,
   SessionManager,
   SettingsManager,
   type AgentSessionRuntime,
@@ -53,6 +52,7 @@ import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
+import { createPiModelRuntime } from "./pi-model-runtime.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult } from "./extension-packages.js";
@@ -260,10 +260,7 @@ export class PiHost {
     this.logRuntimePhase("settings", settingsStartedAt, reason, cwd);
 
     const modelsStartedAt = performance.now();
-    const modelRuntime = await ModelRuntime.create({
-      authPath: join(agentDir, "auth.json"),
-      modelsPath: join(agentDir, "models.json"),
-    });
+    const modelRuntime = await createPiModelRuntime(agentDir);
     this.logRuntimePhase("models", modelsStartedAt, reason, cwd);
 
     const resourcesStartedAt = performance.now();
@@ -2567,6 +2564,7 @@ export class PiHost {
       this.cwd,
       async (cwd) => this.labelFor(cwd),
       (cwd) => this.projectNameFor(cwd),
+      new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
     );
     const previous = this.sessions;
     const external = await this.externalSessionShells();
