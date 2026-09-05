@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { HostJobRunner } from "./host-jobs.js";
-import { createHostMethods } from "./host-methods.js";
+import { createHostMethods, createUnsupportedHostMethods, invokeHostMethod } from "./host-methods.js";
 
 /**
  * The renderer and the host agree only by string. A method added to one and
@@ -55,6 +55,13 @@ describe("host protocol contract", () => {
     const client = clientMethods();
     const unreachable = [...methods].filter((method) => !client.has(method) && !CLIENT_SIDE.has(method)).sort();
     expect(unreachable).toEqual([]);
+  });
+
+  it("a client of a remote host answers every local method with an unsupported error", async () => {
+    const refusing = createUnsupportedHostMethods("no local host here");
+    expect(Object.keys(refusing).sort()).toEqual([...methods].sort());
+    await expect(invokeHostMethod(refusing, "bootstrap", [])).rejects.toMatchObject({ code: "unsupported", message: "no local host here" });
+    await expect(invokeHostMethod(refusing, "copy-text", ["x"])).rejects.toMatchObject({ code: "unsupported" });
   });
 
   it("preload and the Electron transport name the same channels", () => {

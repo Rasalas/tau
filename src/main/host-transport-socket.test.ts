@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostServerFrame } from "../shared/host-transport.js";
 import { HostPushLog } from "./host-push-log.js";
-import { hostTokenMatches, readOrCreateHostToken } from "./host-token.js";
+import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import type { HostMethodTable } from "./host-methods.js";
@@ -141,6 +141,17 @@ describe("host token", () => {
     expect(readOrCreateHostToken(path)).toBe(token);
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readFileSync(path, "utf8").trim()).toBe(token);
+  });
+
+  it("reads an existing token for a client without creating one", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "tau-token-")), ".tau", "host-token");
+    expect(readHostToken(path)).toBeUndefined();
+    expect(clientHostToken({}, path)).toBeUndefined();
+    // TAU_HOST_TOKEN wins, so one client machine can reach several hosts.
+    expect(clientHostToken({ TAU_HOST_TOKEN: ` ${TOKEN} ` }, path)).toBe(TOKEN);
+    const created = readOrCreateHostToken(path);
+    expect(clientHostToken({}, path)).toBe(created);
+    expect(existsSync(path)).toBe(true);
   });
 
   it("matches only the exact token", () => {

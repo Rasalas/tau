@@ -78,6 +78,8 @@ export const HOST_ERROR = {
   unknownMethod: "unknown-method",
   unauthorized: "unauthorized",
   cancelled: "cancelled",
+  /** The method exists in the protocol but not in this host. */
+  unsupported: "unsupported",
   failed: "failed",
 } as const;
 

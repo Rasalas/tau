@@ -7,7 +7,7 @@ import type {
 } from "../shared/contracts.js";
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
 import type { PiHost } from "./pi-host.js";
-import { NO_JOB_CONTEXT, type HostJobRunner, type HostMethodContext } from "./host-jobs.js";
+import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import {
   decodeBoolean,
   decodeCommandName,
@@ -208,6 +208,31 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     },
   };
   return methods;
+}
+
+/**
+ * Every method name, all refusing. A window pointed at a host on another
+ * machine still has its in-process transport, but nothing local may answer for
+ * that host: a stray call gets a reason instead of this machine's state.
+ */
+export function createUnsupportedHostMethods(reason: string): HostMethodTable {
+  const refuse = (): never => { throw Object.assign(new Error(reason), { code: HOST_ERROR.unsupported }); };
+  const names = Object.keys(createHostMethods({
+    bootstrap: refuse,
+    requireHost: refuse,
+    host: () => undefined,
+    jobs: new HostJobRunner(() => undefined),
+    platform: {
+      copyText: refuse,
+      copyImage: refuse,
+      readImagePreview: refuse,
+      inspectExtensions: refuse,
+      loadDesktopExtensions: refuse,
+      rebuildWorkbench: refuse,
+      relaunchWorkbench: refuse,
+    },
+  }));
+  return Object.fromEntries(names.map((name) => [name, async () => refuse()]));
 }
 
 /** Runs one method outside a job; used by the request path of every transport. */

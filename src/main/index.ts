@@ -19,16 +19,22 @@ import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/ext
 import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostJobRunner } from "./host-jobs.js";
-import { createHostMethods } from "./host-methods.js";
+import { createHostMethods, createUnsupportedHostMethods } from "./host-methods.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
-import { readOrCreateHostToken } from "./host-token.js";
+import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
+/**
+ * `TAU_HOST_URL=ws://machine:7788` turns this process into a client: the window
+ * speaks the protocol over that socket and nothing local starts. The renderer
+ * takes the same URL through `?host=`, which it already understands.
+ */
+const remoteHostUrl = process.env.TAU_HOST_URL;
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);
@@ -169,14 +175,19 @@ async function createWindow(): Promise<void> {
     mainWindow?.webContents.reload();
   });
 
+  // The token travels in the window's own query string, never on a command line.
+  const remoteToken = remoteHostUrl ? clientHostToken() : undefined;
+  const query: Record<string, string> = {
+    ...(safeMode ? { safeMode: "1" } : {}),
+    ...(remoteHostUrl ? { host: remoteHostUrl } : {}),
+    ...(remoteToken ? { token: remoteToken } : {}),
+  };
   if (process.env.TAU_DEV_SERVER_URL) {
     const url = new URL(process.env.TAU_DEV_SERVER_URL);
-    if (safeMode) url.searchParams.set("safeMode", "1");
+    for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
     await mainWindow.loadURL(url.toString());
   } else {
-    await mainWindow.loadFile(join(currentDir, "../../dist/index.html"), {
-      query: safeMode ? { safeMode: "1" } : {},
-    });
+    await mainWindow.loadFile(join(currentDir, "../../dist/index.html"), { query });
   }
 }
 
@@ -210,7 +221,9 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
 }
 
 function installTransport(): void {
-  const methods = createHostMethods({
+  const methods = remoteHostUrl
+    ? createUnsupportedHostMethods(`This window is a client of the host at ${remoteHostUrl}; local operations (clipboard, image previews, workbench rebuild) are not available here.`)
+    : createHostMethods({
     bootstrap: async () => {
       if (!host) {
         host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
@@ -260,7 +273,7 @@ function installTransport(): void {
     methods,
     pushLog,
     hostVersion: app.getVersion(),
-    capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
+    capabilities: remoteHostUrl ? [] : [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
     send: (channel, payload) => { if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send(channel, payload); },
   });
   // A second transport for a client that is not this window; off unless asked for.
@@ -273,6 +286,7 @@ function installTransport(): void {
     hostVersion: app.getVersion(),
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),
+    allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     logger: hostLog,
   }).then((started) => { socketTransport = started; })
     .catch((error: unknown) => hostLog.error("host-transport-socket.failed", error));
@@ -303,8 +317,10 @@ if (primaryInstance) app.whenReady().then(async () => {
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
   installTransport();
-  host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
-  hostReady = watchHostStart(host.start());
+  if (!remoteHostUrl) {
+    host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
+    hostReady = watchHostStart(host.start());
+  }
   await createWindow();
 });
 
