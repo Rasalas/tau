@@ -145,7 +145,14 @@ export async function installExtensionSource(raw: string, scope: PackageScope, o
   const source = parseExtensionSource(raw, options.cwd);
   const directory = await fetchSource(source, home, options);
   const installed = await describe(source.raw, scope, directory, options);
-  if (installed.error) throw new Error(`${source.raw}: ${installed.error}`);
+  if (installed.error) {
+    // Nothing was recorded, so leave nothing behind in the npm store either.
+    if (source.kind === "npm") {
+      await run(npmExecutable(options), ["uninstall", "--prefix", npmStoreDirectory(home), "--no-audit", "--no-fund", source.value], { signal: options.signal })
+        .catch(() => undefined);
+    }
+    throw new Error(`${source.raw}: ${installed.error}`);
+  }
   options.progress?.(`recording ${source.raw} in ${scope} packages.json`);
   await addPackageSource(packagesFilePath(scope, options.cwd, home), source.raw);
   return installed;
