@@ -45,16 +45,16 @@ export function describeInstalled(entry: InstalledExtension): string {
  * `list` over `npm:`, `git:` and path sources. Installing never activates a
  * package; the permission grant still decides that.
  */
-export function createPackagesHostExtension(): HostExtension {
+export function createPackagesHostExtension(options: { home?: string } = {}): HostExtension {
   return {
     id: PACKAGES_HOST_EXTENSION_ID,
     name: "Packages",
     permissions: ["workspace:read", "process"],
     activate(context: HostExtensionContext) {
       const { services } = context;
-      const options = (progress?: (message: string) => void): InstallerOptions => ({
+      const installer = (progress?: (message: string) => void): InstallerOptions => ({
         cwd: services.cwd(),
-        home: homedir(),
+        home: options.home ?? homedir(),
         findCommand: (name) => services.findCommand(name),
         ...(progress ? { progress } : {}),
       });
@@ -62,14 +62,14 @@ export function createPackagesHostExtension(): HostExtension {
         context.emit("changed", { command: name, result: payload });
       };
 
-      context.registerCommand("list", async () => ({ packages: await listExtensionSources(options()) }));
+      context.registerCommand("list", async () => ({ packages: await listExtensionSources(installer()) }));
 
       context.registerCommand("install", async (input) => {
         const source = requiredSource(input);
         const scope = scopeOf(input);
         services.noteSubprocess();
         services.log("packages.install", `${source} (${scope})`);
-        const installed = await installExtensionSource(source, scope, options((message) => services.log("packages.progress", message)));
+        const installed = await installExtensionSource(source, scope, installer((message) => services.log("packages.progress", message)));
         announce("install", installed);
         return { installed, message: `${describeInstalled(installed)} — approve it in Settings, then run /reload.` };
       }, { long: true });
@@ -77,7 +77,7 @@ export function createPackagesHostExtension(): HostExtension {
       context.registerCommand("remove", async (input) => {
         const source = requiredSource(input);
         const scope = scopeOf(input);
-        const result = await removeExtensionSource(source, scope, options());
+        const result = await removeExtensionSource(source, scope, installer());
         if (!result.removed) throw new Error(`${source} is not listed in the ${scope} packages.json.`);
         services.log("packages.remove", `${source} (${scope})`);
         announce("remove", result);
@@ -86,7 +86,7 @@ export function createPackagesHostExtension(): HostExtension {
 
       context.registerCommand("update", async (input) => {
         services.noteSubprocess();
-        const updated = await updateExtensionSources(optionalSource(input), options((message) => services.log("packages.progress", message)));
+        const updated = await updateExtensionSources(optionalSource(input), installer((message) => services.log("packages.progress", message)));
         announce("update", updated);
         const failed = updated.filter((entry) => entry.error);
         return {

@@ -57,8 +57,12 @@ function run(command: string, args: string[], options: { cwd?: string; signal?: 
   });
 }
 
+function locate(options: InstallerOptions, name: string): string | undefined {
+  return (options.findCommand ?? ((command: string) => findExecutable(command)))(name);
+}
+
 function npmExecutable(options: InstallerOptions): string {
-  const npm = (options.findCommand ?? ((name: string) => findExecutable(name)))("npm");
+  const npm = locate(options, "npm");
   if (!npm) throw new Error("npm is not on this machine's PATH; install Node's npm or use a git: source.");
   return npm;
 }
@@ -89,13 +93,13 @@ async function fetchSource(source: ExtensionSource, home: string, options: Insta
     const exists = await stat(join(directory, ".git")).then((info) => info.isDirectory()).catch(() => false);
     if (exists) {
       options.progress?.(`git pull ${source.value}`);
-      await run(gitExecutable(), ["pull", "--ff-only"], { cwd: directory, signal: options.signal });
+      await run(locate(options, "git") ?? gitExecutable(), ["pull", "--ff-only"], { cwd: directory, signal: options.signal });
       return directory;
     }
     await mkdir(gitStoreDirectory(home), { recursive: true, mode: 0o700 });
     await rm(directory, { recursive: true, force: true });
     options.progress?.(`git clone --depth 1 ${source.value}`);
-    await run(gitExecutable(), ["clone", "--depth", "1", "--", source.value, directory], { signal: options.signal });
+    await run(locate(options, "git") ?? gitExecutable(), ["clone", "--depth", "1", "--", source.value, directory], { signal: options.signal });
     return directory;
   }
   if (!await stat(directory).then((info) => info.isDirectory()).catch(() => false)) {
