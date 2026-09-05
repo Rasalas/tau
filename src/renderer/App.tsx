@@ -893,6 +893,7 @@ export default function App() {
     activeThread: () => ({
       sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
       cwd: workspaceCwd,
+      workspaceId: pendingNewThread?.workspaceId ?? snapshot?.workspaceId,
       model: snapshot?.model,
       draftPending: newThreadDeliveryPending,
     }),

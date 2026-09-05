@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { DiffLoadOptions, FileNode, WorkspaceChangesQuery } from "../../shared/workspace-kit-types.js";
 import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "../../shared/workspace-kit-protocol.js";
+import { isWorkspaceRelativePath, type WorkspaceRef } from "../../shared/workspace-identity.js";
 import { assertAllowedCloneSource } from "../clone-source.js";
 import { readBoundedFileContent } from "../file-content.js";
 import type { UiToolRun } from "../../shared/contracts.js";
@@ -17,13 +18,14 @@ import { createWorkspaceKitLifecycle } from "./workspace-kit-lifecycle.js";
 
 const execFileAsync = promisify(execFile);
 
-export async function listDirectories(requested?: string): Promise<UiDirectoryListing> {
+export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef): Promise<UiDirectoryListing> {
   const candidate = requested?.trim() || homedir();
   if (!isAbsolute(candidate)) throw new Error("Choose an absolute folder path.");
   const path = await realpath(candidate);
   const entries = await readdir(path, { withFileTypes: true });
   return {
     path,
+    workspace: identify(path),
     ...(dirname(path) !== path ? { parent: dirname(path) } : {}),
     directories: entries
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
@@ -43,7 +45,8 @@ const VISIBLE_DOT_DIRECTORIES = new Set([".pi", ".scratch"]);
 const MAX_TREE_DEPTH = 4;
 const MAX_TREE_ENTRIES = 320;
 
-export async function readFileTree(path: string, depth = 0, budget = { count: 0 }): Promise<FileNode[]> {
+/** Nodes carry workspace-relative POSIX paths; a client never sees the host's own. */
+export async function readFileTree(path: string, relative = "", depth = 0, budget = { count: 0 }): Promise<FileNode[]> {
   if (depth > MAX_TREE_DEPTH || budget.count > MAX_TREE_ENTRIES) return [];
   const entries = await readdir(path, { withFileTypes: true });
   const nodes: FileNode[] = [];
@@ -51,7 +54,11 @@ export async function readFileTree(path: string, depth = 0, budget = { count: 0 
     if (budget.count++ > MAX_TREE_ENTRIES) break;
     if (entry.name.startsWith(".") && !VISIBLE_DOT_DIRECTORIES.has(entry.name)) continue;
     if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-    nodes.push({ name: entry.name, path: join(path, entry.name), kind: entry.isDirectory() ? "directory" : "file" });
+    nodes.push({
+      name: entry.name,
+      path: relative ? `${relative}/${entry.name}` : entry.name,
+      kind: entry.isDirectory() ? "directory" : "file",
+    });
   }
   return nodes;
 }
@@ -75,6 +82,24 @@ async function existingDirectory(path: string): Promise<string> {
 const optionalString = (input: unknown, key: string): string | undefined => {
   const value = record(input)[key];
   return typeof value === "string" ? value : undefined;
+};
+
+/**
+ * A file reference inside the workspace. `relPath` is the contract: an absolute
+ * path or a `..` escape is refused here, before anything resolves it. The
+ * legacy `path` key stays readable for one version, guarded as it always was.
+ */
+const optionalRelativePath = (input: unknown): string | undefined => {
+  const relative = optionalString(input, "relPath");
+  if (relative === undefined) return optionalString(input, "path");
+  if (!isWorkspaceRelativePath(relative)) throw new Error("Name a file by its path inside the workspace.");
+  return relative;
+};
+
+const relativePath = (input: unknown): string => {
+  const value = optionalRelativePath(input);
+  if (!value) throw new Error('Workspace command needs "relPath".');
+  return value;
 };
 
 function invalidateAfterTool(git: GitCoordinator, tool: UiToolRun, cwd: string): void {
@@ -107,6 +132,8 @@ export function createWorkspaceHostExtension(): HostExtension {
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
       const cwd = () => services.cwd();
+      // A command may name another workspace by id; without one it means the host's.
+      const workspaceOf = (input: unknown) => optionalString(input, "workspace") ?? optionalString(input, "cwd") ?? cwd();
       const refreshedChanges = async (project: string) => {
         git.invalidate(project);
         return git.getChanges(project);
@@ -119,10 +146,10 @@ export function createWorkspaceHostExtension(): HostExtension {
       };
 
       // Project sources: browse, pick, clone. Opening the result is core's job.
-      context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path")));
+      context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)));
       context.registerCommand("pick-folder", async () => {
         const path = await services.pickDirectory();
-        return path ? { path } : undefined;
+        return path ? services.workspaceRef(path) : undefined;
       });
       context.registerCommand("clone", async (input) => {
         const url = assertAllowedCloneSource(requiredString(input, "repositoryUrl"));
@@ -139,13 +166,13 @@ export function createWorkspaceHostExtension(): HostExtension {
         const destination = join(parent, repositoryFolderName(url));
         await execFileAsync(gitExecutable(), ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
         services.log("git.cloned", destination);
-        return { path: destination };
+        return services.workspaceRef(destination);
       }, { long: true });
       context.registerCommand("file-tree", async (input) => {
         const project = cwd();
-        const root = optionalString(input, "path") ?? project;
-        await workspaceGit.assertWorkspacePath(project, root);
-        return readFileTree(root);
+        const relative = optionalRelativePath(input);
+        if (relative) await workspaceGit.assertWorkspacePath(project, relative);
+        return readFileTree(relative ? resolve(project, relative) : project, relative ?? "");
       });
       // A branch with a pull or merge request diffs against that request's base, via gh or glab.
       const reviewRequests = createReviewRequestDetector({ findCommand: (name) => services.findCommand(name), onSubprocess: () => services.noteSubprocess() });
@@ -163,13 +190,13 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       context.registerCommand("file-diff", async (input) => {
         const project = cwd();
-        const path = requiredString(input, "path");
+        const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
       });
-      context.registerCommand("stage-file", (input) => stageThen(requiredString(input, "path"), workspaceGit.stageFile));
-      context.registerCommand("unstage-file", (input) => stageThen(requiredString(input, "path"), workspaceGit.unstageFile));
-      context.registerCommand("revert-file", (input) => stageThen(requiredString(input, "path"), workspaceGit.revertFile));
+      context.registerCommand("stage-file", (input) => stageThen(relativePath(input), workspaceGit.stageFile));
+      context.registerCommand("unstage-file", (input) => stageThen(relativePath(input), workspaceGit.unstageFile));
+      context.registerCommand("revert-file", (input) => stageThen(relativePath(input), workspaceGit.revertFile));
       context.registerCommand("stage-all", async () => {
         const project = cwd();
         await workspaceGit.stageAll(project);
@@ -177,7 +204,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       context.registerCommand("read-file", async (input) => {
         const project = cwd();
-        const path = requiredString(input, "path");
+        const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));
       });
@@ -208,17 +235,17 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
       });
       context.registerCommand("workspace-info", async (input) => {
-        const canonical = await services.knownWorkspacePath(optionalString(input, "cwd") ?? cwd());
+        const canonical = await services.knownWorkspacePath(workspaceOf(input));
         return git.getWorkspaceInfo(canonical);
       });
       context.registerCommand("worktree-statuses", async (input) => {
-        const canonical = await services.knownWorkspacePath(optionalString(input, "cwd") ?? cwd());
+        const canonical = await services.knownWorkspacePath(workspaceOf(input));
         const sessions = await services.sessions.list();
         return git.getWorktreeStatuses(canonical, sessions.map((session) => session.cwd));
       });
       context.registerCommand("create-worktree", async (input) => {
         // A pending draft may sit on another project than the host's thread.
-        const project = await services.knownWorkspacePath(optionalString(input, "cwd") ?? cwd());
+        const project = await services.knownWorkspacePath(workspaceOf(input));
         const branch = requiredString(input, "branch");
         const baseRef = optionalString(input, "baseRef");
         try {
@@ -226,7 +253,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
-          return { path: destination };
+          return services.workspaceRef(destination);
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           throw error;
@@ -285,7 +312,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
-        return checkpoints.turnFileDiff(sessionId, checkpointId, requiredString(input, "path"), record(input).options as DiffLoadOptions | undefined);
+        return checkpoints.turnFileDiff(sessionId, checkpointId, relativePath(input), record(input).options as DiffLoadOptions | undefined);
       });
       context.registerCommand("turn-files", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
@@ -296,7 +323,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("open-in-editor", async (input) => {
         const project = cwd();
         const editorId = requiredString(input, "editorId");
-        const path = optionalString(input, "path");
+        const path = optionalRelativePath(input);
         if (path) await workspaceGit.assertWorkspacePath(project, path);
         await workspaceGit.openInEditor(project, editorId, path);
       });

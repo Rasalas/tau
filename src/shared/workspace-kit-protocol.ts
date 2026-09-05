@@ -14,6 +14,7 @@ import type {
 } from "./workspace-kit-types.js";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { HostActionResult } from "./host-protocol.js";
+import type { WorkspaceRef } from "./workspace-identity.js";
 
 export type { FileNode, ChangeStatus, UiChangedFile, WorkspaceChangesCompleteness, WorkspaceDiffScope, WorkspaceChangesQuery, UiReviewRequest, UiWorkspaceChanges, UiWorkspaceChangesPage, DiffLineKind, UiDiffLine, UiDiffHunk, DiffLoadOptions, UiFileDiff, UiFileContent, UiWorktree, UiWorktreeStatus, UiRef, WorkspaceInfo, UiEditor, CommitResult, PushResult } from "./workspace-kit-types.js";
 
@@ -24,37 +25,46 @@ export type { FileNode, ChangeStatus, UiChangedFile, WorkspaceChangesCompletenes
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 
 export interface UiDirectoryListing {
+  /** Host coordinates of the browsed folder; browsing is a host-side operation. */
   path: string;
   parent?: string;
   directories: Array<{ name: string; path: string }>;
+  /** How the client names this folder once it keeps it. */
+  workspace: WorkspaceRef;
 }
 
+/**
+ * Workspace Kit's commands. A file inside a workspace travels as `relPath`, a
+ * POSIX path relative to the workspace root; a workspace itself travels as the
+ * opaque `workspace` id the host published. Only folder browsing deals in host
+ * paths, and it answers with identities for whatever the client keeps.
+ */
 export interface WorkspaceHostCommands {
   /** Browses folders for the local-folder project source. */
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Native folder dialog; `undefined` when cancelled. */
-  "pick-folder": { input: undefined; output: { path: string } | undefined };
+  "pick-folder": { input: undefined; output: WorkspaceRef | undefined };
   /** Clones into `parentPath`, or into a folder the host's picker returns; `undefined` when that dialog was cancelled. */
-  "clone": { input: { repositoryUrl: string; parentPath?: string }; output: { path: string } | undefined };
-  "file-tree": { input: { path?: string } | undefined; output: FileNode[] };
+  "clone": { input: { repositoryUrl: string; parentPath?: string }; output: WorkspaceRef | undefined };
+  "file-tree": { input: { relPath?: string } | undefined; output: FileNode[] };
   "changes": { input: { query?: WorkspaceChangesQuery } | undefined; output: UiWorkspaceChanges };
-  "file-diff": { input: { path: string; options?: DiffLoadOptions }; output: UiFileDiff };
-  "stage-file": { input: { path: string }; output: UiWorkspaceChanges };
-  "unstage-file": { input: { path: string }; output: UiWorkspaceChanges };
+  "file-diff": { input: { relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
+  "stage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
+  "unstage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "stage-all": { input: undefined; output: UiWorkspaceChanges };
-  "revert-file": { input: { path: string }; output: UiWorkspaceChanges };
-  "read-file": { input: { path: string }; output: UiFileContent };
+  "revert-file": { input: { relPath: string }; output: UiWorkspaceChanges };
+  "read-file": { input: { relPath: string }; output: UiFileContent };
   "commit": { input: { message: string; push: boolean }; output: CommitResult };
   "push": { input: undefined; output: PushResult };
   /** Reads metadata for a known project without changing the active host workspace. */
-  "workspace-info": { input: { cwd?: string } | undefined; output: WorkspaceInfo };
+  "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceInfo };
   /** Reads every linked checkout only when the picker needs cleanup safety facts. */
-  "worktree-statuses": { input: { cwd?: string } | undefined; output: UiWorktreeStatus[] };
-  /** Adds a worktree next to `cwd` (the host's workspace by default) and answers with its path; opening it is the caller's move. */
-  "create-worktree": { input: { branch: string; baseRef?: string; cwd?: string }; output: { path: string } };
+  "worktree-statuses": { input: { workspace?: string } | undefined; output: UiWorktreeStatus[] };
+  /** Adds a worktree next to `workspace` (the host's own by default) and answers with its identity; opening it is the caller's move. */
+  "create-worktree": { input: { branch: string; baseRef?: string; workspace?: string }; output: WorkspaceRef };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
-  "open-in-editor": { input: { editorId: string; path?: string }; output: void };
+  "open-in-editor": { input: { editorId: string; relPath?: string }; output: void };
   /** Every checkpoint of a thread's branch, and whether this runtime can restore one. */
   "checkpoints": { input: { sessionId: string }; output: WorkspaceCheckpointList };
   /** Ref and workspace integrity check used before showing Restore. */
@@ -63,7 +73,7 @@ export interface WorkspaceHostCommands {
   "restore-preview": { input: { sessionId: string; checkpointId: string }; output: UiWorkspaceChanges };
   "restore": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
   /** Immutable diff captured for one completed turn; never the live workspace. */
-  "turn-file-diff": { input: { sessionId: string; checkpointId: string; path: string; options?: DiffLoadOptions }; output: UiFileDiff };
+  "turn-file-diff": { input: { sessionId: string; checkpointId: string; relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
   "turn-files": { input: { sessionId: string; checkpointId: string; cursor?: string; limit?: number }; output: UiWorkspaceChangesPage };
 }
 
@@ -86,29 +96,29 @@ export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<
 
 export interface WorkspaceHostClient {
   listDirectories(path?: string): Promise<UiDirectoryListing>;
-  pickFolder(): Promise<string | undefined>;
-  clone(repositoryUrl: string, parentPath?: string): Promise<string | undefined>;
-  getFileTree(path?: string): Promise<FileNode[]>;
+  pickFolder(): Promise<WorkspaceRef | undefined>;
+  clone(repositoryUrl: string, parentPath?: string): Promise<WorkspaceRef | undefined>;
+  getFileTree(relPath?: string): Promise<FileNode[]>;
   getChanges(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
-  getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
-  stageFile(path: string): Promise<UiWorkspaceChanges>;
-  unstageFile(path: string): Promise<UiWorkspaceChanges>;
+  getFileDiff(relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  stageFile(relPath: string): Promise<UiWorkspaceChanges>;
+  unstageFile(relPath: string): Promise<UiWorkspaceChanges>;
   stageAll(): Promise<UiWorkspaceChanges>;
-  revertFile(path: string): Promise<UiWorkspaceChanges>;
-  readFile(path: string): Promise<UiFileContent>;
+  revertFile(relPath: string): Promise<UiWorkspaceChanges>;
+  readFile(relPath: string): Promise<UiFileContent>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   push(): Promise<PushResult>;
-  getWorkspaceInfo(cwd?: string): Promise<WorkspaceInfo>;
-  getWorktreeStatuses(cwd?: string): Promise<UiWorktreeStatus[]>;
-  createWorktree(branch: string, baseRef?: string, cwd?: string): Promise<{ path: string }>;
+  getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
+  getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
+  createWorktree(branch: string, baseRef?: string, workspace?: string): Promise<WorkspaceRef>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
-  openInEditor(editorId: string, path?: string): Promise<void>;
+  openInEditor(editorId: string, relPath?: string): Promise<void>;
   checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
   canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
   getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
-  getTurnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  getTurnFileDiff(sessionId: string, checkpointId: string, relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
 }
 
@@ -118,29 +128,29 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     invoke(command, input) as Promise<WorkspaceHostCommands[K]["output"]>;
   return {
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
-    pickFolder: () => call("pick-folder", undefined).then((result) => result?.path),
-    clone: (repositoryUrl, parentPath) => call("clone", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }).then((result) => result?.path),
-    getFileTree: (path) => call("file-tree", path === undefined ? undefined : { path }),
+    pickFolder: () => call("pick-folder", undefined),
+    clone: (repositoryUrl, parentPath) => call("clone", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }),
+    getFileTree: (relPath) => call("file-tree", relPath === undefined ? undefined : { relPath }),
     getChanges: (query) => call("changes", query === undefined ? undefined : { query }),
-    getFileDiff: (path, options) => call("file-diff", { path, options }),
-    stageFile: (path) => call("stage-file", { path }),
-    unstageFile: (path) => call("unstage-file", { path }),
+    getFileDiff: (relPath, options) => call("file-diff", { relPath, options }),
+    stageFile: (relPath) => call("stage-file", { relPath }),
+    unstageFile: (relPath) => call("unstage-file", { relPath }),
     stageAll: () => call("stage-all", undefined),
-    revertFile: (path) => call("revert-file", { path }),
-    readFile: (path) => call("read-file", { path }),
+    revertFile: (relPath) => call("revert-file", { relPath }),
+    readFile: (relPath) => call("read-file", { relPath }),
     commit: (message, push) => call("commit", { message, push }),
     push: () => call("push", undefined),
-    getWorkspaceInfo: (cwd) => call("workspace-info", cwd === undefined ? undefined : { cwd }),
-    getWorktreeStatuses: (cwd) => call("worktree-statuses", cwd === undefined ? undefined : { cwd }),
-    createWorktree: (branch, baseRef, cwd) => call("create-worktree", { branch, baseRef, cwd }),
+    getWorkspaceInfo: (workspace) => call("workspace-info", workspace === undefined ? undefined : { workspace }),
+    getWorktreeStatuses: (workspace) => call("worktree-statuses", workspace === undefined ? undefined : { workspace }),
+    createWorktree: (branch, baseRef, workspace) => call("create-worktree", { branch, baseRef, workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
-    openInEditor: (editorId, path) => call("open-in-editor", { editorId, path }),
+    openInEditor: (editorId, relPath) => call("open-in-editor", { editorId, relPath }),
     checkpoints: (sessionId) => call("checkpoints", { sessionId }),
     canRestoreCheckpoint: (sessionId, checkpointId) => call("can-restore", { sessionId, checkpointId }),
     getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),
     restoreCheckpoint: (sessionId, checkpointId) => call("restore", { sessionId, checkpointId }),
-    getTurnFileDiff: (sessionId, checkpointId, path, options) => call("turn-file-diff", { sessionId, checkpointId, path, options }),
+    getTurnFileDiff: (sessionId, checkpointId, relPath, options) => call("turn-file-diff", { sessionId, checkpointId, relPath, options }),
     getTurnFiles: (sessionId, checkpointId, cursor, limit) => call("turn-files", { sessionId, checkpointId, cursor, limit }),
   };
 }
