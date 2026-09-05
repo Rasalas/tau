@@ -37,7 +37,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
 
   return (
     <>
-      <ProjectActionsControl cwd={state.cwd} onRun={(command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name)} />
+      <ProjectActionsControl cwd={state.workspaceId ?? state.cwd} onRun={(command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name)} />
 
       {localFiles ? <div className="menu-anchor">
         <div className="chrome-group" aria-label="Open in editor">

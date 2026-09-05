@@ -30,6 +30,7 @@ const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
 const hostVersion = process.env.npm_package_version || "0.0.0";
 
 const hostLog = new HostLog({ dir: join(userData, "logs") });
+const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
 const pushLog = new HostPushLog();
 const jobs = new HostJobRunner((event) => broadcast(event));
 let socket: SocketHostTransport | undefined;
@@ -48,7 +49,7 @@ const unsupported = (what: string) => () => { throw new Error(`${what} needs a d
 
 async function main(): Promise<void> {
   await installShellEnvironment().catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
-  const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog);
+  const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
   await projectHistory.load();
 
   let host: PiHost | undefined;
@@ -63,7 +64,7 @@ async function main(): Promise<void> {
             cacheDir: join(userData, "host-extensions"),
           }),
           logger: hostLog,
-          workspaceIdentity: new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id"))),
+          workspaceIdentity,
         });
         ready = host.start();
       }
