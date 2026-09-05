@@ -8,8 +8,9 @@ import { HostLog } from "./host-log.js";
 import { HostJobRunner } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { createHostMethods } from "./host-methods.js";
-import { readOrCreateHostToken } from "./host-token.js";
+import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { parseListen } from "./host-listen.js";
 import { bundledHostExtensions } from "./extensions/index.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
@@ -94,10 +95,12 @@ async function main(): Promise<void> {
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),
+    allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     logger: hostLog,
   });
   // The smoke test reads this line to learn the port when it asked for 0.
-  console.log(`tau-host listening on ws://127.0.0.1:${socket.port}`);
+  console.log(`tau-host listening on ws://${parseListen(listen).host}:${socket.port}`);
+  console.log(`token: ${hostTokenPath()} (copy it to the client machine, or pass it as TAU_HOST_TOKEN)`);
 
   const shutdown = () => {
     void (async () => {

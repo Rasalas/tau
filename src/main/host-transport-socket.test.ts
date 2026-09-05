@@ -7,6 +7,7 @@ import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostServerFrame } f
 import { HostPushLog } from "./host-push-log.js";
 import { hostTokenMatches, readOrCreateHostToken } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { isLoopbackHost, parseListen } from "./host-listen.js";
 import type { HostMethodTable } from "./host-methods.js";
 
 const TOKEN = "a".repeat(64);
@@ -24,9 +25,10 @@ afterEach(async () => {
   transport = undefined;
 });
 
-async function listen(pushLog = new HostPushLog()) {
+async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allowNonLoopback = false) {
   transport = await startSocketHostTransport({
-    listen: "127.0.0.1:0",
+    listen: address,
+    allowNonLoopback,
     methods,
     pushLog,
     hostVersion: "test",
@@ -146,5 +148,24 @@ describe("host token", () => {
     expect(hostTokenMatches(TOKEN, undefined)).toBe(false);
     expect(hostTokenMatches(TOKEN, "a".repeat(63))).toBe(false);
     expect(hostTokenMatches(TOKEN, `${"a".repeat(63)}b`)).toBe(false);
+  });
+});
+
+describe("listen policy", () => {
+  it("reads a host and a port out of TAU_HOST_LISTEN", () => {
+    expect(parseListen("0.0.0.0:7788")).toEqual({ host: "0.0.0.0", port: 7788 });
+    expect(parseListen(":7788")).toEqual({ host: "127.0.0.1", port: 7788 });
+    expect(parseListen("[::1]:7788")).toEqual({ host: "[::1]", port: 7788 });
+  });
+
+  it("knows which addresses are loopback", () => {
+    for (const host of ["127.0.0.1", "127.9.9.9", "localhost", "::1", "[::1]"]) expect(isLoopbackHost(host)).toBe(true);
+    for (const host of ["0.0.0.0", "192.168.1.10", "example.com", "::"]) expect(isLoopbackHost(host)).toBe(false);
+  });
+
+  it("refuses a public interface unless the operator opted in", async () => {
+    await expect(listen(new HostPushLog(), "0.0.0.0:0")).rejects.toThrow(/TAU_HOST_INSECURE/u);
+    const started = await listen(new HostPushLog(), "0.0.0.0:0", true);
+    expect(started.transport.port).toBeGreaterThan(0);
   });
 });

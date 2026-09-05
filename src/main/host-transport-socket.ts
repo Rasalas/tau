@@ -10,6 +10,7 @@ import {
 import { helloReply, type HostPushLog } from "./host-push-log.js";
 import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
+import { assertListenAllowed, parseListen } from "./host-listen.js";
 import type { HostLogger } from "./host-log.js";
 
 /** Closed with this when the hello carried no token or the wrong one. */
@@ -24,6 +25,8 @@ export interface SocketHostTransportOptions {
   capabilities: string[];
   /** The secret from `~/.tau/host-token`; every client repeats it in its hello. */
   token: string;
+  /** `TAU_HOST_INSECURE=1`: bind a public interface although nothing is encrypted. */
+  allowNonLoopback?: boolean;
   logger?: HostLogger;
 }
 
@@ -33,20 +36,17 @@ export interface SocketHostTransport {
   close(): Promise<void>;
 }
 
-function parseListen(listen: string): { host: string; port: number } {
-  const separator = listen.lastIndexOf(":");
-  if (separator < 0) return { host: "127.0.0.1", port: Number(listen) };
-  return { host: listen.slice(0, separator) || "127.0.0.1", port: Number(listen.slice(separator + 1)) };
-}
-
 /**
  * The same method table over a local socket. Nothing runs before the hello is
  * accepted, so an unauthenticated peer can neither call a method nor observe
  * a push. Confidentiality is the tunnel's job (see ADR 0010): this is a
- * loopback listener with a shared secret, not a TLS endpoint.
+ * loopback listener with a shared secret, not a TLS endpoint, and it refuses a
+ * public interface unless the operator asked for one.
  */
 export async function startSocketHostTransport(options: SocketHostTransportOptions): Promise<SocketHostTransport> {
-  const { host, port } = parseListen(options.listen);
+  const bind = parseListen(options.listen);
+  assertListenAllowed(bind, options.allowNonLoopback === true);
+  const { host, port } = bind;
   const server = new WebSocketServer({ host, port, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES });
   const authenticated = new Set<WebSocket>();
 
