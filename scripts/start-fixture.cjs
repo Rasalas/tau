@@ -1,6 +1,10 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("node:path");
 
+// Shared CI runners have no usable GPU process; software rendering keeps the
+// fixture alive there. Local runs keep hardware acceleration so numbers match the app.
+if (process.env.CI) app.disableHardwareAcceleration();
+
 app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   try {

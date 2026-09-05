@@ -1,6 +1,10 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("node:path");
 
+// Shared CI runners have no usable GPU process; software rendering keeps the
+// fixture alive there. Local runs keep hardware acceleration so numbers match the app.
+if (process.env.CI) app.disableHardwareAcceleration();
+
 const scenario = process.argv[2];
 if (!scenario) throw new Error("renderer benchmark scenario is required");
 const scenarioConfig = process.argv[3] ? JSON.parse(process.argv[3]) : {};

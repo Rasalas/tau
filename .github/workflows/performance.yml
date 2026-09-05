@@ -20,8 +20,16 @@ jobs:
       # sandbox needs; the benchmarks launch real Electron windows under xvfb.
       - name: Allow Electron's sandbox on the runner
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Run type, test, build, renderer, and start budgets
-        run: xvfb-run -a npm run performance:ci
+      - name: Lint, typecheck, tests
+        run: npm run lint && npm run typecheck && npm test
+      - name: Build, Git and host budgets
+        run: npm run build:budget && npm run benchmark:git:check && npm run benchmark:host:check && npm run benchmark:host:full:check
+      # Frame and mount timings from a shared runner are not release numbers; the
+      # local gate is `npm run performance:ci` (docs/PERFORMANCE.md). Here they are
+      # published for trend reading but do not fail the workflow.
+      - name: Renderer and start budgets (advisory on shared runners)
+        continue-on-error: true
+        run: xvfb-run -a sh -c 'npm run benchmark:renderer -- --no-build --check && npm run start:report -- --check'
       - name: Publish performance measurements
         if: always()
         uses: actions/upload-artifact@v4
