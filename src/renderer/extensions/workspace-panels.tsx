@@ -85,7 +85,6 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
   const workspaceStore = useWorkspaceStore();
   const { fileTree, changes, cwd } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
-  const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
   const refreshFiles = () => workspaceStore.refreshFiles();
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
   useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
