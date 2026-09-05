@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readdir, realpath } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -64,6 +64,14 @@ const requiredString = (input: unknown, key: string): string => {
   if (typeof value !== "string" || !value) throw new Error(`Workspace command needs "${key}".`);
   return value;
 };
+/** An absolute path to a folder that exists; anything else is refused before git runs. */
+async function existingDirectory(path: string): Promise<string> {
+  if (!isAbsolute(path)) throw new Error("Choose an existing parent folder for the clone.");
+  const info = await stat(path).catch(() => undefined);
+  if (!info?.isDirectory()) throw new Error("Choose an existing parent folder for the clone.");
+  return path;
+}
+
 const optionalString = (input: unknown, key: string): string | undefined => {
   const value = record(input)[key];
   return typeof value === "string" ? value : undefined;
@@ -118,11 +126,15 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       context.registerCommand("clone", async (input) => {
         const url = assertAllowedCloneSource(requiredString(input, "repositoryUrl"));
-        const parent = await services.pickDirectory({
-          buttonLabel: "Clone here",
-          message: "Choose the parent folder for the cloned project",
-          createDirectory: true,
-        });
+        // A client without a folder picker (headless or remote host) names the parent itself.
+        const namedParent = optionalString(input, "parentPath");
+        const parent = namedParent !== undefined
+          ? await existingDirectory(namedParent)
+          : await services.pickDirectory({
+            buttonLabel: "Clone here",
+            message: "Choose the parent folder for the cloned project",
+            createDirectory: true,
+          });
         if (!parent) return undefined;
         const destination = join(parent, repositoryFolderName(url));
         await execFileAsync(gitExecutable(), ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });

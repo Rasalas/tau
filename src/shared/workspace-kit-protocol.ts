@@ -34,8 +34,8 @@ export interface WorkspaceHostCommands {
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Native folder dialog; `undefined` when cancelled. */
   "pick-folder": { input: undefined; output: { path: string } | undefined };
-  /** Clones into a chosen parent folder; `undefined` when the dialog was cancelled. */
-  "clone": { input: { repositoryUrl: string }; output: { path: string } | undefined };
+  /** Clones into `parentPath`, or into a folder the host's picker returns; `undefined` when that dialog was cancelled. */
+  "clone": { input: { repositoryUrl: string; parentPath?: string }; output: { path: string } | undefined };
   "file-tree": { input: { path?: string } | undefined; output: FileNode[] };
   "changes": { input: { query?: WorkspaceChangesQuery } | undefined; output: UiWorkspaceChanges };
   "file-diff": { input: { path: string; options?: DiffLoadOptions }; output: UiFileDiff };
@@ -87,7 +87,7 @@ export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<
 export interface WorkspaceHostClient {
   listDirectories(path?: string): Promise<UiDirectoryListing>;
   pickFolder(): Promise<string | undefined>;
-  clone(repositoryUrl: string): Promise<string | undefined>;
+  clone(repositoryUrl: string, parentPath?: string): Promise<string | undefined>;
   getFileTree(path?: string): Promise<FileNode[]>;
   getChanges(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
   getFileDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
@@ -119,7 +119,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
   return {
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined).then((result) => result?.path),
-    clone: (repositoryUrl) => call("clone", { repositoryUrl }).then((result) => result?.path),
+    clone: (repositoryUrl, parentPath) => call("clone", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }).then((result) => result?.path),
     getFileTree: (path) => call("file-tree", path === undefined ? undefined : { path }),
     getChanges: (query) => call("changes", query === undefined ? undefined : { query }),
     getFileDiff: (path, options) => call("file-diff", { path, options }),
