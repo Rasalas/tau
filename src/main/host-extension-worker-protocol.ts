@@ -1,3 +1,4 @@
+import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { ThreadBackendKind, UiMessage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { DirectoryPickerOptions, HostSessionSummary } from "./host-extensions.js";
@@ -85,6 +86,8 @@ export interface WorkerHostServices {
   log(label: string, detail?: string): void;
   openWorkspace(path: string): Promise<HostActionResult>;
   knownWorkspacePath(path: string): Promise<string>;
+  /** The identity the host publishes for a folder it can open; plain data, safe to cross the port. */
+  workspaceRef(path: string): Promise<WorkspaceRef>;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): Promise<void>;
   pickDirectory(options?: DirectoryPickerOptions): Promise<string | undefined>;

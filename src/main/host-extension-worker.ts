@@ -1,3 +1,4 @@
+import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import Module, { createRequire } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 import {
@@ -93,6 +94,7 @@ const services: WorkerHostServices = {
   log: (label, detail) => { send({ t: "log", label, ...(detail === undefined ? {} : { detail }) }); },
   openWorkspace: (path) => rpc("openWorkspace", path) as ReturnType<WorkerHostServices["openWorkspace"]>,
   knownWorkspacePath: (path) => rpc("knownWorkspacePath", path) as Promise<string>,
+  workspaceRef: (path) => rpc("workspaceRef", path) as Promise<WorkspaceRef>,
   projectName: (cwd) => rpc("projectName", cwd) as Promise<string>,
   rememberProjectName: async (cwd, name) => { await rpc("rememberProjectName", cwd, name); },
   pickDirectory: (options) => rpc("pickDirectory", options) as Promise<string | undefined>,

@@ -77,6 +77,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     log: (label, detail) => { recorder.logs.push(detail ? `${label} ${detail}` : label); },
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
     knownWorkspacePath: async (path) => path,
+    workspaceRef: (path) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
     projectName: async () => "project",
     rememberProjectName: () => undefined,
     pickDirectory: async () => undefined,
