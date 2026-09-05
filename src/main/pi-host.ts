@@ -55,7 +55,7 @@ import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
-import { listExtensionPackages, type ExtensionPackage, type HostPackageLoadResult } from "./extension-packages.js";
+import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult } from "./extension-packages.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
@@ -593,7 +593,9 @@ export class PiHost {
     const known = new Set(summaries.map((summary) => summary.id));
     // A package awaiting approval has no code loaded, but the user still has to see it.
     for (const pkg of this.packagedUngranted.values()) {
-      if (!known.has(pkg.manifest.id)) summaries.push({ id: pkg.manifest.id, name: pkg.manifest.name, active: false, commands: [] });
+      if (!known.has(pkg.manifest.id)) {
+        summaries.push({ id: pkg.manifest.id, name: pkg.manifest.name, active: false, commands: [], isolation: packageIsolation(pkg.manifest) });
+      }
     }
     return summaries;
   }

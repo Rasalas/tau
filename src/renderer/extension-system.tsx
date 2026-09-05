@@ -373,6 +373,8 @@ export interface ExtensionSummary {
   contributes: string;
   options: ExtensionOption[];
   permissions?: readonly string[];
+  /** Where the package's host half runs; only a package awaiting approval carries it. */
+  isolation?: "worker" | "in-process";
   granted?: boolean;
 }
 

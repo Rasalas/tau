@@ -8,7 +8,8 @@ import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { HostExtension } from "./host-extensions.js";
 import type { ExtensionInspection } from "../shared/contracts.js";
 import { assertEngineRanges, describeIncompatibility, parseVersion, type ExtensionEngines, type ExtensionHostVersions } from "../shared/extension-compat.js";
-import { isExtensionPermission } from "../shared/extension-permissions.js";
+import { DEFAULT_PACKAGE_ISOLATION, isExtensionIsolation, isExtensionPermission, type ExtensionIsolation } from "../shared/extension-permissions.js";
+import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources } from "./extension-sources.js";
 import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher } from "./extension-signature.js";
@@ -31,6 +32,8 @@ export interface ExtensionManifest {
   engines?: ExtensionEngines;
   /** Permissions the package requests from the host. Missing means []. */
   permissions?: string[];
+  /** Where the host half runs. Missing means "worker"; "in-process" is granted like a permission. */
+  isolation?: ExtensionIsolation;
   /** Upstream source repository and commit for provenance. */
   source?: { url: string; commit?: string };
   /** Relative path of the desktop entry (a module default-exporting a DesktopExtension). */
@@ -78,6 +81,12 @@ function parsePermissions(value: unknown): string[] {
   return [...new Set(value as string[])].sort();
 }
 
+function parseIsolation(value: unknown): ExtensionIsolation | undefined {
+  if (value === undefined) return undefined;
+  if (!isExtensionIsolation(value)) throw new Error(`"isolation" is "worker" or "in-process", not "${String(value)}"`);
+  return value;
+}
+
 function parseSource(value: unknown): { url: string; commit?: string } | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`"source" must be an object`);
@@ -97,12 +106,13 @@ export function parseExtensionManifest(directory: string, source: string): { man
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, version, engines, permissions, source: manifestSource, desktop, host } = raw as Record<string, unknown>;
+  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
   if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
   const parsedEngines = parseEngines(engines);
   const parsedPermissions = parsePermissions(permissions);
+  const parsedIsolation = parseIsolation(isolation);
   const parsedSource = parseSource(manifestSource);
   const desktopEntry = relativeEntry(directory, desktop, "desktop");
   const hostEntry = relativeEntry(directory, host, "host");
@@ -114,6 +124,7 @@ export function parseExtensionManifest(directory: string, source: string): { man
       ...(typeof version === "string" ? { version: version.trim() } : {}),
       ...(parsedEngines ? { engines: parsedEngines } : {}),
       permissions: parsedPermissions,
+      ...(parsedIsolation ? { isolation: parsedIsolation } : {}),
       ...(parsedSource ? { source: parsedSource } : {}),
       ...(typeof desktop === "string" ? { desktop } : {}),
       ...(typeof host === "string" ? { host } : {}),
@@ -134,6 +145,11 @@ function parseEngines(value: unknown): ExtensionEngines | undefined {
   }
   try { assertEngineRanges(engines); } catch (error) { throw new Error(`"engines": ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
   return engines;
+}
+
+/** Where a package's host half runs; a package that declares nothing is isolated. */
+export function packageIsolation(manifest: { isolation?: ExtensionIsolation }): ExtensionIsolation {
+  return manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION;
 }
 
 /** Why a manifest cannot run on these versions, or undefined when it can. */
@@ -275,6 +291,7 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
       ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
       permissions: pkg.manifest.permissions ?? [],
+      isolation: packageIsolation(pkg.manifest),
       granted: isPackageGranted(pkg.manifest, grantsFile.grants),
       ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
       ...(pkg.installedFrom ? { installedFrom: pkg.installedFrom } : {}),
@@ -321,7 +338,7 @@ function isHostExtension(value: unknown): value is HostExtension {
  * a factory returning one, or just `activate`; id and name fall back to the
  * manifest and must match it when given.
  */
-export async function importHostExtension(code: string, manifest: ExtensionManifest, cacheDir = join(tmpdir(), "tau-host-extensions")): Promise<HostExtension> {
+export async function writeHostExtensionBundle(code: string, manifest: ExtensionManifest, cacheDir = join(tmpdir(), "tau-host-extensions")): Promise<string> {
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
   const hash = createHash("sha256").update(code).digest("hex").slice(0, 16);
   const file = join(cacheDir, `${manifest.id}-${hash}.cjs`);
@@ -332,6 +349,11 @@ export async function importHostExtension(code: string, manifest: ExtensionManif
       if (error.code !== "EEXIST") throw error;
     });
   }
+  return file;
+}
+
+export async function importHostExtension(code: string, manifest: ExtensionManifest, cacheDir = join(tmpdir(), "tau-host-extensions")): Promise<HostExtension> {
+  const file = await writeHostExtensionBundle(code, manifest, cacheDir);
   const module = requireModule(file) as { default?: unknown; activate?: unknown };
   let candidate: unknown = module.default ?? (typeof module.activate === "function" ? module : undefined);
   if (typeof candidate === "function") candidate = (candidate as () => unknown)();
@@ -339,7 +361,13 @@ export async function importHostExtension(code: string, manifest: ExtensionManif
   const id = (candidate as { id?: unknown }).id;
   if (id !== undefined && id !== manifest.id) throw new Error(`the module's id "${String(id)}" differs from the manifest id "${manifest.id}"`);
   const name = (candidate as { name?: unknown }).name;
-  return { id: manifest.id, name: typeof name === "string" && name.trim() ? name : manifest.name, permissions: manifest.permissions ?? [], activate: (context) => candidate.activate(context) };
+  return {
+    id: manifest.id,
+    name: typeof name === "string" && name.trim() ? name : manifest.name,
+    permissions: manifest.permissions ?? [],
+    isolation: "in-process",
+    activate: (context) => candidate.activate(context),
+  };
 }
 
 export interface HostPackageLoadResult {
@@ -358,7 +386,12 @@ export interface HostPackageLoadResult {
 export async function loadHostExtensionPackages(
   cwd: string,
   agentDir: string,
-  options: PackageScanOptions & { cacheDir?: string; grantsFilePath?: string } = {},
+  options: PackageScanOptions & {
+    cacheDir?: string;
+    grantsFilePath?: string;
+    /** Overrides for the worker a package is isolated in (tests use smaller limits). */
+    worker?: Omit<WorkerHostExtensionOptions, "id" | "name" | "permissions" | "file">;
+  } = {},
 ): Promise<HostPackageLoadResult> {
   const [scan, grantsFile] = await Promise.all([
     listExtensionPackages(cwd, agentDir, options),
@@ -372,7 +405,18 @@ export async function loadHostExtensionPackages(
       continue;
     }
     try {
-      const extension = await importHostExtension(await bundleHostExtension(pkg.hostEntry), pkg.manifest, options.cacheDir);
+      const code = await bundleHostExtension(pkg.hostEntry);
+      // A package runs in a worker unless it declared, and was granted, the
+      // privilege of running inside the host process.
+      const extension = packageIsolation(pkg.manifest) === "in-process"
+        ? await importHostExtension(code, pkg.manifest, options.cacheDir)
+        : createWorkerHostExtension({
+          id: pkg.manifest.id,
+          name: pkg.manifest.name,
+          permissions: pkg.manifest.permissions ?? [],
+          file: await writeHostExtensionBundle(code, pkg.manifest, options.cacheDir),
+          ...(options.worker ?? {}),
+        });
       result.extensions.push({ extension, package: pkg });
     } catch (error) {
       result.errors.push({ path: pkg.hostEntry, message: error instanceof Error ? error.message : String(error) });

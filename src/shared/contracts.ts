@@ -429,6 +429,8 @@ export interface HostExtensionSummary {
   name: string;
   active: boolean;
   commands: string[];
+  /** Where the host half runs: a worker thread, or the host process itself. */
+  isolation?: "worker" | "in-process";
   /** Activation failure, when the extension is known but could not start. */
   error?: string;
 }
@@ -440,6 +442,8 @@ export interface ExtensionPackageSummary {
   version?: string;
   engines?: Record<string, string>;
   permissions?: string[];
+  /** Where the host half runs; a package that declares none runs in a worker. */
+  isolation?: "worker" | "in-process";
   granted?: boolean;
   source?: { url: string; commit?: string };
   /** The source string the package was installed from, when an installer put it there. */

@@ -45,10 +45,10 @@ describe("PiHost extension packages", () => {
       const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
       await (host as unknown as Internals).activateHostExtensions();
       // Initially ungranted, so active is false.
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [] }]);
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [], isolation: "in-process" }]);
       // Granting it activates it.
       await host.grantExtension("acme.pkg", true);
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
       await expect(host.invokeHostExtension("acme.pkg", "ping")).resolves.toBe("pong");
       await host.setHostExtensionActive("acme.pkg", false);
       expect(host.listHostExtensions()[0]?.active).toBe(false);
@@ -61,7 +61,7 @@ describe("PiHost extension packages", () => {
       // A restart reads the same grants file and starts the package without asking again.
       const restarted = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
       await (restarted as unknown as Internals).activateHostExtensions();
-      expect(restarted.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
+      expect(restarted.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -89,11 +89,12 @@ describe("PiHost extension packages", () => {
       const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: gated, grantsFilePath });
       await (host as unknown as Internals).activateHostExtensions();
       expect(imported).toBe(0);
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [] }]);
+      // Never imported, so the summary carries the manifest's isolation: the default worker.
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [], isolation: "worker" }]);
 
       await host.grantExtension("acme.pkg", true);
       expect(imported).toBe(1);
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"] }]);
+      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }

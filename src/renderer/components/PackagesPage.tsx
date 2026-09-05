@@ -59,6 +59,7 @@ export function PackageProvenance({ id, cwd, onNotify }: { id: string; cwd?: str
       <div className="settings-label">PACKAGE</div>
       <div className="inspector-folder"><span>version</span><code>{pkg.version ?? "not declared"}</code></div>
       <div className="inspector-folder"><span>signature</span><code>{pkg.signature?.label ?? "unsigned"}</code></div>
+      <div className="inspector-folder"><span>isolation</span><code>{pkg.isolation === "in-process" ? "in-process (runs inside the host process)" : "worker"}</code></div>
       <div className="inspector-folder"><span>source</span><code>{pkg.installedFrom ?? pkg.source?.url ?? pkg.directory}</code></div>
       {pkg.installedFrom ? (
         <div className="extension-grant-actions packages-actions">

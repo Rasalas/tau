@@ -18,6 +18,28 @@ export const PERMISSION_RUNTIME_EXTEND = "runtime:extend" as const;
 export const PERMISSION_PROCESS = "process" as const;
 export const PERMISSION_NETWORK = "network" as const;
 
+/**
+ * Where a package's host half runs. `worker` is the default for packages: a
+ * worker thread with a heap cap, no Electron and only the serializable facade.
+ * `in-process` is a privilege the user grants like a permission.
+ */
+export const EXTENSION_ISOLATIONS = ["worker", "in-process"] as const;
+
+export type ExtensionIsolation = (typeof EXTENSION_ISOLATIONS)[number];
+
+export const DEFAULT_PACKAGE_ISOLATION: ExtensionIsolation = "worker";
+
+export function isExtensionIsolation(value: unknown): value is ExtensionIsolation {
+  return typeof value === "string" && (EXTENSION_ISOLATIONS as readonly string[]).includes(value);
+}
+
+/** One line for the grant UI, beside the permission names. */
+export function describeIsolation(isolation: ExtensionIsolation): string {
+  return isolation === "in-process"
+    ? "runs inside the host process (no worker isolation)"
+    : "runs isolated in a worker thread";
+}
+
 export function isExtensionPermission(value: unknown): value is ExtensionPermission {
   return typeof value === "string" && (EXTENSION_PERMISSIONS as readonly string[]).includes(value);
 }

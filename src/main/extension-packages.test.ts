@@ -109,6 +109,7 @@ describe("extension packages", () => {
       version: "0.3.0",
       engines: { api: "^1" },
       permissions: ["workspace:read"],
+      isolation: "worker",
       granted: false,
       source: { url: "https://example.com/repo" },
       signature: { state: "unsigned", label: "unsigned" },
@@ -199,7 +200,38 @@ describe("extension packages", () => {
     const second = await loadHostExtensionPackages(project, "/agent", options);
     expect(second.extensions.map((e) => e.extension.id)).toEqual(["acme.global"]);
     expect(second.ungranted.map((pkg) => pkg.manifest.id)).toEqual(["acme.project"]);
+    // The default is a worker, so even an approved package runs no line of its
+    // own inside the host process; the worker runs it when it activates.
+    expect(second.extensions[0]?.extension.isolation).toBe("worker");
+    expect(existsSync(sideEffect)).toBe(false);
+  });
+
+  it("imports an approved in-process package into the host itself", async () => {
+    const home = await scratch();
+    const cache = await scratch();
+    const grantsFilePath = join(await scratch(), "grants.json");
+    const sideEffect = join(await scratch(), "ran.txt");
+    await writePackage(home, "trusted-pkg", { id: "acme.trusted", name: "Trusted", isolation: "in-process", host: "./host.ts" }, {
+      "host.ts": `
+        import { writeFileSync } from "node:fs";
+        writeFileSync(${JSON.stringify(sideEffect)}, "ran");
+        export default { activate() {} };
+      `,
+    });
+    const options = { home, trusted: () => true, cacheDir: cache, grantsFilePath };
+    // The isolation is part of the grant, so the worker grant does not cover it.
+    await grantPackage({ id: "acme.trusted", permissions: [] }, true, grantsFilePath);
+    expect((await loadHostExtensionPackages("/nowhere", "/agent", options)).ungranted.map((pkg) => pkg.manifest.id)).toEqual(["acme.trusted"]);
+
+    await grantPackage({ id: "acme.trusted", permissions: [], isolation: "in-process" }, true, grantsFilePath);
+    const loaded = await loadHostExtensionPackages("/nowhere", "/agent", options);
+    expect(loaded.extensions[0]?.extension.isolation).toBe("in-process");
     expect(existsSync(sideEffect)).toBe(true);
+  });
+
+  it("refuses an isolation the vocabulary does not know", () => {
+    expect(() => parseExtensionManifest("/pkg", JSON.stringify({ id: "acme.x", name: "X", isolation: "vm", host: "./h.ts" })))
+      .toThrow('"isolation" is "worker" or "in-process", not "vm"');
   });
 
   it("asks again once a granted package changes the permissions it wants", async () => {
