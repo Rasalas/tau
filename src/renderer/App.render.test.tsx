@@ -276,6 +276,16 @@ describe("App render isolation", () => {
     });
     renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
+    // Files is the dock's default tab, so it loads once its code-split panel
+    // mounts. Collapsing the dock is what makes the panel hidden; before that,
+    // whether the chunk has resolved yet is only a question of host speed.
+    const filesButton = await screen.findByRole("button", { name: "Files" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Files" })).toBeTruthy());
+    fireEvent.click(filesButton);
+    expect(screen.queryByRole("heading", { name: "Files" })).toBeNull();
+
+    getFileTree.mockClear();
+    await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("false"));
     expect(getFileTree).not.toHaveBeenCalled();
   });
 
