@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { build } from "esbuild";
@@ -61,16 +61,26 @@ const DEFAULT_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGeneratio
 
 let entryPromise: Promise<string> | undefined;
 
+/** Where the worker's TypeScript lives, from wherever this module runs. */
+function workerSourcePath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const beside = join(here, "host-extension-worker.ts");
+  if (existsSync(beside)) return beside;
+  const fromSource = join(here.replace(`${sep}dist-electron${sep}main`, `${sep}src${sep}main`), "host-extension-worker.ts");
+  if (existsSync(fromSource)) return fromSource;
+  throw new Error("The isolated extension worker is missing; run npm run build.");
+}
+
 /**
- * The worker entry: the compiled sibling under `dist-electron`, or a bundle of
- * the TypeScript source when Tau runs from source (tests).
+ * The worker entry: the CommonJS bundle the build writes beside this module,
+ * or one built here when Tau runs from source (tests, `npm run dev`).
  */
 export function workerEntryPath(): Promise<string> {
   entryPromise ??= (async () => {
-    const compiled = fileURLToPath(new URL("host-extension-worker.js", import.meta.url));
+    const compiled = join(dirname(fileURLToPath(import.meta.url)), "host-extension-worker.cjs");
     if (existsSync(compiled)) return compiled;
     const result = await build({
-      entryPoints: [fileURLToPath(new URL("host-extension-worker.ts", import.meta.url))],
+      entryPoints: [workerSourcePath()],
       bundle: true,
       write: false,
       format: "cjs",
