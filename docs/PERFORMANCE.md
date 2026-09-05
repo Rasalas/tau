@@ -296,6 +296,7 @@ Record the fixture, machine class, build mode, median, p95, and maximum with eac
 - phase timings for settings, model runtime, resources, session creation, extension binding, model catalog, and total replacement
 - recent-project writes debounced off the switch path and flushed on shutdown
 - bounded, isolated Full Mode runtime prewarming; extension startup and teardown stay extension-owned but run outside the interactive switch path
+- extension binding deferred off bootstrap and cold switching, with runtime event subscription kept synchronous
 - fingerprinted reuse of immutable skills, prompts, themes, and context files without reusing extension or provider runtimes
 - global session index parsed once at bootstrap, updated per active shell after prompts, and reconciled by a background recovery scan that publishes focused shell updates
 - virtualized active, grouped, settled, file, change, model, command, and project rows with bounded overscan
@@ -378,6 +379,57 @@ For a reproducible before/after comparison, commit `6ddb454` was detached into a
 The anchored transcript comparison is also retained in `reports/renderer-transcript-comparison-aggregate.json`. It records three complete sequential runs per side for the deterministic 1,000-turn fixture with anchor turn 8, 128 activities, and 36 streaming deltas. The report includes the baseline and current subjects, harness and build hashes, machine metadata, all raw runs, and an executable reproduction recipe that creates detached worktrees with `git -C`, applies the neutral baseline patch, and names all six raw reports. The legacy comparison reports frame `16.7 / 18.5 / 18.6` to `16.7 / 17.7 / 17.7` ms, commit `26.0 / 35.3 / 35.3` to `24.3 / 64.4 / 64.4` ms, and DOM `137` to `108`; the anchored and streaming scenarios remain separate evidence. These are local development-machine measurements, not capacity guarantees.
 
 `npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. Branch resolution no longer blocks first content: against the same local fixture, Full Mode bootstrap fell from 2,350.7 ms to 1,601.7 ms, while the current Safe Mode bootstrap is 87.3 ms. CI rejects a critical-path branch phase and requires its duration to remain visible as background work. Full Mode cold switching now prepares a fresh isolated runtime before activation and defers retirement until after the focused response; the complete-run measurement fell from 2,175.8 ms to 1,630.4 ms without skipping Extension startup or shutdown hooks. The current report records Safe Mode warm-switch p95 at 85.9 ms and Full Mode warm-switch p95 at 19.7 ms. Full Mode prewarming took 430–1,173 ms and deferred extension retirement took 190–902 ms during the complete release run. Those extension-owned costs remain reported rather than being skipped or moved back into the interactive switch path. A focused `PI_TIMING=1` run attributed 1,404 ms of cold startup to configured Extension module imports and factories. A three-process Node compile-cache experiment measured resource phases of 1,494 ms, 1,530 ms, and 1,501 ms, so Tau does not enable that cache: it produced no repeatable improvement. Parallel imports were rejected because changing top-level Extension execution order would violate Extension ownership and can change behavior.
+
+### Deferred extension binding
+
+`session.bindExtensions()` emits `session_start` to every configured extension
+one after another and then re-reads the resources those handlers contribute. On
+the development machine that call cost 522–638 ms at bootstrap and 600–607 ms on
+a cold switch, and both waits sat in front of the first frame. It is one SDK
+call, so Tau cannot bind the extensions concurrently without taking over
+Extension execution order, which ADR 0002 keeps with the SDK.
+
+The host now runs that call beside the switch instead of in front of it.
+`bindThread` subscribes to the runtime's events and recovers orphaned request
+markers synchronously, so no event raised while binding runs is lost, and the
+`bind` phase is recorded through `recordBackgroundLifecycle` rather than as a
+critical phase. Every path that can reach extension code — prompt, steer,
+follow-up, project actions and Pi shortcuts — awaits the pending binding first,
+so the first turn after a switch still runs against live extensions. Extension
+dialogs raised from a `session_start` handler reach the workbench while the
+binding is pending and settle it when they are answered. `settleBind` is
+deliberately never called from inside the lifecycle queue: an extension can ask
+for that queue through `sessions.exclusive` while it binds, and waiting there
+would reproduce the ADR 0004 deadlock. A prewarmed or spare runtime is off every
+interactive path, so it is still handed over fully bound; that keeps warm
+switching free of binding work.
+
+Measured with `npm run benchmark:host:full:check` on the same fixture and
+machine, two runs before and four after. The fixture takes one sample per
+scenario, so its p95 is that sample and the spread below is run-to-run
+variation, not a distribution:
+
+| scenario | before | after |
+| --- | ---: | ---: |
+| bootstrap total | 1,923–2,562 ms | 1,066–1,910 ms |
+| bootstrap `bind` phase | 523–638 ms | none (background) |
+| cold-switch total | 760–810 ms | 79–439 ms |
+| cold-switch `bind` phase | 600–607 ms | none (background) |
+| warm-switch p95 | 149–328 ms | 0.8–5.7 ms |
+| background `bind` | not reported | 429–1,265 ms |
+
+The 2,000 ms bootstrap budget still has little headroom: the slowest of the four
+runs measured 1,910 ms because the machine was busy, and the whole of it was
+`resources`. Safe Mode is unaffected: bootstrap 44–85 ms, cold switch 10–32 ms,
+warm switch p95 23–31 ms.
+
+Bootstrap's remaining cost is `resources`, which is now the whole critical path
+at 1,039–1,857 ms. A focused measurement isolates it: loading the same workspace
+with `noExtensions` takes 21 ms against 783–1,612 ms with the configured
+extension set, so it is Extension module import and factory execution, not skill,
+prompt, theme, or context discovery. That cost stays where the earlier audit left
+it — SDK- and Extension-owned — and the `models` phase beside it is 17–24 ms, too
+small to be worth parallelizing against it.
 
 `npm run benchmark:git:check` measures a 1,202-file worktree, overlapping refreshes, timeout cancellation, and 20-project branch fan-out. The current report reduced the measured uncoordinated 18 subprocesses to 6, read no oversized untracked content, capped concurrency at 4, cancelled the slow command in 21.7 ms, and kept many-project branch p95 at 64.4 ms.
 
