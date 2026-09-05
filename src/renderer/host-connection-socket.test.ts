@@ -1,0 +1,132 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { HostEvent } from "../shared/contracts";
+import { HOST_TRANSPORT_VERSION } from "../shared/host-transport";
+import { createSocketHostClient } from "./host-connection-socket";
+
+/** A socket that opens, carries frames and drops exactly when the test says so. */
+class FakeSocket {
+  static readonly OPEN = 1;
+  static readonly opened: FakeSocket[] = [];
+  readyState = 0;
+  onopen: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  readonly sent: string[] = [];
+
+  constructor(readonly url: string) {
+    FakeSocket.opened.push(this);
+  }
+
+  send(text: string): void {
+    this.sent.push(text);
+  }
+
+  close(): void {
+    this.drop();
+  }
+
+  accept(): void {
+    this.readyState = FakeSocket.OPEN;
+    this.onopen?.();
+  }
+
+  drop(): void {
+    this.readyState = 3;
+    this.onclose?.();
+  }
+
+  deliver(frame: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(frame) } as unknown as MessageEvent<string>);
+  }
+
+  frames(): Array<Record<string, unknown>> {
+    return this.sent.map((text) => JSON.parse(text) as Record<string, unknown>);
+  }
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const logEvent = (label: string): HostEvent => ({ type: "event-log", label, timestamp: 0 });
+
+function helloReply(nextSeq: number, missed: Array<{ seq: number; event: HostEvent }> = [], resync = false) {
+  return { protocol: HOST_TRANSPORT_VERSION, hostVersion: "test", capabilities: ["jobs", "replay"], resync, missed, nextSeq };
+}
+
+/** Answers the hello the transport queued on `socket`, whatever id it chose. */
+function answerHello(socket: FakeSocket, reply: ReturnType<typeof helloReply>): Record<string, unknown> {
+  const hello = socket.frames().find((frame) => frame.type === "hello");
+  expect(hello).toBeDefined();
+  socket.deliver({ type: "hello-reply", id: hello!.id, reply });
+  return hello!.hello as Record<string, unknown>;
+}
+
+afterEach(() => {
+  FakeSocket.opened.length = 0;
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe("socket host client", () => {
+  it("reconnects after a drop and re-hellos with the sequence it last saw", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { connection } = createSocketHostClient("ws://host.test:7788", "secret-token");
+    const states: string[] = [];
+    connection.onState((state) => states.push(state));
+    const events: string[] = [];
+    connection.onEvent((event) => { if (event.type === "event-log") events.push(event.label); });
+
+    const first = FakeSocket.opened[0]!;
+    expect(first.url).toBe("ws://host.test:7788");
+    const started = connection.start();
+    first.accept();
+    await settle();
+    // The hello carries the token; nothing else is sent before it is answered.
+    expect(answerHello(first, helloReply(1))).toMatchObject({ protocol: 1, token: "secret-token" });
+    await started;
+
+    first.deliver({ type: "push", push: { seq: 1, event: logEvent("before-the-drop") } });
+    expect(events).toEqual(["before-the-drop"]);
+
+    // The tab sleeps: the socket drops, two pushes happen without it.
+    vi.useFakeTimers();
+    first.drop();
+    expect(connection.getState()).toBe("reconnecting");
+
+    await vi.advanceTimersByTimeAsync(500);
+    const second = FakeSocket.opened[1]!;
+    expect(second).toBeDefined();
+    second.accept();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const resumed = answerHello(second, helloReply(4, [
+      { seq: 2, event: logEvent("missed-one") },
+      { seq: 3, event: logEvent("missed-two") },
+    ]));
+    expect(resumed).toMatchObject({ lastSeq: 1, token: "secret-token" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(events).toEqual(["before-the-drop", "missed-one", "missed-two"]);
+    expect(states).toEqual(["reconnecting", "connected"]);
+  });
+
+  it("queues a request made while the socket is down and sends it once it is back", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { connection } = createSocketHostClient("ws://host.test:7788");
+    const first = FakeSocket.opened[0]!;
+    first.accept();
+    await settle();
+
+    vi.useFakeTimers();
+    first.drop();
+    const pending = connection.request("host-extensions").catch((error: unknown) => (error as Error).message);
+    await vi.advanceTimersByTimeAsync(500);
+    const second = FakeSocket.opened[1]!;
+    second.accept();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const request = second.frames().find((frame) => frame.type === "request");
+    expect(request).toMatchObject({ request: { method: "host-extensions" } });
+    second.deliver({ type: "response", response: { id: (request!.request as { id: string }).id, result: [] } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await pending).toEqual([]);
+  });
+});
