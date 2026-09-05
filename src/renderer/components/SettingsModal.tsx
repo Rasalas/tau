@@ -127,6 +127,7 @@ function useAwaitingApproval(cwd: string | undefined, known: readonly ExtensionS
         contributes: "",
         options: [],
         permissions: pkg.permissions ?? [],
+        ...(pkg.isolation ? { isolation: pkg.isolation } : {}),
         granted: false,
       }));
   }, [knownIds, packages]);
@@ -214,12 +215,15 @@ function ExtensionPage({
       {summary.granted === false ? (
         <div className="extension-grant-box">
           <div className="settings-label">APPROVAL REQUIRED</div>
-          <p>This package does not run until you approve the permissions it asks for:</p>
+          <p>This package does not run until you approve what it asks for:</p>
           {summary.permissions && summary.permissions.length > 0 ? (
             <ul>{summary.permissions.map((permission) => <li key={permission}><code>{permission}</code></li>)}</ul>
           ) : (
             <p>It asks for no permissions.</p>
           )}
+          {summary.isolation === "in-process" ? (
+            <ul><li><code>in-process</code> — runs inside the host process, outside the worker isolation</li></ul>
+          ) : null}
           <div className="extension-grant-actions">
             <button type="button" className="grant-allow" onClick={() => void handleGrant(true)}>Allow</button>
             <button type="button" className="grant-deny" onClick={() => void handleGrant(false)}>Deny</button>
@@ -293,7 +297,8 @@ function ExtensionPage({
 
       {hostHalf ? (
         <div className="settings-note" data-host-status={hostHalf.error ? "failed" : hostHalf.active ? "active" : "off"}>
-          Host entry: {hostHalf.error ? `failed to start (${hostHalf.error})` : hostHalf.active ? `active${hostHalf.commands.length ? `, commands ${hostHalf.commands.join(", ")}` : ""}` : "off"}.
+          Host entry: {hostHalf.error ? `failed to start (${hostHalf.error})` : hostHalf.active ? `active${hostHalf.commands.length ? `, commands ${hostHalf.commands.join(", ")}` : ""}` : "off"}
+          {hostHalf.isolation ? ` · ${hostHalf.isolation === "worker" ? "isolated in a worker" : "in the host process"}` : ""}.
         </div>
       ) : null}
       <div className="settings-note">
@@ -345,7 +350,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
 
       <div className="settings-label">LOADED</div>
       <table className="inspector-table" aria-label="Loaded extensions">
-        <thead><tr><th>Extension</th><th>Desktop</th><th>Host</th><th>Source</th></tr></thead>
+        <thead><tr><th>Extension</th><th>Desktop</th><th>Host</th><th>Isolation</th><th>Source</th></tr></thead>
         <tbody>
           {ids.map((id) => {
             const desktopHalf = desktop.find((entry) => entry.id === id);
@@ -356,11 +361,12 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
                 <td><strong>{desktopHalf?.name ?? hostHalf?.name ?? id}</strong><small>{id}{pkg?.version ? ` · ${pkg.version}` : ""}</small></td>
                 <td>{desktopHalf ? (desktopHalf.active ? `active${desktopHalf.contributes ? ` · ${desktopHalf.contributes}` : ""}` : "off") : "—"}</td>
                 <td data-host-status={hostHalf?.error ? "failed" : hostHalf?.active ? "active" : "off"}>{hostStatus(hostHalf)}</td>
+                <td data-isolation={hostHalf?.isolation ?? pkg?.isolation ?? ""}>{hostHalf ? (hostHalf.isolation ?? "in-process") : "—"}</td>
                 <td>{pkg ? <span title={pkg.directory}>{pkg.scope} package</span> : "bundled"}</td>
               </tr>
             );
           })}
-          {ids.length === 0 ? <tr><td colSpan={4}>No extension is loaded (safe mode).</td></tr> : null}
+          {ids.length === 0 ? <tr><td colSpan={5}>No extension is loaded (safe mode).</td></tr> : null}
         </tbody>
       </table>
 
@@ -373,7 +379,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
       ))}
       {packages.length > 0 ? (
         <table className="inspector-table" aria-label="Extension packages">
-          <thead><tr><th>Package</th><th>Entries</th><th>Engines</th><th>Permissions</th><th>Source</th><th>Folder</th></tr></thead>
+          <thead><tr><th>Package</th><th>Entries</th><th>Engines</th><th>Permissions</th><th>Isolation</th><th>Source</th><th>Folder</th></tr></thead>
           <tbody>
             {packages.map((pkg) => (
               <tr key={pkg.directory}>
@@ -381,6 +387,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
                 <td>{[pkg.desktop ? "desktop" : "", pkg.host ? "host" : ""].filter(Boolean).join(" + ")}</td>
                 <td>{pkg.engines ? Object.entries(pkg.engines).map(([engine, range]) => `${engine} ${range}`).join(", ") : "any"}</td>
                 <td>{pkg.permissions && pkg.permissions.length > 0 ? pkg.permissions.join(", ") : "none"}</td>
+                <td>{pkg.isolation ?? "worker"}</td>
                 <td>{pkg.source ? `${pkg.source.url}${pkg.source.commit ? ` (${pkg.source.commit.slice(0, 7)})` : ""}` : "—"}</td>
                 <td><code title={pkg.directory}>{pkg.directory.split("/").pop()}</code></td>
               </tr>
