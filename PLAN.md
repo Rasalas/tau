@@ -65,6 +65,7 @@ Planned work:
 - define compatibility checks for Tau, Pi, and contribution interface versions (done: `engines.tau`, `engines.pi`, `engines.api` against the app version, the bundled Pi and `EXTENSION_API_VERSION`; a miss keeps both halves off with the reason in the Inspector)
 - let one package declare both Pi and desktop entry points (done: `desktop` and `host` entries; a Pi extension entry is still registered from the host half through `registerRuntimeExtension`)
 - add development tooling for applying changes and inspecting extensions (done: `/reload` builds Tau, reloads extensions and restarts when required; Settings → Inspector lists both registries, the package folders, versions, engines, errors and skips)
+- install, update and remove a package without touching the disk by hand (done: `tau.packages` with `/install`, `/remove`, `/update` over `npm:`, `git:` and folder sources, a source list per scope in `packages.json`, and Settings → Packages; ADR 0011)
 
 Completion check: a separately packaged extension can be installed, enabled, disabled, upgraded, and removed without rebuilding Tau.
 
@@ -78,7 +79,7 @@ Work completed:
 - separate trusted in-process extensions from isolated extensions (done: bundled kits declare permissions, third-party packages default to none and require user grant; desktop bundles isolate IPC via `window.tau = undefined`)
 - show requested permissions before activation (done: a package without a grant shows as waiting in Settings with Allow / Deny, persisted in `~/.tau/extension-grants.json`; its host entry is not compiled until it is approved, in either scope)
 - isolate renderer UI and validate every host command (done: `guardedServices` validates every method/property call against declared permissions; `LazyFeatureBoundary` wraps all UI slots)
-- define package provenance, update, and revocation behavior (done: `source.url` and `source.commit` manifest fields; revoking via grant removal or settings toggle)
+- define package provenance, update, and revocation behavior (done: `source.url` and `source.commit` manifest fields, plus an optional Ed25519 `tau-extension.sig` checked against `~/.tau/trusted-publishers.json` — a changed file refuses to load, an untrusted or missing signature only changes what the approval UI says; revoking is removing a grant, a key, or the source, ADR 0011. A hosted revocation list stays out.)
 - add recovery paths for crashing or unresponsive extensions (done: 30s command timeout and 3-strike failure deactivation on the host; automatic boundary catch, deactivation, and toast notifications on the renderer)
 
 - close the renderer's own boundary (done: desktop bundles are served over the privileged `tau-ext` scheme instead of blob URLs so the CSP drops `blob:`; the window runs sandboxed and the default session denies every permission)
@@ -117,12 +118,13 @@ Completion check: a second client can supervise the same host and clearly report
 
 These questions are intentionally unresolved:
 
-- How are packages distributed? The manifest shape, `version` and `engines` are settled (ADR 0008 and its amendment); an installer, a registry, signing and update channels are not.
 - Which extension code may run in-process, and which code must be isolated?
 - Does a thread always map to one Pi session, or can it coordinate several sessions and agents?
 - How are project identities preserved when the same repository exists locally, remotely, or in several worktrees?
 - Which workbench state belongs to the client, host, project, or extension?
 - How much of the desktop extension model should be portable to web and mobile clients?
+
+Settled since: how packages are distributed. npm and Git are the index, the four verbs of `tau.packages` mirror Pi's CLI, and an optional Ed25519 signature says who built a folder (ADR 0011). A hosted registry, revocation and key rotation stay out.
 
 Record a new ADR when one of these decisions becomes expensive to reverse and has a real alternative.
 

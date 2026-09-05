@@ -20,7 +20,7 @@ Running each package in its own process or VM would cost an IPC hop per call, a 
 
 **Failure containment.** A host command runs under a 30 s timeout; a timeout, or three consecutive failures, deactivates the package and records the reason in `summaries()`. This does not catch a synchronous infinite loop — that needs a worker thread, which is Phase 4 work. In the renderer every slot a package renders sits in `LazyFeatureBoundary`, which deactivates the package in `ExtensionRegistry` and raises a toast instead of blanking the workbench.
 
-**Provenance.** `source: { url, commit? }` is optional and shown in the Inspector. It records where a package came from; it proves nothing, because nothing is signed.
+**Provenance.** `source: { url, commit? }` is optional and shown in the Inspector. It records where a package came from and proves nothing on its own; [ADR 0011](0011-extension-distribution.md) adds an optional `tau-extension.sig` that does, for the folder's contents.
 
 ## 2026-09-04: the renderer boundary
 

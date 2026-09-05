@@ -14,6 +14,7 @@ Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. T
 - [ADR 0002](docs/adr/0002-core-owns-placement-extensions-own-features.md) records why core owns placement while extensions own features.
 - [ADR 0003](docs/adr/0003-core-owns-threads-extensions-own-navigation.md) records why thread semantics stay in core while navigation remains replaceable.
 - [ADR 0004](docs/adr/0004-one-pi-runtime-per-thread.md) records why every open thread keeps its own Pi runtime.
+- [ADR 0011](docs/adr/0011-extension-distribution.md) records why packages are distributed through npm and Git instead of a registry of Tau's own.
 
 ## Run
 
@@ -73,13 +74,54 @@ An extension with a host half is a package: a folder under one of those two dire
 
 `id` is shared by both halves (lowercase, dot-separated) and must equal the id the desktop module exports; `desktop` and `host` are relative entry paths, either may be omitted. `version` is the package's own semver. `engines` names the ranges of `tau` (the app version), `pi` (the bundled Pi) and `api` (the contribution interfaces, `EXTENSION_API_VERSION` in `src/shared/extension-compat.ts`) the package runs on; ranges take `*`, `1.2.3`, `^1.2.0`, `~1.2.0`, `>=1 <2` and `||`. A package whose engines do not fit stays off on both sides and is listed with the reason in the Inspector. Both fields are optional; while Tau's own version is `0.0.0`, pin `api` rather than `tau`.
 
+#### Install a package
+
+Tau installs packages the way Pi does. `tau.packages`, a bundled host extension, takes three kinds of source:
+
+```
+/install npm:@acme/hello          # the machine's own npm, into ~/.tau/npm
+/install git:https://example.com/acme/hello.git   # a shallow clone into ~/.tau/git
+/install ./extensions/hello -l    # a folder, loaded where it lies; -l is this project only
+/update                           # every installed source, or name one
+/remove npm:@acme/hello
+```
+
+The same four verbs sit in Settings → Packages, with a source field, a global/project switch, the progress lines of the running job, and Update and Remove per package. `install` and `update` are long commands, so they run as host jobs and never block the rest of the workbench.
+
+The list of sources is `~/.tau/packages.json` for every project, `<project>/.tau/packages.json` for one (Pi's `-l`), both `{ "version": 1, "packages": ["npm:@acme/hello", "git:https://…", "/path/to/folder"] }`. npm sources need `npm` on the login shell's PATH; Tau bundles no npm client. A project's list loads only where Pi trusts the project. Nothing is copied for a folder source, so `/install ./my-extension` is also the way to develop one.
+
+An install never starts a package: the grant flow below still asks. An update that keeps the same permissions keeps the grant; `/reload` picks the new code up.
+
+#### Sign a package
+
+A package may carry a `tau-extension.sig` beside its manifest:
+
+```json
+{
+  "publisher": "acme",
+  "algorithm": "ed25519",
+  "signature": "<base64>",
+  "files": { "tau-extension.json": "<sha256>", "host.ts": "<sha256>" }
+}
+```
+
+`files` covers every file of the folder except `.git` and the signature itself, and the signature is over the canonical JSON of `{ files, id, version }`. A publisher makes a key with `node scripts/keygen-extension.mjs acme ~/keys` and signs with `node scripts/sign-extension.mjs ./hello ~/keys/acme.private.pem acme`; a user trusts the key by putting it in `~/.tau/trusted-publishers.json`:
+
+```json
+{ "version": 1, "publishers": [{ "id": "acme", "name": "ACME", "key": "-----BEGIN PUBLIC KEY-----…" }] }
+```
+
+Settings then shows the package as *signed by ACME*. An unsigned package installs and says **unsigned**; one signed by a key nobody trusts installs and says **signature not trusted**. A file whose hash no longer matches the signature refuses to load at all, with the offending path in the error — that check runs before the key is looked up, so it holds for untrusted publishers too. `npm run smoke:extension-install` drives the whole path: keygen, sign, install from a folder and from a Git source into a temp home, list, tamper, refuse.
+
+Tau hosts no registry: npm and Git are the index, and there is no revocation list beyond removing a key.
+
 #### Permissions, provenance and isolation
 
 A package names the capabilities it wants in `permissions`, from a fixed vocabulary: `workspace:read` (project paths and file contents), `workspace:write` (change files, write Git), `workspace:switch` (open or pick another project), `sessions` (session files, threads, transcript entries), `runtime:extend` (register runtimes, runtime extensions and permission levels), `process` (child processes and command lookup) and `network`. Reaching a host service the package did not ask for throws and is logged as `host-extension.denied`. A package without the field asks for nothing; a bundled kit keeps the full facade.
 
 A package Tau has not seen before, or one whose permission list changed, does not start. It appears in Settings as waiting for approval with the list it asks for; **Allow** writes the grant to `~/.tau/extension-grants.json` and starts both halves, **Deny** leaves it off. The grant survives a restart, and it applies to `~/.tau/extensions` exactly as it applies to `<project>/.tau/extensions` — Pi's project trust only decides whether a project's folder is read at all. Until a package is approved its host entry is not even compiled, so none of its code runs.
 
-`source: { url, commit? }` records where a package came from and is shown in Settings → Inspector. Nothing is signed, so treat it as a label, not a proof.
+`source: { url, commit? }` records where a package came from and is shown in Settings → Inspector. It proves nothing on its own; a `tau-extension.sig` from a publisher you trust does.
 
 A desktop half cannot reach the core IPC surface: `window.tau` is replaced with `undefined` while the bundle is built, and `globalThis.__tauShared` is the only bridge. The compiled bundle is served by the main process under `tau-ext://bundles/<id>/<hash>.js` and imported from there, which is why the page's CSP allows `tau-ext:` and no longer allows `blob:`. A host command that runs longer than 30 s, or fails three times in a row, deactivates the package. Every slot a package renders sits behind an error boundary that deactivates the package and shows a toast rather than taking the workbench down. See [ADR 0009](docs/adr/0009-extension-permissions.md) for what this does not protect against.
 

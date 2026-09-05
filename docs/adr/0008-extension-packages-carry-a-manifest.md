@@ -26,4 +26,4 @@ Amendment: the manifest may carry `version` (the package's own semver) and `engi
 
 - A package installs, updates and uninstalls by copying, editing or deleting a folder, then `/reload`.
 - A bundled kit and an installed package look the same to the host and the renderer; the bundled kits are the reference for the shape.
-- Nothing is distributed yet: no registry, no signing, no update channel. Those belong to Phase 2 and Phase 3 and are listed as open in PLAN.md.
+- Distribution followed in [ADR 0011](0011-extension-distribution.md): `npm:`, `git:` and folder sources, a source list per scope, and an optional Ed25519 signature. The folder is still the unit; an installed package and a hand-copied one are indistinguishable to the scan.
