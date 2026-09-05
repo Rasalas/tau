@@ -170,7 +170,12 @@ export interface UiSession {
   path: string;
   title: string;
   modifiedAt: number;
+  /** @deprecated Display only; address the project with `workspaceId`. */
   projectPath: string;
+  /** Opaque identity of the thread's project on its host. */
+  workspaceId?: string;
+  /** What the user sees for the project; on a local host its absolute path. */
+  projectDisplayPath?: string;
   projectName: string;
   /** Short label an extension gives the project, e.g. its Git branch. */
   projectLabel?: string;
@@ -182,7 +187,12 @@ export interface UiSession {
 }
 
 export interface UiProject {
+  /** @deprecated Display only; address the project with `workspaceId`. */
   path: string;
+  /** Opaque identity of this workspace on its host. */
+  workspaceId?: string;
+  /** What the user sees; on a local host the absolute path. */
+  displayPath?: string;
   name: string;
   lastOpenedAt: number;
   /** Project image encoded by the host so renderer clients never receive a local asset path. */
@@ -264,7 +274,12 @@ export interface UiTurnActivityEntry extends UiTurnActivity {
 }
 
 export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
+  /** @deprecated Display only; address the workspace with `workspaceId`. */
   cwd: string;
+  /** Opaque identity of the active workspace on its host. */
+  workspaceId?: string;
+  /** What the user sees for the active workspace. */
+  displayPath?: string;
   /** Canonical Tau thread owner. `sessionId` remains for v1 renderer clients. */
   threadId?: string;
   /** Provider-owned runtime session id; it is not used for Tau indexing. */
@@ -347,7 +362,7 @@ export interface HostBootstrap {
     /** Optional for protocol-v1 compatibility; missing means unsupported. */
     supportsImageInput?: boolean;
   };
-  project: { cwd: string; label?: string };
+  project: { cwd: string; workspaceId?: string; displayPath?: string; label?: string };
 }
 
 export type GlobalHostEvent =

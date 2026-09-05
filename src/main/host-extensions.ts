@@ -14,6 +14,7 @@ import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { ThreadRuntimeBackend } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS } from "../shared/extension-permissions.js";
+import type { WorkspaceRef } from "../shared/workspace-identity.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -267,8 +268,10 @@ export interface HostExtensionServices {
   log(label: string, detail?: string): void;
   /** Opens a project the way a project switch does; the same path re-activates it. */
   openWorkspace(path: string): Promise<HostActionResult>;
-  /** Canonical path of a project the host already admitted; rejects any other path. */
+  /** Canonical path of a project the host already admitted, named by workspace id or path; rejects any other. */
   knownWorkspacePath(path: string): Promise<string>;
+  /** Identity a client may keep for a workspace the extension found on this host. */
+  workspaceRef(path: string): WorkspaceRef;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
   /** Native folder picker of the host platform; resolves undefined when cancelled. */

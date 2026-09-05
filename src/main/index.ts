@@ -24,6 +24,7 @@ import { installElectronHostTransport, type ElectronHostTransport } from "./host
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
+import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
@@ -60,6 +61,8 @@ const hostOptions = {
     cacheDir: join(app.getPath("userData"), "host-extensions"),
   }),
   logger: hostLog,
+  // Clients name workspaces by an id of this host, never by one of its paths.
+  workspaceIdentity: new WorkspaceIdentity(readOrCreateHostId(join(app.getPath("userData"), "host-id"))),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {

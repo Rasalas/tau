@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import type { HostEvent } from "../shared/contracts.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
+import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
 import { HostJobRunner } from "./host-jobs.js";
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
             cacheDir: join(userData, "host-extensions"),
           }),
           logger: hostLog,
+          workspaceIdentity: new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id"))),
         });
         ready = host.start();
       }

@@ -13,6 +13,7 @@ import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
 import { assertRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
 import { findExecutable } from "./shell-environment.js";
+import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
   HostAttachedRuntime,
   HostExtensionServices,
@@ -67,6 +68,7 @@ export interface ExtensionServicesPort {
   log(label: string, detail?: string): void;
   openWorkspace(path: string): Promise<HostActionResult>;
   knownWorkspacePath(path: string): Promise<string>;
+  workspaceRef(path: string): WorkspaceRef;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
   /** Whether Tau or an attached Pi terminal owns the visible runtime. */
@@ -174,6 +176,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     log: (label, detail) => port.log(label, detail),
     openWorkspace: (path) => port.openWorkspace(path),
     knownWorkspacePath: (path) => port.knownWorkspacePath(path),
+    workspaceRef: (path) => port.workspaceRef(path),
     projectName: (cwd) => port.projectName(cwd),
     rememberProjectName: (cwd, name) => port.rememberProjectName(cwd, name),
     pickDirectory: (options) => port.platform.pickDirectory

@@ -74,7 +74,12 @@ export interface HostCatalog {
 }
 
 export interface ProjectMetadata {
+  /** @deprecated Display only; address the workspace with `workspaceId`. */
   cwd: string;
+  /** Opaque identity of the workspace on its host; the client sends this back. */
+  workspaceId?: string;
+  /** What the user sees for the workspace; on a local host its absolute path. */
+  displayPath?: string;
   /** Short label an extension gives the project, e.g. its Git branch. */
   label?: string;
   changes?: UiWorkspaceChanges;
@@ -174,7 +179,11 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "transcript-page": return Boolean(payload && validTranscriptBundlePayload(payload, true)
       && typeof payload.hasMore === "boolean");
     case "catalog": return Boolean(payload && (payload.sessionId === undefined || typeof payload.sessionId === "string") && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number" && (payload.supportsImageInput === undefined || typeof payload.supportsImageInput === "boolean"));
-    case "project": return Boolean(payload && typeof payload.cwd === "string");
+    // Identity is optional while `cwd` is still on the wire; both must be strings when present.
+    case "project": return Boolean(payload
+      && (typeof payload.cwd === "string" || typeof payload.workspaceId === "string")
+      && (payload.workspaceId === undefined || typeof payload.workspaceId === "string")
+      && (payload.displayPath === undefined || typeof payload.displayPath === "string"));
     case "run": return typeof candidate.sessionId === "string" && ["started", "settled", "aborted"].includes(String(candidate.event));
     case "error": return typeof candidate.message === "string";
     default: return false;
