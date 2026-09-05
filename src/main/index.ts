@@ -19,7 +19,7 @@ import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/ext
 import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostJobRunner } from "./host-jobs.js";
-import { createHostMethods, createUnsupportedHostMethods } from "./host-methods.js";
+import { createHostMethods, createUnsupportedHostMethods, type HostMethodTable } from "./host-methods.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
@@ -220,10 +220,9 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
   return ready;
 }
 
-function installTransport(): void {
-  const methods = remoteHostUrl
-    ? createUnsupportedHostMethods(`This window is a client of the host at ${remoteHostUrl}; local operations (clipboard, image previews, workbench rebuild) are not available here.`)
-    : createHostMethods({
+/** Everything this machine can answer for itself; a client of a remote host has none of it. */
+function createLocalHostMethods(): HostMethodTable {
+  return createHostMethods({
     bootstrap: async () => {
       if (!host) {
         host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
@@ -268,6 +267,12 @@ function installTransport(): void {
       },
     },
   });
+}
+
+function installTransport(): void {
+  const methods = remoteHostUrl
+    ? createUnsupportedHostMethods(`This window is a client of the host at ${remoteHostUrl}; local operations (clipboard, image previews, workbench rebuild) are not available here.`)
+    : createLocalHostMethods();
   transport = installElectronHostTransport({
     ipcMain,
     methods,
