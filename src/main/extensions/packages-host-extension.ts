@@ -61,6 +61,11 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
       const announce = (name: string, payload: unknown) => {
         context.emit("changed", { command: name, result: payload });
       };
+      // One line per step of a long command, for whatever settings page is watching.
+      const step = (message: string) => {
+        services.log("packages.progress", message);
+        context.emit("progress", { message });
+      };
 
       context.registerCommand("list", async () => ({ packages: await listExtensionSources(installer()) }));
 
@@ -69,7 +74,7 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
         const scope = scopeOf(input);
         services.noteSubprocess();
         services.log("packages.install", `${source} (${scope})`);
-        const installed = await installExtensionSource(source, scope, installer((message) => services.log("packages.progress", message)));
+        const installed = await installExtensionSource(source, scope, installer(step));
         announce("install", installed);
         return { installed, message: `${describeInstalled(installed)} — approve it in Settings, then run /reload.` };
       }, { long: true });
@@ -86,7 +91,7 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
 
       context.registerCommand("update", async (input) => {
         services.noteSubprocess();
-        const updated = await updateExtensionSources(optionalSource(input), installer((message) => services.log("packages.progress", message)));
+        const updated = await updateExtensionSources(optionalSource(input), installer(step));
         announce("update", updated);
         const failed = updated.filter((entry) => entry.error);
         return {

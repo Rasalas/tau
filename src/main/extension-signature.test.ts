@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,7 +33,7 @@ async function writePackage(): Promise<string> {
   return dir;
 }
 
-async function signPackage(dir: string, key: ReturnType<typeof generateKeyPairSync<"ed25519">>["privateKey"], publisher = "acme"): Promise<void> {
+async function signPackage(dir: string, key: KeyObject, publisher = "acme"): Promise<void> {
   const files = await hashPackageFiles(dir);
   const signature = sign(null, Buffer.from(signaturePayload(manifest.id, manifest.version, files), "utf8"), key).toString("base64");
   await writeFile(join(dir, SIGNATURE_FILE), JSON.stringify({ publisher, algorithm: "ed25519", signature, files }));

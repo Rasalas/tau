@@ -26,6 +26,7 @@ import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
 import { worktreeNamesExtension } from "./worktree-names";
 import { piUiExtension } from "./pi-ui";
+import { packagesExtension } from "./packages-kit";
 import { questionnaireExtension } from "./questionnaire-kit";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages";
 
@@ -275,6 +276,7 @@ export const bundledExtensions = [
   worktreeNamesExtension,
   piUiExtension,
   questionnaireExtension,
+  packagesExtension,
   settingsExtension,
   claudeCodeExtension,
 ];
