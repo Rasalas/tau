@@ -37,6 +37,16 @@ import { turnSnapshotRef, type StoredTurnCheckpoint } from "../shared/turn-check
 import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
+// The host's global and system Git config (LFS filters, credential helpers)
+// would otherwise be read by every fixture process here.
+process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+
+// Checkpoint leases share one machine-wide temp root and protect refs by
+// session id alone, so a second test process must not match these names.
+const LIVE_LINKED_SESSION = `live-linked-${process.pid}`;
+const RACE_WRITER_SESSION = `race-writer-${process.pid}`;
+
 describe("selective workspace changes", () => {
   it("stages, unstages, and reverts one exact path", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-selective-changes-"));
@@ -371,7 +381,8 @@ describe("immutable turn snapshots", () => {
     }
   }, 30_000);
 
-  it("does not sweep refs published by a live linked-worktree writer", async () => {
+  // ~36 Git processes, two of them worktree add/remove; 30 s is not enough headroom under full-suite load.
+  it("does not sweep refs published by a live linked-worktree writer", { timeout: 60_000 }, async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-snapshot-linked-root-"));
     const linked = await mkdtemp(join(tmpdir(), "tau-snapshot-linked-child-"));
     try {
@@ -384,21 +395,21 @@ describe("immutable turn snapshots", () => {
       execFileSync("git", ["worktree", "add", "-q", "-b", "linked", linked, "HEAD"], { cwd });
 
       const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 500 });
-      const lease = await manager.acquire(linked, { sessionId: "live-linked", turnId: "turn" });
-      const before = await createWorkspaceSnapshot(linked, { namespace: "live-linked/turn", phase: "before" });
+      const lease = await manager.acquire(linked, { sessionId: LIVE_LINKED_SESSION, turnId: "turn" });
+      const before = await createWorkspaceSnapshot(linked, { namespace: `${LIVE_LINKED_SESSION}/turn`, phase: "before" });
       await writeFile(join(linked, "seed.txt"), "turn\n");
-      const after = await createWorkspaceSnapshot(linked, { namespace: "live-linked/turn", phase: "after" });
+      const after = await createWorkspaceSnapshot(linked, { namespace: `${LIVE_LINKED_SESSION}/turn`, phase: "after" });
 
       await cleanupCheckpointRefsForLiveSessions(cwd, []);
       await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, {
-        sessionId: "live-linked",
+        sessionId: LIVE_LINKED_SESSION,
         turnId: "turn",
       })).resolves.toMatchObject({ beforeTreeId: before.treeId, afterTreeId: after.treeId });
 
       await lease.release();
       await cleanupCheckpointRefsForLiveSessions(cwd, []);
       await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, {
-        sessionId: "live-linked",
+        sessionId: LIVE_LINKED_SESSION,
         turnId: "turn",
       })).rejects.toThrow();
     } finally {
@@ -408,7 +419,7 @@ describe("immutable turn snapshots", () => {
         rm(cwd, { recursive: true, force: true }),
       ]);
     }
-  }, 30_000);
+  });
 
   it("roots rollback refs from pending restore transactions", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-gc-"));
@@ -484,10 +495,10 @@ describe("immutable turn snapshots", () => {
           // This lease is acquired after the sweep's first writer snapshot,
           // but before its ref enumeration. The second lease observation must
           // therefore protect the pair that is about to be deleted.
-          linkedLease = await manager.acquire(linked, { sessionId: "race-writer", turnId: "turn" });
-          const before = await createWorkspaceSnapshot(linked, { namespace: "race-writer/turn", phase: "before" });
+          linkedLease = await manager.acquire(linked, { sessionId: RACE_WRITER_SESSION, turnId: "turn" });
+          const before = await createWorkspaceSnapshot(linked, { namespace: `${RACE_WRITER_SESSION}/turn`, phase: "before" });
           await writeFile(join(linked, "seed.txt"), "turn\n");
-          const after = await createWorkspaceSnapshot(linked, { namespace: "race-writer/turn", phase: "after" });
+          const after = await createWorkspaceSnapshot(linked, { namespace: `${RACE_WRITER_SESSION}/turn`, phase: "after" });
           expect(before.treeId).not.toBe(after.treeId);
         }
         return runGitCommand(path, args, maxBuffer, signal);
@@ -497,9 +508,9 @@ describe("immutable turn snapshots", () => {
       expect(writerStarted).toBe(true);
       await expect(validateWorkspaceSnapshotRefs(
         cwd,
-        turnSnapshotRef("race-writer", "turn", "before"),
-        turnSnapshotRef("race-writer", "turn", "after"),
-        { sessionId: "race-writer", turnId: "turn" },
+        turnSnapshotRef(RACE_WRITER_SESSION, "turn", "before"),
+        turnSnapshotRef(RACE_WRITER_SESSION, "turn", "after"),
+        { sessionId: RACE_WRITER_SESSION, turnId: "turn" },
       )).resolves.toBeDefined();
 
       if (!linkedLease) throw new Error("Linked writer did not acquire its lease.");
@@ -508,9 +519,9 @@ describe("immutable turn snapshots", () => {
       await cleanupCheckpointRefsForLiveSessions(cwd, []);
       await expect(validateWorkspaceSnapshotRefs(
         cwd,
-        turnSnapshotRef("race-writer", "turn", "before"),
-        turnSnapshotRef("race-writer", "turn", "after"),
-        { sessionId: "race-writer", turnId: "turn" },
+        turnSnapshotRef(RACE_WRITER_SESSION, "turn", "before"),
+        turnSnapshotRef(RACE_WRITER_SESSION, "turn", "after"),
+        { sessionId: RACE_WRITER_SESSION, turnId: "turn" },
       )).rejects.toThrow();
     } finally {
       await linkedLease?.release().catch(() => undefined);
@@ -612,7 +623,8 @@ describe("immutable turn snapshots", () => {
     }
   }, 30_000);
 
-  it("clones immutable refs into a fork namespace and removes incomplete copies", async () => {
+  // ~110 Git processes for four clone/cleanup rounds; 30 s is not enough headroom under full-suite load.
+  it("clones immutable refs into a fork namespace and removes incomplete copies", { timeout: 60_000 }, async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-fork-snapshots-"));
     try {
       execFileSync("git", ["init", "-q"], { cwd });
@@ -681,7 +693,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  });
 
   it("provides immutable snapshots and fork history for a plain folder", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-folder-snapshots-"));
