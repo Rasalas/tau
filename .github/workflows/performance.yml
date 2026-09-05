@@ -16,6 +16,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Ubuntu 24.04 runners restrict unprivileged user namespaces, which Electron's
+      # sandbox needs; the benchmarks launch real Electron windows under xvfb.
+      - name: Allow Electron's sandbox on the runner
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run type, test, build, renderer, and start budgets
         run: xvfb-run -a npm run performance:ci
       - name: Publish performance measurements
