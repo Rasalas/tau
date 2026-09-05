@@ -13,7 +13,7 @@ import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protoc
 import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { ThreadRuntimeBackend } from "./runtime-types.js";
-import { HOST_SERVICE_PERMISSIONS } from "../shared/extension-permissions.js";
+import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -321,12 +321,20 @@ export interface HostExtensionContext {
   registerCommand(name: string, handler: HostExtensionCommandHandler, options?: { long?: boolean }): () => void;
   /** Publishes an `extension-event` for this extension's desktop counterpart. */
   emit(name: string, payload?: unknown): void;
+  /**
+   * Reports a failure the extension cannot recover from, after activation: the
+   * registry records the reason and deactivates it. An isolated package uses
+   * this when its worker dies.
+   */
+  fail(reason: string): void;
 }
 
 export interface HostExtension {
   id: string;
   name: string;
   permissions?: readonly string[];
+  /** Where the extension runs; a bundled kit is in-process by construction. */
+  isolation?: ExtensionIsolation;
   activate(context: HostExtensionContext): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
 }
 
@@ -365,6 +373,8 @@ interface ActiveHostExtension {
   commands: Map<string, HostExtensionCommandHandler>;
   longCommands: Set<string>;
   disposers: Array<() => void | Promise<void>>;
+  /** Set once the extension reported a failure it cannot recover from. */
+  fatal?: string;
 }
 
 export interface HostExtensionRegistryOptions {
@@ -415,10 +425,12 @@ export class HostExtensionRegistry {
         if (this.active.get(extension.id) !== record) return;
         this.publish({ type: "extension-event", extensionId: extension.id, name, payload });
       },
+      fail: (reason) => this.reportFatal(extension, record, reason),
     };
     try {
       const dispose = await extension.activate(context);
       if (dispose) record.disposers.push(dispose);
+      if (record.fatal) throw new Error(record.fatal);
       this.active.set(extension.id, record);
       this.services.log("host-extension.activated", `${extension.name} · ${[...record.commands.keys()].join(", ") || "no commands"}`);
       return true;
@@ -428,6 +440,17 @@ export class HostExtensionRegistry {
       await this.disposeAll(record.disposers).catch(() => undefined);
       this.services.log("host-extension.failed", `${extension.name}: ${message}`);
       return false;
+    }
+  }
+
+  /** An extension that cannot go on: the reason is kept and the extension stops. */
+  private reportFatal(extension: HostExtension, record: ActiveHostExtension, reason: string): void {
+    if (record.fatal) return;
+    record.fatal = reason;
+    this.failures.set(extension.id, reason);
+    this.services.log("host-extension.failed", `${extension.name}: ${reason}`);
+    if (this.active.get(extension.id) === record) {
+      void this.deactivate(extension.id).catch(() => undefined);
     }
   }
 
@@ -524,6 +547,7 @@ export class HostExtensionRegistry {
         name: extension.name,
         active: Boolean(record),
         commands: record ? [...record.commands.keys()].sort() : [],
+        isolation: extension.isolation ?? "in-process",
         ...(error ? { error } : {}),
       };
     });

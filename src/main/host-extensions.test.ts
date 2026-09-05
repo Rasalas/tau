@@ -55,7 +55,7 @@ describe("HostExtensionRegistry", () => {
     };
     await expect(r.activate(extension)).resolves.toBe(true);
     await expect(r.invoke("demo.kit", "echo", { a: 1 })).resolves.toEqual({ input: { a: 1 } });
-    expect(r.summaries()).toEqual([{ id: "demo.kit", name: "Demo Kit", active: true, commands: ["echo"] }]);
+    expect(r.summaries()).toEqual([{ id: "demo.kit", name: "Demo Kit", active: true, commands: ["echo"], isolation: "in-process" }]);
   });
 
   it("rejects unknown extensions and commands with a readable reason", async () => {
@@ -91,7 +91,7 @@ describe("HostExtensionRegistry", () => {
     });
     expect(ok).toBe(false);
     expect(r.isActive("broken.kit")).toBe(false);
-    expect(r.summaries()).toEqual([{ id: "broken.kit", name: "Broken Kit", active: false, commands: [], error: "boom" }]);
+    expect(r.summaries()).toEqual([{ id: "broken.kit", name: "Broken Kit", active: false, commands: [], isolation: "in-process", error: "boom" }]);
     expect(s.logs.some((line) => line.startsWith("host-extension.failed"))).toBe(true);
   });
 
