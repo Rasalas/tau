@@ -9,7 +9,8 @@ export function evaluateHostBudgets(report, budgets = {}) {
     .flatMap((measurement) => measurement.phases ?? [])
     .find((phase) => phase.name === "branch");
   if (criticalBranch) failures.push(`bootstrap still waits ${criticalBranch.durationMs.toFixed(1)}ms for branch resolution`);
-  const backgroundBranch = (report.background ?? []).find((measurement) => measurement.name === "branch");
+  // Workspace Kit resolves the branch as the project's label since ADR 0007; the older name is still accepted for archived reports.
+  const backgroundBranch = (report.background ?? []).find((measurement) => measurement.name === "project-label" || measurement.name === "branch");
   if (!backgroundBranch || !Number.isFinite(backgroundBranch.durationMs)) {
     failures.push("background branch duration was not reported by the host fixture");
   }
