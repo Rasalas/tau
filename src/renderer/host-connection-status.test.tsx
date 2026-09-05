@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 /** A client whose link state the test moves, the way a dropped socket does. */
 function clientWithMovableState() {
-  const listeners = new Set<() => void>();
+  const listeners = new Set<(state: HostConnectionState) => void>();
   let state: HostConnectionState = "connected";
   const client = createFakeHostClient({
     getConnectionState: () => state,
@@ -20,7 +20,7 @@ function clientWithMovableState() {
     client,
     set(next: HostConnectionState) {
       state = next;
-      act(() => { for (const listener of listeners) listener(); });
+      act(() => { for (const listener of listeners) listener(next); });
     },
   };
 }
