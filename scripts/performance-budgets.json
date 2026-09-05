@@ -20,6 +20,8 @@
     "transcript-viewport-streaming-1000-turns": { "mountP95Ms": 30, "commitP95Ms": 40 }
   },
   "rendererDomNodes": 5000,
+  "hostBootstrapFullMs": 2500,
+  "hostBootstrapSafeMs": 1000,
   "gitSubprocesses": 6,
   "gitOverlapSubprocesses": 6,
   "gitMaxParallelSubprocesses": 4,

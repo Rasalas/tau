@@ -74,7 +74,7 @@ describe("performance report checks", () => {
       "warm-switch": { median: 1, p95: 1, maximum: 1 },
     }, phases: [], background: [{ name: "branch", durationMs: 10 }] });
     expect(failures).toEqual([
-      "full bootstrap p95 2300.0ms > 2000ms (median 2100.0ms, p95 2300.0ms, max 2300.0ms)",
+      "full bootstrap cold 2300.0ms > 2000ms (median 2100.0ms, p95 2300.0ms, max 2300.0ms)",
     ]);
   });
 

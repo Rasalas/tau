@@ -1,6 +1,7 @@
 export function evaluateHostBudgets(report, budgets = {}) {
   const warmSwitchP95Ms = budgets.warmSwitchP95Ms ?? 150;
-  const bootstrapP95Ms = budgets.bootstrapP95Ms ?? (report.mode === "full" ? 2_000 : 1_000);
+  const bootstrapP95Ms = budgets.bootstrapP95Ms
+    ?? (report.mode === "full" ? budgets.hostBootstrapFullMs ?? 2_000 : budgets.hostBootstrapSafeMs ?? 1_000);
   const failures = (report.phases ?? []).flatMap((measurement) => (measurement.phases ?? [])
     .filter((phase) => phase.durationMs > measurement.totalMs + 5)
     .map((phase) => `${measurement.scenario} phase ${phase.name} ${phase.durationMs.toFixed(1)}ms exceeds total ${measurement.totalMs.toFixed(1)}ms`));
@@ -17,8 +18,10 @@ export function evaluateHostBudgets(report, budgets = {}) {
   const bootstrap = report.summaries?.bootstrap;
   if (!bootstrap || ![bootstrap.median, bootstrap.p95, bootstrap.maximum].every(Number.isFinite)) {
     failures.push("bootstrap median, p95, and maximum were not reported by the host fixture");
-  } else if (bootstrap.p95 > bootstrapP95Ms) {
-    failures.push(`${report.mode} bootstrap p95 ${bootstrap.p95.toFixed(1)}ms > ${bootstrapP95Ms}ms (median ${bootstrap.median.toFixed(1)}ms, p95 ${bootstrap.p95.toFixed(1)}ms, max ${bootstrap.maximum.toFixed(1)}ms)`);
+  } else if ((bootstrap.cold ?? bootstrap.maximum) > bootstrapP95Ms) {
+    // Only the first start of a process is cold; that sample is the gate, median and p95 stay informational.
+    const cold = bootstrap.cold ?? bootstrap.maximum;
+    failures.push(`${report.mode} bootstrap cold ${cold.toFixed(1)}ms > ${bootstrapP95Ms}ms (median ${bootstrap.median.toFixed(1)}ms, p95 ${bootstrap.p95.toFixed(1)}ms, max ${bootstrap.maximum.toFixed(1)}ms)`);
   }
   if (report.mode === "full") {
     const cold = report.summaries?.["cold-switch"];

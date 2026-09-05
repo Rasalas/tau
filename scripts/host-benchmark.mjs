@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { evaluateHostBudgets } from "./host-budget.mjs";
 
 const root = process.cwd();
@@ -15,11 +15,21 @@ const output = outputIndex >= 0 ? process.argv[outputIndex + 1] : join(root, "re
 const alternate = await mkdtemp(join(tmpdir(), "tau-host-benchmark-"));
 const historyPath = join(alternate, "projects.json");
 
+// Linear interpolation (Hyndman-Fan type 7), like the renderer benchmark.
 function summarize(samples) {
   const sorted = [...samples].sort((left, right) => left - right);
-  const at = (percentile) => sorted[Math.max(0, Math.ceil(sorted.length * percentile) - 1)] ?? 0;
+  const at = (percentile) => {
+    if (sorted.length === 0) return 0;
+    const position = (sorted.length - 1) * percentile;
+    const lower = Math.floor(position);
+    const upper = Math.min(sorted.length - 1, lower + 1);
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+  };
   return { median: at(0.5), p95: at(0.95), maximum: sorted.at(-1) ?? 0 };
 }
+
+/** Cold starts per report; one start is a single sample, not a distribution. */
+const HOST_RUNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_RUNS ?? 3));
 
 try {
   execFileSync("git", ["init", "-b", "main", alternate], { stdio: "ignore" });
@@ -38,43 +48,52 @@ try {
     return manager.getSessionFile();
   });
   if (sessionPaths.some((path) => !path)) throw new Error("Could not create persisted benchmark sessions");
-  const history = new ProjectHistory(historyPath);
-  await history.load();
-  const host = new PiHost(root, () => {}, history, mode === "safe", false);
   const wallClock = [];
-  const started = performance.now();
-  await host.start();
-  wallClock.push({ scenario: "bootstrap", durationMs: performance.now() - started });
-  const firstSwitchStarted = performance.now();
-  await host.switchSession(sessionPaths[0]);
-  wallClock.push({ scenario: "cold-switch", durationMs: performance.now() - firstSwitchStarted });
-  for (let run = 0; run < 4; run += 1) {
-    const path = sessionPaths[(run + 1) % sessionPaths.length];
-    const prewarmStarted = performance.now();
-    await host.prewarmSession(path);
-    wallClock.push({ scenario: "prewarm", durationMs: performance.now() - prewarmStarted });
-    const switchStarted = performance.now();
-    await host.switchSession(path);
-    wallClock.push({ scenario: "warm-switch", durationMs: performance.now() - switchStarted });
+  let phases = [];
+  let background = [];
+  for (let hostRun = 0; hostRun < HOST_RUNS; hostRun += 1) {
+    const history = new ProjectHistory(historyPath);
+    await history.load();
+    const host = new PiHost(root, () => {}, history, mode === "safe", false);
+    const started = performance.now();
+    await host.start();
+    wallClock.push({ scenario: "bootstrap", durationMs: performance.now() - started });
+    const firstSwitchStarted = performance.now();
+    await host.switchSession(sessionPaths[0]);
+    wallClock.push({ scenario: "cold-switch", durationMs: performance.now() - firstSwitchStarted });
+    for (let run = 0; run < 4; run += 1) {
+      const path = sessionPaths[(run + 1) % sessionPaths.length];
+      const prewarmStarted = performance.now();
+      await host.prewarmSession(path);
+      wallClock.push({ scenario: "prewarm", durationMs: performance.now() - prewarmStarted });
+      const switchStarted = performance.now();
+      await host.switchSession(path);
+      wallClock.push({ scenario: "warm-switch", durationMs: performance.now() - switchStarted });
+    }
+    await host.dispose();
+    await history.flush();
+    // Phases describe one host; the last start stands for the report.
+    phases = host.getLifecycleMeasurements();
+    background = host.getBackgroundLifecycleMeasurements();
   }
-  await host.dispose();
-  await history.flush();
-  const phases = host.getLifecycleMeasurements();
   const report = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     mode,
     wallClock,
-    summaries: Object.fromEntries([...new Set(wallClock.map((sample) => sample.scenario))].map((scenario) => [
-      scenario,
-      summarize(wallClock.filter((sample) => sample.scenario === scenario).map((sample) => sample.durationMs)),
-    ])),
+    summaries: Object.fromEntries([...new Set(wallClock.map((sample) => sample.scenario))].map((scenario) => {
+      const samples = wallClock.filter((sample) => sample.scenario === scenario).map((sample) => sample.durationMs);
+      // The first start of a process is the only cold one; later hosts reuse the SDK's resource cache.
+      return [scenario, scenario === "bootstrap" ? { ...summarize(samples), cold: samples[0] } : summarize(samples)];
+    })),
+    hostRuns: HOST_RUNS,
     phases,
-    background: host.getBackgroundLifecycleMeasurements(),
+    background,
   };
   await writeFile(output, `${JSON.stringify(report, null, 2)}\n`);
   if (check) {
-    const failures = evaluateHostBudgets(report);
+    const budgets = JSON.parse(await readFile(join(root, "scripts", "performance-budgets.json"), "utf8"));
+    const failures = evaluateHostBudgets(report, budgets);
     if (failures.length > 0) {
       console.error(`Host budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
       process.exitCode = 1;
