@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-04.
+Accepted, 2026-09-04. Amended 2026-09-05: a client window, and a bind rule.
 
 ## Context
 
@@ -28,6 +28,14 @@ Long operations are host jobs: `start-job` answers with a `jobId`, progress and 
 
 Authentication of the socket transport is a 32-byte token in `~/.tau/host-token`, written 0o600 in a 0o700 directory on first listen and repeated in every hello. A wrong or missing token closes the connection before any method runs, as does a request from a peer that never said hello. Electron IPC needs no token: it is in-process and already sandboxed.
 
+## Amendment, 2026-09-05: a window that is only a client
+
+The socket transport made a host without a window possible; the other half is a window without a host. `TAU_HOST_URL=ws://machine:7788` makes the Electron main process open the window and nothing else: no `PiHost`, no Pi, no project history of its own. It passes the URL to the renderer as the `?host=` it already understands, together with a token read from `TAU_HOST_TOKEN` or from `~/.tau/host-token` on the client machine — never created there, because the secret belongs to the host.
+
+The in-process transport is still installed, so a stray call has somewhere to land, but its method table is `createUnsupportedHostMethods`: every name of the real table, each throwing `unsupported`. That keeps `ipc-contract.test.ts` meaningful for both tables and makes a mistake say why instead of quietly answering with the client machine's clipboard or files. Its hello announces no capabilities; the socket transport's hello announces `jobs` and `replay` but not `local-files`, which is how a client learns that the paths it receives are not its own.
+
+Because the token travels in clear text, a listener is now refused on anything but a loopback address unless `TAU_HOST_INSECURE=1` says otherwise (`host-listen.ts`). Reaching a host on another machine means forwarding the port over SSH. The page's CSP allows `ws:` and `wss:` in `connect-src`, without which a window on `file://` could not open the socket at all.
+
 ## Consequences
 
 - `src/main/index.ts` shrank from 430 to about 320 lines and holds no operation of its own: it supplies the platform (clipboard, dialogs, bundles, rebuild) and installs a transport.
@@ -38,6 +46,6 @@ Authentication of the socket transport is a 32-byte token in `~/.tau/host-token`
 ## Out of scope
 
 - **Workspace identity instead of paths** (step 6 of the ticket): `cwd`, `UiChangedFile.path`, `read-file` and `open-in-editor` still carry absolute host paths, and the `local-files` capability announced by the Electron transport is not yet read by the renderer. A remote client would show and return the host's paths. This is the next piece of Phase 4.
-- **TLS.** The socket listens on loopback and is meant to be reached through an SSH tunnel. Certificates, and a host that listens on a public interface, are separate work.
+- **TLS.** The socket listens on loopback and is meant to be reached through an SSH tunnel. Certificates remain separate work; `TAU_HOST_INSECURE=1` is an escape hatch for a trusted network, not a substitute.
 - **Multi-user hosts.** One token means one trust level: whoever has it may do everything the desktop user may do. Per-client identity and permissions build on ticket 17's per-package rights.
-- **A directory of hosts**, and web or mobile clients (ticket 19).
+- **A directory of hosts**, and web or mobile clients (ticket 19). A browser client would additionally need the host to serve the built assets and a way to enter a token without a native dialog; none of that exists.

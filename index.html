@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#11110f" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' tau-ext:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' http://localhost:5173 ws://localhost:5173" />
+    <!-- ws:/wss: is the host protocol's socket transport: a window started with
+         TAU_HOST_URL or ?host= talks to a host that is not this machine. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' tau-ext:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' http://localhost:5173 ws: wss:" />
     <title>Tau — Pi Desktop Prototype</title>
   </head>
   <body>

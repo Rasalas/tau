@@ -98,9 +98,21 @@ Two transports implement this. Electron IPC uses two channels, `tau:request` and
 method table name the same methods. The socket transport (`ws`) serves the same
 table on `TAU_HOST_LISTEN=host:port`, authenticated by the 32-byte token in
 `~/.tau/host-token` that every hello repeats; a wrong token, or a request before
-a hello, closes the connection. Absolute host paths still travel in results
-(`cwd`, changed files, `read-file`), so a remote client shows the host's paths;
-workspace identity is the open part of Phase 4.
+a hello, closes the connection. The token is unencrypted on the wire, so a
+listener refuses a non-loopback address unless `TAU_HOST_INSECURE=1` says
+otherwise; across machines the port is forwarded over SSH.
+
+Absolute host paths still travel in results (`cwd`, changed files, `read-file`),
+so a remote client shows the host's paths; workspace identity is the open part
+of Phase 4. The `local-files` capability is how a client can tell: the Electron
+transport announces it, the socket transport does not.
+
+A window can be a client only. `TAU_HOST_URL=ws://machine:port` makes the
+Electron main process open the window without starting a `PiHost`, reach the
+host over the socket (the renderer takes the URL as `?host=`, the token from
+`TAU_HOST_TOKEN` or the client machine's `~/.tau/host-token`), and answer every
+local method with an `unsupported` error, because the state those methods touch
+lives on the host.
 
 ## Host extension channel
 

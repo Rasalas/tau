@@ -46,6 +46,33 @@ The renderer talks to the host through one versioned protocol (`docs/adr/0010-ho
 
 `npm run smoke:remote-host` proves the plumbing without a window: it starts `src/main/headless.ts` in a scratch repository, says hello, fetches the bootstrap, sends a prompt, disconnects, reconnects with `lastSeq` and checks that the pushes missed in between are replayed.
 
+### Run the host on another machine
+
+The host and the window need not be the same machine. The workspace, Pi, the models and every tool stay on the host; the Electron window is only a client of the protocol above.
+
+On the host machine, start a host without a window:
+
+```bash
+npm run build
+TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=127.0.0.1:7788 node dist-electron/main/headless.js
+```
+
+It prints the URL it listens on and the path of its token. The socket is unencrypted and repeats that token in every hello, so the host refuses to bind anything but a loopback address; `TAU_HOST_INSECURE=1` overrides that for a network you already trust. Across machines, forward the port over SSH from the client:
+
+```bash
+ssh -N -L 7788:127.0.0.1:7788 you@host-machine
+```
+
+Then copy the host's `~/.tau/host-token` to the client machine (or pass it as `TAU_HOST_TOKEN`) and start Tau as a client:
+
+```bash
+TAU_HOST_URL=ws://127.0.0.1:7788 npm run start:existing
+```
+
+The main process starts no `PiHost` and no Pi in that mode: it opens the window, which speaks the protocol over the socket. Everything that needs this machine — the clipboard, image previews, rebuilding the workbench — answers with an `unsupported` error, because the state it would touch lives on the host. Paths in the workbench (the project's `cwd`, changed files, a tool's output) are the host's paths, so an action that hands a path to a local tool points at a directory that exists only there. The socket transport says so by leaving the `local-files` capability out of its hello, which the Electron transport announces.
+
+A dropped link (a suspended machine, a restarted tunnel) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. A strip above the status line reads `Reconnecting to the host…`, then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. Nothing has to be restarted by hand.
+
 ### Share a live session with Pi
 
 Tau can attach to a Pi TUI that already owns the active session instead of opening a second `SessionManager`. Open Pi in the project first. For an already-running Pi session, run `/reload` once so Pi loads `.pi/extensions/tau-session-bridge.ts`, then start or restart Tau. Prompts, steering, aborts, assistant streaming, tool activity, model changes, thinking changes, compaction, and thread renames travel over an authenticated local socket and remain visible in both clients.
