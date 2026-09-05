@@ -29,8 +29,10 @@ function fail(message) {
 }
 
 const { installExtensionSource, listExtensionSources, removeExtensionSource } = await import(join(DIST, "extension-installer.js"));
-const { listExtensionPackages } = await import(join(DIST, "extension-packages.js"));
+const { listExtensionPackages, loadHostExtensionPackages } = await import(join(DIST, "extension-packages.js"));
 const { describeSignature } = await import(join(DIST, "extension-signature.js"));
+const { grantPackage } = await import(join(DIST, "extension-grants.js"));
+const { HostExtensionRegistry } = await import(join(DIST, "host-extensions.js"));
 
 const scratch = [];
 const temp = async (prefix) => {
@@ -49,8 +51,14 @@ process.env.TAU_USER_DATA = userData;
 async function writePackage(root, id, name) {
   const dir = join(root, name);
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "tau-extension.json"), `${JSON.stringify({ id, name, version: "1.0.0", permissions: [], host: "./host.ts" }, null, 2)}\n`);
-  await writeFile(join(dir, "host.ts"), "export default { activate() {} };\n");
+  await writeFile(join(dir, "tau-extension.json"), `${JSON.stringify({ id, name, version: "1.0.0", permissions: ["workspace:read"], host: "./host.ts" }, null, 2)}\n`);
+  // The host half answers one command, so the smoke can run it in its worker.
+  await writeFile(join(dir, "host.ts"), `export default {
+  activate(context) {
+    context.registerCommand("ping", async (input) => ({ pong: input.n * 2, cwd: await context.services.cwd() }));
+  },
+};
+`);
   return dir;
 }
 
@@ -111,7 +119,31 @@ const scan = await listExtensionPackages(project, join(home, ".pi", "agent"), { 
 if (scan.packages.length !== 2) fail(`the scan found ${scan.packages.length} packages, not 2: ${JSON.stringify(scan.errors)}`);
 step("scan", scan.packages.map((pkg) => `${pkg.manifest.id} from ${pkg.installedFrom}`).join(" | "));
 
-// 8. A file that no longer matches its signed hash stops the package loading.
+// 8. The signed package runs its host half in a worker and answers a command.
+const grantsFilePath = join(home, ".tau", "extension-grants.json");
+await grantPackage({ id: "acme.hello", version: "1.0.0", permissions: ["workspace:read"] }, true, grantsFilePath);
+const loaded = await loadHostExtensionPackages(project, join(home, ".pi", "agent"), {
+  home,
+  trusted: () => true,
+  publishersFilePath: publishers,
+  cacheDir: join(userData, "host-extensions"),
+  grantsFilePath,
+});
+const isolated = loaded.extensions.find((entry) => entry.extension.id === "acme.hello");
+if (!isolated) fail(`the approved package did not load: ${JSON.stringify(loaded.errors)}`);
+if (isolated.extension.isolation !== "worker") fail(`the package runs ${isolated.extension.isolation}, not in a worker`);
+const registry = new HostExtensionRegistry(
+  { cwd: () => project, safeMode: false, log: () => undefined },
+  () => undefined,
+  { commandTimeoutMs: 20_000 },
+);
+if (!await registry.activate(isolated.extension)) fail(`the worker did not start: ${registry.summaries()[0]?.error}`);
+const answer = await registry.invoke("acme.hello", "ping", { n: 21 });
+if (answer.pong !== 42 || answer.cwd !== project) fail(`the worker answered ${JSON.stringify(answer)}`);
+await registry.dispose();
+step("worker isolation", `acme.hello answered ping from its worker (${JSON.stringify(answer)})`);
+
+// 9. A file that no longer matches its signed hash stops the package loading.
 await writeFile(join(source, "host.ts"), "export default { activate() { /* changed after signing */ } };\n");
 const tampered = await listExtensionPackages(project, join(home, ".pi", "agent"), { home, trusted: () => true, publishersFilePath: publishers });
 if (tampered.packages.some((pkg) => pkg.manifest.id === "acme.hello")) fail("the tampered package still loaded");
@@ -119,7 +151,7 @@ const reason = tampered.errors.find((error) => /signed hash/u.test(error.message
 if (!reason) fail(`the scan gave no hash error: ${JSON.stringify(tampered.errors)}`);
 step("tamper refused", reason.message);
 
-// 9. Removing forgets the source and deletes what Tau fetched.
+// 10. Removing forgets the source and deletes what Tau fetched.
 await removeExtensionSource(source, "global", options);
 const removal = await removeExtensionSource("git:https://example.com/acme/remote.git", "project", options);
 if (!removal.deleted) fail("the clone was not deleted");
