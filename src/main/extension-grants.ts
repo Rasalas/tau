@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { DEFAULT_PACKAGE_ISOLATION, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -6,6 +7,8 @@ export interface ExtensionGrant {
   id: string;
   version?: string;
   permissions: string[];
+  /** The isolation the user approved; missing means the default, a worker. */
+  isolation?: ExtensionIsolation;
   grantedAt: number;
 }
 
@@ -41,11 +44,14 @@ export async function writeExtensionGrants(grants: ExtensionGrantsFile, filePath
 }
 
 export function isPackageGranted(
-  manifest: { id: string; permissions?: readonly string[] },
+  manifest: { id: string; permissions?: readonly string[]; isolation?: ExtensionIsolation },
   grants: readonly ExtensionGrant[],
 ): boolean {
   const existing = grants.find((g) => g.id === manifest.id);
   if (!existing) return false;
+  // Running inside the host process is a privilege of its own: a package that
+  // leaves the worker after it was approved has to be approved again.
+  if ((manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION) !== (existing.isolation ?? DEFAULT_PACKAGE_ISOLATION)) return false;
   const current = [...(manifest.permissions ?? [])].sort();
   const granted = [...(existing.permissions ?? [])].sort();
   if (current.length !== granted.length) return false;
@@ -53,7 +59,7 @@ export function isPackageGranted(
 }
 
 export async function grantPackage(
-  manifest: { id: string; version?: string; permissions?: readonly string[] },
+  manifest: { id: string; version?: string; permissions?: readonly string[]; isolation?: ExtensionIsolation },
   granted: boolean,
   filePath = defaultGrantsFilePath(),
 ): Promise<void> {
@@ -64,6 +70,7 @@ export async function grantPackage(
       id: manifest.id,
       ...(manifest.version ? { version: manifest.version } : {}),
       permissions: [...(manifest.permissions ?? [])].sort(),
+      isolation: manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION,
       grantedAt: Date.now(),
     });
   }
