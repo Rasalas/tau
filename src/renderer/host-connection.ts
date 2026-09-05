@@ -70,6 +70,9 @@ export class HostConnection {
 
   getState = (): HostConnectionState => this.state;
 
+  /** What the host said it can do in its hello; `local-files` is read by the workbench. */
+  hasCapability = (capability: string): boolean => this.capabilities.has(capability);
+
   onState(listener: (state: HostConnectionState) => void): () => void {
     this.stateListeners.add(listener);
     return () => this.stateListeners.delete(listener);

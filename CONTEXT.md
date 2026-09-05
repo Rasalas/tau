@@ -26,6 +26,10 @@ An extension-provided way to add or resolve a project. Local folder selection an
 
 The filesystem root and execution context currently opened by a host for a project. A project is the durable user-facing concept. A workspace is the host-facing context in which tools run.
 
+## Workspace identity
+
+How a client names a workspace: an opaque `workspaceId` the host mints from its own persisted id and the workspace's canonical path, plus a `displayPath` for the user to read. A client stores and returns the id and never parses it, so a client on another machine never treats a host path as one of its own. Files inside a workspace are named relative to its root; the host resolves them.
+
 ## Thread
 
 A user-facing stream of agent work within a project. A thread contains conversation history and provides the place a user returns to when continuing that work.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-04. Amended 2026-09-05: a client window, and a bind rule.
+Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule.
 
 ## Context
 
@@ -26,6 +26,23 @@ Pushes are numbered by one `HostPushLog` per host and buffered (500). `hello` wi
 
 Long operations are host jobs: `start-job` answers with a `jobId`, progress and the result arrive as `job-progress`/`job-done` pushes, `cancel-job` stops waiting. `HostClient` keeps the promise shape by awaiting `job-done` internally. Which calls are jobs is data, not core knowledge: a host extension marks its own long commands with `registerCommand(name, handler, { long: true })` — those also skip the command timeout — and the client asks for the list with `job-methods`. Today that is the workbench rebuild and Workspace Kit's clone.
 
+A workspace is named by identity, not by path. Every project the host publishes
+carries a `workspaceId` — `ws1_` plus a truncated SHA-256 of the host's own
+persisted id (`<userData>/host-id`) and the workspace's canonical path — and a
+`displayPath` for the user to read. The encoding is one-way, so a client cannot
+recover a path from an id, and a host resolves only ids it minted itself; an
+unknown one is refused. Files inside a workspace travel as `relPath`, POSIX and
+relative to its root, and the host refuses an absolute path or a `..` segment
+before `assertWorkspacePath` ever runs. `cwd`, `UiProject.path` and
+`UiSession.projectPath` remain on the wire for one minor version as deprecated
+display data, and methods that took a path accept either.
+
+Whether the host's files are the client's files is the `local-files`
+capability. Electron IPC announces it because it is in process; the socket
+transport announces it only for a loopback peer whose host was started with
+`TAU_HOST_LOCAL_FILES=1`. The renderer reads it and offers no editor list, no
+"Open in editor" and no "Copy path" without it.
+
 Authentication of the socket transport is a 32-byte token in `~/.tau/host-token`, written 0o600 in a 0o700 directory on first listen and repeated in every hello. A wrong or missing token closes the connection before any method runs, as does a request from a peer that never said hello. Electron IPC needs no token: it is in-process and already sandboxed.
 
 ## Amendment, 2026-09-05: a window that is only a client
@@ -40,12 +57,13 @@ Because the token travels in clear text, a listener is now refused on anything b
 
 - `src/main/index.ts` shrank from 430 to about 320 lines and holds no operation of its own: it supplies the platform (clipboard, dialogs, bundles, rebuild) and installs a transport.
 - A host without a window is possible and exists: `src/main/headless.ts` runs `PiHost` with the socket transport only, which is what `npm run smoke:remote-host` drives (hello, bootstrap, prompt, disconnect, reconnect with `lastSeq`, resync).
+- Recent projects and the client's caches key on the workspace id: `projects.json` is version 2 (a version 1 file's paths become ids while loading), the bootstrap cache is `tau.bootstrap-cache.v7`, and review state and project actions are stored per id.
 - A failed job is a partial failure: the connection stays, other requests keep working. Cancelling a job stops the client waiting and aborts the job's `AbortSignal`, but a command that ignores the signal keeps running to completion in the host. Giving long commands a real abort is follow-up work.
 - Adding a method now means one entry in the table and one call in `HostClient`; nothing in the preload changes.
 
 ## Out of scope
 
-- **Workspace identity instead of paths** (step 6 of the ticket): `cwd`, `UiChangedFile.path`, `read-file` and `open-in-editor` still carry absolute host paths, and the `local-files` capability announced by the Electron transport is not yet read by the renderer. A remote client would show and return the host's paths. This is the next piece of Phase 4.
+- **Editor and reveal actions for a remote host.** Without `local-files` those actions are hidden rather than routed back to the client's own machine. Opening a remote file in a local editor needs a file transfer this protocol does not have.
 - **TLS.** The socket listens on loopback and is meant to be reached through an SSH tunnel. Certificates remain separate work; `TAU_HOST_INSECURE=1` is an escape hatch for a trusted network, not a substitute.
 - **Multi-user hosts.** One token means one trust level: whoever has it may do everything the desktop user may do. Per-client identity and permissions build on ticket 17's per-package rights.
 - **A directory of hosts**, and web or mobile clients (ticket 19). A browser client would additionally need the host to serve the built assets and a way to enter a token without a native dialog; none of that exists.

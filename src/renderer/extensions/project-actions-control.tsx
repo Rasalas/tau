@@ -13,9 +13,9 @@ interface ProjectAction {
   includeInContext: boolean;
 }
 
-function loadActions(storage: ClientStorage, cwd?: string): ProjectAction[] {
+function loadActions(storage: ClientStorage, workspace?: string): ProjectAction[] {
   try {
-    const value = JSON.parse(storage.get(projectActionsKey(cwd)) ?? "[]") as unknown;
+    const value = JSON.parse(storage.get(projectActionsKey(workspace)) ?? "[]") as unknown;
     if (!Array.isArray(value)) return [];
     return value.filter((item): item is ProjectAction => Boolean(
       item && typeof item === "object" &&
@@ -30,28 +30,29 @@ function loadActions(storage: ClientStorage, cwd?: string): ProjectAction[] {
 }
 
 export function ProjectActionsControl({
-  cwd,
+  cwd: workspace,
   onRun,
 }: {
+  /** The project these actions belong to, named by its workspace id. */
   cwd?: string;
   onRun(command: string, includeInContext: boolean, name: string): void;
 }) {
   const clientStorage = useClientStorage();
-  const [actions, setActions] = useState<ProjectAction[]>(() => loadActions(clientStorage, cwd));
+  const [actions, setActions] = useState<ProjectAction[]>(() => loadActions(clientStorage, workspace));
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [commandDraft, setCommandDraft] = useState("");
 
   useEffect(() => {
-    setActions(loadActions(clientStorage, cwd));
+    setActions(loadActions(clientStorage, workspace));
     setMenuOpen(false);
     setEditing(false);
-  }, [clientStorage, cwd]);
+  }, [clientStorage, workspace]);
 
   const save = (next: ProjectAction[]) => {
     setActions(next);
-    try { clientStorage.set(projectActionsKey(cwd), JSON.stringify(next)); } catch { /* optional preference */ }
+    try { clientStorage.set(projectActionsKey(workspace), JSON.stringify(next)); } catch { /* optional preference */ }
   };
   const openEditor = () => {
     setName("");

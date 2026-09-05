@@ -3,6 +3,7 @@ import type { HostPackageLoadResult } from "./extension-packages.js";
 import type { HostExtension, HostPlatform } from "./host-extensions.js";
 import type { HostLogger } from "./host-log.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
+import type { WorkspaceIdentity } from "./workspace-identity.js";
 
 export interface PiHostOptions {
   /** Full errors (stack, cause, name) go here; the renderer keeps getting only the message. */
@@ -21,4 +22,6 @@ export interface PiHostOptions {
   hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
   /** Where user grants live; tests point this at a temp file. */
   grantsFilePath?: string;
+  /** Mints the ids clients address workspaces by; without one they are per-run. */
+  workspaceIdentity?: WorkspaceIdentity;
 }

@@ -14,6 +14,7 @@ function harness() {
     log: vi.fn(),
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
     knownWorkspacePath: async (path) => path,
+    workspaceRef: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
     projectName: async () => "project",
     rememberProjectName: () => undefined,
     pickDirectory: async () => undefined,

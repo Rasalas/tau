@@ -25,6 +25,7 @@ async function client(cwd: string) {
     log: () => undefined,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
     knownWorkspacePath: async (path) => path,
+    workspaceRef: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
     projectName: async () => "project",
     rememberProjectName: () => undefined,
     pickDirectory: async () => undefined,
@@ -68,26 +69,42 @@ describe("Workspace Kit host extension", () => {
     expect(root.map((node) => node.name)).toContain(".scratch");
     expect(root.map((node) => node.name)).not.toContain(".git");
 
-    const scratch = await kit.getFileTree(join(cwd, ".scratch"));
-    expect(scratch).toEqual([expect.objectContaining({ name: "feature", kind: "directory" })]);
+    const scratch = await kit.getFileTree(".scratch");
+    expect(scratch).toEqual([expect.objectContaining({ name: "feature", kind: "directory", path: ".scratch/feature" })]);
 
-    const feature = await kit.getFileTree(join(cwd, ".scratch", "feature"));
-    expect(feature.map((node) => node.name)).toEqual(["issues", "spec.md"]);
+    const feature = await kit.getFileTree(".scratch/feature");
+    expect(feature.map((node) => node.path)).toEqual([".scratch/feature/issues", ".scratch/feature/spec.md"]);
   });
 
-  it("reads files inside the workspace and refuses paths outside it", async () => {
+  it("reads files inside the workspace and refuses anything that leaves it", async () => {
     const cwd = await workspace();
     await writeFile(join(cwd, "README.md"), "hello\n");
     const kit = await client(cwd);
     await expect(kit.readFile("README.md")).resolves.toMatchObject({ kind: "text", text: "hello\n" });
-    await expect(kit.readFile("../outside.txt")).rejects.toThrow("Path is outside the workspace.");
-    await expect(kit.getFileTree("/")).rejects.toThrow("Path is outside the workspace.");
+    // A relative reference cannot escape, and an absolute one is not a reference at all.
+    await expect(kit.readFile("../outside.txt")).rejects.toThrow("Name a file by its path inside the workspace.");
+    await expect(kit.readFile(join(cwd, "README.md"))).rejects.toThrow("Name a file by its path inside the workspace.");
+  });
+
+  it("refuses to browse a tree outside the workspace", async () => {
+    const cwd = await workspace();
+    const kit = await client(cwd);
+    await expect(kit.getFileTree("/")).rejects.toThrow("Name a file by its path inside the workspace.");
+    await expect(kit.getFileTree("../..")).rejects.toThrow("Name a file by its path inside the workspace.");
   });
 
   it("validates command input before touching the workspace", async () => {
     const cwd = await workspace();
     const kit = await client(cwd);
-    await expect(kit.readFile("")).rejects.toThrow('Workspace command needs "path".');
+    await expect(kit.readFile("")).rejects.toThrow("Name a file by its path inside the workspace.");
     await expect(kit.openInEditor("")).rejects.toThrow('Workspace command needs "editorId".');
+  });
+
+  it("answers folder browsing with an identity for the folder a client would keep", async () => {
+    const cwd = await workspace();
+    const kit = await client(cwd);
+    const listing = await kit.listDirectories(cwd);
+    expect(listing.workspace.workspaceId).toMatch(/^ws1_/u);
+    expect(listing.workspace.displayPath).toBe(listing.path);
   });
 });

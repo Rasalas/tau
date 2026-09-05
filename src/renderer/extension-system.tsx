@@ -42,13 +42,13 @@ export interface WorkbenchActions {
   notify(message: string): void;
   /** Opens the list of project sources extensions registered. */
   openProjectSources(): void;
-  /** Opens a project like the sidebar does; `inheritDraft` carries the unsent composer text into the thread that opens there. */
-  openWorkspace(path: string, options?: { inheritDraft?: boolean }): Promise<boolean>;
+  /** Opens a project like the sidebar does, named by its workspace id; `inheritDraft` carries the unsent composer text into the thread that opens there. */
+  openWorkspace(workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean>;
   /**
    * The thread on screen: its id and model, the project it runs in (a pending
    * draft's project while the thread does not exist yet), and whether that draft is still pending.
    */
-  activeThread(): { sessionId?: string; cwd?: string; model?: { provider: string; id: string }; draftPending: boolean } | undefined;
+  activeThread(): { sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; draftPending: boolean } | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff. */
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
   /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
@@ -283,7 +283,7 @@ export interface DocumentSourceContribution {
   id: string;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
-  openInEditor(path: string): void;
+  openInEditor(relPath: string): void;
   getState(): { changes: UiWorkspaceChanges; editor?: UiEditor };
   subscribe(listener: () => void): () => void;
 }

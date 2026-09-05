@@ -287,7 +287,8 @@ export class SubmissionController {
           this.release(clientMessageId);
           return { accepted: true };
         }
-        const result = await client.newSession(text, attachments, pending.projectPath, clientTurn, prepared);
+        // The draft's project is named by identity; its path is only for display.
+        const result = await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
         this.settleIpc(clientMessageId, recovery);
         if (recovery?.failed) {
           this.release(clientMessageId);

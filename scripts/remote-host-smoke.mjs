@@ -137,7 +137,20 @@ try {
 
   const bootstrap = await client.request("bootstrap");
   if (!bootstrap?.project?.cwd) fail("bootstrap carried no project");
-  step("bootstrap", `cwd ${bootstrap.project.cwd}`);
+  // A remote client addresses the workspace by identity and shows displayPath.
+  const { workspaceId, displayPath } = bootstrap.project;
+  if (typeof workspaceId !== "string" || !workspaceId.startsWith("ws1_")) fail("bootstrap carried no workspace id");
+  // displayPath is the canonical path, so it may differ from cwd by a symlink.
+  if (typeof displayPath !== "string" || !displayPath.startsWith("/")) fail("bootstrap carried no display path");
+  step("bootstrap", `workspace ${workspaceId} at ${displayPath}`);
+
+  // The same id names the project everywhere the host publishes it.
+  const indexed = bootstrap.threadIndex?.projects?.[0];
+  if (indexed && indexed.workspaceId !== workspaceId) fail("the thread index names the workspace differently");
+
+  // Local files are off for a socket client unless the operator opted in.
+  if (hello.capabilities.includes("local-files")) fail("a socket client was told the host's files are local");
+  step("no local-files capability over the socket");
 
   const extensions = await client.request("host-extensions");
   step("host-extensions", `${extensions.length} listed`);

@@ -2068,8 +2068,8 @@ describe("App render isolation", () => {
 
   it("does not send a prompt to the previous thread while a worktree is opening", async () => {
     // The kit creates the worktree, then opens it like any project; the composer stays held across both.
-    let resolveCreation!: (result: { path: string }) => void;
-    const creation = new Promise<{ path: string }>((resolve) => { resolveCreation = resolve; });
+    let resolveCreation!: (result: { workspaceId: string; displayPath: string }) => void;
+    const creation = new Promise<{ workspaceId: string; displayPath: string }>((resolve) => { resolveCreation = resolve; });
     const sendPrompt = vi.fn(async () => undefined);
     let cwd = "/project";
     const openProject = vi.fn(async (path: string): Promise<HostActionResult> => {
@@ -2123,9 +2123,9 @@ describe("App render isolation", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(composer.value).toBe("Must run in the worktree");
 
-    resolveCreation({ path: "/project-worktrees/feat-race" });
+    resolveCreation({ workspaceId: "ws1_feat-race", displayPath: "/project-worktrees/feat-race" });
 
-    await waitFor(() => expect(openProject).toHaveBeenCalledWith("/project-worktrees/feat-race"));
+    await waitFor(() => expect(openProject).toHaveBeenCalledWith("ws1_feat-race"));
     await waitFor(() => expect(screen.getByRole("button", { name: "feat-race" })).toBeTruthy());
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(

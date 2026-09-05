@@ -46,7 +46,7 @@ export function ReviewOverlay({ onClose }: OverlayProps) {
         onBack={closeReview}
         onCommit={commit}
         onOpenInEditor={openInEditor}
-        workspaceKey={state.cwd}
+        workspaceKey={state.workspaceId ?? state.cwd}
         autoSuggestCommitMessage={automaticCommitMessages(preferences)}
         suggestCommitMessage={suggestCommitMessage}
         loadChanges={client ? loadChanges : undefined}

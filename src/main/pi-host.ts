@@ -45,6 +45,7 @@ import {
   type HostActionResult,
   type HostUpdate,
   type NewThreadResult,
+  type ProjectMetadata,
   type ThreadDetail,
   type TranscriptPage,
 } from "../shared/host-protocol.js";
@@ -99,6 +100,8 @@ import { promptRebindForThread, clientIdentityForRequest, externalThreadFromPath
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import { markTauHostRuntime } from "./tau-runtime-owner.js";
+import { WorkspaceIdentity } from "./workspace-identity.js";
+import { randomBytes } from "node:crypto";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { clientMessageCancelMarker, clientMessageFingerprint, CLIENT_MESSAGE_CANCEL_MARKER, unclaimedClientMessageIds } from "../shared/client-message-correlation.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
@@ -171,6 +174,8 @@ export class PiHost {
   /** Packages found on disk but never imported, because the user has not approved them. */
   private packagedUngranted = new Map<string, ExtensionPackage>();
   private readonly grantsFilePath?: string;
+  /** Mints and resolves the ids clients name workspaces by. */
+  private readonly workspaces: WorkspaceIdentity;
   private readonly platform: HostPlatform;
   private readonly logger?: HostLogger;
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
@@ -312,6 +317,7 @@ export class PiHost {
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
     this.hostExtensionPackages = this.safeMode ? undefined : options.hostExtensionPackages;
     this.grantsFilePath = options.grantsFilePath;
+    this.workspaces = options.workspaceIdentity ?? new WorkspaceIdentity(randomBytes(16).toString("hex"));
     this.platform = options.platform ?? {};
     this.logger = options.logger;
     const port = this.hostPort();
@@ -375,6 +381,7 @@ export class PiHost {
       refreshActiveThreadShell: () => this.refreshActiveThreadIndex(false),
       openWorkspace: (path) => this.setWorkspace(path),
       knownWorkspacePath: (path) => this.knownWorkspacePath(path),
+      workspaceRef: (path) => this.workspaces.ref(path),
       projectName: (cwd) => this.loadProjectName(cwd),
       rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
       runtimeOwner: () => this.ownedByPi(this.active) ? "pi" : "tau",
@@ -771,7 +778,7 @@ export class PiHost {
       version: HOST_PROTOCOL_VERSION,
       detail,
       catalog: catalogFromSnapshot(host),
-      project: { cwd: host.cwd, label: host.projectLabel },
+      project: this.projectMetadata(host.cwd, host.projectLabel),
     };
     this.lifecycleMetrics.recordIpc(result);
     return result;
@@ -875,7 +882,7 @@ export class PiHost {
       ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
       { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
       { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
-      { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, label: snapshot.projectLabel } },
+      { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel) },
     ];
   }
 
@@ -903,7 +910,7 @@ export class PiHost {
       const initialUpdates: HostUpdate[] = [
         ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
         { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
-        { version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: snapshot.cwd, label: snapshot.projectLabel } },
+        { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel) },
       ];
       for (const update of initialUpdates) this.emitUpdate(update);
     } catch (error) {
@@ -1940,7 +1947,7 @@ export class PiHost {
 
   /** Workspace metadata is only exposed for projects already admitted by the host. */
   private async knownWorkspacePath(cwd: string): Promise<string> {
-    return findKnownWorkspacePath(cwd, new Set([
+    return findKnownWorkspacePath(this.resolveWorkspacePath(cwd), new Set([
       this.cwd,
       ...this.projectHistory.list().map((project) => project.path),
       ...this.sessions.map((session) => session.projectPath),
@@ -2253,7 +2260,7 @@ export class PiHost {
         return false;
       }
       this.log("session.opened", thread.threadId.slice(0, 8));
-      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: thread.cwd } });
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(thread.cwd) });
       this.scheduleRuntimePrewarm();
       if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
       await restore?.commit();
@@ -2409,6 +2416,7 @@ export class PiHost {
   }
 
   private async rememberProject(cwd: string): Promise<void> {
+    await this.workspaces.learn(cwd);
     await this.projectHistory.remember(cwd, await this.loadProjectName(cwd));
   }
 
@@ -2632,6 +2640,12 @@ export class PiHost {
     this.publishThreadShellSoon(titled);
   }
 
+  /** A thread shell names its project the way every other published shape does. */
+  private sessionWithIdentity(session: UiSession): UiSession {
+    const { workspaceId, displayPath } = this.workspaces.ref(session.projectPath);
+    return { ...session, workspaceId, projectDisplayPath: displayPath };
+  }
+
   private publishThreadShellSoon(shell: UiSession): void {
     this.pendingShellUpdates.set(shell.id, shell);
     this.publishSoon("shells", () => {
@@ -2641,7 +2655,7 @@ export class PiHost {
         this.emitUpdate({
           version: HOST_PROTOCOL_VERSION,
           type: "thread-shell",
-          update: { sessionId: pending.id, shell: pending },
+          update: { sessionId: pending.id, shell: this.sessionWithIdentity(pending) },
         });
       }
     });
@@ -2671,7 +2685,10 @@ export class PiHost {
       knownPaths.add(thread.projectPath);
     }
     projects.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
-    return { projects: projects.filter((project) => this.isProjectRoot(project.path)), sessions: this.sessions };
+    return {
+      projects: projects.filter((project) => this.isProjectRoot(project.path)).map((project) => ({ ...project, ...this.workspaces.ref(project.path) })),
+      sessions: this.sessions.map((session) => this.sessionWithIdentity(session)),
+    };
   }
 
   /**
@@ -2724,7 +2741,20 @@ export class PiHost {
   }
 
   private snapshotSync(models: UiModel[]): HostSnapshot {
-    return this.projection.hostSnapshot(this.active, models, this.cwd, this.extensionCount);
+    return {
+      ...this.projection.hostSnapshot(this.active, models, this.cwd, this.extensionCount),
+      ...this.workspaces.ref(this.cwd),
+    };
+  }
+
+  /** Identity and display of one workspace, as every published shape carries it. */
+  private projectMetadata(cwd: string, label?: string): ProjectMetadata {
+    return { cwd, ...this.workspaces.ref(cwd), ...(label === undefined ? {} : { label }) };
+  }
+
+  /** The workspace a client named, by id or — for a client that still sends paths — by path. */
+  resolveWorkspacePath(value: string): string {
+    return this.workspaces.pathFor(value);
   }
   answerExtensionUi(id: string, answer: ExtensionUiAnswer): void {
     this.extensionUi.answer(id, answer);

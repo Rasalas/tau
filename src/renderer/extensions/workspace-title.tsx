@@ -7,6 +7,7 @@ import { ProjectActionsControl } from "./project-actions-control";
 import { resolveGitQuickAction, type GitQuickActionKind } from "./workspace-actions";
 import { useWorkspaceKit } from "./workspace-store";
 import { usePreferences, useWorkspaceStore } from "../renderer-services-context";
+import { useHostCapabilities } from "../use-host-capabilities";
 
 /**
  * The title-bar controls Workspace Kit owns: project actions, "Open in
@@ -16,6 +17,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
   const workspaceStore = useWorkspaceStore();
   const preferences = usePreferences();
   const state = useWorkspaceKit();
+  const { localFiles } = useHostCapabilities();
   // Re-render when the editor preference changes.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const [editorMenu, setEditorMenu] = useState(false);
@@ -35,9 +37,9 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
 
   return (
     <>
-      <ProjectActionsControl cwd={state.cwd} onRun={(command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name)} />
+      <ProjectActionsControl cwd={state.workspaceId ?? state.cwd} onRun={(command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name)} />
 
-      <div className="menu-anchor">
+      {localFiles ? <div className="menu-anchor">
         <div className="chrome-group" aria-label="Open in editor">
           <button
             className="chrome-button split-main"
@@ -71,7 +73,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
             onClose={() => setEditorMenu(false)}
           />
         ) : null}
-      </div>
+      </div> : null}
 
       <div className="menu-anchor">
         <div className="chrome-group" aria-label="Git actions">

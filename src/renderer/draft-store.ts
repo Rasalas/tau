@@ -9,7 +9,10 @@ export interface NewThreadDraft {
   kind: "draft";
   /** Distinguishes two unstarted threads in the same project. */
   draftId: string;
+  /** @deprecated Display only; the host is addressed with `workspaceId`. */
   projectPath: string;
+  /** Opaque identity of the draft's project on the host. */
+  workspaceId?: string;
   projectName: string;
   sessionId?: string;
   /** Text-only recovery state; pending attachments remain memory-only. */
@@ -25,11 +28,12 @@ function newDraftId(): string {
   return `draft-${Date.now()}-${draftSequence}`;
 }
 
-export function createNewThreadDraft(project: Pick<NewThreadDraft, "projectPath" | "projectName">): NewThreadDraft {
+export function createNewThreadDraft(project: Pick<NewThreadDraft, "projectPath" | "projectName" | "workspaceId">): NewThreadDraft {
   return {
     kind: "draft",
     draftId: newDraftId(),
     projectPath: project.projectPath,
+    ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}),
     projectName: project.projectName,
   };
 }
@@ -77,6 +81,7 @@ export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | und
       kind: "draft",
       draftId: typeof value.draftId === "string" && value.draftId.length > 0 ? value.draftId : newDraftId(),
       projectPath: value.projectPath,
+      ...(typeof value.workspaceId === "string" ? { workspaceId: value.workspaceId } : {}),
       projectName: value.projectName,
       ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
       ...(typeof value.draft === "string" ? { draft: value.draft } : {}),

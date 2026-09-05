@@ -78,9 +78,9 @@ export const workspaceExtension: DesktopExtension = {
     plugin.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, Component: WorkspaceBarControl });
     plugin.registerDocumentSource({
       id: "workspace.documents",
-      loadFile: (path) => workspaceKit.readFile(path),
-      loadDiff: (path, options) => workspaceKit.getFileDiff(path, options),
-      openInEditor: (path) => void workspaceStore.openInEditor(path),
+      loadFile: (relPath) => workspaceKit.readFile(relPath),
+      loadDiff: (relPath, options) => workspaceKit.getFileDiff(relPath, options),
+      openInEditor: (relPath) => void workspaceStore.openInEditor(relPath),
       getState: () => documentState(workspaceStore),
       subscribe: workspaceStore.subscribe,
     });
@@ -97,8 +97,8 @@ export const workspaceExtension: DesktopExtension = {
     plugin.registerCommand({ id: "workspace.files", label: "Open file index", group: "Project", run: (app) => app.openPanel("files") });
     plugin.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", run: async (app) => {
       try {
-        const path = await workspaceKit.pickFolder();
-        if (path) await app.openWorkspace(path);
+        const picked = await workspaceKit.pickFolder();
+        if (picked) await app.openWorkspace(picked.workspaceId);
       } catch (error) {
         app.notify(error instanceof Error ? error.message : String(error));
       }

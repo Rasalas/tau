@@ -24,6 +24,7 @@ import { installElectronHostTransport, type ElectronHostTransport } from "./host
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
+import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
@@ -55,6 +56,8 @@ process.on("unhandledRejection", (reason) => {
 
 /** What a package's `engines` is checked against. */
 const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: PI_VERSION, api: EXTENSION_API_VERSION };
+// Clients name workspaces by an id of this host, never by one of its paths.
+const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(app.getPath("userData"), "host-id")));
 const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
@@ -66,6 +69,7 @@ const hostOptions = {
     cacheDir: join(app.getPath("userData"), "host-extensions"),
   }),
   logger: hostLog,
+  workspaceIdentity,
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
@@ -311,7 +315,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   // an extension rendering inside it must not be able to ask on its behalf.
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
-  projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"), undefined, hostLog);
+  projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
   // The host and every tool it spawns (Pi's tools, runtimes, editors) see the
   // login shell's PATH, not the one a Dock launch inherits.
   const [shellEnvironment] = await Promise.all([

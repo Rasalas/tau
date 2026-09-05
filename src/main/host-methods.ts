@@ -73,6 +73,13 @@ function decodePromptArgs(method: string, params: readonly unknown[]) {
 export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
   const { platform } = deps;
   const host = () => deps.requireHost();
+  // A client names a workspace by its id; one that still speaks paths sends a path.
+  const workspace = async (method: string, name: string, value: unknown): Promise<string> =>
+    (await host()).resolveWorkspacePath(decodeString(method, name, value));
+  const optionalWorkspace = async (method: string, name: string, value: unknown): Promise<string | undefined> => {
+    const named = decodeOptionalString(method, name, value);
+    return named === undefined ? undefined : (await host()).resolveWorkspacePath(named);
+  };
 
   const methods: HostMethodTable = {
     "bootstrap": async () => deps.bootstrap(),
@@ -92,7 +99,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "run-shell-action": async (params) => (await host()).runShellAction(
       decodeString("run-shell-action", "command", params[0]),
       decodeOptionalBoolean("run-shell-action", "includeInContext", params[1]),
-      decodeOptionalString("run-shell-action", "expectedCwd", params[2]),
+      await optionalWorkspace("run-shell-action", "expectedCwd", params[2]),
     ),
     "steer": async (params) => {
       const args = decodePromptArgs("steer", params);
@@ -108,12 +115,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "new-session": async (params) => (await host()).newSession(
       decodeOptionalText("new-session", "initialPrompt", params[0]),
       decodeUiPromptAttachments("new-session", "attachments", params[1]),
-      decodeOptionalString("new-session", "cwd", params[2]),
+      await optionalWorkspace("new-session", "cwd", params[2]),
       decodeStringOrClientTurnIdentity("new-session", "clientMessageIdOrRequestId", params[3]),
       decodePreparedPrompt("new-session", "prepared", params[4]),
     ),
     "prepared-thread-capability": async (params) =>
-      (await host()).getPreparedThreadCapability(decodeOptionalString("prepared-thread-capability", "cwd", params[0])),
+      (await host()).getPreparedThreadCapability(await optionalWorkspace("prepared-thread-capability", "cwd", params[0])),
     "fork-thread": async (params) => (await host()).forkThread(
       decodeString("fork-thread", "entryId", params[0]),
       decodeOptionalString("fork-thread", "expectedSessionId", params[1]),
@@ -164,7 +171,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       params[2],
     ),
     "host-extensions": async () => (await host()).listHostExtensions(),
-    "inspect-extensions": async (params) => platform.inspectExtensions(decodeString("inspect-extensions", "cwd", params[0])),
+    "inspect-extensions": async (params) => platform.inspectExtensions(await workspace("inspect-extensions", "cwd", params[0])),
     "host-extension-active": async (params) => (await host()).setHostExtensionActive(
       decodeString("host-extension-active", "id", params[0]),
       decodeBoolean("host-extension-active", "active", params[1]),
@@ -177,13 +184,13 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       (await host()).prepareWorkbenchReload(decodeWorkbenchReloadMode("prepare-workbench-reload", "mode", params[0])),
     "release-workbench-reload": async () => (await host()).releaseWorkbenchReload(),
     "desktop-extensions": async (params) => platform.loadDesktopExtensions(
-      decodeString("desktop-extensions", "cwd", params[0]),
+      await workspace("desktop-extensions", "cwd", params[0]),
       decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
     ),
     "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context),
     "relaunch-workbench": async () => platform.relaunchWorkbench(),
-    "open-project": async (params) => (await host()).setWorkspace(decodeString("open-project", "path", params[0])),
-    "remove-project": async (params) => (await host()).removeProject(decodeString("remove-project", "path", params[0])),
+    "open-project": async (params) => (await host()).setWorkspace(await workspace("open-project", "workspace", params[0])),
+    "remove-project": async (params) => (await host()).removeProject(await workspace("remove-project", "workspace", params[0])),
 
     "start-job": async (params) => {
       const method = decodeString("start-job", "method", params[0]);

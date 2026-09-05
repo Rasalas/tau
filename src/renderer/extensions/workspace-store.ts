@@ -7,6 +7,7 @@ import type { PreferencesStore } from "../preferences";
 import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../turn-activity";
 import type { UiToolRun } from "../../shared/contracts";
 import { getHostClient } from "../host-client-context";
+import { hostHasLocalFiles } from "../use-host-capabilities";
 import { getClientStorage } from "../client-storage";
 import { STORAGE_KEYS } from "../storage-keys";
 import { useWorkspaceStore } from "../renderer-services-context";
@@ -19,6 +20,8 @@ const BASELINE_CACHE_KEY = STORAGE_KEYS.workspaceTurnBaseline;
 export interface WorkspaceKitState {
   /** The project the store follows: the draft's project while a new thread is pending, else the thread's. */
   cwd?: string;
+  /** How the host names that project; what every command sends back. */
+  workspaceId?: string;
   draftPending: boolean;
   changes: UiWorkspaceChanges;
   workspace?: WorkspaceInfo;
@@ -110,6 +113,11 @@ export class WorkspaceStore {
 
   bind(actions: WorkbenchActions): void { this.actions = actions; }
 
+  /** How the followed project is named on the host: its id, or its path for a host that gave none. */
+  workspace(): string | undefined {
+    return this.state.workspaceId ?? this.state.cwd;
+  }
+
   /** Public for the kit's tests; the kit's own code goes through the actions below. */
   update(patch: Partial<WorkspaceKitState>): void {
     this.state = { ...this.state, ...patch };
@@ -132,12 +140,13 @@ export class WorkspaceStore {
   }
 
   /** Follows the workbench: called whenever the thread, its project, or the draft state changes. */
-  follow(next: { cwd?: string; sessionId?: string; draftPending: boolean }): void {
+  follow(next: { cwd?: string; workspaceId?: string; sessionId?: string; draftPending: boolean }): void {
     const projectChanged = next.cwd !== this.state.cwd;
     const threadChanged = next.sessionId !== this.sessionId;
     this.sessionId = next.sessionId;
     this.update({
       cwd: next.cwd,
+      workspaceId: next.workspaceId,
       draftPending: next.draftPending,
       ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], workspace: undefined } : {}),
       ...(threadChanged ? { turnBaseline: next.sessionId ? readBaseline(next.sessionId) : undefined, turnSettled: false } : {}),
@@ -148,8 +157,10 @@ export class WorkspaceStore {
     }
   }
 
+  /** Editors run on the host's machine; a client elsewhere is offered none. */
   async loadEditors(): Promise<void> {
     if (!getHostClient()) return;
+    if (!hostHasLocalFiles(getHostClient())) { this.update({ editors: [] }); return; }
     try { this.update({ editors: await workspaceKit.listEditors() }); } catch { this.update({ editors: [] }); }
   }
 
@@ -179,7 +190,7 @@ export class WorkspaceStore {
     const cwd = this.state.cwd;
     this.update({ workspaceBusy: true });
     try {
-      const next = this.state.draftPending && cwd ? await workspaceKit.getWorkspaceInfo(cwd) : await workspaceKit.getWorkspaceInfo();
+      const next = this.state.draftPending && cwd ? await workspaceKit.getWorkspaceInfo(this.workspace()) : await workspaceKit.getWorkspaceInfo();
       if (request === this.workspaceRequest && cwd === this.state.cwd) this.update({ workspace: next });
     } catch (error) {
       if (request === this.workspaceRequest) this.notify(errorMessage(error));
@@ -293,12 +304,13 @@ export class WorkspaceStore {
     }
   }
 
-  async openInEditor(path?: string, editorOverride?: string): Promise<void> {
+  async openInEditor(relPath?: string, editorOverride?: string): Promise<void> {
     if (!this.allowed("Opening an editor")) return;
+    if (!hostHasLocalFiles(getHostClient())) { this.notify("This host's files are not on this machine."); return; }
     const editorId = editorOverride ?? this.activeEditor()?.id;
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.hostAvailable("Opening an editor")) return;
-    try { await workspaceKit.openInEditor(editorId, path); }
+    try { await workspaceKit.openInEditor(editorId, relPath); }
     catch (error) { this.notify(errorMessage(error)); }
   }
 
@@ -344,8 +356,8 @@ export class WorkspaceStore {
     const release = this.actions.holdComposer();
     this.update({ workspaceBusy: true });
     try {
-      const { path } = await workspaceKit.createWorktree(branch, baseRef, this.state.cwd);
-      return await this.actions.openWorkspace(path, { inheritDraft: true });
+      const created = await workspaceKit.createWorktree(branch, baseRef, this.workspace());
+      return await this.actions.openWorkspace(created.workspaceId, { inheritDraft: true });
     } catch (error) {
       this.notify(errorMessage(error));
       return false;

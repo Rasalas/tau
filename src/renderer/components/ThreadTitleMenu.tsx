@@ -17,6 +17,7 @@ export function ThreadTitleMenu({
   onCommand,
   onMarkUnread,
   onCopy,
+  canCopyPath = true,
 }: {
   title: string;
   /** Short label of the project, e.g. its Git branch. */
@@ -35,6 +36,8 @@ export function ThreadTitleMenu({
   onCommand?(id: string): void;
   onMarkUnread(): void;
   onCopy(value: "chat" | "path" | "thread-id"): void;
+  /** A path of a host that is not this machine is not worth copying. */
+  canCopyPath?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -72,7 +75,7 @@ export function ThreadTitleMenu({
     {
       items: [
         { id: "copy-chat", label: "Copy entire chat as Markdown" },
-        { id: "copy-path", label: "Copy path" },
+        ...(canCopyPath ? [{ id: "copy-path", label: "Copy path" }] : []),
         { id: "copy-thread-id", label: "Copy thread ID" },
       ],
     },

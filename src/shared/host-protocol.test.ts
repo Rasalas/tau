@@ -202,6 +202,15 @@ describe("host protocol", () => {
     })).toBe(false);
   });
 
+  it("accepts a project update with workspace identity, with or without the deprecated path", () => {
+    const identity = { workspaceId: "ws1_abc", displayPath: "/tmp/project" };
+    expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/tmp/project", ...identity } })).toBe(true);
+    expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: identity })).toBe(true);
+    expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/tmp/project" } })).toBe(true);
+    expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/tmp/project", workspaceId: 7 } })).toBe(false);
+    expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { label: "main" } })).toBe(false);
+  });
+
   it("preserves the runtime image capability in the catalog", () => {
     expect(catalogFromSnapshot(snapshot).supportsImageInput).toBe(true);
   });

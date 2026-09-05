@@ -87,6 +87,24 @@ describe("bootstrap cache", () => {
     expect(cached?.snapshot.historyCompleteness).toBe("unknown");
   });
 
+  it("keeps the workspace identity through a round trip and reads a v6 cache that has none", () => {
+    const storage = createMemoryStorage();
+    writeBootstrapCache(
+      { ...snapshot, workspaceId: "ws1_project", displayPath: "/project" },
+      { projects: [{ path: "/project", workspaceId: "ws1_project", displayPath: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+      storage,
+    );
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.workspaceId).toBe("ws1_project");
+    expect(cached?.threadIndex.projects[0]?.workspaceId).toBe("ws1_project");
+
+    // A cache written before identities still paints; it only lacks them.
+    const legacy = JSON.stringify({ snapshot, threadIndex: { projects: [], sessions: [] } });
+    const migrated = readBootstrapCache(legacyStorage("tau.bootstrap-cache.v6", legacy));
+    expect(migrated?.snapshot.workspaceId).toBeUndefined();
+    expect(migrated?.snapshot.cwd).toBe("/project");
+  });
+
   it("keeps an unavailable cache limited without retaining a discarded cursor", () => {
     const storage = createMemoryStorage();
     writeBootstrapCache({

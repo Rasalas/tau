@@ -35,7 +35,7 @@ describe("ProjectHistory", () => {
     await history.flush();
     expect(history.list()).toEqual([]);
     expect(history.isHidden("/repos/tau")).toBe(true);
-    expect(JSON.parse(await readFile(file, "utf8")).hiddenPaths).toEqual(["/repos/tau"]);
+    expect(JSON.parse(await readFile(file, "utf8")).hidden).toEqual(["/repos/tau"]);
 
     const reloaded = new ProjectHistory(file);
     await reloaded.load();
@@ -59,8 +59,32 @@ describe("ProjectHistory", () => {
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
     expect(entries).toContain("projects.json");
     const stored = JSON.parse(await readFile(file, "utf8"));
-    expect(stored.version).toBe(1);
+    expect(stored.version).toBe(2);
     expect(stored.projects[0].path).toBe("/repos/tau");
+  });
+
+  it("keys entries and the hidden list by workspace id, converting a v1 file on load", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-project-history-"));
+    temporaryDirectories.push(directory);
+    const file = join(directory, "projects.json");
+    await writeFile(file, JSON.stringify({
+      version: 1,
+      projects: [{ path: "/repos/tau", name: "tau", lastOpenedAt: 1 }],
+      hiddenPaths: ["/repos/hidden"],
+    }), "utf8");
+    const identify = (path: string) => ({ workspaceId: `ws1_${path.replaceAll("/", "-")}`, displayPath: path });
+
+    const history = new ProjectHistory(file, async () => undefined, undefined, identify);
+    await history.load();
+
+    expect(history.list()[0]).toMatchObject({ path: "/repos/tau", workspaceId: "ws1_-repos-tau", displayPath: "/repos/tau" });
+    expect(history.isHidden("/repos/hidden")).toBe(true);
+    await history.remember("/repos/next");
+    await history.flush();
+    const stored = JSON.parse(await readFile(file, "utf8"));
+    expect(stored.version).toBe(2);
+    expect(stored.hidden).toEqual(["ws1_-repos-hidden"]);
+    expect(stored.projects[0].workspaceId).toBe("ws1_-repos-next");
   });
 
   it("loads a legacy bare-array file", async () => {

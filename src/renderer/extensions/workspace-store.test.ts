@@ -12,7 +12,7 @@ afterEach(() => { setHostClient(undefined); vi.restoreAllMocks(); });
 describe("Workspace Kit worktree creation", () => {
   it("names the draft's project, then opens the worktree with the composer text", async () => {
     const workspaceStore = new WorkspaceStore(new PreferencesStore());
-    const createWorktree = vi.fn(async () => ({ path: "/draft-project-worktrees/fix-queue" }));
+    const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_worktree", displayPath: "/draft-project-worktrees/fix-queue" }));
     setHostClient(createFakeHostClient({ invokeHostExtension: workspaceHostStub({ createWorktree }) }));
     const release = vi.fn();
     const actions = {
@@ -21,12 +21,13 @@ describe("Workspace Kit worktree creation", () => {
       notify: vi.fn(),
     } as unknown as WorkbenchActions;
     workspaceStore.bind(actions);
-    workspaceStore.update({ cwd: "/draft-project", draftPending: true });
+    workspaceStore.update({ cwd: "/draft-project", workspaceId: "ws1_draft-project", draftPending: true });
 
     await expect(workspaceStore.createWorktree("fix/queue", "main")).resolves.toBe(true);
 
-    expect(createWorktree).toHaveBeenCalledWith("fix/queue", "main", "/draft-project");
-    expect(actions.openWorkspace).toHaveBeenCalledWith("/draft-project-worktrees/fix-queue", { inheritDraft: true });
+    // The draft's project and the new worktree are both named by identity, never by path.
+    expect(createWorktree).toHaveBeenCalledWith("fix/queue", "main", "ws1_draft-project");
+    expect(actions.openWorkspace).toHaveBeenCalledWith("ws1_worktree", { inheritDraft: true });
     expect(actions.holdComposer).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
     expect(workspaceStore.getSnapshot().workspaceBusy).toBe(false);

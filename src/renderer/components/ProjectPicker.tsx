@@ -16,6 +16,11 @@ function projectInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "·";
 }
 
+/** What the host says the user should see for a project; a local host says its path. */
+function projectPath(project: UiProject): string {
+  return project.displayPath ?? project.path;
+}
+
 function compactPath(path: string): string {
   const home = path.match(/^\/Users\/[^/]+/u)?.[0];
   return home ? path.replace(home, "~") : path;
@@ -37,7 +42,7 @@ export function ProjectPicker({
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return projects;
     return projects.filter((project) =>
-      `${project.name} ${project.path}`.toLocaleLowerCase().includes(needle),
+      `${project.name} ${projectPath(project)}`.toLocaleLowerCase().includes(needle),
     );
   }, [projects, query]);
 
@@ -125,7 +130,7 @@ export function ProjectPicker({
           empty={<p>No matching projects</p>}
           renderItem={(project, index) => (
             <button
-              key={project.path}
+              key={project.workspaceId ?? project.path}
               role="option"
               aria-selected={selected === index}
               className={selected === index ? "selected" : ""}
@@ -144,7 +149,7 @@ export function ProjectPicker({
               <i>{projectInitial(project.name)}</i>
               <span>
                 <strong>{project.name}</strong>
-                <small>{compactPath(project.path)}</small>
+                <small>{compactPath(projectPath(project))}</small>
               </span>
             </button>
           )}

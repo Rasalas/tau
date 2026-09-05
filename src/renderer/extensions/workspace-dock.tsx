@@ -16,14 +16,15 @@ export function WorkspaceFollower({ actions }: RegionProps) {
   const workspaceStore = useWorkspaceStore();
   const thread = actions.activeThread();
   const cwd = thread?.cwd;
+  const workspaceId = thread?.workspaceId;
   const sessionId = thread?.sessionId;
   const draftPending = thread?.draftPending ?? false;
   useEffect(() => {
     workspaceStore.bind(actions);
   }, [actions, workspaceStore]);
   useEffect(() => {
-    workspaceStore.follow({ cwd, sessionId, draftPending });
-  }, [cwd, sessionId, draftPending, workspaceStore]);
+    workspaceStore.follow({ cwd, workspaceId, sessionId, draftPending });
+  }, [cwd, workspaceId, sessionId, draftPending, workspaceStore]);
   useEffect(() => { void workspaceStore.loadEditors(); }, [workspaceStore]);
   return null;
 }

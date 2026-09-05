@@ -102,17 +102,48 @@ a hello, closes the connection. The token is unencrypted on the wire, so a
 listener refuses a non-loopback address unless `TAU_HOST_INSECURE=1` says
 otherwise; across machines the port is forwarded over SSH.
 
-Absolute host paths still travel in results (`cwd`, changed files, `read-file`),
-so a remote client shows the host's paths; workspace identity is the open part
-of Phase 4. The `local-files` capability is how a client can tell: the Electron
-transport announces it, the socket transport does not.
-
 A window can be a client only. `TAU_HOST_URL=ws://machine:port` makes the
 Electron main process open the window without starting a `PiHost`, reach the
 host over the socket (the renderer takes the URL as `?host=`, the token from
 `TAU_HOST_TOKEN` or the client machine's `~/.tau/host-token`), and answer every
 local method with an `unsupported` error, because the state those methods touch
 lives on the host.
+
+## Workspace identity
+
+A client never addresses a workspace by a path of the host's filesystem. Every
+project the host publishes — `UiProject`, `UiSession`, `HostSnapshot`, the
+`project` update and the bootstrap — carries two fields:
+
+- `workspaceId`: opaque. The host mints it from its own id (32 random bytes in
+  `<userData>/host-id`, created on first run) and the workspace's canonical
+  path, as a truncated SHA-256 of the two, prefixed `ws1_`. A path cannot be
+  read out of it, and only the host that minted it can resolve it: an id for a
+  workspace this host never published is refused, not guessed at.
+- `displayPath`: what the user reads. For a local host that is the absolute
+  path, shortened for display by `src/renderer/path-display.ts`.
+
+`cwd`, `UiProject.path` and `UiSession.projectPath` stay on the wire for one
+protocol minor version as deprecated display data. Host methods that took a
+path (`open-project`, `remove-project`, `new-session`'s cwd,
+`prepared-thread-capability`, `run-shell-action`'s expected cwd,
+`desktop-extensions`, `inspect-extensions`) accept an id or, for an older
+client, a path.
+
+A file inside a workspace travels as `relPath`, a POSIX path relative to the
+workspace root, beside the `workspace` id of the project it belongs to. The
+host refuses an absolute path or a `..` segment before it resolves anything,
+and `assertWorkspacePath` remains the lock behind that. Folder browsing
+(`list-directories`, `pick-folder`, `clone`, `create-worktree`) is a host-side
+operation and still deals in host paths, but it answers with a
+`workspaceId`/`displayPath` pair for anything the client keeps.
+
+The `local-files` capability says whether the host's files are files of the
+machine the client runs on. Electron IPC announces it — it is in process. The
+socket transport announces it only for a loopback peer and only when the host
+was started with `TAU_HOST_LOCAL_FILES=1`. Without it the workbench lists no
+editors and offers neither "Open in editor" nor "Copy path"; the renderer reads
+it with `useHostCapabilities()`.
 
 ## Host extension channel
 
@@ -162,5 +193,6 @@ Current stores:
 
 | File | Owner | Version |
 | --- | --- | --- |
-| `<userData>/projects.json` | `src/main/project-history.ts` | 1 |
+| `<userData>/projects.json` | `src/main/project-history.ts` | 2 |
+| `<userData>/host-id` | `src/main/workspace-identity.ts` | plain text |
 | `<agentDir>/tau/claude-runtime-sessions.json` | `src/main/extensions/claude-code/session-store.ts` | 1 |

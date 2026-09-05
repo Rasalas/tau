@@ -11,10 +11,9 @@ import { useWorkspaceStore } from "../renderer-services-context";
 
 interface FlatNode { node: FileNode; depth: number; }
 
-function FileTree({ nodes, changedPaths, cwd, activePath, loadFiles, openFile }: {
+function FileTree({ nodes, changedPaths, activePath, loadFiles, openFile }: {
   nodes: FileNode[];
   changedPaths: Set<string>;
-  cwd?: string;
   activePath?: string;
   loadFiles(path: string): Promise<FileNode[]>;
   openFile(path: string, options?: { pin?: boolean }): void;
@@ -57,8 +56,8 @@ function FileTree({ nodes, changedPaths, cwd, activePath, loadFiles, openFile }:
     className="file-tree"
     empty={<p className="empty-copy">No files indexed.</p>}
     renderItem={({ node, depth }) => {
-      const relative = cwd && node.path.startsWith(cwd) ? node.path.slice(cwd.length + 1) : node.path;
-      const changed = changedPaths.has(relative);
+      // Nodes and changed files are both named relative to the workspace root.
+      const changed = changedPaths.has(node.path);
       const pending = loading.has(node.path);
       const open = node.kind === "directory" && expanded.has(node.path);
       const active = node.kind === "file" && node.path === activePath;
@@ -86,7 +85,6 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
   const workspaceStore = useWorkspaceStore();
   const { fileTree, changes, cwd } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
-  const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
   const refreshFiles = () => workspaceStore.refreshFiles();
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
   useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
@@ -99,7 +97,7 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
       <span className="spacer" />
       <button className="text-button" onClick={() => void refreshFiles()}>refresh</button>
     </header>
-    <FileTree nodes={fileTree} changedPaths={changedPaths} cwd={snapshot?.cwd} activePath={activePath} loadFiles={loadFiles} openFile={openFile} />
+    <FileTree nodes={fileTree} changedPaths={changedPaths} activePath={activePath} loadFiles={loadFiles} openFile={openFile} />
   </section>;
 }
 

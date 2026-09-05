@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ExtensionUiAnswer, HostEvent, HostSnapshot, ShellActionResult, ThreadIndexSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
+import { namesWorkspace } from "../shared/workspace-identity";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type TranscriptPage } from "../shared/host-protocol";
@@ -584,20 +585,20 @@ export default function App() {
     return true;
   }, [invalidateNewThread, setPendingNewThread]);
 
-  const openWorkspace = useCallback(async (path: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
+  const openWorkspace = useCallback(async (workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
     const pending = currentPendingNewThread();
-    if (path === (pending?.projectPath ?? snapshot?.cwd)) return true;
+    if (namesWorkspace(workspace, pending?.workspaceId ?? snapshot?.workspaceId, pending?.projectPath ?? snapshot?.cwd)) return true;
     if (!requireHost("Project switching")) return false;
     submission.detachPendingDelivery();
     // A draft for another project sits above the still-active host thread. If
     // the user picks that host project again, revealing it is the whole switch.
-    if (pending && path === snapshot?.cwd) {
+    if (pending && namesWorkspace(workspace, snapshot?.workspaceId, snapshot?.cwd)) {
       discardPendingNewThread(pending);
       setStage(EMPTY_STAGE);
       return true;
     }
     try {
-      const result = await client!.openProject(path);
+      const result = await client!.openProject(workspace);
       if (pending) discardPendingNewThread(pending);
       applyHostResult(result, options?.inheritDraft ?? false);
       return true;
@@ -605,12 +606,12 @@ export default function App() {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [applyHostResult, discardPendingNewThread, requireHost, snapshot?.cwd, submission]);
+  }, [applyHostResult, discardPendingNewThread, requireHost, snapshot?.cwd, snapshot?.workspaceId, submission]);
 
   const removeProject = useCallback(async (project: UiProject) => {
     if (!requireHost("Project removal")) return;
     try {
-      applyActionResult(await client!.removeProject(project.path));
+      applyActionResult(await client!.removeProject(project.workspaceId ?? project.path));
     } catch (error) {
       setNotice(errorMessage(error));
     }
@@ -621,7 +622,7 @@ export default function App() {
     // A submitted draft keeps delivering in the background. Its text is on its
     // way to the runtime, so there is nothing to carry into the fresh draft.
     const inFlight = submission.detachPendingDelivery() || Boolean(activeScope?.submissionPending);
-    const nextDraft = createNewThreadDraft({ projectPath: project.path, projectName: project.name });
+    const nextDraft = createNewThreadDraft({ projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name });
     const destinationScope = draftKey(undefined, nextDraft);
     const sourceSnapshot = inFlight ? undefined : activeScope;
     // Only another unsubmitted draft may carry editor state into this new
@@ -893,6 +894,7 @@ export default function App() {
     activeThread: () => ({
       sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
       cwd: workspaceCwd,
+      workspaceId: pendingNewThread?.workspaceId ?? snapshot?.workspaceId,
       model: snapshot?.model,
       draftPending: newThreadDeliveryPending,
     }),

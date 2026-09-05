@@ -19,6 +19,10 @@ describe("host workspace paths", () => {
       await expect(assertWorkspacePath(workspace, "inside.txt")).resolves.toBeUndefined();
       await expect(assertWorkspacePath(workspace, "../outside/secret.txt")).rejects.toThrow("outside the workspace");
       await expect(assertWorkspacePath(workspace, "escape/secret.txt")).rejects.toThrow("outside the workspace");
+      // Relative references are the contract now; nested ones resolve the same way.
+      await expect(assertWorkspacePath(workspace, "./inside.txt")).resolves.toBeUndefined();
+      await expect(assertWorkspacePath(workspace, "nested/deeper/inside.txt")).resolves.toBeUndefined();
+      await expect(assertWorkspacePath(workspace, join(outside, "secret.txt"))).rejects.toThrow("outside the workspace");
     } finally {
       await rm(parent, { recursive: true, force: true });
     }

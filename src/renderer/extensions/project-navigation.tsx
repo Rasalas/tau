@@ -60,7 +60,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
 
   const addCurrent = async () => {
     if (!listing) return;
-    if (await actions.openWorkspace(listing.path)) onDone();
+    if (await actions.openWorkspace(listing.workspace.workspaceId)) onDone();
   };
   const openSelected = () => {
     const directory = directories[selected];
@@ -113,8 +113,8 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
     if (!canSubmit) return;
     setBusy(true);
     try {
-      const path = await workspaceKit.clone(repositoryUrl.trim());
-      if (path && await actions.openWorkspace(path)) onDone();
+      const cloned = await workspaceKit.clone(repositoryUrl.trim());
+      if (cloned && await actions.openWorkspace(cloned.workspaceId)) onDone();
     } catch (error) {
       actions.notify(error instanceof Error ? error.message : String(error));
     } finally {
