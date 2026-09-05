@@ -9,7 +9,12 @@ import { TranscriptViewport } from "./TranscriptViewport";
 import { VirtualTranscript } from "./VirtualTranscript";
 import type { TranscriptActivity } from "./transcript-activity";
 
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  // The virtualizer remeasures rows inside a requestAnimationFrame it never
+  // cancels. Drain those callbacks while the jsdom window still exists.
+  await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
+});
 
 function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities }: {
   messages: UiMessage[];
@@ -503,5 +508,6 @@ describe("virtual transcript", () => {
     await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeGreaterThan(0));
     expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeLessThan(40);
     expect(view.container.querySelectorAll(".inline-transcript-activity").length).toBeLessThan(40);
+    view.unmount();
   });
 });

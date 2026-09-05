@@ -554,6 +554,7 @@ export class RowViewportKeeper {
   private nextToken = 0;
   private pending: { token: number; position: RowViewportPosition } | undefined;
   private programmaticToken = 0;
+  private programmaticTimer: number | undefined;
   private interactionCleanup: (() => void) | undefined;
 
   get position(): RowViewportPosition | undefined { return this.pending?.position; }
@@ -617,6 +618,7 @@ export class RowViewportKeeper {
 
   cancel(): void {
     this.frames.cancel();
+    this.clearProgrammaticTimer();
     this.interactionCleanup?.();
     this.interactionCleanup = undefined;
     this.pending = undefined;
@@ -624,8 +626,16 @@ export class RowViewportKeeper {
 
   private markProgrammaticScroll(): void {
     const token = ++this.programmaticToken;
-    window.setTimeout(() => {
+    // One live timer at a time: an unmount must not leave one behind.
+    this.clearProgrammaticTimer();
+    this.programmaticTimer = window.setTimeout(() => {
+      this.programmaticTimer = undefined;
       if (this.programmaticToken === token) this.programmaticToken = 0;
     }, 0);
+  }
+
+  private clearProgrammaticTimer(): void {
+    if (this.programmaticTimer !== undefined) window.clearTimeout(this.programmaticTimer);
+    this.programmaticTimer = undefined;
   }
 }
