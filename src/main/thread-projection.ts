@@ -98,11 +98,13 @@ export class ThreadProjection {
   }
 
   messages(thread: ThreadRuntime): UiMessage[] {
-    if (!isPiBackend(thread)) return [...thread.adapterMessages];
-    const mapping = this.mapping(thread);
-    const messages = this.branchMessages(thread)
-      .map((message, index) => mapMessage(message, index, mapping))
-      .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned));
+    const messages: UiMessage[] = [];
+    if (isPiBackend(thread)) {
+      const mapping = this.mapping(thread);
+      messages.push(...this.branchMessages(thread)
+        .map((message, index) => mapMessage(message, index, mapping))
+        .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned)));
+    }
     messages.push(...thread.adapterMessages);
     const live = thread.liveAssistant;
     if (live?.text) messages.push({
@@ -121,6 +123,16 @@ export class ThreadProjection {
     return {
       ...activity,
       tools: activity.tools.map((tool) => tool.status === "running" ? thread.tools.get(tool.id) ?? tool : tool),
+    };
+  }
+
+  /** The running turn's tools of a backend without a journal, with their latest output. */
+  private adapterTurnActivity(thread: ThreadRuntime): UiTurnActivity | undefined {
+    const entry = thread.adapterActivity.at(-1);
+    if (!entry || entry.status !== "running" || entry.tools.length === 0) return undefined;
+    return {
+      tools: entry.tools.map((tool) => tool.status === "running" ? thread.tools.get(tool.id) ?? tool : tool),
+      ...(entry.anchorMessageId ? { anchorMessageId: entry.anchorMessageId } : {}),
     };
   }
 
@@ -152,27 +164,40 @@ export class ThreadProjection {
     if (!thread) throw new Error("Pi runtime is not ready");
     const messages = this.messages(thread);
     const firstUserMessage = messages.find((message) => message.role === "user");
-    if (!isPiBackend(thread)) return {
-      cwd: thread.cwd,
-      threadId: thread.threadId,
-      providerSessionId: thread.backend.providerSessionId,
-      sessionId: thread.threadId,
-      sessionName: safeSessionTitle(thread.adapterTitle),
-      sessionTitle: cleanThreadTitle(safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
-      runtimeCapabilities: thread.runtimeAdapter.capabilities,
-      backendKind: thread.backend.kind,
-      models: [],
-      thinkingLevel: "off",
-      thinkingLevels: ["off"],
-      messages,
-      isStreaming: thread.adapterStreaming || thread.state.streaming,
-      activeTools: [],
-      taskProgress: undefined,
-      taskHistory: [],
-      allTools: [],
-      composerCommands: this.composerCommands(thread),
-      extensionCount: 0,
-    };
+    if (!isPiBackend(thread)) {
+      const externalState = thread.state;
+      const externalView = thread.backend.catalogView();
+      const turnActivity = this.adapterTurnActivity(thread);
+      return {
+        cwd: thread.cwd,
+        threadId: thread.threadId,
+        providerSessionId: thread.backend.providerSessionId,
+        sessionId: thread.threadId,
+        sessionName: safeSessionTitle(externalState.title) || safeSessionTitle(thread.adapterTitle),
+        sessionTitle: cleanThreadTitle(safeSessionTitle(externalState.title) || safeSessionTitle(thread.adapterTitle) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
+        ...(externalView.model ? { model: externalView.model } : {}),
+        runtimeCapabilities: thread.runtimeAdapter.capabilities,
+        backendKind: thread.backend.kind,
+        models,
+        thinkingLevel: externalView.thinkingLevel,
+        thinkingLevels: [...externalView.thinkingLevels],
+        messages,
+        isStreaming: thread.adapterStreaming || externalState.streaming,
+        activeTools: [...externalState.activeTools],
+        ...(turnActivity ? { turnActivity } : {}),
+        turnActivityHistory: thread.adapterActivity.map((entry) => ({ ...entry, tools: [...entry.tools] })),
+        turnActivityHistoryComplete: true,
+        taskProgress: undefined,
+        taskHistory: [],
+        allTools: [...externalView.allTools],
+        composerCommands: this.composerCommands(thread),
+        extensionCount: externalState.extensionCount,
+        historyCompleteness: "complete",
+        supportsImageInput: externalState.supportsImageInput,
+        ...(externalView.contextUsage ? { contextUsage: externalView.contextUsage } : {}),
+        ...(externalView.usage ? { usage: externalView.usage } : {}),
+      };
+    }
     const branchMessages = this.branchMessages(thread);
     const state = thread.state;
     const view = thread.backend.catalogView();

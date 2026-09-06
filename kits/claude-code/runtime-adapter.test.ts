@@ -112,6 +112,14 @@ describe("Claude Code runtime adapter", () => {
     expect(await adapter.sessionStore?.get("provider-session")).toBeUndefined();
   });
 
+  it("streams every frame of a turn in order and still resolves with the reply", async () => {
+    const { query } = scripted(() => [init(), assistant("one"), assistant("two"), success()]);
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", storePath: store("stream"), query, env: {} });
+    const seen: string[] = [];
+    await expect(adapter.stream(input("stream-session", "go"), (message) => { seen.push(message.type); })).resolves.toEqual({ assistantText: "one\n\ntwo" });
+    expect(seen).toEqual(["system", "assistant", "assistant", "result"]);
+  });
+
   it("aborts a running turn and everything queued behind it without blocking the next turn", async () => {
     const { query } = scripted(async (call) => {
       if (call.prompt !== "hang") return [init(), assistant("ok"), success()];

@@ -1,4 +1,4 @@
-import type { HostEvent, HostSnapshot, UiMessage, UiToolRun } from "../shared/contracts.js";
+import type { HostEvent, HostSnapshot, UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
@@ -32,6 +32,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
   switch (event.type) {
     case "turn-started":
       thread.adapterStreaming = true;
+      thread.adapterActivity.push({ id: `activity-${sessionId}-${thread.adapterActivity.length + 1}`, tools: [], status: "running" });
       services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
       services.emit({ type: "agent-status", sessionId, running: true });
       services.log("agent.started", sessionId.slice(0, 8));
@@ -66,13 +67,18 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       break;
     case "tool-start":
       thread.tools.set(event.tool.id, event.tool);
+      recordTool(thread, event.tool);
       services.ownTool(event.tool.id, sessionId);
       services.emit({ type: "tool-start", sessionId, tool: event.tool });
       services.log("tool.started", event.tool.name);
       break;
     case "tool-update": {
       const previous = thread.tools.get(event.id);
-      if (previous) thread.tools.set(event.id, { ...previous, output: event.output });
+      if (previous) {
+        const updated = { ...previous, output: event.output };
+        thread.tools.set(event.id, updated);
+        recordTool(thread, updated);
+      }
       services.pushToolOutput(event.id, event.output);
       break;
     }
@@ -95,6 +101,27 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
   }
 }
 
+/** The turn's activity entry; a tool arriving outside a turn opens one. */
+function currentActivity(thread: ThreadRuntime): UiTurnActivityEntry {
+  const last = thread.adapterActivity.at(-1);
+  if (last?.status === "running") return last;
+  const entry: UiTurnActivityEntry = { id: `activity-${thread.threadId}-${thread.adapterActivity.length + 1}`, tools: [], status: "running" };
+  thread.adapterActivity.push(entry);
+  return entry;
+}
+
+/** Keeps the turn's activity entry current; the anchor is the message before its first tool. */
+function recordTool(thread: ThreadRuntime, tool: UiToolRun): void {
+  const entry = currentActivity(thread);
+  if (entry.anchorMessageId === undefined) {
+    const anchor = thread.adapterMessages.at(-1)?.id;
+    if (anchor) entry.anchorMessageId = anchor;
+  }
+  const at = entry.tools.findIndex((existing) => existing.id === tool.id);
+  if (at === -1) entry.tools.push(tool);
+  else entry.tools[at] = tool;
+}
+
 /** The transcript the host holds for a thread without a journal; a re-sent id replaces its row. */
 function remember(thread: ThreadRuntime, message: UiMessage): void {
   const at = thread.adapterMessages.findIndex((existing) => existing.id === message.id);
@@ -107,6 +134,7 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
   services.flushToolOutput(tool.id);
   const previous = thread.tools.get(tool.id);
   const ended: UiToolRun = { ...tool, args: Object.keys(tool.args).length > 0 ? tool.args : previous?.args ?? {}, startedAt: previous?.startedAt ?? tool.startedAt, endedAt: tool.endedAt ?? Date.now() };
+  recordTool(thread, ended);
   services.toolEnded(thread.threadId, ended, thread.cwd);
   services.emit({ type: "tool-end", sessionId: thread.threadId, tool: ended });
   thread.tools.delete(tool.id);
@@ -123,6 +151,12 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
   thread.adapterStreaming = false;
   thread.currentAssistantId = undefined;
   thread.liveAssistant = undefined;
+  const entry = thread.adapterActivity.at(-1);
+  if (entry?.status === "running") {
+    // A turn without tools leaves no fold behind.
+    if (entry.tools.length === 0) thread.adapterActivity.pop();
+    else entry.status = status;
+  }
   services.clientTurns.settle(sessionId);
   services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
   services.emit({ type: "agent-status", sessionId, running: false });

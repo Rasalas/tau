@@ -1,5 +1,5 @@
 import { query as sdkQuery, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { RuntimePermissionLevel, RuntimePromptInput, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
+import type { RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
 import manifest from "./tau-extension.json";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
@@ -42,6 +42,8 @@ export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   readonly id: "claude-code";
   readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: true; readonly interactiveApprovals: false };
   readonly transport: RuntimeTransport;
+  /** One turn with every SDK frame reported as it arrives; resolves when the turn's result is in. */
+  stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void): Promise<RuntimePromptResult>;
   /** Shared app-data store used to resume this adapter after eviction/restart. */
   readonly sessionStore?: ClaudeRuntimeSessionStore;
 }
@@ -87,6 +89,8 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     systemPrompt: { type: "preset", preset: "claude_code" },
     settingSources: ["user", "project", "local"],
     permissionMode: plan.policy.permissionMode,
+    // Token deltas arrive as stream events; the whole message still follows.
+    includePartialMessages: true,
     ...(plan.started ? { resume: plan.claudeSessionId } : { sessionId: plan.claudeSessionId }),
     env: { ...plan.env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP },
     abortController: plan.abortController,
@@ -117,11 +121,13 @@ function resultErrorText(message: SDKMessage & { type: "result" }): string {
  * Runs one turn to its `result` and returns the assistant text of the main
  * loop: every text block Claude wrote between tool calls, not only the last.
  * Sub-agent frames carry `parent_tool_use_id` and stay out of the reply.
+ * `onMessage` sees every frame first, in order.
  */
-export async function collectTurnText(messages: AsyncIterable<SDKMessage>): Promise<string> {
+export async function consumeTurn(messages: AsyncIterable<SDKMessage>, onMessage?: (message: SDKMessage) => void): Promise<string> {
   const texts: string[] = [];
   let sawAssistant = false;
   for await (const message of messages) {
+    onMessage?.(message);
     if (message.type === "assistant") {
       if (message.parent_tool_use_id) continue;
       sawAssistant = true;
@@ -139,6 +145,8 @@ export async function collectTurnText(messages: AsyncIterable<SDKMessage>): Prom
   }
   throw new Error("Claude Code ended without a result.");
 }
+
+export const collectTurnText = (messages: AsyncIterable<SDKMessage>): Promise<string> => consumeTurn(messages);
 
 async function waitBounded(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
   await Promise.race([
@@ -168,7 +176,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   // Claude picks its model; approvals wait for the workbench route.
   const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false } as const;
 
-  async function runTurn(input: RuntimePromptInput, claudeSessionId: string, started: boolean, policy: RuntimePermissionPolicy): Promise<string> {
+  async function runTurn(input: RuntimePromptInput, claudeSessionId: string, started: boolean, policy: RuntimePermissionPolicy, onMessage?: (message: SDKMessage) => void): Promise<string> {
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     input.signal?.addEventListener("abort", onAbort, { once: true });
@@ -191,7 +199,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     const done = (async () => {
       try {
         if (controller.signal.aborted) throw abortError("Claude Code request aborted.");
-        return await collectTurnText(query({ prompt: input.text, options: claudeQueryOptions(plan) }));
+        return await consumeTurn(query({ prompt: input.text, options: claudeQueryOptions(plan) }), onMessage);
       } catch (error) {
         if (controller.signal.aborted || isAbortError(error)) throw abortError("Claude Code request aborted.");
         const detail = stderr.trim();
@@ -207,12 +215,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     return done;
   }
 
-  return {
-    id: "claude-code",
-    capabilities,
-    sessionStore,
-    transport: {
-      async sendPrompt(input) {
+  async function deliver(input: RuntimePromptInput, onMessage?: (message: SDKMessage) => void): Promise<RuntimePromptResult> {
         const policy = runtimePermissionPolicy(input.permissionLevel ?? "full");
         // Reject an unsupported Tau access mode before joining a queue or
         // spawning anything, so a queued request cannot turn into a hang.
@@ -231,7 +234,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
           const run = async (started: boolean): Promise<string> => {
             await sessionStore.markAttempted(input.tauThreadId, input.cwd);
             if (stale()) throw abortError("Claude Code request aborted.");
-            return runTurn(input, record.claudeSessionId, started, policy);
+            return runTurn(input, record.claudeSessionId, started, policy, onMessage);
           };
           let assistantText: string;
           try {
@@ -285,7 +288,15 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
         } finally {
           if (requestQueues.get(input.tauThreadId) === settled) requestQueues.delete(input.tauThreadId);
         }
-      },
+  }
+
+  return {
+    id: "claude-code",
+    capabilities,
+    sessionStore,
+    stream: (input, onMessage) => deliver(input, onMessage),
+    transport: {
+      sendPrompt: (input) => deliver(input),
       async abort(tauThreadId) {
         abortGenerations.set(tauThreadId, (abortGenerations.get(tauThreadId) ?? 0) + 1);
         const turns = [...(running.get(tauThreadId) ?? [])];

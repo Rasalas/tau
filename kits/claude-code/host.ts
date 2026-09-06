@@ -87,6 +87,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             branch: thread.projectLabel,
             permissionLevel: thread.permissionLevel,
             onMessage: thread.onMessage,
+            onEvent: thread.onEvent,
           });
           await backend.start(resume ? "resume" : "create");
           return backend;

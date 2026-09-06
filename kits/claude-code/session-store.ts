@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation } from "tau/host-extension";
+import { parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -41,6 +41,8 @@ export interface ClaudeRuntimeSessionRecord {
   messages: ClaudeStoredMessage[];
   title?: string;
   titleSource?: ClaudeTitleSource;
+  /** Tokens and cost of every turn so far, so the index shows them after a restart. */
+  usage?: UiThreadUsage;
   updatedAt: number;
 }
 
@@ -195,6 +197,20 @@ function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
   };
 }
 
+const USAGE_FIELDS = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "turns"] as const;
+
+function storedUsage(value: unknown): UiThreadUsage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  const usage: Partial<UiThreadUsage> = {};
+  for (const field of USAGE_FIELDS) {
+    const number = item[field];
+    if (typeof number !== "number" || !Number.isFinite(number) || number < 0) return undefined;
+    usage[field] = number;
+  }
+  return usage as UiThreadUsage;
+}
+
 function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
@@ -236,6 +252,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     messages,
     ...(title ? { title } : {}),
     ...(titleSource ? { titleSource } : {}),
+    ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
     updatedAt,
   };
 }
@@ -248,7 +265,7 @@ function cloneMessage(message: ClaudeStoredMessage): ClaudeStoredMessage {
 }
 
 function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRecord {
-  return { ...record, messages: record.messages.map(cloneMessage) };
+  return { ...record, messages: record.messages.map(cloneMessage), ...(record.usage ? { usage: { ...record.usage } } : {}) };
 }
 
 function sameStoredMessage(left: ClaudeStoredMessage, right: ClaudeStoredMessage): boolean {
@@ -400,6 +417,16 @@ export class ClaudeRuntimeSessionStore {
     if (!record) return;
     record.attempted = true;
     record.lastAttemptOutcome = outcome;
+    record.updatedAt = this.now();
+    await this.persist();
+  }
+
+  /** Replaces the thread's running total; the backend sums turns itself. */
+  async recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
+    if (!record) return;
+    record.usage = { ...usage };
     record.updatedAt = this.now();
     await this.persist();
   }

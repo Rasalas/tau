@@ -1,5 +1,5 @@
 import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import type { ThreadBackendKind, ThreadHostEvent, UiMessage, UiToolRun } from "../shared/contracts.js";
+import type { ThreadBackendKind, ThreadHostEvent, UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
 import type { LiveAssistant, LiveTurnState } from "./live-turn-state.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { requireCapability, type ThreadBackendState, type ThreadRuntimeBackend, type ThreadTitleSource } from "./runtime-types.js";
@@ -18,6 +18,8 @@ export class ThreadRuntime implements LiveTurnState {
   /** Markers assigned at message_start but not finalized at message_end yet. */
   readonly inFlightClientMessageIds = new Set<string>();
   adapterMessages: UiMessage[] = [];
+  /** Tool activity per turn of a backend without a journal; the newest entry may still run. */
+  adapterActivity: UiTurnActivityEntry[] = [];
   adapterTitle?: string;
   adapterTitleSource?: ThreadTitleSource;
   adapterStreaming = false;

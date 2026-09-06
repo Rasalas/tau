@@ -81,7 +81,11 @@ describe("handleBackendRuntimeEvent", () => {
     expect(services.releaseTool).toHaveBeenCalledWith("tool-1");
     expect(thread.tools.size).toBe(0);
 
+    // The turn's fold: anchored at the message before its first tool, closed with the turn.
+    expect(thread.adapterActivity).toEqual([{ id: "activity-thread-1-1", anchorMessageId: "u1", tools: [ended], status: "running" }]);
+
     for (const event of run.slice(8)) handleBackendRuntimeEvent(event, thread, services);
+    expect(thread.adapterActivity[0]?.status).toBe("completed");
     expect(thread.adapterMessages).toEqual([user, assistant]);
     expect(thread.liveAssistant).toBeUndefined();
     expect(thread.adapterStreaming).toBe(false);
@@ -107,6 +111,11 @@ describe("handleBackendRuntimeEvent", () => {
     handleBackendRuntimeEvent({ type: "turn-settled", status: "interrupted" }, thread, services);
     expect(thread.adapterMessages).toEqual([{ ...assistant, text: "done, really" }]);
     expect(thread.tools.size).toBe(0);
+    expect(thread.adapterActivity).toMatchObject([{ status: "interrupted", tools: [{ id: "tool-1", status: "error" }] }]);
+    // A turn without tools leaves no fold.
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "completed" }, thread, services);
+    expect(thread.adapterActivity).toHaveLength(1);
     const closed = events.find((event) => event.type === "tool-end");
     expect(closed).toMatchObject({ tool: { id: "tool-1", status: "error", output: "Interrupted." } });
     expect(services.toolEnded).toHaveBeenCalledTimes(1);

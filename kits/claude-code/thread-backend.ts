@@ -11,13 +11,17 @@ import {
   type ThreadBackendState,
   type ThreadCatalogView,
   type ThreadRuntimeBackend,
+  type ThreadRuntimeEvent,
   type ThreadTitleSource,
   type UiComposerCommand,
+  type UiContextUsage,
   type UiMessage,
   type UiModel,
   type UiSkillDraft,
+  type UiThreadUsage,
 } from "tau/host-extension";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
+import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 function derivedClaudeTitle(text: string): string | undefined {
@@ -35,27 +39,39 @@ export interface ClaudeThreadBackendOptions {
   adapter: ClaudeCodeAgentRuntimeAdapter;
   store: ClaudeRuntimeSessionStore;
   commands?: readonly UiComposerCommand[] | (() => readonly UiComposerCommand[] | Promise<readonly UiComposerCommand[]>);
+  /** Whole messages, for a host that offers no event route. */
   onMessage?(message: UiMessage): void;
+  /** The host's event route; with it the thread streams. */
+  onEvent?(event: ThreadRuntimeEvent): void;
   projectName: string;
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
+  now?(): number;
+}
+
+interface LiveTurn {
+  translator: SdkTurnTranslator;
 }
 
 /**
  * Claude's complete thread owner. It never constructs an AgentSession or
  * consults Pi's SessionManager, model catalog, context window, or extensions.
+ * One turn is one SDK query; its frames stream to the host as Tau events.
  */
 export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly kind = "claude-code" as const;
   readonly runtimeAdapter: ClaudeCodeAgentRuntimeAdapter;
-  /** One query per turn: the reply arrives whole, and no Pi-shaped operation exists. */
-  readonly turnReporting = "awaited" as const;
+  readonly turnReporting = "streamed" as const;
   readonly capabilities: ThreadBackendCapabilities = {};
   private record?: Awaited<ReturnType<ClaudeRuntimeSessionStore["get"]>>;
   private messages: UiMessage[] = [];
-  private streaming = false;
+  private live?: LiveTurn;
   private title?: string;
   private titleSource?: ThreadTitleSource;
+  private usage: UiThreadUsage = SdkTurnTranslator.emptyUsage();
+  private contextUsage?: UiContextUsage;
+  private model?: string;
+  private readonly now: () => number;
 
   constructor(
     readonly threadId: string,
@@ -65,6 +81,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.runtimeAdapter = options.adapter;
     this.store = options.store;
     this.options = options;
+    this.now = options.now ?? Date.now;
   }
 
   private readonly store: ClaudeRuntimeSessionStore;
@@ -97,6 +114,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     }));
     this.title = record.title;
     this.titleSource = record.titleSource;
+    if (record.usage) this.usage = { ...record.usage };
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message, ...(message.skill ? { skill: { ...message.skill } } : {}) })); }
@@ -114,19 +132,27 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   state(): ThreadBackendState {
     return {
-      streaming: this.streaming,
-      idle: !this.streaming,
+      streaming: this.live !== undefined,
+      idle: this.live === undefined,
       hasMessages: this.messages.length > 0,
       ...(this.title ? { title: this.title } : {}),
       ...(this.titleSource ? { titleSource: this.titleSource } : {}),
-      activeTools: [],
+      activeTools: [...(this.live?.translator.running.values() ?? [])].map((tool) => tool.name),
       supportsImageInput: false,
       extensionCount: 0,
     };
   }
 
   catalogView(): ThreadCatalogView {
-    return { thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] };
+    const model: UiModel | undefined = this.model ? { provider: "anthropic", id: this.model, name: this.model } : undefined;
+    return {
+      ...(model ? { model } : {}),
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      allTools: [],
+      ...(this.usage.turns > 0 ? { usage: { ...this.usage } } : {}),
+      ...(this.contextUsage ? { contextUsage: { ...this.contextUsage } } : {}),
+    };
   }
 
   async models(): Promise<UiModel[]> { return []; }
@@ -173,20 +199,20 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         throw new Error(`Claude transcript already contains a conflicting message id '${clientMessageId}'.`);
       }
     }
-    if (input.delivery !== "prompt" && this.streaming) throw new Error("Claude Code cannot steer or queue a live turn yet.");
+    if (this.live) throw new Error("Claude Code cannot steer or queue a live turn yet.");
     // Persist the visible message as soon as the runtime accepts it; the
     // transport separately records the attempt before creating a child.
     const user: UiMessage = {
-      id: `claude-user-${clientMessageId ?? Date.now()}`,
+      id: `claude-user-${clientMessageId ?? this.now()}`,
       ...(clientMessageId ? { clientMessageId } : {}),
+      ...(input.identity?.clientTurnId ? { clientTurnId: input.identity.clientTurnId } : {}),
       role: "user",
       text: prepared.visibleText,
       ...(prepared.skill ? { skill: prepared.skill } : {}),
-      timestamp: Date.now(),
+      timestamp: this.now(),
     };
     this.messages.push(user);
     await this.persist([user]);
-    this.options.onMessage?.(user);
     if (!this.title) {
       const title = derivedClaudeTitle(prepared.visibleText);
       if (title) {
@@ -195,9 +221,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         await this.store.setTitle(this.threadId, this.cwd, title, "derived");
       }
     }
-    this.streaming = true;
+    const translator = new SdkTurnTranslator(this.now);
+    this.live = { translator };
+    this.report({ type: "turn-started" });
+    this.deliverMessage(user);
+    input.onAdmitted?.(true);
     try {
-      const result = await this.runtimeAdapter.transport.sendPrompt({
+      await this.runtimeAdapter.stream({
         cwd: this.cwd,
         tauThreadId: this.threadId,
         sessionId: this.providerSessionId,
@@ -206,21 +236,60 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         ...(clientMessageId ? { clientMessageId } : {}),
         permissionLevel,
         signal: input.signal,
-      });
-      if (result.assistantText) {
-        const assistant: UiMessage = { id: `claude-assistant-${Date.now()}`, role: "assistant", text: result.assistantText, timestamp: Date.now() };
-        this.messages.push(assistant);
-        this.options.onMessage?.(assistant);
-        await this.persist([assistant]);
+      }, (frame) => { for (const event of translator.push(frame)) this.handleEvent(event); });
+      await this.finishTurn(translator);
+      this.report({ type: "turn-settled", status: "completed" });
+      return { assistantText: translator.outcome?.texts.join("\n\n") ?? "" };
+    } catch (error) {
+      await this.finishTurn(translator);
+      if (error instanceof Error && error.name === "AbortError") {
+        this.report({ type: "turn-settled", status: "interrupted" });
+        return {};
       }
-      this.record = await this.store.get(this.threadId);
-      return result;
+      this.report({ type: "notice", message: error instanceof Error ? error.message : String(error), level: "error" });
+      this.report({ type: "turn-settled", status: "error" });
+      throw error;
     } finally {
-      this.streaming = false;
+      this.live = undefined;
+      this.record = await this.store.get(this.threadId);
     }
   }
 
- async abort(): Promise<void> { await this.runtimeAdapter.transport.abort?.(this.threadId); this.streaming = false; }
+  /** What one turn leaves behind: its messages are already in; usage and facts follow. */
+  private async finishTurn(translator: SdkTurnTranslator): Promise<void> {
+    if (translator.facts.model) this.model = translator.facts.model;
+    const outcome = translator.outcome;
+    if (!outcome) return;
+    this.usage = addUsage(this.usage, outcome.usage);
+    if (outcome.contextUsage) this.contextUsage = outcome.contextUsage;
+    await this.store.recordUsage(this.threadId, this.cwd, this.usage);
+    this.report({ type: "usage" });
+  }
+
+  private handleEvent(event: ThreadRuntimeEvent): void {
+    if (event.type === "assistant-end") {
+      this.messages.push(event.message);
+      void this.persist([event.message]);
+      this.deliverMessage(event.message);
+      return;
+    }
+    this.report(event);
+  }
+
+  /** A host with an event route gets the message as an event; an older one as a whole message. */
+  private deliverMessage(message: UiMessage): void {
+    if (this.options.onEvent) {
+      this.options.onEvent(message.role === "user" ? { type: "user-message", message } : { type: "assistant-end", message });
+      return;
+    }
+    this.options.onMessage?.(message);
+  }
+
+  private report(event: ThreadRuntimeEvent): void {
+    this.options.onEvent?.(event);
+  }
+
+  async abort(): Promise<void> { await this.runtimeAdapter.transport.abort?.(this.threadId); }
   async persist(messages: readonly UiMessage[]): Promise<void> {
     const commands = await this.skills();
     await this.store.appendExchange(this.threadId, this.cwd, messages, {
@@ -234,13 +303,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.store.setTitle(this.threadId, this.cwd, safeTitle, source);
   }
   async waitForIdle(): Promise<void> {
-    if (!this.streaming) return;
+    if (!this.live) return;
     await new Promise<void>((resolve) => {
-      const check = () => this.streaming ? setTimeout(check, 10).unref?.() : resolve();
+      const check = () => this.live ? setTimeout(check, 10).unref?.() : resolve();
       check();
     });
   }
-  async dispose(): Promise<void> { if (this.streaming) await this.abort(); }
+  async dispose(): Promise<void> { if (this.live) await this.abort(); }
 
   private assertPreparedPrompt(
     text: string,
