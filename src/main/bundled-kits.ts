@@ -4,11 +4,12 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult, ExtensionPackageSummary } from "../shared/contracts.js";
-import { bundleDesktopExtension, type BundleOptions } from "./desktop-extensions.js";
+import { bundleDesktopExtension, themeExtensionModule, type BundleOptions } from "./desktop-extensions.js";
 import {
   MANIFEST_FILE,
   bundleHostExtension,
   importHostExtension,
+  isThemeManifest,
   manifestIncompatibility,
   packageIsolation,
   parseExtensionManifest,
@@ -253,6 +254,7 @@ export async function inspectBundledKits(
     directory: kit.directory,
     desktop: Boolean(kit.desktopEntry),
     host: Boolean(kit.hostEntry),
+    ...(isThemeManifest(kit.manifest) ? { theme: true } : {}),
   }));
   return { ...(distribution ? { distribution } : {}), packages };
 }
@@ -271,19 +273,24 @@ export async function loadBundledKitDesktopHalves(
   const { kits, errors } = await kitsOf(options);
   const bundles: DesktopExtensionBundle[] = [];
   for (const kit of kits) {
-    if (!kit.desktopEntry) continue;
+    // A shipped theme is a kit that is only a stylesheet; it travels as a
+    // desktop half whose whole behaviour is having one.
+    const theme = isThemeManifest(kit.manifest);
+    const entry = kit.desktopEntry ?? (theme ? kit.stylesEntry : undefined);
+    if (!entry) continue;
     try {
       bundles.push({
         id: kit.manifest.id,
-        path: kit.desktopEntry,
+        path: entry,
         scope: "bundled",
-        code: await desktopHalf(kit, kit.desktopEntry, options),
+        code: theme ? themeExtensionModule(kit.manifest) : await desktopHalf(kit, entry, options),
         ...(kit.stylesEntry ? { styles: await readFile(kit.stylesEntry, "utf8") } : {}),
         permissions: kit.manifest.permissions ?? [],
         granted: true,
+        ...(theme ? { theme: true } : {}),
       });
     } catch (error) {
-      errors.push({ path: kit.desktopEntry, message: message(error) });
+      errors.push({ path: entry, message: message(error) });
     }
   }
   return { bundles, errors, skipped: [] };

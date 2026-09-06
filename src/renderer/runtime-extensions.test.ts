@@ -183,3 +183,28 @@ describe("runtime desktop extensions", () => {
     expect(names.react).toEqual(["useState", "useEffect"]);
   });
 });
+
+describe("theme packages", () => {
+  it("links a theme's stylesheet after every other one, whatever order it arrived in", async () => {
+    const registry = new ExtensionRegistry();
+    const themed = {
+      load: async () => ({
+        bundles: [
+          { id: "acme.theme", path: "/x/theme.css", scope: "global" as const, code: "", styles: ":root { --acid: red; }", permissions: [], granted: true, theme: true },
+          { id: "tau.kit", path: "/x/kit.tsx", scope: "bundled" as const, code: "", styles: ".kit {}", permissions: [] },
+        ],
+        errors: [],
+        skipped: [],
+      }),
+      importModule: async (bundle: { id: string }) => ({ default: { id: bundle.id, name: bundle.id, activate() {} } }),
+      isEnabled: () => true,
+      notify: vi.fn(),
+      log: vi.fn(),
+    };
+
+    await new RuntimeExtensions(registry, themed).sync("/project");
+
+    const linked = [...document.head.querySelectorAll("[data-tau-extension]")].map((node) => node.getAttribute("data-tau-extension"));
+    expect(linked).toEqual(["tau.kit", "acme.theme"]);
+  });
+});

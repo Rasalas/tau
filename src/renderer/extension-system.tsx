@@ -685,6 +685,9 @@ export class ExtensionRegistry {
     const unmountStyles = mountStyles(extension);
     if (unmountStyles) disposers.push(unmountStyles);
     const note = (kind: string) => { if (!kinds.includes(kind)) kinds.push(kind); };
+    // A theme contributes only its rules; without this the Inspector shows it
+    // as an extension that contributes nothing.
+    if (unmountStyles) note("styles");
     const hostClient = (extensionId: string): HostExtensionClient => ({
       invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),
       onEvent: (name, listener) => {

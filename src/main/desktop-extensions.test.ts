@@ -94,6 +94,27 @@ describe("desktop extension packages", () => {
     expect(await listDesktopExtensionEntries(dir)).toEqual([join(dir, "pkg", "ui", "main.tsx")]);
   });
 
+  it("loads a package that is only a stylesheet as a theme, with no grant to wait for", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const folder = join(home, ".tau", "extensions", "terracotta");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "tau-extension.json"), JSON.stringify({ id: "acme.theme", name: "Terracotta", styles: "./theme.css" }));
+    await writeFile(join(folder, "theme.css"), ":root { --acid: #d2603a; }");
+
+    const result = await loadDesktopExtensions(project, home, { sharedExports: {}, home, trusted: () => true });
+    expect(result.errors).toEqual([]);
+    const [bundle] = result.bundles;
+    expect(bundle.id).toBe("acme.theme");
+    expect(bundle.theme).toBe(true);
+    expect(bundle.granted).toBe(true);
+    expect(bundle.styles).toBe(":root { --acid: #d2603a; }");
+    // The module is the seam, not the theme: the registry mounts and unmounts
+    // a stylesheet, so a theme arrives as an extension that does nothing else.
+    expect(bundle.code).toContain('id: "acme.theme"');
+    expect(bundle.code).toContain("activate() {}");
+  });
+
   it("keeps the desktop half of a package off when its engines do not fit", async () => {
     const dir = await scratch();
     await mkdir(join(dir, "future"));

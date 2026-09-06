@@ -6,7 +6,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
-import { MANIFEST_FILE, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
+import { MANIFEST_FILE, isThemeManifest, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources } from "./extension-sources.js";
 import type { ExtensionHostVersions } from "../shared/extension-compat.js";
@@ -32,6 +32,26 @@ export interface DesktopEntryDetailed {
   manifest?: ExtensionManifest;
   /** Absolute path of the stylesheet the manifest names, if it names one. */
   styles?: string;
+  /** The package is only that stylesheet; there is no entry to compile. */
+  theme?: boolean;
+}
+
+/**
+ * The module a theme is loaded as. A theme brings no code, but the registry is
+ * what mounts and unmounts a stylesheet, so it arrives as an extension whose
+ * whole behaviour is having styles — which is also what makes the switch in
+ * Settings turn a theme off.
+ */
+export function themeExtensionModule(manifest: ExtensionManifest): string {
+  return `export default { id: ${JSON.stringify(manifest.id)}, name: ${JSON.stringify(manifest.name)}, activate() {} };\n`;
+}
+
+/** One package folder's desktop entry, or the theme it is instead. */
+function packageEntry(parsed: ReturnType<typeof parseExtensionManifest>): DesktopEntryDetailed | undefined {
+  const styles = parsed.stylesEntry ? { styles: parsed.stylesEntry } : {};
+  if (parsed.desktopEntry) return { path: parsed.desktopEntry, manifest: parsed.manifest, ...styles };
+  if (!isThemeManifest(parsed.manifest)) return undefined;
+  return { path: parsed.stylesEntry!, manifest: parsed.manifest, ...styles, theme: true };
 }
 
 /** A desktop entry that came from a source in `packages.json` rather than from a folder scan. */
@@ -64,9 +84,8 @@ export async function listDesktopExtensionEntriesDetailed(directory: string, opt
     if (manifest !== undefined) {
       try {
         const parsed = parseExtensionManifest(path, manifest);
-        if (parsed.desktopEntry && !manifestIncompatibility(parsed.manifest, options.versions)) {
-          entries.push({ path: parsed.desktopEntry, manifest: parsed.manifest, ...(parsed.stylesEntry ? { styles: parsed.stylesEntry } : {}) });
-        }
+        const entry = manifestIncompatibility(parsed.manifest, options.versions) ? undefined : packageEntry(parsed);
+        if (entry) entries.push(entry);
       } catch {
         // The host reports manifest errors when it loads packages; the desktop side stays quiet.
       }
@@ -225,8 +244,8 @@ export async function loadDesktopExtensions(
     if (manifest === undefined) return [];
     try {
       const parsed = parseExtensionManifest(installed.directory, manifest);
-      if (!parsed.desktopEntry || manifestIncompatibility(parsed.manifest, options.versions)) return [];
-      return [{ scope: installed.scope, entry: { path: parsed.desktopEntry, manifest: parsed.manifest, ...(parsed.stylesEntry ? { styles: parsed.stylesEntry } : {}) } }];
+      const entry = manifestIncompatibility(parsed.manifest, options.versions) ? undefined : packageEntry(parsed);
+      return entry ? [{ scope: installed.scope, entry }] : [];
     } catch {
       // The host reports manifest errors when it loads packages; the desktop side stays quiet.
       return [];
@@ -245,10 +264,11 @@ export async function loadDesktopExtensions(
     }
     for (const entry of entries) {
       try {
-        const code = await bundleDesktopExtension(entry.path, options);
+        const code = entry.theme ? themeExtensionModule(entry.manifest!) : await bundleDesktopExtension(entry.path, options);
         const styles = entry.styles ? await readFile(entry.styles, "utf8") : undefined;
         const permissions = entry.manifest?.permissions ?? [];
-        const granted = entry.manifest ? isPackageGranted(entry.manifest, grantsFile.grants) : true;
+        // A theme runs no code and asks for nothing, so there is no grant to wait for.
+        const granted = entry.theme || !entry.manifest || isPackageGranted(entry.manifest, grantsFile.grants);
         bundles.push({
           id: entry.manifest?.id ?? slugForEntry(entry.path),
           path: entry.path,
@@ -258,6 +278,7 @@ export async function loadDesktopExtensions(
           ...(styles ? { styles } : {}),
           permissions,
           granted,
+          ...(entry.theme ? { theme: true } : {}),
           ...(entry.manifest?.source ? { source: entry.manifest.source } : {}),
         });
       } catch (error) {
