@@ -52,7 +52,9 @@ packages you want, publish them to npm or Git, and a user installs them with
 ([docs/EXTENSIONS.md](docs/EXTENSIONS.md)); they run beside Tau's kits, or
 instead of the ones switched off in Settings. A build of your own is the other
 road: `dist-kits/` is a plain folder of built packages, so a fork that replaces
-it ships a different product on the same core. Safe mode is neither — it is
+it ships a different product on the same core, and
+[ADR 0015](docs/adr/0015-core-and-distribution.md) draws the line between what
+core owns and what a distribution owns. Safe mode is neither — it is
 recovery, and loads no extension at all. The kits are Tau's opinion about what
 a coding workbench should have, not a floor you build on.
 
