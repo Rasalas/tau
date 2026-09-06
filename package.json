@@ -10,6 +10,7 @@
     "type": "git",
     "url": "git+https://github.com/Rasalas/tau.git"
   },
+  "license": "MIT",
   "main": "dist-electron/main/index.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"tsc -p tsconfig.electron.json --watch\" \"node scripts/build-preload.mjs --watch\" \"node scripts/build-host-worker.mjs --watch\" \"wait-on file:dist-electron/main/extension-packages.js && node scripts/build-kits.mjs --watch\" \"wait-on tcp:5173 file:dist-electron/main/index.js file:dist-electron/preload/bundle.cjs && TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",

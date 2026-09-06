@@ -66,8 +66,8 @@ all fifteen kits from `dist-kits/`, a prompt round-tripped on GPT-5.6 Luna, and
 the Title generator kit named the thread. `--safe` came up with no kits.
 
 **What the split tree does not carry.** No `tsconfig`, no Vitest config or
-setup file, no lint config, no CI, no licence — core has no `LICENSE` file at
-all yet. Kit *tests* import five core modules (`src/main/test-support/host-kit-harness`,
+setup file, no lint config, no CI, no licence of its own (core is MIT; the
+split tree would carry the same file). Kit *tests* import five core modules (`src/main/test-support/host-kit-harness`,
 `src/renderer/test-support/{kit-harness,fake-host-client,workspace-host-stub,render-app}`)
 across 52 import sites. Kit *sources* import only `tau` (59) and
 `tau/host-extension` (35); `tau/host` is unused today. `kits/README.md` links
@@ -179,8 +179,8 @@ distribution takes a devDependency on a core checkout. That choice is below.
   modules a versioned surface. A devDependency on a core checkout is the cheap
   answer and keeps a distribution tied to a working tree. Decide when a
   distribution outside this repository actually exists.
-- **Licence and repository name.** Core has no `LICENSE` file yet; a
-  distribution cannot have one before core does.
+- **Repository name.** Core is MIT (`LICENSE`); a distribution outside this
+  repository would ship the same licence, its name is not chosen.
 - **Whether `@tau/kits` is published to npm at all**, or installed as a Git
   source the way `/install git:…` already installs any other package.
 - **Whether core publishes `tau` as a typed npm package.** Today `tau.d.ts`
