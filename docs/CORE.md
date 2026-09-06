@@ -44,7 +44,8 @@ content. A **thread** tab shows another thread's transcript, read-only, drawn
 with the same `VirtualTranscript` the conversation uses and headed by the title,
 status and cost the thread index carries. It exists so a sub-agent's chat can be
 read without becoming the thread the composer talks to; "Take over" is the one
-button that does switch. It reloads when the index republishes that thread's
+button that does switch — and even then the child stays out of the rail, which
+never lists a thread with a parent. It reloads when the index republishes that thread's
 entry — which is what the host does when a background turn settles — and polls
 every two seconds only while the index says the thread is streaming. A tab whose
 session the index no longer knows shows an empty state rather than an error.

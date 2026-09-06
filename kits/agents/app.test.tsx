@@ -163,15 +163,28 @@ describe("the navigator with agent threads", () => {
     expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
   });
 
-  it("keeps agents out of the rail, badges the parent, and reveals them on request", async () => {
+  it("keeps agents out of the rail and badges the parent instead", async () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)];
     renderApp(appWith(state, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
-    await screen.findByRole("navigation", { name: "Threads" });
+    const rail = await screen.findByRole("navigation", { name: "Threads" });
 
     await waitFor(() => expect(screen.getByLabelText("1 agent running")).toBeTruthy());
-    expect(screen.queryByText("Alpha reply")).toBeNull();
+    expect(within(rail).queryByText("Alpha reply")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show agent threads" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show agent threads" }));
-    expect(await screen.findByText("Alpha reply")).toBeTruthy();
+    // Not even a search brings one back: the Agents panel is the only list.
+    fireEvent.change(screen.getByRole("textbox", { name: "Search threads" }), { target: { value: "Alpha" } });
+    expect(within(rail).queryByText("Alpha reply")).toBeNull();
+  });
+
+  it("keeps an agent thread out of the rail after Take over makes it the active one", async () => {
+    const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")];
+    renderApp(appWith({ maxRunning: 8, links: [] }, sessions, "alpha", [
+      { id: "m1", role: "user", text: "Reply with A", timestamp: 1 },
+    ]), { extensions: [workspaceExtension, agentsExtension] });
+    const rail = await screen.findByRole("navigation", { name: "Threads" });
+
+    expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
+    expect(within(rail).queryByText("Alpha reply")).toBeNull();
   });
 });

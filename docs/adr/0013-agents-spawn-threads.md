@@ -183,6 +183,27 @@ it the index now carries: the sweep restores a link for any indexed session with
 a `parentThreadId` the book does not know, so the tools, the running budget and
 the depth limit survive the file's loss as well as the rail does.
 
+## Amendment, 2026-09-06: a sub-agent's chat is a document, not a destination
+
+Clicking a row switched the active thread. That moved the composer to the child
+and, because the rail never hides the thread on screen, put the child in the
+sidebar — the two things the user reads a sub-agent to avoid. A row now calls
+`WorkbenchActions.openThread(sessionId)` and the child's transcript opens as a
+tab in the stage, read-only, beside the file tabs. "Take over" in that tab's
+header is the deliberate switch for a user who does want to talk to it.
+
+With that in place, the rail's exceptions go. A thread with a parent is never
+listed — not in the settled shelf, not in a search, not while it is the thread
+on screen after a take-over — so `visibleThreads` takes no options any more and
+the "Show agent threads" toggle is gone. The Agents panel is the list of
+sub-agents, and the stage is where you read one; the transcript header still
+names the thread you are in and links back to its parent.
+
+The tab reads through `transcript-page`, which the host answers only for a
+thread it is still holding a runtime for. That is the one rough edge: past six
+live threads the least recently used one is released, and its tab says so and
+offers Take over, which opens it again.
+
 ## Consequences
 
 - The user watches sub-agents work, opens them, answers their questions and
@@ -201,6 +222,8 @@ the depth limit survive the file's loss as well as the rail does.
 - A deleted `agents-links.json`, a fresh machine, or a kit that never activated
   costs an elapsed time and a live status, not the fact that a thread is an
   agent's.
+- A stage tab is bounded work: the tab strip already holds files, and a thread
+  in it costs the same attention a file does.
 - We rejected nesting Pi sessions (invisible, unanswerable, unsteerable) and
   rejected nesting agent rows in the thread rail (it does not survive fifty of
   them, and it costs the user the conversation they were reading). We rejected
