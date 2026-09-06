@@ -39,6 +39,7 @@ export type CheckpointEvent =
 /** Panels, regions, overlays and commands the kit fills, named once. */
 export const WORKSPACE_FILES_PANEL = "files";
 export const WORKSPACE_CHANGES_PANEL = "changes";
+/** Filled by Review Kit, opened by this kit; the id belongs to whoever asks for it. */
 export const WORKSPACE_REVIEW_OVERLAY = "review.workspace";
 export const WORKSPACE_CHECKPOINT_REVIEW_OVERLAY = "workspace.checkpoint-review";
 
