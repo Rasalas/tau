@@ -10,7 +10,22 @@ Verifying a change against the real Tau app must never touch the user's real `~/
 [dev-instance] pid=<pid> port=<port> userData=<path> workspace=<path> sessions=<path> log=<path>
 ```
 
-Flags: `--safe` sets `TAU_NO_EXTENSIONS=1`; `--fresh` wipes this instance's userData and its isolated Pi session store before starting (guarded to only ever delete paths under `.tau-dev`); `--shared-sessions` opts back into the real `~/.pi/agent/sessions` (see below) for the rare test that needs the user's own threads; `--workspace <path>` uses an existing repository instead of creating the default scratch one (a fresh git repo with one commit); `--port <n>` pins the CDP port instead of deriving one.
+Flags: `--safe` sets `TAU_NO_EXTENSIONS=1`; `--fresh` wipes this instance's userData and its isolated Pi session store before starting (guarded to only ever delete paths under `.tau-dev`); `--shared-sessions` opts back into the real `~/.pi/agent/sessions` (see below) for the rare test that needs the user's own threads; `--workspace <path>` uses an existing repository instead of creating the default scratch one (a fresh git repo with one commit); `--port <n>` pins the CDP port instead of deriving one; `--agent-dir <path>` sets `PI_CODING_AGENT_DIR`, Pi's own config directory, for this instance.
+
+### A shadow agent dir, for testing keybindings.json
+
+Pi keeps `keybindings.json` in its config directory (`~/.pi/agent` by default). To test a custom one without touching the real file, build a shadow directory and point `--agent-dir` at it:
+
+```
+mkdir -p /tmp/tau-shadow-agent
+ln -s ~/.pi/agent/auth.json /tmp/tau-shadow-agent/auth.json
+ln -s ~/.pi/agent/settings.json /tmp/tau-shadow-agent/settings.json
+ln -s ~/.pi/agent/npm /tmp/tau-shadow-agent/npm
+echo '{"app.session.new": "mod+shift+d"}' > /tmp/tau-shadow-agent/keybindings.json
+npm run dev:instance -- --build --agent-dir /tmp/tau-shadow-agent
+```
+
+Symlink whatever the real dir has that the test still needs — auth, settings, the `npm` extension cache — so models and extensions keep working, and write `keybindings.json` as a plain file so it holds the test's own bindings. Never write to the real `~/.pi/agent`; only the shadow directory changes.
 
 Because the default userData and workspace live under the worktree's own `.tau-dev/`, and there is no flag to point userData anywhere else, an isolated instance structurally cannot reach the user's real Tau data.
 
@@ -24,6 +39,8 @@ By default `dev-instance.mjs` sets `PI_CODING_AGENT_SESSION_DIR=<worktree>/.tau-
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.
 
+This is about not restarting between passes of the same task, not about leaving an instance running forever: once the task is done, stop every instance you started, by PID (see "Tearing down" below), before you report.
+
 ## Driving an instance
 
 `npm run cdp -- <command> [...args]` reads the port from `.tau-dev/instance.json` when none is given; pass one explicitly (`npm run cdp -- 9345 <command>`) to address a second, unrelated instance. Subcommands:
@@ -34,11 +51,12 @@ An isolated instance is meant to outlive a single verification pass. `dev-instan
 | `eval <expr>` | Runs an async JS expression in the renderer with `all`, `byText`, `rect`, `setValue`, `sleep`, `toasts` in scope. |
 | `click <expr>` | Resolves `expr` to an element and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
 | `type <expr> <text>` | Sets a textarea's value through its native setter and fires `input`. |
-| `press <key>` | Dispatches a real key event (`Enter`, `Escape`, `Tab`, an arrow, or any single character). |
+| `press <key>` | Dispatches a real key event (`Enter`, `Escape`, `Tab`, an arrow, or any single character), or a chord (`mod+shift+d`, `mod+k`, `ctrl+enter`) using the same spelling as the workbench's own keybindings — `mod` resolves to the platform's primary modifier (⌘ on macOS, Ctrl elsewhere). |
 | `wait-for <expr> [timeoutMs]` | Polls `expr` until truthy (15 s default). |
 | `screenshot <file.png>` | Writes a PNG via `Page.captureScreenshot`. |
 | `toasts` | The current toast list as JSON. |
 | `pid` | The instance's own Electron PID, found by checking the port's devtools endpoint and cross-referencing `ps`, so a caller kills only its own instance. |
+| `stop` | Stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process installs no SIGTERM handler of its own and does not reliably quit from one alone; prefer this over a bare `kill <pid>`. |
 
 ## Known traps
 
@@ -50,7 +68,7 @@ If the display has gone to sleep, `screencapture` returns a black or stale image
 
 ## Tearing down
 
-Kill exactly the PID `npm run cdp -- pid` names. Never `pkill -f Electron` (or any pattern match on the binary name) — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or the worktree.
+Run `npm run cdp -- stop` (SIGTERM, then SIGKILL after ~2s if the process is still alive — observed necessary in practice, since Electron's main process has no SIGTERM handler of its own and a bare `kill <pid>` can leave it running indefinitely). Never `pkill -f Electron` (or any pattern match on the binary name) — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or the worktree.
 
 ## Advanced: the Electron client against a headless host
 
