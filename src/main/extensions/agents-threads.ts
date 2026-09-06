@@ -219,10 +219,23 @@ export class AgentThreadBook {
     return JSON.stringify(this.linkFor(found.link.id)) !== before;
   }
 
-  /** A queued agent got its thread; from here the host drives it. */
+  /**
+   * A queued agent took a slot and its thread is being built. It counts against
+   * the budget from here, which is what lets the pump dispatch a whole batch
+   * without handing the same agent out twice.
+   */
+  noteStarting(id: string, at: number): boolean {
+    return this.update(id, (found) => {
+      found.facts.queued = false;
+      found.facts.spawning = true;
+      found.link = { ...found.link, startedAt: at };
+    });
+  }
+
+  /** A starting agent got its thread; from here the host drives it. */
   noteStarted(id: string, threadId: string, at: number): boolean {
     return this.update(id, (found) => {
-      found.link = { ...found.link, threadId, startedAt: at };
+      found.link = { ...found.link, threadId, startedAt: found.link.startedAt ?? at };
       found.facts.queued = false;
       found.facts.spawning = true;
       this.byThread.set(threadId, found.link.id);
