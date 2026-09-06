@@ -1,22 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { REVIEW_HOST_EXTENSION_ID } from "../../shared/review-protocol.js";
-import { HostExtensionRegistry, type HostExtensionServices, type HostThread } from "../host-extensions.js";
-import { buildCommitPrompt, cleanCommitMessage, createReviewHostExtension } from "./review-host-extension.js";
+import type { HostThread } from "tau/host-extension";
+import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { buildCommitPrompt, cleanCommitMessage, createReviewHostExtension } from "./host.js";
+import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 
 describe("Review Kit host extension", () => {
   const thread = (answer: string) => ({ backendKind: "pi", complete: vi.fn(async () => answer) }) as unknown as HostThread;
-  const registryWith = (active: HostThread) => new HostExtensionRegistry({
-    cwd: () => "/project",
-    safeMode: false,
-    log: () => undefined,
+  const registryWith = (active: HostThread) => activateHostKit(createReviewHostExtension(), {
     runtimeOwner: () => "tau",
     thread: () => active,
-  } as unknown as HostExtensionServices, () => undefined);
+  });
 
   it("asks the selected model for the selected message format", async () => {
     const active = thread("```text\nfeat(review): show every changed file\n```");
-    const registry = registryWith(active);
-    await registry.activate(createReviewHostExtension());
+    const registry = await registryWith(active);
     await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", {
       provider: "openai",
       modelId: "gpt-luna",

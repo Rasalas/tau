@@ -41,6 +41,11 @@ A package has up to two halves, sharing one `id`:
   is the only way the desktop half reaches its own host half; there is no
   direct call between them, and a package with no host entry gets a
   `context.host` that always rejects.
+  `context.hostExtension(extensionId)` gives the same client for *another*
+  extension's host half, which is how one package builds on another (Review Kit
+  reads Workspace Kit's changes and diffs this way). Those commands belong to
+  that extension's contract, not to core: an invoke fails like any other when
+  it is not installed.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
 (`vendor.name`), and must be the same string both halves export — the
@@ -119,6 +124,16 @@ hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
 the browser preview), `errorMessage` (the one-line `unknown` → `string` every
 half needs for `actions.notify`), and the `PreferencesStore` type (the store on
 `context.preferences`, so a package can pass it around in its own signatures).
+
+It also lends two document surfaces core owns: `ReviewMode`, the full-workbench
+review of a set of changes (file tree, diffs, line notes, commit box), and
+`ChangesTree`, the changed files of a workspace with stage, unstage and revert.
+Both load as their own chunk the first time they are rendered and bring their
+own loading state, so an extension renders them like any other component. The
+shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`,
+`UiDiffHunk`, `UiDiffLine`, `DiffLoadOptions`, `WorkspaceChangesQuery`,
+`WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage` —
+are exported as types beside them.
 
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies, and the

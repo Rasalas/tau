@@ -1,5 +1,5 @@
-import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "../../shared/review-protocol.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
   conventional: "Write one excellent Conventional Commit message for the supplied Git diff. Use an accurate type and an optional short scope. The imperative subject must explain the intent, not list files. Keep the subject under 72 characters. Add a short body only when it explains important behavior or migration details. Return only the commit message, without quotes or Markdown fences.",
@@ -28,10 +28,15 @@ export function buildCommitPrompt(input: {
   return [`Branch: ${input.branch || "(detached)"}`, `Changed files:\n${files}`, `Diff excerpts:\n${patches || "(diff content unavailable)"}`].join("\n\n");
 }
 
+/**
+ * Review Kit's host entry: one command that turns a diff into a commit message
+ * with the model the desktop side chose.
+ */
 export function createReviewHostExtension(): HostExtension {
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
+    permissions: ["sessions"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       context.registerCommand("suggest-commit-message", async (input) => {
@@ -68,3 +73,5 @@ export function createReviewHostExtension(): HostExtension {
     },
   };
 }
+
+export default createReviewHostExtension;

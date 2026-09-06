@@ -3,6 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { expectKitActivatesCleanly } from "../src/renderer/test-support/kit-harness.js";
 import computerUse from "./computer-use/desktop.js";
+import review from "./review/desktop.js";
 import signals from "./signals/desktop.js";
 import titleGenerator from "./thread-titles/desktop.js";
 import worktreeNames from "./worktree-names/desktop.js";
@@ -10,7 +11,7 @@ import worktreeNames from "./worktree-names/desktop.js";
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [computerUse, signals, titleGenerator, worktreeNames];
+const kits = [computerUse, review, signals, titleGenerator, worktreeNames];
 
 afterEach(cleanup);
 

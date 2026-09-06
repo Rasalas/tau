@@ -1,6 +1,5 @@
-import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "../../shared/review-protocol";
-import type { DesktopExtensionContext, ExtensionOption } from "../extension-system";
-import type { PreferencesStore } from "../preferences";
+import type { DesktopExtensionContext, ExtensionOption, PreferencesStore } from "tau";
+import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 
 const MODEL_OPTION = "commit-model";
 const STYLE_OPTION = "commit-style";

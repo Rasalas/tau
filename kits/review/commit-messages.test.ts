@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { REVIEW_HOST_EXTENSION_ID } from "../../shared/review-protocol";
-import { PreferencesStore } from "../preferences";
-import { automaticCommitMessages, commitMessageModel, commitMessageStyle } from "./commit-messages";
+import type { PreferencesStore } from "tau";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { automaticCommitMessages, commitMessageModel, commitMessageStyle } from "./commit-messages.js";
+import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 
 let preferences: PreferencesStore;
 
 beforeEach(() => {
-  preferences = new PreferencesStore();
+  preferences = createKitHarness().preferences;
 });
 
 describe("commit message settings", () => {

@@ -7,7 +7,6 @@ import type { PiKeybindingsState, PiShortcutsState } from "../../shared/keybindi
 // Keep optional extension UI out of the workbench's first renderer chunk. The
 // registry still owns activation; React loads a contribution when its slot is
 // actually rendered.
-const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ ChangesPanel }) => ({ default: ChangesPanel })));
 const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
 const LazyPreviewPanel = lazy(() => import("./preview-panel").then(({ PreviewPanel }) => ({ default: PreviewPanel })));
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
@@ -19,7 +18,6 @@ import { workspaceKit } from "./workspace-kit-client";
 import { registerCheckpoints } from "./workspace-checkpoints";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./workspace-dock";
 import { WorkspaceTitleActions } from "./workspace-title";
-import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
 import type { WorkspaceStore } from "./workspace-store";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { agentsExtension } from "./agents-kit";
@@ -28,7 +26,6 @@ import { PREVIEW_PANEL, PreviewFollower, isPreviewState, previewKit, previewStor
 import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_STATE_EVENT } from "../../shared/preview-protocol";
 import { packagesExtension } from "./packages-kit";
 import { questionnaireExtension } from "./questionnaire-kit";
-import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages";
 
 let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
@@ -132,24 +129,6 @@ export const workspaceExtension: DesktopExtension = {
         detail: String(tool.args.path ?? "file mutation"),
       }),
     );
-  },
-};
-
-export const reviewExtension: DesktopExtension = {
-  id: "tau.review",
-  name: "Review Kit",
-  activate(plugin) {
-    plugin.registerPanel({ id: "changes", label: "Changes", glyph: "changes", order: 20, Component: LazyChangesPanel });
-    plugin.registerOverlay({ id: REVIEW_OVERLAY, Component: ReviewOverlay });
-    plugin.registerOptions([
-      { id: "split-diff", kind: "toggle", label: "Open diffs in split view", defaultValue: false },
-      ...COMMIT_MESSAGE_OPTIONS,
-    ]);
-    const disposeCommitMessages = registerCommitMessages(plugin);
-    plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => plugin.workspaceStore.openReview() });
-    plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" });
-    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel("changes") });
-    return disposeCommitMessages;
   },
 };
 
@@ -281,7 +260,6 @@ export const bundledExtensions = [
   accessKitExtension,
   serviceTierKitExtension,
   workspaceExtension,
-  reviewExtension,
   agentsExtension,
   piUiExtension,
   previewExtension,

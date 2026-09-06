@@ -338,6 +338,12 @@ export type ExtensionEvent = Extract<GlobalHostEvent, { type: "extension-event" 
 export interface DesktopExtensionContext {
   /** This extension's host entry, if the package has one. */
   host: HostExtensionClient;
+  /**
+   * Another extension's host entry, by id: how a kit depends on a kit. The
+   * commands and events belong to that extension's contract, not to core, and
+   * an invoke fails like any other when it is not installed.
+   */
+  hostExtension(extensionId: string): HostExtensionClient;
   /** Core host events this extension may react to; listeners go with deactivation. */
   events: WorkbenchEvents;
   /** The renderer's shared preferences store; extensions read and write through it instead of importing a singleton. */
@@ -479,22 +485,24 @@ export class ExtensionRegistry {
     const kinds: string[] = [];
     const disposers: Array<() => void> = [];
     const note = (kind: string) => { if (!kinds.includes(kind)) kinds.push(kind); };
+    const hostClient = (extensionId: string): HostExtensionClient => ({
+      invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),
+      onEvent: (name, listener) => {
+        const byName = this.hostEventListeners.get(extensionId) ?? new Map<string, Set<(payload: unknown) => void>>();
+        this.hostEventListeners.set(extensionId, byName);
+        const listeners = byName.get(name) ?? new Set<(payload: unknown) => void>();
+        byName.set(name, listeners);
+        listeners.add(listener);
+        const dispose = () => { listeners.delete(listener); };
+        disposers.push(dispose);
+        return dispose;
+      },
+    });
     const context: DesktopExtensionContext = {
       preferences: this.services.preferences,
       workspaceStore: this.services.workspaceStore,
-      host: {
-        invoke: (command, input) => this.hostBridge.invoke(extension.id, command, input),
-        onEvent: (name, listener) => {
-          const byName = this.hostEventListeners.get(extension.id) ?? new Map<string, Set<(payload: unknown) => void>>();
-          this.hostEventListeners.set(extension.id, byName);
-          const listeners = byName.get(name) ?? new Set<(payload: unknown) => void>();
-          byName.set(name, listeners);
-          listeners.add(listener);
-          const dispose = () => { listeners.delete(listener); };
-          disposers.push(dispose);
-          return dispose;
-        },
-      },
+      host: hostClient(extension.id),
+      hostExtension: (extensionId) => hostClient(extensionId),
       registerPanel: (panel) => {
         note(panel.label.toLowerCase());
         return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
