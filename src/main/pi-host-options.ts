@@ -24,6 +24,8 @@ export interface PiHostOptions {
   grantsFilePath?: string;
   /** Where per-thread cost totals are cached; without one they last only for this run. */
   sessionUsageCachePath?: string;
+  /** Where the index keeps which thread spawned which; defaults to memory only. */
+  sessionLineageCachePath?: string;
   /** Mints the ids clients address workspaces by; without one they are per-run. */
   workspaceIdentity?: WorkspaceIdentity;
 }

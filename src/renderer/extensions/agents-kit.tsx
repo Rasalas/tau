@@ -16,8 +16,12 @@ export function SpawnedBy({ snapshot, actions }: RegionProps) {
   const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
   const navigation = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const link = state?.links.find((entry) => entry.threadId === snapshot?.sessionId);
-  if (!link) return null;
-  const parent = navigation.threads.find((thread) => thread.id === link.parentThreadId);
+  // The thread index carries the link too, so the way back survives a run in
+  // which nothing told this kit about the spawn.
+  const indexed = navigation.threads.find((thread) => thread.id === snapshot?.sessionId)?.parentThreadId;
+  const parentThreadId = link?.parentThreadId ?? indexed;
+  if (!parentThreadId) return null;
+  const parent = navigation.threads.find((thread) => thread.id === parentThreadId);
   return (
     <button
       type="button"

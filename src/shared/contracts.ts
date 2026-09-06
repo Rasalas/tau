@@ -197,6 +197,11 @@ export interface UiSession {
   modelProvider?: string;
   /** Tokens and money the thread has used; absent until the host knows them. */
   usage?: UiThreadUsage;
+  /**
+   * The thread that spawned this one, as its own session file records it
+   * (ADR 0013, amended). Absent for a thread the user started.
+   */
+  parentThreadId?: string;
 }
 
 export interface UiProject {

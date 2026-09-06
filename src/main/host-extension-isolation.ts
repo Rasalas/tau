@@ -112,6 +112,7 @@ function threadSnapshot(thread: HostThread | undefined): WorkerThreadSnapshot | 
     cwd: thread.cwd,
     backendKind: thread.backendKind,
     ...(thread.sessionFile ? { sessionFile: thread.sessionFile } : {}),
+    ...(thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : {}),
     ...(thread.sessionName() ? { title: thread.sessionName() as string } : {}),
     streaming: thread.isStreaming(),
     idle: thread.isIdle(),

@@ -25,6 +25,8 @@ export interface WorkerThreadSnapshot {
   cwd: string;
   backendKind: ThreadBackendKind;
   sessionFile?: string;
+  /** The thread that spawned this one; absent for a thread the user started. */
+  parentThreadId?: string;
   title?: string;
   streaming: boolean;
   idle: boolean;

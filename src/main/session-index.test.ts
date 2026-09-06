@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { UiSession } from "../shared/contracts.js";
-import { mapSessions, mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates } from "./host-messages.js";
+import { mapSessions, mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates, sessionShellEqual } from "./host-messages.js";
 import { prioritizeRestoreTargetSession } from "./extensions/workspace-kit-lifecycle.js";
 import { buildTitleConversation } from "./extensions/thread-titles-host-extension.js";
 
@@ -56,6 +56,23 @@ describe("session index reconciliation", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it("carries the thread that spawned a session into its shell", async () => {
+    const [mapped] = await mapSessions([{
+      id: "child",
+      path: "/sessions/child.jsonl",
+      cwd: "/project",
+      created: new Date(1_000),
+      modified: new Date(2_000),
+      messageCount: 1,
+      firstMessage: "Reply with A",
+      allMessagesText: "Reply with A",
+    }] as Parameters<typeof mapSessions>[0], "/fallback", async () => "main", undefined, undefined, undefined, () => "parent");
+
+    expect(mapped?.parentThreadId).toBe("parent");
+    // A shell that gained the link is republished, not silently kept.
+    expect(sessionShellEqual(mapped!, { ...mapped!, parentThreadId: undefined })).toBe(false);
   });
 
   it("titles a persisted conversation when the fresh runtime buffer is not ready", () => {

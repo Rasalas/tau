@@ -235,19 +235,21 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
         return requested;
       };
 
+      /** What both session files record about a link, minus who is who. */
+      const linkData = (link: Omit<AgentThreadLink, "status">) => ({
+        version: 1,
+        spawnedBy: link.spawnedBy,
+        spawnedAt: link.spawnedAt,
+        projectPath: link.projectPath,
+        depth: link.depth,
+        title: link.title,
+      });
+
       const remember = (link: AgentThreadLink) => {
-        // The link lives in both session files, so opening either thread after
-        // a restart brings it back through `beforeOpen`.
-        const data = {
-          version: 1,
-          spawnedBy: link.spawnedBy,
-          spawnedAt: link.spawnedAt,
-          projectPath: link.projectPath,
-          depth: link.depth,
-          title: link.title,
-        };
-        services.thread(link.threadId)?.appendEntry(AGENT_PARENT_ENTRY, { ...data, parentThreadId: link.parentThreadId });
-        services.thread(link.parentThreadId)?.appendEntry(AGENT_CHILD_ENTRY, { ...data, threadId: link.threadId });
+        // The child's half is written by `sessions.start` before its first
+        // prompt, so the thread index finds it without opening the thread; the
+        // parent's half is appended here, and `beforeOpen` reads either back.
+        services.thread(link.parentThreadId)?.appendEntry(AGENT_CHILD_ENTRY, { ...linkData(link), threadId: link.threadId });
         save();
       };
 
@@ -275,6 +277,7 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
             prompt: prompts.get(agent.id) ?? agent.title,
             title: agent.title,
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
+            parent: { threadId: agent.parentThreadId, details: linkData(agent) },
           });
           prompts.delete(agent.id);
           changed(agent.id, book.noteStarted(agent.id, started.sessionId, Date.now()));
@@ -476,12 +479,29 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
             if (links.length > 0) publish();
           },
           sweep: async ({ sessions, liveThreads, deleted }) => {
-            let removed = false;
-            for (const session of deleted) removed = book.forget(session.sessionId) || removed;
+            let changedState = false;
+            for (const session of deleted) changedState = book.forget(session.sessionId) || changedState;
+            // The index carries the link now, so an agent survives a lost
+            // links file: whatever it named is an agent, whether or not this
+            // run ever saw it spawned.
+            for (const session of sessions) {
+              if (!session.parentThreadId || book.has(session.sessionId)) continue;
+              book.add({
+                id: session.sessionId,
+                threadId: session.sessionId,
+                parentThreadId: session.parentThreadId,
+                spawnedBy: "tau_spawn_thread",
+                spawnedAt: 0,
+                projectPath: session.cwd,
+                depth: 1,
+                title: "Sub-agent",
+              });
+              changedState = true;
+            }
             // The scan is the whole index, so anything it does not name is gone.
             const known = new Set([...sessions.map((entry) => entry.sessionId), ...liveThreads.map((thread) => thread.sessionId)]);
-            removed = book.prune(known) || removed;
-            if (removed) { publish(); save(); }
+            changedState = book.prune(known) || changedState;
+            if (changedState) { publish(); save(); }
           },
         }),
         context.registerCommand("state", () => book.state()),

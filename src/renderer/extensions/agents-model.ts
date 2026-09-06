@@ -77,34 +77,64 @@ function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>):
 }
 
 /**
+ * A child the thread index names but no live link covers: after a restart that
+ * lost the kit's own index, the session file is still the record.
+ */
+function indexRow(session: UiSession): AgentRow {
+  const cost = session.usage?.costUsd;
+  return {
+    id: session.id,
+    threadId: session.id,
+    ...(session.path ? { path: session.path } : {}),
+    title: session.title,
+    status: "idle",
+    ...(cost === undefined ? {} : { costUsd: cost }),
+  };
+}
+
+/**
  * What the Agents panel draws for the thread on screen: its own agents, and —
  * when that thread is itself an agent — its siblings under the parent it came
  * from. Everything else running is offered as one jump.
+ *
+ * Rows come from the links the host published and from the thread index, which
+ * reads the link off each child's own session file; a fresh machine or a lost
+ * links file therefore changes what a row says, not whether it is there.
  */
 export function agentsPanelModel(
   state: AgentsState | undefined,
   activeThreadId: string | undefined,
   threads: readonly UiSession[],
 ): AgentsPanelModel {
-  if (!state || state.links.length === 0) return EMPTY_MODEL;
+  const links = state?.links ?? [];
   const sessions = new Map(threads.map((session) => [session.id, session] as const));
   const byParent = new Map<string, AgentThreadLink[]>();
-  for (const link of state.links) {
+  for (const link of links) {
     byParent.set(link.parentThreadId, [...byParent.get(link.parentThreadId) ?? [], link]);
   }
-  const linkOf = new Map(state.links.filter((link) => link.threadId).map((link) => [link.threadId!, link] as const));
+  const linkOf = new Map(links.filter((link) => link.threadId).map((link) => [link.threadId!, link] as const));
+  const indexed = new Map<string, UiSession[]>();
+  for (const session of threads) {
+    if (!session.parentThreadId || linkOf.has(session.id)) continue;
+    indexed.set(session.parentThreadId, [...indexed.get(session.parentThreadId) ?? [], session]);
+  }
+  if (byParent.size === 0 && indexed.size === 0) return EMPTY_MODEL;
+
+  const spawned = (threadId: string) => byParent.has(threadId) || indexed.has(threadId);
+  const parentOf = (threadId: string) => linkOf.get(threadId)?.parentThreadId ?? sessions.get(threadId)?.parentThreadId;
 
   // A thread that is itself an agent shows the family it belongs to, so the
   // user reading a child still sees its siblings and the thread above it.
-  const own = activeThreadId ? linkOf.get(activeThreadId) : undefined;
+  const own = activeThreadId ? parentOf(activeThreadId) : undefined;
   const roots = new Set<string>();
-  if (activeThreadId && byParent.has(activeThreadId)) roots.add(activeThreadId);
-  if (own) roots.add(own.parentThreadId);
+  if (activeThreadId && spawned(activeThreadId)) roots.add(activeThreadId);
+  if (own) roots.add(own);
   // Depth 2: a child that spawned its own agents shows both levels.
   for (const root of [...roots]) {
     for (const link of byParent.get(root) ?? []) {
-      if (link.threadId && byParent.has(link.threadId)) roots.add(link.threadId);
+      if (link.threadId && spawned(link.threadId)) roots.add(link.threadId);
     }
+    for (const session of indexed.get(root) ?? []) if (spawned(session.id)) roots.add(session.id);
   }
 
   const titleOf = (threadId: string) =>
@@ -115,10 +145,16 @@ export function agentsPanelModel(
       parentThreadId,
       parentTitle: titleOf(parentThreadId),
       active: parentThreadId === activeThreadId,
-      rows: (byParent.get(parentThreadId) ?? [])
-        .slice()
-        .sort((left, right) => left.spawnedAt - right.spawnedAt)
-        .map((link) => rowOf(link, sessions)),
+      rows: [
+        ...(byParent.get(parentThreadId) ?? [])
+          .slice()
+          .sort((left, right) => left.spawnedAt - right.spawnedAt)
+          .map((link) => rowOf(link, sessions)),
+        ...(indexed.get(parentThreadId) ?? [])
+          .slice()
+          .sort((left, right) => left.modifiedAt - right.modifiedAt)
+          .map((session) => indexRow(session)),
+      ],
     }))
     .sort((left, right) => Number(right.active) - Number(left.active) || left.parentTitle.localeCompare(right.parentTitle));
 
@@ -135,7 +171,7 @@ export function agentsPanelModel(
   const ownCost = activeThreadId ? usageOf(sessions.get(activeThreadId))?.costUsd : undefined;
   if (ownCost !== undefined) { cost += ownCost; counted = true; }
 
-  const elsewhere = state.links.filter((link) => !shown.has(link.id) && isOpenStatus(link.status));
+  const elsewhere = links.filter((link) => !shown.has(link.id) && isOpenStatus(link.status));
   const jump = elsewhere[0];
   const jumpParent = jump ? sessions.get(jump.parentThreadId) : undefined;
 
