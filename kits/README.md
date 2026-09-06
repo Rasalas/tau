@@ -28,7 +28,9 @@ kits/<name>/
 ## The wall
 
 A kit may import `tau`, `tau/host-extension`, `tau/host`, its own relative
-files, and whatever it brings itself. It may not import `src/**`; `src/**` may
+files, another kit of this set (Agents Kit takes `kits/workspace/agent-worktrees.ts`,
+the leaf that holds the Git sequences for a spawned thread's worktree — a kit
+that owns a subject owns it for the others too), and whatever it brings itself. It may not import `src/**`; `src/**` may
 not import it. `src/shared/kits-boundary.test.ts` enforces both. A kit's *tests*
 may additionally reach `src/main/test-support/` and `src/renderer/test-support/`.
 
