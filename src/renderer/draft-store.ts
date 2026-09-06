@@ -52,18 +52,24 @@ function readComposerDrafts(storage: ClientStorage): Record<string, string> {
   }
 }
 
+/** The record belongs to the draft this key names, and to no other. */
+function pendingForKey(storage: ClientStorage, key: string): NewThreadDraft | undefined {
+  const pending = readNewThreadDraft(storage);
+  return pending && draftKey(undefined, pending) === key ? pending : undefined;
+}
+
 export function readComposerDraft(storage: ClientStorage, key?: DraftKey | string): string {
   // A pending new thread is intentionally persisted in its lifecycle record,
   // not in the generic composer map: that map may contain attachment-adjacent
   // state and must stay empty until a real thread exists.
-  if (typeof key === "string" && key.startsWith("new:")) return readNewThreadDraft(storage)?.draft ?? "";
+  if (typeof key === "string" && key.startsWith("new:")) return pendingForKey(storage, key)?.draft ?? "";
   return key ? readComposerDrafts(storage)[key] ?? "" : "";
 }
 
 export function writeComposerDraft(storage: ClientStorage, key: DraftKey | string | undefined, text: string): void {
   if (!key) return;
   if (typeof key === "string" && key.startsWith("new:")) {
-    const pending = readNewThreadDraft(storage);
+    const pending = pendingForKey(storage, key);
     if (pending) writeNewThreadDraft(storage, { ...pending, draft: text || undefined });
     return;
   }

@@ -388,6 +388,12 @@ export function Composer({
         result = { accepted: false, message: errorMessage(error) };
       }
       handle.settle(result);
+      // Settling empties an accepted draft in the scope store. The persisted
+      // copy is written per keystroke and has to follow it, or the next start
+      // seeds the composer with a prompt that was already sent.
+      if (draftStorageKey !== undefined) {
+        writeComposerDraft(clientStorage, submittedScope, scopeStore.getSnapshot(submittedScope).draft);
+      }
       if (result.accepted && activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
     };
     const handleSubmissionError = (error: unknown) => {
