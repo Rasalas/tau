@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -113,15 +113,44 @@ describe("the Agents panel", () => {
     expect(panel.querySelector(".agent-total-cost")!.textContent).toBe("–");
   });
 
-  it("switches to the agent's thread when its row is clicked", async () => {
+  it("opens the agent's chat as a stage tab and leaves the active thread alone", async () => {
     const switchSession = vi.fn(async () => ({ version: 1 as const, updates: [] }));
     const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
     client.switchSession = switchSession;
+    client.loadTranscript = async (sessionId: string) => ({
+      sessionId, hasMore: false,
+      messages: [{ id: "a1", role: "assistant" as const, text: "Alpha finished the job.", timestamp: 1 }],
+    });
     renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
 
     fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
     fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
+
+    expect(await screen.findByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
+    expect(await screen.findByText("Alpha finished the job.")).toBeTruthy();
+    expect(switchSession).not.toHaveBeenCalled();
+    // The rail still shows the parent only: the child is not the active thread.
+    const rail = screen.getByRole("navigation", { name: "Threads" });
+    expect(within(rail).queryByText("Alpha reply")).toBeNull();
+    expect(within(rail).getByText("Parent thread")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Take over" }));
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/alpha.jsonl"));
+  });
+
+  it("opens a second agent in a second tab", async () => {
+    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
+    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
+    await screen.findByRole("tab", { name: /Alpha reply/u });
+    // A preview tab is replaced, so the first has to be pinned to keep both.
+    fireEvent.doubleClick(screen.getByRole("tab", { name: /Alpha reply/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Beta reply, completed" }));
+
+    expect(await screen.findByRole("tab", { name: /Beta reply/u })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
   });
 });
 

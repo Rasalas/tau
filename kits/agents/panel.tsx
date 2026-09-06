@@ -119,8 +119,10 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
     overscan: 6,
   });
 
+  // A child's chat opens as a stage tab, so the composer keeps addressing the
+  // thread that spawned it and the rail keeps hiding the child.
   const open = useCallback((row: AgentRow) => {
-    if (row.path) void actions.switchSession(row.path);
+    if (row.path && row.threadId) actions.openThread(row.threadId);
   }, [actions]);
 
   return (
@@ -158,7 +160,7 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
           <button
             type="button"
             disabled={!model.jumpTo.path}
-            onClick={() => { if (model.jumpTo?.path) void actions.switchSession(model.jumpTo.path); }}
+            onClick={() => { if (model.jumpTo?.path) actions.openThread(model.jumpTo.threadId); }}
           >Go to {model.jumpTo.title}</button>
         </footer>
       ) : null}
