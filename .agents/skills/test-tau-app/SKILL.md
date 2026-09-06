@@ -61,6 +61,18 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 
 Stop exactly the PID `npm run cdp -- pid` names (or the one `dev-instance.mjs` printed). Never `pkill -f Electron` or `pkill -f electron` — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or in this worktree. Never point `TAU_USER_DATA` anywhere but a path under this worktree's `.tau-dev/`; the isolated instance must never read or write the user's real `~/Library/Application Support/tau`. The same goes for the Pi session store: leave `PI_CODING_AGENT_SESSION_DIR` at its default (`--shared-sessions` aside) so test threads never land in the user's real `~/.pi/agent/sessions`.
 
+## Advanced: attached mode, where a `pi` TUI owns the session
+
+A change to a kit's `pi` entry, to `.pi/extensions/tau-session-bridge.ts` or to
+`src/main/pi-kit-extensions.ts` is not covered by an isolated instance: there
+Tau owns the runtime. Run `npm run build && npm run smoke:attached` for that
+path. It starts a real `pi` TUI in a throwaway git repository under
+`.tau-dev/attached-smoke/`, attaches over the bridge socket the way the host
+does, sends one prompt with GPT-5.6 Luna and checks the session file for the
+two kit entries. `docs/agents/testing-the-app.md` explains the moving parts
+(the pty, the symlinks, the `ctx.mode === "tui"` guard). It kills only the PID
+in the bridge descriptor.
+
 ## Advanced: testing the Electron client against a headless host
 
 To verify the remote-client path instead of the embedded host, start a headless host (`node dist-electron/main/headless.js` with `TAU_WORKSPACE`, `TAU_USER_DATA`, `TAU_HOST_LISTEN=127.0.0.1:0` — see `scripts/remote-host-smoke.mjs` for the full pattern of spawning and reading the token) and start a normal window against it with `TAU_HOST_URL=ws://127.0.0.1:<port>` plus that host's `~/.tau/host-token`. `dev-instance.mjs` does not do this for you; wire the env vars by hand for this case.
