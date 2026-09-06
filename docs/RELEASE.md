@@ -25,6 +25,29 @@ The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
 updater will compare against that one. Keep them equal.
 
+## Build all platforms without publishing
+
+`workflow_dispatch` runs the same three build jobs on a branch, with no tag
+and no release. Use it to prove Linux and Windows still build — the only
+runners that never run for an ordinary PR or push to `main` — before cutting
+a real release:
+
+```bash
+gh workflow run release.yml --ref my-branch -f publish=false
+gh run watch                # or: gh run view --log-failed
+gh run download --dir /tmp/artifacts
+```
+
+The `release` job stays skipped unless the ref is a `v*.*.*` tag or `publish`
+is `true`, so a dispatch with `publish=false` cannot attach anything to a
+GitHub Release; the three `tau-*` artifacts (and `latest*.yml`) land as
+workflow run artifacts instead, good for a week.
+
+A build job that fails uploads a `tau-<platform>-diagnostics` artifact
+alongside it — `release/builder-debug.yml` (electron-builder's own verbose
+log, enabled for every Package step via `DEBUG=electron-builder`) plus
+whatever npm wrote under its cache's `_logs/`.
+
 ## Build one locally
 
 ```bash
@@ -123,3 +146,34 @@ thread it starts open the file themselves and find nothing there:
 - **Pi's image resize worker and its WebAssembly**, another worker thread.
 - **Computer use's driver app**, which is launched as a program.
 - **Every `*.node`**, the native addons Electron loads with `dlopen`.
+
+A hidden top-level directory needs its exclusion pattern spelled out as
+`!name/**`, not just `!name`: electron-builder only auto-adds the recursive
+suffix to a bare negated pattern when the pattern has no `.` in it, and a
+leading dot always defeats that check, so a bare `!.name` only ever excluded
+the directory entry itself, not what's in it.
+
+The one `files:` list above is also the only place platform-conditional
+exclusions can go (the computer-use driver binary, via the `${platform}`
+macro). A same-shaped `files:` under `mac`/`linux`/`win` looks equivalent but
+isn't: it builds a *second*, unmerged copy of this file set rooted at the same
+directory, and electron-builder walks the project twice, concurrently, into
+the same destination — a race that surfaces as an `EEXIST` on whichever file
+loses it, and, more quietly, as every file *neither* copy of `files:`
+excludes (everything not covered by the platform-only override) shipping
+regardless of what the root list says.
+
+Verified 2026-09-06 on GitHub-hosted runners (`gh workflow run release.yml
+--ref feat/p5-release-dispatch -f publish=false`): all three platforms built
+clean and their `app.asar` was audited (via `npx asar list`) to confirm none
+of the excluded directories or `*.test.js` files leak in, and that each
+archive carries only its own platform's computer-use driver binary. The Linux
+`.AppImage` was also launched — `--appimage-extract`'s stub won't run under
+QEMU's x86-64 emulation on Apple Silicon, so the squashfs payload was
+extracted directly instead (offset from the ELF section-header table, per
+`readelf -h`) — and its Electron binary came up under `xvfb-run` with a
+working CDP endpoint. The Windows `.exe` was opened with `7z` down to its
+inner `app-64.7z`; the file list matched the Linux/macOS audits. The macOS
+`.zip` got the same `asar` audit; launching it outside Finder is blocked by
+Gatekeeper for an unsigned, adhoc-signed build regardless of packaging
+correctness (see Signing, above), so that one is content-verified only.
