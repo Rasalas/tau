@@ -1,0 +1,15 @@
+/*
+ * Signals' own rules: the live marker, the state grid and the event stream.
+ */
+
+.live-marker { display: flex; align-items: center; gap: 6px; font: 10px var(--mono); color: var(--ready); }
+.live-marker i { width: 6px; height: 6px; border-radius: 50%; background: var(--ready); }
+.state-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 0; padding: 0; background: var(--line); border-bottom: 1px solid var(--line); }
+.state-grid > div { background: var(--rail); padding: 11px 14px; }
+.state-grid dt { font: 10px var(--mono); color: var(--faint); letter-spacing: .08em; }
+.state-grid dd { margin: 3px 0 0; font: 500 13px var(--mono); color: var(--ink); }
+.event-stream { flex: 1; min-height: 0; overflow: auto; padding: 8px 6px; }
+.event-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 10px; font: 11px var(--mono); }
+.event-row time { color: var(--fainter); flex: none; }
+.event-row strong { color: var(--ink-2); font-weight: 500; }
+.event-row span { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
