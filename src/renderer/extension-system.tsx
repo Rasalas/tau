@@ -305,6 +305,22 @@ export type ExtensionOption =
   /** A model choice, stored as `provider/id` under the extension's values; unset means the thread's model. */
   | { id: string; kind: "model"; label: string };
 
+/**
+ * How threads relate to one another, published by the extension that made the
+ * relation. Core owns threads (ADR 0003); the navigator that draws them is an
+ * extension, so lineage travels between the two as data rather than a import.
+ */
+export interface ThreadLineage {
+  /** Child thread id to its parent's thread id. */
+  parents: Readonly<Record<string, string>>;
+  /** Thread id to a short marker its row carries, e.g. "agent". */
+  markers: Readonly<Record<string, string>>;
+  /** Parent thread id to how many of its children are working right now. */
+  workingChildren: Readonly<Record<string, number>>;
+}
+
+export const EMPTY_THREAD_LINEAGE: ThreadLineage = { parents: {}, markers: {}, workingChildren: {} };
+
 /** The host entry of the same extension package, reached by extension id. */
 export interface HostExtensionClient {
   /** Invokes a command the host entry registered with `registerCommand`. */
@@ -338,6 +354,8 @@ export interface DesktopExtensionContext {
   registerTranscriptRows(id: string, order?: number): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
   setLiveStatus(sessionId: string, label: string | undefined): void;
+  /** Publishes how threads this extension created relate to their parents; `undefined` withdraws it. */
+  setThreadLineage(lineage: ThreadLineage | undefined): void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
@@ -428,6 +446,9 @@ export class ExtensionRegistry {
   private transcriptRows = new Map<string, { order: number; owner: ContributionOwner; bySession: Map<string, readonly TranscriptRow[]> }>();
   /** Waiting labels per extension and thread; the first extension's label wins. */
   private liveStatuses = new Map<string, Map<string, string>>();
+  /** Thread lineage per extension; entries merge, the first extension's answer wins. */
+  private lineages = new Map<string, ThreadLineage>();
+  private lineageCache: { version: number; value: ThreadLineage } | undefined;
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
@@ -508,6 +529,11 @@ export class ExtensionRegistry {
         else own.set(sessionId, label);
         if (own.size === 0) this.liveStatuses.delete(extension.id);
         else this.liveStatuses.set(extension.id, own);
+        this.changed();
+      },
+      setThreadLineage: (lineage) => {
+        if (lineage) this.lineages.set(extension.id, lineage);
+        else this.lineages.delete(extension.id);
         this.changed();
       },
       registerTranscriptRows: (id, order = 0) => {
@@ -630,6 +656,7 @@ export class ExtensionRegistry {
     this.activeExtensions.delete(id);
     this.contributionKinds.delete(id);
     this.liveStatuses.delete(id);
+    this.lineages.delete(id);
     this.changed();
     if (cleanupError) throw cleanupError;
   }
@@ -667,6 +694,20 @@ export class ExtensionRegistry {
       if (label !== undefined) return label;
     }
     return undefined;
+  }
+
+  /** Lineage of every extension, merged into one map the navigator can read. */
+  getThreadLineage(): ThreadLineage {
+    if (this.lineageCache?.version === this.version) return this.lineageCache.value;
+    const value: ThreadLineage = this.lineages.size === 0
+      ? EMPTY_THREAD_LINEAGE
+      : [...this.lineages.values()].reduce((merged, lineage) => ({
+        parents: { ...lineage.parents, ...merged.parents },
+        markers: { ...lineage.markers, ...merged.markers },
+        workingChildren: { ...lineage.workingChildren, ...merged.workingChildren },
+      }), EMPTY_THREAD_LINEAGE);
+    this.lineageCache = { version: this.version, value };
+    return value;
   }
 
   /** Rows every extension published for one thread, sorted by source order; ids are namespaced by source. */

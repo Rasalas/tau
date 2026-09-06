@@ -418,6 +418,24 @@ button > svg { pointer-events: none; }
   flex: 1; min-width: 0; font: 11px var(--mono); color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* A thread another thread spawned: indented under it, marked, and counted on the parent's row. */
+.thread-row.nested {
+  margin-left: calc(var(--thread-depth, 0) * 16px);
+  border-left: 1px solid var(--line);
+}
+.thread-marker {
+  flex: none; padding: 1px 5px; border-radius: 3px;
+  background: hsl(268 32% 22%); color: hsl(268 70% 78%);
+  font: 500 9.5px var(--mono); letter-spacing: .06em; text-transform: uppercase;
+}
+.thread-agent-count {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  color: var(--working); font: 500 10px var(--mono);
+}
+.thread-agent-count > i {
+  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  background: var(--working); font-style: normal; animation: blink 1.4s ease-in-out infinite;
+}
 .thread-activity { display: flex; align-items: center; gap: 7px; font: 500 11px var(--mono); color: var(--faint); }
 .thread-activity > i {
   width: 7px; height: 7px; flex: none; border-radius: 50%;

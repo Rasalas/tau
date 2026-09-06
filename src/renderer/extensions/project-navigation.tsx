@@ -14,9 +14,45 @@ export const WORKSPACE_EXTENSION_ID = "tau.workspace";
 
 const ROW_STRIDE = 94;
 
+/** Two levels is what Agents Kit allows; deeper rows would only lose the title. */
+const MAX_NESTING = 2;
+
 type NavigationRow =
   | { kind: "group"; id: string; label: string; count: number }
-  | { kind: "thread"; id: string; session: UiSession };
+  | { kind: "thread"; id: string; session: UiSession; depth: number };
+
+export interface NestedThread {
+  session: UiSession;
+  depth: number;
+}
+
+/**
+ * Puts every thread directly under the one it was spawned from. A parent the
+ * list does not hold, and a link that loops, leave the thread at the top.
+ */
+export function nestThreads(sessions: readonly UiSession[], parents: Readonly<Record<string, string>>): NestedThread[] {
+  const present = new Set(sessions.map((session) => session.id));
+  const children = new Map<string, UiSession[]>();
+  const roots: UiSession[] = [];
+  for (const session of sessions) {
+    const parent = parents[session.id];
+    if (parent && parent !== session.id && present.has(parent)) {
+      children.set(parent, [...children.get(parent) ?? [], session]);
+    } else roots.push(session);
+  }
+  const rows: NestedThread[] = [];
+  const seen = new Set<string>();
+  const emit = (session: UiSession, depth: number) => {
+    if (seen.has(session.id)) return;
+    seen.add(session.id);
+    rows.push({ session, depth });
+    if (depth >= MAX_NESTING) return;
+    for (const child of children.get(session.id) ?? []) emit(child, depth + 1);
+  };
+  for (const root of roots) emit(root, 0);
+  for (const session of sessions) emit(session, 0);
+  return rows;
+}
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
   return rows[index]?.id ?? index;
@@ -270,6 +306,9 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity,
   activityLabel,
   compact,
+  depth,
+  marker,
+  workingChildren,
   modelProvider,
   startedAt,
   onSelect,
@@ -279,6 +318,9 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity: ThreadActivity;
   activityLabel?: string;
   compact: boolean;
+  depth: number;
+  marker?: string;
+  workingChildren: number;
   modelProvider?: string;
   startedAt?: number;
   onSelect(path: string): Promise<boolean>;
@@ -300,6 +342,9 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       compact={compact}
+      depth={depth}
+      marker={marker}
+      workingChildren={workingChildren}
       modelProvider={modelProvider}
       startedAt={startedAt}
       onSelect={onSelect}
@@ -309,7 +354,9 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
 });
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
-  const { snapshot } = useWorkbenchShell();
+  const { snapshot, registry } = useWorkbenchShell();
+  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const lineage = registry.getThreadLineage();
   const threadStore = useThreadStore();
   const [threadQuery, setThreadQuery] = useState("");
   const navigationSnapshot = useSyncExternalStore(
@@ -362,6 +409,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
   const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];
 
+  const threadRow = ({ session, depth }: NestedThread) => ({ kind: "thread" as const, id: session.id, session, depth });
+  const nestedThreads = groupByProject ? [] : nestThreads(activeThreads, lineage.parents);
   const navigationRows: NavigationRow[] = groupByProject
     ? [...activeThreads.reduce((groups, session) => {
         const group = groups.get(session.projectName);
@@ -370,9 +419,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         return groups;
       }, new Map<string, UiSession[]>())].flatMap(([project, sessions]) => [
         { kind: "group" as const, id: `group:${project}`, label: project, count: sessions.length },
-        ...sessions.map((session) => ({ kind: "thread" as const, id: session.id, session })),
+        ...nestThreads(sessions, lineage.parents).map(threadRow),
       ])
-    : activeThreads.map((session) => ({ kind: "thread" as const, id: session.id, session }));
+    : nestedThreads.map(threadRow);
   const rowVirtualizer = useVirtualizer({
     count: navigationRows.length,
     getScrollElement: () => listRef.current,
@@ -397,7 +446,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return { activity: "idle", label: "IDLE" };
   };
 
-  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string) => (
+  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string, depth = 0) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
@@ -405,6 +454,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={activity}
       activityLabel={label}
       compact={compactRows && activity !== "settled"}
+      depth={depth}
+      marker={lineage.markers[session.id]}
+      workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}
@@ -448,7 +500,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         aria-label="Threads"
         tabIndex={0}
         onKeyDown={(event) => {
-          const choices = [...activeThreads, ...(settledOpen ? visibleSettled : [])];
+          const choices = [...navigationRows.flatMap((row) => row.kind === "thread" ? [row.session] : []), ...(settledOpen ? visibleSettled : [])];
           if (!choices.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
           event.preventDefault();
           if (event.key === "Enter") { void actions.switchSession(choices[navigationIndex % choices.length].path); return; }
@@ -470,7 +522,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                   <div className="thread-group-label">{row.label.toUpperCase()} · {row.count}<i /></div>
                 ) : (() => {
                   const status = activityFor(row.session.id);
-                  return renderRow(row.session, status.activity, status.label);
+                  return renderRow(row.session, status.activity, status.label, row.depth);
                 })()}
               </div>
             );

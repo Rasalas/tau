@@ -17,8 +17,8 @@ function session(id: string): UiSession {
 describe("thread navigation virtualization", () => {
   it("keys measured rows by thread identity rather than their sorted index", () => {
     const first = [
-      { kind: "thread" as const, id: "one", session: session("one") },
-      { kind: "thread" as const, id: "two", session: session("two") },
+      { kind: "thread" as const, id: "one", session: session("one"), depth: 0 },
+      { kind: "thread" as const, id: "two", session: session("two"), depth: 0 },
     ];
     const reordered = [first[1], first[0]];
 

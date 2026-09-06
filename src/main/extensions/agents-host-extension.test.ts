@@ -57,7 +57,7 @@ function harness() {
       isIdle: () => found.idle,
       transcript: async () => found.messages,
       entries: () => found.entries,
-      appendEntry: (customType, data) => { found.entries.push({ type: "custom", customType, data }); },
+      appendEntry: (customType: string, data: unknown) => { found.entries.push({ type: "custom", customType, data }); },
     } as unknown as HostThread;
   };
 
