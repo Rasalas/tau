@@ -76,6 +76,7 @@ import {
 import { ProjectHistory } from "./project-history.js";
 import { ProjectFactsCache } from "./project-facts-cache.js";
 import { ThreadIndex } from "./thread-index.js";
+import { ThreadBinding } from "./thread-binding.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
@@ -105,7 +106,7 @@ import { markTauHostRuntime } from "./tau-runtime-owner.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 import { randomBytes } from "node:crypto";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { clientMessageCancelMarker, clientMessageFingerprint, CLIENT_MESSAGE_CANCEL_MARKER, unclaimedClientMessageIds } from "../shared/client-message-correlation.js";
+import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
 import {
   prepareSkillPrompt,
@@ -203,8 +204,6 @@ export class PiHost {
   /** Session managers whose runtime is being built in the background, outside any measurement. */
   private readonly backgroundManagers = new WeakSet<SessionManager>();
   private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
-  /** Extension bindings still running beside the switch that opened their thread. */
-  private readonly pendingBinds = new Map<ThreadRuntime, Promise<void>>();
   private prewarmTimer?: ReturnType<typeof setTimeout>;
   private sessions: UiSession[] = [];
   /** Serialises thread lifecycle work; reentrant, so a hook of one operation cannot wait for it. */
@@ -231,6 +230,8 @@ export class PiHost {
   });
   /** Every persisted thread, the shell it is drawn as, and the publication of both. */
   private readonly index: ThreadIndex;
+  /** Tau's dialog surface inside a runtime's extensions, and the events it lets through. */
+  private readonly binding: ThreadBinding;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -365,6 +366,26 @@ export class PiHost {
       (thread) => this.projection.mapping(thread),
       (event) => this.emit(event),
     );
+    this.binding = new ThreadBinding({
+      extensionUi: this.extensionUi,
+      clientTurns: this.clientTurns,
+      clientMessages: this.clientMessages,
+      turnObservers: this.turnObservers,
+      projection: this.projection,
+      isActive: (thread) => this.active === thread,
+      isCurrent: (thread) => this.threads.get(thread.threadId)?.runtime === thread,
+      onSessionEvent: (event, thread, threadId, threadCwd) => this.handleSessionEvent(event, thread, threadId, threadCwd),
+      emitForThread: (thread, event) => this.emitForThread(thread, event),
+      presentUi: (method, ...args) => this.presentUi(method, ...args),
+      setWindowTitle: (title) => this.onWindowTitle?.(title),
+      publishActiveCatalog: () => this.publishActiveCatalog(),
+      recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
+      logPhase: (phase, startedAt, reason, phaseCwd, thread) => this.logPhaseEvent(phase, startedAt, reason, phaseCwd, undefined, thread),
+      log: (label, detail) => this.log(label, detail),
+      logForThread: (thread, label, detail) => this.logForThread(thread, label, detail),
+      fail: (error, sessionId, thread) => this.fail(error, sessionId, thread),
+      errorMessage: (error) => this.errorMessage(error),
+    });
     markTauHostRuntime();
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
@@ -463,7 +484,7 @@ export class PiHost {
       shortcuts: (userBindings) => thread.backend.capabilities.extensions?.shortcuts(userBindings) ?? [],
       runShortcut: async (keys, userBindings) => {
         // A shortcut handler draws through ctx.ui, which only exists once bound.
-        await this.settleBind(thread);
+        await this.binding.settle(thread);
         return thread.backend.capabilities.extensions?.runShortcut(keys, userBindings) ?? false;
       },
       entries: () => thread.entries,
@@ -1639,7 +1660,7 @@ export class PiHost {
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
     // The switch that opened this thread may still be binding its extensions.
-    await this.settleBind(thread);
+    await this.binding.settle(thread);
     if (!thread.backend.capabilities.journal) {
       try {
         await this.deliverRuntimeTurn(thread, text, attachments, "prompt", identity, prepared);
@@ -1754,7 +1775,7 @@ export class PiHost {
       }
       return this.requireActive();
     });
-    await this.settleBind(thread);
+    await this.binding.settle(thread);
     const shell = requireCapability(thread.backend, "shellAction", "Run project actions in Pi instead.");
     if (shell.isRunning()) throw new Error("Another project action is already running.");
     const result = await shell.run(shellCommand, includeInContext);
@@ -1807,7 +1828,7 @@ export class PiHost {
     let preparedTurnId: string | undefined;
     try {
       thread = this.requireThread(sessionId);
-      await this.settleBind(thread);
+      await this.binding.settle(thread);
       if (!thread.backend.capabilities.journal) {
         await this.deliverRuntimeTurn(thread, text, attachments, delivery, identity, prepared);
         return;
@@ -2084,10 +2105,10 @@ export class PiHost {
       marks.mark("backend-start");
       // An interactive open shows the thread while it binds; a prewarmed or
       // spare runtime is off every critical path and is handed over bound.
-      if (options.background) await this.bindThread(thread);
-      else void this.bindThread(thread, true);
+      if (options.background) await this.binding.bind(thread);
+      else void this.binding.bind(thread, true);
       if (options.abortSignal?.aborted) throw new Error("Prepared runtime creation was cancelled.");
-      this.installThreadHooks(thread);
+      this.binding.installHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
       marks.mark("hooks");
       this.log("thread.open.timing", `${thread.threadId.slice(0, 8)} · ${marks.report()}`);
@@ -2149,99 +2170,6 @@ export class PiHost {
       this.openingThreads.set(path, pending);
     }
     return pending;
-  }
-
-  /**
-   * Binds Tau's dialog surface into a runtime's extensions. Pi binds them one
-   * after another, so the wait runs beside the switch instead of in front of
-   * it. Subscription and marker recovery stay synchronous: they decide which
-   * runtime events reach the host, and none may be missed.
-   */
-  private bindThread(thread: ThreadRuntime, deferred = false): Promise<void> {
-    const extensions = thread.backend.capabilities.extensions;
-    if (!extensions) return Promise.resolve();
-    thread.backend.capabilities.events?.subscribe((event, threadId) => this.handleSessionEvent(event, thread, threadId, thread.cwd));
-    this.recoverOrphanedClientMessageMarkers(thread);
-    const bind = () => extensions.bind({
-      ui: {
-        sessionId: () => thread.threadId,
-        ask: (prompt) => this.extensionUi.ask(prompt, thread),
-        notify: (message, level) => this.emitForThread(thread, { type: "notice", message, level, sessionId: thread.threadId }),
-        setWindowTitle: (title) => {
-          if (!thread.deferTitle(title)) this.onWindowTitle?.(title);
-        },
-        unsupported: (method) => this.logForThread(thread, "extension-ui.unsupported", method),
-        setStatus: (key, text) => this.presentUi("setStatus", thread.threadId, key, text),
-        setWidget: (key, lines, placement) => this.presentUi("setWidget", thread.threadId, key, lines, placement),
-        setWorkingMessage: (message) => this.presentUi("setWorkingMessage", thread.threadId, message),
-      },
-      onError: (error) => this.fail(error, thread.threadId, thread),
-    });
-    if (!deferred) return this.runBind(thread, bind, "caller");
-    const bound = this.runBind(thread, bind, "host");
-    this.pendingBinds.set(thread, bound);
-    void bound.finally(() => { if (this.pendingBinds.get(thread) === bound) this.pendingBinds.delete(thread); });
-    return bound;
-  }
-
-  /**
-   * Runs one binding and the catalog publication that follows it. A deferred
-   * binding reports its own failure, because the thread it belongs to is
-   * already on screen and cannot be unwound; an awaited binding leaves the
-   * error with its caller.
-   */
-  private async runBind(thread: ThreadRuntime, bind: () => Promise<void>, owner: "host" | "caller"): Promise<void> {
-    const bindStartedAt = performance.now();
-    try {
-      await bind();
-      // Extensions contribute prompts, skills and themes while they bind.
-      if (this.active === thread) await this.publishActiveCatalog();
-    } catch (error) {
-      if (owner === "caller") throw error;
-      if (this.threads.get(thread.threadId)?.runtime === thread) this.fail(error, thread.threadId, thread);
-      else this.logForThread(thread, "runtime.bind.failed", this.errorMessage(error));
-    } finally {
-      this.recordBackgroundLifecycle("bind", bindStartedAt);
-      this.logPhaseEvent("bind", bindStartedAt, "active", thread.cwd, undefined, thread);
-    }
-  }
-
-  /**
-   * Waits for a binding that is still running. Only callers outside the
-   * lifecycle queue may use it: an extension can ask for that queue through
-   * `sessions.exclusive` while it binds, and holding it here would deadlock
-   * (ADR 0004).
-   */
-  private async settleBind(thread: ThreadRuntime): Promise<void> {
-    await this.pendingBinds.get(thread);
-  }
-
-  /**
-   * A persisted request marker can outlive a host process that crashed or was
-   * disconnected before Pi emitted the corresponding user message. Cancel
-   * those markers before subscribing to a reopened runtime so they cannot be
-   * assigned to a later, unrelated turn.
-   */
-  private recoverOrphanedClientMessageMarkers(thread: ThreadRuntime): void {
-    const staleIds = unclaimedClientMessageIds(thread.entries, knownSkillNames(this.projection.composerCommands(thread)));
-    for (const clientMessageId of staleIds) {
-      thread.appendJournalEntry(CLIENT_MESSAGE_CANCEL_MARKER, clientMessageCancelMarker(clientMessageId).data);
-      this.clientMessages.forget(thread, clientMessageId);
-    }
-  }
-
-  private installThreadHooks(thread: ThreadRuntime): void {
-    const extensions = thread.backend.capabilities.extensions;
-    if (!extensions) return;
-    extensions.setLifecycleHooks(() => {
-      extensions.unbind();
-      this.clientTurns.settle(thread.threadId);
-      thread.resetLiveState();
-      void this.turnObservers.reset(thread.threadId).catch((error) => this.log("turn-observer.reset.failed", this.errorMessage(error)));
-    }, async () => {
-      // Pi drives this rebind itself and waits for it; only the switch path defers.
-      await this.bindThread(thread);
-    });
   }
 
   /** Puts a live thread on screen. Cheap: it changes pointers and publishes state. */
