@@ -7,7 +7,7 @@ import type {
   TurnCheckpointLifecycleAdapter,
   TurnCheckpointStatus,
 } from "./turn-checkpoint-types.js";
-import type { UiWorkspaceChanges } from "./workspace-kit-types.js";
+import type { UiWorkspaceChanges } from "tau/host-extension";
 
 /**
  * Runtime-specific hooks for the shared checkpoint lifecycle. Host and bridge

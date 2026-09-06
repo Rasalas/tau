@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { TURN_CHECKPOINT_CUSTOM_TYPE, type PiKitBridge, type UiTurnCheckpoint } from "tau/host-extension";
+import type { PiKitBridge } from "tau/host-extension";
+import { TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import { CHECKPOINT_EVENT } from "./protocol.js";
 import workspacePiExtension from "./pi.js";
 

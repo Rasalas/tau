@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { findExecutable, gitExecutable } from "./shell-environment.js";
+import { findExecutable, gitExecutable } from "tau/host-extension";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -22,7 +22,7 @@ import type {
   UiWorkspaceChangesPage,
   WorkspaceChangesQuery,
   WorkspaceInfo,
-} from "../shared/workspace-kit-types.js";
+} from "tau/host-extension";
 import {
   type StoredTurnCheckpoint,
   type TurnRestoreBackup,
@@ -30,9 +30,9 @@ import {
   namespacedSnapshotRef,
   sanitizeTurnSnapshotComponent,
   turnSnapshotRef,
-} from "../shared/turn-checkpoint-codec.js";
-import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
-import { normalizeDiffLoadOptions } from "../shared/turn-checkpoint-diff.js";
+} from "./turn-checkpoint-codec.js";
+import type { TurnRestoreTransaction } from "./turn-checkpoint-types.js";
+import { normalizeDiffLoadOptions } from "./turn-checkpoint-diff.js";
 import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js";
 
 const execFileAsync = promisify(execFile);

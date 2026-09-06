@@ -1376,7 +1376,7 @@ export default function tauSessionBridge(pi: ExtensionAPI, options: TauSessionBr
     awaitingInput = undefined;
     broadcastSnapshot(ctx);
   });
-  pi.on("session_shutdown", async (_event, ctx) => {
+  pi.on("session_shutdown", async () => {
     newSessionRequests.clear();
     pendingClientMessageIds.length = 0;
     inFlightClientMessageIds.clear();

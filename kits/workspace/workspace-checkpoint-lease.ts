@@ -4,7 +4,7 @@ import { mkdir, open, readFile, readdir, realpath, rename, rm, rmdir, stat } fro
 import { hostname, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { gitExecutable } from "./shell-environment.js";
+import { gitExecutable } from "tau/host-extension";
 
 const execFileAsync = promisify(execFile);
 

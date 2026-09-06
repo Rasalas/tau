@@ -1,4 +1,4 @@
-import type { UiChangedFile, UiWorkspaceChanges } from "./workspace-kit-types.js";
+import type { UiChangedFile, UiWorkspaceChanges } from "tau/host-extension";
 
 /**
  * Immutable workspace summary captured when one accepted user turn reaches its

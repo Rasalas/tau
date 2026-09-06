@@ -1,7 +1,6 @@
 import { open, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
-import type { UiFileContent } from "../shared/workspace-kit-types.js";
-import { readBoundedImagePreview } from "./image-preview.js";
+import { readBoundedImagePreview, type UiFileContent } from "tau/host-extension";
 
 /** Source files past this ceiling are cut; the viewer is a reader, not an editor. */
 export const MAX_FILE_CONTENT_BYTES = 1024 * 1024;

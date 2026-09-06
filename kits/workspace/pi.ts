@@ -1,19 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-  assistantAnchorForMessage,
-  checkpointsForBranch,
-  cloneTurnCheckpoint,
-  createWorkspaceKitCheckpointFeature,
-  createWorkspaceKitCheckpointMaintenance,
-  turnCheckpointsFromEntries,
-  TURN_CHECKPOINT_CUSTOM_TYPE,
-  WorkspaceCheckpointLeaseManager,
-  type DiffLoadOptions,
-  type PiKitBridge,
-  type UiFileDiff,
-  type UiWorkspaceChangesPage,
-} from "tau/host-extension";
+import type { DiffLoadOptions, PiKitBridge, UiFileDiff, UiWorkspaceChangesPage } from "tau/host-extension";
+import { assistantAnchorForMessage } from "./pi-turn-checkpoint-extension.js";
+import { checkpointsForBranch, cloneTurnCheckpoint, turnCheckpointsFromEntries, TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import { createWorkspaceKitCheckpointFeature, createWorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 import { CHECKPOINT_EVENT, type CheckpointEvent, type WorkspaceCheckpointList } from "./protocol.js";
 
 /**

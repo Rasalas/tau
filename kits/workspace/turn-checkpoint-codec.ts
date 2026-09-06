@@ -1,4 +1,4 @@
-import type { ChangeStatus, UiChangedFile, UiWorkspaceChanges } from "./workspace-kit-types.js";
+import type { ChangeStatus, UiChangedFile, UiWorkspaceChanges } from "tau/host-extension";
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type {
   StoredTurnCheckpoint,

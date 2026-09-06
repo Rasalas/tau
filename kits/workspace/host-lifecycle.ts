@@ -3,20 +3,6 @@ import { existsSync } from "node:fs";
 import { realpath, rm, stat, utimes } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  assistantAnchorForMessage,
-  checkpointsForBranch,
-  cloneTurnCheckpoint,
-  createWorkspaceKitCheckpointFeature,
-  createWorkspaceKitCheckpointMaintenance,
-  turnCheckpointsFromEntries,
-  turnRestoreBackupsFromEntries,
-  turnRestoreTransactionsFromEntries,
-  turnSnapshotRef,
-  workspaceGit,
-  WorkspaceCheckpointLeaseManager,
-  TURN_CHECKPOINT_CUSTOM_TYPE,
-  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
-  TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
   type DiffLoadOptions,
   type HostActionResult,
   type HostActivationTransaction,
@@ -28,15 +14,32 @@ import {
   type HostThreadLifecycle,
   type HostTurnObserver,
   type RuntimeExtensionFactory,
-  type StoredTurnCheckpoint,
-  type TurnRestoreTransaction,
   type UiFileDiff,
   type UiWorkspaceChanges,
   type UiWorkspaceChangesPage,
+} from "tau/host-extension";
+import * as workspaceGit from "./workspace-git.js";
+import { assistantAnchorForMessage } from "./pi-turn-checkpoint-extension.js";
+import {
+  checkpointsForBranch,
+  cloneTurnCheckpoint,
+  turnCheckpointsFromEntries,
+  turnRestoreBackupsFromEntries,
+  turnRestoreTransactionsFromEntries,
+  turnSnapshotRef,
+  TURN_CHECKPOINT_CUSTOM_TYPE,
+  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
+  TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
+} from "./turn-checkpoint-codec.js";
+import {
+  createWorkspaceKitCheckpointFeature,
+  createWorkspaceKitCheckpointMaintenance,
   type WorkspaceKitCheckpointFeature,
   type WorkspaceKitCheckpointMaintenance,
   type WorkspaceKitLiveCheckpointSession,
-} from "tau/host-extension";
+} from "./workspace-kit-checkpoints.js";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+import type { StoredTurnCheckpoint, TurnRestoreTransaction } from "./turn-checkpoint-types.js";
 import { WORKSPACE_HOST_EXTENSION_ID, type CheckpointEvent, type WorkspaceCheckpointList } from "./protocol.js";
 
 export interface WorkspaceKitLifecycleOptions {

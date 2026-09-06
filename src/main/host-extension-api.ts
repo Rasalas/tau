@@ -33,36 +33,15 @@ export { isWorkspaceRelativePath, namesWorkspace, type WorkspaceRef } from "../s
 export type { HostActionResult } from "../shared/host-protocol.js";
 
 /**
- * The workspace vocabulary: changed files, diffs, worktrees and turn
- * checkpoints. Core speaks it too (the stage renders these shapes), so it
- * stays in `src/shared` and is published from here rather than owned by a kit.
+ * The workspace vocabulary: changed files, diffs, worktrees and editors. Core
+ * speaks it too (the stage renders these shapes), so it stays in `src/shared`
+ * and is published from here rather than owned by a kit. Turn checkpoints are
+ * Workspace Kit's own vocabulary and moved there with the Git engine.
  */
 export type * from "../shared/workspace-kit-types.js";
-export type * from "../shared/turn-checkpoint-types.js";
 
-/**
- * Git, workspace leases and turn-checkpoint storage. Tau's own Pi extension
- * (`.pi/extensions/tau-session-bridge.ts`) reads these modules under jiti,
- * where no `tau/` specifier resolves, so they stay in core and are published
- * here — like `host-text.js`, and for the same reason (ADR 0014). Ticket 09
- * splits the bridge and is the moment to move them.
- */
-export * as workspaceGit from "./workspace-git.js";
-export { GitCoordinator, type GitCoordinatorMetrics, type GitCoordinatorOptions, type GitRefreshKind, type GitRefreshState, type GitRefreshStatus } from "./git-coordinator.js";
-export { listLiveWorkspaceLeaseSessions, WorkspaceCheckpointLeaseManager, type WorkspaceCheckpointLease, type WorkspaceCheckpointLeaseManagerOptions, type WorkspaceCheckpointLeaseOptions, type WorkspaceLeaseMetadata, type WorkspaceLeaseState } from "./workspace-checkpoint-lease.js";
-export { createWorkspaceKitCheckpointFeature, createWorkspaceKitCheckpointMaintenance, type WorkspaceKitCheckpointFeature, type WorkspaceKitCheckpointMaintenance, type WorkspaceKitLiveCheckpointSession } from "./workspace-kit-checkpoints.js";
-export { assistantAnchorForMessage } from "./pi-turn-checkpoint-extension.js";
-export {
-  checkpointsForBranch,
-  cloneTurnCheckpoint,
-  turnCheckpointsFromEntries,
-  turnRestoreBackupsFromEntries,
-  turnRestoreTransactionsFromEntries,
-  turnSnapshotRef,
-  TURN_CHECKPOINT_CUSTOM_TYPE,
-  TURN_RESTORE_BACKUP_CUSTOM_TYPE,
-  TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
-} from "../shared/turn-checkpoint-codec.js";
-export { readBoundedFileContent, MAX_FILE_CONTENT_BYTES } from "./file-content.js";
+/** Leaf helpers a workspace kit needs and core keeps for itself as well. */
+export { assistantAnchorForBranch } from "./session-entries.js";
+export { readBoundedImagePreview } from "./image-preview.js";
 export { gitExecutable, findExecutable } from "./shell-environment.js";
 export { assertAllowedCloneSource } from "./clone-source.js";

@@ -36,6 +36,11 @@ function words(source: string): string[] {
 
 /** The host keeps thread and title handling; only the moved features are checked there. */
 const HOST_RULES = new Set(["checkpoint", "git", "editor", "tier", "access", "claude"]);
+/**
+ * Modules that used to sit in core. They live in `kits/workspace/` now, so a
+ * reappearing import would be a copy: `kits-boundary.test.ts` forbids the path,
+ * this forbids the name.
+ */
 const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-kit-checkpoints", "pi-turn-checkpoint-extension", "turn-checkpoint-codec"];
 
 describe("core boundary", () => {

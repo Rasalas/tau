@@ -6,10 +6,7 @@ import { promisify } from "node:util";
 import {
   assertAllowedCloneSource,
   gitExecutable,
-  GitCoordinator,
   isWorkspaceRelativePath,
-  readBoundedFileContent,
-  workspaceGit,
   type DiffLoadOptions,
   type FileNode,
   type HostExtension,
@@ -18,6 +15,9 @@ import {
   type WorkspaceChangesQuery,
   type WorkspaceRef,
 } from "tau/host-extension";
+import * as workspaceGit from "./workspace-git.js";
+import { GitCoordinator } from "./git-coordinator.js";
+import { readBoundedFileContent } from "./file-content.js";
 import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "./protocol.js";
 import { createReviewRequestDetector } from "./review-request.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
