@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, session, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
+import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { ProjectHistory } from "./project-history.js";
@@ -10,7 +10,8 @@ import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
 import { rebuildWorkbench } from "./workbench-build.js";
-import { bundledHostExtensions } from "./extensions/index.js";
+import { shippedHostExtensions } from "./extensions/index.js";
+import { loadBundledKitDesktopHalves } from "./bundled-kits.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
@@ -44,6 +45,7 @@ const remoteHostUrl = process.env.TAU_HOST_URL;
 configureAppIdentity(app, process.env.TAU_USER_DATA);
 // Both must happen before the app is ready: a privileged scheme cannot be added later.
 const desktopBundles = new DesktopBundleStore();
+const EMPTY_DESKTOP_EXTENSIONS: WorkbenchDesktopExtensions = { bundles: [], errors: [], skipped: [] };
 registerDesktopBundleScheme();
 const hostLog = new HostLog({ dir: join(app.getPath("userData"), "logs") });
 
@@ -67,10 +69,16 @@ process.on("unhandledRejection", (reason) => {
 const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: PI_VERSION, api: EXTENSION_API_VERSION };
 // Clients name workspaces by an id of this host, never by one of its paths.
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(app.getPath("userData"), "host-id")));
+/** Where the kits Tau ships are read from and where their compiled halves are cached. */
+const kitOptions = {
+  appPath: app.getAppPath(),
+  cacheDir: join(app.getPath("userData"), "host-extensions"),
+  versions: extensionVersions,
+};
 const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
-  hostExtensions: safeMode ? [] : bundledHostExtensions(),
+  hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
   // A userData cache dir keeps compiled extension code out of the shared
   // system temp dir, which every local user can otherwise browse.
   hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
@@ -273,10 +281,19 @@ function createLocalHostMethods(): HostMethodTable {
       readImagePreview: rendererImagePreview,
       inspectExtensions: async (cwd) => inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }),
       loadDesktopExtensions: async (cwd, sharedExports) => {
-        const result = await loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions });
+        // The kits Tau ships travel the same road as an installed package's
+        // desktop half; only their origin differs. Safe mode loads neither.
+        const [kits, result] = await Promise.all([
+          safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
+          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions }),
+        ]);
         // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
         desktopBundles.clear();
-        return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })) };
+        return {
+          bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })),
+          errors: [...kits.errors, ...result.errors],
+          skipped: result.skipped,
+        };
       },
       rebuildWorkbench: (context) => {
         // An installed Tau carries no sources and no toolchain. Reporting

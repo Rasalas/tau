@@ -5,7 +5,6 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { UiSession } from "../shared/contracts.js";
 import { mapSessions, mergeSessionIndexScan, reconcileActiveThreadShell, sessionIndexUpdates, sessionShellEqual } from "./host-messages.js";
 import { prioritizeRestoreTargetSession } from "./extensions/workspace-kit-lifecycle.js";
-import { buildTitleConversation } from "./extensions/thread-titles-host-extension.js";
 
 function shell(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/sessions/${id}.jsonl`, title, modifiedAt, projectPath: "/project", projectName: "project", messageCount: 1 };
@@ -73,53 +72,6 @@ describe("session index reconciliation", () => {
     expect(mapped?.parentThreadId).toBe("parent");
     // A shell that gained the link is republished, not silently kept.
     expect(sessionShellEqual(mapped!, { ...mapped!, parentThreadId: undefined })).toBe(false);
-  });
-
-  it("titles a persisted conversation when the fresh runtime buffer is not ready", () => {
-    expect(buildTitleConversation([], [
-      { role: "user", content: "Persisted question" },
-      { role: "assistant", content: [{ type: "text", text: "Persisted answer" }] },
-    ])).toBe("user: Persisted question\n\nassistant: Persisted answer");
-  });
-
-  it("skips non-text assistant records before applying the title context limit", () => {
-    const toolOnly = { role: "assistant", content: [{ type: "toolCall", name: "read" }] };
-    expect(buildTitleConversation([
-      toolOnly, toolOnly, toolOnly, toolOnly,
-      { role: "user", content: "Visible request" },
-    ])).toBe("user: Visible request");
-  });
-
-  it("removes runtime skill wrappers from fallback title context", () => {
-    const wrapper = `<skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions\n</skill>\n\nReview the parser`;
-    const conversation = buildTitleConversation([{ role: "user", content: wrapper, skill: { name: "tdd", command: "/skill:tdd" } }]);
-    expect(conversation).toBe("user: Review the parser");
-    expect(conversation).not.toContain("Injected instructions");
-    expect(conversation).not.toContain("/Users/me/.pi/skills");
-  });
-
-  it("uses a sanitized fallback for malformed runtime wrappers", () => {
-    const malformed = `<skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions\n</skill`;
-    const conversation = buildTitleConversation([{ role: "user", content: malformed }]);
-    expect(conversation).toBe("user: Skill invocation");
-    expect(conversation).not.toContain("Injected instructions");
-    expect(conversation).not.toContain("/Users/me/.pi/skills");
-  });
-
-  it("sanitizes malformed wrappers even when their opening tag is split", () => {
-    const malformed = `<skill\nname="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions`;
-    const conversation = buildTitleConversation([{ role: "user", content: malformed }]);
-    expect(conversation).toBe("user: Skill invocation");
-    expect(conversation).not.toContain("Injected instructions");
-    expect(conversation).not.toContain("/Users/me/.pi/skills");
-  });
-
-  it("sanitizes a malformed wrapper after leading blank lines", () => {
-    const malformed = `\n  <skill name="tdd" location="/Users/me/.pi/skills/tdd/SKILL.md">\nInjected instructions`;
-    const conversation = buildTitleConversation([{ role: "user", content: malformed }]);
-    expect(conversation).toBe("user: Skill invocation");
-    expect(conversation).not.toContain("Injected instructions");
-    expect(conversation).not.toContain("/Users/me/.pi/skills");
   });
 
   it("does not rename or reorder an existing shell merely because it was selected", () => {

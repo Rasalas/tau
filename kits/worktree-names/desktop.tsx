@@ -1,6 +1,5 @@
-import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "../../shared/worktree-names-protocol";
-import type { DesktopExtension } from "../extension-system";
-import type { PreferencesStore } from "../preferences";
+import type { DesktopExtension, PreferencesStore } from "tau";
+import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
 
 const MODEL_OPTION = "model";
 
@@ -32,3 +31,5 @@ export const worktreeNamesExtension: DesktopExtension = {
     });
   },
 };
+
+export default worktreeNamesExtension;

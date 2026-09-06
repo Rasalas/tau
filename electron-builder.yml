@@ -27,6 +27,9 @@ files:
   - "!benchmarks"
   - "!docs"
   - "!examples"
+  # Kit sources; the app loads `dist-kits/`, which the default `**/*` picks up
+  # (a positive pattern here would replace that default, not add to it).
+  - "!kits"
   - "!reports"
   - "!release"
   - "!scripts"

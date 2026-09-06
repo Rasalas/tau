@@ -9,7 +9,7 @@
  */
 export type * from "./host-extensions.js";
 export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
-export { cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText } from "./host-text.js";
+export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
 export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
 export type { WorkspaceRef } from "../shared/workspace-identity.js";

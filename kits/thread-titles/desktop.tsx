@@ -1,6 +1,5 @@
-import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../shared/thread-titles-protocol";
-import type { DesktopExtension, HostExtensionClient, PromptSubmittedEvent, WorkbenchActions } from "../extension-system";
-import type { PreferencesStore } from "../preferences";
+import { errorMessage, type DesktopExtension, type HostExtensionClient, type PreferencesStore, type PromptSubmittedEvent, type WorkbenchActions } from "tau";
+import { THREAD_TITLES_HOST_EXTENSION_ID } from "./protocol.js";
 
 function automatic(preferences: PreferencesStore): boolean {
   return preferences.optionValue(THREAD_TITLES_HOST_EXTENSION_ID, "automatic", true);
@@ -23,7 +22,7 @@ async function generate(
   try {
     await host.invoke("generate", { provider: model.provider, modelId: model.id, force, sessionId, prompt });
   } catch (error) {
-    actions.notify(error instanceof Error ? error.message : String(error));
+    actions.notify(errorMessage(error));
   }
 }
 
@@ -62,3 +61,5 @@ export const titleGeneratorExtension: DesktopExtension = {
     });
   },
 };
+
+export default titleGeneratorExtension;

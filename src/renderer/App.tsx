@@ -22,7 +22,7 @@ import { FollowUpQueueStore } from "./follow-up-queue";
 import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
-import { usePreferences, useWorkspaceStore } from "./renderer-services-context";
+import { usePreferences, useRendererServices, useWorkspaceStore } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView } from "./stage";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
@@ -47,11 +47,12 @@ export default function App() {
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const workspaceStore = useWorkspaceStore();
+  const constructedExtensions = useRendererServices().extensions;
   const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
   const [registry] = useState(() => {
     const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, workspaceStore });
-    bundledExtensions.forEach((extension) => {
+    [...bundledExtensions, ...(constructedExtensions ?? [])].forEach((extension) => {
       value.addKnown(extension);
       if (!safeMode && preferences.isExtensionEnabled(extension.id)) value.activate(extension);
     });

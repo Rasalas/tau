@@ -1,8 +1,16 @@
+import { parseSkillEnvelope } from "../shared/skill-envelope.js";
+
 /**
- * Text projections shared by core and by the kits that produce titles: content
- * blocks to plain text, and a model's answer to a thread title. A leaf module
- * on purpose — `tau/host-extension` re-exports it, so a kit that imports one of
- * these functions bundles nothing else.
+ * Text projections core, Tau's Pi bridge and the title kit all read the same
+ * way: content blocks to plain text, a model's answer to a thread title, and
+ * the first exchanges of a thread as the prompt a title model reads. A leaf
+ * module on purpose — `tau/host-extension` re-exports it, so a kit that imports
+ * one of these bundles nothing else.
+ *
+ * The title shapes live here rather than in `kits/thread-titles` because the
+ * bridge (`.pi/extensions/tau-session-bridge.ts`) runs inside Pi, where jiti
+ * resolves no `tau/` specifier. Ticket 09 splits that bridge; this is the
+ * moment to move them.
  */
 
 export function textFromContent(content: unknown): string {
@@ -54,4 +62,41 @@ export function cleanThreadTitle(value: string): string {
     .trim();
   if (!title) throw new Error("The title model returned an empty title.");
   return title.length > 80 ? `${title.slice(0, 77).trimEnd()}…` : title;
+}
+
+export interface TitleMessage {
+  role?: string;
+  content?: unknown;
+  skill?: { name?: unknown; command?: unknown };
+}
+
+function titleVisibleUserText(text: string, metadata: TitleMessage["skill"]): string {
+  const envelope = parseSkillEnvelope(text);
+  if (envelope && metadata
+    && metadata.name === envelope.name
+    && typeof metadata.command === "string"
+    && metadata.command.replace(/^\/skill:/u, "").replace(/^\//u, "") === envelope.name) {
+    return envelope.userMessage;
+  }
+  return visibleTitleText(text);
+}
+
+/** The first exchanges, rendered as the prompt a title model reads. */
+export function buildTitleConversation(
+  runtimeMessages: readonly TitleMessage[],
+  persistedMessages: readonly TitleMessage[] = [],
+): string {
+  function render(messages: readonly TitleMessage[]): string {
+    return messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .map((message) => {
+        const text = textFromContent(message.content);
+        return `${message.role}: ${message.role === "user" ? titleVisibleUserText(text, message.skill) : text}`;
+      })
+      .filter((line) => line.trim().length > line.indexOf(":") + 1)
+      .slice(0, 4)
+      .join("\n\n")
+      .slice(0, 6000);
+  }
+  return render(runtimeMessages) || render(persistedMessages);
 }

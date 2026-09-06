@@ -12,7 +12,7 @@
   },
   "main": "dist-electron/main/index.js",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"tsc -p tsconfig.electron.json --watch\" \"node scripts/build-preload.mjs --watch\" \"node scripts/build-host-worker.mjs --watch\" \"wait-on tcp:5173 file:dist-electron/main/index.js file:dist-electron/preload/bundle.cjs && TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently -k \"vite\" \"tsc -p tsconfig.electron.json --watch\" \"node scripts/build-preload.mjs --watch\" \"node scripts/build-host-worker.mjs --watch\" \"wait-on file:dist-electron/main/extension-packages.js && node scripts/build-kits.mjs --watch\" \"wait-on tcp:5173 file:dist-electron/main/index.js file:dist-electron/preload/bundle.cjs && TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "dev:web": "vite",
     "build": "node scripts/build.mjs",
     "build:report": "node scripts/build-report.mjs",
@@ -31,7 +31,7 @@
     "dev:instance": "node scripts/dev-instance.mjs",
     "cdp": "node scripts/tau-cdp.mjs",
     "lint": "oxlint .",
-    "typecheck": "npm run typecheck:extension && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "typecheck": "npm run typecheck:extension && npm run typecheck:kits && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "typecheck:extension": "tsc -p tsconfig.extension.json --noEmit",
     "typecheck:extensions": "tsc -p tsconfig.pi-extensions.json --noEmit",
     "test": "vitest run",
@@ -43,7 +43,9 @@
     "benchmark:host:check": "node scripts/host-benchmark.mjs --check",
     "benchmark:host:full:check": "node scripts/host-benchmark.mjs --full --check --output reports/host-full-report.json",
     "benchmark:git": "npm run build && node scripts/git-benchmark.mjs",
-    "benchmark:git:check": "node scripts/git-benchmark.mjs --check"
+    "benchmark:git:check": "node scripts/git-benchmark.mjs --check",
+    "typecheck:kits": "tsc -p tsconfig.kits.json --noEmit",
+    "build:kits": "node scripts/build-kits.mjs"
   },
   "dependencies": {
     "@amaster.ai/pi-computer-use": "^0.1.12",

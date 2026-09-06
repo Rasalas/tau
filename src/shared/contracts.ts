@@ -494,7 +494,8 @@ export interface ExtensionInspection {
 /** A desktop extension compiled by the host, ready for the renderer to import. */
 export interface DesktopExtensionBundle {
   path: string;
-  scope: "global" | "project";
+  /** `bundled` for a kit the app ships; the two folder scopes for everything else. */
+  scope: "bundled" | "global" | "project";
   projectPath?: string;
   /** Manifest id of the package, or a slug of the entry file for a loose extension. */
   id: string;

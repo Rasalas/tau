@@ -1,3 +1,4 @@
+import type { DesktopExtension } from "./extension-system";
 import { PreferencesStore } from "./preferences";
 import { WorkspaceStore } from "./extensions/workspace-store";
 
@@ -10,9 +11,16 @@ import { WorkspaceStore } from "./extensions/workspace-store";
 export interface RendererServices {
   preferences: PreferencesStore;
   workspaceStore: WorkspaceStore;
+  /**
+   * Desktop extensions the client is constructed with, beside the ones it
+   * imports from the host. The desktop app hands over none — its kits arrive
+   * from `dist-kits` like packages — but an embedder, and a kit's own tests,
+   * hand over the halves they want the workbench to start with.
+   */
+  extensions?: readonly DesktopExtension[];
 }
 
-export function createRendererServices(): RendererServices {
+export function createRendererServices(extensions?: readonly DesktopExtension[]): RendererServices {
   const preferences = new PreferencesStore();
-  return { preferences, workspaceStore: new WorkspaceStore(preferences) };
+  return { preferences, workspaceStore: new WorkspaceStore(preferences), ...(extensions ? { extensions } : {}) };
 }

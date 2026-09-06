@@ -9,7 +9,7 @@ export function RendererServicesProvider({ services, children }: { services: Ren
   return <RendererServicesReactContext.Provider value={services}>{children}</RendererServicesReactContext.Provider>;
 }
 
-function useRendererServices(): RendererServices {
+export function useRendererServices(): RendererServices {
   const services = useContext(RendererServicesReactContext);
   if (!services) throw new Error("useRendererServices: no RendererServicesProvider above this component");
   return services;

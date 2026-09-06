@@ -1,44 +1,5 @@
-import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../shared/thread-titles-protocol.js";
-import { parseSkillEnvelope } from "../../shared/skill-envelope.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
-import { cleanThreadTitle, textFromContent, visibleTitleText } from "../host-messages.js";
-
-interface TitleMessage {
-  role?: string;
-  content?: unknown;
-  skill?: { name?: unknown; command?: unknown };
-}
-
-function titleVisibleUserText(text: string, metadata: TitleMessage["skill"]): string {
-  const envelope = parseSkillEnvelope(text);
-  if (envelope && metadata
-    && metadata.name === envelope.name
-    && typeof metadata.command === "string"
-    && metadata.command.replace(/^\/skill:/u, "").replace(/^\//u, "") === envelope.name) {
-    return envelope.userMessage;
-  }
-  return visibleTitleText(text);
-}
-
-/** The first exchanges, rendered as the prompt a title model reads. */
-export function buildTitleConversation(
-  runtimeMessages: readonly TitleMessage[],
-  persistedMessages: readonly TitleMessage[] = [],
-): string {
-  function render(messages: readonly TitleMessage[]): string {
-    return messages
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .map((message) => {
-        const text = textFromContent(message.content);
-        return `${message.role}: ${message.role === "user" ? titleVisibleUserText(text, message.skill) : text}`;
-      })
-      .filter((line) => line.trim().length > line.indexOf(":") + 1)
-      .slice(0, 4)
-      .join("\n\n")
-      .slice(0, 6000);
-  }
-  return render(runtimeMessages) || render(persistedMessages);
-}
+import { buildTitleConversation, cleanThreadTitle, type HostExtension, type HostExtensionContext } from "tau/host-extension";
+import { THREAD_TITLES_HOST_EXTENSION_ID } from "./protocol.js";
 
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -97,3 +58,5 @@ export function createThreadTitlesHostExtension(): HostExtension {
     },
   };
 }
+
+export default createThreadTitlesHostExtension;

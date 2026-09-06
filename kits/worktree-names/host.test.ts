@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "../../shared/worktree-names-protocol.js";
-import { HostExtensionRegistry, type HostExtensionServices, type HostThread } from "../host-extensions.js";
-import { branchNameFromSuggestion, buildNamingPrompt, createWorktreeNamesHostExtension } from "./worktree-names-host-extension.js";
+import type { HostThread } from "tau/host-extension";
+import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { branchNameFromSuggestion, buildNamingPrompt, createWorktreeNamesHostExtension } from "./host.js";
+import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
 
 describe("branch names from model answers", () => {
   it("keeps a clean answer and normalises a messy one", () => {
@@ -25,17 +26,8 @@ describe("branch names from model answers", () => {
 });
 
 describe("Worktree Names host extension", () => {
-  function registryWith(thread: HostThread | undefined, owner: "tau" | "pi" = "tau") {
-    const services = {
-      cwd: () => "/project",
-      safeMode: false,
-      log: () => undefined,
-      runtimeOwner: () => owner,
-      thread: () => thread,
-    } as unknown as HostExtensionServices;
-    const registry = new HostExtensionRegistry(services, () => undefined);
-    return registry;
-  }
+  const registryWith = (thread: HostThread | undefined, owner: "tau" | "pi" = "tau") =>
+    activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread });
 
   const piThread = (answer: string) => ({
     backendKind: "pi",
@@ -44,8 +36,7 @@ describe("Worktree Names host extension", () => {
 
   it("asks the chosen model and answers with a usable branch", async () => {
     const thread = piThread("Fix/Steer Queue Messages\n");
-    const registry = registryWith(thread);
-    await registry.activate(createWorktreeNamesHostExtension());
+    const registry = await registryWith(thread);
     const result = await registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", {
       provider: "openai", modelId: "gpt-5.6", description: "Steer queued messages into the running turn", hint: "fix", taken: ["main"],
     });
@@ -56,14 +47,12 @@ describe("Worktree Names host extension", () => {
   });
 
   it("refuses without a task, a model, or a Pi thread", async () => {
-    const registry = registryWith(piThread("x"));
-    await registry.activate(createWorktreeNamesHostExtension());
+    const registry = await registryWith(piThread("x"));
     const suggest = (input: unknown) => registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", input);
     await expect(suggest({ provider: "openai", modelId: "gpt-5.6", description: "  " })).rejects.toThrow(/Describe the task/u);
     await expect(suggest({ provider: "", modelId: "", description: "task" })).rejects.toThrow(/needs a model/u);
 
-    const noThread = registryWith(undefined);
-    await noThread.activate(createWorktreeNamesHostExtension());
+    const noThread = await registryWith(undefined);
     await expect(noThread.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { provider: "p", modelId: "m", description: "task" })).rejects.toThrow(/not ready/u);
   });
 });

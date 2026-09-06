@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import type { HostEvent } from "../shared/contracts.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
@@ -12,7 +13,8 @@ import { createHostMethods } from "./host-methods.js";
 import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { parseListen } from "./host-listen.js";
-import { bundledHostExtensions } from "./extensions/index.js";
+import { shippedHostExtensions } from "./extensions/index.js";
+import { loadBundledKitDesktopHalves } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
@@ -29,6 +31,8 @@ const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
 const hostVersion = process.env.npm_package_version || "0.0.0";
+// dist-electron/main/headless.js -> the app root the kits are shipped in.
+const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 const hostLog = new HostLog({ dir: join(userData, "logs") });
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
@@ -46,6 +50,8 @@ function publish(event: HostEvent): void {
 }
 
 const versions: ExtensionHostVersions = { tau: hostVersion, pi: PI_VERSION, api: EXTENSION_API_VERSION };
+/** Where the kits Tau ships are read from; a headless host runs from the same tree. */
+const kitOptions = { appPath: appRoot, cacheDir: join(userData, "host-extensions"), versions };
 const unsupported = (what: string) => () => { throw new Error(`${what} needs a desktop window.`); };
 
 async function main(): Promise<void> {
@@ -59,7 +65,7 @@ async function main(): Promise<void> {
     bootstrap: async () => {
       if (!host) {
         host = new PiHost(workspace, publish, projectHistory, safeMode, false, {
-          hostExtensions: safeMode ? [] : bundledHostExtensions(),
+          hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
           hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
             versions,
             cacheDir: join(userData, "host-extensions"),
@@ -87,7 +93,13 @@ async function main(): Promise<void> {
       copyImage: unsupported("Copying an image"),
       readImagePreview: async () => undefined,
       inspectExtensions: async (cwd) => inspectExtensionPackages(cwd, getAgentDir(), { versions }),
-      loadDesktopExtensions: async (cwd, sharedExports) => loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions }),
+      loadDesktopExtensions: async (cwd, sharedExports) => {
+        const [kits, result] = await Promise.all([
+          safeMode ? { bundles: [], errors: [] } : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
+          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions }),
+        ]);
+        return { ...result, bundles: [...kits.bundles, ...result.bundles], errors: [...kits.errors, ...result.errors] };
+      },
       rebuildWorkbench: unsupported("Rebuilding the workbench"),
       relaunchWorkbench: unsupported("Relaunching the workbench"),
       installUpdate: unsupported("Installing an update"),

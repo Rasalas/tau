@@ -1,5 +1,5 @@
-import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "../../shared/worktree-names-protocol.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
 
 const SYSTEM_PROMPT = "You name Git branches for coding tasks. Answer with one branch name only: lowercase words joined by hyphens, optionally led by a type such as feat/, fix/, chore/, refactor/ or docs/, then two to five words, at most 40 characters. No quotes, no explanation, no Markdown.";
 
@@ -81,3 +81,5 @@ export function createWorktreeNamesHostExtension(): HostExtension {
     },
   };
 }
+
+export default createWorktreeNamesHostExtension;

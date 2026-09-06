@@ -14,8 +14,12 @@ export interface PiHostOptions {
   defaultBackendKind?: ThreadBackendKind;
   /** Commands available to non-Pi backends. Pi discovers its own resources. */
   runtimeCommands?: readonly UiComposerCommand[];
-  /** Host entries of desktop kits, activated before the first runtime opens. */
-  hostExtensions?: readonly HostExtension[];
+  /**
+   * Host entries of desktop kits, activated before the first runtime opens. A
+   * thunk defers compiling the kits Tau ships until the host starts, which is
+   * where their failures belong.
+   */
+  hostExtensions?: readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
   /** Native platform services used by host extensions. */
   platform?: HostPlatform;
   /** Host halves of extension packages on disk for the active workspace. */

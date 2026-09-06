@@ -2,6 +2,7 @@ import { render, type RenderResult } from "@testing-library/react";
 import App from "../App";
 import { HostClientProvider, setHostClient } from "../host-client-context";
 import type { HostClient } from "../host-client";
+import type { DesktopExtension } from "../extension-system";
 import { createMemoryStorage, setClientStorage, type ClientStorage } from "../client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { createRendererServices, type RendererServices } from "../renderer-services";
@@ -17,6 +18,8 @@ export interface RenderedApp extends RenderResult {
 export interface RenderAppOptions {
   /** Pre-seeded storage, e.g. `writeCachedTurnActivity(storage, ...)` before render. */
   storage?: ClientStorage;
+  /** Desktop halves the workbench starts with; a kit's own App tests pass theirs. */
+  extensions?: readonly DesktopExtension[];
   /** Runs against the fresh services before render, e.g. `({ preferences }) => preferences.toggleSettled(id)`. */
   seed?(services: RendererServices): void;
 }
@@ -32,7 +35,7 @@ export function renderApp(client: HostClient | undefined, options?: RenderAppOpt
   setHostClient(client);
   const storage = options?.storage ?? createMemoryStorage();
   setClientStorage(storage);
-  const services = createRendererServices();
+  const services = createRendererServices(options?.extensions);
   options?.seed?.(services);
   const result = render(
     <HostClientProvider client={client}>

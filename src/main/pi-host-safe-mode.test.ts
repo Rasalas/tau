@@ -1,9 +1,16 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { bundledHostExtensions } from "./extensions/index.js";
+import { shippedHostExtensions } from "./extensions/index.js";
 import { PiHost } from "./pi-host.js";
+
+const appPath = fileURLToPath(new URL("../..", import.meta.url));
+/** Everything Tau ships, the way the app assembles it: kits from `kits/` included. */
+const shipped = shippedHostExtensions({ appPath }, () => undefined);
+/** Kits that no longer live in the host but arrive through the bundled loader. */
+const PACKAGED_KIT_IDS = ["tau.thread-titles", "tau.worktree-names"];
 
 type Internals = {
   activateHostExtensions(): Promise<void>;
@@ -13,18 +20,20 @@ const settings = { getGlobalSettings: () => ({}), getProjectSettings: () => ({})
 
 describe("PiHost safe mode", () => {
   it("loads no host extension and injects no Pi extension", async () => {
-    const host = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: bundledHostExtensions() });
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: shipped });
     await (host as unknown as Internals).activateHostExtensions();
     expect(host.listHostExtensions()).toEqual([]);
     expect((host as unknown as Internals).runtimeExtensionsFor(settings)).toEqual([]);
   });
 
   it("loads every bundled kit outside safe mode, each removable on its own", async () => {
-    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: bundledHostExtensions() });
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: shipped });
     await (host as unknown as Internals).activateHostExtensions();
     const internals = host as unknown as Internals;
     const summaries = host.listHostExtensions();
-    expect(summaries.map((summary) => summary.id).sort()).toEqual(bundledHostExtensions().map((extension) => extension.id).sort());
+    expect(summaries.map((summary) => summary.id).sort()).toEqual((await shipped()).map((extension) => extension.id).sort());
+    // The migrated kits are compiled from `kits/` and imported like packages.
+    expect(summaries.filter((summary) => PACKAGED_KIT_IDS.includes(summary.id)).map((summary) => summary.id).sort()).toEqual(PACKAGED_KIT_IDS);
     expect(summaries.filter((summary) => !summary.active)).toEqual([]);
     expect(internals.runtimeExtensionsFor(settings).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-computer-use", "tau-preview", "tau-questionnaire", "tau-service-tier", "tau-turn-checkpoints"]);
   });

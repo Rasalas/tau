@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import type { HostSnapshot } from "../../shared/contracts";
-import { PreferencesStore } from "../preferences";
-import { automaticTitleModel } from "./title-generator";
+import type { HostSnapshot, PreferencesStore } from "tau";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { automaticTitleModel } from "./desktop.js";
 
 function snapshot(messages: HostSnapshot["messages"]): HostSnapshot {
   return {
@@ -25,7 +25,7 @@ function snapshot(messages: HostSnapshot["messages"]): HostSnapshot {
 let preferences: PreferencesStore;
 
 beforeEach(() => {
-  preferences = new PreferencesStore();
+  preferences = createKitHarness().preferences;
 });
 
 describe("automatic title generation", () => {

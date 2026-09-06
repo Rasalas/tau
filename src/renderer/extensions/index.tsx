@@ -24,9 +24,7 @@ import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
 import type { WorkspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
-import { titleGeneratorExtension } from "./title-generator";
 import { agentsExtension } from "./agents-kit";
-import { worktreeNamesExtension } from "./worktree-names";
 import { piUiExtension } from "./pi-ui";
 import { PREVIEW_PANEL, PreviewFollower, isPreviewState, previewKit, previewStore } from "./preview-store";
 import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_STATE_EVENT } from "../../shared/preview-protocol";
@@ -308,8 +306,6 @@ export const bundledExtensions = [
   reviewExtension,
   observatoryExtension,
   computerUsePresentationExtension,
-  titleGeneratorExtension,
-  worktreeNamesExtension,
   agentsExtension,
   piUiExtension,
   previewExtension,

@@ -1,0 +1,10 @@
+{
+  "id": "tau.thread-titles",
+  "name": "Thread Title Generator",
+  "version": "1.0.0",
+  "engines": { "api": "^1.2.0" },
+  "permissions": ["sessions"],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts"
+}

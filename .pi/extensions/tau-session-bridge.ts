@@ -41,9 +41,8 @@ import {
 } from "../../src/main/workspace-kit-checkpoints.js";
 import { bridgeTranscriptPage, boundedBridgePayload, boundedBridgeValue } from "../../src/shared/bridge-transcript-pager.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS, toolOutputByteLength } from "../../src/shared/tool-output.js";
-import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../src/shared/thread-titles-protocol.js";
-import { cleanThreadTitle } from "../../src/main/host-messages.js";
-import { buildTitleConversation } from "../../src/main/extensions/thread-titles-host-extension.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID } from "../../kits/thread-titles/protocol.js";
+import { buildTitleConversation, cleanThreadTitle } from "../../src/main/host-text.js";
 import {
   encodePiBridgeFrame,
   PI_BRIDGE_MAX_FRAME_BYTES,

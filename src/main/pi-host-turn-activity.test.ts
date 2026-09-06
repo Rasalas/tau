@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
@@ -8,8 +9,8 @@ import { PiHost } from "./pi-host.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, turnActivityHistoryFromMessages } from "./host-messages.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
-import type { HostExtensionCommandHandler, HostExtensionContext } from "./host-extensions.js";
-import { createThreadTitlesHostExtension } from "./extensions/thread-titles-host-extension.js";
+import type { HostExtensionContext } from "./host-extensions.js";
+import { loadBundledKitHostHalves } from "./bundled-kits.js";
 import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
@@ -311,38 +312,19 @@ describe("PiHost deliberate tool-output reads", () => {
   });
 });
 
+// The kit is loaded the way the app loads it, straight from `kits/`: this is
+// core's side of the seam, so the extension has to be the real one.
+const appPath = fileURLToPath(new URL("../..", import.meta.url));
+const threadTitlesKit = async () => (await loadBundledKitHostHalves({ appPath })).extensions
+  .filter((extension) => extension.id === "tau.thread-titles");
+
 async function titleHost(emit: (event: unknown) => void = () => undefined) {
-  const host = new PiHost("/repo", emit as never, {} as never, false, false, { hostExtensions: [createThreadTitlesHostExtension()] });
+  const host = new PiHost("/repo", emit as never, {} as never, false, false, { hostExtensions: threadTitlesKit });
   await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
   return host;
 }
 
 describe("PiHost.generateThreadTitle", () => {
-  it("forwards title generation to Pi when the attached runtime owns the thread", async () => {
-    const invoke = vi.fn(async () => ({ title: "Attached title" }));
-    let generate: ((input: unknown) => Promise<unknown>) | undefined;
-    await createThreadTitlesHostExtension().activate({
-      id: "tau.thread-titles",
-      services: {
-        runtimeOwner: () => "pi",
-        attachedRuntime: () => ({ sessionId: "session", invoke }),
-      },
-      registerCommand: (_name: string, handler: HostExtensionCommandHandler) => {
-        generate = async (input) => handler(input);
-        return () => undefined;
-      },
-      emit: () => undefined,
-    } as unknown as HostExtensionContext);
-
-    await expect(generate?.({ provider: "provider", modelId: "model", force: false, sessionId: "session" }))
-      .resolves.toEqual({ title: "Attached title" });
-    expect(invoke).toHaveBeenCalledWith("tau.thread-titles", "generate", {
-      provider: "provider",
-      modelId: "model",
-      force: false,
-    });
-  });
-
   it("silently skips automatic title generation until the first message exists", async () => {
     const host = await titleHost();
     const thread = makeActivationThread("session");

@@ -181,7 +181,8 @@ export class PiHost {
   /** Everything host extensions contribute; only the seam writes those registries. */
   private readonly seam: HostExtensionSeam;
   private readonly hostExtensions: HostExtensionRegistry;
-  private readonly pendingHostExtensions: readonly HostExtension[];
+  /** Resolved on the first activation when it arrived as a thunk. */
+  private pendingHostExtensions: readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
   /** The host halves of installed packages; absent in safe mode, where no package loads. */
   private readonly packages?: ExtensionPackageActivator;
   /** Mints and resolves the ids clients name workspaces by. */
@@ -351,7 +352,7 @@ export class PiHost {
       load: loadPackages,
       cwd: () => this.cwd,
       agentDir: this.agentDir,
-      bundled: (id) => this.pendingHostExtensions.some((extension) => extension.id === id),
+      bundled: (id) => Array.isArray(this.pendingHostExtensions) && this.pendingHostExtensions.some((extension) => extension.id === id),
       log: (label, detail) => this.log(label, detail),
       publish: (event) => this.emit(event),
       ...(options.grantsFilePath ? { grantsFilePath: options.grantsFilePath } : {}),
@@ -600,7 +601,11 @@ export class PiHost {
   }
 
   private async activateHostExtensions(): Promise<void> {
-    for (const extension of this.pendingHostExtensions) await this.hostExtensions.activate(extension);
+    // The kits Tau ships arrive as a thunk so their compilation happens with the
+    // host, not with the module that configured it.
+    const bundled = typeof this.pendingHostExtensions === "function" ? await this.pendingHostExtensions() : this.pendingHostExtensions;
+    this.pendingHostExtensions = bundled;
+    for (const extension of bundled) await this.hostExtensions.activate(extension);
     await this.packages?.start();
   }
 
