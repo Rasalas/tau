@@ -246,9 +246,22 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
       };
 
       const prompts = new Map<string, string>();
-      /** Starts in flight, so a spawn waits for its own agent and not for the batch. */
-      const starting = new Map<string, Promise<void>>();
-      /** Builds one agent's thread. Its slot is already claimed by the pump. */
+
+      /**
+       * Takes one of the parent's slots for a queued agent, or reports that the
+       * budget is full. It is deliberately synchronous: twenty `tau_spawn_thread`
+       * calls arriving in one turn each claim their own slot before any of them
+       * awaits, which is what lets the whole batch start together.
+       */
+      const claimSlot = (agentId: string): boolean => {
+        const link = book.linkFor(agentId);
+        if (!link || link.status !== "pending") return false;
+        if (book.busyChildren(link.parentThreadId) >= book.runningBudget) return false;
+        changed(agentId, book.noteStarting(agentId, Date.now()));
+        return true;
+      };
+
+      /** Builds one agent's thread. Its slot is already claimed. */
       const startAgent = async (agent: AgentThreadLink): Promise<void> => {
         try {
           const started = await services.sessions.start({
@@ -275,11 +288,10 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
       };
 
       /**
-       * Starts everything a parent has room for, oldest first, and starts the
-       * whole batch at once: a thread takes seconds to build, and starting the
-       * next only after the last one existed is what kept twenty agents
-       * trickling in one at a time. The host bounds the real concurrency; the
-       * budget bounds how many of them are ever in flight.
+       * Starts what freed slots allow, oldest first, and starts that whole batch
+       * at once: a thread takes a moment to build, and waiting for one before
+       * building the next is what kept agents trickling in one at a time. The
+       * host bounds the real concurrency; the budget bounds how many run.
        */
       const pumps = new Map<string, Promise<void>>();
       const pump = (parentThreadId: string): Promise<void> => {
@@ -287,16 +299,9 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
         if (running) return running;
         const work = (async () => {
           for (;;) {
-            const batch = book.startable(parentThreadId);
+            const batch = book.startable(parentThreadId).filter((agent) => claimSlot(agent.id));
             if (batch.length === 0) return;
-            // Claiming the slots before the first await is what keeps the next
-            // round from handing the same agents out again.
-            for (const agent of batch) {
-              changed(agent.id, book.noteStarting(agent.id, Date.now()));
-              const start = startAgent(agent).finally(() => { starting.delete(agent.id); });
-              starting.set(agent.id, start);
-            }
-            await Promise.all(batch.map((agent) => starting.get(agent.id)));
+            await Promise.all(batch.map((agent) => startAgent(agent)));
           }
         })().finally(() => { pumps.delete(parentThreadId); });
         pumps.set(parentThreadId, work);
@@ -322,11 +327,9 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
           ...(model ? { model } : {}),
         }, { queued: true });
         publish();
-        // The pump claims its whole batch before it awaits anything, so this
-        // call only ever waits for its own agent: one that got a slot comes
-        // back with its thread id, one that queued comes back "pending" at once.
-        void pump(parent.sessionId).catch((error: unknown) => services.log("agents.pump-failed", String(error)));
-        await starting.get(id);
+        // A slot free right now belongs to this call, so it comes back with a
+        // real thread id; a spawn beyond the budget queues and returns at once.
+        if (claimSlot(id)) await startAgent(book.linkFor(id)!);
         const link = book.linkFor(id)!;
         return { threadId: link.threadId ?? id, title: link.title, status: link.status };
       };
