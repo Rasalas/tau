@@ -69,6 +69,12 @@ watches it. A `styles` entry is copied there beside the two bundles and served
 over `tau-ext://`. The loader prefers `dist-kits/` over `kits/`, so an edit needs the
 watcher (or `npm run build:kits`) before the app sees it.
 
+`--kits <dir>` and `--out <dir>` point the same build at a distribution that is
+not in this repository — a checked-out `@tau/kits`, or the tree a
+`git subtree split` produced — and compile it against this core
+([ADR 0015](../docs/adr/0015-core-and-distribution.md)). Both default to the
+folders here, so nothing about `npm run build` changes.
+
 Beside the kit folders the build writes `dist-kits/manifest.json`: the name,
 version and `engines` from this `package.json` plus the ids it built. The
 version lives in that one index rather than being stamped into each kit's
@@ -82,7 +88,10 @@ instead, so the two agree.
 
 `version` is the distribution's, raised when the set changes. `engines.api` is
 the `EXTENSION_API_VERSION` line every kit builds against; `src/shared/kits-boundary.test.ts`
-fails when it drifts from that constant or from a kit's own `engines.api`.
+fails when it drifts from that constant or from a kit's own `engines.api`. Core
+owns that constant and is the only side that raises it, which is why API lands
+in a core release before the kits that use it
+([ADR 0015](../docs/adr/0015-core-and-distribution.md)).
 
 There is no npm workspace here, deliberately. `@tau/kits` is `private` and
 declares no dependencies: the kits reach core through the three API modules,

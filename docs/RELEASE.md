@@ -5,11 +5,42 @@ Tau ships as an installable app built by [electron-builder](https://electron.bui
 version, and the version in an installed app is what the updater compares
 against the release feed.
 
+## Two artifacts, one tag
+
+A release carries two versioned things: the **core app** and **`@tau/kits`**,
+the distribution of bundled kits it ships ([ADR 0014](adr/0014-bundled-kits-are-packages.md)).
+
+| | version in | raise it when |
+|---|---|---|
+| core app | `package.json` | anything under `src/`, the host protocol or a dependency changed |
+| `@tau/kits` | `kits/package.json` | a kit was added, removed, or changed enough that a user would notice |
+
+They move independently and are shipped together: `npm run build` compiles
+`kits/` into `dist-kits/`, one tag builds the installer around both, and an
+installed Tau always runs the exact set its core release was built with. There
+is no separate kits download today, so a kits-only change still needs a core
+tag to reach anyone.
+
+The order between them is fixed by `engines.api`. Core owns
+`EXTENSION_API_VERSION` (`src/shared/extension-compat.ts`) and is the only side
+that raises it; the kits declare the line they build against, in
+`kits/package.json` and in every `tau-extension.json`. A kit that asks for API
+this core does not have stays off on both sides with the reason in Settings →
+Inspector, so API always lands in a core release first and the kits that use it
+follow. `src/shared/kits-boundary.test.ts` fails when the two drift apart.
+
+[ADR 0015](adr/0015-core-and-distribution.md) records what changes if the
+distribution ever moves to its own repository — what each side would pin, and
+the release order that keeps a wrong pairing from shipping.
+
 ## Cut a release
 
 1. Land everything the release should contain on `main`.
 2. Raise `version` in `package.json` and commit it. Raise the one in
-   `kits/package.json` too when the shipped kits changed — see below.
+   `kits/package.json` too when the shipped kits changed (above). `npm run
+   build` writes it into `dist-kits/manifest.json`, and Settings → Packages
+   heads the bundled list with it, which is the quickest check that the
+   artifact carries the version you meant.
 3. Tag the commit and push the tag:
 
    ```bash
