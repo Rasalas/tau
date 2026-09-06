@@ -36,7 +36,7 @@ Workbench
 
 ## Not in core
 
-These exist today, some still inside core files. They are extension work, and Phase 1b in [PLAN.md](../PLAN.md) moves them.
+These were extension work still inside core files when Phase 1b in [PLAN.md](../PLAN.md) started the move; Phase 6 finished it, and each row below names the kit under `kits/` that owns it now.
 
 | Feature | Owner today | Belongs to |
 |---|---|---|
@@ -65,10 +65,10 @@ core's own actions — the command palette, `escape` to abort, `mod+n`,
 are the workbench itself. A window that cannot pick a model is not a usable
 window, and safe mode has to be one. They live in `src/renderer/settings/`
 (`runtimeControls`, activated through `registry.activateCore`, so it is on in
-safe mode too and carries no switch) with the host entry that reads Pi's
-`keybindings.json` and its extension shortcuts in
-`src/main/keybindings-host-extension.ts`. They keep the id
-`tau.runtime-settings`: it is the name Pi's keybindings arrive under.
+safe mode too and carries no switch). The host entry that reads Pi's
+`keybindings.json` and its extension shortcuts is the Keybindings kit's
+`kits/keybindings/host.ts`, not core; Runtime Controls only keeps the id
+`tau.runtime-settings`, the name Pi's keybindings arrive under.
 
 The one thing safe mode loses with the kits is `/install` and the Packages
 page — the package manager is a kit like any other now. Recovering from a

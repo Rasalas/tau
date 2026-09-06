@@ -7,5 +7,14 @@
     "perf": "warn"
   },
   "rules": {},
-  "ignorePatterns": ["dist/", "dist-electron/", "node_modules/"]
+  "ignorePatterns": ["dist/", "dist-electron/", "node_modules/"],
+  "overrides": [
+    {
+      "files": ["kits/**", "scripts/**", "src/main/**", ".pi/**"],
+      "rules": {
+        "eslint/no-await-in-loop": "off",
+        "oxc/no-map-spread": "off"
+      }
+    }
+  ]
 }

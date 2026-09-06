@@ -122,8 +122,9 @@ the split needs in the distribution.
 
 **A distribution pins core through the API, core pins the distribution by
 version.** From the kits side the pin is `engines.api`: a range on the
-interfaces, not on the app, because Tau's own version is `0.0.0` and says
-nothing (`engines.tau` becomes the better pin only once it does). From the core
+interfaces, not on the app, because Tau's own version stays pre-1.0 (see
+`package.json`) and says nothing yet (`engines.tau` becomes the better pin
+once it leaves 0.x). From the core
 side the pin is exact: `"@tau/kits": "0.4.1"` as a devDependency in the core's
 `package.json`, so a core release is reproducible and `npm run build` picks the
 same set every time. Neither side floats.
