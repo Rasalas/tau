@@ -144,6 +144,48 @@ The main process starts no `PiHost` and no Pi in that mode: it opens the window,
 
 A dropped link (a suspended machine, a restarted tunnel) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. A strip above the status line reads `Reconnecting to the host…`, then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. Nothing has to be restarted by hand.
 
+### The web client
+
+A listening host also serves a browser client, so a phone or a second machine can
+supervise the same threads as the desktop window. Build it once (`npm run build:web`
+writes `dist-web/`), then start a host that listens:
+
+```bash
+npm run build && npm run build:web
+TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=127.0.0.1:7788 node dist-electron/main/headless.js
+```
+
+Besides the socket line, the host prints a link:
+
+```
+web client: http://127.0.0.1:7788/#pair=<code> (single use, 10 minutes)
+```
+
+Open it. The code lives in the URL's fragment, so it reaches neither a proxy nor an
+access log, the page replaces the address before it renders anything, and the code can
+be redeemed once. Without a link, the client shows a field for the token itself — the
+line in `~/.tau/host-token` on the host machine. The browser keeps what it was given in
+`localStorage`; a token the host refuses closes the socket and brings the field back.
+
+The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
+and Agents panel, reading the same stores over the same protocol. What differs is what it
+can draw. A browser has no editor and no Electron window, so contributions that need one
+are not registered there; Settings → Inspector lists them under "Not on this client",
+with the extension, the contribution and the clients it does claim (`docs/adr/0016-client-profiles.md`).
+Their host halves keep running: Workspace Kit still records turn checkpoints for a thread
+driven from the browser, and the desktop window shows them.
+
+Below 720 px the workbench lays itself out compactly, on any client: the thread list
+becomes a sheet behind a button in the title bar, the composer sticks to the bottom edge,
+the dock and the stage step aside, and the start screen becomes the list a supervisor
+wants — every thread with what it is doing (running, waiting for an answer, failed, done),
+a tap to open it, and a stop button that does not make you open it first. A Pi
+confirm is answered in the composer, the way it is on the desktop.
+
+The socket is unencrypted and the page is served over plain HTTP, so the host refuses to
+bind anything but a loopback address. To reach it from a phone, forward the port over SSH
+or a tunnel you trust; `TAU_HOST_INSECURE=1` is the deliberate exception.
+
 ### Share a live session with Pi
 
 Tau can attach to a Pi TUI that already owns the active session instead of opening a second `SessionManager`. Open Pi in the project first. For an already-running Pi session, run `/reload` once so Pi loads `.pi/extensions/tau-session-bridge.ts`, then start or restart Tau. Prompts, steering, aborts, assistant streaming, tool activity, model changes, thinking changes, compaction, and thread renames travel over an authenticated local socket and remain visible in both clients.

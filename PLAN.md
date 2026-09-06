@@ -108,18 +108,19 @@ Completion check: the desktop workbench can reconnect to a remote host and conti
 
 ## Phase 5: add other clients
 
-Build web or mobile clients only after the host protocol and extension capability model are stable.
-
-Settled 2026-09-05: a web or mobile client is explicitly out of scope for now (ADR 0010's "Out of scope" list, ticket 19). The protocol amendment that made a plain Electron window a pure client of a remote host (`TAU_HOST_URL`, above) deliberately stopped there: a browser client would additionally need the host to serve its own built assets and a way to enter a token without a native dialog, and nothing does either yet. The planned work below records what such a client would still need if this is revisited, not work in progress.
-
-Planned work:
+Done 2026-09-07. A browser at a listening host is the second client: the same
+stores, the same components and the same protocol, with `src/web/` (an entry, a
+browser `Platform`, the token handling and a paste field) in place of Electron.
 
 - separate workbench state from Electron-specific behavior — done 2026-09-06: `src/workbench/` is the client without a window (stores, transcript history, composer scopes, `WorkbenchStore`, `ThreadCommands`, the host connection), it imports no React, no Electron and no browser global, and `Platform` is what it needs of the machine it runs on (ADR 0016)
 - define which desktop contributions have web or mobile renderers — done 2026-09-06: a contribution declares `profiles` (`desktop`, `web`, `compact`), the registry never registers what this client cannot draw, and Settings → Inspector lists the rest under "Not on this client" (ADR 0016)
-- adapt navigation and agent supervision for small screens
+- build the client and serve it — done 2026-09-07: `npm run build:web` writes `dist-web/` under its own build budget, and a listening host serves it from an HTTP server the socket upgrades on, so page and protocol share one origin and one port. The token reaches the browser through a single-use pairing code in the link's fragment, replaced before the first render, or through a paste field (ADR 0016, amended)
+- adapt navigation and agent supervision for small screens — done 2026-09-07: below 720 px, on any client, the thread list is a sheet, the composer is pinned to the bottom edge, the dock and the stage step aside, and the start screen lists every thread with what it is doing (running, waiting for an answer, failed, done), a tap to open it and a stop that does not need it opened. One stylesheet keyed on `body[data-profile]` and three conditions in `Workbench.tsx`; no second component tree
 - keep host-side Pi and project extensions available when a client cannot render their desktop UI — done 2026-09-06: a profile filters drawing, never lifecycle; on the `web` profile Workspace Kit is still active and still taking checkpoints, which `kit-lifecycle.test.tsx` asserts
 
-Completion check: a second client can supervise the same host and clearly reports unsupported desktop capabilities. The reporting half exists; the second client itself does not yet (ticket 19b).
+Completion check: a second client can supervise the same host and clearly reports unsupported desktop capabilities. Satisfied 2026-09-07 with a headless host, a desktop window and a browser on it at once (GPT-5.6 Luna): a prompt from either client appeared in the other's transcript, Settings → Inspector listed Workspace Kit, Preview and Review under "Not on this client" while the host log kept recording turn checkpoints, and at 400 px a running thread was stopped from the thread sheet and a Pi confirm answered in the composer.
+
+Open for a wider setup, as in Phase 4: TLS for a host reached without a tunnel — the page is served over plain HTTP, so the host still refuses anything but a loopback bind. And a desktop window pointed at a remote host loads no kits, because a `file://` page may not evaluate the bundle the host sends as source; the browser client, served over HTTP, has no such problem (`docs/adr/0016-client-profiles.md`).
 
 ## Phase 6: ship core and kits as two artifacts
 
@@ -163,7 +164,7 @@ These questions are intentionally unresolved:
 - Which workbench state belongs to the client, host, project, or extension?
 - How much of the desktop extension model should be portable to web and mobile clients, if one is ever built?
 
-Settled since: how packages are distributed. npm and Git are the index, the four verbs of `tau.packages` mirror Pi's CLI, and an optional Ed25519 signature says who built a folder (ADR 0011). A hosted registry, revocation and key rotation stay out. — Which extension code may run in-process and which must be isolated: a package's host half runs in a worker by default (no Electron, a 256 MB heap cap, a plain-data facade); `"isolation": "in-process"` is granted like a permission for the few members — a live Pi runtime, `registerRuntimeExtension`, `registerRuntimeBackend`, `presentUi` and the like — that cannot cross a message port (ADR 0009, 2026-09-05 section). — Whether to build a web or mobile client now: no, see Phase 5.
+Settled since: how packages are distributed. npm and Git are the index, the four verbs of `tau.packages` mirror Pi's CLI, and an optional Ed25519 signature says who built a folder (ADR 0011). A hosted registry, revocation and key rotation stay out. — Which extension code may run in-process and which must be isolated: a package's host half runs in a worker by default (no Electron, a 256 MB heap cap, a plain-data facade); `"isolation": "in-process"` is granted like a permission for the few members — a live Pi runtime, `registerRuntimeExtension`, `registerRuntimeBackend`, `presentUi` and the like — that cannot cross a message port (ADR 0009, 2026-09-05 section). — Whether to build a web or mobile client now: a browser client of a listening host, yes, and it shipped (Phase 5, ADR 0016 amended); native apps, push and offline stay out.
 
 Record a new ADR when one of these decisions becomes expensive to reverse and has a real alternative.
 

@@ -58,9 +58,19 @@ Where it needs the view side it names a port, never a class.
 (`src/workbench/platform.ts`) is what the client needs of the machine it runs
 on: clipboard, `openExternal`, `files` (only where the host's paths are this
 machine's), storage and `importModule`. Electron answers it in
-`src/renderer/platform-electron.ts`, which is also the only module that builds
-the Electron host client or reads the browser's own key-value store.
-`App.tsx` is bootstrap, store wiring and layout.
+`src/renderer/platform-electron.ts` and a browser tab in
+`src/web/platform-web.ts`. `App.tsx` is bootstrap, store wiring and layout; the
+three facts it cannot work out for itself — which client this is, whether kits
+were left out, and how to build the platform — arrive as a `ClientEnvironment`
+from the entry point.
+
+There are two such entry points. `src/renderer/main.tsx` is the Electron window;
+`src/web/` is the browser client a listening host serves, which reuses every
+component and adds only its entry, its platform and the token handling. Below
+720 px either of them lays itself out compactly — the thread list as a sheet,
+the composer at the bottom edge, agent supervision as the start screen — through
+`body[data-profile]` and `src/renderer/profile-compact.css`, not a second
+component tree.
 
 ### The stage
 

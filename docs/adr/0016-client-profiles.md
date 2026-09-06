@@ -3,8 +3,9 @@
 ## Status
 
 Accepted, 2026-09-06. First half of Phase 5 in [PLAN.md](../../PLAN.md): the
-platform-neutral workbench, the platform seam and client profiles. No second
-client exists yet.
+platform-neutral workbench, the platform seam and client profiles. Amended
+2026-09-07 (ticket 19b) with the second client that uses them: see
+"Amendment" below.
 
 ## Context
 
@@ -118,13 +119,67 @@ them. `kit-lifecycle.test.tsx` asserts exactly that.
 
 ## Out of scope
 
-- **The web client itself**, `vite.web.config.ts`, `dist-web/` and the host
-  serving it (ticket 19b). Nothing here builds a second client; it makes one
-  possible.
-- **The compact layout.** `compact` is a profile a contribution may claim, but
-  no client selects it from a width yet and no component reads it.
 - **Per-profile styling.** Kits carry one stylesheet each; a contribution that
   claims `compact` promises its own rules work there.
 - **Filtering commands.** A command a client cannot usefully run (`/reload`
   without a build host) still shows. Whether a command needs a profile is a
   question for the client that finds one.
+
+## Amendment, 2026-09-07: the second client, and what picks a profile
+
+The web client (`src/web/`, ticket 19b) is the client this ADR was written for.
+Building it settled three things the original left open.
+
+### Two profiles, not one: what a client claims, and how wide it is
+
+A contribution's `profiles` is a claim about a *client*, so the profile the
+registry filters on is decided once, when the page loads:
+`browserClientProfile(width, override)` gives `compact` below 720 px and `web`
+above it, and `?profile=` or `TAU_CLIENT_PROFILE` beats both. Dragging a window
+narrow afterwards must not unregister a panel — the kit's claim did not change,
+and re-activating the registry to follow a resize would tear down live state
+for a layout question.
+
+The layout does follow the width, on every client:
+`layoutProfileFor(profile, width)` is `compact` under 720 px, the Electron
+window included, and `useLayoutProfile` writes it to `body[data-profile]`.
+`src/renderer/profile-compact.css` is the whole of it, plus three conditions in
+`Workbench.tsx`: no dock, no sidebar column, and a thread sheet instead. There
+is no second component tree and no second stylesheet system.
+
+### `ClientEnvironment` is what the entry point knows
+
+`App.tsx` used to read its own profile out of the query string and construct
+Electron's platform by name. Both are facts only an entry point has, so they
+became `ClientEnvironment { profile, safeMode, createPlatform }`, installed by
+`src/renderer/main.tsx` or `src/web/main.tsx`. `createWebPlatform` is the
+browser's answer: `navigator.clipboard`, `localStorage`, `window.open`, no
+`files` at all — a tab has no editor, and on a remote host the paths are not
+this machine's either.
+
+### The token reaches the browser without living in the URL
+
+A listening host now serves `dist-web/` from an HTTP server the socket upgrades
+on, so page and protocol share one origin and one port. It prints a link whose
+*fragment* carries a single-use pairing code; a fragment reaches no proxy and no
+access log, `takePairingCode` replaces the address before the first render, and
+`POST /pair` trades the code for the token exactly once within ten minutes.
+Whoever has no link pastes the token instead — it is the whole authentication of
+a listening host (ADR 0010), so there is nothing else to offer. A token the host
+refuses closes the socket with 4401, which now stops the transport instead of
+reconnecting into a wall.
+
+### What the profiles turned out to be worth
+
+On the `web` profile the browser draws the transcript, the composer, Pi
+dialogs, Agents, Signals, Packages and Pi UI, and Settings → Inspector lists
+Workspace Kit's nine contributions, Preview's two and Review's overlay under
+"Not on this client" — while the host half of Workspace Kit keeps writing turn
+checkpoints that the desktop window across the room shows. That is the claim of
+this ADR, observed rather than asserted.
+
+## Still out of scope
+
+- **A client that changes profile at runtime.** A resize changes the layout, not
+  the claim; reloading is how a client changes what it draws.
+- **Native apps, push, offline.** Ticket 19 excluded them and still does.
