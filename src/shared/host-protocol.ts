@@ -7,6 +7,7 @@ import type {
   UiModel,
   UiTaskProgress,
   UiTaskProgressEntry,
+  UiThreadUsage,
   UiTurnActivityEntry,
   UiTurnActivity,
   SubmissionResult,
@@ -50,6 +51,7 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscript
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
   contextUsage?: UiContextUsage;
+  usage?: UiThreadUsage;
   /** Whether another page exists; omitted by older protocol peers. */
   hasMore?: boolean;
 }
@@ -263,6 +265,7 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
       ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
       : {}),
     contextUsage: snapshot.contextUsage,
+    usage: snapshot.usage,
     olderCursor: snapshot.olderCursor,
     cursorBeforeMessageId: snapshot.cursorBeforeMessageId,
     cursorBoundaries,
@@ -299,6 +302,7 @@ export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: Thr
     turnActivity: detail.turnActivity,
     taskProgress: detail.taskProgress,
     contextUsage: detail.contextUsage,
+    usage: detail.usage,
   };
 }
 
@@ -348,6 +352,7 @@ export function detailFromSnapshot(
       ? { turnActivityHistoryComplete: snapshot.turnActivityHistoryComplete }
       : {}),
     contextUsage: snapshot.contextUsage,
+    usage: snapshot.usage,
     ...(olderCursor ? { olderCursor } : {}),
     ...(firstUserMessage ? { cursorBeforeMessageId: firstUserMessage.id } : {}),
     ...(olderCursor && firstUserMessage ? {

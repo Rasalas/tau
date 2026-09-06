@@ -4,6 +4,8 @@ import { STORAGE_KEYS } from "./storage-keys";
 export interface PreferencesState {
   /** Whether assistant thinking blocks start expanded, like Ctrl+T in Pi's terminal. */
   showThinking: boolean;
+  /** Whether the workbench shows what threads cost. */
+  showCosts: boolean;
   editorId?: string;
   settledThreadIds: readonly string[];
   pinnedThreadIds: readonly string[];
@@ -18,6 +20,7 @@ export interface PreferencesState {
 
 const DEFAULTS: PreferencesState = {
   showThinking: false,
+  showCosts: true,
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
@@ -45,6 +48,7 @@ function load(): PreferencesState {
     if (typeof raw.accessLevel === "string" && !("tau.access.level" in values)) values["tau.access.level"] = raw.accessLevel;
     return {
       showThinking: raw.showThinking === true,
+      showCosts: raw.showCosts !== false,
       editorId: typeof raw.editorId === "string" ? raw.editorId : undefined,
       settledThreadIds: stringList(raw.settledThreadIds),
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
@@ -71,6 +75,10 @@ export class PreferencesStore {
 
   setShowThinking(showThinking: boolean): void {
     this.update({ showThinking });
+  }
+
+  setShowCosts(showCosts: boolean): void {
+    this.update({ showCosts });
   }
 
   setEditor(editorId: string): void {

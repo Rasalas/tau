@@ -9,6 +9,7 @@ import type {
   UiPromptAttachment,
   UiSkillDraft,
   UiThreadTree,
+  UiThreadUsage,
   UiToolOutputReadResult,
   ThreadBackendKind,
 } from "../shared/contracts.js";
@@ -69,6 +70,8 @@ export interface ThreadCatalogView {
   thinkingLevels: readonly string[];
   allTools: ReadonlyArray<{ name: string; description: string }>;
   contextUsage?: UiContextUsage;
+  /** Tokens and money the thread has spent so far, when the runtime tracks them. */
+  usage?: UiThreadUsage;
 }
 
 export interface ShellCommandResult {

@@ -35,6 +35,7 @@ import type {
   PreparedPrompt,
   ThreadTreeNavigationResult,
   UiThreadTree,
+  UiThreadUsage,
 } from "../shared/contracts.js";
 import { createNewThreadRequestId, type ClientTurnIdentity } from "../shared/contracts.js";
 import {
@@ -127,9 +128,17 @@ import {
   reconcileActiveThreadShell,
   mergeSessionIndexScan,
   boundedToolOutput,
+  threadUsageEqual,
 } from "./host-messages.js";
+import { SessionUsageIndex, hasThreadUsage, readSessionFileStamp } from "./session-usage.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
+
+/** A thread nobody has spent anything on shows no cost at all, not a zero. */
+function usageOrUndefined(usage: UiThreadUsage | undefined): UiThreadUsage | undefined {
+  return hasThreadUsage(usage) ? usage : undefined;
+}
+
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
 const SHUTDOWN_ABORT_MS = 3_000;
 
@@ -231,6 +240,9 @@ export class PiHost {
   private readonly knownNestedProjects = new Map<string, boolean>();
   private readonly nestedClassifications = new Map<string, Promise<void>>();
   private readonly pendingShellUpdates = new Map<string, UiSession>();
+  /** What each thread has cost, cached by session file so a scan never reads one. */
+  private readonly threadUsage: SessionUsageIndex;
+  private usageCacheLoaded?: Promise<void>;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -310,6 +322,11 @@ export class PiHost {
     this.workspaces = options.workspaceIdentity ?? new WorkspaceIdentity(randomBytes(16).toString("hex"));
     this.platform = options.platform ?? {};
     this.logger = options.logger;
+    this.threadUsage = new SessionUsageIndex({
+      ...(options.sessionUsageCachePath ? { path: options.sessionUsageCachePath } : {}),
+      ...(this.logger ? { logger: this.logger } : {}),
+      onResolved: (sessionPath, usage) => this.applyScannedUsage(sessionPath, usage),
+    });
     const port = this.hostPort();
     this.seam = createHostExtensionSeam(port);
     this.hostExtensions = new HostExtensionRegistry(this.seam.services, (event) => this.emit(event));
@@ -424,6 +441,7 @@ export class PiHost {
     return {
       sessionId: thread.threadId, cwd: thread.cwd, backendKind: thread.backend.kind,
       get sessionFile() { return thread.sessionFile; },
+      get usage() { return thread.backend.catalogView().usage; },
       isStreaming: () => thread.state.streaming || thread.adapterStreaming,
       isIdle: () => !thread.state.streaming && thread.state.idle && !thread.adapterStreaming
       && thread.adapterPending === 0 && !this.extensionUi.hasOpen(thread.threadId),
@@ -1927,6 +1945,11 @@ export class PiHost {
       } catch (error) {
         teardownErrors.push(error);
       }
+      try {
+        await this.threadUsage.dispose();
+      } catch (error) {
+        teardownErrors.push(error);
+      }
       if (teardownErrors.length > 0) {
         throw new AggregateError(teardownErrors, "Pi runtime shutdown failed");
       }
@@ -2506,13 +2529,20 @@ export class PiHost {
 
   private async scanThreadIndex(): Promise<{ previous: readonly UiSession[]; next: UiSession[] }> {
     const scanStartedAt = Date.now();
-    const sessionInfos = await SessionManager.listAll();
+    this.usageCacheLoaded ??= this.threadUsage.load().catch(() => undefined);
+    const [sessionInfos] = await Promise.all([SessionManager.listAll(), this.usageCacheLoaded]);
+    // Stamps are a stat per file; reading the files themselves is what the
+    // usage index defers, so the scan stays a listing.
+    const stamps = new Map(await Promise.all(sessionInfos.map(async (info) =>
+      [info.path, await readSessionFileStamp(info.path)] as const)));
+    this.threadUsage.retain(sessionInfos.map((info) => info.path));
     const scanned = await mapSessions(
       sessionInfos,
       this.cwd,
       async (cwd) => this.labelFor(cwd),
       (cwd) => this.projectNameFor(cwd),
       new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
+      (info) => this.liveThreadUsage(info.id) ?? usageOrUndefined(this.threadUsage.lookup(info.path, stamps.get(info.path))),
     );
     const previous = this.sessions;
     const external = await this.externalSessionShells();
@@ -2561,6 +2591,7 @@ export class PiHost {
 
   private async refreshThreadShell(thread: ThreadRuntime, touch: boolean): Promise<void> {
     const projectPath = thread.cwd;
+    const usage = this.rememberThreadUsage(thread);
     const existing = this.sessions.find((entry) => entry.id === thread.threadId);
     const visibleMessages = await thread.backend.transcript();
     const shell = reconcileActiveThreadShell({
@@ -2575,9 +2606,40 @@ export class PiHost {
       messageCount: visibleMessages.length,
       backendKind: threadBackendKind(thread),
       modelProvider: thread.backend.catalogView().model?.provider ?? this.seam.backends.get(threadBackendKind(thread))?.modelProvider,
+      ...(usage ? { usage } : {}),
     }, existing, touch);
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishThreadShellSoon(shell);
+  }
+
+  /**
+   * A live thread's own total, straight from its runtime. It supersedes the
+   * cache, and seeds it, so an open thread is never re-read from disk.
+   */
+  private rememberThreadUsage(thread: ThreadRuntime): UiThreadUsage | undefined {
+    const usage = usageOrUndefined(thread.backend.catalogView().usage);
+    const file = thread.sessionFile;
+    if (usage && file) {
+      void readSessionFileStamp(file)
+        .then((stamp) => this.threadUsage.record(file, stamp, usage))
+        .catch(() => undefined);
+    }
+    return usage;
+  }
+
+  private liveThreadUsage(threadId: string): UiThreadUsage | undefined {
+    const record = this.threads.get(threadId);
+    return record ? usageOrUndefined(record.runtime.backend.catalogView().usage) : undefined;
+  }
+
+  /** A deferred session-file read finished; the thread's shell carries the number now. */
+  private applyScannedUsage(sessionPath: string, usage: UiThreadUsage): void {
+    const shell = this.sessions.find((entry) => entry.path === sessionPath);
+    if (!shell || threadUsageEqual(shell.usage, usage)) return;
+    const updated = usageOrUndefined(usage) ? { ...shell, usage } : shell;
+    if (updated === shell) return;
+    this.sessions = this.sessions.map((entry) => entry.id === shell.id ? updated : entry);
+    this.publishThreadShellSoon(updated);
   }
 
   private retitleShell(sessionId: string, title: string): void {

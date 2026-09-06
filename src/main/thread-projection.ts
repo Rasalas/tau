@@ -178,6 +178,7 @@ export class ThreadProjection {
       historyCompleteness: "complete",
       supportsImageInput: state.supportsImageInput,
       contextUsage: view.contextUsage,
+      usage: view.usage,
     };
   }
 }

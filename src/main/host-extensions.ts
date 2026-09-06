@@ -6,6 +6,7 @@ import type {
   ThreadBackendKind,
   UiComposerCommand,
   UiMessage,
+  UiThreadUsage,
   UiToolRun,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
@@ -220,6 +221,8 @@ export interface HostThread {
   readonly backendKind: ThreadBackendKind;
   /** The session file behind the thread, once it has one. */
   readonly sessionFile: string | undefined;
+  /** Tokens and money the thread has used so far; absent when the runtime has no total. */
+  readonly usage?: UiThreadUsage;
   isStreaming(): boolean;
   /** Nothing running, queued or asked: the thread can be replaced safely. */
   isIdle(): boolean;

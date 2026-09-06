@@ -290,10 +290,12 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
     useCallback(() => store.getThread(id), [id, store]),
   );
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
+  const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
   if (!session) return null;
   return (
     <ThreadRow
       session={session}
+      showCost={showCosts}
       projectIcon={projects.find((project) => project.path === session.projectPath)?.icon}
       active={active}
       age={sessionAge(session.modifiedAt)}

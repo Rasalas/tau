@@ -184,6 +184,8 @@ export interface UiSession {
   backendKind?: ThreadBackendKind;
   /** Provider of the thread's selected model, when the host has observed it. */
   modelProvider?: string;
+  /** Tokens and money the thread has used; absent until the host knows them. */
+  usage?: UiThreadUsage;
 }
 
 export interface UiProject {
@@ -205,6 +207,17 @@ export interface UiContextUsage {
   tokens: number;
   contextWindow: number;
   percent: number;
+}
+
+/** Tokens and money a thread has used so far, summed over its assistant messages. */
+export interface UiThreadUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  turns: number;
 }
 
 export type ExtensionUiPromptKind = "select" | "confirm" | "input" | "editor";
@@ -307,6 +320,7 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
   contextUsage?: UiContextUsage;
+  usage?: UiThreadUsage;
   /** Whether the active host/runtime adapter accepts image prompt input. */
   /** Optional for protocol-v1 compatibility; missing means unsupported. */
   supportsImageInput?: boolean;
@@ -339,6 +353,7 @@ export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTra
   taskProgress?: UiTaskProgress;
   taskHistory?: UiTaskProgressEntry[];
   contextUsage?: UiContextUsage;
+  usage?: UiThreadUsage;
   /** Older v1 clients may omit this derived flag. */
   hasMore?: boolean;
 }

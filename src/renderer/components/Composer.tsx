@@ -9,9 +9,11 @@ import type {
   UiContextUsage,
   UiPromptAttachment,
   UiSkillDraft,
+  UiThreadUsage,
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
+import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { ExtensionPrompt } from "./ExtensionPrompt";
@@ -145,6 +147,7 @@ export function Composer({
   queue,
   contextUsage,
   contextBreakdown,
+  threadUsage,
   textareaRef,
   attachmentRef,
   onChange,
@@ -171,6 +174,8 @@ export function Composer({
   queue: readonly QueuedFollowUp[];
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
+  /** What this thread has spent; absent when unknown or when costs are hidden. */
+  threadUsage?: UiThreadUsage;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
   onChange?(value: string): void;
@@ -725,6 +730,8 @@ export function Composer({
               event.target.value = "";
             }}
           />
+
+          {threadUsage ? <ThreadCost usage={threadUsage} /> : null}
 
           {contextUsage ? (
             <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />

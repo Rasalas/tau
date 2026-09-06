@@ -571,6 +571,8 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
 }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   const tools = useSyncExternalStore(view.subscribeToTools, view.getToolView).tools;
+  const preferences = usePreferences();
+  const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
   const {
     scopeStore, seed, textareaRef, attachmentRef, queue, holds, prompts, submit, abort,
     cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
@@ -587,6 +589,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     queue={queue}
     contextUsage={snapshot?.contextUsage}
     contextBreakdown={contextBreakdown}
+    threadUsage={showCosts ? snapshot?.usage : undefined}
     textareaRef={textareaRef}
     attachmentRef={attachmentRef}
     onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
