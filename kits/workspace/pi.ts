@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { DiffLoadOptions, PiKitBridge, UiFileDiff, UiWorkspaceChangesPage } from "tau/host-extension";
 import { assistantAnchorForMessage } from "./pi-turn-checkpoint-extension.js";
-import { checkpointsForBranch, cloneTurnCheckpoint, turnCheckpointsFromEntries, TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import { checkpointsForBranch, cloneTurnCheckpoint, turnCheckpointsFromEntries, turnRestoreBackupsFromEntries, TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
 import { createWorkspaceKitCheckpointFeature, createWorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 import { CHECKPOINT_EVENT, type CheckpointEvent, type WorkspaceCheckpointList } from "./protocol.js";
@@ -187,7 +187,11 @@ export default function workspacePiExtension(pi: ExtensionAPI, bridge: PiKitBrid
     previousSessionForFork = undefined;
     if (ctx.mode !== "tui" || !ctx.sessionManager.getSessionFile()) return;
     const sessionId = ctx.sessionManager.getSessionId();
-    await maintenance.cleanupOrphanRefs(ctx.cwd, sessionId, turnCheckpointsFromEntries(ctx.sessionManager.getBranch(), sessionId));
+    const branch = ctx.sessionManager.getBranch();
+    // Restore is a host operation, but a session Pi opens here may already
+    // carry a backup marker; its pair is a root like any checkpoint's.
+    await maintenance.cleanupOrphanRefs(ctx.cwd, sessionId,
+      turnCheckpointsFromEntries(branch, sessionId), turnRestoreBackupsFromEntries(branch, sessionId));
     const carried = inherited ? checkpointsForBranch(ctx.sessionManager.getBranch(), inherited.checkpoints) : [];
     if (!inherited || carried.length === 0) return;
     try {

@@ -149,17 +149,42 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
 
   const checkpointsOf = (entries: readonly unknown[], sessionId: string) => turnCheckpointsFromEntries(entries, sessionId);
 
+  /** What one session's journal claims of a workspace's snapshot refs. */
+  const claimOf = (sessionId: string, cwd: string, entries: readonly unknown[]): WorkspaceKitLiveCheckpointSession => ({
+    sessionId,
+    cwd: cwd || services.cwd(),
+    checkpoints: checkpointsOf(entries, sessionId),
+    backups: turnRestoreBackupsFromEntries(entries, sessionId),
+    restoreTransactions: turnRestoreTransactionsFromEntries(entries, sessionId),
+  });
+
+  /**
+   * A live thread's journal is ahead of its session file between the append and
+   * the flush, so a ref is orphaned only when neither claims it. The live side
+   * wins on a shared id; it is the newer of the two by construction.
+   */
+  const mergeClaims = (
+    persisted: WorkspaceKitLiveCheckpointSession,
+    live: WorkspaceKitLiveCheckpointSession,
+  ): WorkspaceKitLiveCheckpointSession => {
+    const checkpoints = new Map(persisted.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint] as const));
+    for (const checkpoint of live.checkpoints) checkpoints.set(checkpoint.id, checkpoint);
+    const backups = new Map((persisted.backups ?? []).map((backup) => [backup.backupId, backup] as const));
+    for (const backup of live.backups ?? []) backups.set(backup.backupId, backup);
+    const transactions = new Map((persisted.restoreTransactions ?? []).map((entry) => [entry.transactionId, entry] as const));
+    for (const entry of live.restoreTransactions ?? []) transactions.set(entry.transactionId, entry);
+    return {
+      sessionId: persisted.sessionId,
+      cwd: persisted.cwd || live.cwd,
+      checkpoints: [...checkpoints.values()],
+      backups: [...backups.values()],
+      restoreTransactions: [...transactions.values()],
+    };
+  };
+
   const sessionCheckpoints = (session: HostSessionSummary): WorkspaceKitLiveCheckpointSession | undefined => {
     try {
-      const file = services.sessions.open(session.path);
-      const entries = file.entries();
-      return {
-        sessionId: session.sessionId,
-        cwd: session.cwd,
-        checkpoints: checkpointsOf(entries, session.sessionId),
-        backups: turnRestoreBackupsFromEntries(entries, session.sessionId),
-        restoreTransactions: turnRestoreTransactionsFromEntries(entries, session.sessionId),
-      };
+      return claimOf(session.sessionId, session.cwd, services.sessions.open(session.path).entries());
     } catch {
       // A session can disappear between listing and opening; its refs are
       // intentionally eligible for the same sweep.
@@ -673,7 +698,12 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       // A previous process may have died after publishing a snapshot ref but
       // before appending its custom entry. Clean that incomplete phase before a
       // runtime can start another turn in the same session.
-      const entries = session.entries();
+      const open = services.thread(session.sessionId);
+      // Reopening a session that still has a runtime reads its file, which can
+      // lag that runtime's journal. Root the sweep in both.
+      const entries = open && open.sessionId === session.sessionId
+        ? [...session.entries(), ...open.entries()]
+        : session.entries();
       await maintenance.cleanupOrphanRefs(
         session.cwd || services.cwd(),
         session.sessionId,
@@ -701,25 +731,21 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     },
     beforeActivate: (thread) => restoreBackupWorkspaceOnOpen(thread),
     sweep: async ({ sessions, liveThreads, projectPaths, deleted }: HostSessionSweep) => {
-      // Reconcile every persisted journal against namespaced snapshot refs.
-      // The sweep runs under the same checkout lease as capture, so an offline
-      // deletion cannot remove a live writer's provisional or committed refs.
-      const live: WorkspaceKitLiveCheckpointSession[] = [];
+      // Reconcile every journal against the namespaced snapshot refs. Both
+      // sides of a session are roots: the file on disk and the live thread,
+      // whose newest entries may not have reached that file yet.
+      const claims = new Map<string, WorkspaceKitLiveCheckpointSession>();
       for (const session of sessions) {
         const record = sessionCheckpoints(session);
-        if (record) live.push(record);
+        if (record) claims.set(record.sessionId, record);
       }
       for (const thread of liveThreads) {
-        if (thread.backendKind !== "pi" || live.some((session) => session.sessionId === thread.sessionId)) continue;
-        const entries = thread.entries();
-        live.push({
-          sessionId: thread.sessionId,
-          cwd: thread.cwd,
-          checkpoints: checkpointsOf(entries, thread.sessionId),
-          backups: turnRestoreBackupsFromEntries(entries, thread.sessionId),
-          restoreTransactions: turnRestoreTransactionsFromEntries(entries, thread.sessionId),
-        });
+        if (thread.backendKind !== "pi") continue;
+        const claim = claimOf(thread.sessionId, thread.cwd, thread.entries());
+        const persisted = claims.get(thread.sessionId);
+        claims.set(thread.sessionId, persisted ? mergeClaims(persisted, claim) : claim);
       }
+      const live = [...claims.values()];
       const workspaces = new Map<string, string>();
       const remember = async (cwd: string) => {
         try { workspaces.set(await leaseManager.canonicalKey(cwd), cwd); } catch { /* invalid path */ }

@@ -7,6 +7,7 @@ import {
   createWorktree,
   createWorkspaceSnapshot,
   cleanupClonedTurnCheckpointRefs,
+  CHECKPOINT_REF_GRACE_MS,
   cleanupCheckpointRefsForLiveSessions,
   cleanupOrphanTurnCheckpointRefs,
   cleanupTurnCheckpointRefs,
@@ -421,6 +422,34 @@ describe("immutable turn snapshots", () => {
     }
   });
 
+  it("gives a known session's unrooted refs a grace period, and reclaims them after it", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-ref-grace-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "tracked.txt"), "before\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      const before = await createWorkspaceSnapshot(cwd, { namespace: "known/turn", phase: "before" });
+      await writeFile(join(cwd, "tracked.txt"), "after\n");
+      const after = await createWorkspaceSnapshot(cwd, { namespace: "known/turn", phase: "after" });
+      // The session is in the index but its journal does not name this pair —
+      // exactly what a checkpoint appended a moment ago looks like from here.
+      const known = [{ sessionId: "known", cwd, checkpoints: [] }];
+      const expected = { sessionId: "known", turnId: "turn" };
+
+      await cleanupCheckpointRefsForLiveSessions(cwd, known);
+      await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, expected))
+        .resolves.toMatchObject({ beforeTreeId: before.treeId, afterTreeId: after.treeId });
+
+      await cleanupCheckpointRefsForLiveSessions(cwd, known, undefined, { now: Date.now() + CHECKPOINT_REF_GRACE_MS + 1_000 });
+      await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, expected)).rejects.toThrow();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("roots rollback refs from pending restore transactions", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-gc-"));
     try {
@@ -660,9 +689,10 @@ describe("immutable turn snapshots", () => {
         .rejects.toThrow();
 
       // A ref left by a crash before the custom entry is appended is removed
-      // on the next session open, while a valid pair remains untouched.
+      // on the next session open, while a valid pair remains untouched. The
+      // age backstop is off here; a real crash leaves refs older than it.
       await cloneTurnCheckpointRefs(cwd, "source", "fork", [checkpoint]);
-      await cleanupOrphanTurnCheckpointRefs(cwd, "fork", []);
+      await cleanupOrphanTurnCheckpointRefs(cwd, "fork", [], undefined, [], { graceMs: 0 });
       await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
         .rejects.toThrow();
 
@@ -687,7 +717,7 @@ describe("immutable turn snapshots", () => {
         sessionId: "fork",
         beforeSnapshotId: forkBefore,
         afterSnapshotId: forkAfter,
-      }]);
+      }], undefined, [], { graceMs: 0 });
       await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
         .rejects.toThrow();
     } finally {

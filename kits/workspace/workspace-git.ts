@@ -1437,6 +1437,61 @@ export async function cleanupTurnCheckpointSessionRefs(
 }
 
 /**
+ * How long a snapshot ref survives an orphan sweep whatever the journals say.
+ * Publishing the refs and appending the durable entry are two steps, and no
+ * lease spans the gap once capture has released; a sweep that lands inside it
+ * would otherwise read a complete checkpoint as garbage.
+ */
+export const CHECKPOINT_REF_GRACE_MS = 10 * 60 * 1_000;
+
+export interface CheckpointRefSweepOptions {
+  /** Zero disables the age backstop, leaving the journals as the only roots. */
+  graceMs?: number;
+  now?: number;
+}
+
+/**
+ * The subset of `refs` written less than `graceMs` ago. Git records no creation
+ * time for a ref that names a tree, so this reads the loose ref file. A packed
+ * ref has none and is never young — packing is itself a later operation.
+ */
+async function recentSnapshotRefs(
+  cwd: string,
+  refs: readonly string[],
+  runGit: GitRunner,
+  options: CheckpointRefSweepOptions,
+): Promise<Set<string>> {
+  const graceMs = options.graceMs ?? CHECKPOINT_REF_GRACE_MS;
+  const recent = new Set<string>();
+  if (graceMs <= 0 || refs.length === 0) return recent;
+  const now = options.now ?? Date.now();
+  const commonDir = (await runGit(cwd, ["rev-parse", "--git-common-dir"]).catch(() => "")).trim();
+  if (!commonDir) return recent;
+  const root = resolve(cwd, commonDir);
+  await Promise.all(refs.map(async (ref) => {
+    const stamp = await stat(join(root, ref)).catch(() => undefined);
+    if (stamp && now - stamp.mtimeMs < graceMs) recent.add(ref);
+  }));
+  return recent;
+}
+
+/** The same backstop for the filesystem-snapshot fallback, whose manifests are plain files. */
+async function recentManifests(
+  paths: readonly string[],
+  options: CheckpointRefSweepOptions,
+): Promise<Set<string>> {
+  const graceMs = options.graceMs ?? CHECKPOINT_REF_GRACE_MS;
+  const recent = new Set<string>();
+  if (graceMs <= 0 || paths.length === 0) return recent;
+  const now = options.now ?? Date.now();
+  await Promise.all(paths.map(async (path) => {
+    const stamp = await stat(path).catch(() => undefined);
+    if (stamp && now - stamp.mtimeMs < graceMs) recent.add(path);
+  }));
+  return recent;
+}
+
+/**
  * Crash recovery for the two-phase checkpoint write. A process can publish
  * immutable trees and die before its session custom entry is appended; those
  * refs are not discoverable by the UI and must not live forever. Keep only
@@ -1448,6 +1503,7 @@ export async function cleanupOrphanTurnCheckpointRefs(
   checkpoints: readonly StoredTurnCheckpoint[],
   runGit: GitRunner = git,
   backups: readonly TurnRestoreBackup[] = [],
+  options: CheckpointRefSweepOptions = {},
 ): Promise<void> {
   const prefix = `refs/tau/checkpoints/${sanitizeTurnSnapshotComponent(sessionId)}/`;
   const refs = (await runGit(cwd, ["for-each-ref", "--format=%(refname)", prefix]).catch(() => ""))
@@ -1487,7 +1543,9 @@ export async function cleanupOrphanTurnCheckpointRefs(
       // not keep an orphaned ref alive.
     }
   }
-  await Promise.all(refs.filter((ref) => !valid.has(ref)).map((ref) => runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
+  const doomed = refs.filter((ref) => !valid.has(ref));
+  const recent = await recentSnapshotRefs(cwd, doomed, runGit, options);
+  await Promise.all(doomed.filter((ref) => !recent.has(ref)).map((ref) => runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
   const sessionDirectory = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints", sanitizeTurnSnapshotComponent(sessionId));
   const filesystemRefs = await filesystemManifests(sessionDirectory);
@@ -1510,7 +1568,9 @@ export async function cleanupOrphanTurnCheckpointRefs(
       validFilesystem.add(filesystemManifestPath(canonicalCwd, after.id));
     }
   }
-  await Promise.all(filesystemRefs.filter((path) => !validFilesystem.has(path)).map((path) => rm(path, { force: true })));
+  const doomedManifests = filesystemRefs.filter((path) => !validFilesystem.has(path));
+  const recentManifestPaths = await recentManifests(doomedManifests, options);
+  await Promise.all(doomedManifests.filter((path) => !recentManifestPaths.has(path)).map((path) => rm(path, { force: true })));
   await gcFilesystemSnapshotBlobs(cwd);
 }
 
@@ -1533,6 +1593,7 @@ export async function cleanupCheckpointRefsForLiveSessions(
   cwd: string,
   sessions: readonly LiveCheckpointSession[],
   runGit: GitRunner = git,
+  options: CheckpointRefSweepOptions = {},
 ): Promise<void> {
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
   const liveSessionIds = (owners: readonly { sessionId: string }[]): Set<string> => new Set(owners.map((owner) => {
@@ -1637,8 +1698,12 @@ export async function cleanupCheckpointRefsForLiveSessions(
   // an owner discovered here is never eligible for this sweep, even if its
   // refs appeared in the earlier enumeration.
   for (const sessionId of liveSessionIds(await listLiveWorkspaceLeaseSessions())) protectedSessionIds.add(sessionId);
-  await Promise.all(refsForWorkspace.filter((ref) => !valid.has(ref)
-    && !protectedSessionIds.has(ref.split("/")[3])).map((ref) =>
+  const doomed = refsForWorkspace.filter((ref) => !valid.has(ref) && !protectedSessionIds.has(ref.split("/")[3]));
+  // A session the caller listed is one whose journal is meant to root these
+  // refs. When it does not, the entry may simply not have landed yet, so age
+  // decides. A session nobody listed was deleted offline; reclaim it at once.
+  const recent = await recentSnapshotRefs(cwd, doomed.filter((ref) => knownSessionIds.has(ref.split("/")[3]!)), runGit, options);
+  await Promise.all(doomed.filter((ref) => !recent.has(ref)).map((ref) =>
     runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
   const checkpointRoot = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints");
   const filesystemRefs = await filesystemManifests(checkpointRoot);
@@ -1679,8 +1744,13 @@ export async function cleanupCheckpointRefsForLiveSessions(
     }
   }
   const protectedBeforeFilesystemGc = liveSessionIds(await listLiveWorkspaceLeaseSessions());
-  await Promise.all(filesystemRefs.filter((path) => !validFilesystem.has(path)
-    && ![...protectedBeforeFilesystemGc].some((sessionId) => path.split(sep).includes(sessionId))).map((path) => rm(path, { force: true })));
+  const doomedManifests = filesystemRefs.filter((path) => !validFilesystem.has(path)
+    && ![...protectedBeforeFilesystemGc].some((sessionId) => path.split(sep).includes(sessionId)));
+  const recentManifestPaths = await recentManifests(
+    doomedManifests.filter((path) => [...knownSessionIds].some((sessionId) => path.split(sep).includes(sessionId))),
+    options,
+  );
+  await Promise.all(doomedManifests.filter((path) => !recentManifestPaths.has(path)).map((path) => rm(path, { force: true })));
   await gcFilesystemSnapshotBlobs(cwd);
 }
 
