@@ -37,3 +37,32 @@ export interface ProfiledContribution {
   /** Whether the kit named the set itself, or inherited the desktop default. */
   declared: boolean;
 }
+
+/**
+ * Below this many pixels the thread list is a sheet, the composer is pinned to
+ * the bottom and no diff splits. Matched by `profile-compact.css`; change both
+ * or neither.
+ */
+export const COMPACT_WIDTH_PX = 720;
+
+export function parseClientProfile(value: string | null | undefined): ClientProfile | undefined {
+  return CLIENT_PROFILES.find((candidate) => candidate === value);
+}
+
+/**
+ * Which client a browser at this width claims to be. It is decided once, when
+ * the page loads: a contribution's profile is a claim about a client, not about
+ * a moment, so dragging a window narrow must not unregister a panel.
+ */
+export function browserClientProfile(width: number, override?: string | null): ClientProfile {
+  return parseClientProfile(override) ?? (width < COMPACT_WIDTH_PX ? "compact" : "web");
+}
+
+/**
+ * How wide the client is *now*. Only the layout follows this — every client
+ * narrower than `COMPACT_WIDTH_PX` lays out compactly, the Electron window
+ * included.
+ */
+export function layoutProfileFor(profile: ClientProfile, width: number): ClientProfile {
+  return profile === "compact" || width < COMPACT_WIDTH_PX ? "compact" : profile;
+}

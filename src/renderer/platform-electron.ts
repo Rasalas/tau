@@ -1,8 +1,8 @@
 import type { TauDesktopApi } from "../shared/contracts";
-import type { ClientStorage } from "../workbench/client-storage";
 import { createHostClient, type HostClient } from "../workbench/host-client";
 import { HostConnection, type HostTransport } from "../workbench/host-connection";
 import type { Platform } from "../workbench/platform";
+import type { ClientPlatformPorts } from "./client-platform";
 
 /**
  * Electron's answer to `Platform` and to the host protocol's transport. This is
@@ -25,38 +25,12 @@ export function createElectronHostClient(api: TauDesktopApi): { client: HostClie
   return { client: createHostClient(connection), connection };
 }
 
-export function createLocalStorageAdapter(): ClientStorage {
-  return {
-    get: (key) => localStorage.getItem(key),
-    set: (key, value) => localStorage.setItem(key, value),
-    remove: (key) => localStorage.removeItem(key),
-    keys: (prefix) => {
-      const result: string[] = [];
-      for (let index = 0; index < localStorage.length; index += 1) {
-        const key = localStorage.key(index);
-        if (key && (!prefix || key.startsWith(prefix))) result.push(key);
-      }
-      return result;
-    },
-  };
-}
-
-export interface ElectronPlatformPorts {
-  /** Absent in the browser preview, where there is no host at all. */
-  client?: HostClient;
-  storage: ClientStorage;
-  /** Who opens a path in the user's editor; the registered document source, when there is one. */
-  openInEditor(path: string): void;
-  /** Whether the host's files are files of this machine (`local-files`). */
-  hasLocalFiles(): boolean;
-}
-
 /**
  * In Electron the clipboard is the host's, because the host is this machine.
  * The main process turns a window-open request into `shell.openExternal`, so
  * `window.open` is how the renderer reaches the browser.
  */
-export function createElectronPlatform(ports: ElectronPlatformPorts): Platform {
+export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
   const files = { openInEditor: ports.openInEditor };
   return {
     clipboard: {

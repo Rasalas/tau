@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 
 /**
  * `localStorage` is one `ClientStorage` implementation, not the workbench's
- * only store. The platform module is the sole seam that reads it; every other
- * non-test module reaches storage through `ClientStorage` (a component calls
- * `useClientStorage`, a module-scope singleton calls `getClientStorage`).
+ * only store. One adapter module reads it; every other non-test module reaches
+ * storage through `ClientStorage` (a component calls `useClientStorage`, a
+ * module-scope singleton calls `getClientStorage`).
  */
-const ALLOWED = new Set(["src/renderer/platform-electron.ts"]);
+const ALLOWED = new Set(["src/renderer/browser-storage.ts"]);
 
 function listFiles(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });
