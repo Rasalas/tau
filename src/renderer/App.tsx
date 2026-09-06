@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { ExtensionUiAnswer, HostEvent, ShellActionResult, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
-import { namesWorkspace } from "../shared/workspace-identity";
+import type { HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
-import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import type { HostActionResult } from "../shared/host-protocol";
-import { mockSnapshot, mockThreadIndex, optimisticThreadSnapshot, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
+import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchStore } from "../workbench/workbench-store";
+import { ThreadCommands } from "../workbench/thread-commands";
+import { useThreadNavigation } from "./use-thread-navigation";
+import { useThreadTree } from "./use-thread-tree";
 import { readBootstrapCache } from "../workbench/bootstrap-cache";
 import { type ComposerAttachmentHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
-import { type ThreadTreeMode } from "./components/ThreadTreeModal";
 import { UpdateToast } from "./components/UpdateToast";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import { ComposerScopeStore, createDraftKey } from "../workbench/composer-scope-store";
 import { useConversationActivities } from "./conversation-activities";
-import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
+import { draftKey, writeNewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
 import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
 import { runtimeControls } from "./settings/runtime-controls";
@@ -27,12 +26,12 @@ import { createElectronPlatform } from "./platform-electron";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, openThreadTab, pinTab as pinStageTab, setFileView, stageTabPath, type StageState, type StageView } from "../workbench/stage";
+import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, openFileTab, openThreadTab, pinTab as pinStageTab, setFileView, stageTabPath, type StageView } from "../workbench/stage";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { ThreadStore } from "../workbench/thread-store";
 import { ThreadViewStore } from "../workbench/thread-view-store";
 import { TranscriptHistoryController } from "../workbench/transcript-history";
-import { clearCachedTurnActivity, writeCachedTurnActivity } from "../workbench/turn-activity";
+import { writeCachedTurnActivity } from "../workbench/turn-activity";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { useNewThreadController } from "./use-new-thread-controller";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
@@ -150,7 +149,6 @@ export default function App() {
   } = newThreadController;
   const [transcriptTurnStart, setTranscriptTurnStartState] = useState<TranscriptTurnStart>();
   const [settingsPage, setSettingsPage] = useState<string>();
-  const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
   // Below this many pixels the centre cannot hold chat and stage side by side;
   // the chat then joins the stage's tab strip instead of losing the thread list.
   const [centerCompact, setCenterCompact] = useState(false);
@@ -177,6 +175,13 @@ export default function App() {
   const currentDraftKey = useCallback(
     () => draftKey(viewStore.getSnapshot()?.sessionId, currentPendingNewThread()),
     [currentPendingNewThread, viewStore],
+  );
+  const currentSessionId = useCallback(() => viewStore.getSnapshot()?.sessionId, [viewStore]);
+  const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
+  // Every member is stable for the session, so the actions built on it are too.
+  const newThreadPorts = useMemo(
+    () => ({ current: currentPendingNewThread, set: setPendingNewThread, begin: beginNewThread, invalidate: invalidateNewThread }),
+    [beginNewThread, currentPendingNewThread, invalidateNewThread, setPendingNewThread],
   );
   const transcriptScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
   const transcriptScope = useMemo(
@@ -294,6 +299,46 @@ export default function App() {
   }, cachedBootstrap));
   const { applySnapshot, applyThreadIndex, applyTranscriptPage, applyHostUpdate, applyActionResult } = workbenchStore;
 
+  // Everything the workbench does to the thread on screen that is one host
+  // call and a notice. It reads the client through a getter, so it survives
+  // every reconnect the window does.
+  const [threadCommands] = useState(() => new ThreadCommands({
+    client: () => clientRef.current,
+    view: viewStore,
+    threads: threadStore,
+    storage: clientStorage,
+    platform,
+    registry,
+    preferences,
+    applyActionResult,
+  }));
+  const { abort: abortThread, duplicateThread, requireHost, settleActiveThread } = threadCommands;
+  const {
+    stage, setStage, applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
+  } = useThreadNavigation({
+    ...(client ? { client } : {}),
+    storage: clientStorage,
+    view: viewStore,
+    threads: threadStore,
+    history: transcriptHistory,
+    scopes: composerScopeStore,
+    workbench: workbenchStore,
+    requireHost,
+    detachPendingDelivery: submission.detachPendingDelivery,
+    newThread: newThreadPorts,
+    activeDraftKey: currentDraftKey,
+    composerRef,
+    closeNewThreadPicker,
+  });
+  const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree } = useThreadTree({
+    ...(client ? { client } : {}),
+    sessionId: currentSessionId,
+    requireHost,
+    applyActionResult,
+    seedComposer: setComposerSeed,
+    composerRef,
+  });
+
   // A prepared thread is not a runtime session yet, so its project is the
   // only trustworthy workspace identity while it is on screen. In
   // particular, do not expose the last real thread's worktree in the chrome.
@@ -362,11 +407,6 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-  const loadTranscriptPage = useCallback(async (sessionId: string, cursor: HostTranscriptCursor) => {
-    if (!client) throw new Error("Transcript history requires the Electron host.");
-    return client.loadTranscript(sessionId, cursor);
-  }, [client]);
-
 
   useEffect(() => {
     if (!notice) return;
@@ -391,7 +431,6 @@ export default function App() {
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeProjectSources = useCallback(() => setProjectSourcesOpen(false), []);
   const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
-  const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
   const closeOverlay = useCallback(() => setActiveOverlayId(undefined), []);
   const activateStage = useCallback((id: string) => setStage((current) => activateStageTab(current, id)), []);
   const closeStage = useCallback((id: string) => setStage((current) => closeStageTab(current, id)), []);
@@ -405,199 +444,6 @@ export default function App() {
     setStage((current) => openThreadTab(current, sessionId, options));
     setChatFocused(false);
   }, []);
-  const loadThread = useCallback(async (sessionId: string) => {
-    if (!client) throw new Error("Reading another thread requires the Electron host");
-    return (await client.loadTranscript(sessionId)).messages;
-  }, [client]);
-  /**
-   * Applies a host action result. A project change clears the stage. Most
-   * thread changes keep unsent composer text; explicit project switches do not.
-   */
-  const applyHostResult = useCallback((result: HostActionResult, inheritDraft = true) => {
-    const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
-    const previousCwd = viewStore.getSnapshot()?.cwd;
-    const pendingDraft = inheritDraft ? composerRef.current?.value ?? "" : "";
-    applyActionResult(result);
-    if (cwd && cwd !== previousCwd) setStage(EMPTY_STAGE);
-    const detail = result.updates.find((update) => update.type === "thread-detail");
-    if (pendingDraft && detail?.type === "thread-detail") {
-      composerScopeStore.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
-    }
-  }, [applyActionResult, composerScopeStore, viewStore]);
-
-  const requireHost = useCallback((what: string): boolean => {
-    if (client) return true;
-    setNotice(`${what} requires the Electron host`);
-    return false;
-  }, [client]);
-
-  // Shared by the composer and the activity rail's stop button, so neither
-  // recreates it every render and defeats a downstream memo.
-  const abortThread = useCallback((sessionId?: string) => { void client?.abort(sessionId); }, [client]);
-
-  const discardPendingNewThread = useCallback((expected?: NewThreadDraft): boolean => {
-    const current = currentPendingNewThread();
-    if (!current || (expected && current.draftId !== expected.draftId)) return false;
-    invalidateNewThread();
-    setPendingNewThread(undefined);
-    writeNewThreadDraft(clientStorage);
-    return true;
-  }, [invalidateNewThread, setPendingNewThread]);
-
-  const openWorkspace = useCallback(async (workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
-    const pending = currentPendingNewThread();
-    if (namesWorkspace(workspace, pending?.workspaceId ?? snapshot?.workspaceId, pending?.projectPath ?? snapshot?.cwd)) return true;
-    if (!requireHost("Project switching")) return false;
-    submission.detachPendingDelivery();
-    // A draft for another project sits above the still-active host thread. If
-    // the user picks that host project again, revealing it is the whole switch.
-    if (pending && namesWorkspace(workspace, snapshot?.workspaceId, snapshot?.cwd)) {
-      discardPendingNewThread(pending);
-      setStage(EMPTY_STAGE);
-      return true;
-    }
-    try {
-      const result = await client!.openProject(workspace);
-      if (pending) discardPendingNewThread(pending);
-      applyHostResult(result, options?.inheritDraft ?? false);
-      return true;
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [applyHostResult, discardPendingNewThread, requireHost, snapshot?.cwd, snapshot?.workspaceId, submission]);
-
-  const removeProject = useCallback(async (project: UiProject) => {
-    if (!requireHost("Project removal")) return;
-    try {
-      applyActionResult(await client!.removeProject(project.workspaceId ?? project.path));
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [applyActionResult, requireHost]);
-
-  const createThreadInProject = useCallback((project: UiProject) => {
-    const activeScope = pendingNewThread && activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey) : undefined;
-    // A submitted draft keeps delivering in the background. Its text is on its
-    // way to the runtime, so there is nothing to carry into the fresh draft.
-    const inFlight = submission.detachPendingDelivery() || Boolean(activeScope?.submissionPending);
-    const nextDraft = createNewThreadDraft({ projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name });
-    const destinationScope = draftKey(undefined, nextDraft);
-    const sourceSnapshot = inFlight ? undefined : activeScope;
-    // Only another unsubmitted draft may carry editor state into this new
-    // scope. A real thread's scope can still own a pending submission; moving
-    // it would make the fresh draft inherit that lifecycle and stay disabled.
-    if (sourceSnapshot && activeDraftKey && destinationScope) {
-      composerScopeStore.transferDraft(activeDraftKey, destinationScope);
-    }
-    // A new project is a new draft scope, but changing projects before the
-    // first send should not discard what the user already composed. Attachments
-    // stay memory-only and move with the scope; text also survives a reload.
-    const draft = sourceSnapshot?.draft ? { ...nextDraft, draft: sourceSnapshot.draft } : nextDraft;
-    beginNewThread(draft);
-    setNewThreadOpen(false);
-    window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [activeDraftKey, beginNewThread, composerScopeStore, pendingNewThread, submission]);
-
-  const switchSession = useCallback(async (path: string): Promise<boolean> => {
-    if (!requireHost("Thread switching")) return false;
-    const target = threadStore.getSnapshot().threads.find((session) => session.path === path);
-    submission.detachPendingDelivery();
-    invalidateNewThread();
-    setPendingNewThread(undefined);
-    writeNewThreadDraft(clientStorage);
-    const startedAt = performance.now();
-    const previous = snapshot;
-    const cached = target ? transcriptHistory.getDetail(target.id) : undefined;
-    if (cached && snapshot && target) {
-      applySnapshot(optimisticThreadSnapshot(snapshot, target, cached));
-      addEvent("thread.switch.cached", target?.title);
-    }
-    const transition = transcriptHistory.beginThreadSwitch(target?.id);
-    try {
-      const next = await client!.switchSession(path);
-      if (!applyActionResult(next, transition)) return false;
-      threadStore.markRead(target?.id ?? "");
-      addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
-      return true;
-    } catch (error) {
-      if (!transcriptHistory.isCurrentThreadTransition(transition)) return false;
-      if (previous) applySnapshot(previous);
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [addEvent, applyActionResult, applySnapshot, invalidateNewThread, requireHost, snapshot, submission, threadStore]);
-
-  /** The one way out of a read-only thread tab: make it the thread on screen. */
-  const takeOverThread = useCallback((sessionId: string) => {
-    const path = threadStore.getThread(sessionId)?.path;
-    if (path) void switchSession(path);
-  }, [switchSession, threadStore]);
-
-  const renameThread = useCallback(async (title: string): Promise<boolean> => {
-    if (!requireHost("Thread rename")) return false;
-    try {
-      applyActionResult(await client!.renameThread(
-        title,
-        threadStore.getSnapshot().activeThreadId,
-      ));
-      return true;
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [applyActionResult, requireHost, threadStore]);
-
-  const setModel = useCallback(async (provider: string, id: string) => {
-    if (!requireHost("Model selection")) return;
-    try {
-      applyActionResult(await client!.setModel(provider, id));
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [applyActionResult, requireHost]);
-
-  const setThinking = useCallback(async (level: string) => {
-    if (!requireHost("Thinking level")) return;
-    try {
-      applyActionResult(await client!.setThinkingLevel(level));
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [applyActionResult, requireHost]);
-
-  const recoverThread = useCallback(async () => {
-    if (!requireHost("Thread recovery")) return;
-    try {
-      const sessionId = snapshot?.sessionId;
-      applyActionResult(await client!.recoverThread());
-      // The stalled row is restored from a renderer-side cache, so clearing the
-      // session alone would leave the ghost on screen.
-      if (sessionId) clearCachedTurnActivity(clientStorage, sessionId);
-      viewStore.setTools([]);
-      viewStore.setToolAnchorId(undefined);
-      setNotice("Closed the interrupted call. The thread can continue.");
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [applyActionResult, requireHost, snapshot?.sessionId, viewStore]);
-
-  const compactContext = useCallback(async () => {
-    if (!requireHost("Compaction")) return;
-    try {
-      applyActionResult(await client!.compactContext());
-      setNotice("Context compacted.");
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [applyActionResult, requireHost]);
-
-  /** Pi's `!command` for extensions: runs in the active thread's project. */
-  const runShellAction = useCallback(async (command: string, includeInContext: boolean): Promise<ShellActionResult> => {
-    if (!client) throw new Error("Project actions require the Electron host");
-    return client.runShellAction(command, includeInContext, snapshot?.cwd);
-  }, [client, snapshot?.cwd]);
-
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
   }, [threadStore, uiPrompts]);
@@ -612,128 +458,10 @@ export default function App() {
       !entry.sessionId || entry.sessionId === snapshot?.sessionId || !known.has(entry.sessionId));
   }, [snapshot?.sessionId, threadStore, uiPrompts]);
 
-  const answerUiPrompt = useCallback((id: string, answer: ExtensionUiAnswer) => {
-    const prompt = viewStore.getUiPrompts().find((entry) => entry.id === id);
-    if (prompt) registry.notifyPromptAnswered(prompt, answer);
-    viewStore.setUiPrompts((current) => current.filter((entry) => entry.id !== id));
-    void client?.answerExtensionUi(id, answer);
-  }, [client, registry]);
-
-  const settleActiveThread = useCallback(() => {
-    const activeId = threadStore.getSnapshot().activeThreadId;
-    if (!activeId) return;
-    preferences.toggleSettled(activeId);
-  }, [threadStore]);
-
-  const copyThreadValue = useCallback(async (kind: "chat" | "path" | "thread-id") => {
-    if (kind === "chat") {
-      if (!snapshot?.sessionId || !client) return;
-      try {
-        await client.copyThreadMarkdown(snapshot.sessionId);
-        setNotice("Chat copied as Markdown.");
-      } catch (error) {
-        setNotice(errorMessage(error));
-      }
-      return;
-    }
-    const value = kind === "path" ? snapshot?.cwd : snapshot?.sessionId;
-    if (!value) {
-      setNotice("Value is unavailable.");
-      return;
-    }
-    try {
-      await platform.clipboard.writeText(value);
-      setNotice(`${kind === "path" ? "Path" : "Thread ID"} copied.`);
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [client, snapshot?.cwd, snapshot?.sessionId]);
-
-  const copyMessage = useCallback(async (message: UiMessage) => {
-    try {
-      const copyText = message.role === "user"
-        ? message.skill?.copyText ?? visibleUserMessageText(message.text)
-        : message.text;
-      await platform.clipboard.writeText(copyText);
-      setNotice("Message copied.");
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [client]);
-
-  const copyToolOutput = useCallback(async (tool: UiToolRun) => {
-    if (!snapshot?.sessionId || !client) {
-      setNotice("Tool output is unavailable.");
-      return;
-    }
-    try {
-      const result = await client.readToolOutput(snapshot.sessionId, tool.id);
-      if (!result) throw new Error("The complete tool output is no longer available.");
-      await platform.clipboard.writeText(result.output);
-      setNotice(result.truncated
-        ? "Tool output exceeded the read limit; the bounded result was copied."
-        : "Full tool output copied.");
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [snapshot?.sessionId]);
-
-  const forkMessage = useCallback(async (message: UiMessage) => {
-    if (!message.sourceEntryId || !snapshot?.sessionId || !requireHost("Fork thread")) return;
-    try {
-      setNotice("Forking thread…");
-      applyActionResult(await client!.forkThread(message.sourceEntryId, snapshot.sessionId));
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }, [applyActionResult, requireHost, snapshot?.sessionId]);
-
-  // Pi's /tree, /fork and /clone for the thread on screen.
-  const [threadTreeModal, setThreadTreeModal] = useState<{ mode: ThreadTreeMode; tree?: UiThreadTree; error?: string; busy: boolean }>();
-  const closeThreadTree = useCallback(() => setThreadTreeModal(undefined), []);
-  const openThreadTree = useCallback((mode: ThreadTreeMode = "navigate") => {
-    if (!requireHost("Thread tree")) return;
-    setThreadTreeModal({ mode, busy: false });
-    client!.threadTree(snapshot?.sessionId)
-      .then((tree) => setThreadTreeModal((current) => current && { ...current, tree }))
-      .catch((error) => setThreadTreeModal((current) => current && { ...current, error: errorMessage(error) }));
-  }, [requireHost, snapshot?.sessionId]);
-  const navigateThreadTree = useCallback(async (entryId: string, summarize: boolean) => {
-    setThreadTreeModal((current) => current && { ...current, busy: true, error: undefined });
-    try {
-      const result = await client!.navigateThreadTree(entryId, { summarize }, snapshot?.sessionId);
-      if (result.cancelled) {
-        setThreadTreeModal((current) => current && { ...current, busy: false });
-        return;
-      }
-      applyActionResult(result);
-      setThreadTreeModal(undefined);
-      if (result.draftText) setComposerSeed(result.draftText);
-      composerRef.current?.focus();
-    } catch (error) {
-      setThreadTreeModal((current) => current && { ...current, busy: false, error: errorMessage(error) });
-    }
-  }, [applyActionResult, snapshot?.sessionId]);
-  const forkFromTree = useCallback(async (entryId: string) => {
-    setThreadTreeModal((current) => current && { ...current, busy: true, error: undefined });
-    try {
-      applyActionResult(await client!.forkThread(entryId, snapshot?.sessionId));
-      setThreadTreeModal(undefined);
-    } catch (error) {
-      setThreadTreeModal((current) => current && { ...current, busy: false, error: errorMessage(error) });
-    }
-  }, [applyActionResult, snapshot?.sessionId]);
-  const duplicateThread = useCallback(async () => {
-    if (!requireHost("Duplicate thread")) return false;
-    try {
-      setNotice("Duplicating thread…");
-      applyActionResult(await client!.duplicateThread(snapshot?.sessionId));
-      return true;
-    } catch (error) {
-      setNotice(errorMessage(error));
-      return false;
-    }
-  }, [applyActionResult, requireHost, snapshot?.sessionId]);
+  const copyMessage = useCallback((message: UiMessage) => threadCommands.copyText(
+    message.role === "user" ? message.skill?.copyText ?? visibleUserMessageText(message.text) : message.text,
+    "Message copied.",
+  ), [threadCommands]);
 
   const { reloadWorkbench, reloadUi } = useWorkbenchReload({ client, requireHost, addEvent, setNotice });
 
@@ -767,7 +495,7 @@ export default function App() {
     }),
     openFile,
     openThread,
-    runShellAction,
+    runShellAction: threadCommands.runShellAction,
     holdComposer: () => { setComposerHolds((count) => count + 1); return () => setComposerHolds((count) => Math.max(0, count - 1)); },
     composerDraft: () => activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey).draft : "",
   }), [
@@ -881,7 +609,7 @@ export default function App() {
   const { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread: Boolean(pendingNewThread), activityTools, turnActivityHistory, conversationSnapshot,
     toolAnchorId, visibleToolAnchorId, threadPrompts, registry, registryVersion,
-    viewStore, recoverThread, copyToolOutput, abortSessionId: snapshot?.sessionId,
+    viewStore, recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, abortSessionId: snapshot?.sessionId,
     abort: abortThread,
   });
   const showStartScreen = conversation.isEmpty
@@ -897,32 +625,32 @@ export default function App() {
     registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
-    pinStageTab: pinStage, setStageFileView: setStageView, loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
+    pinStageTab: pinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
     commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
-    closeNewThreadPicker, projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
+    closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId, closeOverlay,
   }), [
     activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker,
     closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
     documentSource, documentState, dockOpen, newThreadOpen, notice, openNewThreadPicker, openPanel,
-    loadThread, openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
-    removeProject, setNotice, setStageView, settings, settingsPage,
+    threadCommands, openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
+    setNotice, setStageView, settings, settingsPage,
     sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({
     snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread),
     showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
-    transcriptHistory, transcriptRef, loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
+    transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, transcriptActivities,
-    liveStatusLabel, conversationActivityTools, runStartedAt, activeDraftKey, copyMessage, forkMessage,
-    titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread, copyThreadValue,
+    liveStatusLabel, conversationActivityTools, runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage,
+    titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
     activeDraftKey, applyTranscriptPage, closeThreadTree, conversationActivityTools,
-    conversationSnapshot, copyMessage, copyThreadValue, duplicateThread, forkFromTree, forkMessage,
-    liveSnapshot, liveStatusLabel, loadTranscriptPage, navigateThreadTree, openThreadTree,
-    pendingNewThread, renameThread, runStartedAt, settleActiveThread, showStartScreen,
+    conversationSnapshot, threadCommands, copyMessage, duplicateThread, forkFromTree,
+    liveSnapshot, liveStatusLabel, navigateThreadTree, openThreadTree,
+    pendingNewThread, runStartedAt, settleActiveThread, showStartScreen,
     startProjectName, startProjectPath, threadDropController, threadTreeModal, titleCommands,
     transcriptActivities, transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart,
     visibleTranscriptTurnStart,
@@ -932,10 +660,11 @@ export default function App() {
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
     submit: submitPrompt, abort: abortThread,
-    cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
+    cancelQueued, steerQueued, reorderQueue, setModel: threadCommands.setModel, setThinking: threadCommands.setThinking,
+    answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
-    abortThread, answerUiPrompt, cancelQueued, compactContext, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, setModel, setThinking, steerQueued, submitPrompt,
+    abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
+    conversationPrompts, queue, reorderQueue, steerQueued, submitPrompt,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({

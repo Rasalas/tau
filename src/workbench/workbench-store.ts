@@ -131,7 +131,7 @@ export class WorkbenchStore {
     this.ports.threads.applyThreadIndex(threadIndex);
     this.ports.history.setThreadIndex(threadIndex);
     this.cachedIndex = threadIndex;
-    writeBootstrapCache(this.cachedSnapshot, threadIndex);
+    writeBootstrapCache(this.cachedSnapshot, threadIndex, this.ports.storage);
   };
 
   applyTranscriptPage = (page: TranscriptPage, request?: TranscriptHistoryRequest): boolean => {
@@ -280,7 +280,7 @@ export class WorkbenchStore {
   /** The last snapshot the host confirmed, kept so the next start paints before the host answers. */
   private remember(snapshot: HostSnapshot): HostSnapshot {
     this.cachedSnapshot = snapshot;
-    writeBootstrapCache(snapshot, this.cachedIndex);
+    writeBootstrapCache(snapshot, this.cachedIndex, this.ports.storage);
     return snapshot;
   }
 }
