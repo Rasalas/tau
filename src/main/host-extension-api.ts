@@ -12,8 +12,8 @@ export type * from "./runtime-types.js";
 export type * from "./runtime-adapters.js";
 export type * from "./pi-kit-extensions.js";
 export type * from "../shared/contracts.js";
-export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
-export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
+export { HostCommandError } from "./host-extension-errors.js";
+export { buildTitleConversation, cleanThreadTitle, textFromContent, type TitleMessage } from "./host-text.js";
 export { prepareSkillPrompt, skillInvocationCommand, type PreparedSkillPrompt, type SkillRuntimeAdapter } from "./skill-invocation.js";
 export {
   readPersistedJson,
@@ -26,10 +26,10 @@ export {
 export { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
 export { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 export { validatePreparedPrompt } from "../shared/prepared-prompt.js";
-export { isSkillName, knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
+export { knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
 export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
-export { isWorkspaceRelativePath, namesWorkspace, type WorkspaceRef } from "../shared/workspace-identity.js";
+export { isWorkspaceRelativePath, type WorkspaceRef } from "../shared/workspace-identity.js";
 export type { HostActionResult } from "../shared/host-protocol.js";
 
 /**
