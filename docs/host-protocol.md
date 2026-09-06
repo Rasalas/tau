@@ -151,7 +151,7 @@ Host features that are not core do not get an IPC entry each. A host extension r
 
 ## Renderer host client
 
-The renderer never calls the desktop API directly. `src/renderer/host-client.ts`
+The renderer never calls the desktop API directly. `src/workbench/host-client.ts`
 declares `HostClient`, a transport-neutral interface grouped by concern
 (threads, turns, transcript, catalog, extensions, workbench, platform).
 `createHostClient(connection)` implements it over a `HostConnection`: every

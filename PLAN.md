@@ -114,12 +114,12 @@ Settled 2026-09-05: a web or mobile client is explicitly out of scope for now (A
 
 Planned work:
 
-- separate workbench state from Electron-specific behavior
-- define which desktop contributions have web or mobile renderers
+- separate workbench state from Electron-specific behavior — done 2026-09-06: `src/workbench/` is the client without a window (stores, transcript history, composer scopes, `WorkbenchStore`, `ThreadCommands`, the host connection), it imports no React, no Electron and no browser global, and `Platform` is what it needs of the machine it runs on (ADR 0016)
+- define which desktop contributions have web or mobile renderers — done 2026-09-06: a contribution declares `profiles` (`desktop`, `web`, `compact`), the registry never registers what this client cannot draw, and Settings → Inspector lists the rest under "Not on this client" (ADR 0016)
 - adapt navigation and agent supervision for small screens
-- keep host-side Pi and project extensions available when a client cannot render their desktop UI
+- keep host-side Pi and project extensions available when a client cannot render their desktop UI — done 2026-09-06: a profile filters drawing, never lifecycle; on the `web` profile Workspace Kit is still active and still taking checkpoints, which `kit-lifecycle.test.tsx` asserts
 
-Completion check: a second client can supervise the same host and clearly reports unsupported desktop capabilities.
+Completion check: a second client can supervise the same host and clearly reports unsupported desktop capabilities. The reporting half exists; the second client itself does not yet (ticket 19b).
 
 ## Phase 6: ship core and kits as two artifacts
 

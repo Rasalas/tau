@@ -27,6 +27,7 @@ Threads
 Workbench
 
 - the window, the two layout slots (left sidebar, right dock) and shared modals
+- the **client profile** the window draws for (`desktop`, `web`, `compact`): a contribution declares which clients render it, and the workbench leaves out what this one cannot draw ([ADR 0016](adr/0016-client-profiles.md))
 - the stage: the document area beside the conversation, whose tabs hold files and threads
 - command palette and keybinding dispatch; the chords themselves are extension contributions — `kits/keybindings/` binds Tau's own, replaces them from `~/.pi/agent/keybindings.json` and adds one command per Pi extension shortcut
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
@@ -34,6 +35,24 @@ Workbench
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
 - enough persisted state to restore the workbench
+
+### The workbench and its client
+
+`src/workbench/` is Tau's client without a window: the thread index, the thread
+on screen, transcript pages, composer scopes and drafts, notices and the host
+connection, plus `WorkbenchStore` — the one place a host update becomes client
+state — and `ThreadCommands`, everything the workbench does to a thread that is
+one host call and a notice. It imports no React, no Electron and no browser
+global, and `src/workbench/workbench-boundary.test.ts` fails on any of them.
+Where it needs the view side it names a port, never a class.
+
+`src/renderer/` is the React binding of that client, and `Platform`
+(`src/workbench/platform.ts`) is what the client needs of the machine it runs
+on: clipboard, `openExternal`, `files` (only where the host's paths are this
+machine's), storage and `importModule`. Electron answers it in
+`src/renderer/platform-electron.ts`, which is also the only module that builds
+the Electron host client or reads the browser's own key-value store.
+`App.tsx` is bootstrap, store wiring and layout.
 
 ### The stage
 
@@ -132,8 +151,8 @@ The rules for classes nothing renders any more are gone (`.approval-mark`,
 - Removing a bundled kit removes its behavior on both sides without editing core.
 - `src/shared/contracts.ts` and `src/main/index.ts` name no feature. Feature commands travel through `invokeHostExtension`. Core operations are the method table in `src/main/host-methods.ts`; `src/main/ipc-contract.test.ts` fails when the client and the table stop naming the same methods.
 - Thread lineage is an extension's claim, not a core field: a desktop extension publishes `setThreadLineage`, and the navigator hides spawned threads and counts a parent's working children from it. `UiSession` has no parent.
-- `PiHost` orchestrates and owns almost nothing itself. Attached-Pi ownership, transcript projection, client-message correlation, extension questions and session-event translation delegate to focused modules, and so do the project facts a provider answers with (`project-facts-cache.ts`), the thread index and its shells (`thread-index.ts`), extension binding (`thread-binding.ts`), a runtime from build to teardown (`thread-runtime-lifecycle.ts`), the spare runtime and thread prewarming (`runtime-prewarm.ts`), a prompt's runtime spelling and its guards (`prompt-preparation.ts`) and steering, follow-up and adapter turns (`turn-delivery.ts`). What is left in `pi-host.ts` is the sequencing: activation epochs, the lifecycle queue and what each operation publishes. A thread's runtime answers through `ThreadRuntimeBackend` (`src/main/runtime-types.ts`): twenty required members in Tau's own vocabulary plus capability groups, with `requireCapability` as the one place that refuses what a runtime cannot do. The Pi terminal Tau attaches to is one of those backends (`attached-thread-backend.ts`), its collaborators receive named ports (`host-ports.ts`), and thread lifecycle work is serialised by a reentrant `LifecycleQueue` (`lifecycle-queue.ts`). The renderer delegates layout to `Workbench` and keeps per-thread composer data in `ComposerScopeStore`.
-- Tests keep this true: `src/shared/core-boundary.test.ts` fails on a feature name in those two files outside a listed debt and caps `pi-host.ts` at 2,300 lines and `App.tsx` at 1,800. `src/main/pi-host-safe-mode.test.ts` proves safe mode loads no host or Pi extension, and `kits/kit-lifecycle.test.tsx` activates and removes every kit against the core slots.
-- The renderer reaches the desktop host only through `HostClient` (see "Renderer host client" in [host-protocol.md](host-protocol.md)); `src/renderer/host-client-boundary.test.ts` fails on any renderer module outside `main.tsx` touching `window.tau`.
+- `PiHost` orchestrates and owns almost nothing itself. Attached-Pi ownership, transcript projection, client-message correlation, extension questions and session-event translation delegate to focused modules, and so do the project facts a provider answers with (`project-facts-cache.ts`), the thread index and its shells (`thread-index.ts`), extension binding (`thread-binding.ts`), a runtime from build to teardown (`thread-runtime-lifecycle.ts`), the spare runtime and thread prewarming (`runtime-prewarm.ts`), a prompt's runtime spelling and its guards (`prompt-preparation.ts`) and steering, follow-up and adapter turns (`turn-delivery.ts`). What is left in `pi-host.ts` is the sequencing: activation epochs, the lifecycle queue and what each operation publishes. A thread's runtime answers through `ThreadRuntimeBackend` (`src/main/runtime-types.ts`): twenty required members in Tau's own vocabulary plus capability groups, with `requireCapability` as the one place that refuses what a runtime cannot do. The Pi terminal Tau attaches to is one of those backends (`attached-thread-backend.ts`), its collaborators receive named ports (`host-ports.ts`), and thread lifecycle work is serialised by a reentrant `LifecycleQueue` (`lifecycle-queue.ts`). The renderer delegates layout to `Workbench`, its client state to `src/workbench/`, and keeps per-thread composer data in `ComposerScopeStore`.
+- Tests keep this true: `src/shared/core-boundary.test.ts` fails on a feature name in those two files outside a listed debt and caps `pi-host.ts` at 2,300 lines and `App.tsx` at 700; `src/workbench/workbench-boundary.test.ts` fails on React, Electron or a browser global inside the client. `src/main/pi-host-safe-mode.test.ts` proves safe mode loads no host or Pi extension, and `kits/kit-lifecycle.test.tsx` activates and removes every kit against the core slots.
+- The client reaches the desktop host only through `HostClient` (see "Renderer host client" in [host-protocol.md](host-protocol.md)) and the machine only through `Platform`; `src/renderer/host-client-boundary.test.ts` fails on any module outside `main.tsx` touching the preload bridge, and `client-storage-boundary.test.ts` on any outside `platform-electron.ts` reading the browser's own store.
 - An extension package is not core and is not trusted: it declares `permissions`, waits for the user's grant in `~/.tau/extension-grants.json` before either half starts, and reaches host services through the proxy in `guardedServices`. `src/main/extension-packages.test.ts` proves an unapproved package is never even imported, in the global folder as much as in a project's. [docs/EXTENSIONS.md](EXTENSIONS.md) is the guide for writing one.
 - The renderer's own boundary is checked, not assumed: the window runs sandboxed with `webSecurity`, no webview tag and no permission of any kind (`src/main/index.ts`), and desktop bundles arrive over the `tau-ext` scheme instead of a blob URL, so the page's CSP is `script-src 'self' tau-ext:`. `src/main/extension-bundle-server.test.ts` fails if the scheme serves anything it was not given or if `blob:` returns to the CSP.

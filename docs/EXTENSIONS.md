@@ -169,6 +169,35 @@ the workbench itself uses, and core no longer keeps a table of names it would
 have to know a kit by. A panel without one gets core's fallback glyph.
 `registerSettingsPage` takes the same `Icon`.
 
+#### Which clients draw it
+
+Every contribution the workbench draws — panels, settings pages, regions,
+status items, overlays, composer controls, the sidebar, project sources, prompt
+renderers, the document source, transcript rows and tool renderers — takes an
+optional `profiles`:
+
+```ts
+context.registerPanel({ id: "agents", label: "Agents", profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
+context.registerToolRenderer("git.rows", match, render, { profiles: ["desktop", "web", "compact"] });
+```
+
+`"desktop"` is the Electron window, `"web"` a browser at the same host,
+`"compact"` a browser small enough that the thread list is a sheet and diffs do
+not split. The default is `["desktop"]`, so a package that says nothing keeps
+working and stays honest: it claims no client it was never tried on.
+
+A client whose profile is not in the list never registers the contribution, so
+your component never mounts there — but the extension still activates and **its
+host half still runs**. Settings → Inspector lists what this client leaves out
+under "Not on this client", with the kind and the profiles you did claim. Claim
+a profile only for a contribution you have actually seen work there; a Git
+panel over the machine's own files or a native view over the window is
+desktop-only, and saying so is the correct answer, not a gap.
+
+Commands, keybindings, slash commands, prompt hooks and services carry no
+profile: they are not surfaces, and they work wherever the workbench does. See
+[ADR 0016](adr/0016-client-profiles.md).
+
 `styles` is not compiled: the loader reads the file, the host publishes it
 beside the desktop bundle over `tau-ext://bundles/<id>/<hash>.css`, and the
 renderer links it in `document.head` when the extension activates and removes
@@ -267,7 +296,7 @@ travels between them: one publishes under an id its own protocol file names,
 the others use it. `use` runs as soon as the value exists — before or after
 the user's own activation — and whatever it returns is disposed when the
 provider withdraws or either side deactivates, so activation order does not
-matter. `actions.copyText(text)` puts text on the host's clipboard.
+matter. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
