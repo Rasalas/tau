@@ -265,6 +265,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);
+  // The sheet is `aria-modal`, so core's own Escape binding stands down for it;
+  // closing it is this listener's job.
+  useEffect(() => {
+    if (!threadSheetOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      setThreadSheetOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [threadSheetOpen]);
 
   const setDockWidth = (width: number) => {
     const bounded = clampDockWidth(width);
@@ -347,7 +359,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         aria-modal="true"
         aria-label="Threads"
         onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setThreadSheetOpen(false); } }}
       >
         <header>
           <strong>Threads</strong>

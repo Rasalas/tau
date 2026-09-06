@@ -122,7 +122,11 @@ describe("the web client at 400 px", () => {
     fireEvent.click(screen.getByRole("button", { name: "Threads" }));
     const sheet = await screen.findByRole("dialog", { name: "Threads" });
     expect(within(sheet).getByRole("button", { name: "Open thread Rename the store" })).toBeTruthy();
-    fireEvent.click(within(sheet).getByRole("button", { name: "Close threads" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Threads" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
+    const reopened = await screen.findByRole("dialog", { name: "Threads" });
+    fireEvent.click(within(reopened).getByRole("button", { name: "Close threads" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Threads" })).toBeNull());
   });
 });
