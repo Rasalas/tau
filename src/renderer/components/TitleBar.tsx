@@ -23,6 +23,7 @@ export function TitleBar({
   snapshot,
   actions,
   onToggleDock,
+  hasDock = true,
 }: {
   cwd?: string;
   dockOpen: boolean;
@@ -30,6 +31,8 @@ export function TitleBar({
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   onToggleDock(): void;
+  /** False when no extension registered a panel: there is no dock to show or hide. */
+  hasDock?: boolean;
 }) {
   return (
     <header className="title-bar">
@@ -42,14 +45,14 @@ export function TitleBar({
 
       <Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />
 
-      <button
+      {hasDock ? <button
         className="chrome-ghost glyph"
         title={dockOpen ? "Hide panel" : "Show panel"}
         aria-label={dockOpen ? "Hide panel" : "Show panel"}
         onClick={onToggleDock}
       >
         {dockOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
-      </button>
+      </button> : null}
     </header>
   );
 }

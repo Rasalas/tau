@@ -114,7 +114,8 @@ button > svg { pointer-events: none; }
 .workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { display: none; }
 .app-shell.dock-closed { --dock-width: 0px; }
 .app-shell.no-sidebar { --sidebar-width: 0px; }
-.app-shell.no-dock { --dock-width: 0px; }
+/* No panel registered (safe mode, or every kit removed): the dock column is gone, not empty. */
+.app-shell.no-dock { --dock-width: 0px; grid-template-columns: var(--sidebar-width) minmax(480px, 1fr) 0; }
 .app-shell.no-dock .instrument-dock { display: none; }
 
 .lazy-feature-loading,

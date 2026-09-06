@@ -388,8 +388,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>);
 
   return providers(<>
-    <div className={shellClassName} style={{ "--dock-width": `${dockWidth}px` } as CSSProperties}>
-      <TitleBar cwd={workspaceCwd} dockOpen={dockOpen} registry={registry} snapshot={snapshot} actions={actions} onToggleDock={() => setDockOpen(!dockOpen)} />
+    <div className={shellClassName} style={{ "--dock-width": panels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px` } as CSSProperties}>
+      <TitleBar cwd={workspaceCwd} dockOpen={dockOpen} hasDock={panels.length > 0} registry={registry} snapshot={snapshot} actions={actions} onToggleDock={() => setDockOpen(!dockOpen)} />
       {sidebarContributions.map((contribution) => <LazyFeatureBoundary
         key={contribution.id}
         label="sidebar"
