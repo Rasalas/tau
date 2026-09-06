@@ -1,46 +1,46 @@
-import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { claudeCodeArgs, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy } from "./runtime-adapter.js";
+import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, type ClaudeQuery } from "./runtime-adapter.js";
 
-// Naming the interpreter directly drops one `env` PATH lookup per spawned
-// turn. A node path containing a space cannot be a shebang, so such hosts keep
-// the portable form.
-const SHEBANG = process.execPath.includes(" ") ? "#!/usr/bin/env node" : `#!${process.execPath}`;
+interface Call { prompt: string; options: Options }
+type Script = (call: Call) => SDKMessage[] | Promise<SDKMessage[]>;
 
-const STUB_SOURCES = {
-  transport: "const args = process.argv.slice(2);\nif (args.at(-1) === 'hang') setInterval(() => {}, 1000); else process.stdout.write(JSON.stringify(args));\n",
-  abort: "const args = process.argv.slice(2);\nif (args.at(-1) === 'hang') setInterval(() => {}, 1000); else process.stdout.write('ok');\n",
-  recovery: "const args = process.argv.slice(2);\nconst prompt = args.at(-1);\nif (prompt === 'conflict' && !args.includes('--resume')) { process.stderr.write('session already exists'); process.exit(2); }\nif (prompt === 'missing' && args.includes('--resume')) { process.stderr.write('session not found'); process.exit(2); }\nprocess.stdout.write(args.includes('--resume') ? 'resumed' : 'created');\n",
-  stderr: "process.stderr.write('e'.repeat(200)); process.exit(2);\n",
-  stdout: "process.stdout.write('o'.repeat(200)); setInterval(() => {}, 1000);\n",
-} as const;
+/** A `query` that yields scripted frames; the script sees what the adapter asked for. */
+function scripted(script: Script): { query: ClaudeQuery; calls: Call[] } {
+  const calls: Call[] = [];
+  const query = ((params: { prompt: string | AsyncIterable<unknown>; options?: Options }) => {
+    const call: Call = { prompt: params.prompt as string, options: params.options ?? {} };
+    calls.push(call);
+    async function* run(): AsyncGenerator<SDKMessage, void> {
+      for (const frame of await script(call)) yield frame;
+    }
+    return run() as unknown as ReturnType<ClaudeQuery>;
+  }) as unknown as ClaudeQuery;
+  return { query, calls };
+}
+
+const SESSION = "123e4567-e89b-42d3-a456-426614174000";
+const frame = <T extends object>(value: T): SDKMessage => ({ uuid: "u", session_id: SESSION, ...value }) as unknown as SDKMessage;
+const init = () => frame({ type: "system", subtype: "init", model: "claude-opus-5" });
+const assistant = (text: string, parent: string | null = null) => frame({ type: "assistant", parent_tool_use_id: parent, message: { role: "assistant", content: [{ type: "text", text }] } });
+const success = (numTurns = 1, result = "") => frame({ type: "result", subtype: "success", is_error: false, num_turns: numTurns, result });
+const failure = (...errors: string[]) => frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors });
+const sdkAbort = () => Object.assign(new Error("Request was aborted."), { name: "AbortError" });
+const afterAbort = (signal: AbortSignal): Promise<never> => new Promise((_, reject) => {
+  signal.addEventListener("abort", () => reject(sdkAbort()), { once: true });
+  if (signal.aborted) reject(sdkAbort());
+});
+
+const input = (tauThreadId: string, text: string, extra: Partial<Parameters<ReturnType<typeof createClaudeCodeRuntimeAdapter>["transport"]["sendPrompt"]>[0]> = {}) =>
+  ({ cwd: process.cwd(), tauThreadId, sessionId: `provider-${tauThreadId}`, text, ...extra });
 
 describe("Claude Code runtime adapter", () => {
-  // One temp directory and one stub per behavior for the whole file. Creating
-  // and removing a directory inside every test made the spawning cases depend
-  // on the host's filesystem load rather than on the adapter.
   let directory = "";
-  const stub = (name: keyof typeof STUB_SOURCES | "policy"): string => join(directory, `claude-${name}-stub.mjs`);
   const store = (name: string): string => join(directory, `${name}-sessions.json`);
-  let policyMarker = "";
-
-  beforeAll(async () => {
-    directory = await mkdtemp(join(tmpdir(), "tau-claude-adapter-"));
-    policyMarker = join(directory, "policy-spawned");
-    const write = async (path: string, source: string): Promise<void> => {
-      await writeFile(path, source, { encoding: "utf8", mode: 0o700 });
-      await chmod(path, 0o700);
-    };
-    await Promise.all([
-      ...Object.entries(STUB_SOURCES).map(([name, source]) =>
-        write(stub(name as keyof typeof STUB_SOURCES), `${SHEBANG}\n${source}`)),
-      // Deliberately never executed: the policy check must reject first.
-      write(stub("policy"), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(policyMarker)}, 'spawned');\n`),
-    ]);
-  });
-
+  beforeAll(async () => { directory = await mkdtemp(join(tmpdir(), "tau-claude-adapter-")); });
   afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
   it("declares its kind, its capabilities and a transport core will accept", () => {
@@ -50,89 +50,123 @@ describe("Claude Code runtime adapter", () => {
     expect(adapter.transport.sendPrompt).toBeTypeOf("function");
   });
 
-  it("builds an explicit Tau permission policy and terminates options before prompt text", () => {
-    expect(runtimePermissionPolicy("read-only")).toEqual({ permissionMode: "plan", tools: ["Read", "Glob", "Grep"] });
-    expect(runtimePermissionPolicy("ask")).toEqual({ permissionMode: "manual", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] });
-    expect(runtimePermissionPolicy("full")).toEqual({ permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] });
-    const args = claudeCodeArgs("123e4567-e89b-12d3-a456-426614174000", false, "--help", runtimePermissionPolicy("full"));
-    expect(args.at(-2)).toBe("--");
-    expect(args.at(-1)).toBe("--help");
-    expect(args).toContain("--tools");
-    expect(args).toContain("Read,Glob,Grep,Edit,Write,Bash");
-    expect(args).not.toContain("--dangerously-skip-permissions");
-    expect(args).not.toContain("--allow-dangerously-skip-permissions");
+  it("maps Tau's access levels onto Claude's permission modes", () => {
+    expect(runtimePermissionPolicy("read-only")).toEqual({ permissionMode: "plan" });
+    expect(runtimePermissionPolicy("ask")).toEqual({ permissionMode: "default" });
+    expect(runtimePermissionPolicy("full")).toEqual({ permissionMode: "auto" });
   });
 
-  // Spawns two Node stubs; under full-suite load a stub can take seconds to start.
-  it.skipIf(process.platform === "win32")("uses the selected Claude transport for every turn and preserves --help prompt text", { timeout: 60_000 }, async () => {
-    const adapter = createClaudeCodeRuntimeAdapter({ command: stub("transport"), storePath: store("transport") });
-    const first = await adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "session", sessionId: "provider-session", text: "--help" });
-    const second = await adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "session", sessionId: "provider-session", text: "continue" });
-    expect(first.assistantText).toContain("\"--help\"");
-    expect(JSON.parse(second.assistantText ?? "[]")).toContain("--resume");
-    expect(second.assistantText).toContain("continue");
-    expect((await adapter.sessionStore?.get("session"))?.claudeSessionId).toBeTypeOf("string");
+  it("tells the SDK to run the user's own CLI with the user's own settings, and only adds Tau's identity", () => {
+    const abortController = new AbortController();
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController, env: { PATH: "/bin" } };
+    const created = claudeQueryOptions(plan);
+    expect(created).toMatchObject({
+      cwd: "/repo",
+      pathToClaudeCodeExecutable: "/usr/local/bin/claude",
+      systemPrompt: { type: "preset", preset: "claude_code" },
+      settingSources: ["user", "project", "local"],
+      permissionMode: "auto",
+      sessionId: SESSION,
+      env: { PATH: "/bin", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP },
+      abortController,
+    });
+    expect(created).not.toHaveProperty("resume");
+    expect(created).not.toHaveProperty("allowDangerouslySkipPermissions");
+    expect(CLIENT_APP).toMatch(/^tau\.claude-code\/\d+\.\d+\.\d+$/u);
+    const resumed = claudeQueryOptions({ ...plan, started: true, policy: runtimePermissionPolicy("read-only") });
+    expect(resumed).toMatchObject({ resume: SESSION, permissionMode: "plan" });
+    expect(resumed).not.toHaveProperty("sessionId");
+    expect(() => claudeQueryOptions({ ...plan, claudeSessionId: "not-a-uuid" })).toThrow("must be UUIDs");
+    expect(() => claudeQueryOptions({ ...plan, policy: runtimePermissionPolicy("ask") })).toThrow("manual approvals are unsupported");
+  });
+
+  it("collects the main loop's text, skips sub-agent frames and the resume handshake", async () => {
+    async function* frames(): AsyncGenerator<SDKMessage> {
+      yield init();
+      yield success(0);
+      yield assistant("Looking.");
+      yield assistant("sub-agent narration", "tool-1");
+      yield assistant("Done.");
+      yield success(2, "Done.");
+    }
+    await expect(collectTurnText(frames())).resolves.toBe("Looking.\n\nDone.");
+    async function* silent(): AsyncGenerator<SDKMessage> { yield init(); yield success(1, "only the result"); }
+    await expect(collectTurnText(silent())).resolves.toBe("only the result");
+    async function* cut(): AsyncGenerator<SDKMessage> { yield init(); }
+    await expect(collectTurnText(cut())).rejects.toThrow("ended without a result");
+  });
+
+  it("creates the session on the first turn, resumes it afterwards, and keeps the prompt verbatim", async () => {
+    const { query, calls } = scripted((call) => [init(), assistant(call.options.resume ? `resumed:${call.prompt}` : `created:${call.prompt}`), success()]);
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", resolveCommand: () => "/opt/claude", storePath: store("transport"), query, env: {} });
+    const first = await adapter.transport.sendPrompt(input("session", "--help"));
+    const second = await adapter.transport.sendPrompt(input("session", "continue"));
+    expect(first.assistantText).toBe("created:--help");
+    expect(second.assistantText).toBe("resumed:continue");
+    const record = await adapter.sessionStore?.get("session");
+    expect(record?.claudeSessionId).toBeTypeOf("string");
+    expect(record?.started).toBe(true);
+    expect(calls[0]?.options).toMatchObject({ sessionId: record?.claudeSessionId, pathToClaudeCodeExecutable: "/opt/claude", cwd: process.cwd() });
+    expect(calls[1]?.options).toMatchObject({ resume: record?.claudeSessionId });
+    // The provider session id core passes is display-only; the store keys by Tau's thread id.
     expect(await adapter.sessionStore?.get("provider-session")).toBeUndefined();
   });
 
-  // Spawns several Node stubs; under full-suite load a stub can take seconds to start.
-  it.skipIf(process.platform === "win32")("aborts and times out tracked child processes without blocking the next turn", { timeout: 60_000 }, async () => {
-    const command = stub("abort");
-    const adapter = createClaudeCodeRuntimeAdapter({ command, storePath: store("abort"), timeoutMs: 30_000, killGraceMs: 20 });
-    const pending = adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "hang" });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const queued = adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "queued" });
+  it("aborts a running turn and everything queued behind it without blocking the next turn", async () => {
+    const { query } = scripted(async (call) => {
+      if (call.prompt !== "hang") return [init(), assistant("ok"), success()];
+      return afterAbort(call.options.abortController!.signal);
+    });
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", storePath: store("abort"), query, env: {} });
+    const pending = adapter.transport.sendPrompt(input("abort-session", "hang"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const queued = adapter.transport.sendPrompt(input("abort-session", "queued"));
     await adapter.transport.abort?.("abort-session");
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     await expect(queued).rejects.toMatchObject({ name: "AbortError" });
-    await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "abort-session", sessionId: "provider-abort", text: "again" })).resolves.toEqual({ assistantText: "ok" });
-    const timeoutAdapter = createClaudeCodeRuntimeAdapter({ command, storePath: store("timeout"), timeoutMs: 80, killGraceMs: 20 });
-    await expect(timeoutAdapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "timeout-session", sessionId: "provider-timeout", text: "hang" })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(adapter.transport.sendPrompt(input("abort-session", "again"))).resolves.toEqual({ assistantText: "ok" });
+    expect((await adapter.sessionStore?.get("abort-session"))?.lastAttemptOutcome).toBe("started");
+
     const controller = new AbortController();
-    const signalAdapter = createClaudeCodeRuntimeAdapter({ command, storePath: store("signal"), timeoutMs: 30_000, killGraceMs: 20 });
-    const signalPending = signalAdapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "signal-session", sessionId: "provider-signal", text: "hang", signal: controller.signal });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const signalled = adapter.transport.sendPrompt(input("signal-session", "hang", { signal: controller.signal }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
     controller.abort();
-    await expect(signalPending).rejects.toMatchObject({ name: "AbortError" });
+    await expect(signalled).rejects.toMatchObject({ name: "AbortError" });
   });
 
-  // Spawns five Node stubs; under full-suite load a stub can take seconds to start.
-  it.skipIf(process.platform === "win32")("recovers create/resume conflicts and one missing resumed session", { timeout: 60_000 }, async () => {
-    const adapter = createClaudeCodeRuntimeAdapter({ command: stub("recovery"), storePath: store("recovery") });
+  it("recovers create/resume conflicts and one missing resumed session", async () => {
+    const { query } = scripted((call) => {
+      if (call.prompt === "conflict" && call.options.sessionId) return [init(), failure(`Session ID ${call.options.sessionId} already exists.`)];
+      if (call.prompt === "missing" && call.options.resume) return [init(), failure(`No conversation found with session ID: ${call.options.resume}`)];
+      return [init(), assistant(call.options.resume ? "resumed" : "created"), success()];
+    });
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", storePath: store("recovery"), query, env: {} });
 
-    await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "conflict-session", sessionId: "provider-conflict", text: "conflict" })).resolves.toEqual({ assistantText: "resumed" });
-    const conflictRecord = await adapter.sessionStore?.get("conflict-session");
-    expect(conflictRecord).toMatchObject({ started: true, attempted: true, createFallbackUsed: true, attemptCount: 2 });
-    await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "conflict-session", sessionId: "provider-conflict", text: "next" })).resolves.toEqual({ assistantText: "resumed" });
+    await expect(adapter.transport.sendPrompt(input("conflict-session", "conflict"))).resolves.toEqual({ assistantText: "resumed" });
+    expect(await adapter.sessionStore?.get("conflict-session")).toMatchObject({ started: true, attempted: true, createFallbackUsed: true, attemptCount: 2 });
+    await expect(adapter.transport.sendPrompt(input("conflict-session", "next"))).resolves.toEqual({ assistantText: "resumed" });
 
-    await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "missing-session", sessionId: "provider-missing", text: "first" })).resolves.toEqual({ assistantText: "created" });
-    await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "missing-session", sessionId: "provider-missing", text: "missing" })).resolves.toEqual({ assistantText: "created" });
-    const missingRecord = await adapter.sessionStore?.get("missing-session");
-    expect(missingRecord).toMatchObject({ started: true, createFallbackUsed: true, attemptCount: 3 });
+    await expect(adapter.transport.sendPrompt(input("missing-session", "first"))).resolves.toEqual({ assistantText: "created" });
+    await expect(adapter.transport.sendPrompt(input("missing-session", "missing"))).resolves.toEqual({ assistantText: "created" });
+    expect(await adapter.sessionStore?.get("missing-session")).toMatchObject({ started: true, createFallbackUsed: true, attemptCount: 3 });
   });
 
-  // Spawns a Node stub; under full-suite load a stub can take seconds to start.
-  it.skipIf(process.platform === "win32")("bounds stderr and reports its truncation marker", { timeout: 60_000 }, async () => {
-    const adapter = createClaudeCodeRuntimeAdapter({ command: stub("stderr"), storePath: store("stderr"), maxBuffer: 64, killGraceMs: 20 });
-    await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "stderr-session", sessionId: "provider-stderr", text: "fail" })).rejects.toThrow("Claude Code stderr truncated");
+  it("reports an error result together with what the CLI wrote to stderr", async () => {
+    const { query } = scripted((call) => {
+      call.options.stderr?.("credentials expired\n");
+      return [init(), failure("API error", "please log in again")];
+    });
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", storePath: store("error"), query, env: {} });
+    const failed = adapter.transport.sendPrompt(input("error-session", "fail"));
+    await expect(failed).rejects.toThrow("API error\nplease log in again");
+    await expect(failed).rejects.toThrow("credentials expired");
+    expect((await adapter.sessionStore?.get("error-session"))?.lastAttemptOutcome).toBe("failed");
   });
 
-  // Spawns a Node stub; under full-suite load a stub can take seconds to start.
-  it.skipIf(process.platform === "win32")("bounds stdout and reports its truncation marker", { timeout: 60_000 }, async () => {
-    const adapter = createClaudeCodeRuntimeAdapter({ command: stub("stdout"), storePath: store("stdout"), maxBuffer: 128, killGraceMs: 20 });
-    await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "stdout-session", sessionId: "provider-stdout", text: "overflow" }))
-      .rejects.toThrow("Claude Code stdout truncated");
-  });
-
-  it.skipIf(process.platform === "win32")("rejects unsupported manual policy before spawning Claude", async () => {
-    const adapter = createClaudeCodeRuntimeAdapter({ command: stub("policy"), storePath: store("policy") });
-    await expect(adapter.transport.sendPrompt({
-      cwd: process.cwd(),
-      tauThreadId: "manual-session",
-      sessionId: "provider-manual",
-      text: "must reject",
-      permissionLevel: "ask",
-    })).rejects.toThrow("manual approvals are unsupported");
-    await expect(access(policyMarker)).rejects.toThrow();
+  it("rejects the ask level before asking the SDK for anything", async () => {
+    const { query, calls } = scripted(() => [init(), assistant("must not run"), success()]);
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", storePath: store("policy"), query, env: {} });
+    await expect(adapter.transport.sendPrompt(input("manual-session", "must reject", { permissionLevel: "ask" }))).rejects.toThrow("manual approvals are unsupported");
+    expect(calls).toHaveLength(0);
   });
 });

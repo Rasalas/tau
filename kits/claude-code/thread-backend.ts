@@ -48,7 +48,7 @@ export interface ClaudeThreadBackendOptions {
 export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly kind = "claude-code" as const;
   readonly runtimeAdapter: ClaudeCodeAgentRuntimeAdapter;
-  /** Print mode owns its turn: nothing streams, and no Pi-shaped operation exists. */
+  /** One query per turn: the reply arrives whole, and no Pi-shaped operation exists. */
   readonly turnReporting = "awaited" as const;
   readonly capabilities: ThreadBackendCapabilities = {};
   private record?: Awaited<ReturnType<ClaudeRuntimeSessionStore["get"]>>;
@@ -173,7 +173,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         throw new Error(`Claude transcript already contains a conflicting message id '${clientMessageId}'.`);
       }
     }
-    if (input.delivery !== "prompt" && this.streaming) throw new Error("Claude Code print mode cannot steer or queue a live turn.");
+    if (input.delivery !== "prompt" && this.streaming) throw new Error("Claude Code cannot steer or queue a live turn yet.");
     // Persist the visible message as soon as the runtime accepts it; the
     // transport separately records the attempt before creating a child.
     const user: UiMessage = {

@@ -41,9 +41,9 @@ export function assertCommandInstalled(findCommand: (name: string) => string | u
 }
 
 /**
- * Claude Code as a runtime backend (ADR 0005): threads it owns run the Claude
- * CLI in print mode and persist in Tau's app data. Bundled by default; removing
- * the extension leaves Pi as the only backend.
+ * Claude Code as a runtime backend (ADR 0005): threads it owns drive the
+ * installed Claude CLI through the Agent SDK and persist in Tau's app data.
+ * Bundled by default; removing the extension leaves Pi as the only backend.
  */
 export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOptions = {}): HostExtension {
   return {
@@ -53,7 +53,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
     activate(context) {
       const services: HostExtensionServices = context.services;
       const storePath = ClaudeRuntimeSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
-      const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ storePath });
+      const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ storePath, resolveCommand: services.findCommand });
       const store = adapter.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: storePath });
       const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
         threadId: entry.tauThreadId,
