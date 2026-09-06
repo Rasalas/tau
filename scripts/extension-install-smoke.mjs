@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DIST = join(ROOT, "dist-electron", "main");
@@ -28,11 +28,11 @@ function fail(message) {
   process.exit(1);
 }
 
-const { installExtensionSource, listExtensionSources, removeExtensionSource } = await import(join(DIST, "extension-installer.js"));
-const { listExtensionPackages, loadHostExtensionPackages } = await import(join(DIST, "extension-packages.js"));
-const { describeSignature } = await import(join(DIST, "extension-signature.js"));
-const { grantPackage } = await import(join(DIST, "extension-grants.js"));
-const { HostExtensionRegistry } = await import(join(DIST, "host-extensions.js"));
+const { installExtensionSource, listExtensionSources, removeExtensionSource } = await import(pathToFileURL(join(DIST, "extension-installer.js")).href);
+const { listExtensionPackages, loadHostExtensionPackages } = await import(pathToFileURL(join(DIST, "extension-packages.js")).href);
+const { describeSignature } = await import(pathToFileURL(join(DIST, "extension-signature.js")).href);
+const { grantPackage } = await import(pathToFileURL(join(DIST, "extension-grants.js")).href);
+const { HostExtensionRegistry } = await import(pathToFileURL(join(DIST, "host-extensions.js")).href);
 
 const scratch = [];
 const temp = async (prefix) => {
