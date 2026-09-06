@@ -128,8 +128,8 @@ export const ThreadRow = memo(function ThreadRow({
         <span className="thread-meta-line">
           {childCount}
           {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
-          <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
           {cost && session.usage ? <span className="thread-cost-meta" title={threadUsageDetail(session.usage)}>{cost}</span> : null}
+          <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
         </span>
       </button>
       <button

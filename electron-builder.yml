@@ -13,6 +13,8 @@ files:
   - "!.github"
   - "!.pi"
   - "!.scratch"
+  # The isolated dev instance (`npm run dev:instance`) keeps its userData here.
+  - "!.tau-dev"
   - "!benchmarks"
   - "!docs"
   - "!examples"

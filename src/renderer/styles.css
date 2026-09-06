@@ -487,6 +487,7 @@ button > svg { pointer-events: none; }
 }
 .agent-parent-link:hover:not(:disabled) { color: var(--ink-3); }
 
+/* Sits between the branch and the provider mark; without a branch it keeps the mark at the right edge. */
 .thread-cost-meta {
   margin-left: auto; flex: none; font: 11px var(--mono); color: var(--faint);
   opacity: .55; transition: opacity .12s ease;
