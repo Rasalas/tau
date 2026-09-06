@@ -8,7 +8,8 @@ against the release feed.
 ## Cut a release
 
 1. Land everything the release should contain on `main`.
-2. Raise `version` in `package.json` and commit it.
+2. Raise `version` in `package.json` and commit it. Raise the one in
+   `kits/package.json` too when the shipped kits changed — see below.
 3. Tag the commit and push the tag:
 
    ```bash
@@ -132,6 +133,22 @@ secrets.
 leave out: sources, scripts, docs, reports, tests, and the parts of Pi and of
 computer use that only another platform would use.
 
+**The kits ship as their own artifact.** `dist-kits/` is `@tau/kits`, every kit
+under `kits/` compiled by `scripts/build-kits.mjs`, with `dist-kits/manifest.json`
+naming the set and its version. `npm run build` writes it and the default
+`**/*` carries it into the archive; `kits/` — the sources — is excluded, and an
+installed Tau has neither them nor a toolchain, so `dist-kits/` is the only
+place it ever reads a kit from. Its version lives in `kits/package.json`, moves
+with the set rather than with the app, and heads the bundled list in
+Settings → Packages. A release with a stale `dist-kits/` fails loudly: each
+manifest's `engines.api` is checked against the running
+`EXTENSION_API_VERSION`.
+
+`assets/` is `buildResources` and stays out of the archive by
+electron-builder's own default, so an installed app has no `assets/tau-icon.png`.
+It wears the icon the installer baked into the bundle instead, and
+`src/main/index.ts` reads that path only where it exists.
+
 `asarUnpack:` names what cannot stay inside `app.asar`. Electron reads the
 archive through its own patched `fs`, but a process it spawns and a worker
 thread it starts open the file themselves and find nothing there:
@@ -177,3 +194,12 @@ inner `app-64.7z`; the file list matched the Linux/macOS audits. The macOS
 `.zip` got the same `asar` audit; launching it outside Finder is blocked by
 Gatekeeper for an unsigned, adhoc-signed build regardless of packaging
 correctness (see Signing, above), so that one is content-verified only.
+
+The macOS build was also *run*, 2026-09-06: `release/mac-arm64/Tau.app`'s own
+binary started directly (Gatekeeper stops the extracted `.zip`, not the app
+electron-builder just wrote), with `TAU_USER_DATA` and
+`PI_CODING_AGENT_SESSION_DIR` pointed at a scratch directory and a
+`--remote-debugging-port` to drive it. All fifteen kits loaded from inside
+`app.asar`, a prompt round-tripped, and safe mode came up with none of them.
+That run is what turned up the dock-icon crash above: an audit of the archive
+would never have found it.

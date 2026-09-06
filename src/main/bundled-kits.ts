@@ -17,12 +17,31 @@ import {
 } from "./extension-packages.js";
 import { createWorkerHostExtension } from "./host-extension-isolation.js";
 import type { HostExtension } from "./host-extensions.js";
-import type { ExtensionHostVersions } from "../shared/extension-compat.js";
+import type { ExtensionEngines, ExtensionHostVersions } from "../shared/extension-compat.js";
 
 /** Prebuilt kits, as `scripts/build-kits.mjs` writes them and the app ships them. */
 export const PREBUILT_KITS_DIRECTORY = "dist-kits";
 /** The kits' sources, compiled on the fly when Tau runs from a checkout. */
 export const KIT_SOURCE_DIRECTORY = "kits";
+
+/**
+ * The distribution the shipped kits arrive as: `@tau/kits` and its own version,
+ * which moves as a set while each kit keeps the `version` in its own manifest.
+ * `kits/package.json` declares it; `scripts/build-kits.mjs` copies it into
+ * `dist-kits/manifest.json` so the installed app, which has no `kits/`, reads
+ * the same two fields.
+ */
+export interface KitDistribution {
+  name: string;
+  version: string;
+  engines?: ExtensionEngines;
+}
+
+/** Index of a prebuilt distribution; the sources answer with their `package.json`. */
+const DISTRIBUTION_FILE = { prebuilt: "manifest.json", sources: "package.json" } as const;
+
+/** What safe mode reports: no distribution, no kits. */
+export const NO_BUNDLED_KITS: { distribution?: KitDistribution; packages: ExtensionPackageSummary[] } = { packages: [] };
 
 /**
  * A kit Tau ships. It is an extension package in every respect — same manifest,
@@ -68,6 +87,23 @@ export async function resolveKitsRoot(appPath: string, sources = false): Promise
     if (await stat(directory).then((info) => info.isDirectory()).catch(() => false)) return { directory, prebuilt };
   }
   return undefined;
+}
+
+/**
+ * Which distribution a root of kits belongs to, or nothing when the file is
+ * missing or unreadable — a checkout that never built its kits still runs them.
+ */
+export async function readKitDistribution(root: { directory: string; prebuilt: boolean }): Promise<KitDistribution | undefined> {
+  const file = join(root.directory, root.prebuilt ? DISTRIBUTION_FILE.prebuilt : DISTRIBUTION_FILE.sources);
+  const source = await readFile(file, "utf8").catch(() => undefined);
+  if (source === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(source) as Partial<KitDistribution>;
+    if (typeof parsed.name !== "string" || typeof parsed.version !== "string") return undefined;
+    return { name: parsed.name, version: parsed.version, ...(parsed.engines ? { engines: { ...parsed.engines } } : {}) };
+  } catch {
+    return undefined;
+  }
 }
 
 /** Every kit under a root, in id order; a folder without a manifest is not a kit. */
@@ -140,13 +176,18 @@ async function hostHalf(kit: BundledKit, entry: string, cacheDir?: string): Prom
 }
 
 /**
- * The shipped kits as Settings reads them, beside the installed packages. They
- * carry `scope: "bundled"` and are granted by construction, so the Packages page
- * can show what Tau brought apart from what the user installed.
+ * The shipped kits as Settings reads them, beside the installed packages, and
+ * the distribution they came in. They carry `scope: "bundled"` and are granted
+ * by construction, so the Packages page can show what Tau brought apart from
+ * what the user installed.
  */
-export async function inspectBundledKits(options: BundledKitsOptions): Promise<ExtensionPackageSummary[]> {
-  const { kits } = await kitsOf(options);
-  return kits.map((kit) => ({
+export async function inspectBundledKits(
+  options: BundledKitsOptions,
+): Promise<{ distribution?: KitDistribution; packages: ExtensionPackageSummary[] }> {
+  const root = await resolveKitsRoot(options.appPath, options.sources);
+  if (!root) return { packages: [] };
+  const [{ kits }, distribution] = await Promise.all([listBundledKits(root, options.versions), readKitDistribution(root)]);
+  const packages = kits.map((kit) => ({
     id: kit.manifest.id,
     name: kit.manifest.name,
     ...(kit.manifest.version ? { version: kit.manifest.version } : {}),
@@ -160,6 +201,7 @@ export async function inspectBundledKits(options: BundledKitsOptions): Promise<E
     desktop: Boolean(kit.desktopEntry),
     host: Boolean(kit.hostEntry),
   }));
+  return { ...(distribution ? { distribution } : {}), packages };
 }
 
 /** Compiled desktop halves, cached per file so a workspace switch recompiles nothing. */

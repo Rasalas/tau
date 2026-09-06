@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { EXTENSION_API_VERSION } from "./extension-compat.js";
 
 /**
  * The wall around `kits/`. A kit is a package Tau ships (ADR 0014), so it may
@@ -36,6 +37,9 @@ function specifiers(path: string): string[] {
 }
 
 const isTest = (path: string) => /\.test\.[cm]?[jt]sx?$/u.test(path);
+
+/** Folder names under `kits/`; `package.json` and `README.md` are not kits. */
+const kitDirectories = () => readdirSync("kits").sort().filter((name) => statSync(join("kits", name)).isDirectory());
 
 describe("kits boundary", () => {
   it("a kit names no Tau module but the three API modules", () => {
@@ -81,10 +85,25 @@ describe("kits boundary", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("the distribution pins the API version the kits declare", () => {
+    const distribution = JSON.parse(readFileSync(join("kits", "package.json"), "utf8")) as {
+      name: string; private: boolean; version: string; engines?: { api?: string }; files?: string[];
+    };
+    expect(distribution.name).toBe("@tau/kits");
+    expect(distribution.private).toBe(true);
+    expect(distribution.version).toMatch(/^\d+\.\d+\.\d+$/u);
+    const [major, minor] = EXTENSION_API_VERSION.split(".");
+    expect(distribution.engines?.api).toBe(`^${major}.${minor}.0`);
+    // Every kit builds against the same API line as the set that ships it.
+    for (const name of kitDirectories()) {
+      const manifest = JSON.parse(readFileSync(join("kits", name, "tau-extension.json"), "utf8")) as { engines?: { api?: string } };
+      expect(manifest.engines?.api, name).toBe(distribution.engines?.api);
+    }
+  });
+
   it("every kit carries a manifest with an id, permissions and an entry", () => {
-    for (const name of readdirSync("kits").sort()) {
+    for (const name of kitDirectories()) {
       const directory = join("kits", name);
-      if (!statSync(directory).isDirectory()) continue;
       const manifest = JSON.parse(readFileSync(join(directory, "tau-extension.json"), "utf8")) as Record<string, unknown>;
       expect(manifest.id).toMatch(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u);
       expect(Array.isArray(manifest.permissions)).toBe(true);

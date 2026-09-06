@@ -10,8 +10,8 @@ afterEach(cleanup);
 
 const actions = () => ({ notify: vi.fn(), openSettings: vi.fn() } as unknown as WorkbenchActions);
 
-const inspection = (packages: ExtensionInspection["packages"]): ExtensionInspection => ({
-  versions: { tau: "0", pi: "0", api: "1.2.0" }, directories: [], packages, errors: [], skipped: [],
+const inspection = (packages: ExtensionInspection["packages"], distribution?: ExtensionInspection["distribution"]): ExtensionInspection => ({
+  versions: { tau: "0", pi: "0", api: "1.2.0" }, directories: [], packages, errors: [], skipped: [], ...(distribution ? { distribution } : {}),
 });
 
 const host = (invoke: (command: string, input?: unknown) => Promise<unknown>) => ({
@@ -25,6 +25,22 @@ describe("install arguments", () => {
     expect(parseInstallArguments("  git:https://example.com/x.git  -l ")).toEqual({ source: "git:https://example.com/x.git", scope: "project" });
     expect(parseInstallArguments("./ext --local")).toEqual({ source: "./ext", scope: "project" });
     expect(parseInstallArguments("")).toEqual({ source: "", scope: "global" });
+  });
+
+  it("names the distribution the shipped kits came in", async () => {
+    const invoke = vi.fn(async () => ({ packages: [] }));
+    render(
+      <PackagesPage
+        cwd="/project"
+        onNotify={vi.fn()}
+        host={host(invoke)}
+        inspect={async () => inspection(
+          [{ id: "tau.packages", name: "Packages", version: "1.0.0", permissions: ["packages"], isolation: "in-process", granted: true, scope: "bundled", directory: "/app/dist-kits/tau.packages", desktop: true, host: true }],
+          { name: "@tau/kits", version: "0.1.0" },
+        )}
+      />,
+    );
+    expect(await screen.findByText(/@tau\/kits 0\.1\.0/u)).toBeTruthy();
   });
 });
 
@@ -109,5 +125,21 @@ describe("Packages kit", () => {
     expect(installed.textContent).not.toContain("tau.packages");
     // A package still waiting for its grant says so where it is listed.
     expect(installed.textContent).toContain("waiting for approval");
+  });
+
+  it("names the distribution the shipped kits came in", async () => {
+    const invoke = vi.fn(async () => ({ packages: [] }));
+    render(
+      <PackagesPage
+        cwd="/project"
+        onNotify={vi.fn()}
+        host={host(invoke)}
+        inspect={async () => inspection(
+          [{ id: "tau.packages", name: "Packages", version: "1.0.0", permissions: ["packages"], isolation: "in-process", granted: true, scope: "bundled", directory: "/app/dist-kits/tau.packages", desktop: true, host: true }],
+          { name: "@tau/kits", version: "0.1.0" },
+        )}
+      />,
+    );
+    expect(await screen.findByText(/@tau\/kits 0\.1\.0/u)).toBeTruthy();
   });
 });

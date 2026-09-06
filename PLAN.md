@@ -17,6 +17,7 @@ The prototype already proves several basic facts:
 - Safe mode starts the minimal workbench with both Pi and desktop extensions disabled and empty layout slots collapsed.
 - A third-party package can be installed from npm, Git or a folder, waits for a permission grant before either half runs, and its host half runs isolated in a worker thread unless it was granted `in-process` (Phase 3, Phase 2; ADR 0009, ADR 0011; see `docs/EXTENSIONS.md`).
 - A window can run as a pure client of a host on another machine over an authenticated socket, with reconnect and event replay (Phase 4; ADR 0010; `TAU_HOST_URL`, `TAU_HOST_LISTEN`).
+- The product is assembled from extensions in fact and not only in name: every bundled feature is a package under `kits/`, and the repository builds two artifacts — core, and the `@tau/kits` distribution the installer ships (Phase 6; ADR 0014).
 
 This is enough to evaluate the architecture in use. What is not yet proven: a week of real, everyday use (Phase 1's own completion check, still open), a remote host reached without an SSH tunnel (TLS is follow-up work), and Tau running on Windows at all — every verification so far, including this plan's own git history, is macOS and Linux.
 
@@ -119,6 +120,39 @@ Planned work:
 - keep host-side Pi and project extensions available when a client cannot render their desktop UI
 
 Completion check: a second client can supervise the same host and clearly reports unsupported desktop capabilities.
+
+## Phase 6: ship core and kits as two artifacts
+
+Done 2026-09-06. Every bundled feature became a package under `kits/<name>/`
+with a `tau-extension.json`, a host half and a desktop half, loaded through the
+same code path an installed package uses: same manifest parser, same bundlers,
+same registry, same `guardedServices` (ADR 0014). Core imports no kit, and a kit
+reaches core through `tau`, `tau/host-extension` and `tau/host` and nothing
+else; `src/shared/kits-boundary.test.ts` fails on a reach in either direction.
+Fifteen kits moved across three waves: Thread Titles and Worktree Names first,
+then Access, Agents, Claude Code, Computer Use, Keybindings, Packages, Pi UI,
+Preview, Questionnaires, Review, Service Tier, Signals and Workspace — the last
+of which took the largest store in the renderer with it and gave the kits built
+on it `provideService`/`useService` instead.
+
+The two artifacts are core (`src/`), which `npm run start:safe` runs alone, and
+`@tau/kits` (`kits/`, built into `dist-kits/` by `scripts/build-kits.mjs`).
+The distribution has a name, a version of its own and an `engines.api` pinned to
+the `EXTENSION_API_VERSION` its kits declare; `dist-kits/manifest.json` carries
+all three into the installed app, which has no `kits/` and no toolchain and so
+reads kits only from there. Settings → Packages lists them as bundled under that
+version, above the packages a source installed.
+
+Completion check: the packaged app runs every kit out of its own archive, and
+safe mode is still a usable window. Satisfied 2026-09-06 on a macOS arm64
+build launched with an isolated `TAU_USER_DATA` — fifteen kits activated from
+inside `app.asar`, a prompt round-tripped, and safe mode came up with none of
+them and a working composer.
+
+Deliberately not done: moving `kits/` to a repository of its own. Two artifacts
+from one repository first; a `git subtree split` is a governance decision with
+its own costs (a second release train, a version matrix between core and kits)
+and no forcing need yet.
 
 ## Open decisions
 

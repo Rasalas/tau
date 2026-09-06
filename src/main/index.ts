@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, session, shell } from "electron";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
@@ -11,7 +12,7 @@ import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
 import { rebuildWorkbench } from "./workbench-build.js";
 import { shippedHostExtensions } from "./extensions/index.js";
-import { inspectBundledKits, loadBundledKitDesktopHalves } from "./bundled-kits.js";
+import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves } from "./bundled-kits.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
@@ -31,7 +32,15 @@ import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
+/**
+ * The icon a checkout runs with, or nothing. `assets/` is electron-builder's
+ * `buildResources` and stays out of the archive, so an installed Tau has no
+ * such file — it wears the icon the installer baked into the bundle. Setting
+ * one from a path that is not there throws, which used to take the window with
+ * it: `app.dock.setIcon` runs in the same `whenReady` callback that creates it.
+ */
+const shippedIconPath = join(app.getAppPath(), "assets/tau-icon.png");
+const appIconPath = existsSync(shippedIconPath) ? shippedIconPath : undefined;
 const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 /**
@@ -158,7 +167,7 @@ async function createWindow(): Promise<void> {
     // Centres the native traffic lights in Tau's 46px title bar.
     trafficLightPosition: { x: 19, y: 15 },
     backgroundColor: "#11110f",
-    icon: appIconPath,
+    ...(appIconPath ? { icon: appIconPath } : {}),
     webPreferences: {
       preload: join(currentDir, "../preload/bundle.cjs"),
       contextIsolation: true,
@@ -283,10 +292,14 @@ function createLocalHostMethods(): HostMethodTable {
       // `bundled`; safe mode loads none of them and reports none.
       inspectExtensions: async (cwd) => {
         const [kits, inspection] = await Promise.all([
-          safeMode ? [] : inspectBundledKits(kitOptions),
+          safeMode ? NO_BUNDLED_KITS : inspectBundledKits(kitOptions),
           inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }),
         ]);
-        return { ...inspection, packages: [...kits, ...inspection.packages] };
+        return {
+          ...inspection,
+          ...(kits.distribution ? { distribution: { name: kits.distribution.name, version: kits.distribution.version } } : {}),
+          packages: [...kits.packages, ...inspection.packages],
+        };
       },
       loadDesktopExtensions: async (cwd, sharedExports) => {
         // The kits Tau ships travel the same road as an installed package's
@@ -363,7 +376,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     pid: process.pid,
     userData: app.getPath("userData"),
   });
-  app.dock?.setIcon(appIconPath);
+  if (appIconPath) app.dock?.setIcon(appIconPath);
   updates = createAppUpdates({
     updater: electronUpdater.autoUpdater,
     enabled: app.isPackaged,

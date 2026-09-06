@@ -116,7 +116,9 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         </div>
       ) : null}
 
-      <div className="settings-label">BUNDLED KITS</div>
+      <div className="settings-label">
+        BUNDLED KITS{inspection?.distribution ? ` · ${inspection.distribution.name} ${inspection.distribution.version}` : ""}
+      </div>
       {bundled.length > 0 ? (
         <table className="inspector-table" aria-label="Bundled kits">
           <thead><tr><th>Kit</th><th>Permissions</th><th>Isolation</th><th>Folder</th></tr></thead>

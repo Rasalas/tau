@@ -18,6 +18,11 @@ is loaded from `dist-kits/` beside the app rather than from a folder in
 [ADR 0014](adr/0014-bundled-kits-are-packages.md) has the reasoning;
 [`kits/README.md`](../kits/README.md) is the recipe.
 
+The kits together are **`@tau/kits`**, a distribution with a version of its
+own: `kits/package.json` declares it and the build ships it as
+`dist-kits/manifest.json`. Nothing about it is privileged — a third party
+assembles a distribution the same way, out of packages a user installs.
+
 A package is a folder under `~/.tau/extensions` (every project) or
 `<project>/.tau/extensions` (that project only, and only where Pi trusts the
 project) with a manifest named `tau-extension.json` at its root
@@ -125,7 +130,8 @@ of the Settings modal with its own nav entry, typed `SettingsPageContribution`
 optional `order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
 `onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
 package folders and the shipped kits (`ExtensionInspection`) without loading
-any code. Core keeps Defaults, Keybindings and the Inspector; every other page
+any code — including `distribution`, the name and version of the set the
+`bundled` entries came in, absent in safe mode, which loads none. Core keeps Defaults, Keybindings and the Inspector; every other page
 is a contribution and is gone with its extension.
 
 Beyond the contribution types, `tau` exports `useWorkbench`,
@@ -361,9 +367,10 @@ The same four verbs live in Settings → Packages — the kit's own page, throug
 `registerSettingsPage` — with a source field, a global/project switch, live
 progress lines while `install`/`update` run (they are host jobs —
 `{ long: true }` — so they never block the rest of the workbench), and
-Update/Remove buttons per row. The page lists the kits Tau ships above the
-installed packages and never offers to remove one: shipping a kit is the
-approval, so it carries no grant and no source to drop.
+Update/Remove buttons per row. The page lists the kits Tau ships — headed by
+the distribution they arrived in — above the installed packages, and never
+offers to remove one: shipping a kit is the approval, so it carries no grant
+and no source to drop.
 
 The kit manages packages while being one. A kit is loaded before any installed
 package and is never re-imported by a rescan — the activator only touches what
