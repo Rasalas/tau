@@ -7,15 +7,30 @@
 //
 // `kits/package.json` names the distribution (`@tau/kits`) and its `files` list
 // is the shape of `dist-kits/`; writing a file it does not cover fails the build.
+//
+// `--kits <dir> --out <dir>` build another checkout of the distribution against
+// this core; the defaults are this repository's own two folders.
 import { build } from "esbuild";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative as relativeTo, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SOURCE = join(ROOT, "kits");
-const OUTPUT = join(ROOT, "dist-kits");
 const MAIN = join(ROOT, "dist-electron/main");
+
+/** `--kits <dir>` and `--out <dir>`: build a distribution that lives outside this
+ * repository against this core, which is what a split-out `@tau/kits` would be
+ * (ADR 0015). Both default to the folders in the repository. */
+function directoryOption(name, fallback) {
+  const at = process.argv.indexOf(`--${name}`);
+  if (at === -1) return fallback;
+  const value = process.argv[at + 1];
+  if (!value || value.startsWith("--")) throw new Error(`--${name} needs a directory.`);
+  return resolve(value);
+}
+
+const SOURCE = directoryOption("kits", join(ROOT, "kits"));
+const OUTPUT = directoryOption("out", join(ROOT, "dist-kits"));
 /** The distribution index the app reads for the version of the set it ships. */
 const INDEX_FILE = "manifest.json";
 const watch = process.argv.includes("--watch");
@@ -98,7 +113,7 @@ async function buildKits() {
     }
     await write(`${manifest.id}/${MANIFEST_FILE}`, `${JSON.stringify(shippedManifest, null, 2)}\n`);
     ids.push(manifest.id);
-    console.log(`kit ${manifest.id} -> dist-kits/${manifest.id}`);
+    console.log(`kit ${manifest.id} -> ${relativeTo(ROOT, join(OUTPUT, manifest.id)) || OUTPUT}`);
   }
   // The version belongs to the set, not to a kit: each kit keeps its own
   // `version` in its own manifest, and the index says which distribution
