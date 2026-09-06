@@ -32,4 +32,5 @@ export {
 } from "./persisted-json.js";
 export { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
+export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 export type { WorkspaceRef } from "../shared/workspace-identity.js";

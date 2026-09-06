@@ -1,5 +1,5 @@
 import type { ExtensionFactory, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import type { AccessLevel } from "../shared/access-kit-protocol.js";
+import type { AccessLevel } from "./protocol.js";
 
 /** Tools that can change the workspace or run arbitrary commands. */
 const MUTATING_TOOLS = new Set(["edit", "write", "bash", "powershell"]);

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiPrompt,
   HostEvent,
@@ -196,6 +196,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
 
   const services: HostExtensionServices = {
     cwd: () => port.cwd(),
+    agentDir: getAgentDir(),
     safeMode: port.safeMode,
     log: (label, detail) => port.log(label, detail),
     openWorkspace: (path) => port.openWorkspace(path),

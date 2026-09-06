@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionUiPrompt } from "../../shared/contracts";
-import { QUESTIONNAIRE_EXTRA, type UiQuestionnaireQuestion } from "../../shared/questionnaire-protocol";
-import { ExtensionRegistry } from "../extension-system";
-import { createQuestionnaireExtension, QuestionnaireStore } from "./questionnaire-kit";
+import type { ExtensionUiPrompt } from "tau";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createQuestionnaireExtension, QuestionnaireStore } from "./desktop.js";
+import { QUESTIONNAIRE_EXTRA, type UiQuestionnaireQuestion } from "./protocol.js";
 
 const questions: UiQuestionnaireQuestion[] = [
   { question: "Which colour?", header: "Theme", multiSelect: false, options: [{ label: "red", description: "warm" }, { label: "blue", description: "cool" }] },
@@ -20,7 +20,7 @@ afterEach(cleanup);
 describe("Questionnaire Kit", () => {
   it("pages ahead, takes a pick for a later question, and answers it when the extension gets there", () => {
     const store = new QuestionnaireStore();
-    const registry = new ExtensionRegistry();
+    const { registry } = createKitHarness();
     registry.activate(createQuestionnaireExtension(store));
     const first = ask(0, "select", ["red", "blue"]);
     // A fresh questionnaire is never intercepted and forgets older picks in the thread.
@@ -48,7 +48,7 @@ describe("Questionnaire Kit", () => {
 
   it("keeps typed free text as the page summary and leaves prompts without a questionnaire to core", () => {
     const store = new QuestionnaireStore();
-    const registry = new ExtensionRegistry();
+    const { registry } = createKitHarness();
     registry.activate(createQuestionnaireExtension(store));
     registry.notifyPromptAnswered(ask(0, "select", ["red", "blue"]), { value: "purple", typed: true });
     expect(store.choice("s1", 0)).toEqual({ labels: ["purple"], answered: true });

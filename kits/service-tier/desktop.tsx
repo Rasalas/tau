@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Gauge } from "lucide-react";
-import { SERVICE_TIER_EVENT, SERVICE_TIER_HOST_EXTENSION_ID, type ServiceTier, type ServiceTierState } from "../../shared/service-tier-protocol";
-import { HostUnavailableError, type ComposerControlProps, type DesktopExtension, type HostExtensionClient } from "../extension-system";
-import { Menu } from "../components/Menu";
+import { HostUnavailableError, Menu, type ComposerControlProps, type DesktopExtension, type HostExtensionClient } from "tau";
+import { SERVICE_TIER_EVENT, SERVICE_TIER_HOST_EXTENSION_ID, type ServiceTier, type ServiceTierState } from "./protocol.js";
 
 const UNKNOWN: ServiceTierState = { tier: "standard", available: false };
 
@@ -84,3 +83,5 @@ export const serviceTierKitExtension: DesktopExtension = {
     }
   },
 };
+
+export default serviceTierKitExtension;

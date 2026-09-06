@@ -5,13 +5,17 @@ import { expectKitActivatesCleanly } from "../src/renderer/test-support/kit-harn
 import agents from "./agents/desktop.js";
 import preview from "./preview/desktop.js";
 import packages from "./packages/desktop.js";
+import access from "./access/desktop.js";
+import keybindings from "./keybindings/desktop.js";
+import questionnaire from "./questionnaire/desktop.js";
+import serviceTier from "./service-tier/desktop.js";
 import titleGenerator from "./thread-titles/desktop.js";
 import worktreeNames from "./worktree-names/desktop.js";
 
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [agents, packages, preview, titleGenerator, worktreeNames];
+const kits = [access, agents, keybindings, packages, preview, questionnaire, serviceTier, titleGenerator, worktreeNames];
 
 afterEach(cleanup);
 

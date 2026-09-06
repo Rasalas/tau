@@ -123,17 +123,30 @@ composer writes it, and nothing at all for a model with no pricing, so a row
 never reads `$0.00` for a missing price), the `PreferencesStore` type (the store
 on `context.preferences`, so a package can pass it around in its own
 signatures), the `ThreadLineage` type (what `context.setThreadLineage`
-takes), and `reserveRegion` / `reservedRegion` with the `ReservedRegion` type — the
-placement seam of [ADR 0012](adr/0012-preview-browser.md). A package whose host
+takes), `reserveRegion` / `reservedRegion` with the `ReservedRegion` type — the
+placement seam of [ADR 0012](adr/0012-preview-browser.md): a package whose host
 half draws a native view over its panel publishes that rectangle with
 `reserveRegion`, and the workbench's own floats (menus, popovers, toasts) slide
 out of it rather than disappear behind it; `reserveRegion(undefined)` gives the
-window back. Nothing is reserved until a package asks for it.
+window back, and nothing is reserved until a package asks for it — and `Menu`
+with its `MenuItem` and `MenuSection` types, the popover list a composer chip
+drops, with the scrim, the Escape handling and the shift that keeps it clear of
+a native view.
+
+A package that takes over a Pi dialog (`registerPromptRenderer`) gets the
+pieces core draws its own four with, so its dialog is not a look-alike:
+`ExtensionPromptFrame` and `OptionRow` (the frame and one choice row), the
+`PromptRendererProps` and `PromptRendererContribution` types, and the parsers
+for what the ask tool folds into a dialog's title and options —
+`splitPromptTitle`, `splitInputTitle`, `splitOption`, `choiceOptions`,
+`freeTextOption` and `optionForLabel`, with their `OptionParts` and
+`OptionPreview` types.
 
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies,
 `GlobalHostEvent` (what `context.emit` becomes on the wire, which a package's
-own tests read off the host harness), and the
+own tests read off the host harness), the `PiShortcut` and `PiUserKeybindings`
+types that `HostThread.shortcuts` and `runShortcut` speak, and the
 text projections a package that reads transcripts needs: `textFromContent`
 (content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
 to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
@@ -189,6 +202,11 @@ A package's `permissions` array draws from a fixed list
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+
+`services.agentDir` is ungated: it is the path of Pi's own configuration
+directory (`~/.pi/agent`, or what `PI_AGENT_DIR` names), and reading inside it
+is ordinary file work that no permission gates either. A worker gets it in its
+bootstrap, so it costs no round trip.
 
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like

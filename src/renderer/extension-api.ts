@@ -15,6 +15,18 @@ export { errorMessage } from "./error-message";
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
 export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
 export { formatCost } from "./cost-format";
+export { Menu } from "./components/Menu";
+export type { MenuItem, MenuSection } from "./components/Menu";
+export { ExtensionPromptFrame, OptionRow } from "./components/ExtensionPrompt";
+export {
+  choiceOptions,
+  freeTextOption,
+  optionForLabel,
+  splitInputTitle,
+  splitOption,
+  splitPromptTitle,
+} from "../shared/extension-prompt-options";
+export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -47,6 +59,8 @@ export type {
   CommandContribution,
   CommandSurface,
   PromptHookContribution,
+  PromptRendererContribution,
+  PromptRendererProps,
   PromptSubmittedEvent,
   DocumentSourceContribution,
   ToolPresentation,

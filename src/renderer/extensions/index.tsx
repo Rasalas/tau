@@ -11,7 +11,6 @@ const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ Ob
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
-import { accessKitExtension } from "./access-kit";
 import { claudeCodeExtension } from "./claude-code-kit";
 import { workspaceKit } from "./workspace-kit-client";
 import { registerCheckpoints } from "./workspace-checkpoints";
@@ -20,9 +19,7 @@ import { WorkspaceTitleActions } from "./workspace-title";
 import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
 import type { WorkspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
-import { serviceTierKitExtension } from "./service-tier-kit";
 import { piUiExtension } from "./pi-ui";
-import { questionnaireExtension } from "./questionnaire-kit";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages";
 
 let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
@@ -169,13 +166,10 @@ export const observatoryExtension: DesktopExtension = {
 };
 
 export const bundledExtensions = [
-  accessKitExtension,
-  serviceTierKitExtension,
   workspaceExtension,
   reviewExtension,
   observatoryExtension,
   computerUsePresentationExtension,
   piUiExtension,
-  questionnaireExtension,
   claudeCodeExtension,
 ];
