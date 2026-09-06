@@ -47,6 +47,7 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 
 ## Known traps
 
+- Stop the instance before `npm run dist` in the same worktree: while it runs, Chromium keeps dangling `Singleton*` symlinks in `.tau-dev/userdata`, and electron-builder aborts on the first one it cannot `stat`.
 - `byText('button', /send/i)` can match a sidebar thread row whose title happens to contain "send" (seen with German "ungesendete"). The send button is the one with `aria-label === 'Send'`; prefer `document.querySelector('.send-button[aria-label="Send"]')` or an exact-match regex.
 - While a turn streams, the Send button is replaced by a Stop button (`class="send-button stop"`, no `aria-label="Send"`, `title="Stop the run"`). `snapshot`'s composer line reports this as `streaming=true` — wait for `streaming=false` again before asserting on a finished reply, not just for the toast.
 - The composer `<textarea>` carries no id or class of its own; `document.querySelector('textarea')` is reliable because exactly one is ever mounted.

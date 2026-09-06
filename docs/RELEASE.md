@@ -33,6 +33,9 @@ npm run dist:mac      # or :linux, :win
 ```
 
 Each runs `npm run build` first and writes to `release/`, which is not in Git.
+Stop a running `npm run dev:instance` of the same worktree first: while it
+runs, its `.tau-dev/userdata` holds dangling `Singleton*` symlinks and
+electron-builder aborts on the first one it cannot `stat`.
 macOS produces a `.dmg` and a `.zip`, Linux an `.AppImage`, Windows an NSIS
 `.exe`. Cross-building macOS from another platform is not possible; Linux and
 Windows builds need their own runners for the same reason Tau ships a native
