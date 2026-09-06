@@ -10,7 +10,6 @@ import type { PiKeybindingsState, PiShortcutsState } from "../../shared/keybindi
 const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ ChangesPanel }) => ({ default: ChangesPanel })));
 const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
 const LazyPreviewPanel = lazy(() => import("./preview-panel").then(({ PreviewPanel }) => ({ default: PreviewPanel })));
-const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
@@ -155,26 +154,6 @@ export const reviewExtension: DesktopExtension = {
   },
 };
 
-export const observatoryExtension: DesktopExtension = {
-  id: "tau.observatory",
-  name: "Signals",
-  activate(plugin) {
-    plugin.registerPanel({ id: "observatory", label: "Signals", glyph: "signals", order: 30, Component: LazyObservatoryPanel });
-    plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel("observatory") });
-    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "observatory.open" });
-    plugin.registerToolRenderer(
-      "observatory.shell-renderer",
-      (tool) => tool.name === "bash" || tool.name === "powershell",
-      (tool) => ({
-        glyph: "$",
-        title: tool.name,
-        tone: "shell",
-        detail: String(tool.args.command ?? "shell command"),
-      }),
-    );
-  },
-};
-
 /**
  * Tau's chords for the runtime commands, and the Pi action whose entry in
  * `~/.pi/agent/keybindings.json` replaces each of them when the user set one.
@@ -304,7 +283,6 @@ export const bundledExtensions = [
   serviceTierKitExtension,
   workspaceExtension,
   reviewExtension,
-  observatoryExtension,
   computerUsePresentationExtension,
   agentsExtension,
   piUiExtension,

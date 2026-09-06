@@ -2,13 +2,35 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../../shared/contracts";
-import { ExtensionRegistry } from "../extension-system";
+import { ExtensionRegistry, type DesktopExtension } from "../extension-system";
 import { bundledExtensions } from "../extensions";
 import { TOOL_PREVIEW_MIN_MS, ToolGroup } from "./ToolGroup";
 
+/**
+ * Shell runs and hidden tool output are extension presentations, and the kits
+ * that ship them live outside `src/`. This stub registers the same two
+ * contributions, so these tests keep exercising core's own rendering of them.
+ */
+const presentationStub: DesktopExtension = {
+  id: "test.presentation",
+  name: "Presentation stub",
+  activate(plugin) {
+    plugin.registerToolRenderer(
+      "stub.shell",
+      (tool) => tool.name === "bash" || tool.name === "powershell",
+      (tool) => ({ glyph: "$", title: tool.name, tone: "shell", detail: String(tool.args.command ?? "shell command") }),
+    );
+    plugin.registerToolRenderer(
+      "stub.hidden-output",
+      (tool) => tool.name.startsWith("computer_use_"),
+      () => ({ glyph: "\u25c9", title: "Window state", tone: "read", detail: "desktop", output: "hidden" }),
+    );
+  },
+};
+
 function registryWithBundledExtensions(): ExtensionRegistry {
   const registry = new ExtensionRegistry();
-  for (const extension of bundledExtensions) registry.activate(extension);
+  for (const extension of [...bundledExtensions, presentationStub]) registry.activate(extension);
   return registry;
 }
 
@@ -17,8 +39,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("ToolGroup computer-use presentation", () => {
-  it("does not print structured computer-use JSON into the transcript", () => {
+describe("ToolGroup output presentation", () => {
+  it("does not print the structured output of a tool whose renderer hides it", () => {
     const tool: UiToolRun = {
       id: "computer-use",
       name: "computer_use_get_window_state",
