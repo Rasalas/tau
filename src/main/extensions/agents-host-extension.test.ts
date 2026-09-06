@@ -74,6 +74,9 @@ function harness() {
     } as unknown as HostThread;
   };
 
+  /** Holds `sessions.start` open, so a test can watch how many run at once. */
+  let startGate: (() => Promise<void>) | undefined;
+
   const services: HostExtensionServices = {
     cwd: () => "/project",
     safeMode: false,
@@ -103,6 +106,7 @@ function harness() {
         started.push(startOptions);
         nextThread += 1;
         const sessionId = `child-${nextThread}`;
+        await startGate?.();
         open(sessionId).streaming = true;
         return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
       },
@@ -150,7 +154,9 @@ function harness() {
   const state = async (): Promise<AgentsState> =>
     await registry.invoke(AGENTS_HOST_EXTENSION_ID, "state") as AgentsState;
 
-  return { registry, services, threads, started, events, observers, lifecycles, runtime, open, notify, state };
+  const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
+
+  return { registry, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string } = {}) {
@@ -304,6 +310,56 @@ describe("Agents Kit", () => {
     expect(listed.threads).toHaveLength(20);
     expect(listed.threads.filter((entry) => entry.status === "pending")).toHaveLength(10);
     expect(listed.threads.filter((entry) => entry.status === "completed")).toHaveLength(2);
+  });
+
+  it("starts twenty simultaneous spawns concurrently, up to the running budget", async () => {
+    const bench = await activated();
+    let inFlight = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    bench.holdStarts(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+      inFlight -= 1;
+    });
+    const parent = bench.runtime("parent");
+    // One turn's worth of tool calls: every spawn is issued before any of them
+    // has a thread, which is the case the serial pump used to turn into a queue.
+    const spawns = Array.from({ length: 20 }, (_, index) =>
+      parent.call("tau_spawn_thread", { prompt: `task ${index}`, title: `T${index}` }) as Promise<{ status: string }>);
+    await vi.waitFor(() => { expect(inFlight).toBe(DEFAULT_MAX_RUNNING_AGENTS); });
+    // The overlap is the point: the budget's worth of threads is being built at
+    // the same moment, not one after another.
+    expect(peak).toBe(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(bench.started).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS);
+    for (const release of releases) release();
+    const results = await Promise.all(spawns);
+    expect(results.filter((entry) => entry.status === "running")).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(results.filter((entry) => entry.status === "pending")).toHaveLength(20 - DEFAULT_MAX_RUNNING_AGENTS);
+  });
+
+  it("never runs more than the budget while a batch is still being built", async () => {
+    const bench = await activated();
+    let inFlight = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    bench.holdStarts(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+      inFlight -= 1;
+    });
+    const parent = bench.runtime("parent");
+    const spawns = Array.from({ length: 12 }, (_, index) =>
+      parent.call("tau_spawn_thread", { prompt: `task ${index}` }) as Promise<{ status: string }>);
+    await vi.waitFor(() => { expect(releases).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS); });
+    for (const release of releases.splice(0)) release();
+    await Promise.all(spawns);
+    // Four agents are still queued; nothing started them behind the budget's back.
+    expect(peak).toBe(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(bench.started).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS);
+    await expect(bench.state()).resolves.toMatchObject({ maxRunning: DEFAULT_MAX_RUNNING_AGENTS });
   });
 
   it("honours the running budget the user configured", async () => {

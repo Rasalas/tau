@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 /** Background operations that may hold the queue together. */
-const DEFAULT_BACKGROUND_LIMIT = 4;
+export const DEFAULT_BACKGROUND_LIMIT = 4;
 
 export interface LifecycleQueueOptions {
   /** How long an operation may hold the queue before it is reported. */
