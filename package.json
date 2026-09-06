@@ -19,6 +19,8 @@
     "smoke:remote-host": "node scripts/remote-host-smoke.mjs",
     "smoke:extension-install": "node scripts/extension-install-smoke.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
+    "dev:instance": "node scripts/dev-instance.mjs",
+    "cdp": "node scripts/tau-cdp.mjs",
     "lint": "oxlint .",
     "typecheck": "npm run typecheck:extension && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "typecheck:extension": "tsc -p tsconfig.extension.json --noEmit",

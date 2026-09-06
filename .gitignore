@@ -4,3 +4,4 @@ dist-electron/
 .DS_Store
 *.log
 .scratch/*
+.tau-dev/

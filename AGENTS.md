@@ -11,3 +11,7 @@ Triage uses the five canonical label names. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 This repo uses a single-context domain-doc layout. See `docs/agents/domain.md`.
+
+### Testing the app
+
+Verifying a change in the real app runs through an isolated Tau instance, never the user's real data or their own running window. See `.agents/skills/test-tau-app/SKILL.md` and `docs/agents/testing-the-app.md`.
