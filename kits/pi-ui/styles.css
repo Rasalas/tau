@@ -1,0 +1,13 @@
+/*
+ * Pi UI's own rules: what Pi extensions draw through `ctx.ui` — statuses, the
+ * working message and text widgets. The status line and the composer regions
+ * they sit in are core's.
+ */
+
+.pi-ui-status { opacity: 0.9; }
+.pi-ui-working { font-style: italic; }
+.pi-ui-widget {
+  margin: 0 0 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+  font: 12px/1.45 var(--mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; color: var(--ink); opacity: 0.85;
+}
+.region-composer-below .pi-ui-widget { margin: 6px 0 0; }
