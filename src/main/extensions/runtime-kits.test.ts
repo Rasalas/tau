@@ -3,7 +3,7 @@ import type { ExtensionUiPrompt, GlobalHostEvent } from "../../shared/contracts.
 import { HostExtensionRegistry, type HostExtensionServices, type HostThread, type HostUiPresenter, type RuntimeExtensionContribution } from "../host-extensions.js";
 import { questionnaireOf } from "../../shared/questionnaire-protocol.js";
 import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
-import { createKeybindingsHostExtension, readPiUserKeybindings } from "./keybindings-host-extension.js";
+import { createKeybindingsHostExtension, readPiUserKeybindings } from "../keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
 import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
 import { createServiceTierHostExtension } from "./service-tier-host-extension.js";
@@ -31,6 +31,10 @@ function harness(thread?: Partial<HostThread>) {
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
     refreshExtensionPackages: async () => undefined,
+    listPackages: async () => [],
+    installPackage: async () => { throw new Error("no installer in this test"); },
+    removePackage: async () => { throw new Error("no installer in this test"); },
+    updatePackages: async () => [],
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no sessions in this test"); },

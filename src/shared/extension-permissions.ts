@@ -6,6 +6,7 @@ export const EXTENSION_PERMISSIONS = [
   "runtime:extend",
   "process",
   "network",
+  "packages",
 ] as const;
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number];
@@ -25,6 +26,9 @@ export const PERMISSION_PROCESS = "process" as const;
 export const PERMISSION_NETWORK = "network" as const;
 
 /** The one line Settings shows a package that runs in-process without `network`. */
+/** Install, update and remove other extension packages. Tau's own Packages kit holds it. */
+export const PERMISSION_PACKAGES = "packages" as const;
+
 export const NETWORK_ADVISORY_NOTE = "network access is enforced only for isolated packages";
 
 /**
@@ -79,4 +83,8 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   presentUi: "runtime:extend",
   noteSubprocess: "process",
   findCommand: "process",
+  listPackages: "packages",
+  installPackage: "packages",
+  removePackage: "packages",
+  updatePackages: "packages",
 };

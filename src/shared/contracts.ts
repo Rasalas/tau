@@ -476,7 +476,8 @@ export interface ExtensionPackageSummary {
   installedFrom?: string;
   /** What the package's optional signature proved, and one line for the user. */
   signature?: { state: "unsigned" | "signed" | "untrusted" | "tampered"; label: string };
-  scope: "global" | "project";
+  /** `bundled` for a kit Tau ships; the two folder scopes for everything installed. */
+  scope: "bundled" | "global" | "project";
   directory: string;
   desktop: boolean;
   host: boolean;

@@ -1,17 +1,5 @@
-import { homedir } from "node:os";
-import { HostCommandError, type HostExtension, type HostExtensionContext } from "../host-extensions.js";
-import {
-  installExtensionSource,
-  listExtensionSources,
-  removeExtensionSource,
-  updateExtensionSources,
-  type InstalledExtension,
-  type InstallerOptions,
-} from "../extension-installer.js";
-import type { PackageScope } from "../extension-sources.js";
-import { describeSignature } from "../extension-signature.js";
-
-export const PACKAGES_HOST_EXTENSION_ID = "tau.packages";
+import { HostCommandError, type HostExtension, type HostExtensionContext, type InstalledPackage, type PackageScope } from "tau/host-extension";
+import { PACKAGES_EXTENSION_ID, type PackageRow } from "./protocol.js";
 
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -34,30 +22,45 @@ function scopeOf(input: unknown): PackageScope {
   throw new HostCommandError(`"scope" is "global" or "project", not "${String(value)}"`);
 }
 
+/** The installer's facts, without the signature vocabulary the desktop half does not need. */
+export function row(entry: InstalledPackage): PackageRow {
+  return {
+    source: entry.source,
+    scope: entry.scope,
+    directory: entry.directory,
+    ...(entry.id ? { id: entry.id } : {}),
+    ...(entry.name ? { name: entry.name } : {}),
+    ...(entry.version ? { version: entry.version } : {}),
+    signatureLabel: entry.signatureLabel,
+    ...(entry.error ? { error: entry.error } : {}),
+  };
+}
+
 /** One line per package, close to what `pi list` prints. */
-export function describeInstalled(entry: InstalledExtension): string {
+export function describeInstalled(entry: PackageRow): string {
   const head = entry.id ? `${entry.id}${entry.version ? ` ${entry.version}` : ""}` : entry.source;
-  return `${head} · ${entry.scope} · ${entry.error ?? describeSignature(entry.signature)}`;
+  return `${head} · ${entry.scope} · ${entry.error ?? entry.signatureLabel}`;
 }
 
 /**
  * Tau's package manager, shaped like Pi's: `install`, `remove`, `update` and
- * `list` over `npm:`, `git:` and path sources. Installing never activates a
- * package; the permission grant still decides that.
+ * `list` over `npm:`, `git:` and path sources. The host owns the installer
+ * itself (the `packages` permission); this kit owns the verbs, the wording and
+ * when the workspace has to rescan. Installing never activates a package; the
+ * permission grant still decides that.
+ *
+ * It manages packages while being one. That works because a kit is loaded
+ * before any installed package and never re-imported by a rescan: the activator
+ * only ever touches what it scanned from the package folders, and it refuses a
+ * package that claims a kit's id.
  */
-export function createPackagesHostExtension(options: { home?: string } = {}): HostExtension {
+export function createPackagesHostExtension(): HostExtension {
   return {
-    id: PACKAGES_HOST_EXTENSION_ID,
+    id: PACKAGES_EXTENSION_ID,
     name: "Packages",
-    permissions: ["workspace:read", "process"],
+    permissions: ["packages"],
     activate(context: HostExtensionContext) {
       const { services } = context;
-      const installer = (progress?: (message: string) => void): InstallerOptions => ({
-        cwd: services.cwd(),
-        home: options.home ?? homedir(),
-        findCommand: (name) => services.findCommand(name),
-        ...(progress ? { progress } : {}),
-      });
       const announce = (name: string, payload: unknown) => {
         context.emit("changed", { command: name, result: payload });
       };
@@ -76,14 +79,13 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
         context.emit("progress", { message });
       };
 
-      context.registerCommand("list", async () => ({ packages: await listExtensionSources(installer()) }));
+      context.registerCommand("list", async () => ({ packages: (await services.listPackages()).map(row) }));
 
       context.registerCommand("install", async (input) => {
         const source = requiredSource(input);
         const scope = scopeOf(input);
-        services.noteSubprocess();
         services.log("packages.install", `${source} (${scope})`);
-        const installed = await installExtensionSource(source, scope, installer(step));
+        const installed = row(await services.installPackage(source, scope, step));
         await rescan();
         announce("install", installed);
         return { installed, message: `${describeInstalled(installed)} — approve it in Settings to start it.` };
@@ -92,7 +94,7 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
       context.registerCommand("remove", async (input) => {
         const source = requiredSource(input);
         const scope = scopeOf(input);
-        const result = await removeExtensionSource(source, scope, installer());
+        const result = await services.removePackage(source, scope);
         if (!result.removed) throw new HostCommandError(`${source} is not listed in the ${scope} packages.json.`);
         services.log("packages.remove", `${source} (${scope})`);
         await rescan();
@@ -101,8 +103,7 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
       });
 
       context.registerCommand("update", async (input) => {
-        services.noteSubprocess();
-        const updated = await updateExtensionSources(optionalSource(input), installer(step));
+        const updated = (await services.updatePackages(optionalSource(input), step)).map(row);
         await rescan();
         announce("update", updated);
         const failed = updated.filter((entry) => entry.error);
@@ -116,3 +117,5 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
     },
   };
 }
+
+export default createPackagesHostExtension;

@@ -17,6 +17,8 @@ import type { ThreadRuntimeBackend } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { isExpectedCommandError } from "./host-extension-errors.js";
+import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
+import type { PackageScope } from "./extension-sources.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -335,6 +337,17 @@ export interface HostExtensionServices {
    * without a grant is still never imported.
    */
   refreshExtensionPackages(): Promise<void>;
+  /** Every source the two `packages.json` files name, with the package it resolved to. */
+  listPackages(): Promise<InstalledPackage[]>;
+  /**
+   * Fetches a source, checks that it is a package and records it. Nothing is
+   * activated: the permission grant still decides that. `progress` gets one
+   * line per step of a fetch that may run for minutes.
+   */
+  installPackage(source: string, scope: PackageScope, progress?: (message: string) => void): Promise<InstalledPackage>;
+  removePackage(source: string, scope: PackageScope): Promise<PackageRemoval>;
+  /** Re-fetches one source, or every source both files list. */
+  updatePackages(source?: string, progress?: (message: string) => void): Promise<InstalledPackage[]>;
   readonly sessions: HostSessionServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
@@ -362,6 +375,11 @@ export type HostExtensionCommandHandler = (input: unknown) => unknown;
 // A kit reaches these through `tau/host-extension`; they live in a leaf module
 // so importing one does not pull the registry into a kit's bundle.
 export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
+
+// The package manager's vocabulary. A kit that manages packages needs the row
+// shape and the scope name; both are plain data, so they travel as types only.
+export type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
+export type { PackageScope } from "./extension-sources.js";
 
 export interface HostExtensionContext {
   readonly id: string;

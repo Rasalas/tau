@@ -2,7 +2,7 @@
 import "./packaged-app.js";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
+import type { DesktopExtensionBundle, DesktopExtensionLoadResult, ExtensionPackageSummary } from "../shared/contracts.js";
 import { bundleDesktopExtension, type BundleOptions } from "./desktop-extensions.js";
 import {
   MANIFEST_FILE,
@@ -134,6 +134,29 @@ async function hostHalf(kit: BundledKit, entry: string, cacheDir?: string): Prom
     permissions: kit.manifest.permissions ?? [],
     file: await writeHostExtensionBundle(code, kit.manifest, cacheDir),
   });
+}
+
+/**
+ * The shipped kits as Settings reads them, beside the installed packages. They
+ * carry `scope: "bundled"` and are granted by construction, so the Packages page
+ * can show what Tau brought apart from what the user installed.
+ */
+export async function inspectBundledKits(options: BundledKitsOptions): Promise<ExtensionPackageSummary[]> {
+  const { kits } = await kitsOf(options);
+  return kits.map((kit) => ({
+    id: kit.manifest.id,
+    name: kit.manifest.name,
+    ...(kit.manifest.version ? { version: kit.manifest.version } : {}),
+    ...(kit.manifest.engines ? { engines: { ...kit.manifest.engines } } : {}),
+    permissions: kit.manifest.permissions ?? [],
+    isolation: packageIsolation(kit.manifest),
+    granted: true,
+    ...(kit.manifest.source ? { source: { ...kit.manifest.source } } : {}),
+    scope: "bundled" as const,
+    directory: kit.directory,
+    desktop: Boolean(kit.desktopEntry),
+    host: Boolean(kit.hostEntry),
+  }));
 }
 
 /** Compiled desktop halves, cached per file so a workspace switch recompiles nothing. */

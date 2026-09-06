@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Command, Package, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
+import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
-import { PackageProvenance, PackagesPage } from "./PackagesPage";
-import { PACKAGES_SETTINGS_PAGE } from "../extensions/packages-kit";
+import { PackageProvenance } from "./PackageProvenance";
+import { PanelIcon } from "./PanelIcon";
 
 function DefaultsPage({
   snapshot,
@@ -222,7 +222,7 @@ function ExtensionPage({
                 : "no contributions"}
           </small>
         </span>
-        {summary.granted === false ? null : (
+        {summary.granted === false || summary.core ? null : (
           <button
             className={`switch ${summary.active ? "on" : ""}`}
             role="switch"
@@ -321,7 +321,7 @@ function ExtensionPage({
         </>
       ) : null}
 
-      <PackageProvenance id={summary.id} cwd={cwd} onNotify={onNotify} />
+      <PackageProvenance id={summary.id} cwd={cwd} />
 
       {hostHalf ? (
         <div className="settings-note" data-host-status={hostHalf.error ? "failed" : hostHalf.active ? "active" : "off"}>
@@ -462,6 +462,11 @@ export function SettingsModal({
   const awaiting = useAwaitingApproval(snapshot?.cwd, loaded, answered);
   const summaries = [...loaded, ...awaiting];
   const active = summaries.find((summary) => summary.id === page);
+  // Pages extensions own. Core keeps Defaults, Keybindings and the Inspector,
+  // so safe mode still has a model picker and a way to see what is loaded.
+  const pages = registry.getSettingsPages();
+  const contributed = pages.find((entry) => entry.id === page);
+  const installer = pages.find((entry) => entry.id === "packages");
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -494,14 +499,16 @@ export function SettingsModal({
             <button className={page === "keybindings" ? "active" : ""} onClick={() => onSetPage("keybindings")}>
               <Command size={14} /><span>Keybindings</span>
             </button>
-            <button className={page === PACKAGES_SETTINGS_PAGE ? "active" : ""} onClick={() => onSetPage(PACKAGES_SETTINGS_PAGE)}>
-              <Package size={14} /><span>Packages</span>
-            </button>
+            {pages.map((entry) => (
+              <button key={entry.id} className={page === entry.id ? "active" : ""} onClick={() => onSetPage(entry.id)}>
+                <PanelIcon name={entry.glyph ?? entry.id} size={14} /><span>{entry.label}</span>
+              </button>
+            ))}
             <button className={page === "inspector" ? "active" : ""} onClick={() => onSetPage("inspector")}>
               <Puzzle size={14} /><span>Inspector</span>
             </button>
             <div className="settings-nav-heading">EXTENSIONS</div>
-            {summaries.map((summary) => (
+            {summaries.filter((summary) => !summary.core).map((summary) => (
               <button
                 key={summary.id}
                 className={`${page === summary.id ? "active" : ""} ${summary.active ? "" : "off"}`}
@@ -512,13 +519,26 @@ export function SettingsModal({
                 {summary.active ? null : <small>OFF</small>}
               </button>
             ))}
+            <div className="settings-nav-heading">CORE</div>
+            {summaries.filter((summary) => summary.core).map((summary) => (
+              <button
+                key={summary.id}
+                className={page === summary.id ? "active" : ""}
+                onClick={() => onSetPage(summary.id)}
+              >
+                <span className="extension-dot" />
+                <span>{summary.name}</span>
+              </button>
+            ))}
             <span className="spacer" />
-            <button
-              className="install-extension"
-              onClick={() => onSetPage(PACKAGES_SETTINGS_PAGE)}
-            >
-              <Plus size={13} /> Install extension…
-            </button>
+            {installer ? (
+              <button
+                className="install-extension"
+                onClick={() => onSetPage(installer.id)}
+              >
+                <Plus size={13} /> Install extension…
+              </button>
+            ) : null}
           </nav>
 
           {page === "defaults" ? (
@@ -548,8 +568,8 @@ export function SettingsModal({
               ))}
               <div className="settings-note">Pi's <code>~/.pi/agent/keybindings.json</code> rebinds the runtime commands (app.session.new, app.interrupt, app.model.select, app.thinking.toggle) and the shortcuts Pi extensions register; run /reload after editing it.</div>
             </div>
-          ) : page === PACKAGES_SETTINGS_PAGE ? (
-            <PackagesPage cwd={snapshot?.cwd} onNotify={onNotify} />
+          ) : contributed ? (
+            <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
           ) : page === "inspector" ? (
             <InspectorPage registry={registry} cwd={snapshot?.cwd} />
           ) : active ? (

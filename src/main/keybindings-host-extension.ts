@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcutsState, type PiUserKeybindings } from "../../shared/keybindings-protocol.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcutsState, type PiUserKeybindings } from "../shared/keybindings-protocol.js";
+import type { HostExtension, HostExtensionContext } from "./host-extensions.js";
 
 /** The user's entries in Pi's keybindings.json; a missing or broken file counts as empty. */
 export async function readPiUserKeybindings(agentDir: string): Promise<PiUserKeybindings> {

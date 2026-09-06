@@ -14,7 +14,7 @@ import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { parseListen } from "./host-listen.js";
 import { shippedHostExtensions } from "./extensions/index.js";
-import { loadBundledKitDesktopHalves } from "./bundled-kits.js";
+import { inspectBundledKits, loadBundledKitDesktopHalves } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
@@ -92,7 +92,13 @@ async function main(): Promise<void> {
       copyText: unsupported("Copying text"),
       copyImage: unsupported("Copying an image"),
       readImagePreview: async () => undefined,
-      inspectExtensions: async (cwd) => inspectExtensionPackages(cwd, getAgentDir(), { versions }),
+      inspectExtensions: async (cwd) => {
+        const [kits, inspection] = await Promise.all([
+          safeMode ? [] : inspectBundledKits(kitOptions),
+          inspectExtensionPackages(cwd, getAgentDir(), { versions }),
+        ]);
+        return { ...inspection, packages: [...kits, ...inspection.packages] };
+      },
       loadDesktopExtensions: async (cwd, sharedExports) => {
         const [kits, result] = await Promise.all([
           safeMode ? { bundles: [], errors: [] } : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),

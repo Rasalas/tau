@@ -33,6 +33,8 @@ export type {
   WorkbenchActions,
   PanelContribution,
   PanelProps,
+  SettingsPageContribution,
+  SettingsPageProps,
   SidebarContribution,
   SidebarContributionProps,
   ProjectSourceContribution,

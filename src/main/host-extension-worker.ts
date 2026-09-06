@@ -91,6 +91,12 @@ const UNAVAILABLE = new Set([
   "decorateUiPrompt",
   "setPermissionLevel",
   "presentUi",
+  // The package manager stays in the host process: installing hands a live
+  // progress callback to a command that may run for minutes.
+  "listPackages",
+  "installPackage",
+  "removePackage",
+  "updatePackages",
 ]);
 
 let nextId = 1;

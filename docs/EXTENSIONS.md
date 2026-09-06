@@ -104,6 +104,15 @@ arrives in the renderer through `globalThis.__tauShared`; `tau/host-extension`
 is an esbuild alias onto Tau's own compiled module, which is why
 `HostCommandError` thrown from a package is the same class the registry checks.
 
+`DesktopExtensionContext` additionally offers `registerSettingsPage` — a page
+of the Settings modal with its own nav entry, typed `SettingsPageContribution`
+(`id`, `label`, an optional `glyph` spelled the way panels spell theirs, an
+optional `order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
+`onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
+package folders and the shipped kits (`ExtensionInspection`) without loading
+any code. Core keeps Defaults, Keybindings and the Inspector; every other page
+is a contribution and is gone with its extension.
+
 Beyond the contribution types, `tau` exports `useWorkbench`,
 `useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
 hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
@@ -118,7 +127,9 @@ text projections a package that reads transcripts needs: `textFromContent`
 to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
 thread title), `safeSessionTitle`, `buildTitleConversation` (a thread's first
 exchanges as the prompt a title model reads) and `parseSkillEnvelope` /
-`isSkillName` (Pi's skill envelope grammar).
+`isSkillName` (Pi's skill envelope grammar). For the package manager it also
+carries the row shape and the scope name as types: `InstalledPackage`,
+`PackageRemoval` and `PackageScope`.
 
 ### `engines` and `engines.api`
 
@@ -158,6 +169,7 @@ A package's `permissions` array draws from a fixed list
 | `runtime:extend` | register Pi runtime extensions, runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
+| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like
@@ -222,8 +234,8 @@ greeting.
 
 ## 3. The workflow
 
-**Commands**, typed in the composer (`tau.packages`, a bundled host
-extension, `src/main/extensions/packages-host-extension.ts`):
+**Commands**, typed in the composer (`tau.packages`, a kit Tau ships,
+`kits/packages/`):
 
 ```
 /install npm:@acme/hello          # the machine's own npm, into ~/.tau/npm
@@ -234,10 +246,19 @@ extension, `src/main/extensions/packages-host-extension.ts`):
 /remove npm:@acme/hello
 ```
 
-The same four verbs live in Settings → Packages, with a source field, a
-global/project switch, live progress lines while `install`/`update` run (they
-are host jobs — `{ long: true }` — so they never block the rest of the
-workbench), and Update/Remove buttons per row.
+The same four verbs live in Settings → Packages — the kit's own page, through
+`registerSettingsPage` — with a source field, a global/project switch, live
+progress lines while `install`/`update` run (they are host jobs —
+`{ long: true }` — so they never block the rest of the workbench), and
+Update/Remove buttons per row. The page lists the kits Tau ships above the
+installed packages and never offers to remove one: shipping a kit is the
+approval, so it carries no grant and no source to drop.
+
+The kit manages packages while being one. A kit is loaded before any installed
+package and is never re-imported by a rescan — the activator only touches what
+it scanned from the package folders, and it refuses a package that claims a
+kit's id — so `/install` can restart everything it just changed without
+restarting itself.
 
 **Approval.** Installing never activates a package — see §5. A package Tau has
 not seen before, or whose permission list or isolation changed, shows in
@@ -366,6 +387,7 @@ nothing that hands out a live object. From
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
+| `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 

@@ -45,6 +45,7 @@ These exist today, some still inside core files. They are extension work, and Ph
 | Review mode, diff viewer, changed-files dock | Review Kit overlay over Workspace Kit state; dock is a Workspace Kit region | Review Kit |
 | Stage tabs, file viewer | tabs and placement stay core (the document area); loading, changed markers and editors come from the registered document source | core placement, Workspace Kit content |
 | Thread title generation | Thread Title Generator: `kits/thread-titles/`, a package Tau ships (ADR 0014) | Thread Title Generator |
+| Installing, updating and removing extension packages: `/install`, `/remove`, `/update` and the Settings → Packages page | Packages Kit: `kits/packages/`, a package Tau ships. The installer itself (npm, git, `packages.json`, signatures) stays core behind the `packages` permission; the kit owns the verbs, the wording and the page | Packages Kit |
 | Access gate (read-only, ask, full) | Access Kit: `src/main/extensions/access-host-extension.ts` and `src/renderer/extensions/access-kit.tsx` | Access Kit, on by default; approvals are Pi `ctx.ui.confirm` questions |
 | Preview browser: the panel, the `WebContentsView` over it and the `preview_*` tools the agent drives it with | Preview Kit: `src/main/extensions/preview-host-extension.ts` with `preview-view.ts` and `preview-page-script.ts`, and `src/renderer/extensions/preview-panel.tsx` with `preview-store.ts` and `overlay-watch.ts`; core lends the panel slot, one composer region, and `src/renderer/reserved-region.ts` — the rectangle a native view owns, which core's own floats keep clear of ([ADR 0012](adr/0012-preview-browser.md)) | Preview Kit |
 | Service tier, questionnaire, computer use | host extensions under `src/main/extensions/`; the questionnaire pages through its questions with its own prompt renderer (`src/renderer/extensions/questionnaire-kit.tsx`) | separate packages |
@@ -53,8 +54,26 @@ These exist today, some still inside core files. They are extension work, and Ph
 | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry; core keeps the sources modal as the placement for `registerProjectSource` | Workspace Kit |
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
 
+**Runtime Controls is core, not a kit.** The Settings modal shell with its
+Defaults, Keybindings and Inspector pages, and the contributions that reach
+core's own actions — the command palette, `escape` to abort, `mod+n`,
+`/reload`, `/tree`, `/fork`, `/clone`, "Set model…", "Set thinking level…" —
+are the workbench itself. A window that cannot pick a model is not a usable
+window, and safe mode has to be one. They live in `src/renderer/settings/`
+(`runtimeControls`, activated through `registry.activateCore`, so it is on in
+safe mode too and carries no switch) with the host entry that reads Pi's
+`keybindings.json` and its extension shortcuts in
+`src/main/keybindings-host-extension.ts`. They keep the id
+`tau.runtime-settings`: it is the name Pi's keybindings arrive under.
+
+The one thing safe mode loses with the kits is `/install` and the Packages
+page — the package manager is a kit like any other now. Recovering from a
+window that cannot install is still `npm run start` or an edit to
+`~/.tau/packages.json`.
+
 ## How to check
 
+- Settings → Packages lists the two sets apart: the kits Tau ships (`scope: "bundled"` from `inspectBundledKits`, granted by construction) above the packages a source installed. A rescan after an install never touches the first set — the activator only ever loads what it scanned from the package folders, and refuses a package claiming a kit's id.
 - The kits Tau ships live under `kits/<name>/` with a `tau-extension.json` and load through the package loaders, from `dist-kits/` when the app was built and from the sources otherwise. `src/shared/kits-boundary.test.ts` fails when a kit reaches into `src/**` outside `tau`, `tau/host-extension` and `tau/host`, or when `src/**` reaches into a kit. `src/main/extensions/index.ts` and `src/renderer/extensions/index.tsx` hold what has not moved yet.
 - `start:safe` shows the core list and nothing more. That includes no access gate: safe mode runs tools the way Pi does.
 - Removing a bundled kit removes its behavior on both sides without editing core.

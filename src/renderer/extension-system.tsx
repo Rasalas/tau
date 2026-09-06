@@ -3,6 +3,7 @@ import type { ComponentType, ReactNode } from "react";
 import type { HostClient } from "./host-client";
 import type { HostActionResult } from "../shared/host-protocol";
 import type {
+  ExtensionInspection,
   GlobalHostEvent,
   HostEvent,
   HostSnapshot,
@@ -203,6 +204,26 @@ export interface PanelContribution {
 }
 
 /** Places besides the palette where a command may also be offered. */
+export interface SettingsPageProps {
+  /** The open project, for a page that reports what this workspace sees. */
+  cwd?: string;
+  onNotify(message: string): void;
+}
+
+/**
+ * A page of the Settings modal an extension owns. Core keeps the modal, its
+ * navigation and the pages that must survive safe mode; a page like this one is
+ * gone with its extension.
+ */
+export interface SettingsPageContribution {
+  id: string;
+  label: string;
+  /** Icon name, as panels spell it (`PanelIcon`); an unknown one falls back. */
+  glyph?: string;
+  order?: number;
+  Component: ComponentType<SettingsPageProps>;
+}
+
 export type CommandSurface = "thread-title";
 
 export interface CommandContribution {
@@ -331,6 +352,8 @@ export interface HostExtensionClient {
 /** How the registry reaches host extensions; the desktop API is the default. */
 export interface HostExtensionBridge {
   invoke(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  /** Core's own scan of the package folders and the shipped kits; absent without a host. */
+  inspect?(cwd: string): Promise<ExtensionInspection>;
 }
 
 export type ExtensionEvent = Extract<GlobalHostEvent, { type: "extension-event" }>;
@@ -348,6 +371,13 @@ export interface DesktopExtensionContext {
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
   registerPanel(panel: PanelContribution): () => void;
+  /** A page of the Settings modal; core lends the nav entry and the frame. */
+  registerSettingsPage(page: SettingsPageContribution): () => void;
+  /**
+   * What the host sees in the package folders and in the kits it ships: the
+   * same scan Settings' inspector reads, without loading any code.
+   */
+  inspectPackages(cwd: string): Promise<ExtensionInspection>;
   registerComposerControl(control: ComposerControlContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number): TranscriptRowsHandle;
@@ -393,6 +423,8 @@ export interface ExtensionSummary {
   /** Where the package's host half runs; only a package awaiting approval carries it. */
   isolation?: "worker" | "in-process";
   granted?: boolean;
+  /** Core activated this one: it is always on and has no switch. */
+  core?: boolean;
 }
 
 interface ToolRenderer {
@@ -418,6 +450,7 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
     invoke: (extensionId, command, input) => client
       ? client.invokeHostExtension(extensionId, command, input)
       : Promise.reject(new HostUnavailableError()),
+    inspect: (cwd) => client ? client.inspectExtensions(cwd) : Promise.reject(new HostUnavailableError()),
   };
 }
 
@@ -437,6 +470,7 @@ export class ExtensionRegistry {
   }
 
   private panels = new Map<string, Owned<PanelContribution>>();
+  private settingsPages = new Map<string, Owned<SettingsPageContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
@@ -461,10 +495,22 @@ export class ExtensionRegistry {
   private options = new Map<string, ExtensionOption[]>();
   private contributionKinds = new Map<string, string[]>();
   private known = new Map<string, DesktopExtension>();
+  /** Ids core activated itself; they are listed but never switched off. */
+  private readonly coreIds = new Set<string>();
   private activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
   private listeners = new Set<() => void>();
   private version = 0;
   private sortedCache = new Map<string, { version: number; value: unknown[] }>();
+
+  /**
+   * Activates a contribution core itself owns — the runtime commands, their
+   * chords, the slash commands core answers. It carries no grant and no switch,
+   * and it is on in safe mode too, where no extension is.
+   */
+  activateCore(extension: DesktopExtension): void {
+    this.coreIds.add(extension.id);
+    this.activate(extension);
+  }
 
   /** Make an extension known without activating it, so settings can list and enable it. */
   addKnown(extension: DesktopExtension): void {
@@ -499,6 +545,13 @@ export class ExtensionRegistry {
         note(panel.label.toLowerCase());
         return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
       },
+      registerSettingsPage: (page) => {
+        note("settings page");
+        return this.register(this.settingsPages, page.id, { ...page, ...owner }, disposers);
+      },
+      inspectPackages: (cwd) => this.hostBridge.inspect
+        ? this.hostBridge.inspect(cwd)
+        : Promise.reject(new HostUnavailableError()),
       events: {
         on: (type, listener) => {
           const listeners = this.workbenchEventListeners.get(type) ?? new Set<(event: WorkbenchEvent) => void>();
@@ -685,6 +738,11 @@ export class ExtensionRegistry {
     return this.sorted("panels", this.panels);
   }
 
+  /** Pages extensions added to Settings, in `order`. */
+  getSettingsPages(): Array<Owned<SettingsPageContribution>> {
+    return this.sorted("settings-pages", this.settingsPages);
+  }
+
   /** The waiting label an extension set for a thread, if any. */
   getLiveStatus(sessionId: string | undefined): string | undefined {
     if (!sessionId) return undefined;
@@ -846,6 +904,7 @@ export class ExtensionRegistry {
       options: this.options.get(extension.id) ?? [],
       permissions: extension.permissions,
       granted: extension.granted,
+      ...(this.coreIds.has(extension.id) ? { core: true } : {}),
     }));
   }
 
