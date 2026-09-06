@@ -5,9 +5,7 @@ import { getHostClient } from "../host-client-context";
 // Keep optional extension UI out of the workbench's first renderer chunk. The
 // registry still owns activation; React loads a contribution when its slot is
 // actually rendered.
-const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ ChangesPanel }) => ({ default: ChangesPanel })));
 const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
-const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
@@ -16,11 +14,8 @@ import { workspaceKit } from "./workspace-kit-client";
 import { registerCheckpoints } from "./workspace-checkpoints";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./workspace-dock";
 import { WorkspaceTitleActions } from "./workspace-title";
-import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
 import type { WorkspaceStore } from "./workspace-store";
-import { computerUsePresentationExtension } from "./computer-use";
 import { piUiExtension } from "./pi-ui";
-import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages";
 
 let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
@@ -127,49 +122,8 @@ export const workspaceExtension: DesktopExtension = {
   },
 };
 
-export const reviewExtension: DesktopExtension = {
-  id: "tau.review",
-  name: "Review Kit",
-  activate(plugin) {
-    plugin.registerPanel({ id: "changes", label: "Changes", glyph: "changes", order: 20, Component: LazyChangesPanel });
-    plugin.registerOverlay({ id: REVIEW_OVERLAY, Component: ReviewOverlay });
-    plugin.registerOptions([
-      { id: "split-diff", kind: "toggle", label: "Open diffs in split view", defaultValue: false },
-      ...COMMIT_MESSAGE_OPTIONS,
-    ]);
-    const disposeCommitMessages = registerCommitMessages(plugin);
-    plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => plugin.workspaceStore.openReview() });
-    plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" });
-    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel("changes") });
-    return disposeCommitMessages;
-  },
-};
-
-export const observatoryExtension: DesktopExtension = {
-  id: "tau.observatory",
-  name: "Signals",
-  activate(plugin) {
-    plugin.registerPanel({ id: "observatory", label: "Signals", glyph: "signals", order: 30, Component: LazyObservatoryPanel });
-    plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel("observatory") });
-    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "observatory.open" });
-    plugin.registerToolRenderer(
-      "observatory.shell-renderer",
-      (tool) => tool.name === "bash" || tool.name === "powershell",
-      (tool) => ({
-        glyph: "$",
-        title: tool.name,
-        tone: "shell",
-        detail: String(tool.args.command ?? "shell command"),
-      }),
-    );
-  },
-};
-
 export const bundledExtensions = [
   workspaceExtension,
-  reviewExtension,
-  observatoryExtension,
-  computerUsePresentationExtension,
   piUiExtension,
   claudeCodeExtension,
 ];

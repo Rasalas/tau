@@ -27,6 +27,7 @@ export {
   splitPromptTitle,
 } from "../shared/extension-prompt-options";
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
+export { ChangesTree, ReviewMode } from "./extension-components";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -74,4 +75,18 @@ export type {
 } from "./workbench-context";
 export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "./thread-store";
 export type { PreferencesStore } from "./preferences";
+/** The vocabulary of changes and diffs the document surfaces above speak. */
+export type {
+  ChangeStatus,
+  DiffLoadOptions,
+  UiChangedFile,
+  UiDiffHunk,
+  UiDiffLine,
+  UiEditor,
+  UiFileDiff,
+  UiWorkspaceChanges,
+  UiWorkspaceChangesPage,
+  WorkspaceChangesQuery,
+  WorkspaceDiffScope,
+} from "../shared/workspace-kit-types";
 export type * from "../shared/contracts";

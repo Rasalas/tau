@@ -41,6 +41,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
+    loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,

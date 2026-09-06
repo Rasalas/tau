@@ -1,4 +1,5 @@
-import type { DesktopExtension, ToolPresentation } from "../extension-system";
+import type { DesktopExtension, ToolPresentation } from "tau";
+import { COMPUTER_USE_EXTENSION_ID, COMPUTER_USE_TOOL_PREFIX } from "./protocol.js";
 
 const READ_OPERATIONS = new Set([
   "list_apps",
@@ -19,11 +20,11 @@ const READ_OPERATIONS = new Set([
 ]);
 
 function operationName(toolName: string): string {
-  return toolName.slice("computer_use_".length);
+  return toolName.slice(COMPUTER_USE_TOOL_PREFIX.length);
 }
 
 function titleFor(operation: string): string {
-  const title = operation.replace(/^get_/, "").replaceAll("_", " ");
+  const title = operation.replace(/^get_/u, "").replaceAll("_", " ");
   return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
@@ -54,13 +55,15 @@ export function presentComputerUse(toolName: string, args: Record<string, unknow
 }
 
 export const computerUsePresentationExtension: DesktopExtension = {
-  id: "tau.computer-use-presentation",
+  id: COMPUTER_USE_EXTENSION_ID,
   name: "Computer Use",
   activate(plugin) {
     plugin.registerToolRenderer(
       "computer-use.renderer",
-      (tool) => tool.name.startsWith("computer_use_"),
+      (tool) => tool.name.startsWith(COMPUTER_USE_TOOL_PREFIX),
       (tool) => presentComputerUse(tool.name, tool.args),
     );
   },
 };
+
+export default computerUsePresentationExtension;

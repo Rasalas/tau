@@ -1,8 +1,5 @@
-import computerUseExtension from "@amaster.ai/pi-computer-use";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
-
-export const COMPUTER_USE_HOST_EXTENSION_ID = "tau.computer-use";
-export const COMPUTER_USE_PACKAGE = "@amaster.ai/pi-computer-use";
+import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { COMPUTER_USE_EXTENSION_ID, COMPUTER_USE_PACKAGE, COMPUTER_USE_RUNTIME_EXTENSION } from "./protocol.js";
 
 type PiPackageSource = string | { source: string; autoload?: boolean };
 interface PackageSettings { packages?: PiPackageSource[] }
@@ -20,17 +17,19 @@ export function settingsIncludeComputerUse(settings: PackageSettings): boolean {
 }
 
 /**
- * Computer Use Kit's host entry: the npm package as a bundled Pi extension. A
- * user-configured Pi package wins so existing installations do not register
- * the same tools twice.
+ * Computer Use's host entry: the npm package as a bundled Pi extension. The
+ * host loads the package, because its driver binaries live beside the module
+ * npm installed. A user-configured Pi package wins, so existing installations
+ * do not register the same tools twice.
  */
 export function createComputerUseHostExtension(): HostExtension {
   return {
-    id: COMPUTER_USE_HOST_EXTENSION_ID,
+    id: COMPUTER_USE_EXTENSION_ID,
     name: "Computer Use",
     permissions: ["runtime:extend"],
-    activate(context: HostExtensionContext) {
-      context.services.registerRuntimeExtension("tau-computer-use", computerUseExtension, {
+    async activate(context: HostExtensionContext) {
+      const factory = await context.services.loadRuntimeExtension(COMPUTER_USE_PACKAGE);
+      context.services.registerRuntimeExtension(COMPUTER_USE_RUNTIME_EXTENSION, factory, {
         enabledFor: (settings) =>
           !settingsIncludeComputerUse(settings.global as PackageSettings)
           && !settingsIncludeComputerUse(settings.project as PackageSettings),
@@ -38,3 +37,5 @@ export function createComputerUseHostExtension(): HostExtension {
     },
   };
 }
+
+export default createComputerUseHostExtension;

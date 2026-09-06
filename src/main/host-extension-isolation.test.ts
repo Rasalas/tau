@@ -144,6 +144,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     pinTranscriptEntries: (provider) => { recorder.pins.push(provider); return () => undefined; },
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
+    loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,

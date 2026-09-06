@@ -88,6 +88,7 @@ const UNAVAILABLE = new Set([
   "attachedRuntime",
   "registerRuntimeBackend",
   "registerRuntimeExtension",
+  "loadRuntimeExtension",
   "decorateUiPrompt",
   "setPermissionLevel",
   "presentUi",

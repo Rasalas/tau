@@ -1,6 +1,7 @@
-import type { PanelProps } from "../extension-system";
-import { useObservatory } from "../workbench-context";
+import { useObservatory, type DesktopExtension, type PanelProps } from "tau";
+import { SIGNALS_EXTENSION_ID, SIGNALS_PANEL } from "./protocol.js";
 
+/** What the workbench is doing right now: host events, live counts, tool runs. */
 export function ObservatoryPanel({ extensionName }: PanelProps) {
   const { events, snapshot, tools, registry } = useObservatory();
 
@@ -31,3 +32,26 @@ export function ObservatoryPanel({ extensionName }: PanelProps) {
     </section>
   );
 }
+
+export const observatoryExtension: DesktopExtension = {
+  id: SIGNALS_EXTENSION_ID,
+  name: "Signals",
+  activate(plugin) {
+    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", glyph: "signals", order: 30, Component: ObservatoryPanel });
+    plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel(SIGNALS_PANEL) });
+    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "observatory.open" });
+    // A shell command is the one tool run whose own text says what happened.
+    plugin.registerToolRenderer(
+      "observatory.shell-renderer",
+      (tool) => tool.name === "bash" || tool.name === "powershell",
+      (tool) => ({
+        glyph: "$",
+        title: tool.name,
+        tone: "shell",
+        detail: String(tool.args.command ?? "shell command"),
+      }),
+    );
+  },
+};
+
+export default observatoryExtension;

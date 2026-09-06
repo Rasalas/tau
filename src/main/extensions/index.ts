@@ -1,9 +1,7 @@
 import type { HostExtension } from "../host-extensions.js";
 import { loadBundledKitHostHalves, type BundledKitsOptions } from "../bundled-kits.js";
 import { createClaudeCodeHostExtension } from "./claude-code/host-extension.js";
-import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
-import { createReviewHostExtension } from "./review-host-extension.js";
 import { createWorkspaceHostExtension } from "./workspace-host-extension.js";
 
 /**
@@ -26,8 +24,6 @@ export function shippedHostExtensions(
 export function bundledHostExtensions(): HostExtension[] {
   return [
     createWorkspaceHostExtension(),
-    createReviewHostExtension(),
-    createComputerUseHostExtension(),
     createPiUiHostExtension(),
     createClaudeCodeHostExtension(),
   ];

@@ -250,6 +250,7 @@ export class WorkspaceStore {
   openReview(path?: string, pushPrimary = Boolean(this.state.workspace?.upstream)): void {
     void this.refreshChanges();
     this.update({ pushPrimary, review: { path: path ?? this.state.changes.files[0]?.path, primaryPush: pushPrimary } });
+    // Review Kit's overlay id (`kits/review/protocol.ts`); without that kit the request is simply unanswered.
     this.actions?.openOverlay("review.workspace");
   }
 

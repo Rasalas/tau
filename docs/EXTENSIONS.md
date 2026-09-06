@@ -41,6 +41,11 @@ A package has up to two halves, sharing one `id`:
   is the only way the desktop half reaches its own host half; there is no
   direct call between them, and a package with no host entry gets a
   `context.host` that always rejects.
+  `context.hostExtension(extensionId)` gives the same client for *another*
+  extension's host half, which is how one package builds on another (Review Kit
+  reads Workspace Kit's changes and diffs this way). Those commands belong to
+  that extension's contract, not to core: an invoke fails like any other when
+  it is not installed.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
 (`vendor.name`), and must be the same string both halves export — the
@@ -57,6 +62,15 @@ gives the agent a new tool, `pi.on(...)` an event handler, and so on: everything
 carries it, including a remote host's. `registerRuntimeExtension` is one of the
 members a **worker cannot reach** (§6), so a package that wants a Pi tool needs
 `"isolation": "in-process"`.
+
+`context.services.loadRuntimeExtension(packageName)` answers with the factory a
+Pi extension Tau ships as one of its own npm dependencies exports. The host
+resolves the package, so it keeps the layout npm gave it and still finds the
+files it ships beside itself — native binaries a driver launches, for instance,
+which a copy bundled into an extension would no longer find. It needs
+`runtime:extend` like `registerRuntimeExtension`, and a worker cannot reach it
+either. Computer Use (`kits/computer-use/`) is the example: it loads
+`@amaster.ai/pi-computer-use` this way and registers what it gets back.
 
 ### The manifest
 
@@ -142,6 +156,16 @@ for what the ask tool folds into a dialog's title and options —
 `freeTextOption` and `optionForLabel`, with their `OptionParts` and
 `OptionPreview` types.
 
+It also lends two document surfaces core owns: `ReviewMode`, the full-workbench
+review of a set of changes (file tree, diffs, line notes, commit box), and
+`ChangesTree`, the changed files of a workspace with stage, unstage and revert.
+Both load as their own chunk the first time they are rendered and bring their
+own loading state, so an extension renders them like any other component. The
+shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`,
+`UiDiffHunk`, `UiDiffLine`, `DiffLoadOptions`, `WorkspaceChangesQuery`,
+`WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage` —
+are exported as types beside them.
+
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies,
 `GlobalHostEvent` (what `context.emit` becomes on the wire, which a package's
@@ -198,7 +222,7 @@ A package's `permissions` array draws from a fixed list
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. |
-| `runtime:extend` | register Pi runtime extensions, runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
+| `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
@@ -420,7 +444,7 @@ nothing that hands out a live object. From
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
 |---|---|
 | `cwd`, `log`, `safeMode` | `attachedRuntime` (a live Pi terminal) |
-| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension` |
+| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |

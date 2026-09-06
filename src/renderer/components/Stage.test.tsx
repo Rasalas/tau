@@ -6,7 +6,7 @@ import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-k
 import { activateTab, closeTab, EMPTY_STAGE, openFileTab, pinTab, setFileView, type StageState } from "../stage";
 import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context";
 import { WorkspaceStore } from "../extensions/workspace-store";
-import { ChangesPanel, FilesPanel } from "../extensions/workspace-panels";
+import { FilesPanel } from "../extensions/workspace-panels";
 import { PreferencesStore } from "../preferences";
 import { RendererServicesProvider } from "../renderer-services-context";
 import { Stage } from "./Stage";
@@ -129,49 +129,6 @@ function kitState(workspaceStore: WorkspaceStore, patch: Parameters<WorkspaceSto
 function withServices(workspaceStore: WorkspaceStore, children: ReactNode) {
   return <RendererServicesProvider services={{ preferences: new PreferencesStore(), workspaceStore }}>{children}</RendererServicesProvider>;
 }
-
-describe("ChangesPanel", () => {
-  it("opens a changed file as a diff and commits the edited message", () => {
-    const workspaceStore = new WorkspaceStore(new PreferencesStore());
-    kitState(workspaceStore, { workspace: { root: CWD, isRepo: true, isDirty: true, upstream: "origin/main", worktrees: [], refs: [], worktreeParent: "/" } });
-    const openDiff = vi.spyOn(workspaceStore, "openDiff").mockImplementation(() => undefined);
-    const stageAll = vi.spyOn(workspaceStore, "stageAll").mockResolvedValue(undefined);
-    const commit = vi.spyOn(workspaceStore, "commit").mockResolvedValue(undefined);
-    vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
-    render(withServices(workspaceStore,
-      <WorkbenchContext.Provider value={workbench()}>
-        <ChangesPanel active extensionName="Review Kit" actions={{} as never} />
-      </WorkbenchContext.Provider>,
-    ));
-
-    fireEvent.click(screen.getByTitle("src/a.ts"));
-    expect(openDiff).toHaveBeenCalledWith("src/a.ts");
-    fireEvent.click(screen.getByRole("button", { name: "Stage all" }));
-    expect(stageAll).toHaveBeenCalled();
-
-    const message = screen.getByPlaceholderText("Commit message");
-    expect(message).toHaveProperty("value", "Update a");
-    fireEvent.change(message, { target: { value: "feat: a" } });
-    fireEvent.click(screen.getByRole("button", { name: "Commit all & push" }));
-    expect(commit).toHaveBeenCalledWith("feat: a", true);
-    fireEvent.click(screen.getByRole("button", { name: "Commit all" }));
-    expect(commit).toHaveBeenCalledWith("feat: a", false);
-  });
-
-  it("marks the file shown in the stage and leads with push when asked", () => {
-    const workspaceStore = new WorkspaceStore(new PreferencesStore());
-    kitState(workspaceStore, { pushPrimary: true, workspace: { root: CWD, isRepo: true, isDirty: true, upstream: "origin/main", worktrees: [], refs: [], worktreeParent: "/" } });
-    vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
-    render(withServices(workspaceStore,
-      <WorkbenchContext.Provider value={workbench({ activeDocumentPath: `${CWD}/src/a.ts` })}>
-        <ChangesPanel active extensionName="Review Kit" actions={{} as never} />
-      </WorkbenchContext.Provider>,
-    ));
-
-    expect(screen.getByTitle("src/a.ts").parentElement?.className).toContain("active");
-    expect(screen.getByRole("button", { name: "Commit all & push" }).className).toContain("primary");
-  });
-});
 
 describe("FilesPanel", () => {
   it("opens a file on click and pins it on double-click", () => {
