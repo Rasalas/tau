@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { useKeepClear } from "../reserved-region";
 
 export interface MenuItem {
   id: string;
@@ -21,6 +22,10 @@ export interface MenuSection {
 /**
  * Popover list anchored to its trigger. The scrim sits under the menu and
  * closes it, so a click outside never also activates what is underneath.
+ *
+ * The title bar spans the dock too, so a right-aligned menu from it drops over
+ * the panel; `useKeepClear` slides such a menu back when the host has a native
+ * view there, and leaves every other menu where its CSS put it.
  */
 export function Menu({
   placement = "below",
@@ -52,12 +57,15 @@ export function Menu({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onClose]);
 
+  const menu = useRef<HTMLDivElement>(null);
+  useKeepClear(menu);
+
   const groups = sections ?? [{ heading, items: items ?? [] }];
 
   return (
     <>
       <button className="menu-scrim" aria-label="Close menu" onClick={onClose} />
-      <div className={`menu ${placement} ${align ?? ""}`} role="menu">
+      <div className={`menu ${placement} ${align ?? ""}`} role="menu" ref={menu}>
         {groups.map((group, index) => (
           <div className="menu-section" key={group.heading ?? index}>
             {index > 0 ? <hr /> : null}

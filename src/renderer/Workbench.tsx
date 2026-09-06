@@ -27,6 +27,7 @@ import { useClientStorage } from "./client-storage-context";
 import type { ClientStorage } from "./client-storage";
 import { STORAGE_KEYS } from "./storage-keys";
 import { usePreferences } from "./renderer-services-context";
+import { publishStageBand } from "./reserved-region";
 import { useHostCapabilities } from "./use-host-capabilities";
 import type { PreferencesState } from "./preferences";
 import type { ThreadStore } from "./thread-store";
@@ -280,6 +281,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     observer.observe(element);
     return () => observer.disconnect();
   }, [centerRef, setCenterCompact]);
+
+  // Toasts float over this column instead of the window, so they never land on
+  // the dock — where the host may be drawing a native view no z-index outranks.
+  useEffect(() => {
+    const element = centerRef.current;
+    return element ? publishStageBand(element) : undefined;
+  }, [centerRef]);
 
   const centerClassName = [
     "workbench-center",

@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Play, Plus, TerminalSquare, Trash2 } from "lucide-react";
 import { parseShellActionDraft } from "./workspace-actions";
 import { Menu } from "../components/Menu";
 import { useClientStorage } from "../client-storage-context";
 import type { ClientStorage } from "../client-storage";
+import { useKeepClear } from "../reserved-region";
 import { projectActionsKey } from "../storage-keys";
 
 interface ProjectAction {
@@ -43,6 +44,9 @@ export function ProjectActionsControl({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [commandDraft, setCommandDraft] = useState("");
+  // Reuses .menu without the Menu component, so it needs the same clearance.
+  const editor = useRef<HTMLFormElement>(null);
+  useKeepClear(editor, editing);
 
   useEffect(() => {
     setActions(loadActions(clientStorage, workspace));
@@ -109,6 +113,7 @@ export function ProjectActionsControl({
         <>
           <button className="menu-scrim" aria-label="Close action editor" onClick={() => setEditing(false)} />
           <form
+            ref={editor}
             className="menu below right project-action-editor"
             onSubmit={(event) => {
               event.preventDefault();
