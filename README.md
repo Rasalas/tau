@@ -15,6 +15,29 @@ Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. T
 - [ADR 0003](docs/adr/0003-core-owns-threads-extensions-own-navigation.md) records why thread semantics stay in core while navigation remains replaceable.
 - [ADR 0004](docs/adr/0004-one-pi-runtime-per-thread.md) records why every open thread keeps its own Pi runtime.
 - [ADR 0011](docs/adr/0011-extension-distribution.md) records why packages are distributed through npm and Git instead of a registry of Tau's own.
+- [docs/RELEASE.md](docs/RELEASE.md) explains how a release is cut, how updates reach users, and how signing is enabled.
+
+## Install
+
+Download the newest build for your platform from the
+[releases page](https://github.com/Rasalas/tau/releases): a `.dmg` or `.zip` on
+macOS (arm64 and x64), an `.AppImage` on Linux, an NSIS installer on Windows.
+The builds are unsigned, so the first launch needs the usual confirmation —
+open the app from Finder's context menu once on macOS, and tell Windows
+SmartScreen to run it anyway.
+
+An installed Tau checks for a newer release shortly after it starts, downloads
+one in the background, and offers a restart that installs it; "Check for
+updates…" in the application menu asks on demand.
+
+To build an installer yourself:
+
+```bash
+npm install
+npm run dist          # this machine's platform; also dist:mac, dist:linux, dist:win
+```
+
+The artifacts land in `release/`.
 
 ## Run
 
@@ -39,7 +62,7 @@ npm run start:safe
 
 The production renderer is minified and does not ship source maps unless `TAU_SOURCEMAP=true` is explicitly set. Review, Settings, optional panels, and Highlight.js languages are demand-loaded; their slots expose a Retry action if a chunk cannot be loaded.
 
-`npm run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter.html) over `src/`, `.pi/` and `scripts/` (config in `.oxlintrc.json`: `correctness` and `suspicious` rules as errors, `perf` as warnings). CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full Vitest suite, and a production build on every pull request and push to `main`; `.github/workflows/performance.yml` stays the separate, slower gate for build/startup/renderer budgets.
+`npm run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter.html) over `src/`, `.pi/` and `scripts/` (config in `.oxlintrc.json`: `correctness` and `suspicious` rules as errors, `perf` as warnings). CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full Vitest suite, and a production build on every pull request and push to `main`; `.github/workflows/performance.yml` stays the separate, slower gate for build/startup/renderer budgets, and `.github/workflows/release.yml` builds and publishes the artifacts of a `v*.*.*` tag ([docs/RELEASE.md](docs/RELEASE.md)).
 
 ### Reach the host over a socket
 
