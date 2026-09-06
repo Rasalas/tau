@@ -47,6 +47,11 @@ const keys = await temp("keys");
 const userData = join(home, "user-data");
 await mkdir(userData, { recursive: true });
 process.env.TAU_USER_DATA = userData;
+// This smoke never lists Pi sessions today, but it does load real host
+// modules in-process; pin the same override dev-instance.mjs and the
+// remote-host smoke use so a future session-touching path stays isolated
+// under this temp home instead of the real ~/.pi/agent/sessions.
+process.env.PI_CODING_AGENT_SESSION_DIR = join(home, "pi-sessions");
 
 async function writePackage(root, id, name) {
   const dir = join(root, name);

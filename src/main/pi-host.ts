@@ -58,6 +58,7 @@ import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-reso
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
 import { ExtensionPackageActivator } from "./extension-package-activation.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
+import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import {
   HostExtensionRegistry,
@@ -172,6 +173,8 @@ export class PiHost {
   private readonly attached: AttachedThreadBackend;
   private readonly attachedThread: ThreadRuntime;
   private readonly agentDir = getAgentDir();
+  /** PI_CODING_AGENT_SESSION_DIR, resolved once; undefined keeps Pi's own default sessions layout. */
+  private readonly sessionsDirOverride = resolvePiSessionsDirOverride();
   private extensionCount = 0;
   private readonly lifecycleMetrics = new HostLifecycleInstrumentation();
   /** Everything host extensions contribute; only the seam writes those registries. */
@@ -524,7 +527,7 @@ export class PiHost {
       const marks = new PhaseTimer(requestedAt);
       marks.mark("queue");
       const runtime = await this.openThread(
-        SessionManager.create(cwd),
+        SessionManager.create(cwd, this.sessionsDirOverride),
         { type: "session_start", reason: "new" },
         { adopt: false, prepared: true },
       );
@@ -713,7 +716,7 @@ export class PiHost {
   }
 
   private async initialSessionManager(cwd: string): Promise<SessionManager> {
-    return SessionManager.continueRecent(cwd);
+    return SessionManager.continueRecent(cwd, this.sessionsDirOverride);
   }
 
   private async openInitialThread(cwd: string): Promise<ThreadRuntime> {
@@ -732,7 +735,7 @@ export class PiHost {
       // right answer at startup, where nobody chose that session.
       if (!(error instanceof Error && error.name === "MissingSessionCwdError")) throw error;
       this.log("session.cwd-missing", this.errorMessage(error));
-      return this.openThread(SessionManager.create(cwd), undefined);
+      return this.openThread(SessionManager.create(cwd, this.sessionsDirOverride), undefined);
     }
   }
 
@@ -1136,7 +1139,7 @@ export class PiHost {
         ?? (backendKind !== "pi"
           ? await this.openExternalThread(backendKind, randomUUID(), targetCwd, { resume: false })
           : await this.openThread(
-            SessionManager.create(targetCwd),
+            SessionManager.create(targetCwd, this.sessionsDirOverride),
             { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
             { adopt: false, prepared: true },
           ));
@@ -2398,7 +2401,7 @@ export class PiHost {
     const startedAt = performance.now();
     const cancellation = new AbortController();
     const pending = this.openThread(
-      SessionManager.create(cwd),
+      SessionManager.create(cwd, this.sessionsDirOverride),
       { type: "session_start", reason: "new", previousSessionFile: undefined },
       { background: true, adopt: false, prepared: true, abortSignal: cancellation.signal },
     ).then((thread) => {
@@ -2593,7 +2596,7 @@ export class PiHost {
   private async scanThreadIndex(): Promise<{ previous: readonly UiSession[]; next: UiSession[] }> {
     const scanStartedAt = Date.now();
     this.usageCacheLoaded ??= this.threadUsage.load().catch(() => undefined);
-    const [sessionInfos] = await Promise.all([SessionManager.listAll(), this.usageCacheLoaded]);
+    const [sessionInfos] = await Promise.all([SessionManager.listAll(this.sessionsDirOverride), this.usageCacheLoaded]);
     // Stamps are a stat per file; reading the files themselves is what the
     // usage index defers, so the scan stays a listing.
     const stamps = new Map(await Promise.all(sessionInfos.map(async (info) =>

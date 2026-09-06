@@ -52,14 +52,22 @@ describe("findFreePort", () => {
 
 describe("parseArgs", () => {
   it("defaults every flag to off", () => {
-    expect(parseArgs([])).toEqual({ build: false, safe: false, fresh: false, port: undefined, workspace: undefined });
+    expect(parseArgs([])).toEqual({
+      build: false,
+      safe: false,
+      fresh: false,
+      sharedSessions: false,
+      port: undefined,
+      workspace: undefined,
+    });
   });
 
   it("reads boolean flags", () => {
-    expect(parseArgs(["--build", "--safe", "--fresh"])).toEqual({
+    expect(parseArgs(["--build", "--safe", "--fresh", "--shared-sessions"])).toEqual({
       build: true,
       safe: true,
       fresh: true,
+      sharedSessions: true,
       port: undefined,
       workspace: undefined,
     });

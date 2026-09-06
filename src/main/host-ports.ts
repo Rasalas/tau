@@ -13,6 +13,7 @@ import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
 import { assertRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
 import { findExecutable } from "./shell-environment.js";
+import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
   HostAttachedRuntime,
@@ -197,7 +198,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     findCommand: (name) => findExecutable(name),
     refreshExtensionPackages: () => port.refreshExtensionPackages(),
     sessions: {
-      list: async () => (await SessionManager.listAll()).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
+      list: async () => (await SessionManager.listAll(resolvePiSessionsDirOverride())).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
       open: (path) => {
         // Pi falls back to process.cwd() for a missing file; never hand that out.
         if (!existsSync(path)) throw new Error(`No session file at ${path}.`);
