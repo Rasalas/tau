@@ -4,10 +4,8 @@ import type { HostSnapshot } from "../../shared/contracts";
 import { Region, StatusLine } from "../components/Regions";
 import { createMemoryStorage } from "../client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
-import { WorkspaceStore } from "../extensions/workspace-store";
 import { PreferencesStore } from "../preferences";
 import { RendererServicesProvider } from "../renderer-services-context";
-import { workspaceHostStub } from "./workspace-host-stub";
 import { ObservatoryContext, WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
 
 export const KIT_REGION_PLACEMENTS: RegionPlacement[] = ["title-bar", "composer-above", "composer-below", "transcript-header", "transcript-footer"];
@@ -20,7 +18,6 @@ const KIT_SNAPSHOT = {
 export interface KitHarness {
   registry: ExtensionRegistry;
   preferences: PreferencesStore;
-  workspaceStore: WorkspaceStore;
 }
 
 /**
@@ -30,17 +27,19 @@ export interface KitHarness {
  */
 export function createKitHarness(invoke?: HostExtensionBridge["invoke"]): KitHarness {
   const preferences = new PreferencesStore();
-  const workspaceStore = new WorkspaceStore(preferences);
-  const registry = new ExtensionRegistry({ invoke: invoke ?? workspaceHostStub() }, { preferences, workspaceStore });
-  return { registry, preferences, workspaceStore };
+  const registry = new ExtensionRegistry({ invoke: invoke ?? (async () => undefined) }, { preferences });
+  return { registry, preferences };
 }
 
 /**
  * Activates one kit into the core slots, renders every slot it may fill, then
  * removes it and fails if anything of it stayed behind.
  */
-export async function expectKitActivatesCleanly(extension: DesktopExtension): Promise<void> {
-  const { registry, preferences, workspaceStore } = createKitHarness();
+export async function expectKitActivatesCleanly(
+  extension: DesktopExtension,
+  invoke?: HostExtensionBridge["invoke"],
+): Promise<void> {
+  const { registry, preferences } = createKitHarness(invoke);
   const snapshot = KIT_SNAPSHOT;
   const actions = new Proxy({}, { get: () => () => undefined }) as WorkbenchActions;
   registry.activate(extension);
@@ -48,7 +47,7 @@ export async function expectKitActivatesCleanly(extension: DesktopExtension): Pr
   const workbench = { snapshot, tools: [], events: [], registry, openFile: () => undefined, applySnapshot: () => undefined, handleHostEvent: () => undefined };
   const view = render(
     <ClientStorageProvider storage={createMemoryStorage()}>
-      <RendererServicesProvider services={{ preferences, workspaceStore }}>
+      <RendererServicesProvider services={{ preferences }}>
         <WorkbenchShellContext.Provider value={{ snapshot, registry }}>
           <WorkbenchContext.Provider value={workbench}>
             <ObservatoryContext.Provider value={{ events: [], snapshot, tools: [], registry }}>
@@ -71,4 +70,21 @@ export async function expectKitActivatesCleanly(extension: DesktopExtension): Pr
   ];
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);
   if (registry.getDocumentSource()) throw new Error(`${extension.id} left its document source registered`);
+  if (registry.getServiceIds().length > 0) throw new Error(`${extension.id} left ${registry.getServiceIds().join(", ")} published`);
 }
+
+/**
+ * The renderer pieces a kit's own tests need to stand one of its components
+ * up on its own. They are re-exported here rather than imported directly so
+ * that `kits-boundary.test.ts` keeps its one rule: a kit reaches core through
+ * the API, and its tests reach core through the two harnesses.
+ */
+export { PreferencesStore } from "../preferences";
+export { RendererServicesProvider } from "../renderer-services-context";
+export { WorkbenchContext, WorkbenchShellContext, ObservatoryContext } from "../workbench-context";
+export { ClientStorageProvider } from "../client-storage-context";
+export { createMemoryStorage, getClientStorage, setClientStorage } from "../client-storage";
+export { createNewThreadDraft, writeNewThreadDraft } from "../draft-store";
+export { createNewThreadRequestId } from "../../shared/contracts";
+export { HostClientProvider, setHostClient } from "../host-client-context";
+export { HOST_CAPABILITY } from "../../shared/host-transport";

@@ -293,38 +293,6 @@ describe("last-turn activity", () => {
     expect(screen.queryByText("Completed")).toBeNull();
   });
 
-  it("keeps changed files in the fixed dock outside the scrolling transcript", async () => {
-    const storage = createMemoryStorage();
-    writeCachedTurnActivity(storage, {
-      sessionId: "session",
-      baseline: { files: [], added: 0, removed: 0 },
-      tools: [],
-    });
-    const originalBootstrap = client.bootstrap;
-    client.bootstrap = async () => {
-      const bootstrap = await originalBootstrap();
-      return {
-        ...bootstrap,
-        detail: {
-          ...bootstrap.detail,
-          messages: [{ id: "user", role: "user" as const, text: "Change the files", timestamp: 1 }],
-        },
-      };
-    };
-    client.invokeHostExtension = workspaceHostStub({ getChanges: async () => ({
-      files: [{ path: "src/App.tsx", name: "App.tsx", directory: "src", status: "modified", added: 4, removed: 1 }],
-      added: 4,
-      removed: 1,
-    }) });
-
-    const view = renderApp(client, { storage });
-    await screen.findByText("1 changed file");
-
-    const dock = view.container.querySelector(".conversation-files-dock");
-    expect(dock?.textContent).toContain("App.tsx");
-    expect(view.container.querySelector(".transcript")?.contains(dock)).toBe(false);
-  });
-
   it("holds an Enter follow-up in the workbench queue and sends it once the run settles", async () => {
     const followUp = vi.fn(async () => undefined);
     const steer = vi.fn(async () => undefined);

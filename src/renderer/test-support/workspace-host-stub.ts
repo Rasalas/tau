@@ -1,5 +1,37 @@
-import type { WorkspaceHostClient } from "../../shared/workspace-kit-protocol";
-import { WORKSPACE_HOST_EXTENSION_ID } from "../../shared/workspace-kit-protocol";
+const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
+
+/**
+ * The Workspace Kit command names this double answers. The kit owns the real
+ * contract (`kits/workspace/protocol.ts`); core keeps its own list so a test
+ * that renders `App` never has to reach into a kit.
+ */
+interface WorkspaceHostClient {
+  listDirectories(path?: string): Promise<unknown>;
+  pickFolder(): Promise<unknown>;
+  clone(repositoryUrl: string, parentPath?: string): Promise<unknown>;
+  getFileTree(relPath?: string): Promise<unknown>;
+  getChanges(query?: unknown): Promise<unknown>;
+  getFileDiff(relPath: string, options?: unknown): Promise<unknown>;
+  stageFile(relPath: string): Promise<unknown>;
+  unstageFile(relPath: string): Promise<unknown>;
+  stageAll(): Promise<unknown>;
+  revertFile(relPath: string): Promise<unknown>;
+  readFile(relPath: string): Promise<unknown>;
+  commit(message: string, push: boolean): Promise<unknown>;
+  push(): Promise<unknown>;
+  getWorkspaceInfo(workspace?: string): Promise<unknown>;
+  getWorktreeStatuses(workspace?: string): Promise<unknown>;
+  createWorktree(branch: string, baseRef?: string, workspace?: string): Promise<unknown>;
+  switchRef(ref: string): Promise<unknown>;
+  listEditors(): Promise<unknown>;
+  openInEditor(editorId: string, relPath?: string): Promise<unknown>;
+  checkpoints(sessionId: string): Promise<unknown>;
+  canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<unknown>;
+  getRestorePreview(sessionId: string, checkpointId: string): Promise<unknown>;
+  restoreCheckpoint(sessionId: string, checkpointId: string): Promise<unknown>;
+  getTurnFileDiff(sessionId: string, checkpointId: string, relPath: string, options?: unknown): Promise<unknown>;
+  getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<unknown>;
+}
 
 const NO_CHANGES = { files: [], added: 0, removed: 0 };
 const NO_REPO = { root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] };

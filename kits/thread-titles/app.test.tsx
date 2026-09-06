@@ -59,7 +59,6 @@ describe("Thread Title Generator in the workbench", () => {
       });
       return { title: "Created thread title" };
     });
-    const getWorkspaceInfo = vi.fn(async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }));
     const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
@@ -77,18 +76,12 @@ describe("Thread Title Generator in the workbench", () => {
         },
         project: { cwd: "/project" },
       }),
-      invokeHostExtension: workspaceHostStub({
-        listEditors: async () => [],
-        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-        getWorkspaceInfo,
-        getFileTree: async () => [],
-      }, { "tau.thread-titles": generateTitle }),
+      invokeHostExtension: workspaceHostStub({}, { "tau.thread-titles": generateTitle }),
       newSession,
     });
 
     renderApp(client, { extensions: [titleGeneratorExtension] });
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option"));

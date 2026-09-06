@@ -14,6 +14,7 @@ export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../sh
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
 export { isWorkspaceRelativePath, namesWorkspace, type WorkspaceRef } from "../shared/workspace-identity.js";
 export type { HostActionResult } from "../shared/host-protocol.js";
+export type * from "../shared/contracts.js";
 
 /**
  * The workspace vocabulary: changed files, diffs, worktrees and turn

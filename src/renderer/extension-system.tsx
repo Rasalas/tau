@@ -13,12 +13,6 @@ import type {
 } from "../shared/contracts";
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { PreferencesStore } from "./preferences";
-import { WorkspaceStore } from "./extensions/workspace-store";
-
-function createDefaultServices(): { preferences: PreferencesStore; workspaceStore: WorkspaceStore } {
-  const preferences = new PreferencesStore();
-  return { preferences, workspaceStore: new WorkspaceStore(preferences) };
-}
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -344,8 +338,6 @@ export interface DesktopExtensionContext {
   events: WorkbenchEvents;
   /** The renderer's shared preferences store; extensions read and write through it instead of importing a singleton. */
   preferences: PreferencesStore;
-  /** Workspace Kit's own store, for the extensions that make up that kit. */
-  workspaceStore: WorkspaceStore;
   registerRegion(region: RegionContribution): () => void;
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
@@ -444,16 +436,16 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
 export class ExtensionRegistry {
   private readonly hostEventListeners = new Map<string, Map<string, Set<(payload: unknown) => void>>>();
 
-  private readonly services: { preferences: PreferencesStore; workspaceStore: WorkspaceStore };
+  private readonly services: { preferences: PreferencesStore };
 
-  // `services` defaults to a private pair so the many tests that build a
+  // `services` defaults to a private store so the many tests that build a
   // registry without a workbench keep working; real activation passes the
-  // renderer's shared instances explicitly.
+  // renderer's shared instance explicitly.
   constructor(
     private readonly hostBridge: HostExtensionBridge = noHostBridge,
-    services?: { preferences: PreferencesStore; workspaceStore: WorkspaceStore },
+    services?: { preferences: PreferencesStore },
   ) {
-    this.services = services ?? createDefaultServices();
+    this.services = services ?? { preferences: new PreferencesStore() };
   }
 
   private panels = new Map<string, Owned<PanelContribution>>();
@@ -504,7 +496,6 @@ export class ExtensionRegistry {
     const note = (kind: string) => { if (!kinds.includes(kind)) kinds.push(kind); };
     const context: DesktopExtensionContext = {
       preferences: this.services.preferences,
-      workspaceStore: this.services.workspaceStore,
       host: {
         invoke: (command, input) => this.hostBridge.invoke(extension.id, command, input),
         onEvent: (name, listener) => {

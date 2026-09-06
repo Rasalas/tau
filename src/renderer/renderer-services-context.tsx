@@ -1,7 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { RendererServices } from "./renderer-services";
 import type { PreferencesStore } from "./preferences";
-import type { WorkspaceStore } from "./extensions/workspace-store";
 
 const RendererServicesReactContext = createContext<RendererServices | undefined>(undefined);
 
@@ -17,8 +16,4 @@ export function useRendererServices(): RendererServices {
 
 export function usePreferences(): PreferencesStore {
   return useRendererServices().preferences;
-}
-
-export function useWorkspaceStore(): WorkspaceStore {
-  return useRendererServices().workspaceStore;
 }

@@ -11,7 +11,6 @@ import { createPreviewHostExtension } from "./preview-host-extension.js";
 import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
 import { createReviewHostExtension } from "./review-host-extension.js";
 import { createServiceTierHostExtension } from "./service-tier-host-extension.js";
-import { createWorkspaceHostExtension } from "./workspace-host-extension.js";
 
 /**
  * Every host half Tau ships, as the host activates them: the kits that already
@@ -33,7 +32,6 @@ export function shippedHostExtensions(
 export function bundledHostExtensions(): HostExtension[] {
   return [
     createAccessHostExtension(),
-    createWorkspaceHostExtension(),
     createReviewHostExtension(),
     createServiceTierHostExtension(),
     createQuestionnaireHostExtension(),

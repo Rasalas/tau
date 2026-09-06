@@ -28,3 +28,8 @@ export function setHostClient(client: HostClient | undefined): void {
 export function getHostClient(): HostClient | undefined {
   return ambientClient;
 }
+
+/** Whether there is an Electron host to reach at all; the browser preview has none. */
+export function hostAvailable(): boolean {
+  return Boolean(ambientClient);
+}

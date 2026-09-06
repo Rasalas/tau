@@ -11,7 +11,7 @@ import { RendererServicesProvider } from "../renderer-services-context";
 export interface RenderedApp extends RenderResult {
   /** The storage this render installed; a test may seed it before rendering via `options.storage`. */
   storage: ClientStorage;
-  /** The `preferences`/`workspaceStore` instances this render created. */
+  /** The `preferences` instance this render created. */
   services: RendererServices;
 }
 
@@ -26,10 +26,10 @@ export interface RenderAppOptions {
 
 /**
  * Renders `App` behind the host-client provider tests exercise it through.
- * Also installs the ambient client `main.tsx` would, so module-scope
- * singletons (Workspace Kit's store) see the same fake the components do.
- * A fresh in-memory storage and fresh `preferences`/`workspaceStore`
- * instances back every render, so tests never leak state into one another.
+ * Also installs the ambient client `main.tsx` would, so modules outside the
+ * component tree see the same fake the components do. A fresh in-memory
+ * storage and a fresh `preferences` instance back every render, so tests never
+ * leak state into one another.
  */
 export function renderApp(client: HostClient | undefined, options?: RenderAppOptions): RenderedApp {
   setHostClient(client);

@@ -16,7 +16,6 @@ import { workspaceHostStub } from "../test-support/workspace-host-stub";
 import { createAgentsStore, lineageOf } from "./agents-store";
 import { activityLine, agentsPanelModel, formatCost, formatElapsed } from "./agents-model";
 import { panelRows } from "./agents-panel";
-import { visibleThreads } from "./project-navigation";
 
 /**
  * jsdom gives a scroll rail no height, so the real virtualizer would render no
@@ -238,46 +237,11 @@ describe("the Agents panel", () => {
 });
 
 describe("the navigator with agent threads", () => {
-  it("hides spawned threads until a search or the toggle asks for them", () => {
-    const threads = [session("parent", "Parent", 3), session("alpha", "Alpha", 2), session("beta", "Beta", 1)];
-    const parents = { alpha: "parent", beta: "parent" };
-    expect(visibleThreads(threads, parents, { showAgents: false, searching: false }).map((entry) => entry.id)).toEqual(["parent"]);
-    expect(visibleThreads(threads, parents, { showAgents: true, searching: false }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
-    expect(visibleThreads(threads, parents, { showAgents: false, searching: true }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
-    // The thread on screen is never hidden, however it was created.
-    expect(visibleThreads(threads, parents, { showAgents: false, searching: false, activeThreadId: "beta" }).map((entry) => entry.id))
-      .toEqual(["parent", "beta"]);
-  });
-
-  it("hides a spawned thread the index named even when no extension published lineage", () => {
-    const threads = [
-      session("parent", "Parent", 3),
-      session("alpha", "Alpha", 2, undefined, "parent"),
-      session("beta", "Beta", 1, undefined, "parent"),
-    ];
-    expect(visibleThreads(threads, {}, { showAgents: false, searching: false }).map((entry) => entry.id)).toEqual(["parent"]);
-    expect(visibleThreads(threads, {}, { showAgents: true, searching: false }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
-    expect(visibleThreads(threads, {}, { showAgents: false, searching: false, activeThreadId: "alpha" }).map((entry) => entry.id))
-      .toEqual(["parent", "alpha"]);
-  });
-
   it("offers the way back from a child the index alone knows", async () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")];
     renderApp(appWith({ maxRunning: 8, links: [] }, sessions, "alpha", [
       { id: "m1", role: "user", text: "Reply with A", timestamp: 1 },
     ]));
     expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
-  });
-
-  it("keeps agents out of the rail, badges the parent, and reveals them on request", async () => {
-    const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)];
-    renderApp(appWith(state, sessions, "parent"));
-    await screen.findByRole("navigation", { name: "Threads" });
-
-    await waitFor(() => expect(screen.getByLabelText("1 agent running")).toBeTruthy());
-    expect(screen.queryByText("Alpha reply")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Show agent threads" }));
-    expect(await screen.findByText("Alpha reply")).toBeTruthy();
   });
 });

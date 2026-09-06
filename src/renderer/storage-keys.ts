@@ -6,7 +6,6 @@ export const STORAGE_KEYS = {
   preferences: "tau.preferences",
   bootstrapCache: "tau.bootstrap-cache.v7",
   bootstrapCacheLegacy: ["tau.bootstrap-cache.v6", "tau.bootstrap-cache.v4", "tau.bootstrap-cache.v3"] as const,
-  workspaceTurnBaseline: "tau.workspace.turn-baseline.v1",
   composerDrafts: "tau.composer-drafts.v1",
   activeNewThread: "tau.active-new-thread.v1",
   turnActivityCache: "tau.turn-activity.v1",
@@ -18,9 +17,4 @@ export const STORAGE_KEYS = {
 /** `tau.review.v1:<workspace>:<scope>`; `workspace` is a workspace id, or a path from an older host. */
 export function reviewStateKey(workspace: string, scope: string): string {
   return `tau.review.v1:${workspace}:${scope}`;
-}
-
-/** `tau.project-actions:<workspace>`, scoped per project by its workspace id. */
-export function projectActionsKey(workspace?: string): string {
-  return `tau.project-actions:${workspace ?? "unknown"}`;
 }

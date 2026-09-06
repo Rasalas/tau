@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { ExtensionRegistry } from "../extension-system";
 import { PreferencesStore } from "../preferences";
-import { WorkspaceStore } from "./workspace-store";
 import { RendererServicesProvider } from "../renderer-services-context";
 import { accessKitExtension } from "./access-kit";
 
@@ -13,11 +12,10 @@ afterEach(cleanup);
 function activate() {
   const preferences = new PreferencesStore();
   preferences.setValue("tau.access", "level", "full");
-  const workspaceStore = new WorkspaceStore(preferences);
   const calls: unknown[][] = [];
-  const registry = new ExtensionRegistry({ invoke: async (...args) => { calls.push(args); return args[2]; } }, { preferences, workspaceStore });
+  const registry = new ExtensionRegistry({ invoke: async (...args) => { calls.push(args); return args[2]; } }, { preferences });
   registry.activate(accessKitExtension);
-  return { registry, calls, preferences, workspaceStore };
+  return { registry, calls, preferences };
 }
 
 describe("Access Kit desktop extension", () => {
@@ -32,12 +30,12 @@ describe("Access Kit desktop extension", () => {
   });
 
   it("contributes the composer control and disables Claude's unsupported ask mode", () => {
-    const { registry, preferences, workspaceStore } = activate();
+    const { registry, preferences } = activate();
     const [control] = registry.getComposerControls();
     expect(control?.id).toBe("access.level");
     const snapshot = { backendKind: "claude-code", runtimeCapabilities: { skillInvocationDialect: "claude-code", interactiveApprovals: false } } as unknown as HostSnapshot;
     render(
-      <RendererServicesProvider services={{ preferences, workspaceStore }}>
+      <RendererServicesProvider services={{ preferences }}>
         <control.Component snapshot={snapshot} />
       </RendererServicesProvider>,
     );

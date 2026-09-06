@@ -2,13 +2,34 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../../shared/contracts";
-import { ExtensionRegistry } from "../extension-system";
+import { ExtensionRegistry, type DesktopExtension } from "../extension-system";
 import { bundledExtensions } from "../extensions";
 import { TOOL_PREVIEW_MIN_MS, ToolGroup } from "./ToolGroup";
 
+/**
+ * Stands in for whichever kit names the file tools; the group only cares that
+ * a renderer answered, not which package it came from.
+ */
+const fileTools: DesktopExtension = {
+  id: "test.file-tools",
+  name: "File tools",
+  activate(context) {
+    context.registerToolRenderer(
+      "test.read",
+      (tool) => ["read", "grep", "find", "ls"].includes(tool.name),
+      (tool) => ({ glyph: "→", title: tool.name, tone: "read", detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace") }),
+    );
+    context.registerToolRenderer(
+      "test.write",
+      (tool) => tool.name === "edit" || tool.name === "write",
+      (tool) => ({ glyph: "±", title: tool.name, tone: "write", detail: String(tool.args.path ?? "file mutation") }),
+    );
+  },
+};
+
 function registryWithBundledExtensions(): ExtensionRegistry {
   const registry = new ExtensionRegistry();
-  for (const extension of bundledExtensions) registry.activate(extension);
+  for (const extension of [...bundledExtensions, fileTools]) registry.activate(extension);
   return registry;
 }
 

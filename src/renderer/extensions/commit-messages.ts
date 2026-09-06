@@ -1,6 +1,7 @@
 import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "../../shared/review-protocol";
 import type { DesktopExtensionContext, ExtensionOption } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
+import type { ReviewWorkspaceStore } from "./review-overlay";
 
 const MODEL_OPTION = "commit-model";
 const STYLE_OPTION = "commit-style";
@@ -37,8 +38,8 @@ export const COMMIT_MESSAGE_OPTIONS: ExtensionOption[] = [
   },
 ];
 
-export function registerCommitMessages(plugin: DesktopExtensionContext): () => void {
-  return plugin.workspaceStore.registerCommitMessageSuggester(async ({ changes, diffs, actions }) => {
+export function registerCommitMessages(plugin: DesktopExtensionContext, workspace: ReviewWorkspaceStore): () => void {
+  return workspace.registerCommitMessageSuggester(async ({ changes, diffs, actions }) => {
     const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
     if (!model) throw new Error("No model is selected for commit message generation.");
     const result = await plugin.host.invoke("suggest-commit-message", {
