@@ -109,7 +109,7 @@ function localHost(adapter: AgentRuntimeAdapter) {
         runShortcut: async () => false,
       },
       reload: { reload: async () => undefined },
-      completions: { complete: async () => "", completeTitle: async () => "Test title", modelApi: () => undefined },
+      completions: { complete: async () => "Test title", modelApi: () => undefined },
       shellAction: { isRunning: () => false, run: async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }) },
       compaction: { compact: async () => undefined },
       catalogWrite: { setModel: async () => undefined, setThinkingLevel: async () => undefined },

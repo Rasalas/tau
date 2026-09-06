@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { HostThread } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createThreadTitlesHostExtension } from "./host.js";
-import { THREAD_TITLES_HOST_EXTENSION_ID } from "./protocol.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT } from "./protocol.js";
 
 describe("Thread Title Generator host extension", () => {
   const piThread = (overrides: Partial<Record<string, unknown>> = {}) => ({
@@ -12,11 +12,11 @@ describe("Thread Title Generator host extension", () => {
     isCurrent: () => true,
     sessionName: () => undefined,
     transcript: async () => [{ role: "user", text: "Reply with the single word pong." }],
-    completeTitle: vi.fn(async () => "## **Thread title: `Pong reply`**"),
+    complete: vi.fn(async () => "## **Thread title: `Pong reply`**"),
     ...overrides,
   }) as unknown as HostThread;
 
-  it("titles the thread with the model the desktop side chose", async () => {
+  it("titles the thread with the model the desktop side chose, wording the request itself", async () => {
     const thread = piThread();
     const setThreadTitle = vi.fn(async () => undefined);
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {
@@ -29,6 +29,12 @@ describe("Thread Title Generator host extension", () => {
     });
     expect(result).toEqual({ title: "Pong reply" });
     expect(setThreadTitle).toHaveBeenCalledWith("s1", "Pong reply", "generated");
+    // Core has no title prompt of its own; the kit hands the whole request over.
+    expect(thread.complete).toHaveBeenCalledWith("openai", "gpt-5.6", {
+      system: TITLE_SYSTEM_PROMPT,
+      prompt: TITLE_USER_PROMPT("user: Reply with the single word pong."),
+      maxTokens: 48,
+    });
   });
 
   it("stays silent for a thread that already has a name, and refuses without a model", async () => {

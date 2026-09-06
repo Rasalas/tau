@@ -131,7 +131,7 @@ function makeActivationThread(threadId: string, sessionFile = `/${threadId}.json
         shortcuts: () => [],
         runShortcut: async () => false,
       },
-      completions: { complete: async () => "", completeTitle: async () => "Test title", modelApi: () => undefined },
+      completions: { complete: async () => "Test title", modelApi: () => undefined },
     },
     state: () => ({
       streaming: false,
@@ -347,7 +347,7 @@ describe("PiHost.generateThreadTitle", () => {
   it("titles a new thread from its first prompt while the first run is still streaming", async () => {
     const streaming = true;
     const callOrder: string[] = [];
-    const conversations: string[] = [];
+    const requests: Array<{ system: string; prompt: string }> = [];
     const session = {
       sessionId: "session",
       get isStreaming() { return streaming; },
@@ -360,9 +360,9 @@ describe("PiHost.generateThreadTitle", () => {
       },
       modelRuntime: {
         getModel: () => ({ provider: "provider", id: "model" }),
-        completeSimple: async (conversation: string) => {
+        completeSimple: async (request: { system: string; prompt: string }) => {
           callOrder.push("complete");
-          conversations.push(conversation);
+          requests.push(request);
           return { stopReason: "stop", content: [{ type: "text", text: "Automatic Thread Titles" }] };
         },
       },
@@ -379,9 +379,9 @@ describe("PiHost.generateThreadTitle", () => {
       capabilities: {
         journal: { entries: () => [], appendCustomEntry: () => undefined, appendMessage: () => undefined },
         completions: {
-          complete: async () => "",
-          completeTitle: async (_provider: string, _modelId: string, conversation: string) =>
-            session.modelRuntime.completeSimple(conversation).then((result) => result.content[0].text),
+          // The kit words the request; core only carries it to the model.
+          complete: async (_provider: string, _modelId: string, request: { system: string; prompt: string }) =>
+            session.modelRuntime.completeSimple(request).then((result) => result.content[0].text),
           modelApi: () => undefined,
         },
       },
@@ -424,7 +424,10 @@ describe("PiHost.generateThreadTitle", () => {
     });
     await expect(generated).resolves.toEqual({ title: "Automatic Thread Titles" });
     expect(callOrder).toEqual(["complete"]);
-    expect(conversations).toEqual(["user: Fix automatic titles"]);
+    // The prompt is the kit's wording; core neither writes nor inspects it.
+    expect(requests).toHaveLength(1);
+    expect(requests[0].system).toMatch(/plain-text noun phrase/u);
+    expect(requests[0].prompt).toContain("user: Fix automatic titles");
     expect(published).toContainEqual(expect.objectContaining({
       type: "host-update",
       update: expect.objectContaining({ type: "thread-shell", update: { sessionId: "session", shell: expect.objectContaining({ title: "Automatic Thread Titles" }) } }),

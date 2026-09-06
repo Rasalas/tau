@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PiKitBridge, PiKitTranscriptMessage } from "tau/host-extension";
 import threadTitlesPiExtension from "./pi.js";
+import { TITLE_SYSTEM_PROMPT } from "./protocol.js";
 
 function harness(transcript: PiKitTranscriptMessage[]) {
   const commands = new Map<string, (ctx: any, input: Record<string, unknown>) => Promise<unknown>>();
   const events = new Map<string, (event: any, ctx: any) => unknown>();
   let sessionName: string | undefined;
   let idle = false;
-  const complete = vi.fn(async () => ({ stopReason: "stop", content: [{ type: "text", text: "Automatic thread titles" }] }));
+  const complete = vi.fn(async (_model: unknown, request: { systemPrompt: string }) => ({ request, stopReason: "stop", content: [{ type: "text", text: "Automatic thread titles" }] }));
   const context = {
     isIdle: () => idle,
     sessionManager: { getSessionId: () => "session" },
@@ -47,6 +48,8 @@ describe("thread titles inside an attached Pi runtime", () => {
 
     await expect(generated).resolves.toEqual({ title: "Automatic thread titles" });
     expect(kit.pi.setSessionName).toHaveBeenCalledWith("Automatic thread titles");
+    // Both halves ask with the kit's one prompt, whoever owns the runtime.
+    expect(kit.complete.mock.calls[0]?.[1]).toMatchObject({ systemPrompt: TITLE_SYSTEM_PROMPT });
   });
 
   it("refuses a forced title while the run is active", async () => {

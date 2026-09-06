@@ -5,8 +5,9 @@ import { parseSkillEnvelope } from "../shared/skill-envelope.js";
  * plain text, a model's answer to a thread title, and the first exchanges of a
  * thread as the prompt a title model reads. A leaf module on purpose —
  * `tau/host-extension` re-exports it, so a kit that imports one of these
- * bundles nothing else. Core titles threads itself (`thread.completeTitle`),
- * which is why these stay here rather than in `kits/thread-titles`.
+ * bundles nothing else. Core reads them for its own transcript work, which is
+ * why they stay here rather than in `kits/thread-titles`; the title prompt
+ * itself is the kit's and lives there.
  */
 
 export function textFromContent(content: unknown): string {

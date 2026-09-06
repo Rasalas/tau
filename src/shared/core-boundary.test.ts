@@ -65,6 +65,23 @@ describe("core boundary", () => {
     expect(found).toEqual([]);
   });
 
+  // A kit owns the words it sends a model. Core carried a second copy of the
+  // title prompt until it stopped titling threads itself; this catches a third.
+  it("no core module carries a kit's model prompt", () => {
+    // Assembled so this file is not itself a copy of the phrase it forbids.
+    const phrase = ["coding-thread", "title"].join(" ");
+    const found: string[] = [];
+    const walk = (directory: string): void => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.tsx?$/u.test(entry.name) && readFileSync(path, "utf8").includes(phrase)) found.push(path);
+      }
+    };
+    walk("src");
+    expect(found).toEqual([]);
+  });
+
   // The two core files only shrink. Raise a ceiling deliberately, in the same
   // change that explains why the core had to grow.
   for (const [file, ceiling] of Object.entries({ "src/main/pi-host.ts": 3_000, "src/renderer/App.tsx": 1_800 })) {

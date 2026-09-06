@@ -479,7 +479,6 @@ export class PiHost {
       isCurrent: () => this.threads.get(thread.threadId)?.runtime === thread,
       sessionName: () => thread.state.title,
       transcript: () => thread.backend.transcript(),
-      completeTitle: (provider, modelId, conversation) => requireCapability(thread.backend, "completions").completeTitle(provider, modelId, conversation),
       complete: (provider, modelId, request) => requireCapability(thread.backend, "completions").complete(provider, modelId, request),
       modelApi: () => thread.backend.capabilities.completions?.modelApi(),
       shortcuts: (userBindings) => thread.backend.capabilities.extensions?.shortcuts(userBindings) ?? [],

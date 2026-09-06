@@ -41,7 +41,8 @@ to that process. `pi.ts` default-exports `(pi, bridge) => void`, is prebuilt to
 `dist-kits/<id>/pi.cjs`, and `.pi/extensions/tau-session-bridge.ts` requires it
 there — so kit code never passes through jiti, where `tau/*` does not resolve.
 `PiKitBridge` in `docs/EXTENSIONS.md` is what it may do; `kits/workspace/pi.ts`
-is the worked example.
+is the worked example. `npm run smoke:attached` runs that case end to end
+against a real `pi` TUI; `docs/agents/testing-the-app.md` explains it.
 
 ## Moving a kit here
 

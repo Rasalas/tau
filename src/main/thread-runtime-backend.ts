@@ -116,7 +116,6 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       },
       completions: {
         complete: (provider, modelId, request) => this.complete(provider, modelId, request),
-        completeTitle: (provider, modelId, conversation) => this.completeTitle(provider, modelId, conversation),
         modelApi: () => (this.session.model as { api?: string } | undefined)?.api,
       },
       extensions: {
@@ -301,14 +300,6 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   waitForIdle(): Promise<void> { return this.session.waitForIdle(); }
-
-  private completeTitle(provider: string, modelId: string, conversation: string): Promise<string> {
-    return this.complete(provider, modelId, {
-      system: "Create a concise coding-thread title as one plain-text noun phrase. Use 3-7 words and at most 60 characters. Name the concrete task, change, or decision. Never use Markdown, quotes, terminal punctuation, a label, a complete sentence, or meta wording such as working on, help with, discussion about, or implementing.",
-      prompt: `Return only the plain-text title for this thread. Match the conversation's language.\n\n${conversation}`,
-      maxTokens: 48,
-    });
-  }
 
   private async complete(provider: string, modelId: string, request: CompletionRequest): Promise<string> {
     const model = this.session.modelRuntime.getModel(provider, modelId);

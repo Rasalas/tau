@@ -54,7 +54,6 @@ function thread(overrides: Partial<HostThread> = {}): HostThread {
     isCurrent: () => true,
     sessionName: () => undefined,
     transcript: async () => [],
-    completeTitle: async () => "",
     complete: async () => "",
     modelApi: () => undefined,
     shortcuts: () => [],

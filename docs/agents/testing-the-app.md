@@ -48,6 +48,50 @@ Stop the instance before `npm run dist` in the same worktree: while it runs, Chr
 
 If the display has gone to sleep, `screencapture` returns a black or stale image; run it under `caffeinate -u` first to wake the display before capturing. And the renderer's own `screenshot` command never shows a preview `WebContentsView` — that is a separate native layer Chromium composites on top of the page, not part of what the renderer captures — so use `screencapture` (with `caffeinate -u`) when a preview pane needs to be visible in the image.
 
+## Attached mode: the kits inside a Pi runtime Tau does not own
+
+"Attached mode" is a real `pi` process holding the session while Tau is only a
+client on its bridge socket. `npm run smoke:attached` proves the whole path in
+about a minute:
+
+```
+npm run build            # dist-kits/<id>/pi.cjs is what the bridge loads
+npm run smoke:attached   # add --keep to inspect the scratch workspace afterwards
+```
+
+What it does, and why each part is shaped the way it is:
+
+- **A scratch repository** under `.tau-dev/attached-smoke/repo`, with a real
+  copy of `.pi/extensions/tau-session-bridge.ts` in its own `.pi/extensions/`,
+  so Pi discovers the bridge the way it does in this checkout. The bridge's
+  relative imports (`../../src/...`) and `piKitsRoot` reach `src/`,
+  `node_modules/` and `dist-kits/` through symlinks back into the worktree — a
+  symlinked *bridge file* does not work, because jiti resolves its imports
+  against the link's own directory. The prompt edits a file in that scratch
+  repository, and Workspace Kit's checkpoint refs land in its `.git`, not in
+  yours.
+- **`PI_CODING_AGENT_SESSION_DIR` under `.tau-dev/`**, so the session file never
+  reaches `~/.pi/agent/sessions` and never shows up in the user's own sidebar.
+  Auth, models and settings still come from the real `~/.pi/agent`.
+- **`expect` for the pty.** The bridge only starts its socket when
+  `ctx.mode === "tui"` (`print`, `json` and `rpc` all skip it — that guard is
+  what keeps Tau's own embedded Pi from attaching to itself), and the TUI needs
+  a terminal. macOS `script` calls `tcgetattr` on *its own* stdin and fails
+  under a pipe, so the smoke spawns `/usr/bin/expect`, which allocates the pty
+  itself. Nothing is ever typed into that terminal.
+- **A minimal bridge client** (`src/shared/pi-bridge-protocol.ts` is the wire):
+  read the descriptor Pi wrote to `~/.pi/agent/tau-bridge/sessions/<id>.json`
+  for its socket path and token, `hello`, then `prompt`, then `extension` for a
+  kit's command — the same three frames Tau's host sends.
+
+It then checks the session file itself: Workspace Kit's
+`tau.turn-checkpoint.v1` entry with its `refs/tau/checkpoints/...` snapshots,
+and the `session_info` entry Thread Title Generator wrote through
+`pi.setSessionName`.
+
+Teardown kills the PID in the descriptor and nothing else, and deletes the
+scratch workspace unless you passed `--keep`.
+
 ## Tearing down
 
 Kill exactly the PID `npm run cdp -- pid` names. Never `pkill -f Electron` (or any pattern match on the binary name) — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or the worktree.
