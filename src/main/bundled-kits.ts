@@ -140,6 +140,22 @@ async function hostHalf(kit: BundledKit, entry: string, cacheDir?: string): Prom
 }
 
 /**
+ * Every host half Tau ships, as the host activates them: a thunk, so the kits
+ * compile with the host rather than with the module that configured it. Safe
+ * mode never calls it.
+ */
+export function shippedHostExtensions(
+  options: BundledKitsOptions,
+  log: (label: string, detail: string) => void,
+): () => Promise<HostExtension[]> {
+  return async () => {
+    const loaded = await loadBundledKitHostHalves(options);
+    for (const failure of loaded.errors) log("host-extension.kit.failed", `${failure.path}: ${failure.message}`);
+    return loaded.extensions;
+  };
+}
+
+/**
  * The shipped kits as Settings reads them, beside the installed packages. They
  * carry `scope: "bundled"` and are granted by construction, so the Packages page
  * can show what Tau brought apart from what the user installed.

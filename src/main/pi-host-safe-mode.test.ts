@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { shippedHostExtensions } from "./extensions/index.js";
+import { shippedHostExtensions } from "./bundled-kits.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { PiHost } from "./pi-host.js";
 
