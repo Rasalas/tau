@@ -6,5 +6,6 @@
   "permissions": ["sessions"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
-  "host": "./host.ts"
+  "host": "./host.ts",
+  "pi": "./pi.ts"
 }

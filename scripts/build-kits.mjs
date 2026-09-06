@@ -15,7 +15,7 @@ const OUTPUT = join(ROOT, "dist-kits");
 const MAIN = join(ROOT, "dist-electron/main");
 const watch = process.argv.includes("--watch");
 
-const { MANIFEST_FILE, bundleHostExtension, parseExtensionManifest } = await import(join(MAIN, "extension-packages.js"));
+const { MANIFEST_FILE, bundleHostExtension, bundlePiExtension, parseExtensionManifest } = await import(join(MAIN, "extension-packages.js"));
 const { bundleDesktopExtension } = await import(join(MAIN, "desktop-extensions.js"));
 
 /**
@@ -64,7 +64,7 @@ async function buildKits() {
   const kits = await kitDirectories();
   await rm(OUTPUT, { recursive: true, force: true });
   for (const kit of kits) {
-    const { manifest, hostEntry, desktopEntry } = parseExtensionManifest(kit.directory, kit.source);
+    const { manifest, hostEntry, desktopEntry, piEntry } = parseExtensionManifest(kit.directory, kit.source);
     const target = join(OUTPUT, manifest.id);
     await mkdir(target, { recursive: true });
     const shipped = { ...manifest };
@@ -75,6 +75,12 @@ async function buildKits() {
     if (desktopEntry) {
       await writeFile(join(target, "desktop.js"), await bundleDesktopExtension(desktopEntry, { sharedExports }), "utf8");
       shipped.desktop = "./desktop.js";
+    }
+    // The Pi half is required by Tau's bridge from inside an attached Pi
+    // process, which has no toolchain and cannot resolve `tau/*`.
+    if (piEntry) {
+      await writeFile(join(target, "pi.cjs"), await bundlePiExtension(piEntry), "utf8");
+      shipped.pi = "./pi.cjs";
     }
     await writeFile(join(target, MANIFEST_FILE), `${JSON.stringify(shipped, null, 2)}\n`, "utf8");
     console.log(`kit ${manifest.id} -> dist-kits/${manifest.id}`);

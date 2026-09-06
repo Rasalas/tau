@@ -10,6 +10,7 @@
 export type * from "./host-extensions.js";
 export type * from "./runtime-types.js";
 export type * from "./runtime-adapters.js";
+export type * from "./pi-kit-extensions.js";
 export type * from "../shared/contracts.js";
 export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
 export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
