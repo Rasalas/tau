@@ -137,7 +137,10 @@ export function formatSnapshot(data, { maxLength = 4000 } = {}) {
 
 async function findPage(port) {
   const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-  const page = targets.find((target) => target.type === "page" && !target.url.startsWith("devtools"));
+  // The preview kit's browser view is a page target too; the workbench is the
+  // one loading Tau's own document (built or from the dev server).
+  const pages = targets.filter((target) => target.type === "page" && !target.url.startsWith("devtools"));
+  const page = pages.find((target) => /\/dist\/index\.html|localhost:5173/u.test(target.url)) ?? pages[0];
   if (!page) throw new Error(`no page target on port ${port} (targets: ${targets.map((target) => target.type).join(", ") || "none"})`);
   return page;
 }
