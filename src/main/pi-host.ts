@@ -98,7 +98,7 @@ import { ClientMessageTracker } from "./client-message-tracker.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
-import { promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import { markTauHostRuntime } from "./tau-runtime-owner.js";
@@ -516,18 +516,27 @@ export class PiHost {
   private async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
     this.workbenchReload.assertAvailable();
     const cwd = options.cwd || this.cwd;
+    const requestedAt = performance.now();
     const thread = await this.lifecycle.run("start-thread", async () => {
+      const marks = new PhaseTimer(requestedAt);
+      marks.mark("queue");
       const runtime = await this.openThread(
         SessionManager.create(cwd),
         { type: "session_start", reason: "new" },
         { adopt: false, prepared: true },
       );
+      marks.mark("open");
       try {
         await this.adoptThread(runtime);
+        marks.mark("adopt");
         if (options.model) await requireCapability(runtime.backend, "catalogWrite").setModel(options.model.provider, options.model.id);
+        marks.mark("model");
         // The shell has to exist before a title can be published against it.
         await this.refreshThreadShell(runtime, true);
+        marks.mark("shell");
         if (options.title) await this.applyThreadTitle(runtime, options.title, "renamed");
+        marks.mark("title");
+        this.log("thread.start.timing", `${runtime.threadId.slice(0, 8)} · ${marks.report()}`);
       } catch (error) {
         if (this.threads.has(runtime.threadId)) await this.threads.release(runtime.threadId);
         else await this.disposeThread(runtime);
