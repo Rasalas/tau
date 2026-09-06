@@ -3,7 +3,7 @@ import type { ExtensionUiAnswer, HostEvent, HostSnapshot, ShellActionResult, Thr
 import { namesWorkspace } from "../shared/workspace-identity";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import { hostSnapshotFromThreadDetail, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type TranscriptPage } from "../shared/host-protocol";
+import { hostSnapshotFromThreadDetail, hostSnapshotWithCatalog, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type TranscriptPage } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import { mockSnapshot, mockThreadIndex, optimisticThreadSnapshot, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "./app-state";
 import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
@@ -400,16 +400,16 @@ export default function App() {
     }
     if (update.type === "catalog") {
       if (update.catalog.model?.provider) threadStore.setThreadModelProvider(threadStore.getSnapshot().activeThreadId, update.catalog.model.provider);
+      // The history cache is the base a later thread detail merges onto, so it
+      // has to take the catalog too; otherwise the next detail restores the
+      // model the thread had before this change.
+      transcriptHistory.applyCatalog(update.catalog);
       viewStore.setSnapshot((current) => {
         if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
-        const { sessionId: _sessionId, supportsImageInput, ...legacyCatalog } = update.catalog;
-          return {
-            ...current,
-            ...legacyCatalog,
-            ...(update.catalog.sessionId === undefined
-              ? {}
-              : { supportsImageInput: supportsImageInput ?? false }),
-          };
+        const next = hostSnapshotWithCatalog(current, update.catalog);
+        cachedSnapshotRef.current = next;
+        writeBootstrapCache(next, cachedIndexRef.current);
+        return next;
       });
       return;
     }
