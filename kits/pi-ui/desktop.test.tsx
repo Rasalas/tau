@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "../../shared/contracts";
-import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
-import { createPiUiExtension, PiUiStore, stripAnsi } from "./pi-ui";
+import type { HostSnapshot, WorkbenchActions } from "tau";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createPiUiExtension, PiUiStore, stripAnsi } from "./desktop.js";
 
 const snapshot = (sessionId: string, isStreaming = false) => ({ sessionId, isStreaming } as HostSnapshot);
 const actions = {} as WorkbenchActions;
@@ -20,7 +20,7 @@ describe("Pi UI extension", () => {
         ? { sessionId, statuses: [{ key: "vim", text: "\u001b[32mNORMAL\u001b[0m" }], widgets: [{ key: "todo", lines: ["[ ] tests"], placement: "belowEditor" }], working: "Thinking" }
         : { sessionId, statuses: [], widgets: [] };
     });
-    const registry = new ExtensionRegistry({ invoke });
+    const { registry } = createKitHarness(invoke);
     const store = new PiUiStore();
     registry.activate(createPiUiExtension(store));
     await flush();

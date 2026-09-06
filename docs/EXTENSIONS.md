@@ -111,7 +111,10 @@ the browser preview), `errorMessage` (the one-line `unknown` → `string` every
 half needs for `actions.notify`), and the `PreferencesStore` type (the store on
 `context.preferences`, so a package can pass it around in its own signatures).
 
-`tau/host-extension` re-exports every host seam type plus `HostCommandError`,
+`tau/host-extension` re-exports every host seam type, every type of the host
+protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
+`GlobalHostEvent`, … — types only, so nothing of core is bundled), plus
+`HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies, and the
 text projections a package that reads transcripts needs: `textFromContent`
 (content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { EMPTY_PI_UI_STATE, PI_UI_EVENT, PI_UI_HOST_EXTENSION_ID, type PiUiThreadState, type PiUiWidgetPlacement } from "../../shared/pi-ui-protocol";
-import { HostUnavailableError, type DesktopExtension, type RegionProps } from "../extension-system";
+import { HostUnavailableError, type DesktopExtension, type RegionProps } from "tau";
+import { EMPTY_PI_UI_STATE, PI_UI_EVENT, PI_UI_HOST_EXTENSION_ID, type PiUiThreadState, type PiUiWidgetPlacement } from "./protocol.js";
 
 // Pi themes colour widget lines with ANSI sequences; the workbench shows plain text.
 // oxlint-disable-next-line eslint/no-control-regex -- ESC (\u001b) is the ANSI escape-sequence marker this strips.
@@ -91,4 +91,4 @@ export function createPiUiExtension(store = new PiUiStore()): DesktopExtension {
   };
 }
 
-export const piUiExtension = createPiUiExtension();
+export default createPiUiExtension();

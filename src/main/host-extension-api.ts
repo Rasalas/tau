@@ -8,6 +8,7 @@
  * bump `EXTENSION_API_VERSION` when you do.
  */
 export type * from "./host-extensions.js";
+export type * from "../shared/contracts.js";
 export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
 export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
 export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";

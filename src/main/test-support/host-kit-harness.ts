@@ -1,3 +1,4 @@
+import type { GlobalHostEvent } from "../../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "../host-extensions.js";
 
 /**
@@ -5,12 +6,16 @@ import { HostExtensionRegistry, type HostExtension, type HostExtensionServices }
  * live outside `src/`, so this is the one host module they may reach for —
  * everything else has to come through `tau/host-extension`.
  */
-export function activateHostKit(extension: HostExtension, services: Partial<HostExtensionServices> = {}): Promise<HostExtensionRegistry> {
+export function activateHostKit(
+  extension: HostExtension,
+  services: Partial<HostExtensionServices> = {},
+  emit: (event: GlobalHostEvent) => void = () => undefined,
+): Promise<HostExtensionRegistry> {
   const registry = new HostExtensionRegistry({
     cwd: () => "/project",
     safeMode: false,
     log: () => undefined,
     ...services,
-  } as HostExtensionServices, () => undefined);
+  } as HostExtensionServices, emit);
   return registry.activate(extension).then(() => registry);
 }

@@ -11,7 +11,6 @@ import type {
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
-import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { ThreadRuntimeBackend } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
@@ -281,6 +280,9 @@ export interface HostThread {
   /** Appends a custom entry to the thread's session, the durable seam for extension state. */
   appendEntry(customType: string, data: unknown): void;
 }
+
+/** Where Pi's `ctx.ui` asks for a text widget, relative to the composer. */
+export type PiUiWidgetPlacement = "aboveEditor" | "belowEditor";
 
 /**
  * Terminal surfaces of Pi's `ctx.ui` a host extension may draw somewhere.
