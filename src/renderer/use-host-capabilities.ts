@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { HOST_CAPABILITY } from "../shared/host-transport";
-import { useHostClient } from "./host-client-context";
+import { getHostClient, useHostClient } from "./host-client-context";
 
 export interface HostCapabilities {
   /**
@@ -25,7 +25,7 @@ export function useHostCapabilities(): HostCapabilities {
   return useMemo(() => ({ localFiles }), [localFiles]);
 }
 
-/** For stores and other modules outside the component tree. */
-export function hostHasLocalFiles(client: { hasCapability(capability: string): boolean } | undefined): boolean {
+/** For stores and other modules outside the component tree; defaults to the ambient client. */
+export function hostHasLocalFiles(client: { hasCapability(capability: string): boolean } | undefined = getHostClient()): boolean {
   return client?.hasCapability(HOST_CAPABILITY.localFiles) ?? false;
 }

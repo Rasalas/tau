@@ -897,6 +897,7 @@ export default function App() {
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
     applyHostResult,
+    copyText: async (text: string) => { await client?.copyText(text); },
     openOverlay: (id) => setActiveOverlayId(id),
     closeOverlay: () => setActiveOverlayId(undefined),
     openWorkspace,
