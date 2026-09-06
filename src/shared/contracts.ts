@@ -486,6 +486,11 @@ export interface ExtensionPackageSummary {
 export interface ExtensionInspection {
   /** What a package's `engines` is checked against. */
   versions: { tau: string; pi: string; api: string };
+  /**
+   * The distribution the `bundled` packages came in — `@tau/kits` and the
+   * version of the set. Absent in safe mode, which loads no kit at all.
+   */
+  distribution?: { name: string; version: string };
   directories: Array<{ scope: "global" | "project"; directory: string }>;
   packages: ExtensionPackageSummary[];
   errors: Array<{ path: string; message: string }>;

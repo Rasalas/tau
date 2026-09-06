@@ -11,7 +11,7 @@ import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
 import { rebuildWorkbench } from "./workbench-build.js";
 import { shippedHostExtensions } from "./extensions/index.js";
-import { inspectBundledKits, loadBundledKitDesktopHalves } from "./bundled-kits.js";
+import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves } from "./bundled-kits.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
@@ -283,10 +283,14 @@ function createLocalHostMethods(): HostMethodTable {
       // `bundled`; safe mode loads none of them and reports none.
       inspectExtensions: async (cwd) => {
         const [kits, inspection] = await Promise.all([
-          safeMode ? [] : inspectBundledKits(kitOptions),
+          safeMode ? NO_BUNDLED_KITS : inspectBundledKits(kitOptions),
           inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }),
         ]);
-        return { ...inspection, packages: [...kits, ...inspection.packages] };
+        return {
+          ...inspection,
+          ...(kits.distribution ? { distribution: { name: kits.distribution.name, version: kits.distribution.version } } : {}),
+          packages: [...kits.packages, ...inspection.packages],
+        };
       },
       loadDesktopExtensions: async (cwd, sharedExports) => {
         // The kits Tau ships travel the same road as an installed package's
