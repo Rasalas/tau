@@ -12,4 +12,6 @@ export { HostCommandError, isExpectedCommandError } from "./host-extension-error
 export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
 export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
+// What `context.emit` becomes on the wire; a kit's own tests read it off the harness.
+export type { GlobalHostEvent } from "../shared/contracts.js";
 export type { WorkspaceRef } from "../shared/workspace-identity.js";

@@ -1,17 +1,28 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PreviewBounds } from "../../shared/preview-protocol";
-import { testDomRect } from "../components/test-dom-geometry";
-import type { WorkbenchActions } from "../extension-system";
-import type { HostClient } from "../host-client";
-import { setHostClient } from "../host-client-context";
-import { reservedRegion } from "../reserved-region";
-import { PreviewPanel } from "./preview-panel";
+import { reservedRegion, type WorkbenchActions } from "tau";
+import type { PreviewBounds } from "./protocol.js";
+import { PreviewPanel } from "./panel.js";
+import { connectPreviewHost } from "./store.js";
 
-const PANEL_RECT = testDomRect({ left: 900, top: 120, width: 360, height: 500 });
+/** jsdom has no layout, so the panel's rectangle is the one this test dictates. */
+function domRect(box: { left: number; top: number; width: number; height: number }): DOMRect {
+  return {
+    ...box,
+    right: box.left + box.width,
+    bottom: box.top + box.height,
+    x: box.left,
+    y: box.top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+const PANEL_RECT = domRect({ left: 900, top: 120, width: 360, height: 500 });
+const EMPTY_RECT = domRect({ left: 0, top: 0, width: 0, height: 0 });
 
 const reports: PreviewBounds[] = [];
+let disconnect: () => void = () => undefined;
 
 class StubResizeObserver {
   observe(): void {}
@@ -45,20 +56,21 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", StubResizeObserver);
   // Only the panel's own rectangle matters; jsdom has no layout to measure.
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function boundingRect(this: Element) {
-    return this.classList.contains("preview-surface") ? PANEL_RECT : testDomRect({ width: 0 });
+    return this.classList.contains("preview-surface") ? PANEL_RECT : EMPTY_RECT;
   });
-  setHostClient({
-    invokeHostExtension: async (_extensionId: string, command: string, input?: unknown) => {
+  disconnect = connectPreviewHost({
+    invoke: async (command: string, input?: unknown) => {
       if (command === "bounds") reports.push(input as PreviewBounds);
       return undefined;
     },
-  } as unknown as HostClient);
+    onEvent: () => () => undefined,
+  });
 });
 
 afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
-  setHostClient(undefined);
+  disconnect();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });

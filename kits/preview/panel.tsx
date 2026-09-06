@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
-import { errorMessage } from "../error-message";
-import type { PanelProps } from "../extension-system";
-import { reserveRegion } from "../reserved-region";
-import { overlayWatch } from "./overlay-watch";
-import { isPreviewState, previewKit, previewStore, usePreviewState } from "./preview-store";
+import { errorMessage, reserveRegion, type PanelProps } from "tau";
+import { overlayWatch } from "./overlay-watch.js";
+import { isPreviewState, previewKit, previewStore, usePreviewState } from "./store.js";
 
 /**
  * The panel is deliberately empty below its toolbar: the page is a

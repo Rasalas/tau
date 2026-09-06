@@ -1,15 +1,14 @@
-import { Type } from "typebox";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Type, type TSchema } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { sep } from "node:path";
+import type { HostExtension, HostExtensionContext, RuntimeExtensionFactory } from "tau/host-extension";
 import {
   EMPTY_PREVIEW_STATE,
   PREVIEW_HOST_EXTENSION_ID,
   PREVIEW_STATE_EVENT,
   type PreviewBounds,
   type PreviewState,
-} from "../../shared/preview-protocol.js";
-import type { HostExtension, HostExtensionContext, RuntimeExtensionFactory } from "../host-extensions.js";
+} from "./protocol.js";
 import {
   isPreviewRef,
   pageCall,
@@ -21,7 +20,18 @@ import {
   previewType,
   type PreviewActionResult,
   type PreviewTarget,
-} from "./preview-page-script.js";
+} from "./page-script.js";
+
+/** A tool of any shape, as the array of them and `registerTool` see it. */
+// oxlint-disable-next-line typescript/no-explicit-any -- the SDK's own `AnyToolDefinition`, which it does not export.
+type AnyTool = ToolDefinition<TSchema, any, any>;
+
+/**
+ * Pi's `defineTool` is identity, and a kit takes the SDK's types rather than
+ * its module: importing the value would bundle the whole agent into the kit.
+ */
+const defineTool = <Params extends TSchema, Details = unknown>(tool: ToolDefinition<Params, Details>): AnyTool =>
+  tool as unknown as AnyTool;
 
 /** Where the view is drawn inside the window, in device-independent pixels. */
 export interface PreviewRect {
@@ -251,7 +261,7 @@ function action(result: unknown, verb: string): ToolAnswer {
 }
 
 /** The tools the agent sees. Every one of them is sequential and bounded. */
-function previewTools(controller: PreviewController): ToolDefinition[] {
+function previewTools(controller: PreviewController): AnyTool[] {
   const sequential = { executionMode: "sequential" as const };
   const run = async (signal: AbortSignal | undefined, work: () => Promise<ToolAnswer>): Promise<ToolAnswer> => {
     try {
@@ -435,7 +445,7 @@ function previewTools(controller: PreviewController): ToolDefinition[] {
 
 const electronSurface: PreviewSurfaceFactory = async (options) => {
   if (!process.versions.electron) return undefined;
-  const { createElectronPreviewSurface } = await import("./preview-view.js");
+  const { createElectronPreviewSurface } = await import("./view.js");
   return createElectronPreviewSurface(options);
 };
 
@@ -466,3 +476,5 @@ export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory 
     },
   };
 }
+
+export default createPreviewHostExtension;
