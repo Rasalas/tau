@@ -73,6 +73,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   registerTurnObserver: "sessions",
   pinTranscriptEntries: "sessions",
   registerRuntimeExtension: "runtime:extend",
+  loadRuntimeExtension: "runtime:extend",
   decorateUiPrompt: "runtime:extend",
   setPermissionLevel: "runtime:extend",
   registerRuntimeBackend: "runtime:extend",

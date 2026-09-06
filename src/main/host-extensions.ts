@@ -347,6 +347,13 @@ export interface HostExtensionServices {
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
   /** Loads a Pi extension into every runtime the host creates from now on. */
   registerRuntimeExtension(name: string, factory: RuntimeExtensionFactory, options?: RuntimeExtensionOptions): () => void;
+  /**
+   * A Pi extension Tau ships as one of its own npm dependencies, resolved from
+   * the host's modules. A package whose files must stay where npm put them —
+   * native binaries a driver launches, for instance — cannot be copied into a
+   * kit's bundle, so the host loads it and the kit registers what it gets back.
+   */
+  loadRuntimeExtension(packageName: string): Promise<RuntimeExtensionFactory>;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** What the user lets external runtimes do; `undefined` restores full access. */

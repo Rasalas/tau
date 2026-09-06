@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { ExtensionUiPrompt, GlobalHostEvent } from "../../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices, type HostThread, type HostUiPresenter, type RuntimeExtensionContribution } from "../host-extensions.js";
 import { questionnaireOf } from "../../shared/questionnaire-protocol.js";
-import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
 import { createKeybindingsHostExtension, readPiUserKeybindings } from "./keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
 import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
@@ -44,6 +43,7 @@ function harness(thread?: Partial<HostThread>) {
     pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: (decorator) => { decorators.push(decorator); return () => undefined; },
     registerRuntimeExtension: (name, factory, options) => { runtimeExtensions.push({ name, factory, ...options }); return () => undefined; },
+    loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: (presenter) => { presenters.push(presenter); return () => undefined; },
@@ -92,18 +92,6 @@ describe("Questionnaire host extension", () => {
     const confirm = { id: "p2", sessionId: "s1", kind: "confirm", title: "Sure?", message: "" } as ExtensionUiPrompt;
     decorators.forEach((decorate) => decorate(confirm));
     expect(questionnaireOf(confirm)).toBeUndefined();
-  });
-});
-
-describe("Computer Use host extension", () => {
-  it("stands down when the user already configured the Pi package", async () => {
-    const { registry, runtimeExtensions } = harness();
-    await registry.activate(createComputerUseHostExtension());
-    const [contribution] = runtimeExtensions;
-    expect(contribution?.name).toBe("tau-computer-use");
-    expect(contribution?.enabledFor?.({ global: {}, project: {} })).toBe(true);
-    expect(contribution?.enabledFor?.({ global: { packages: ["npm:@amaster.ai/pi-computer-use"] }, project: {} })).toBe(false);
-    expect(contribution?.enabledFor?.({ global: {}, project: { packages: [{ source: "npm:@amaster.ai/pi-computer-use@1.0.0" }] } })).toBe(false);
   });
 });
 

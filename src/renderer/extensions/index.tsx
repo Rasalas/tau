@@ -21,7 +21,6 @@ import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./works
 import { WorkspaceTitleActions } from "./workspace-title";
 import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
 import type { WorkspaceStore } from "./workspace-store";
-import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { agentsExtension } from "./agents-kit";
 import { piUiExtension } from "./pi-ui";
@@ -283,7 +282,6 @@ export const bundledExtensions = [
   serviceTierKitExtension,
   workspaceExtension,
   reviewExtension,
-  computerUsePresentationExtension,
   agentsExtension,
   piUiExtension,
   previewExtension,

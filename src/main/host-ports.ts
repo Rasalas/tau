@@ -30,7 +30,23 @@ import type {
   HostTurnObserver,
   HostUiPresenter,
   RuntimeExtensionContribution,
+  RuntimeExtensionFactory,
 } from "./host-extensions.js";
+
+/** `@scope/name` or `name`; a path would let a caller load anything on the disk. */
+const PACKAGE_NAME = /^(?:@[a-z0-9-][a-z0-9._-]*\/)?[a-z0-9-][a-z0-9._-]*$/u;
+
+/**
+ * A Pi extension from Tau's own dependencies. The host resolves it, so the
+ * package keeps the layout npm gave it and finds the files it ships beside
+ * itself — a bundled copy inside a kit would not.
+ */
+async function loadRuntimeExtensionPackage(packageName: string): Promise<RuntimeExtensionFactory> {
+  if (!PACKAGE_NAME.test(packageName)) throw new Error(`"${packageName}" is not a package name Tau can load.`);
+  const module = await import(packageName) as { default?: unknown };
+  if (typeof module.default !== "function") throw new Error(`Package ${packageName} does not export a Pi extension.`);
+  return module.default as RuntimeExtensionFactory;
+}
 
 /**
  * The two collaborators that used to receive a record of PiHost's private
@@ -232,6 +248,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         if (index >= 0) runtimeExtensions.splice(index, 1);
       };
     },
+    loadRuntimeExtension: (packageName) => loadRuntimeExtensionPackage(packageName),
     setPermissionLevel: (provider) => { permissionLevelProvider = provider; },
     registerRuntimeBackend: (provider) => {
       if (provider.kind === "pi" || !provider.kind) throw new Error(`Runtime backend kind "${provider.kind}" is reserved.`);

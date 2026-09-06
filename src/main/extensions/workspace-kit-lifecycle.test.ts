@@ -105,6 +105,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     registerTurnObserver: () => () => undefined,
     pinTranscriptEntries: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
+    loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     decorateUiPrompt: () => () => undefined,
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,

@@ -38,6 +38,7 @@ function harness() {
     registerTurnObserver: () => () => undefined,
     pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: () => () => undefined,
+    loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     registerRuntimeExtension: (name, factory) => {
       runtimeExtensions.push({ name, factory });
       return () => { runtimeExtensions.splice(runtimeExtensions.findIndex((entry) => entry.factory === factory), 1); };

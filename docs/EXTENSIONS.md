@@ -58,6 +58,15 @@ carries it, including a remote host's. `registerRuntimeExtension` is one of the
 members a **worker cannot reach** (§6), so a package that wants a Pi tool needs
 `"isolation": "in-process"`.
 
+`context.services.loadRuntimeExtension(packageName)` answers with the factory a
+Pi extension Tau ships as one of its own npm dependencies exports. The host
+resolves the package, so it keeps the layout npm gave it and still finds the
+files it ships beside itself — native binaries a driver launches, for instance,
+which a copy bundled into an extension would no longer find. It needs
+`runtime:extend` like `registerRuntimeExtension`, and a worker cannot reach it
+either. Computer Use (`kits/computer-use/`) is the example: it loads
+`@amaster.ai/pi-computer-use` this way and registers what it gets back.
+
 ### The manifest
 
 ```json
@@ -155,7 +164,7 @@ A package's `permissions` array draws from a fixed list
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. |
-| `runtime:extend` | register Pi runtime extensions, runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
+| `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
 
@@ -362,7 +371,7 @@ nothing that hands out a live object. From
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
 |---|---|
 | `cwd`, `log`, `safeMode` | `attachedRuntime` (a live Pi terminal) |
-| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension` |
+| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |

@@ -1,0 +1,10 @@
+{
+  "id": "tau.computer-use",
+  "name": "Computer Use",
+  "version": "1.0.0",
+  "engines": { "api": "^1.2.0" },
+  "permissions": ["runtime:extend"],
+  "isolation": "in-process",
+  "desktop": "./desktop.ts",
+  "host": "./host.ts"
+}

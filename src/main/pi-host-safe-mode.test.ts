@@ -10,7 +10,7 @@ const appPath = fileURLToPath(new URL("../..", import.meta.url));
 /** Everything Tau ships, the way the app assembles it: kits from `kits/` included. */
 const shipped = shippedHostExtensions({ appPath }, () => undefined);
 /** Kits that no longer live in the host but arrive through the bundled loader. */
-const PACKAGED_KIT_IDS = ["tau.thread-titles", "tau.worktree-names"];
+const PACKAGED_KIT_IDS = ["tau.computer-use", "tau.thread-titles", "tau.worktree-names"];
 
 type Internals = {
   activateHostExtensions(): Promise<void>;
