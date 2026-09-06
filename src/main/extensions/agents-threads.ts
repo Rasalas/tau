@@ -282,6 +282,22 @@ export class AgentThreadBook {
     });
   }
 
+  /**
+   * Drops agents the thread index no longer lists, and orphans whose parent is
+   * gone: such a thread is an ordinary thread again, and the navigator has to
+   * show it. A queued agent has no thread yet and is never pruned.
+   */
+  prune(known: ReadonlySet<string>): boolean {
+    if (known.size === 0) return false;
+    let removed = false;
+    for (const entry of [...this.records.values()]) {
+      const gone = (entry.link.threadId !== undefined && !known.has(entry.link.threadId))
+        || !known.has(entry.link.parentThreadId);
+      if (gone) removed = this.forget(entry.link.id) || removed;
+    }
+    return removed;
+  }
+
   forget(idOrThreadId: string): boolean {
     const found = this.recordFor(idOrThreadId);
     if (!found) return false;

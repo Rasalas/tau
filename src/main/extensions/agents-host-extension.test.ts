@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,15 @@ import {
   type HostTurnObserver,
   type RuntimeExtensionContribution,
 } from "../host-extensions.js";
-import { createAgentsHostExtension, linksFromEntries, readAgentsSettings, titleFromPrompt } from "./agents-host-extension.js";
+import {
+  createAgentsHostExtension,
+  decodeStoredLinks,
+  linksFromEntries,
+  readAgentLinks,
+  readAgentsSettings,
+  titleFromPrompt,
+  writeAgentLinks,
+} from "./agents-host-extension.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./agents-threads.js";
 
 interface FakeTool {
@@ -143,14 +152,18 @@ function harness() {
   return { registry, services, threads, started, events, observers, lifecycles, runtime, open, notify, state };
 }
 
-async function activated(settingsPath?: string) {
+async function activated(paths: { settingsPath?: string; linksPath?: string } = {}) {
   const bench = harness();
   bench.open("parent");
-  await bench.registry.activate(createAgentsHostExtension(settingsPath ? { settingsPath } : {}));
-  // The kit reads its budget from disk during activation.
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await bench.registry.activate(createAgentsHostExtension({
+    linksPath: paths.linksPath ?? join(tmpdir(), `tau-agents-none-${randomUUID()}.json`),
+    ...(paths.settingsPath ? { settingsPath: paths.settingsPath } : {}),
+  }));
   return bench;
 }
+
+/** Waits for the kit's coalesced publish and file write. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 120));
 
 /** The agent handle a completed spawn reports. */
 const handleOf = (result: unknown) => (result as { threadId: string }).threadId;
@@ -298,7 +311,7 @@ describe("Agents Kit", () => {
     await writeFile(path, JSON.stringify({ maxRunningAgents: 2 }), "utf8");
     try {
       await expect(readAgentsSettings(path)).resolves.toBe(2);
-      const bench = await activated(path);
+      const bench = await activated({ settingsPath: path });
       await expect(bench.state()).resolves.toMatchObject({ maxRunning: 2 });
       const parent = bench.runtime("parent");
       const statuses = [];
@@ -395,6 +408,73 @@ describe("Agents Kit", () => {
     await expect(bench.state()).resolves.toMatchObject({
       links: [expect.objectContaining({ threadId: "child-9", parentThreadId: "parent" })],
     });
+  });
+
+  it("restores its links from disk before it is active, and prunes what the index lost", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-links-"));
+    const linksPath = join(directory, "agents-links.json");
+    try {
+      await writeAgentLinks([
+        { threadId: "child-a", parentThreadId: "parent", depth: 1, spawnedAt: 1, projectPath: "/project", title: "A", spawnedBy: "tau_spawn_thread" },
+        { threadId: "child-b", parentThreadId: "parent", depth: 1, spawnedAt: 2, projectPath: "/project", title: "B", spawnedBy: "tau_spawn_thread" },
+        // A link whose parent is gone: that thread is an ordinary thread again.
+        { threadId: "child-c", parentThreadId: "vanished", depth: 1, spawnedAt: 3, projectPath: "/project", title: "C", spawnedBy: "tau_spawn_thread" },
+      ], linksPath);
+      const bench = await activated({ linksPath });
+
+      // Activation itself published the lineage; the navigator hides the
+      // children on its first paint, without any session being opened.
+      expect(bench.events.filter((event) => event.type === "extension-event")).toEqual([]);
+      await settle();
+      const published = bench.events.at(-1) as { name: string; payload: AgentsState };
+      expect(published.name).toBe("state");
+      expect(published.payload.links.map((link) => link.threadId).sort()).toEqual(["child-a", "child-b", "child-c"]);
+      await expect(bench.state()).resolves.toMatchObject({
+        links: [
+          expect.objectContaining({ threadId: "child-a", parentThreadId: "parent", title: "A", status: "idle" }),
+          expect.objectContaining({ threadId: "child-b" }),
+          expect.objectContaining({ threadId: "child-c" }),
+        ],
+      });
+
+      await bench.lifecycles[0]!.sweep?.({
+        sessions: [{ sessionId: "parent", path: "/sessions/parent.jsonl", cwd: "/project" }, { sessionId: "child-a", path: "/sessions/child-a.jsonl", cwd: "/project" }],
+        liveThreads: [],
+        projectPaths: ["/project"],
+        deleted: [],
+      });
+      // child-b no longer has a session file, child-c no longer has a parent.
+      await expect(bench.state()).resolves.toMatchObject({ links: [expect.objectContaining({ threadId: "child-a" })] });
+      await settle();
+      await expect(readAgentLinks(linksPath)).resolves.toEqual([expect.objectContaining({ threadId: "child-a" })]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("writes a spawned agent into the index file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-links-"));
+    const linksPath = join(directory, "agents-links.json");
+    try {
+      const bench = await activated({ linksPath });
+      await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" });
+      await settle();
+      await expect(readAgentLinks(linksPath)).resolves.toEqual([
+        { threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread" },
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reads an index file it does not recognise as empty", async () => {
+    expect(decodeStoredLinks(undefined)).toEqual([]);
+    expect(decodeStoredLinks({ links: "nonsense" })).toEqual([]);
+    expect(decodeStoredLinks({ links: [{ threadId: "a" }, { threadId: "b", parentThreadId: "b" }] })).toEqual([]);
+    expect(decodeStoredLinks({ links: [{ threadId: "a", parentThreadId: "p" }] })).toEqual([
+      { threadId: "a", parentThreadId: "p", depth: 1, spawnedAt: 0, projectPath: "", title: "Sub-agent", spawnedBy: "tau_spawn_thread" },
+    ]);
+    await expect(readAgentLinks(join(tmpdir(), `tau-agents-missing-${randomUUID()}.json`))).resolves.toEqual([]);
   });
 
   it("survives its threads going away", async () => {

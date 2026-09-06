@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readPersistedJson, writePersistedJson } from "../persisted-json.js";
 import { Type } from "typebox";
 import type { AgentToolResult, ExtensionContext, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -35,6 +36,53 @@ const record = (input: unknown): Record<string, unknown> =>
 
 export function agentsSettingsPath(home = homedir()): string {
   return join(home, ".tau", "agents.json");
+}
+
+/**
+ * The kit's own index of who spawned what. The session files stay the durable
+ * record; this file is what lets the navigator hide fifty agent threads on the
+ * first paint after a restart, without opening a single session to find out.
+ */
+export function agentsLinksPath(home = homedir()): string {
+  return join(home, ".tau", "agents-links.json");
+}
+
+const LINKS_VERSION = 1;
+
+/** A started agent, as the index file keeps it; a queued one has no thread to key on. */
+export type StoredAgentLink =
+  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy">
+  & { threadId: string };
+
+export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
+  const links = record(value).links;
+  if (!Array.isArray(links)) return [];
+  return links.flatMap((entry) => {
+    const item = record(entry);
+    if (typeof item.threadId !== "string" || typeof item.parentThreadId !== "string") return [];
+    if (item.threadId === item.parentThreadId) return [];
+    return [{
+      threadId: item.threadId,
+      parentThreadId: item.parentThreadId,
+      depth: typeof item.depth === "number" ? item.depth : 1,
+      spawnedAt: typeof item.spawnedAt === "number" ? item.spawnedAt : 0,
+      projectPath: typeof item.projectPath === "string" ? item.projectPath : "",
+      title: typeof item.title === "string" ? item.title : "Sub-agent",
+      spawnedBy: typeof item.spawnedBy === "string" ? item.spawnedBy : "tau_spawn_thread",
+    }];
+  });
+}
+
+export async function readAgentLinks(path = agentsLinksPath()): Promise<StoredAgentLink[]> {
+  const read = await readPersistedJson(path, {
+    expectedVersion: LINKS_VERSION,
+    decode: (value) => decodeStoredLinks(value),
+  });
+  return read?.data ?? [];
+}
+
+export function writeAgentLinks(links: readonly StoredAgentLink[], path = agentsLinksPath()): Promise<void> {
+  return writePersistedJson(path, LINKS_VERSION, { links: [...links] });
 }
 
 /** How many children of one thread may run at a time; a bad file is not an error. */
@@ -89,12 +137,12 @@ function truncate(text: string, limit: number): string {
  * project with its own runtime and session file (ADR 0012); this kit only
  * gives every runtime the tools to start one, watch it and read its answer.
  */
-export function createAgentsHostExtension(options: { settingsPath?: string } = {}): HostExtension {
+export function createAgentsHostExtension(options: { settingsPath?: string; linksPath?: string } = {}): HostExtension {
   return {
     id: AGENTS_HOST_EXTENSION_ID,
     name: "Agents",
     permissions: ["sessions", "runtime:extend"],
-    activate(context: HostExtensionContext) {
+    async activate(context: HostExtensionContext) {
       const { services } = context;
       const book = new AgentThreadBook((threadId) => {
         const thread = services.thread(threadId);
@@ -109,7 +157,26 @@ export function createAgentsHostExtension(options: { settingsPath?: string } = {
         publishing = setTimeout(() => { publishing = undefined; context.emit(AGENTS_STATE_EVENT, book.state()); }, 30);
         publishing.unref?.();
       };
-      void readAgentsSettings(options.settingsPath).then((max) => { book.setMaxRunning(max); publish(); });
+
+      let saving: NodeJS.Timeout | undefined;
+      const save = () => {
+        if (saving) return;
+        saving = setTimeout(() => {
+          saving = undefined;
+          const links = book.state().links.flatMap((link) => link.threadId ? [{
+            threadId: link.threadId,
+            parentThreadId: link.parentThreadId,
+            depth: link.depth,
+            spawnedAt: link.spawnedAt,
+            projectPath: link.projectPath,
+            title: link.title,
+            spawnedBy: link.spawnedBy,
+          }] : []);
+          void writeAgentLinks(links, options.linksPath)
+            .catch((error: unknown) => services.log("agents.links-write-failed", error instanceof Error ? error.message : String(error)));
+        }, 50);
+        saving.unref?.();
+      };
 
       const wake = (id: string) => {
         for (const waiter of waiters.get(id) ?? []) waiter();
@@ -175,6 +242,7 @@ export function createAgentsHostExtension(options: { settingsPath?: string } = {
         };
         services.thread(link.threadId)?.appendEntry(AGENT_PARENT_ENTRY, { ...data, parentThreadId: link.parentThreadId });
         services.thread(link.parentThreadId)?.appendEntry(AGENT_CHILD_ENTRY, { ...data, threadId: link.threadId });
+        save();
       };
 
       /** Starts what a parent has room for, oldest first; one pump per parent at a time. */
@@ -373,17 +441,29 @@ export function createAgentsHostExtension(options: { settingsPath?: string } = {
             for (const link of links) if (!book.has(link.id)) book.add(link);
             if (links.length > 0) publish();
           },
-          sweep: async ({ deleted }) => {
+          sweep: async ({ sessions, liveThreads, deleted }) => {
             let removed = false;
             for (const session of deleted) removed = book.forget(session.sessionId) || removed;
-            if (removed) publish();
+            // The scan is the whole index, so anything it does not name is gone.
+            const known = new Set([...sessions.map((entry) => entry.sessionId), ...liveThreads.map((thread) => thread.sessionId)]);
+            removed = book.prune(known) || removed;
+            if (removed) { publish(); save(); }
           },
         }),
         context.registerCommand("state", () => book.state()),
       ];
 
+      // Both reads finish before the extension is active, so the first thing
+      // the desktop half asks for already holds every link from the last run.
+      book.setMaxRunning(await readAgentsSettings(options.settingsPath));
+      for (const link of await readAgentLinks(options.linksPath)) {
+        if (!book.has(link.threadId)) book.add({ ...link, id: link.threadId });
+      }
+      publish();
+
       return () => {
         if (publishing) clearTimeout(publishing);
+        if (saving) clearTimeout(saving);
         for (const dispose of [...disposers].reverse()) dispose();
       };
     },
