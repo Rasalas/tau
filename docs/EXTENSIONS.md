@@ -287,6 +287,10 @@ its own. There is no revocation list: removing a key from
   a single timeout is enough, not three.
 - **Three strikes:** three consecutive **failures** (thrown errors, not
   timeouts) also deactivate the package. A success resets the counter to zero.
+  Throw a `HostCommandError` (from `tau/host-extension`) for bad input or a
+  missing prerequisite — a path that is not a folder, npm not installed — and
+  it reaches the caller like any error but neither counts nor resets; the
+  flag survives a worker's port. Three typos must not switch a package off.
 - **Worker heap cap:** a worker-isolated host half runs with a 256 MB old-space
   cap (plus a 32 MB young-generation cap); exceeding it, throwing, or exiting
   terminates the worker and deactivates the package with the reason recorded.

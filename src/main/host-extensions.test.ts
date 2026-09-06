@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
+import { HostCommandError, HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
 
 function services(): HostExtensionServices & { logs: string[] } {
   const logs: string[] = [];
@@ -217,6 +217,33 @@ describe("HostExtensionRegistry", () => {
     expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([
       { type: "extension-deactivated", extensionId: "flaky.kit", name: "Flaky Kit", reason: "failed three times in a row — failure" },
     ]);
+  });
+
+  it("does not count an expected error toward the three failures", async () => {
+    const { registry: r, events } = registry();
+    await r.activate({
+      id: "picky.kit",
+      name: "Picky Kit",
+      activate: (ctx) => {
+        ctx.registerCommand("check", (input) => {
+          if (input === "bad") throw new HostCommandError("not a folder");
+          if (input === "crash") throw new Error("crash");
+          return "ok";
+        });
+      },
+    });
+    for (let index = 0; index < 4; index += 1) {
+      await expect(r.invoke("picky.kit", "check", "bad")).rejects.toThrow("not a folder");
+    }
+    expect(r.isActive("picky.kit")).toBe(true);
+    // Expected errors neither reset the counter: two crashes around them still add up.
+    await expect(r.invoke("picky.kit", "check", "crash")).rejects.toThrow("crash");
+    await expect(r.invoke("picky.kit", "check", "bad")).rejects.toThrow("not a folder");
+    await expect(r.invoke("picky.kit", "check", "crash")).rejects.toThrow("crash");
+    expect(r.isActive("picky.kit")).toBe(true);
+    await expect(r.invoke("picky.kit", "check", "crash")).rejects.toThrow("crash");
+    expect(r.isActive("picky.kit")).toBe(false);
+    expect(events.filter((event) => event.type === "extension-deactivated")).toHaveLength(1);
   });
 
   it("announces a failure the extension reports itself, once, and keeps an activation failure quiet", async () => {

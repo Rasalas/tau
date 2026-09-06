@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import { HostCommandError, type HostExtension, type HostExtensionContext } from "../host-extensions.js";
 import {
   installExtensionSource,
   listExtensionSources,
@@ -18,7 +18,7 @@ const record = (input: unknown): Record<string, unknown> =>
 
 function requiredSource(input: unknown): string {
   const value = record(input).source;
-  if (typeof value !== "string" || !value.trim()) throw new Error("Name a source: npm:<package>, git:<url> or a folder path.");
+  if (typeof value !== "string" || !value.trim()) throw new HostCommandError("Name a source: npm:<package>, git:<url> or a folder path.");
   return value.trim();
 }
 
@@ -31,7 +31,7 @@ function scopeOf(input: unknown): PackageScope {
   const value = record(input).scope;
   if (value === undefined || value === "global") return "global";
   if (value === "project") return "project";
-  throw new Error(`"scope" is "global" or "project", not "${String(value)}"`);
+  throw new HostCommandError(`"scope" is "global" or "project", not "${String(value)}"`);
 }
 
 /** One line per package, close to what `pi list` prints. */
@@ -93,7 +93,7 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
         const source = requiredSource(input);
         const scope = scopeOf(input);
         const result = await removeExtensionSource(source, scope, installer());
-        if (!result.removed) throw new Error(`${source} is not listed in the ${scope} packages.json.`);
+        if (!result.removed) throw new HostCommandError(`${source} is not listed in the ${scope} packages.json.`);
         services.log("packages.remove", `${source} (${scope})`);
         await rescan();
         announce("remove", result);

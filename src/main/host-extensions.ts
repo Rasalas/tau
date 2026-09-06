@@ -347,6 +347,26 @@ export interface HostExtensionServices {
 
 export type HostExtensionCommandHandler = (input: unknown) => unknown;
 
+/**
+ * A command's answer to bad input or a missing prerequisite: "that path is not
+ * a folder", "npm is not installed". It reaches the caller like any error but
+ * never counts toward the three failures that deactivate a package — those
+ * are for a command that breaks, not for a user who typed the wrong thing.
+ */
+export class HostCommandError extends Error {
+  readonly expected = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "HostCommandError";
+  }
+}
+
+/** True for a `HostCommandError`, or one revived from a worker's port with its flag intact. */
+export function isExpectedCommandError(error: unknown): boolean {
+  return error instanceof Error && (error as { expected?: unknown }).expected === true;
+}
+
 export interface HostExtensionContext {
   readonly id: string;
   readonly services: HostExtensionServices;
@@ -563,6 +583,9 @@ export class HostExtensionRegistry {
       this.consecutiveFailures.set(extensionId, 0);
       return result;
     } catch (error) {
+      // An answer to bad input is not a broken command: it neither counts
+      // nor resets, so a real crash between two of them is still noticed.
+      if (isExpectedCommandError(error)) throw error;
       const isTimeout = error instanceof Error && error.message.includes(`timed out after ${timeoutMs}ms`);
       const failures = (this.consecutiveFailures.get(extensionId) ?? 0) + 1;
       this.consecutiveFailures.set(extensionId, failures);

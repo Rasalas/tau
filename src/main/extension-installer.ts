@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { MANIFEST_FILE, parseExtensionManifest } from "./extension-packages.js";
+import { HostCommandError } from "./host-extensions.js";
 import {
   addPackageSource,
   gitStoreDirectory,
@@ -63,7 +64,7 @@ function locate(options: InstallerOptions, name: string): string | undefined {
 
 function npmExecutable(options: InstallerOptions): string {
   const npm = locate(options, "npm");
-  if (!npm) throw new Error("npm is not on this machine's PATH; install Node's npm or use a git: source.");
+  if (!npm) throw new HostCommandError("npm is not on this machine's PATH; install Node's npm or use a git: source.");
   return npm;
 }
 
@@ -103,7 +104,7 @@ async function fetchSource(source: ExtensionSource, home: string, options: Insta
     return directory;
   }
   if (!await stat(directory).then((info) => info.isDirectory()).catch(() => false)) {
-    throw new Error(`${directory} is not a folder.`);
+    throw new HostCommandError(`${directory} is not a folder.`);
   }
   return directory;
 }
@@ -151,7 +152,7 @@ export async function installExtensionSource(raw: string, scope: PackageScope, o
       await run(npmExecutable(options), ["uninstall", "--prefix", npmStoreDirectory(home), "--no-audit", "--no-fund", source.value], { signal: options.signal })
         .catch(() => undefined);
     }
-    throw new Error(`${source.raw}: ${installed.error}`);
+    throw new HostCommandError(`${source.raw}: ${installed.error}`);
   }
   options.progress?.(`recording ${source.raw} in ${scope} packages.json`);
   await addPackageSource(packagesFilePath(scope, options.cwd, home), source.raw);
@@ -201,7 +202,7 @@ export async function updateExtensionSources(raw: string | undefined, options: I
   const installed = await listInstalledSources(options.cwd, home);
   const wanted = raw ? parseExtensionSource(raw, options.cwd).raw : undefined;
   const targets = installed.filter((entry) => !entry.error && (wanted === undefined || entry.source.raw === wanted));
-  if (wanted !== undefined && targets.length === 0) throw new Error(`${wanted} is not installed.`);
+  if (wanted !== undefined && targets.length === 0) throw new HostCommandError(`${wanted} is not installed.`);
   const results: InstalledExtension[] = [];
   for (const entry of targets) {
     try {

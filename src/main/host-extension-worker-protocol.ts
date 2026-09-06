@@ -141,6 +141,8 @@ export interface WorkerHostExtension {
 export interface SerializedError {
   message: string;
   stack?: string;
+  /** Set for a `HostCommandError`: bad input, not a broken command. */
+  expected?: true;
 }
 
 export type HostToWorkerMessage =
@@ -165,13 +167,20 @@ export type WorkerToHostMessage =
   | { t: "res"; id: number; ok: false; error: SerializedError };
 
 export function serializeError(error: unknown): SerializedError {
-  if (error instanceof Error) return { message: error.message, ...(error.stack ? { stack: error.stack } : {}) };
+  if (error instanceof Error) {
+    const expected = (error as { expected?: unknown }).expected === true;
+    return { message: error.message, ...(error.stack ? { stack: error.stack } : {}), ...(expected ? { expected: true } : {}) };
+  }
   return { message: String(error) };
 }
 
 export function reviveError(error: SerializedError): Error {
   const revived = new Error(error.message);
   if (error.stack) revived.stack = error.stack;
+  if (error.expected) {
+    revived.name = "HostCommandError";
+    Object.defineProperty(revived, "expected", { value: true, enumerable: false });
+  }
   return revived;
 }
 
