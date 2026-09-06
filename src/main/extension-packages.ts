@@ -1,9 +1,11 @@
 // esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
-import "./packaged-app.js";
+import { unpackedPath } from "./packaged-app.js";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
@@ -309,9 +311,43 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
 }
 
 /**
+ * The host-side API modules, as files esbuild can read. `import.meta.url` is
+ * `dist-electron/main/` in a built app and `src/main/` under Vitest, so both
+ * spellings are tried; the unpacked path is what a native binary can open
+ * inside a packaged Tau.
+ */
+const HOST_API_MODULES: Readonly<Record<string, string>> = {
+  "tau/host-extension": "host-extension-api",
+  "tau/host": "host-extension-worker-protocol",
+};
+
+function hostApiModulePath(specifier: string): string | undefined {
+  const name = HOST_API_MODULES[specifier];
+  if (!name) return undefined;
+  const directory = unpackedPath(dirname(fileURLToPath(import.meta.url)));
+  for (const extension of [".js", ".ts"]) {
+    const candidate = join(directory, `${name}${extension}`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/** What `bundleHostExtension` resolves `tau/host-extension` and `tau/host` to. */
+export function hostApiAliases(): Record<string, string> {
+  const aliases: Record<string, string> = {};
+  for (const specifier of Object.keys(HOST_API_MODULES)) {
+    const path = hostApiModulePath(specifier);
+    if (path) aliases[specifier] = path;
+  }
+  return aliases;
+}
+
+/**
  * Compiles a host entry to one CommonJS module the main process can load.
  * Node builtins and Electron stay external; everything else is bundled, so a
- * package brings its own dependencies.
+ * package brings its own dependencies. `tau/host-extension` and `tau/host`
+ * resolve to Tau's own API modules, which is why they never have to be shipped
+ * inside a package.
  */
 export async function bundleHostExtension(entry: string): Promise<string> {
   const result = await build({
@@ -324,6 +360,7 @@ export async function bundleHostExtension(entry: string): Promise<string> {
     sourcemap: "inline",
     logLevel: "silent",
     external: ["electron", "node:*"],
+    alias: hostApiAliases(),
   });
   return result.outputFiles.map((file) => file.text).join("\n");
 }
@@ -359,7 +396,14 @@ export async function writeHostExtensionBundle(code: string, manifest: Extension
 }
 
 export async function importHostExtension(code: string, manifest: ExtensionManifest, cacheDir = join(tmpdir(), "tau-host-extensions")): Promise<HostExtension> {
-  const file = await writeHostExtensionBundle(code, manifest, cacheDir);
+  return requireHostExtension(await writeHostExtensionBundle(code, manifest, cacheDir), manifest);
+}
+
+/**
+ * Loads an already-compiled host entry from disk. A package reaches this
+ * through `importHostExtension`; a prebuilt kit hands over the file it shipped.
+ */
+export function requireHostExtension(file: string, manifest: ExtensionManifest): HostExtension {
   const module = requireModule(file) as { default?: unknown; activate?: unknown };
   let candidate: unknown = module.default ?? (typeof module.activate === "function" ? module : undefined);
   if (typeof candidate === "function") candidate = (candidate as () => unknown)();

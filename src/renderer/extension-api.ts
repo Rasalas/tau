@@ -10,6 +10,7 @@ export {
   useThreadStore,
 } from "./workbench-context";
 export { HostUnavailableError } from "./extension-system";
+export { errorMessage } from "./error-message";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -51,4 +52,5 @@ export type {
   TimelineEvent,
 } from "./workbench-context";
 export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "./thread-store";
+export type { PreferencesStore } from "./preferences";
 export type * from "../shared/contracts";

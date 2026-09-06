@@ -34,6 +34,7 @@ import { skillMessagePresentation } from "./skill-invocation.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { promptImages } from "./prompt-attachments.js";
 import { readSessionModelProvider } from "./session-model-provider.js";
+import { cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText } from "./host-text.js";
 
 /**
  * Pure projections of Pi's raw session data into the workbench contract:
@@ -41,19 +42,9 @@ import { readSessionModelProvider } from "./session-model-provider.js";
  * here touches a runtime; the host and the attached-session code both use it.
  */
 
-export function textFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (!part || typeof part !== "object") return "";
-      const item = part as { type?: string; text?: string; thinking?: string };
-      if (item.type === "text") return item.text ?? "";
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
+// Title and content text live in `host-text.ts`, which `tau/host-extension`
+// re-exports; core keeps importing them from here.
+export { cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText };
 
 export function extensionCommandName(text: string): string | undefined {
   if (!text.startsWith("/")) return undefined;
@@ -472,43 +463,6 @@ export function assertBridgeImageInputCapability(snapshot: PiBridgeSnapshot | un
   if (attachments.length === 0) return;
   if (snapshot?.supportsImageInput !== true) throw new Error("The active model does not support image input.");
   promptImages(attachments);
-}
-
-export function firstSentence(value: string): string {
-  const normalized = value.replace(/\s+/gu, " ").trim();
-  if (!normalized) return "Untitled thread";
-  const sentenceEnd = normalized.search(/[.!?](?:\s|$)/u);
-  const sentence = sentenceEnd >= 0 ? normalized.slice(0, sentenceEnd + 1) : normalized;
-  return sentence.length > 96 ? `${sentence.slice(0, 93).trimEnd()}…` : sentence;
-}
-
-export function visibleTitleText(value: string): string {
-  // A raw skill wrapper has no trustworthy title text. Keep runtime internals
-  // out of sidebar/title fallback rather than echoing its tag or local path.
-  return /<skill\b/iu.test(value)
-    ? "Skill invocation"
-    : value;
-}
-
-export function safeSessionTitle(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try { return cleanThreadTitle(visibleTitleText(value)); }
-  catch { return undefined; }
-}
-
-export function cleanThreadTitle(value: string): string {
-  const firstLine = value.split(/\r?\n/u).find((line) => line.trim())?.trim() ?? "";
-  const title = firstLine
-    .replace(/^\s*(?:#{1,6}|>|[-+*])\s+/u, "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
-    .replace(/(?:\*\*|__|~~|`)+/gu, "")
-    .replace(/^(?:(?:the\s+)?(?:thread\s+)?title|titel)\s*(?:is|lautet)?\s*[:-]\s*/iu, "")
-    .replace(/^["'“”‘’]+|["'“”‘’]+$/gu, "")
-    .replace(/[.!?:;]+$/u, "")
-    .replace(/\s+/gu, " ")
-    .trim();
-  if (!title) throw new Error("The title model returned an empty title.");
-  return title.length > 80 ? `${title.slice(0, 77).trimEnd()}…` : title;
 }
 
 export async function mapSessions(

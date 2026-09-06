@@ -1,0 +1,15 @@
+/**
+ * `tau/host-extension`: the host-side public API. A bundled kit and an
+ * in-process package import this module and nothing else from `src/`.
+ *
+ * The types are erased at build time. The handful of values re-exported here
+ * come from leaf modules only, so a kit that imports one of them does not pull
+ * the registry, Pi or Electron into its bundle. Grow this list deliberately and
+ * bump `EXTENSION_API_VERSION` when you do.
+ */
+export type * from "./host-extensions.js";
+export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
+export { cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText } from "./host-text.js";
+export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
+export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
+export type { WorkspaceRef } from "../shared/workspace-identity.js";

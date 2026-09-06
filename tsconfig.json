@@ -15,7 +15,13 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "tau": ["src/renderer/extension-api.ts"],
+      "tau/host-extension": ["src/main/host-extension-api.ts"],
+      "tau/host": ["src/main/host-extension-worker-protocol.ts"]
+    }
   },
-  "include": ["src/renderer", "src/shared", "vite.config.ts"]
+  "include": ["src/renderer", "src/shared", "kits", "vite.config.ts"]
 }
