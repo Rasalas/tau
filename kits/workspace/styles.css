@@ -180,6 +180,7 @@
 }
 
 .changed-files-header > strong { font-size: 12.5px; font-weight: 700; }
+.changed-files-header .spacer { flex: 1; }
 
 .changed-files-preview {
   width: 100%; min-width: 0; height: 34px; display: flex; align-items: center; gap: 8px;
@@ -207,6 +208,11 @@
 }
 .changed-file-row:hover { background: #1a1a18; }
 .changed-file-row > svg { flex: none; color: var(--faint); }
+.changed-file-row > span.path {
+  flex: 1; min-width: 0; font: 12px var(--mono); color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.changed-file-row .stat-add, .changed-file-row .stat-del { font-size: 11px; }
 
 .workspace-bar {
   max-width: 780px; margin: -1px auto 0; display: flex; align-items: center;
@@ -349,6 +355,9 @@
 }
 .commit-box textarea:focus { border-color: var(--line-float); }
 .commit-box textarea::placeholder { color: var(--faint); }
+
+.commit-box .commit-actions { margin-top: 0; align-items: center; }
+.commit-box .commit-actions > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
 
 .changed-files-list { max-height: 360px; overflow: auto; }
 
