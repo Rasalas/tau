@@ -33,8 +33,8 @@ import {
   unstageFile,
   validateWorkspaceSnapshotRefs,
 } from "./workspace-git.js";
-import { turnSnapshotRef, type StoredTurnCheckpoint } from "../shared/turn-checkpoint-codec.js";
-import type { TurnRestoreTransaction } from "../shared/turn-checkpoint-types.js";
+import { turnSnapshotRef, type StoredTurnCheckpoint } from "./turn-checkpoint-codec.js";
+import type { TurnRestoreTransaction } from "./turn-checkpoint-types.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
 // The host's global and system Git config (LFS filters, credential helpers)

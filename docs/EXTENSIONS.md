@@ -56,8 +56,8 @@ Either entry may be omitted, but not both. `id` is lowercase, dot-separated
 (`vendor.name`), and must be the same string both halves export — the
 manifest's `id` wins if a module disagrees.
 
-**The Pi half** is not a separate manifest field: it is a Pi extension the
-host half registers itself, in-process, with
+**The Pi half** of a runtime Tau owns is not a manifest field: it is a Pi
+extension the host half registers itself, in-process, with
 `context.services.registerRuntimeExtension(name, factory)`. `factory` is a
 plain Pi `ExtensionFactory`, `(pi: ExtensionAPI) => void`, from
 `@earendil-works/pi-coding-agent` — the same function shape as a `.pi/extensions`
@@ -77,6 +77,32 @@ which a copy bundled into an extension would no longer find. It needs
 either. Computer Use (`kits/computer-use/`) is the example: it loads
 `@amaster.ai/pi-computer-use` this way and registers what it gets back.
 
+**A runtime Tau does not own** — a Pi TUI that already holds the session, which
+Tau attaches to — cannot be handed a closure. That case is the manifest's `pi`
+entry: a module default-exporting `(pi: ExtensionAPI, bridge: PiKitBridge) =>
+void`. It is compiled with the host bundler (Pi itself external) into
+`dist-kits/<id>/pi.cjs`, and `.pi/extensions/tau-session-bridge.ts` requires it
+inside the Pi process — so no kit source is ever read by jiti, where no `tau/*`
+specifier resolves. `PiKitBridge` (`tau/host-extension`) is what the bridge
+lends the half, everything keyed by the package's own id:
+
+| Member | What it does |
+|---|---|
+| `registerCommand(name, handler)` | Answers `<id>/<name>`, which the host half calls with `services.attachedRuntime(sessionId).invoke(...)`. |
+| `publishEvent(name, payload, ctx)` | Publishes an extension event to every attached Tau client; the host routes it to the desktop half. |
+| `refreshSnapshot(ctx)` | Re-sends the transcript snapshot, for a new session entry the client must see. |
+| `pinEntries(pin)` | Session entries the transcript page must keep, even when their message renders empty (a card anchored to a silent answer). |
+| `observeUserTurns(observer)` | A turn Tau accepted, before Pi dispatched it, and a turn Pi refused. |
+| `transcript(ctx)` | The branch as Tau projects it: skill wrappers reduced to their visible text. |
+| `openSession(file)` | Reads another persisted session, e.g. the source of a fork. |
+| `isCurrentSession(ctx)` | Whether this context is still the session the bridge serves. |
+
+Workspace Kit (`kits/workspace/pi.ts`) captures turn checkpoints this way and
+answers the historical file and diff queries the host cannot serve while Pi
+owns the thread; Thread Title Generator (`kits/thread-titles/pi.ts`) titles the
+thread with Pi's own model registry. Both are the same feature their host half
+provides in a runtime Tau owns.
+
 ### The manifest
 
 ```json
@@ -90,7 +116,8 @@ either. Computer Use (`kits/computer-use/`) is the example: it loads
   "source": { "url": "https://github.com/acme/hello", "commit": "0123456789abcdef" },
   "desktop": "./desktop.tsx",
   "host": "./host.ts",
-  "styles": "./styles.css"
+  "styles": "./styles.css",
+  "pi": "./pi.ts"
 }
 ```
 
@@ -105,6 +132,7 @@ either. Computer Use (`kits/computer-use/`) is the example: it loads
 | `source` | `{ url, commit? }`, shown in Settings → Inspector. Provenance only — it proves nothing by itself (§4). |
 | `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, not both. |
 | `styles` | Relative path of a stylesheet loaded while the desktop half is active; it needs a `desktop` entry. |
+| `pi` | Relative entry path of the package's half inside a Pi runtime Tau does not own (see above); optional. |
 
 `desktop` and `host` entries are compiled with esbuild at load time (Node
 builtins and `electron` stay external for the host half, `react`, `react-dom`
@@ -235,17 +263,17 @@ own tests read off the host harness — …) and of a runtime backend
 core is bundled), plus `HostCommandError`, `isExpectedCommandError`, the
 permission and isolation vocabularies, the `PiShortcut` and `PiUserKeybindings`
 types that `HostThread.shortcuts` and `runShortcut` speak, the workspace
-vocabulary (`src/shared/workspace-kit-types.ts` and
-`turn-checkpoint-types.ts`), `HostActionResult`, `WorkspaceRef`,
-`isWorkspaceRelativePath`/`namesWorkspace`, `readBoundedFileContent`,
-`gitExecutable`/`findExecutable`, `assertAllowedCloneSource`, and the Git and
-checkpoint engine a workspace package needs: the `workspaceGit` namespace,
-`GitCoordinator`, `WorkspaceCheckpointLeaseManager`,
-`listLiveWorkspaceLeaseSessions`, `createWorkspaceKitCheckpointFeature` /
-`createWorkspaceKitCheckpointMaintenance`, `assistantAnchorForMessage` and the
-turn-checkpoint codec. Those modules stay in `src/main` for the same reason
-`host-text.ts` does: Tau's own Pi extension reads them under jiti, where no
-`tau/` specifier resolves (ADR 0014). It also re-exports the
+vocabulary core renders itself (`src/shared/workspace-kit-types.ts`:
+changed files, diffs, worktrees, editors), `HostActionResult`, `WorkspaceRef`,
+`isWorkspaceRelativePath`/`namesWorkspace`, `gitExecutable`/`findExecutable`,
+`assertAllowedCloneSource`, `readBoundedImagePreview`,
+`assistantAnchorForBranch` (the persisted entry id of an assistant message)
+and the `PiKit*` types above. The Git and checkpoint engine that 1.3.0 briefly
+re-exported — the `workspaceGit` namespace, `GitCoordinator`, the checkpoint
+lease, the checkpoint feature, `assistantAnchorForMessage` and the
+turn-checkpoint codec and types — is **gone from this API**: it never shipped in
+a release, and it belongs to Workspace Kit, which now owns those modules
+(`kits/workspace/`). It also re-exports the
 text projections a package that reads transcripts needs: `textFromContent`
 (content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
 to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a

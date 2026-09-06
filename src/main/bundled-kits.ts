@@ -1,6 +1,7 @@
 // esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
 import "./packaged-app.js";
 import { readdir, readFile, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult, ExtensionPackageSummary } from "../shared/contracts.js";
 import { bundleDesktopExtension, type BundleOptions } from "./desktop-extensions.js";
@@ -174,6 +175,57 @@ async function hostHalf(kit: BundledKit, entry: string, cacheDir?: string): Prom
     permissions: kit.manifest.permissions ?? [],
     file: await writeHostExtensionBundle(code, kit.manifest, cacheDir),
   });
+}
+
+/**
+ * Every host half Tau ships, as the host activates them: a thunk, so the kits
+ * compile with the host rather than with the module that configured it. Safe
+ * mode never calls it.
+ */
+export function shippedHostExtensions(
+  options: BundledKitsOptions,
+  log: (label: string, detail: string) => void,
+): () => Promise<HostExtension[]> {
+  return async () => {
+    const loaded = await loadBundledKitHostHalves(options);
+    for (const failure of loaded.errors) log("host-extension.kit.failed", `${failure.path}: ${failure.message}`);
+    // Detached: a checkout's staleness must not delay the kits it describes.
+    void warnAboutStaleKits(options.appPath, log);
+    return loaded.extensions;
+  };
+}
+
+let staleKitsReported = false;
+
+/**
+ * `dist-kits/` wins over `kits/`, so an edited kit that was not rebuilt runs
+ * as last build's code and the app silently disagrees with the checkout. Say
+ * so once. An installed Tau has no `kits/` and never reaches the comparison.
+ */
+export async function warnAboutStaleKits(
+  appPath: string,
+  log: (label: string, detail: string) => void,
+): Promise<void> {
+  if (staleKitsReported) return;
+  const [sources, prebuilt] = await Promise.all([
+    newestModification(join(appPath, KIT_SOURCE_DIRECTORY)),
+    newestModification(join(appPath, PREBUILT_KITS_DIRECTORY)),
+  ]);
+  if (sources === undefined || prebuilt === undefined || sources <= prebuilt) return;
+  staleKitsReported = true;
+  log("host-extension.kits.stale", `${KIT_SOURCE_DIRECTORY}/ changed after ${PREBUILT_KITS_DIRECTORY}/ was written; Tau is running the prebuilt kits. Run "npm run build:kits".`);
+}
+
+async function newestModification(directory: string): Promise<number | undefined> {
+  let entries: Dirent[];
+  try { entries = await readdir(directory, { withFileTypes: true, recursive: true }); } catch { return undefined; }
+  let newest = 0;
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const info = await stat(join(entry.parentPath, entry.name)).catch(() => undefined);
+    if (info && info.mtimeMs > newest) newest = info.mtimeMs;
+  }
+  return newest;
 }
 
 /**

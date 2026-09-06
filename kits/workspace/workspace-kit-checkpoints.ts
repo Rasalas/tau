@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../shared/workspace-kit-types.js";
+import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "tau/host-extension";
 import {
   createStoredTurnCheckpoint,
   createTurnCheckpointBatch,
@@ -10,9 +10,9 @@ import {
   type StoredTurnCheckpoint,
   turnCheckpointsFromEntries,
   turnSnapshotRef,
-} from "../shared/turn-checkpoint-codec.js";
-import { createTurnCheckpointAdapter, type TurnCheckpointAdapterOptions } from "../shared/turn-checkpoint-adapter.js";
-import { TurnCheckpointLifecycle } from "../shared/turn-checkpoint-lifecycle.js";
+} from "./turn-checkpoint-codec.js";
+import { createTurnCheckpointAdapter, type TurnCheckpointAdapterOptions } from "./turn-checkpoint-adapter.js";
+import { TurnCheckpointLifecycle } from "./turn-checkpoint-lifecycle.js";
 import type {
   AcceptTurnOptions,
   TurnCaptureState,
@@ -21,7 +21,7 @@ import type {
   TurnCheckpointStatus,
   TurnRestoreBackup,
   TurnOutcomeEvent,
-} from "../shared/turn-checkpoint-types.js";
+} from "./turn-checkpoint-types.js";
 import { createPiTurnCheckpointExtension } from "./pi-turn-checkpoint-extension.js";
 import * as workspaceGit from "./workspace-git.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";

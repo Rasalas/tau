@@ -17,7 +17,6 @@ import { useConversationActivities } from "./conversation-activities";
 import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { errorMessage } from "./error-message";
 import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
-import { bundledExtensions } from "./extensions";
 import { runtimeControls } from "./settings/runtime-controls";
 import { FollowUpQueueStore } from "./follow-up-queue";
 import { useHostClient } from "./host-client-context";
@@ -55,7 +54,7 @@ export default function App() {
     // Core's own contributions come first and stay on: safe mode is a workbench
     // without kits, not one without a command palette or a model picker.
     value.activateCore(runtimeControls);
-    [...bundledExtensions, ...(constructedExtensions ?? [])].forEach((extension) => {
+    (constructedExtensions ?? []).forEach((extension) => {
       value.addKnown(extension);
       if (!safeMode && preferences.isExtensionEnabled(extension.id)) value.activate(extension);
     });

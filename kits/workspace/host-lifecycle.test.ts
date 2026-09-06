@@ -4,13 +4,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
-  TURN_CHECKPOINT_CUSTOM_TYPE,
   type HostExtensionServices,
   type HostSessionFile,
   type HostThread,
-  type UiTurnCheckpoint,
-  type WorkspaceKitCheckpointMaintenance,
 } from "tau/host-extension";
+import { TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
+import type { WorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 import { createWorkspaceKitLifecycle, prioritizeRestoreTargetSession } from "./host-lifecycle.js";
 
 const directories: string[] = [];

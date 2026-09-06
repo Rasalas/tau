@@ -18,14 +18,28 @@ import type {
   WorkspaceInfo,
   WorkspaceRef,
 } from "tau";
-import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type WorkspaceCheckpointList } from "./checkpoint-protocol.js";
+import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 
-export { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID };
-export type { CheckpointEvent, WorkspaceCheckpointList } from "./checkpoint-protocol.js";
+export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
+
+/** Published for every checkpoint the host records or whose capture status changes. */
+export const CHECKPOINT_EVENT = "checkpoint";
+
+export interface WorkspaceCheckpointList {
+  checkpoints: UiTurnCheckpoint[];
+  /** Whether completed checkpoints can restore this thread; false while Pi owns it. */
+  restoreSupported: boolean;
+}
+
+export type CheckpointEvent =
+  | { type: "turn-checkpoint"; sessionId: string; checkpoint: UiTurnCheckpoint }
+  | { type: "turn-checkpoint-status"; sessionId: string; turnId: string; status: TurnCheckpointStatus }
+  | { type: "turn-checkpoint-error"; sessionId: string; turnId: string; message: string };
 
 /** Panels, regions, overlays and commands the kit fills, named once. */
 export const WORKSPACE_FILES_PANEL = "files";
 export const WORKSPACE_CHANGES_PANEL = "changes";
+/** Filled by Review Kit, opened by this kit; the id belongs to whoever asks for it. */
 export const WORKSPACE_REVIEW_OVERLAY = "review.workspace";
 export const WORKSPACE_CHECKPOINT_REVIEW_OVERLAY = "workspace.checkpoint-review";
 

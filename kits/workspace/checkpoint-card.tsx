@@ -1,4 +1,7 @@
-import type { UiTurnCheckpoint, UiWorkspaceChangesPage } from "tau";
+import type {
+  UiWorkspaceChangesPage,
+} from "tau";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import { ChangedFiles } from "./ChangedFiles.js";
 
 /** Workspace Kit's optional transcript contribution for immutable turn changes. */

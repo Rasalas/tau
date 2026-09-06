@@ -17,6 +17,7 @@ import {
 } from "tau";
 import {
   WORKSPACE_HOST_EXTENSION_ID,
+  WORKSPACE_REVIEW_OVERLAY,
   type CommitMessageSuggester,
   type WorkspaceHostClient,
   type WorkspaceKitState,
@@ -226,8 +227,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   openReview(path?: string, pushPrimary = Boolean(this.state.workspace?.upstream)): void {
     void this.refreshChanges();
     this.update({ pushPrimary, review: { path: path ?? this.state.changes.files[0]?.path, primaryPush: pushPrimary } });
-    // Review Kit's overlay id (`kits/review/protocol.ts`); without that kit the request is simply unanswered.
-    this.actions?.openOverlay("review.workspace");
+    // Review Kit fills this overlay (it imports the id from here); without that kit the request is simply unanswered.
+    this.actions?.openOverlay(WORKSPACE_REVIEW_OVERLAY);
   }
 
   selectReviewPath(path: string): void {

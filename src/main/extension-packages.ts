@@ -46,6 +46,8 @@ export interface ExtensionManifest {
   host?: string;
   /** Relative path of a stylesheet loaded while the desktop half is active. */
   styles?: string;
+  /** Relative path of the Pi entry: the package's half inside a Pi runtime Tau does not own. */
+  pi?: string;
 }
 
 export interface ExtensionPackage {
@@ -55,6 +57,7 @@ export interface ExtensionPackage {
   desktopEntry?: string;
   hostEntry?: string;
   stylesEntry?: string;
+  piEntry?: string;
   /** The source string `packages.json` lists, for a package the installer put there. */
   installedFrom?: string;
   /** What `tau-extension.sig` proved; a package that fails its own hashes never gets here. */
@@ -109,11 +112,11 @@ function parseSource(value: unknown): { url: string; commit?: string } | undefin
 }
 
 /** Parses and validates one manifest; entries are resolved but not read. */
-export function parseExtensionManifest(directory: string, source: string): { manifest: ExtensionManifest; desktopEntry?: string; hostEntry?: string; stylesEntry?: string } {
+export function parseExtensionManifest(directory: string, source: string): { manifest: ExtensionManifest; desktopEntry?: string; hostEntry?: string; stylesEntry?: string; piEntry?: string } {
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host, styles } = raw as Record<string, unknown>;
+  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host, styles, pi } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
   if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
@@ -124,6 +127,7 @@ export function parseExtensionManifest(directory: string, source: string): { man
   const desktopEntry = relativeEntry(directory, desktop, "desktop");
   const hostEntry = relativeEntry(directory, host, "host");
   const stylesEntry = relativeEntry(directory, styles, "styles");
+  const piEntry = relativeEntry(directory, pi, "pi");
   if (!desktopEntry && !hostEntry) throw new Error(`${MANIFEST_FILE} names neither a "desktop" nor a "host" entry`);
   if (stylesEntry && !desktopEntry) throw new Error(`"styles" needs a "desktop" entry: a stylesheet lives as long as the desktop half`);
   return {
@@ -138,10 +142,12 @@ export function parseExtensionManifest(directory: string, source: string): { man
       ...(typeof desktop === "string" ? { desktop } : {}),
       ...(typeof host === "string" ? { host } : {}),
       ...(typeof styles === "string" ? { styles } : {}),
+      ...(typeof pi === "string" ? { pi } : {}),
     },
     ...(desktopEntry ? { desktopEntry } : {}),
     ...(hostEntry ? { hostEntry } : {}),
     ...(stylesEntry ? { stylesEntry } : {}),
+    ...(piEntry ? { piEntry } : {}),
   };
 }
 
@@ -195,7 +201,7 @@ async function readPackageFolder(
   const parsed = parseExtensionManifest(packageDir, await readFile(join(packageDir, MANIFEST_FILE), "utf8"));
   const incompatible = manifestIncompatibility(parsed.manifest, options.versions);
   if (incompatible) throw new Error(incompatible);
-  for (const entry of [parsed.desktopEntry, parsed.hostEntry]) {
+  for (const entry of [parsed.desktopEntry, parsed.hostEntry, parsed.piEntry]) {
     if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new Error(`entry ${entry} does not exist`);
   }
   const signature = await verifyExtensionSignature(packageDir, parsed.manifest, publishers);
@@ -367,6 +373,27 @@ export async function bundleHostExtension(entry: string): Promise<string> {
     sourcemap: "inline",
     logLevel: "silent",
     external: ["electron", "node:*"],
+    alias: hostApiAliases(),
+  });
+  return result.outputFiles.map((file) => file.text).join("\n");
+}
+
+/**
+ * Compiles a package's Pi entry: the half that runs inside a Pi runtime Tau
+ * does not own, loaded there by `.pi/extensions/tau-session-bridge.ts`. Pi
+ * itself stays external — the entry runs inside it.
+ */
+export async function bundlePiExtension(entry: string): Promise<string> {
+  const result = await build({
+    entryPoints: [entry],
+    bundle: true,
+    write: false,
+    format: "cjs",
+    platform: "node",
+    target: "node20",
+    sourcemap: "inline",
+    logLevel: "silent",
+    external: ["electron", "node:*", "@earendil-works/pi-coding-agent"],
     alias: hostApiAliases(),
   });
   return result.outputFiles.map((file) => file.text).join("\n");

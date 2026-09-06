@@ -98,5 +98,4 @@ export type { ThreadActivity } from "./components/ThreadRow";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
 export type { WorkspaceRef } from "../shared/workspace-identity";
 export type * from "../shared/workspace-kit-types";
-export type { TurnCheckpointStatus, UiTurnCheckpoint } from "../shared/turn-checkpoint-types";
 export type * from "../shared/contracts";

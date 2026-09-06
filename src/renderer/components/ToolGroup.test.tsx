@@ -3,7 +3,6 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../../shared/contracts";
 import { ExtensionRegistry, type DesktopExtension } from "../extension-system";
-import { bundledExtensions } from "../extensions";
 import { TOOL_PREVIEW_MIN_MS, ToolGroup } from "./ToolGroup";
 
 /**
@@ -51,7 +50,7 @@ const fileTools: DesktopExtension = {
 
 function registryWithBundledExtensions(): ExtensionRegistry {
   const registry = new ExtensionRegistry();
-  for (const extension of [...bundledExtensions, presentationStub, fileTools]) registry.activate(extension);
+  for (const extension of [presentationStub, fileTools]) registry.activate(extension);
   return registry;
 }
 

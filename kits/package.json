@@ -12,6 +12,7 @@
     "*/tau-extension.json",
     "*/host.cjs",
     "*/desktop.js",
-    "*/styles.css"
+    "*/styles.css",
+    "*/pi.cjs"
   ]
 }

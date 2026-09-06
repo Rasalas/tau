@@ -1,4 +1,4 @@
-import type { UiWorktreeStatus } from "../shared/workspace-kit-types.js";
+import type { UiWorktreeStatus } from "tau/host-extension";
 import {
   emptyProjectGitState,
   readProjectGitState,

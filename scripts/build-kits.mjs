@@ -35,7 +35,7 @@ const OUTPUT = directoryOption("out", join(ROOT, "dist-kits"));
 const INDEX_FILE = "manifest.json";
 const watch = process.argv.includes("--watch");
 
-const { MANIFEST_FILE, bundleHostExtension, parseExtensionManifest } = await import(join(MAIN, "extension-packages.js"));
+const { MANIFEST_FILE, bundleHostExtension, bundlePiExtension, parseExtensionManifest } = await import(join(MAIN, "extension-packages.js"));
 const { bundleDesktopExtension } = await import(join(MAIN, "desktop-extensions.js"));
 const { SHARED_MODULE_PACKAGES } = await import(join(ROOT, "dist-electron/shared/shared-modules.js"));
 
@@ -101,7 +101,7 @@ async function buildKits() {
   };
   const ids = [];
   for (const kit of kits) {
-    const { manifest, hostEntry, desktopEntry, stylesEntry } = parseExtensionManifest(kit.directory, kit.source);
+    const { manifest, hostEntry, desktopEntry, stylesEntry, piEntry } = parseExtensionManifest(kit.directory, kit.source);
     await mkdir(join(OUTPUT, manifest.id), { recursive: true });
     const shippedManifest = { ...manifest };
     if (hostEntry) {
@@ -116,6 +116,12 @@ async function buildKits() {
       // Copied, not compiled: a kit's stylesheet is plain CSS the renderer links.
       await write(`${manifest.id}/styles.css`, await readFile(stylesEntry, "utf8"));
       shippedManifest.styles = "./styles.css";
+    }
+    // The Pi half is required by Tau's bridge from inside an attached Pi
+    // process, which has no toolchain and cannot resolve `tau/*`.
+    if (piEntry) {
+      await write(`${manifest.id}/pi.cjs`, await bundlePiExtension(piEntry));
+      shippedManifest.pi = "./pi.cjs";
     }
     await write(`${manifest.id}/${MANIFEST_FILE}`, `${JSON.stringify(shippedManifest, null, 2)}\n`);
     ids.push(manifest.id);

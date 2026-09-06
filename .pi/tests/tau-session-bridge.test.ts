@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findPiBridge, PiBridgeClient } from "../../src/main/pi-bridge-client.js";
 import type { PiBridgeDescriptor } from "../../src/shared/pi-bridge-protocol.js";
+import type { LoadedPiKitExtension, PiKitBridge } from "../../src/main/pi-kit-extensions.js";
 import tauSessionBridge, {
   bridgeNewSessionCommand,
   buildTranscriptView,
@@ -174,7 +175,8 @@ interface FakeBridge {
   pi: any;
 }
 
-function fakeBridge(): FakeBridge {
+/** The bridge never reads `dist-kits/` in a test: a kit's own tests drive its Pi half. */
+function fakeBridge(kits: LoadedPiKitExtension[] = []): FakeBridge {
   const events = new Map<string, (event: any, context: any) => unknown>();
   const commands = new Map<string, (args: string, context: any) => unknown>();
   const entries: any[] = [];
@@ -221,7 +223,7 @@ function fakeBridge(): FakeBridge {
     setModel: vi.fn(),
     setSessionName: vi.fn(),
   };
-  tauSessionBridge(pi as never);
+  tauSessionBridge(pi as never, { kits: { extensions: kits, errors: [] } });
   return { events, commands, context, pi };
 }
 
@@ -250,25 +252,17 @@ afterEach(async () => {
 });
 
 describe("Tau session bridge handler", () => {
-  it("generates the first thread title inside the attached Pi runtime after the run settles", async () => {
-    const bridge = fakeBridge();
-    let idle = false;
-    let idleChecks = 0;
-    let sessionName: string | undefined;
-    bridge.context.isIdle = () => { idleChecks += 1; return idle; };
-    bridge.context.model = { provider: "provider", id: "model", name: "Model" };
-    bridge.context.modelRegistry.find = vi.fn(() => bridge.context.model);
-    bridge.context.modelRegistry.complete = vi.fn(async () => ({
-      stopReason: "stop",
-      content: [{ type: "text", text: "Automatic Thread Titles" }],
-    }));
-    bridge.pi.getSessionName = () => sessionName;
-    bridge.pi.setSessionName = vi.fn((title: string) => { sessionName = title; });
-    bridge.context.sessionManager.getBranch().push({
-      type: "message",
-      id: "user",
-      message: { role: "user", content: [{ type: "text", text: "Fix automatic titles" }], timestamp: 1 },
-    });
+  it("routes an attached client to the Pi half of the kit that registered the command", async () => {
+    let kitBridge: PiKitBridge | undefined;
+    const bridge = fakeBridge([{
+      id: "tau.example",
+      file: "/dist-kits/tau.example/pi.cjs",
+      extension: (_pi, seam) => {
+        kitBridge = seam;
+        seam.pinEntries(() => ["pinned-entry"]);
+        seam.registerCommand("echo", async (ctx, input) => ({ sessionId: ctx.sessionManager.getSessionId(), input }));
+      },
+    }]);
     await bridge.events.get("session_start")?.({}, bridge.context);
     const descriptor = await findPiBridge(bridge.context.cwd);
     const client = new PiBridgeClient(descriptor as PiBridgeDescriptor);
@@ -276,23 +270,21 @@ describe("Tau session bridge handler", () => {
       await bridge.events.get("session_shutdown")?.({}, bridge.context);
       client.close();
     });
+    const frames: any[] = [];
+    client.subscribe((frame) => frames.push(frame));
     await client.open();
 
-    const idleChecksBeforeRequest = idleChecks;
-    const generated = client.command({
-      command: "extension",
-      extensionId: "tau.thread-titles",
-      name: "generate",
-      input: { provider: "provider", modelId: "model", force: false },
+    await expect(client.command({ command: "extension", extensionId: "tau.example", name: "echo", input: { value: 1 } } as never))
+      .resolves.toMatchObject({ input: { value: 1 } });
+    // A kit reaches only its own commands.
+    await expect(client.command({ command: "extension", extensionId: "tau.other", name: "echo", input: {} } as never))
+      .rejects.toThrow(/no "echo" command/u);
+
+    kitBridge?.publishEvent("ping", { ok: true }, bridge.context);
+    await vi.waitFor(() => {
+      expect(frames.map((frame) => frame.event).filter(Boolean))
+        .toContainEqual({ type: "extension-event", extensionId: "tau.example", name: "ping", payload: { ok: true } });
     });
-    await vi.waitFor(() => expect(idleChecks).toBeGreaterThan(idleChecksBeforeRequest));
-    expect(bridge.context.modelRegistry.complete).not.toHaveBeenCalled();
-
-    idle = true;
-    await bridge.events.get("agent_settled")?.({}, bridge.context);
-
-    await expect(generated).resolves.toEqual({ title: "Automatic Thread Titles" });
-    expect(bridge.pi.setSessionName).toHaveBeenCalledWith("Automatic Thread Titles");
   });
 
   it("advertises and delivers image input for an image-capable model", async () => {

@@ -9,10 +9,10 @@ import {
   type OverlayProps,
   type RegionProps,
   type TranscriptRow,
-  type UiTurnCheckpoint,
   type UiWorkspaceChanges,
   type WorkbenchActions,
 } from "tau";
+import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import {
   CHECKPOINT_EVENT,
   WORKSPACE_CHECKPOINT_REVIEW_OVERLAY,

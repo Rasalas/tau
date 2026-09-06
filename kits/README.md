@@ -19,6 +19,7 @@ kits/<name>/
   host.ts              default-exports a HostExtension (or a factory)
   desktop.tsx          default-exports a DesktopExtension
   styles.css           optional: the kit's own rules, linked while it is active
+  pi.ts                optional: the half that runs inside a Pi runtime Tau does not own
   host.test.ts         through src/main/test-support/host-kit-harness
   desktop.test.ts      through src/renderer/test-support/kit-harness
   app.test.tsx         optional: the kit in front of the real App
@@ -32,8 +33,15 @@ not import it. `src/shared/kits-boundary.test.ts` enforces both. A kit's *tests*
 may additionally reach `src/main/test-support/` and `src/renderer/test-support/`.
 
 Relative imports inside a kit use the `.js` spelling (`./protocol.js`). esbuild
-and TypeScript both map it to the `.ts` file, and Tau's own Pi extension reads
-some kit files under NodeNext, where the extension is required.
+and TypeScript both map it to the `.ts` file.
+
+A kit's `pi` entry is the exception to "a kit is two halves": when a Pi TUI
+owns the session and Tau is only attached, the host half cannot hand a closure
+to that process. `pi.ts` default-exports `(pi, bridge) => void`, is prebuilt to
+`dist-kits/<id>/pi.cjs`, and `.pi/extensions/tau-session-bridge.ts` requires it
+there — so kit code never passes through jiti, where `tau/*` does not resolve.
+`PiKitBridge` in `docs/EXTENSIONS.md` is what it may do; `kits/workspace/pi.ts`
+is the worked example.
 
 ## Moving a kit here
 
@@ -50,9 +58,9 @@ some kit files under NodeNext, where the extension is required.
    `engines.api` is `^<EXTENSION_API_VERSION major.minor>`.
 3. **Move whole.** Host half, desktop half, protocol file and tests in one
    commit, with the old files deleted in the same commit. Never duplicate.
-4. **Unregister.** Remove the entry from `src/main/extensions/index.ts` and
-   `src/renderer/extensions/index.tsx`, and add the desktop half's default export
-   to `kits/kit-lifecycle.test.tsx`.
+4. **Register.** Add the desktop half's default export to
+   `kits/kit-lifecycle.test.tsx`; there is no list in `src/` to edit, because
+   the loader reads the manifests.
 5. **Core tests that named the kit.** A core test that reached into the kit
    either moves to `kits/<name>/` (using `renderApp(client, { extensions: [...] })`
    for the App-level ones) or is rewritten against the seam it actually tests —

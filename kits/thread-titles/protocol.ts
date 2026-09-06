@@ -16,3 +16,13 @@ export interface ThreadTitlesHostCommands {
     output: { title: string } | undefined;
   };
 }
+
+/**
+ * How the kit asks a model for a title. Core's own `thread.completeTitle`
+ * still carries the same wording for the runtime it owns; this copy is what
+ * the kit sends through a Pi runtime it reaches from outside.
+ */
+export const TITLE_SYSTEM_PROMPT = "Create a concise coding-thread title as one plain-text noun phrase. Use 3-7 words and at most 60 characters. Name the concrete task, change, or decision. Never use Markdown, quotes, terminal punctuation, a label, a complete sentence, or meta wording such as working on, help with, discussion about, or implementing.";
+
+export const TITLE_USER_PROMPT = (conversation: string): string =>
+  `Return only the plain-text title for this thread. Match the conversation's language.\n\n${conversation}`;

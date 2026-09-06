@@ -1,6 +1,6 @@
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { TurnCheckpointLifecycle } from "../shared/turn-checkpoint-lifecycle.js";
-import { assistantAnchorForBranch } from "./session-entries.js";
+import type { TurnCheckpointLifecycle } from "./turn-checkpoint-lifecycle.js";
+import { assistantAnchorForBranch } from "tau/host-extension";
 
 export { assistantAnchorForBranch };
 
