@@ -244,7 +244,7 @@ export interface HostThread {
   readonly backendKind: ThreadBackendKind;
   /** The session file behind the thread, once it has one. */
   readonly sessionFile: string | undefined;
-  /** What the thread has spent; absent when the host has not counted it. */
+  /** Tokens and money the thread has used so far; absent when the runtime has no total. */
   readonly usage?: UiThreadUsage;
   isStreaming(): boolean;
   /** Nothing running, queued or asked: the thread can be replaced safely. */

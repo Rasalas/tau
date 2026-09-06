@@ -1,5 +1,5 @@
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
-import type { ThreadBackendKind, UiMessage, UiToolRun } from "../shared/contracts.js";
+import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { DirectoryPickerOptions, HostSessionSummary, HostStartedThread, HostThreadStartOptions } from "./host-extensions.js";
 
@@ -27,6 +27,7 @@ export interface WorkerThreadSnapshot {
   streaming: boolean;
   idle: boolean;
   current: boolean;
+  usage?: UiThreadUsage;
 }
 
 /** A persisted session file, read once, without its manager. */

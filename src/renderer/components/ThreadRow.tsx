@@ -2,6 +2,7 @@ import { memo, useEffect, useState, type CSSProperties } from "react";
 import { ArchiveRestore, Check } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
+import { threadCostLabel, threadUsageDetail } from "../cost-format";
 
 export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled";
 
@@ -16,6 +17,8 @@ interface ThreadRowProps {
   projectIcon?: string;
   modelProvider?: string;
   session: UiSession;
+  /** Off when the user hid costs; the meta line stays as it was. */
+  showCost?: boolean;
   startedAt?: number;
   onSelect(path: string): void;
   onToggleSettled(id: string): void;
@@ -66,6 +69,7 @@ export const ThreadRow = memo(function ThreadRow({
   projectIcon,
   modelProvider,
   session,
+  showCost,
   startedAt,
   onSelect,
   onToggleSettled,
@@ -87,6 +91,7 @@ export const ThreadRow = memo(function ThreadRow({
       </span>
     )
     : null;
+  const cost = showCost ? threadCostLabel(session.usage) : undefined;
 
   if (settled || compact) {
     return (
@@ -124,6 +129,7 @@ export const ThreadRow = memo(function ThreadRow({
           {childCount}
           {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
           <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
+          {cost && session.usage ? <span className="thread-cost-meta" title={threadUsageDetail(session.usage)}>{cost}</span> : null}
         </span>
       </button>
       <button

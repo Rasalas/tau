@@ -8,6 +8,7 @@ import type {
   UiModel,
   UiPromptAttachment,
   UiSession,
+  UiThreadUsage,
   UiToolRun,
   UiTurnActivity,
   UiTurnActivityEntry,
@@ -516,6 +517,8 @@ export async function mapSessions(
   resolveLabel: (cwd: string) => Promise<string | undefined>,
   resolveProjectName: (cwd: string) => string = (cwd) => basename(cwd) || cwd,
   knownModelProviders: ReadonlyMap<string, string> = new Map(),
+  /** Already-known cost for a session file; the index never reads one itself. */
+  usageFor: (session: SessionInfo) => UiThreadUsage | undefined = () => undefined,
 ): Promise<UiSession[]> {
   const recent = [...sessions]
     .sort((a, b) => b.modified.getTime() - a.modified.getTime());
@@ -549,8 +552,17 @@ export async function mapSessions(
       backendKind: "pi",
     };
     if (modelProvider) shell.modelProvider = modelProvider;
+    const usage = usageFor(session);
+    if (usage) shell.usage = usage;
     return shell;
   });
+}
+
+export function threadUsageEqual(left: UiThreadUsage | undefined, right: UiThreadUsage | undefined): boolean {
+  if (!left || !right) return left === right;
+  return left.costUsd === right.costUsd && left.totalTokens === right.totalTokens && left.turns === right.turns &&
+    left.inputTokens === right.inputTokens && left.outputTokens === right.outputTokens &&
+    left.cacheReadTokens === right.cacheReadTokens && left.cacheWriteTokens === right.cacheWriteTokens;
 }
 
 export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
@@ -558,7 +570,7 @@ export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
     left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
     left.projectName === right.projectName && left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount && left.backendKind === right.backendKind &&
-    left.modelProvider === right.modelProvider;
+    left.modelProvider === right.modelProvider && threadUsageEqual(left.usage, right.usage);
 }
 
 export function sessionIndexUpdates(previous: readonly UiSession[], next: readonly UiSession[]): HostUpdate[] {
@@ -591,6 +603,7 @@ export interface ActiveThreadShellInput {
   messageCount: number;
   backendKind?: ThreadBackendKind;
   modelProvider?: string;
+  usage?: UiThreadUsage;
 }
 
 export function reconcileActiveThreadShell(
@@ -609,6 +622,7 @@ export function reconcileActiveThreadShell(
     messageCount: input.messageCount,
     ...(input.backendKind ? { backendKind: input.backendKind } : {}),
     ...(input.modelProvider ?? existing?.modelProvider ? { modelProvider: input.modelProvider ?? existing?.modelProvider } : {}),
+    ...(input.usage ?? existing?.usage ? { usage: input.usage ?? existing?.usage } : {}),
   };
 }
 

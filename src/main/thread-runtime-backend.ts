@@ -7,6 +7,7 @@ import type {
   UiSkillDraft,
   UiThreadTree,
   UiThreadTreeNode,
+  UiThreadUsage,
 } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
@@ -159,13 +160,15 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   catalogView(): ThreadCatalogView {
-    const usage = this.contextUsage();
+    const contextUsage = this.contextUsage();
+    const usage = this.threadUsage();
     return {
       model: modelOf(this.session.model),
       thinkingLevel: this.session.thinkingLevel,
       thinkingLevels: this.session.getAvailableThinkingLevels(),
       allTools: this.session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
-      ...(usage ? { contextUsage: usage } : {}),
+      ...(contextUsage ? { contextUsage } : {}),
+      ...(usage ? { usage } : {}),
     };
   }
 
@@ -375,6 +378,21 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (!shortcut) return false;
     await shortcut.handler(this.session.extensionRunner.createContext());
     return true;
+  }
+
+  /** What the thread has cost so far, straight from Pi's own session totals. */
+  private threadUsage(): UiThreadUsage | undefined {
+    const stats = this.session.getSessionStats();
+    if (stats.assistantMessages === 0 && stats.tokens.total === 0) return undefined;
+    return {
+      inputTokens: stats.tokens.input,
+      outputTokens: stats.tokens.output,
+      cacheReadTokens: stats.tokens.cacheRead,
+      cacheWriteTokens: stats.tokens.cacheWrite,
+      totalTokens: stats.tokens.total,
+      costUsd: stats.cost,
+      turns: stats.assistantMessages,
+    };
   }
 
   private contextUsage(): UiContextUsage | undefined {

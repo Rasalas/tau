@@ -16,7 +16,7 @@ Composer
 
 - text, images, queued steering and follow-up messages, abort
 - Pi commands: extension commands, `/skill:` and prompt templates, as Pi reports them
-- model, thinking level, context usage and compaction
+- model, thinking level, context usage and compaction; what the thread has spent so far
 
 Threads
 

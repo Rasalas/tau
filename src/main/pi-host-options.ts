@@ -22,6 +22,8 @@ export interface PiHostOptions {
   hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
   /** Where user grants live; tests point this at a temp file. */
   grantsFilePath?: string;
+  /** Where per-thread cost totals are cached; without one they last only for this run. */
+  sessionUsageCachePath?: string;
   /** Mints the ids clients address workspaces by; without one they are per-run. */
   workspaceIdentity?: WorkspaceIdentity;
 }

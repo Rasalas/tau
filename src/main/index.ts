@@ -79,6 +79,7 @@ const hostOptions = {
   }),
   logger: hostLog,
   workspaceIdentity,
+  sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {

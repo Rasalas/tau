@@ -18,6 +18,8 @@ function DefaultsPage({
   onSetThinking(level: string): void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const preferences = usePreferences();
+  const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
 
   return (
     <div className="settings-page">
@@ -53,6 +55,23 @@ function DefaultsPage({
             {level}
           </button>
         ))}
+      </div>
+
+      <div className="settings-label">COSTS</div>
+      <div className="settings-toggle-row">
+        <span>
+          <strong>Show costs</strong>
+          <small>What each thread has spent, in the composer and the thread list.</small>
+        </span>
+        <button
+          className={`switch ${showCosts ? "on" : ""}`}
+          role="switch"
+          aria-checked={showCosts}
+          aria-label="Show costs"
+          onClick={() => preferences.setShowCosts(!showCosts)}
+        >
+          <i />
+        </button>
       </div>
 
     </div>

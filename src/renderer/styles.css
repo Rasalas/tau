@@ -487,6 +487,11 @@ button > svg { pointer-events: none; }
 }
 .agent-parent-link:hover:not(:disabled) { color: var(--ink-3); }
 
+.thread-cost-meta {
+  margin-left: auto; flex: none; font: 11px var(--mono); color: var(--faint);
+  opacity: .55; transition: opacity .12s ease;
+}
+.thread-row:hover .thread-cost-meta, .thread-row.active .thread-cost-meta { opacity: 1; }
 .thread-activity { display: flex; align-items: center; gap: 7px; font: 500 11px var(--mono); color: var(--faint); }
 .thread-activity > i {
   width: 7px; height: 7px; flex: none; border-radius: 50%;
@@ -1462,6 +1467,25 @@ button > svg { pointer-events: none; }
 .context-popover > button:hover { background: var(--raised); }
 .context-popover > small { font: 10px var(--mono); color: var(--faint); text-align: center; }
 
+/* -------------------------------------------------------- thread cost */
+
+.thread-cost {
+  flex: none; border: 0; padding: 0 2px; background: transparent; cursor: pointer;
+  font: 11px var(--mono); color: var(--muted); line-height: 1;
+}
+.thread-cost:hover { color: var(--ink-2); }
+.thread-cost-popover {
+  position: absolute; bottom: 28px; right: -40px; z-index: 30; width: max-content; max-width: 280px;
+  display: flex; flex-direction: column; gap: 6px;
+  border: 1px solid var(--line-field); border-radius: 10px;
+  background: #1f1f1b; box-shadow: 0 16px 40px #000a; padding: 11px 13px;
+  animation: fade-up .12s ease;
+}
+.thread-cost-popover > header { display: flex; align-items: baseline; gap: 12px; }
+.thread-cost-popover > header > strong { font-size: 12.5px; font-weight: 700; }
+.thread-cost-popover > header > b { margin-left: auto; font: 11px var(--mono); color: var(--ink-2); font-weight: 400; }
+.thread-cost-popover > small { font: 10.5px var(--mono); color: var(--ink-3); white-space: nowrap; }
+
 /* ------------------------------------------------------------------ dock */
 
 .instrument-dock {
@@ -1977,6 +2001,10 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .settings-page h3 { margin: 0; font-size: 15px; font-weight: 700; }
 .settings-page > p.lede { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
 .settings-label { font: 500 10px var(--mono); color: var(--faint); letter-spacing: .1em; margin: 20px 0 8px; }
+.settings-toggle-row { display: flex; align-items: center; gap: 12px; }
+.settings-toggle-row > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.settings-toggle-row > span > strong { font-size: 12.5px; font-weight: 600; }
+.settings-toggle-row > span > small { font: 11px var(--sans); color: var(--muted); }
 .settings-field {
   display: flex; align-items: center; gap: 10px; max-width: 420px;
   border: 1px solid var(--line-control); border-radius: 9px;

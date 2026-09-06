@@ -114,6 +114,7 @@ function threadSnapshot(thread: HostThread | undefined): WorkerThreadSnapshot | 
     streaming: thread.isStreaming(),
     idle: thread.isIdle(),
     current: thread.isCurrent(),
+    ...(thread.usage ? { usage: thread.usage } : {}),
   };
 }
 

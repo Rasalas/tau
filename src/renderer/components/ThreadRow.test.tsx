@@ -121,3 +121,41 @@ describe("ThreadRow project mark", () => {
     expect(ready.container.querySelector(".thread-status-age")?.textContent).toBe("READY");
   });
 });
+
+describe("ThreadRow cost", () => {
+  const usage = {
+    inputTokens: 12_300, outputTokens: 2_100, cacheReadTokens: 8_000, cacheWriteTokens: 0,
+    totalTokens: 22_400, costUsd: 0.4231, turns: 3,
+  };
+
+  it("puts the cost in the meta line, with the split as its title", () => {
+    const { container } = render(<ThreadRow
+      activity="idle"
+      active={false}
+      age="now"
+      showCost
+      session={{ ...session, usage }}
+      onSelect={() => {}}
+      onToggleSettled={() => {}}
+    />);
+
+    const cost = container.querySelector(".thread-meta-line .thread-cost-meta");
+    expect(cost?.textContent).toBe("$0.42");
+    expect(cost?.getAttribute("title")).toBe("12.3k in · 2.1k out · 8.0k cache read · 3 turns");
+  });
+
+  it("leaves the row alone when costs are hidden or unknown", () => {
+    const hidden = render(<ThreadRow
+      activity="idle" active={false} age="now" session={{ ...session, usage }}
+      onSelect={() => {}} onToggleSettled={() => {}}
+    />);
+    expect(hidden.container.querySelector(".thread-cost-meta")).toBeNull();
+    cleanup();
+
+    const unknown = render(<ThreadRow
+      activity="idle" active={false} age="now" showCost session={session}
+      onSelect={() => {}} onToggleSettled={() => {}}
+    />);
+    expect(unknown.container.querySelector(".thread-cost-meta")).toBeNull();
+  });
+});

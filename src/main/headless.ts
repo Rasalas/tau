@@ -66,6 +66,7 @@ async function main(): Promise<void> {
           }),
           logger: hostLog,
           workspaceIdentity,
+          sessionUsageCachePath: join(userData, "session-usage.json"),
         });
         ready = host.start();
       }
