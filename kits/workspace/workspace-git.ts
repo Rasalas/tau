@@ -2566,10 +2566,18 @@ export async function resolveWorktreeBase(
   const tracking = !remote && options.startFromOrigin !== false && remotes.includes("origin")
     ? `origin/${base}`
     : undefined;
-  const fetched = remote ?? (tracking ? "origin" : undefined);
-  if (fetched) await runGit(cwd, ["fetch", "--prune", fetched], 8 * 1024 * 1024);
-  const commitOf = async (ref: string) => (await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).catch(() => "")).trim();
+  // A base the caller named is fetched or the creation fails; the remote a
+  // default base is only *hoped* to have must not break a picker that is
+  // offline, so its fetch failure degrades to the local base.
+  if (remote) await runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
+  let fetchError: string | undefined;
   if (tracking) {
+    fetchError = await runGit(cwd, ["fetch", "--prune", "origin"], 8 * 1024 * 1024)
+      .then(() => undefined)
+      .catch((error: unknown) => error instanceof Error ? error.message.split("\n")[0] : String(error));
+  }
+  const commitOf = async (ref: string) => (await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).catch(() => "")).trim();
+  if (tracking && !fetchError) {
     const remoteCommit = await commitOf(tracking);
     if (remoteCommit) return { ref: tracking, commit: remoteCommit, fromOrigin: true };
   }
@@ -2579,7 +2587,7 @@ export async function resolveWorktreeBase(
     ref: base,
     commit: resolved,
     fromOrigin: Boolean(remote),
-    ...(tracking ? { note: `${tracking} does not exist; started from ${base}.` } : {}),
+    ...(tracking ? { note: fetchError ? `origin is unreachable (${fetchError}); started from ${base}.` : `${tracking} does not exist; started from ${base}.` } : {}),
   };
 }
 

@@ -24,6 +24,7 @@ import {
   parseUnifiedDiff,
   push,
   previewWorkspaceRestore,
+  ensureWorktree,
   readProjectGitState,
   readWorktreeStatuses,
   removeWorktree,
@@ -942,10 +943,45 @@ describe("worktree base", () => {
     expect(offline.some((args) => args[0] === "fetch")).toBe(false);
   });
 
+  it("keeps offering the local base when origin cannot be reached", async () => {
+    const base = await resolveWorktreeBase("/repo", { requested: "main" }, async (_cwd, args) => {
+      if (args[0] === "remote") return "origin\n";
+      if (args[0] === "fetch") throw new Error("could not read from remote repository");
+      if (args.join(" ") === "rev-parse --verify --quiet main^{commit}") return "4444444444444444444444444444444444444444\n";
+      throw new Error(`no answer for ${args.join(" ")}`);
+    });
+    expect(base).toMatchObject({ ref: "main", fromOrigin: false });
+    expect(base.note).toContain("origin is unreachable");
+  });
+
   it("refuses a base that names no commit", async () => {
     await expect(resolveWorktreeBase("/repo", { requested: "nope", startFromOrigin: false }, runner({
       "remote": "",
     }))).rejects.toThrow(/The worktree base "nope" does not exist/u);
+  });
+});
+
+describe("a worktree whose folder vanished", () => {
+  it("is recreated on open, and an existing one is left alone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-worktree-gone-"));
+    const cwd = join(root, "project");
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main", cwd]);
+      execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "first"], { cwd });
+      const linked = join(root, "worktrees", "feat");
+      execFileSync("git", ["worktree", "add", "-q", "-b", "feat", linked, "HEAD"], { cwd });
+
+      await expect(ensureWorktree(cwd, linked, "feat")).resolves.toBe(false);
+      await rm(linked, { recursive: true, force: true });
+      await expect(ensureWorktree(cwd, linked, "feat")).resolves.toBe(true);
+      await expect(stat(join(linked, ".git")).then(() => true)).resolves.toBe(true);
+
+      // Without a branch there is nothing to check out again, and guessing would be wrong.
+      await rm(linked, { recursive: true, force: true });
+      await expect(ensureWorktree(cwd, linked, undefined)).rejects.toThrow(/no branch names what it held/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

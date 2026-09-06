@@ -74,7 +74,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
       </span>
       <span className="agent-row-activity">{activityLine(row)}</span>
       <span className="agent-row-meta">
-        {[row.model, formatCost(row.costUsd), worktree].filter(Boolean).join(" · ")}
+        <span className="agent-row-meta-text">{[row.model, formatCost(row.costUsd), worktree].filter(Boolean).join(" · ")}</span>
         {canSettleWorktree(row) ? (
           <span className="agent-row-actions">
             <span role="button" tabIndex={-1} aria-label={`Apply changes of ${row.title}`}
