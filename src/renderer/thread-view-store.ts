@@ -177,6 +177,7 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "host-update":
     case "thread-index":
     case "extension-event":
+    case "app-update":
     case "new-thread-delivery-settled":
       return state;
     case "prompt-without-user-turn":

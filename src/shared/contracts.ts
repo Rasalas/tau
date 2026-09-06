@@ -371,6 +371,8 @@ export type GlobalHostEvent =
   /** Published by a host extension for its desktop counterpart; core only routes it. */
   | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
   | { type: "error"; message: string; sessionId?: undefined }
+  /** A new Tau finished downloading and installs on the next restart. */
+  | { type: "app-update"; version: string; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */

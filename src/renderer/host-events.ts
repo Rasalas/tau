@@ -30,6 +30,8 @@ export interface HostEventTargets {
   setTranscriptTurnStart(value: TranscriptTurnStart | undefined, expectedTurnId?: string): void;
   applyHostUpdate(update: HostUpdate): void;
   applyThreadIndex(index: ThreadIndexSnapshot): void;
+  /** A downloaded Tau waiting for a restart. */
+  setUpdateReady(version: string): void;
 }
 
 type WorkbenchEvent = Parameters<ExtensionRegistry["dispatchWorkbenchEvent"]>[0];
@@ -58,6 +60,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       return;
     case "extension-event":
       registry.dispatchExtensionEvent(event);
+      return;
+    case "app-update":
+      targets.setUpdateReady(event.version);
       return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;

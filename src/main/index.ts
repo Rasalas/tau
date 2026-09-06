@@ -25,6 +25,8 @@ import { startSocketHostTransport, type SocketHostTransport } from "./host-trans
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
+import electronUpdater from "electron-updater";
+import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
@@ -112,6 +114,7 @@ const jobs = new HostJobRunner(broadcast);
 let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
 let projectHistory: ProjectHistory;
+let updates: AppUpdates | undefined;
 let shutdownStarted = false;
 let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
@@ -280,6 +283,7 @@ function createLocalHostMethods(): HostMethodTable {
         app.relaunch();
         app.quit();
       },
+      installUpdate: () => updates?.install() ?? false,
     },
   });
 }
@@ -321,6 +325,14 @@ if (primaryInstance) app.whenReady().then(async () => {
     userData: app.getPath("userData"),
   });
   app.dock?.setIcon(appIconPath);
+  updates = createAppUpdates({
+    updater: electronUpdater.autoUpdater,
+    enabled: app.isPackaged,
+    log: hostLog,
+    onDownloaded: (version) => publish({ type: "app-update", version }),
+  });
+  installUpdateMenuItem(() => void updates?.checkForUpdates());
+  updates.checkOnStartup();
   serveDesktopBundles(desktopBundles);
   // Nothing in the workbench asks for a camera, a microphone or a location, and
   // an extension rendering inside it must not be able to ask on its behalf.

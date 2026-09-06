@@ -41,6 +41,8 @@ export interface HostMethodPlatform {
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
   rebuildWorkbench(context: HostMethodContext): Promise<WorkbenchBuildResult>;
   relaunchWorkbench(): void;
+  /** Restarts into the downloaded update; false when none is waiting. */
+  installUpdate(): boolean;
 }
 
 export interface HostMethodDeps {
@@ -189,6 +191,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ),
     "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context),
     "relaunch-workbench": async () => platform.relaunchWorkbench(),
+    "install-update": async () => ({ installing: platform.installUpdate() }),
     "open-project": async (params) => (await host()).setWorkspace(await workspace("open-project", "workspace", params[0])),
     "remove-project": async (params) => (await host()).removeProject(await workspace("remove-project", "workspace", params[0])),
 
@@ -237,6 +240,7 @@ export function createUnsupportedHostMethods(reason: string): HostMethodTable {
       loadDesktopExtensions: refuse,
       rebuildWorkbench: refuse,
       relaunchWorkbench: refuse,
+      installUpdate: refuse,
     },
   }));
   return Object.fromEntries(names.map((name) => [name, async () => refuse()]));

@@ -88,6 +88,7 @@ async function main(): Promise<void> {
       loadDesktopExtensions: async (cwd, sharedExports) => loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions }),
       rebuildWorkbench: unsupported("Rebuilding the workbench"),
       relaunchWorkbench: unsupported("Relaunching the workbench"),
+      installUpdate: unsupported("Installing an update"),
     },
   });
 

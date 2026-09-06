@@ -28,6 +28,7 @@ function fixture() {
     transcriptTurnStart: () => undefined,
     setTranscriptTurnStart: vi.fn(),
     applyHostUpdate: vi.fn(),
+    setUpdateReady: vi.fn(),
     applyThreadIndex: vi.fn(),
   };
   return { targets, threadStore, view, registry };
@@ -41,6 +42,15 @@ describe("applyHostEvent", () => {
     applyHostEvent({ type: "host-update", update }, targets);
 
     expect(targets.applyHostUpdate).toHaveBeenCalledWith(update);
+  });
+
+  it("hands a downloaded update to the toast instead of the transcript", () => {
+    const { targets, view } = fixture();
+
+    applyHostEvent({ type: "app-update", version: "0.2.0" }, targets);
+
+    expect(targets.setUpdateReady).toHaveBeenCalledWith("0.2.0");
+    expect(view.getState().events).toEqual([]);
   });
 
   it("makes the per-thread run state the only writer of streaming", () => {
