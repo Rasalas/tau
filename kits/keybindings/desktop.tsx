@@ -13,7 +13,8 @@ const PI_KEYBINDINGS: ReadonlyArray<{ commandId: string; piAction: string }> = [
   { commandId: "runtime.new-session", piAction: "app.session.new" },
   { commandId: "runtime.abort", piAction: "app.interrupt" },
   { commandId: "runtime.model", piAction: "app.model.select" },
-  { commandId: "runtime.toggle-thinking", piAction: "app.thinking.toggle" },
+  // Pi's thinking toggle is Tau's transcript detail: the level that shows reasoning.
+  { commandId: "runtime.transcript-detail", piAction: "app.thinking.toggle" },
 ];
 
 // No host, or a host without this kit's entry (safe mode): core's chords stay.

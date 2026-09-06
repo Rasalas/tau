@@ -169,12 +169,39 @@ the workbench itself uses, and core no longer keeps a table of names it would
 have to know a kit by. A panel without one gets core's fallback glyph.
 `registerSettingsPage` takes the same `Icon`.
 
+#### Tool rows and tool cards
+
+`registerToolRenderer(id, match, render)` says how one tool call reads: its
+glyph, title, tone and detail. `ToolPresentation` also takes an optional
+`source` — what the tool reaches, a browser, a machine, an MCP server. A group
+summary hoists a named source to the front of its sentence ("Used the browser
+3 times and read 2 files") instead of counting those calls as anonymous tools;
+core reads `mcp__<server>__<tool>` as a source by itself, because that spelling
+is the protocol's, not a kit's.
+
+`registerToolCard({ id, match, Component })` is the other half: a whole batch
+of consecutive calls of your tools drawn as one card, instead of a row per
+call. The component is given `{ tools, actions }` — every call of the batch in
+order, and the workbench's actions. Core never folds, groups or hides a card,
+so a card is what to reach for when the thing a tool started outlives the turn
+that started it; Agents Kit's spawn card is the caller that motivated it. A
+tool a card claims is not offered to `registerToolRenderer`.
+
+```ts
+context.registerToolCard({
+  id: "agents.spawn",
+  match: (tool) => tool.name === "tau_spawn_thread",
+  profiles: ["desktop", "web", "compact"],
+  Component: SpawnCard,
+});
+```
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, regions,
 status items, overlays, composer controls, the sidebar, project sources, prompt
-renderers, the document source, transcript rows and tool renderers — takes an
-optional `profiles`:
+renderers, the document source, transcript rows, tool renderers and tool cards —
+takes an optional `profiles`:
 
 ```ts
 context.registerPanel({ id: "agents", label: "Agents", profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
