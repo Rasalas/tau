@@ -9,7 +9,7 @@ class FakeSocket {
   static readonly opened: FakeSocket[] = [];
   readyState = 0;
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event?: { code?: number }) => void) | null = null;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   readonly sent: string[] = [];
 
@@ -30,9 +30,9 @@ class FakeSocket {
     this.onopen?.();
   }
 
-  drop(): void {
+  drop(code?: number): void {
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.(code === undefined ? undefined : { code });
   }
 
   deliver(frame: unknown): void {
@@ -106,6 +106,18 @@ describe("socket host client", () => {
 
     expect(events).toEqual(["before-the-drop", "missed-one", "missed-two"]);
     expect(states).toEqual(["reconnecting", "connected"]);
+  });
+
+  it("stops trying when the host refuses the token, and says so once", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.useFakeTimers();
+    let refused = 0;
+    createSocketHostClient("ws://host.test:7788", "wrong-token", { onUnauthorized: () => { refused += 1; } });
+    FakeSocket.opened[0]!.drop(4401);
+    await vi.advanceTimersByTimeAsync(5_000);
+    // A wrong token never becomes right: no second socket, and one report.
+    expect(FakeSocket.opened).toHaveLength(1);
+    expect(refused).toBe(1);
   });
 
   it("queues a request made while the socket is down and sends it once it is back", async () => {

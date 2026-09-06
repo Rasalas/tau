@@ -40,7 +40,8 @@ function emptyTotals() {
 
 function initialAssetsFromHtml(html) {
   const assets = new Set();
-  for (const match of html.matchAll(/(?:src|href)="(?:\.\/)?(?:assets\/)?([^"?#]+)"/gu)) {
+  // `./assets/x.js` in the desktop build, `/assets/x.js` in the web one.
+  for (const match of html.matchAll(/(?:src|href)="(?:\.?\/)?(?:assets\/)?([^"?#]+)"/gu)) {
     assets.add(match[1]);
   }
   return assets;

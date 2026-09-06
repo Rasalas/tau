@@ -9,6 +9,16 @@ import { createHostClient, type HostClient } from "./host-client";
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
+/** `host-transport-socket.ts` closes with this when the hello carried the wrong token. */
+const UNAUTHORIZED = 4401;
+
+export interface SocketTransportOptions {
+  /**
+   * The host refused the token. Retrying cannot help, so the transport stops
+   * and the client asks for another one instead of reconnecting forever.
+   */
+  onUnauthorized?(): void;
+}
 
 interface Pending {
   resolve(response: HostResponse): void;
@@ -20,7 +30,7 @@ interface Pending {
  * transport reconnects with backoff and the connection above replays what it
  * missed, so a frozen or restarted host does not lose the workbench's state.
  */
-export function createSocketHostTransport(url: string, token?: string): HostTransport {
+export function createSocketHostTransport(url: string, token?: string, options?: SocketTransportOptions): HostTransport {
   const pending = new Map<string, Pending>();
   const pushListeners = new Set<(push: HostPush) => void>();
   const openListeners = new Set<() => void>();
@@ -53,10 +63,15 @@ export function createSocketHostTransport(url: string, token?: string): HostTran
       if (everOpened) for (const listener of openListeners) listener();
       everOpened = true;
     };
-    socket.onclose = () => {
+    socket.onclose = (event?: { code?: number }) => {
       failPending("The host connection dropped.");
       for (const listener of closeListeners) listener();
       if (closed) return;
+      if (event?.code === UNAUTHORIZED) {
+        closed = true;
+        options?.onUnauthorized?.();
+        return;
+      }
       setTimeout(connect, delayMs);
       delayMs = Math.min(delayMs * 2, RECONNECT_MAX_MS);
     };
@@ -102,7 +117,11 @@ export function createSocketHostTransport(url: string, token?: string): HostTran
 }
 
 /** A host client that talks to a host over a socket instead of through Electron. */
-export function createSocketHostClient(url: string, token?: string): { client: HostClient; connection: HostConnection } {
-  const connection = new HostConnection(createSocketHostTransport(url, token));
+export function createSocketHostClient(
+  url: string,
+  token?: string,
+  options?: SocketTransportOptions,
+): { client: HostClient; connection: HostConnection } {
+  const connection = new HostConnection(createSocketHostTransport(url, token, options));
   return { client: createHostClient(connection), connection };
 }

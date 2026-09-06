@@ -14,10 +14,21 @@
   "rendererLongTaskMs": 50,
   "rendererCommitP95Ms": 24,
   "rendererScenarioBudgets": {
-    "transcript-1000-turns": { "mountP95Ms": 40, "longTaskMs": 60 },
-    "transcript-legacy-comparison-1000-turns": { "commitP95Ms": 40 },
-    "transcript-viewport-anchored-1000-turns": { "mountP95Ms": 30, "commitP95Ms": 40 },
-    "transcript-viewport-streaming-1000-turns": { "mountP95Ms": 30, "commitP95Ms": 40 }
+    "transcript-1000-turns": {
+      "mountP95Ms": 40,
+      "longTaskMs": 60
+    },
+    "transcript-legacy-comparison-1000-turns": {
+      "commitP95Ms": 40
+    },
+    "transcript-viewport-anchored-1000-turns": {
+      "mountP95Ms": 30,
+      "commitP95Ms": 40
+    },
+    "transcript-viewport-streaming-1000-turns": {
+      "mountP95Ms": 30,
+      "commitP95Ms": 40
+    }
   },
   "rendererDomNodes": 5000,
   "hostBootstrapFullMs": 2500,
@@ -38,5 +49,14 @@
     "workspace-files-10000",
     "picker-catalog-10000",
     "long-user-message"
-  ]
+  ],
+  "web": {
+    "initialJavascriptBytes": 820000,
+    "initialJavascriptGzipBytes": 255000,
+    "initialCssBytes": 140000,
+    "initialCssGzipBytes": 30000,
+    "totalJavascriptBytes": 2000000,
+    "totalJavascriptGzipBytes": 510000,
+    "buildTimeMs": 20000
+  }
 }

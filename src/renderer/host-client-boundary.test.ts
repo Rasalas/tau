@@ -22,7 +22,7 @@ function listFiles(dir: string): string[] {
 
 describe("host client boundary", () => {
   it("no client module outside the allow-list touches window.tau", () => {
-    const offenders = ["src/renderer", "src/workbench"].flatMap(listFiles)
+    const offenders = ["src/renderer", "src/workbench", "src/web"].flatMap(listFiles)
       .filter((path) => statSync(path).isFile())
       .filter((path) => readFileSync(path, "utf8").includes("window.tau"))
       .map((path) => path.replaceAll("\\", "/"))

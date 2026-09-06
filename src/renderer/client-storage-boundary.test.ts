@@ -21,7 +21,7 @@ function listFiles(dir: string): string[] {
 
 describe("client storage boundary", () => {
   it("no client module outside the allow-list touches localStorage", () => {
-    const offenders = ["src/renderer", "src/workbench"].flatMap(listFiles)
+    const offenders = ["src/renderer", "src/workbench", "src/web"].flatMap(listFiles)
       .filter((path) => statSync(path).isFile())
       .filter((path) => /\blocalStorage\b/u.test(readFileSync(path, "utf8")))
       .map((path) => path.replaceAll("\\", "/"))

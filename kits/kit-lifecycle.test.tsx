@@ -58,6 +58,23 @@ describe("client profiles", () => {
     });
   }
 
+  // The web client exists now, so nothing may quietly go missing there: every
+  // contribution a kit registers is either drawn or named as absent, with
+  // enough about it for Settings to show a line the user can act on.
+  it("accounts for every contribution on the web profile: drawn, or named as absent", () => {
+    for (const extension of kits) {
+      const { registry } = createKitHarness(workspaceHostStub(), "web");
+      registry.activate(extension);
+      const all = registry.getProfiledContributions();
+      const absent = registry.getUnrenderedContributions();
+      expect(absent.filter((entry) => entry.profiles.includes("web"))).toEqual([]);
+      expect(all.filter((entry) => !entry.profiles.includes("web"))).toEqual(absent);
+      const nameless = absent.filter((entry) => !entry.kind || !entry.id || !entry.extensionName);
+      expect(nameless.map((entry) => entry.id)).toEqual([]);
+      registry.deactivate(extension.id);
+    }
+  });
+
   it("leaves the host half of a kit alone when this client draws none of it", () => {
     const invoked: string[] = [];
     const host = async (extensionId: string, command: string) => { invoked.push(`${extensionId}:${command}`); return undefined; };
