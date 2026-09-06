@@ -314,7 +314,7 @@ export interface HostExtensionServices {
   /** The workspace the host currently has open. */
   cwd(): string;
   /**
-   * Pi's own configuration directory (`~/.pi/agent`, or what `PI_AGENT_DIR`
+   * Pi's own configuration directory (`~/.pi/agent`, or what `PI_CODING_AGENT_DIR`
    * names). The path only: reading inside it is ordinary file work, which no
    * permission gates, so this one is ungated too.
    */

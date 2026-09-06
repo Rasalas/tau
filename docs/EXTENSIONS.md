@@ -306,7 +306,7 @@ A package's `permissions` array draws from a fixed list
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
-directory (`~/.pi/agent`, or what `PI_AGENT_DIR` names), and reading inside it
+directory (`~/.pi/agent`, or what `PI_CODING_AGENT_DIR` names), and reading inside it
 is ordinary file work that no permission gates either. A worker gets it in its
 bootstrap, so it costs no round trip. `services.sessionsDir` is its sibling:
 the Pi session directory Tau actually uses (`PI_CODING_AGENT_SESSION_DIR` when
