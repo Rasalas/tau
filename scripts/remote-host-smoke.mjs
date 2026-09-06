@@ -109,6 +109,11 @@ const host = spawn(process.execPath, [HOST_ENTRY], {
     TAU_USER_DATA: userData,
     TAU_HOST_LISTEN: "127.0.0.1:0",
     TAU_NO_EXTENSIONS: "1",
+    // HOME is a fresh temp dir already, so ~/.pi/agent/sessions never touches
+    // the real store, but the override is pinned explicitly anyway: it is
+    // the same contract dev-instance.mjs relies on, and it keeps this smoke
+    // isolated even if HOME later grows a symlink back to real credentials.
+    PI_CODING_AGENT_SESSION_DIR: join(tokenHome, "pi-sessions"),
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

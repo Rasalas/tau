@@ -24,12 +24,13 @@ export function derivePort(seed, { base = PORT_BASE, range = PORT_RANGE } = {}) 
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
 export function parseArgs(argv) {
-  const options = { build: false, safe: false, fresh: false, port: undefined, workspace: undefined };
+  const options = { build: false, safe: false, fresh: false, sharedSessions: false, port: undefined, workspace: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--build") options.build = true;
     else if (arg === "--safe") options.safe = true;
     else if (arg === "--fresh") options.fresh = true;
+    else if (arg === "--shared-sessions") options.sharedSessions = true;
     else if (arg === "--port") {
       const value = argv[++index];
       if (!value || Number.isNaN(Number(value))) throw new Error(`--port needs a number, got ${JSON.stringify(value)}`);
@@ -39,7 +40,7 @@ export function parseArgs(argv) {
       if (!value) throw new Error("--workspace needs a path");
       options.workspace = value;
     } else {
-      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --port <n>, --workspace <path>)`);
+      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --port <n>, --workspace <path>)`);
     }
   }
   return options;
@@ -100,10 +101,20 @@ async function main() {
   const workspace = options.workspace ? resolve(options.workspace) : join(DEV_DIR, "workspace");
   const mainEntry = join(ROOT, "dist-electron", "main", "index.js");
   const electronBin = join(ROOT, "node_modules", ".bin", "electron");
+  // Pi's own session store, isolated per instance so its threads never land
+  // in the user's real ~/.pi/agent/sessions and show up in their own sidebar.
+  // --shared-sessions opts back into that real store for the rare test that
+  // needs the user's own threads (auth, models, settings, extensions always
+  // come from the real ~/.pi/agent either way — only the sessions dir moves).
+  const sessionsDir = options.sharedSessions ? undefined : join(DEV_DIR, "pi-sessions");
 
   if (options.fresh) {
     assertUnderDevDir(userData);
     rmSync(userData, { recursive: true, force: true });
+    if (sessionsDir) {
+      assertUnderDevDir(sessionsDir);
+      rmSync(sessionsDir, { recursive: true, force: true });
+    }
   }
 
   if (!options.workspace) initScratchWorkspace(workspace);
@@ -131,6 +142,7 @@ async function main() {
     TAU_USER_DATA: userData,
     TAU_WORKSPACE: workspace,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
+    ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
   };
   delete env.ELECTRON_RUN_AS_NODE;
 
@@ -142,9 +154,12 @@ async function main() {
 
   writeFileSync(
     join(DEV_DIR, "instance.json"),
-    `${JSON.stringify({ pid: child.pid, port, userData, workspace, logPath, startedAt: new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify({ pid: child.pid, port, userData, workspace, sessionsDir: sessionsDir ?? null, logPath, startedAt: new Date().toISOString() }, null, 2)}\n`,
   );
-  console.log(`[dev-instance] pid=${child.pid} port=${port} userData=${userData} workspace=${workspace} log=${logPath}`);
+  console.log(
+    `[dev-instance] pid=${child.pid} port=${port} userData=${userData} workspace=${workspace} `
+    + `sessions=${sessionsDir ?? "(shared: ~/.pi/agent/sessions)"} log=${logPath}`,
+  );
 
   const forward = (signal) => () => { if (!child.killed) child.kill(signal); };
   process.on("SIGINT", forward("SIGTERM"));

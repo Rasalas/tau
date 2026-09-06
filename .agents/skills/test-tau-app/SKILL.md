@@ -18,10 +18,12 @@ npm run dev:instance -- --build
 It builds only if `dist-electron/main/index.js` is missing (pass `--build` to force one), then starts Electron with its own userData and scratch workspace under this worktree's gitignored `.tau-dev/`, and a CDP port derived from the worktree's path (9300–9399, next free if occupied). It stays in the foreground and prints exactly one line:
 
 ```
-[dev-instance] pid=<pid> port=<port> userData=<path> workspace=<path> log=<path>
+[dev-instance] pid=<pid> port=<port> userData=<path> workspace=<path> sessions=<path> log=<path>
 ```
 
-Run it with `run_in_background` (or the harness's own backgrounding) — you need the terminal free to drive it. Flags: `--safe` (`TAU_NO_EXTENSIONS=1`), `--fresh` (wipes this instance's userData first — safe, since it never wipes outside `.tau-dev`), `--workspace <path>` (an existing repo instead of the scratch one), `--port <n>` (pin the port).
+The instance also gets its own Pi session store, `.tau-dev/pi-sessions`, via `PI_CODING_AGENT_SESSION_DIR`. Pi normally keeps every session under `~/.pi/agent/sessions/<encoded cwd>/`, and Tau's thread index lists all of them across every project — without this, an instance's test threads (a verification run's "Index n" sub-agent threads, for example) would land in the user's real session store and show up in their own Tau sidebar under "All projects". Auth, models, settings, and extensions still come from the real `~/.pi/agent`; only the session store moves. Pass `--shared-sessions` for the rare test that needs the user's own real threads (it skips the override and reads/writes `~/.pi/agent/sessions` directly — treat it like `--workspace` pointing outside `.tau-dev`: only use it when the test is specifically about the user's existing threads).
+
+Run it with `run_in_background` (or the harness's own backgrounding) — you need the terminal free to drive it. Flags: `--safe` (`TAU_NO_EXTENSIONS=1`), `--fresh` (wipes this instance's userData and its `.tau-dev/pi-sessions` first — safe, since it never wipes outside `.tau-dev`), `--shared-sessions` (use the real `~/.pi/agent/sessions` instead of the isolated one), `--workspace <path>` (an existing repo instead of the scratch one), `--port <n>` (pin the port).
 
 ## Keep it alive across turns
 
@@ -52,10 +54,12 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 - While a turn streams, the Send button is replaced by a Stop button (`class="send-button stop"`, no `aria-label="Send"`, `title="Stop the run"`). `snapshot`'s composer line reports this as `streaming=true` — wait for `streaming=false` again before asserting on a finished reply, not just for the toast.
 - The composer `<textarea>` carries no id or class of its own; `document.querySelector('textarea')` is reliable because exactly one is ever mounted.
 - Selecting a thread row still needs `click`, not `eval`-ing `.click()` on the row — see above.
+- If the display has gone to sleep, `screencapture` returns a black or stale image; run it under `caffeinate -u` (a synthetic user-activity tick) first to wake the display before capturing.
+- The renderer's own `screenshot` command (`Page.captureScreenshot` on the main window) never shows a preview `WebContentsView` — that view is a separate native layer Chromium composites on top, not part of the renderer's page. Use `screencapture` (with `caffeinate -u` per above) to see it.
 
 ## Tear down only your own PID
 
-Stop exactly the PID `npm run cdp -- pid` names (or the one `dev-instance.mjs` printed). Never `pkill -f Electron` or `pkill -f electron` — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or in this worktree. Never point `TAU_USER_DATA` anywhere but a path under this worktree's `.tau-dev/`; the isolated instance must never read or write the user's real `~/Library/Application Support/tau`.
+Stop exactly the PID `npm run cdp -- pid` names (or the one `dev-instance.mjs` printed). Never `pkill -f Electron` or `pkill -f electron` — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or in this worktree. Never point `TAU_USER_DATA` anywhere but a path under this worktree's `.tau-dev/`; the isolated instance must never read or write the user's real `~/Library/Application Support/tau`. The same goes for the Pi session store: leave `PI_CODING_AGENT_SESSION_DIR` at its default (`--shared-sessions` aside) so test threads never land in the user's real `~/.pi/agent/sessions`.
 
 ## Advanced: testing the Electron client against a headless host
 
