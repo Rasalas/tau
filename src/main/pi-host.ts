@@ -715,7 +715,16 @@ export class PiHost {
         .sort((left, right) => right.updatedAt - left.updatedAt)[0];
       return this.openExternalThread(kind, latest?.threadId ?? randomUUID(), cwd, { resume: Boolean(latest) });
     }
-    return this.openThread(await this.initialSessionManager(cwd), undefined);
+    try {
+      return await this.openThread(await this.initialSessionManager(cwd), undefined);
+    } catch (error) {
+      // The last session of this workspace points at a folder that is gone
+      // (Pi refuses to resume it); a fresh session in the workspace is the
+      // right answer at startup, where nobody chose that session.
+      if (!(error instanceof Error && error.name === "MissingSessionCwdError")) throw error;
+      this.log("session.cwd-missing", this.errorMessage(error));
+      return this.openThread(SessionManager.create(cwd), undefined);
+    }
   }
 
   async start(): Promise<HostBootstrap> {

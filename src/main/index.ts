@@ -25,6 +25,7 @@ import { startSocketHostTransport, type SocketHostTransport } from "./host-trans
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
+import { resolveStartupWorkspace } from "./startup-workspace.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
@@ -224,14 +225,25 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
   return ready;
 }
 
+/**
+ * Starts the embedded host in the requested workspace, or in the last project
+ * that still exists when that folder is gone: a deleted checkout must not turn
+ * into the fatal dialog `watchHostStart` shows for a broken runtime.
+ */
+function startLocalHost(): void {
+  const startup = resolveStartupWorkspace(defaultWorkspace, projectHistory.list());
+  if (startup.missing) hostLog.warn("workspace.missing", { requested: startup.missing, fallback: startup.cwd });
+  host = new PiHost(startup.cwd, publish, projectHistory, safeMode, true, hostOptions);
+  hostReady = watchHostStart(host.start());
+}
+
 /** Everything this machine can answer for itself; a client of a remote host has none of it. */
 function createLocalHostMethods(): HostMethodTable {
   return createHostMethods({
     bootstrap: async () => {
       if (!host) {
-        host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
-        host.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
-        hostReady = watchHostStart(host.start());
+        startLocalHost();
+        host!.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
         return hostReady as Promise<HostBootstrap>;
       }
       await hostReady;
@@ -326,10 +338,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
   installTransport();
-  if (!remoteHostUrl) {
-    host = new PiHost(defaultWorkspace, publish, projectHistory, safeMode, true, hostOptions);
-    hostReady = watchHostStart(host.start());
-  }
+  if (!remoteHostUrl) startLocalHost();
   await createWindow();
 });
 
