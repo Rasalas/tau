@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-06T13:50:42.072Z",
-  "firstPaintMs": 156,
+  "generatedAt": "2026-09-06T18:22:57.390Z",
+  "firstPaintMs": 108,
   "firstContentfulPaintMs": null,
   "loadedResourceCount": 2,
   "resources": [
     {
-      "name": "file:///path/to/tau-worktrees/ks-06/dist/assets/index-DgzEI_HS.js",
+      "name": "file:///path/to/tau-worktrees/c-02/dist/assets/index-C_b1vAsB.js",
       "durationMs": 0,
       "transferSize": 0
     },
     {
-      "name": "file:///path/to/tau-worktrees/ks-06/dist/assets/index-B6p9EuBn.css",
+      "name": "file:///path/to/tau-worktrees/c-02/dist/assets/index-8K2my4xV.css",
       "durationMs": 0,
       "transferSize": 0
     }
@@ -20,7 +20,7 @@
   "paints": [
     {
       "name": "first-paint",
-      "startTimeMs": 156
+      "startTimeMs": 108
     }
   ],
   "overlayComposition": {
@@ -28,7 +28,7 @@
     "components": {
       ".palette-backdrop": {
         "backdropBlur": false,
-        "measuredMs": 0.1
+        "measuredMs": 0
       },
       ".modal-scrim": {
         "backdropBlur": false,
