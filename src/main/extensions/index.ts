@@ -1,5 +1,6 @@
 import type { HostExtension } from "../host-extensions.js";
 import { createAccessHostExtension } from "./access-host-extension.js";
+import { createAgentsHostExtension } from "./agents-host-extension.js";
 import { createClaudeCodeHostExtension } from "./claude-code/host-extension.js";
 import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
 import { createKeybindingsHostExtension } from "./keybindings-host-extension.js";
@@ -23,6 +24,7 @@ export function bundledHostExtensions(): HostExtension[] {
     createServiceTierHostExtension(),
     createQuestionnaireHostExtension(),
     createComputerUseHostExtension(),
+    createAgentsHostExtension(),
     createKeybindingsHostExtension(),
     createPiUiHostExtension(),
     createPackagesHostExtension(),
