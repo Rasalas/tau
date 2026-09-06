@@ -163,7 +163,6 @@ export interface ThreadCatalogWriteCapability {
 /** One short answer from a model of this runtime, outside the thread's conversation. */
 export interface ThreadCompletionCapability {
   complete(provider: string, modelId: string, request: CompletionRequest): Promise<string>;
-  completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
   /** The provider API of the thread's active model, e.g. "openai-responses". */
   modelApi(): string | undefined;
 }

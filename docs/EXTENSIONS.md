@@ -103,6 +103,14 @@ owns the thread; Thread Title Generator (`kits/thread-titles/pi.ts`) titles the
 thread with Pi's own model registry. Both are the same feature their host half
 provides in a runtime Tau owns.
 
+A kit words its own model requests. `HostThread` offers one completion seam,
+`complete(provider, modelId, { system, prompt, maxTokens })`, and the caller
+supplies both halves of the prompt; the title-shaped `completeTitle` it also
+carried until 1.3.0 is **gone**, because it obliged core to know how a kit
+phrases a title. Thread Title Generator keeps that wording once, in its own
+`protocol.ts`, and sends it through `complete` here and through
+`ctx.modelRegistry.complete` inside an attached Pi.
+
 ### The manifest
 
 ```json

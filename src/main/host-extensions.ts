@@ -268,8 +268,6 @@ export interface HostThread {
   isCurrent(): boolean;
   sessionName(): string | undefined;
   transcript(): Promise<UiMessage[]>;
-  /** Asks a model of the thread's runtime for a title of the given conversation. */
-  completeTitle(provider: string, modelId: string, conversation: string): Promise<string>;
   /** One short answer from a model of the thread's runtime, unrelated to the conversation. */
   complete(provider: string, modelId: string, request: { system: string; prompt: string; maxTokens?: number }): Promise<string>;
   /** The provider API of the thread's active model, e.g. "openai-responses". */

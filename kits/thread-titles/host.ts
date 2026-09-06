@@ -1,5 +1,5 @@
 import { buildTitleConversation, cleanThreadTitle, type HostExtension, type HostExtensionContext } from "tau/host-extension";
-import { THREAD_TITLES_HOST_EXTENSION_ID } from "./protocol.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT } from "./protocol.js";
 
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -49,7 +49,11 @@ export function createThreadTitlesHostExtension(): HostExtension {
         }
 
         services.log("title.started", `${provider}/${modelId}`);
-        const title = cleanThreadTitle(await thread.completeTitle(provider, modelId, conversation));
+        const title = cleanThreadTitle(await thread.complete(provider, modelId, {
+          system: TITLE_SYSTEM_PROMPT,
+          prompt: TITLE_USER_PROMPT(conversation),
+          maxTokens: 48,
+        }));
         if (!thread.isCurrent()) return undefined;
         await services.setThreadTitle(thread.sessionId, title, "generated");
         services.log("title.generated", title);
