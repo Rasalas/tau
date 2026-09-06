@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readdir, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -18,7 +18,7 @@ import {
 import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent } from "./file-content.js";
-import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "./protocol.js";
+import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createReviewRequestDetector } from "./review-request.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 
@@ -44,6 +44,24 @@ export function repositoryFolderName(repositoryUrl: string): string {
   const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
   const name = normalized.split(/[\\/:]/u).filter(Boolean).at(-1) ?? "repository";
   return name.replace(/[^a-z0-9._-]+/giu, "-") || "repository";
+}
+
+/**
+ * What a repository checks in about new threads. Nothing here is required, and
+ * a malformed file is no error: the client's own defaults answer instead.
+ */
+export async function readProjectDefaults(project: string): Promise<ProjectDefaults> {
+  try {
+    const raw = JSON.parse(await readFile(join(project, ".tau", "project.json"), "utf8")) as Record<string, unknown>;
+    const mode = raw.workspaceMode;
+    const setup = raw.runOnWorktreeCreate;
+    return {
+      ...(mode === "current" || mode === "worktree" ? { workspaceMode: mode } : {}),
+      ...(typeof setup === "string" && setup.trim() ? { runOnWorktreeCreate: setup.trim() } : {}),
+    };
+  } catch {
+    return {};
+  }
 }
 
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "dist-electron", ".next"]);
@@ -151,6 +169,28 @@ export function createWorkspaceHostExtension(): HostExtension {
         return refreshedChanges(project);
       };
 
+      /**
+       * The project's own `runOnWorktreeCreate`, run once in the new worktree.
+       * A setup that fails is reported and does not undo the worktree: the user
+       * can still work in it, which is what they asked for.
+       */
+      const runWorktreeSetup = async (project: string, worktree: string): Promise<void> => {
+        const { runOnWorktreeCreate } = await readProjectDefaults(project);
+        if (!runOnWorktreeCreate) return;
+        services.noteSubprocess();
+        try {
+          await execFileAsync("/bin/sh", ["-lc", runOnWorktreeCreate], {
+            cwd: worktree,
+            timeout: 10 * 60 * 1000,
+            maxBuffer: 4 * 1024 * 1024,
+            env: { ...process.env, TAU_PROJECT_ROOT: project, TAU_WORKTREE_PATH: worktree },
+          });
+          services.log("git.worktree.setup", runOnWorktreeCreate);
+        } catch (error) {
+          services.log("git.worktree.setup-failed", error instanceof Error ? error.message : String(error));
+        }
+      };
+
       // Project sources: browse, pick, clone. Opening the result is core's job.
       context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)));
       context.registerCommand("pick-folder", async () => {
@@ -249,21 +289,72 @@ export function createWorkspaceHostExtension(): HostExtension {
         const sessions = await services.sessions.list();
         return git.getWorktreeStatuses(canonical, sessions.map((session) => session.cwd));
       });
+      context.registerCommand("worktree-base", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const base = await workspaceGit.resolveWorktreeBase(project, {
+          ...(optionalString(input, "baseRef") ? { requested: optionalString(input, "baseRef") } : {}),
+          ...(record(input).startFromOrigin === undefined ? {} : { startFromOrigin: record(input).startFromOrigin !== false }),
+        });
+        return { ...base, shortCommit: base.commit.slice(0, 7) };
+      }, { long: true });
       context.registerCommand("create-worktree", async (input) => {
         // A pending draft may sit on another project than the host's thread.
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const branch = requiredString(input, "branch");
         const baseRef = optionalString(input, "baseRef");
+        const startFromOrigin = record(input).startFromOrigin;
         try {
-          const destination = await workspaceGit.createWorktree(project, branch, baseRef, (path) => git.getWorkspaceInfo(path));
+          const destination = await workspaceGit.createWorktree(project, branch, {
+            ...(baseRef ? { baseRef } : {}),
+            ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
+          }, (path) => git.getWorkspaceInfo(path));
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
+          await runWorktreeSetup(project, destination);
           return services.workspaceRef(destination);
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           throw error;
         }
+      }, { long: true });
+      context.registerCommand("worktree-removal-preview", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const path = requiredString(input, "path");
+        const info = await git.getWorkspaceInfo(project);
+        const tree = info.worktrees.find((candidate) => candidate.path === path);
+        if (!tree) throw new Error(`${path} is not a worktree of this project.`);
+        return workspaceGit.previewWorktreeRemoval(project, path, tree.branch);
+      });
+      context.registerCommand("remove-worktree", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const path = requiredString(input, "path");
+        const info = await git.getWorkspaceInfo(project);
+        const tree = info.worktrees.find((candidate) => candidate.path === path);
+        if (!tree || tree.isMain) throw new Error("Only a linked worktree can be removed.");
+        const sessions = await services.sessions.list();
+        const used = sessions.filter((session) => resolve(session.cwd) === resolve(path)).length;
+        if (used > 0) throw new Error(`${used} thread${used === 1 ? "" : "s"} still run in this worktree.`);
+        const branch = optionalString(input, "branch") ?? tree.branch;
+        await workspaceGit.removeWorktree(project, path, branch ? { branch } : {});
+        git.invalidate(project, ["branch", "status", "workspace"]);
+        services.log("git.worktree.removed", path);
+      }, { long: true });
+      context.registerCommand("ensure-worktree", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const path = requiredString(input, "path");
+        const info = await git.getWorkspaceInfo(project);
+        const branch = optionalString(input, "branch") ?? info.worktrees.find((tree) => tree.path === path)?.branch;
+        const recreated = await workspaceGit.ensureWorktree(project, path, branch);
+        if (recreated) {
+          git.invalidate(project, ["branch", "status", "workspace"]);
+          services.log("git.worktree.recreated", path);
+        }
+        return recreated;
+      }, { long: true });
+      context.registerCommand("project-defaults", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        return readProjectDefaults(project);
       });
       context.registerCommand("switch-ref", async (input) => {
         const project = cwd();

@@ -48,11 +48,19 @@ export function WorkspaceBarControl(_props: ComposerControlProps) {
     <WorkspaceBar
       info={state.workspace}
       busy={state.workspaceBusy}
+      {...(state.draftPending ? { mode: state.workspaceMode, onModeChange: (mode) => workspaceStore.setWorkspaceMode(mode) } : {})}
+      base={state.worktreeBase}
       onOpenWorktree={(path) => workspaceStore.openWorktree(path)}
       onCreateWorktree={(branch, baseRef) => workspaceStore.createWorktree(branch, baseRef)}
       onSwitchRef={(ref) => workspaceStore.switchRef(ref)}
-      onLoadWorktreeStatuses={() => workspaceStore.host.getWorktreeStatuses(state.cwd)}
+      onLoadWorktreeStatuses={async () => {
+        // One opening of the picker: the statuses and the base it offers.
+        void workspaceStore.loadWorktreeBase();
+        return workspaceStore.host.getWorktreeStatuses(state.cwd);
+      }}
       onSuggestName={state.canNameWorktrees ? (hint) => workspaceStore.suggestWorktreeName(hint) : undefined}
+      onPreviewRemoval={(tree) => workspaceStore.host.getWorktreeRemoval(tree.path, state.cwd)}
+      onRemoveWorktree={(tree) => workspaceStore.removeWorktree(tree.path, tree.branch)}
     />
   );
 }

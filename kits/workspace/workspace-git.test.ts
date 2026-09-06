@@ -24,8 +24,12 @@ import {
   parseUnifiedDiff,
   push,
   previewWorkspaceRestore,
+  ensureWorktree,
   readProjectGitState,
   readWorktreeStatuses,
+  removeWorktree,
+  resolveDefaultBaseRef,
+  resolveWorktreeBase,
   revertFile,
   restoreWorkspaceSnapshot,
   repositoryDisplayName,
@@ -883,12 +887,132 @@ describe("worktree classification", () => {
   });
 });
 
+describe("worktree base", () => {
+  const runner = (answers: Record<string, string>, calls: string[][] = []) => async (_cwd: string, args: string[]) => {
+    calls.push(args);
+    const answer = answers[args.join(" ")];
+    // `rev-parse --verify --quiet` exits non-zero for a ref that is not there.
+    if (answer === undefined || (answer === "" && args[0] === "rev-parse")) throw new Error(`no answer for ${args.join(" ")}`);
+    return answer;
+  };
+
+  it("reads the default branch from origin/HEAD and falls back down the list", async () => {
+    await expect(resolveDefaultBaseRef("/repo", runner({
+      "symbolic-ref --short refs/remotes/origin/HEAD": "origin/trunk\n",
+    }))).resolves.toBe("origin/trunk");
+
+    await expect(resolveDefaultBaseRef("/repo", runner({
+      "symbolic-ref --short refs/remotes/origin/HEAD": "",
+      "rev-parse --verify --quiet main": "abc\n",
+    }))).resolves.toBe("main");
+
+    // No remote and no conventional branch: this checkout's own branch answers.
+    await expect(resolveDefaultBaseRef("/repo", async (_cwd, args) => {
+      if (args[0] === "branch") return "work\n";
+      throw new Error("no such ref");
+    })).resolves.toBe("work");
+  });
+
+  it("starts from the fetched remote commit and falls back to the local base", async () => {
+    const calls: string[][] = [];
+    await expect(resolveWorktreeBase("/repo", { requested: "main" }, runner({
+      "remote": "origin\n",
+      "fetch --prune origin": "",
+      "rev-parse --verify --quiet origin/main^{commit}": "1111111111111111111111111111111111111111\n",
+    }, calls))).resolves.toEqual({
+      ref: "origin/main",
+      commit: "1111111111111111111111111111111111111111",
+      fromOrigin: true,
+    });
+    expect(calls).toContainEqual(["fetch", "--prune", "origin"]);
+
+    const local = await resolveWorktreeBase("/repo", { requested: "main" }, runner({
+      "remote": "origin\n",
+      "fetch --prune origin": "",
+      "rev-parse --verify --quiet main^{commit}": "2222222222222222222222222222222222222222\n",
+    }));
+    expect(local).toMatchObject({ ref: "main", fromOrigin: false });
+    expect(local.note).toContain("origin/main does not exist");
+
+    // Switched off, nothing is fetched at all.
+    const offline: string[][] = [];
+    await expect(resolveWorktreeBase("/repo", { requested: "main", startFromOrigin: false }, runner({
+      "remote": "origin\n",
+      "rev-parse --verify --quiet main^{commit}": "3333333333333333333333333333333333333333\n",
+    }, offline))).resolves.toMatchObject({ ref: "main", fromOrigin: false });
+    expect(offline.some((args) => args[0] === "fetch")).toBe(false);
+  });
+
+  it("keeps offering the local base when origin cannot be reached", async () => {
+    const base = await resolveWorktreeBase("/repo", { requested: "main" }, async (_cwd, args) => {
+      if (args[0] === "remote") return "origin\n";
+      if (args[0] === "fetch") throw new Error("could not read from remote repository");
+      if (args.join(" ") === "rev-parse --verify --quiet main^{commit}") return "4444444444444444444444444444444444444444\n";
+      throw new Error(`no answer for ${args.join(" ")}`);
+    });
+    expect(base).toMatchObject({ ref: "main", fromOrigin: false });
+    expect(base.note).toContain("origin is unreachable");
+  });
+
+  it("refuses a base that names no commit", async () => {
+    await expect(resolveWorktreeBase("/repo", { requested: "nope", startFromOrigin: false }, runner({
+      "remote": "",
+    }))).rejects.toThrow(/The worktree base "nope" does not exist/u);
+  });
+});
+
+describe("a worktree whose folder vanished", () => {
+  it("is recreated on open, and an existing one is left alone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-worktree-gone-"));
+    const cwd = join(root, "project");
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main", cwd]);
+      execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "first"], { cwd });
+      const linked = join(root, "worktrees", "feat");
+      execFileSync("git", ["worktree", "add", "-q", "-b", "feat", linked, "HEAD"], { cwd });
+
+      await expect(ensureWorktree(cwd, linked, "feat")).resolves.toBe(false);
+      await rm(linked, { recursive: true, force: true });
+      await expect(ensureWorktree(cwd, linked, "feat")).resolves.toBe(true);
+      await expect(stat(join(linked, ".git")).then(() => true)).resolves.toBe(true);
+
+      // Without a branch there is nothing to check out again, and guessing would be wrong.
+      await rm(linked, { recursive: true, force: true });
+      await expect(ensureWorktree(cwd, linked, undefined)).rejects.toThrow(/no branch names what it held/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("worktree removal", () => {
+  it("removes the worktree and its branch, and prunes when the folder is already gone", async () => {
+    const calls: string[][] = [];
+    await removeWorktree("/repo", "/repo-worktrees/feat", { branch: "feat" }, async (_cwd, args) => {
+      calls.push(args);
+      return "";
+    });
+    expect(calls).toEqual([
+      ["worktree", "remove", "--force", "/repo-worktrees/feat"],
+      ["branch", "-D", "feat"],
+    ]);
+
+    const pruned: string[][] = [];
+    await removeWorktree("/repo", "/repo-worktrees/gone", {}, async (_cwd, args) => {
+      pruned.push(args);
+      if (args[1] === "remove") throw new Error("is not a working tree");
+      return "";
+    });
+    expect(pruned.map((args) => args.slice(0, 2))).toContainEqual(["worktree", "prune"]);
+  });
+});
+
 describe("worktree creation", () => {
   it("creates a new branch from freshly fetched origin/main", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
     const calls: string[][] = [];
     try {
-      const destination = await createWorktree(cwd, "feat/fresh-main", "origin/main", async () => ({
+      const destination = await createWorktree(cwd, "feat/fresh-main", { baseRef: "origin/main" }, async () => ({
         root: cwd,
         isRepo: true,
         isDirty: true,
@@ -906,9 +1030,9 @@ describe("worktree creation", () => {
 
       expect(destination).toBe(join(cwd, "worktrees", "feat-fresh-main"));
       expect(calls).toContainEqual(["fetch", "--prune", "origin"]);
-      expect(calls.at(-1)).toEqual([
-        "worktree", "add", "-b", "feat/fresh-main", destination, "origin/main",
-      ]);
+      expect(calls).toContainEqual(["worktree", "add", "-b", "feat/fresh-main", destination, "origin/main"]);
+      // The base a later diff compares against is recorded on the branch.
+      expect(calls).toContainEqual(["config", "branch.feat/fresh-main.tau-base", "origin/main"]);
       expect(calls.findIndex((args) => args[0] === "fetch"))
         .toBeLessThan(calls.findIndex((args) => args[0] === "worktree"));
     } finally {
@@ -920,7 +1044,7 @@ describe("worktree creation", () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
     const calls: string[][] = [];
     try {
-      await createWorktree(cwd, "feat/local-main", "main", async () => ({
+      await createWorktree(cwd, "feat/local-main", { baseRef: "main", startFromOrigin: false }, async () => ({
         root: cwd,
         isRepo: true,
         isDirty: false,
@@ -937,7 +1061,7 @@ describe("worktree creation", () => {
       });
 
       expect(calls.some((args) => args[0] === "fetch")).toBe(false);
-      expect(calls.at(-1)?.at(-1)).toBe("main");
+      expect(calls.find((args) => args[0] === "worktree")?.at(-1)).toBe("main");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -947,7 +1071,7 @@ describe("worktree creation", () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
     const calls: string[][] = [];
     try {
-      await expect(createWorktree(cwd, "feat/offline", "origin/main", async () => ({
+      await expect(createWorktree(cwd, "feat/offline", { baseRef: "origin/main" }, async () => ({
         root: cwd,
         isRepo: true,
         isDirty: false,

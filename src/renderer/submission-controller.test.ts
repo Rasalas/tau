@@ -35,6 +35,7 @@ function harness(options: {
   snapshot?: HostSnapshot;
   pending?: NewThreadDraft;
   slash?: ReturnType<ExtensionRegistry["findSlashCommand"]>;
+  prepareNewThread?: ExtensionRegistry["prepareNewThread"];
 } = {}) {
   const client = createFakeHostClient(options.client);
   const view = new ThreadViewStore(options.snapshot ?? SESSION_SNAPSHOT);
@@ -42,9 +43,11 @@ function harness(options: {
   threads.setActiveThread((options.snapshot ?? SESSION_SNAPSHOT).sessionId);
   const scopes = new ComposerScopeStore();
   const promptHooks = vi.fn(async () => undefined);
+  const prepareNewThread = options.prepareNewThread ?? vi.fn(async () => undefined);
   const registry = {
     findSlashCommand: () => options.slash,
     notifyPromptSubmitted: promptHooks,
+    prepareNewThread,
   } as unknown as ExtensionRegistry;
   const state = {
     pending: options.pending,
@@ -213,6 +216,35 @@ describe("SubmissionController", () => {
     expect(state.pending).toBeUndefined();
     expect(scopes.getSnapshot(createDraftKey(draftKey("created"))).draft).toBe("first message");
     expect(promptHooks).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a new thread's first prompt to the workspace a gate named, and stays put when none does", async () => {
+    const prepared: string[] = [];
+    const prepareNewThread = vi.fn(async (event: { prompt: string; preparing(message: string): void }) => {
+      event.preparing("Setting up worktree…");
+      return { workspace: { workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix-queue" } };
+    }) as unknown as ExtensionRegistry["prepareNewThread"];
+    const { submission, state, view } = harness({
+      pending: DRAFT,
+      prepareNewThread,
+      client: {
+        newSession: async (...args: unknown[]) => {
+          prepared.push(String(args[2]));
+          return { version: 1, submission: { accepted: true }, sessionId: "created", updates: [] };
+        },
+      } as Partial<HostClient>,
+    });
+
+    await submission.submit({ text: "fix the queue" });
+
+    expect(prepared).toEqual(["ws1_worktree"]);
+    expect(state.pending?.projectPath).toBe("/project-worktrees/fix-queue");
+    // The line the gate showed while it worked is gone once the thread starts.
+    expect(view.getOptimisticMessages().some((entry) => entry.message.role === "notice")).toBe(false);
+
+    const untouched = harness({ pending: DRAFT, client: { newSession: async () => ({ version: 1, submission: { accepted: true }, sessionId: "created2", updates: [] }) } });
+    await untouched.submission.submit({ text: "fix the queue" });
+    expect(untouched.client.calls.find((call) => call.method === "newSession")?.args[2]).toBe("/project");
   });
 
   it("puts a rejected first message back into the draft it came from", async () => {

@@ -9,6 +9,15 @@ export const AGENTS_HOST_EXTENSION_ID = "tau.agents";
 /** Pushed whenever an agent appears, changes status or goes away. */
 export const AGENTS_STATE_EVENT = "state";
 
+/** Commands the panel's two row actions send to the host half. */
+export interface AgentsHostCommands {
+  "state": { input: undefined; output: AgentsState };
+  /** Takes a child's work into the parent's checkout and removes the child's worktree. */
+  "apply-changes": { input: { threadId: string }; output: { detail: string } };
+  /** Throws the child's worktree away, work and branch included. */
+  "discard-changes": { input: { threadId: string }; output: { detail: string } };
+}
+
 /**
  * Custom entry the parent's session carries: one thread it spawned. The child's
  * half of the link is core's: `sessions.start({ parent })` writes it and the
@@ -19,6 +28,23 @@ export const AGENT_CHILD_ENTRY = "tau.agents/child";
 
 /** `pending` is queued behind the parent's running budget; it has no thread yet. */
 export type AgentThreadStatus = "pending" | "running" | "waiting" | "idle" | "completed" | "failed";
+
+/**
+ * Where a spawned thread works: in the parent's own checkout, or in a worktree
+ * of its own that starts from the parent's current state.
+ */
+export type AgentWorkspaceMode = "shared" | "worktree";
+
+/** A child's checkout and what it changed there, once it has one. */
+export interface AgentWorkspace {
+  mode: AgentWorkspaceMode;
+  path: string;
+  branch?: string;
+  /** Reread when the child settles, and after the parent applied its work. */
+  changes?: { files: number; added: number; removed: number; commits: number; uncommitted: number };
+  /** Set once the parent applied or discarded the work; the worktree is gone then. */
+  settled?: "applied" | "discarded";
+}
 
 /** One agent a thread spawned, as the tools and the Agents panel see it. */
 export interface AgentThreadLink {
@@ -38,6 +64,8 @@ export interface AgentThreadLink {
   title: string;
   /** Model as `provider/id`, when it differs from the host default. */
   model?: string;
+  /** The checkout this agent works in; absent while it shares the parent's. */
+  workspace?: AgentWorkspace;
   status: AgentThreadStatus;
   /** Last tool the agent ran, for the panel's progress line. */
   lastTool?: string;

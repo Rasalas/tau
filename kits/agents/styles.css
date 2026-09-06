@@ -42,9 +42,16 @@
 }
 .agent-row.status-failed .agent-row-activity { color: #d98a7c; }
 .agent-row-meta {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0;
   font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden; white-space: nowrap;
 }
+/* The actions keep their room; only the metadata before them is truncated. */
+.agent-row-meta-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agent-row-actions { display: inline-flex; flex: none; gap: 8px; margin-left: auto; }
+.agent-row-actions > [role="button"] { color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }
+.agent-row-actions > [role="button"]:hover { color: var(--ink); }
+
 .agents-empty {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; padding: 24px; text-align: center; color: var(--faint);

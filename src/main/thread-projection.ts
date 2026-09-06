@@ -22,6 +22,30 @@ import type { HostThread } from "./host-extensions.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { isPiBackend, isThreadRuntime, type ThreadRuntime } from "./thread-runtime.js";
 
+/** One message entry of a branch, in the shape the transcript maps. */
+export interface BranchRecord {
+  record: Record<string, unknown>;
+  /** The runtime's own message object; the key the client-turn ledger correlates on. */
+  raw?: object;
+}
+
+/**
+ * Projects the message entries of a branch, resolving each user turn's client
+ * message id from the markers beside it. A live thread reads its runtime's
+ * journal and a released one its session file, and both arrive here.
+ */
+export function branchRecords(entries: readonly unknown[], skillNames: Iterable<string>): BranchRecord[] {
+  const messages = branchMessagesWithClientMessageIds(entries, skillNames);
+  let messageIndex = 0;
+  return entries.flatMap((entry) => {
+    const typed = entry as { type?: unknown; id?: unknown; message?: unknown };
+    if (typed.type !== "message") return [];
+    const projected = messages[messageIndex++] as Record<string, unknown>;
+    const raw = typed.message && typeof typed.message === "object" ? typed.message as object : undefined;
+    return [{ record: { ...projected, tauEntryId: typed.id }, ...(raw ? { raw } : {}) }];
+  });
+}
+
 export class ThreadProjection {
   private readonly pinnedCache = new WeakMap<ThreadRuntime, { size: number; leaf: unknown; pinned: ReadonlySet<string> }>();
 
@@ -59,16 +83,9 @@ export class ThreadProjection {
   }
 
   branchMessages(thread: ThreadRuntime): unknown[] {
-    const entries = thread.entries;
-    const messages = branchMessagesWithClientMessageIds(entries, knownSkillNames(this.composerCommands(thread)));
-    let messageIndex = 0;
-    return entries.flatMap((entry) => {
-      const typed = entry as { type?: unknown; id?: unknown };
-      if (typed.type !== "message") return [];
-      const rawMessage = (entry as { message?: unknown }).message;
-      const projected = messages[messageIndex++] as Record<string, unknown>;
-      const mapped = mapMessage({ ...projected, tauEntryId: typed.id }, messageIndex - 1, this.mapping(thread));
-      const raw = rawMessage && typeof rawMessage === "object" ? rawMessage : undefined;
+    const records = branchRecords(thread.entries, knownSkillNames(this.composerCommands(thread)));
+    return records.map(({ record, raw }, index) => {
+      const mapped = mapMessage(record, index, this.mapping(thread));
       const identity = mapped?.role === "user"
         ? resolveClientTurnIdentity(
           mapped,
@@ -76,7 +93,7 @@ export class ThreadProjection {
         )
         : undefined;
       if (identity && raw && mapped) this.clientTurns.remember(thread.threadId, mapped, identity, raw);
-      return [{ ...projected, tauEntryId: typed.id, ...(identity ?? {}) }];
+      return { ...record, ...(identity ?? {}) };
     });
   }
 
@@ -113,12 +130,19 @@ export class ThreadProjection {
     const leaf = entries.at(-1);
     const cached = this.pinnedCache.get(thread);
     if (cached && cached.size === entries.length && cached.leaf === leaf) return cached.pinned;
+    const pinned = this.pinsFor(this.hostThread(thread));
+    this.pinnedCache.set(thread, { size: entries.length, leaf, pinned });
+    return pinned;
+  }
+
+  /** What the registered providers pin for one thread, live or read from a file. */
+  pinsFor(thread: HostThread): ReadonlySet<string> {
+    if (this.entryPinProviders.size === 0) return EMPTY_PINS;
     const pinned = new Set<string>();
     for (const provider of this.entryPinProviders) {
-      try { for (const id of provider(this.hostThread(thread))) pinned.add(id); }
+      try { for (const id of provider(thread)) pinned.add(id); }
       catch (error) { this.reportPinFailure(error); }
     }
-    this.pinnedCache.set(thread, { size: entries.length, leaf, pinned });
     return pinned;
   }
 

@@ -41,7 +41,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
   const scrollRef = useRef<HTMLDivElement>(null);
   // Two reload signals besides the poll: the index entry the host republishes
   // when a background turn settles, and the moment this thread becomes the one
-  // on screen — which is when the host is holding its runtime again.
+  // on screen.
   const revision = `${session?.modifiedAt ?? 0}:${session?.messageCount ?? 0}:${activity.activeThreadId === sessionId}`;
 
   useEffect(() => {
@@ -88,9 +88,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
     {!session
       ? <div className="stage-empty" role="status">This thread is not in the index any more. It may have been deleted or pruned.</div>
       : state.error
-        // The host only reads a transcript it is holding a runtime for, and it
-        // releases the least recently used one. Take over opens the thread again.
-        ? <div className="stage-empty" role="status">{state.error} Take over makes it the thread on screen and loads it.</div>
+        ? <div className="stage-empty" role="status">{state.error}</div>
         : !state.loaded
           ? <div className="stage-empty" role="status">Loading the transcript…</div>
           : state.messages.length === 0

@@ -19,8 +19,10 @@ import {
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_REVIEW_OVERLAY,
   type CommitMessageSuggester,
+  type ProjectDefaults,
   type WorkspaceHostClient,
   type WorkspaceKitState,
+  type WorkspaceMode,
   type WorkspaceStoreApi,
   type WorktreeNamer,
 } from "./protocol.js";
@@ -41,7 +43,23 @@ const INITIAL: WorkspaceKitState = {
   commitFocusToken: 0,
   turnSettled: false,
   canNameWorktrees: false,
+  workspaceMode: "current",
+  preparingWorktree: false,
 };
+
+/** The user's global answer for where a new thread runs. */
+export const NEW_THREAD_WORKSPACE_KEY = "new-thread-workspace";
+/** Whether a new worktree starts from the freshly fetched remote; on by default. */
+export const START_FROM_ORIGIN_OPTION = "start-from-origin";
+
+/** A project's own override of the global default, kept per checkout. */
+export function projectWorkspaceModeKey(root: string): string {
+  return `workspace-mode:${root}`;
+}
+
+function asMode(value: string | undefined): WorkspaceMode | undefined {
+  return value === "current" || value === "worktree" ? value : undefined;
+}
 
 function readBaseline(sessionId: string): UiWorkspaceChanges | undefined {
   try {
@@ -77,6 +95,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private workspaceRequest = 0;
   private sessionId?: string;
   private namer?: WorktreeNamer;
+  private defaults?: ProjectDefaults;
   private commitMessageSuggester?: CommitMessageSuggester;
 
   constructor(
@@ -131,6 +150,61 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (next.cwd && (projectChanged || threadChanged)) {
       void this.refreshChanges();
       void this.refreshWorkspace();
+    }
+    if (next.cwd && projectChanged) {
+      this.defaults = undefined;
+      this.update({ workspaceMode: this.defaultWorkspaceMode(), worktreeBase: undefined });
+      void this.loadProjectDefaults();
+    }
+  }
+
+  /**
+   * Where a new thread of this project runs when nobody chose: the project's
+   * own answer beats the checked-in one, and both beat the global default.
+   */
+  private defaultWorkspaceMode(): WorkspaceMode {
+    const root = this.state.cwd;
+    const own = root ? asMode(this.preferences.value(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root))) : undefined;
+    return own ?? this.defaults?.workspaceMode ?? asMode(this.preferences.value(WORKSPACE_KIT_ID, NEW_THREAD_WORKSPACE_KEY)) ?? "current";
+  }
+
+  /** `.tau/project.json`, read once per project. */
+  private async loadProjectDefaults(): Promise<void> {
+    if (!hostAvailable()) return;
+    const cwd = this.state.cwd;
+    try {
+      const defaults = await this.host.getProjectDefaults(this.workspace());
+      if (cwd !== this.state.cwd) return;
+      this.defaults = defaults;
+      this.update({ workspaceMode: this.defaultWorkspaceMode() });
+    } catch { /* a project without the file simply has no answer */ }
+  }
+
+  workspaceMode(): WorkspaceMode {
+    return this.state.draftPending ? this.state.workspaceMode : "current";
+  }
+
+  /** The choice is this draft's, and is remembered as the project's default. */
+  setWorkspaceMode(mode: WorkspaceMode): void {
+    const root = this.state.cwd;
+    if (root) this.preferences.setValue(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root), mode);
+    this.update({ workspaceMode: mode });
+  }
+
+  /** Whether a new worktree starts from the freshly fetched remote commit. */
+  startFromOrigin(): boolean {
+    return this.preferences.optionValue(WORKSPACE_KIT_ID, START_FROM_ORIGIN_OPTION, true);
+  }
+
+  /** Where a new worktree would start; read when the picker opens, never on every render. */
+  async loadWorktreeBase(): Promise<void> {
+    if (!hostAvailable() || !this.state.workspace?.isRepo) return;
+    const cwd = this.state.cwd;
+    try {
+      const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin: this.startFromOrigin() });
+      if (cwd === this.state.cwd) this.update({ worktreeBase: base });
+    } catch (error) {
+      if (cwd === this.state.cwd) this.notify(errorMessage(error));
     }
   }
 
@@ -334,7 +408,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const release = this.actions.holdComposer();
     this.update({ workspaceBusy: true });
     try {
-      const created = await this.host.createWorktree(branch, baseRef, this.workspace());
+      const created = await this.host.createWorktree(branch, { ...(baseRef ? { baseRef } : {}), startFromOrigin: this.startFromOrigin() }, this.workspace());
       return await this.actions.openWorkspace(created.workspaceId, { inheritDraft: true });
     } catch (error) {
       this.notify(errorMessage(error));
@@ -342,6 +416,67 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     } finally {
       this.update({ workspaceBusy: false });
       release();
+    }
+  }
+
+  /**
+   * The worktree a new thread runs in, created while its first prompt waits.
+   * Anything that goes wrong leaves the thread in the checkout it was started
+   * from: a prompt is never lost to a worktree that could not be made.
+   */
+  async prepareThreadWorktree(event: {
+    prompt: string;
+    preparing(message: string): void;
+  }): Promise<{ workspace?: { workspaceId: string; displayPath: string } }> {
+    if (this.workspaceMode() !== "worktree" || !this.state.workspace?.isRepo || !hostAvailable()) return {};
+    this.update({ preparingWorktree: true });
+    try {
+      event.preparing("Setting up worktree…");
+      const branch = await this.threadBranchName(event.prompt);
+      const created = await this.host.createWorktree(branch, { startFromOrigin: this.startFromOrigin() }, this.workspace());
+      return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
+    } catch (error) {
+      this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);
+      return {};
+    } finally {
+      this.update({ preparingWorktree: false });
+    }
+  }
+
+  /**
+   * A branch for the thread that is starting. The naming extension reads the
+   * whole first prompt, which T3 Code cannot: it names the branch afterwards,
+   * from the first message it already sent. Without that extension the branch
+   * is `tau/<8 hex>`, which the user can rename later.
+   */
+  private async threadBranchName(prompt: string): Promise<string> {
+    const taken = this.state.workspace?.refs.map((ref) => ref.name) ?? [];
+    if (this.namer && this.actions) {
+      try {
+        const named = await this.namer({ hint: "", description: prompt, taken, actions: this.actions });
+        if (named) return named;
+      } catch { /* the fallback name is always available */ }
+    }
+    for (;;) {
+      const candidate = `tau/${Math.random().toString(16).slice(2, 10)}`;
+      if (!taken.includes(candidate)) return candidate;
+    }
+  }
+
+  /** Removes a worktree the user no longer wants, after they saw what it holds. */
+  async removeWorktree(path: string, branch?: string): Promise<boolean> {
+    if (!this.requireHost("Worktrees")) return false;
+    this.update({ workspaceBusy: true });
+    try {
+      await this.host.removeWorktree(path, branch, this.workspace());
+      await this.refreshWorkspace();
+      this.notify(`Removed ${path}.`);
+      return true;
+    } catch (error) {
+      this.notify(errorMessage(error));
+      return false;
+    } finally {
+      this.update({ workspaceBusy: false });
     }
   }
 
@@ -380,9 +515,20 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref)); }
+  /** A worktree whose folder vanished is recreated rather than refused. */
   async openWorktree(path: string): Promise<boolean> {
     if (path === this.state.cwd) return true;
-    return this.actions ? this.actions.openWorkspace(path) : false;
+    if (!this.actions) return false;
+    if (hostAvailable()) {
+      const branch = this.state.workspace?.worktrees.find((tree) => tree.path === path)?.branch;
+      try {
+        if (await this.host.ensureWorktree(path, branch, this.workspace())) this.notify(`Recreated ${path}.`);
+      } catch (error) {
+        this.notify(errorMessage(error));
+        return false;
+      }
+    }
+    return this.actions.openWorkspace(path);
   }
 }
 

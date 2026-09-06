@@ -77,6 +77,8 @@ export type {
   ProjectSourceProps,
   CommandContribution,
   CommandSurface,
+  NewThreadPromptEvent,
+  NewThreadPromptGate,
   PromptHookContribution,
   PromptRendererContribution,
   PromptRendererProps,

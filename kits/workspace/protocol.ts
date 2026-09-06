@@ -22,6 +22,39 @@ import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-t
 
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 
+/** Where a new worktree starts, as the picker shows it. */
+export interface UiWorktreeBase {
+  ref: string;
+  commit: string;
+  shortCommit: string;
+  /** The commit came from a freshly fetched remote-tracking ref. */
+  fromOrigin: boolean;
+  /** Why the base is not the one that was asked for. */
+  note?: string;
+}
+
+/** What removing a worktree would lose. */
+export interface UiWorktreeRemoval {
+  path: string;
+  branch?: string;
+  dirtyFiles: number;
+  ahead: number;
+}
+
+/**
+ * What a project says about new threads, from `.tau/project.json`. A repository
+ * can check the answer in, the way T3 Code reads `t3.json`.
+ */
+export interface ProjectDefaults {
+  /** Where a new thread runs: the checkout it was started from, or its own worktree. */
+  workspaceMode?: WorkspaceMode;
+  /** Shell command run in a new worktree, with TAU_PROJECT_ROOT and TAU_WORKTREE_PATH. */
+  runOnWorktreeCreate?: string;
+}
+
+/** Per-thread workspace choice, made before the first turn and locked after it. */
+export type WorkspaceMode = "current" | "worktree";
+
 /** Published for every checkpoint the host records or whose capture status changes. */
 export const CHECKPOINT_EVENT = "checkpoint";
 
@@ -79,8 +112,18 @@ export interface WorkspaceHostCommands {
   "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceInfo };
   /** Reads every linked checkout only when the picker needs cleanup safety facts. */
   "worktree-statuses": { input: { workspace?: string } | undefined; output: UiWorktreeStatus[] };
+  /** Where a new worktree would start: the base ref, the commit it resolves to, and whether that came from origin. */
+  "worktree-base": { input: { workspace?: string; baseRef?: string; startFromOrigin?: boolean } | undefined; output: UiWorktreeBase };
   /** Adds a worktree next to `workspace` (the host's own by default) and answers with its identity; opening it is the caller's move. */
-  "create-worktree": { input: { branch: string; baseRef?: string; workspace?: string }; output: WorkspaceRef };
+  "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; workspace?: string }; output: WorkspaceRef };
+  /** What removing a worktree would lose: uncommitted files and commits beyond its base. */
+  "worktree-removal-preview": { input: { path: string; workspace?: string }; output: UiWorktreeRemoval };
+  /** Removes a linked worktree and the branch it held; the caller confirmed what the preview named. */
+  "remove-worktree": { input: { path: string; branch?: string; workspace?: string }; output: void };
+  /** Recreates a worktree whose folder vanished, so opening it still works; `true` when it had to. */
+  "ensure-worktree": { input: { path: string; branch?: string; workspace?: string }; output: boolean };
+  /** Defaults a project checks in under `.tau/project.json`, plus this client's own. */
+  "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   "open-in-editor": { input: { editorId: string; relPath?: string }; output: void };
@@ -116,7 +159,12 @@ export interface WorkspaceHostClient {
   push(): Promise<PushResult>;
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
-  createWorktree(branch: string, baseRef?: string, workspace?: string): Promise<WorkspaceRef>;
+  getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
+  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean }, workspace?: string): Promise<WorkspaceRef>;
+  getWorktreeRemoval(path: string, workspace?: string): Promise<UiWorktreeRemoval>;
+  removeWorktree(path: string, branch?: string, workspace?: string): Promise<void>;
+  ensureWorktree(path: string, branch?: string, workspace?: string): Promise<boolean>;
+  getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string): Promise<void>;
@@ -148,7 +196,12 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     push: () => call("push", undefined),
     getWorkspaceInfo: (workspace) => call("workspace-info", workspace === undefined ? undefined : { workspace }),
     getWorktreeStatuses: (workspace) => call("worktree-statuses", workspace === undefined ? undefined : { workspace }),
-    createWorktree: (branch, baseRef, workspace) => call("create-worktree", { branch, baseRef, workspace }),
+    getWorktreeBase: (workspace, options) => call("worktree-base", { workspace, ...options }),
+    createWorktree: (branch, options, workspace) => call("create-worktree", { branch, ...options, workspace }),
+    getWorktreeRemoval: (path, workspace) => call("worktree-removal-preview", { path, workspace }),
+    removeWorktree: (path, branch, workspace) => call("remove-worktree", { path, branch, workspace }),
+    ensureWorktree: (path, branch, workspace) => call("ensure-worktree", { path, branch, workspace }),
+    getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath) => call("open-in-editor", { editorId, relPath }),
@@ -191,6 +244,12 @@ export interface WorkspaceKitState {
   review?: { path?: string; primaryPush: boolean };
   /** An extension offers to name new worktrees. */
   canNameWorktrees: boolean;
+  /** Where the next thread of this draft runs; locked once the thread exists. */
+  workspaceMode: WorkspaceMode;
+  /** Where a new worktree would start, as the picker shows it. */
+  worktreeBase?: UiWorktreeBase;
+  /** A worktree is being created for the thread that is starting. */
+  preparingWorktree: boolean;
 }
 
 export interface WorktreeNameRequest {
@@ -218,6 +277,9 @@ export type CommitMessageSuggester = (request: {
  */
 export interface WorkspaceStoreApi {
   getSnapshot(): WorkspaceKitState;
+  /** Where a new thread of the followed project runs, and the choice for the pending draft. */
+  workspaceMode(): WorkspaceMode;
+  setWorkspaceMode(mode: WorkspaceMode): void;
   subscribe(listener: () => void): () => void;
   activeEditor(): UiEditor | undefined;
   openReview(path?: string, pushPrimary?: boolean): void;

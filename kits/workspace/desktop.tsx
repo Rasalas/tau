@@ -16,7 +16,7 @@ import { registerCheckpoints } from "./checkpoints.js";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
 import { CloneProjectSource, LocalFolderSource, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel } from "./panels.js";
-import { WorkspaceStore } from "./store.js";
+import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { WorkspaceTitleActions } from "./title.js";
 
@@ -97,7 +97,20 @@ export const workspaceExtension: DesktopExtension = {
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.
     registerCheckpoints(context, store);
+    // A new thread's worktree is created while its first prompt waits (ADR 0017).
+    context.registerPromptHook({
+      id: "workspace.new-thread-worktree",
+      beforeNewThread: (event) => store.prepareThreadWorktree(event),
+    });
     context.registerOptions([
+      { id: START_FROM_ORIGIN_OPTION, kind: "toggle", label: "New worktrees start from origin", defaultValue: true },
+      {
+        id: NEW_THREAD_WORKSPACE_KEY,
+        kind: "select",
+        label: "New threads run in",
+        values: [{ value: "current", label: "Current checkout" }, { value: "worktree", label: "A new worktree" }],
+        defaultValue: "current",
+      },
       { id: "group-by-project", kind: "toggle", label: "Group threads by project instead of recency", defaultValue: false },
       { id: "show-settled", kind: "toggle", label: "Show settled shelf", defaultValue: true },
       { id: "compact-rows", kind: "toggle", label: "Compact rows in the thread rail", defaultValue: false },

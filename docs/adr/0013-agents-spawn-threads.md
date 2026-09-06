@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted, 2026-09-06.
+Accepted, 2026-09-06. Amended 2026-09-06: a released thread's transcript is read
+from its session file (see below).
 
 ## Context
 
@@ -199,10 +200,9 @@ the "Show agent threads" toggle is gone. The Agents panel is the list of
 sub-agents, and the stage is where you read one; the transcript header still
 names the thread you are in and links back to its parent.
 
-The tab reads through `transcript-page`, which the host answers only for a
-thread it is still holding a runtime for. That is the one rough edge: past six
-live threads the least recently used one is released, and its tab says so and
-offers Take over, which opens it again.
+The tab reads through `transcript-page`, which at first the host answered only
+for a thread it was still holding a runtime for. The fourth amendment removes
+that rough edge.
 
 ## Consequences
 
@@ -229,3 +229,25 @@ offers Take over, which opens it again.
   them, and it costs the user the conversation they were reading). We rejected
   putting `parentThreadId` in `UiSession` and then reversed that; see the second
   amendment for why.
+
+## Amendment, 2026-09-06: a transcript outlives its runtime
+
+A thread's transcript is in its session file, not in the runtime, so refusing to
+read one because no runtime holds it was a host limitation rather than a fact
+about the thread. With `MAX_LIVE_THREADS` at six and fifty agents in a run, that
+refusal was the common case: most open tabs read "That thread is not open any
+more".
+
+`PiHost.loadTranscript` now answers for a thread without a runtime by projecting
+its session file — `SessionManager.open(path).getBranch()` through the same
+projection the live path uses (`branchRecords`, `mapMessage`, `localTranscriptPage`).
+Paging, cursors, task and turn-activity history, entry pins and client-message
+correlation are the live path's, not a second implementation of them; the live
+path itself is unchanged. `read-tool-output` follows the same fallback, so "copy
+full output" works in a released thread's tab too. The tab drops its "Take over
+makes it load" hint, and an error there now means the file itself is gone.
+
+An extension's `pinTranscriptEntries` provider is therefore also called with a
+thread the host has only a file for: it answers `sessionId`, `cwd`,
+`sessionFile`, `parentThreadId`, `sessionName()`, `entries()` and `transcript()`,
+and throws from the members that need a runtime.

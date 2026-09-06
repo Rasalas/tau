@@ -13,7 +13,7 @@
 import { build } from "esbuild";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, relative as relativeTo, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MAIN = join(ROOT, "dist-electron/main");
@@ -35,9 +35,9 @@ const OUTPUT = directoryOption("out", join(ROOT, "dist-kits"));
 const INDEX_FILE = "manifest.json";
 const watch = process.argv.includes("--watch");
 
-const { MANIFEST_FILE, bundleHostExtension, bundlePiExtension, parseExtensionManifest } = await import(join(MAIN, "extension-packages.js"));
-const { bundleDesktopExtension } = await import(join(MAIN, "desktop-extensions.js"));
-const { SHARED_MODULE_PACKAGES } = await import(join(ROOT, "dist-electron/shared/shared-modules.js"));
+const { MANIFEST_FILE, bundleHostExtension, bundlePiExtension, parseExtensionManifest } = await import(pathToFileURL(join(MAIN, "extension-packages.js")).href);
+const { bundleDesktopExtension } = await import(pathToFileURL(join(MAIN, "desktop-extensions.js")).href);
+const { SHARED_MODULE_PACKAGES } = await import(pathToFileURL(join(ROOT, "dist-electron/shared/shared-modules.js")).href);
 
 /**
  * Export names of the modules a desktop bundle imports by bare name. The

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Folder, FolderGit2, GitBranch, History, Plus, Search, Sparkles } from "lucide-react";
+import { ChevronDown, Folder, FolderGit2, GitBranch, History, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { VirtualList, type UiWorktree, type UiWorktreeStatus, type WorkspaceInfo } from "tau";
+import type { UiWorktreeBase, UiWorktreeRemoval, WorkspaceMode } from "./protocol.js";
 
 type OpenPanel = "workspace" | "refs" | undefined;
 
@@ -40,20 +41,32 @@ function worktreeStatusLabel(status?: UiWorktreeStatus, loading = false): string
 export function WorkspaceBar({
   info,
   busy,
+  mode,
+  base,
   onOpenWorktree,
   onCreateWorktree,
   onSwitchRef,
   onLoadWorktreeStatuses,
   onSuggestName,
+  onModeChange,
+  onRemoveWorktree,
+  onPreviewRemoval,
 }: {
   info?: WorkspaceInfo;
   busy: boolean;
+  /** Set while a draft may still choose where its thread runs; absent once it has one. */
+  mode?: WorkspaceMode;
+  /** Where a new worktree would start; undefined until the picker asked. */
+  base?: UiWorktreeBase;
   onOpenWorktree(path: string): Promise<boolean>;
   onCreateWorktree(branch: string, baseRef: string): Promise<boolean>;
   onSwitchRef(ref: string): Promise<boolean>;
   onLoadWorktreeStatuses(): Promise<UiWorktreeStatus[]>;
   /** Present while an extension can name a worktree from the task; resolves undefined when it could not. */
   onSuggestName?(hint: string): Promise<string | undefined>;
+  onModeChange?(mode: WorkspaceMode): void;
+  onRemoveWorktree?(tree: UiWorktree): Promise<boolean>;
+  onPreviewRemoval?(tree: UiWorktree): Promise<UiWorktreeRemoval>;
 }) {
   const [open, setOpen] = useState<OpenPanel>();
   const [naming, setNaming] = useState(false);
@@ -63,6 +76,7 @@ export function WorkspaceBar({
   const [refCursor, setRefCursor] = useState(0);
   const [worktreeCursor, setWorktreeCursor] = useState(0);
   const [worktreeStatuses, setWorktreeStatuses] = useState<UiWorktreeStatus[]>();
+  const [removing, setRemoving] = useState<{ tree: UiWorktree; preview?: UiWorktreeRemoval }>();
   const searchRef = useRef<HTMLInputElement>(null);
   const worktreeSearchRef = useRef<HTMLInputElement>(null);
 
@@ -82,6 +96,7 @@ export function WorkspaceBar({
     setWorktreeQuery("");
     setWorktreeCursor(0);
     setWorktreeStatuses(undefined);
+    setRemoving(undefined);
     requestAnimationFrame(() => worktreeSearchRef.current?.focus());
     void loadStatusesRef.current().then(
       (statuses) => { if (current) setWorktreeStatuses(statuses); },
@@ -113,8 +128,10 @@ export function WorkspaceBar({
   const label = !info?.isRepo ? "Local folder" : current?.isMain ? "Current checkout" : current?.name ?? "Worktree";
 
   const worktreeNeedle = worktreeQuery.trim();
-  // New worktrees branch off the remote's main line when there is one; the ref chip on the right shows the current branch.
-  const baseRef = info?.hasRemote ? "origin/main" : info?.branch || "HEAD";
+  // The host resolved the base (origin/HEAD, fetched); until it answers, the
+  // current branch is the honest thing to show.
+  const baseRef = base?.ref ?? info?.branch ?? "HEAD";
+  const baseLabel = base ? `${base.ref} @ ${base.shortCommit}` : baseRef;
   const pickerItems = useMemo<PickerItem[]>(() => {
     const trees = info?.worktrees ?? [];
     const items: PickerItem[] = trees
@@ -146,7 +163,7 @@ export function WorkspaceBar({
     if (tree.isCurrent) { close(); return; }
     void onOpenWorktree(tree.path).then((changed) => { if (changed) close(); });
   };
-  const createWorktree = (branch: string, base: string) => onCreateWorktree(branch, base).then((created) => { if (created) close(); return created; });
+  const createWorktree = (branch: string, from: string) => onCreateWorktree(branch, from).then((created) => { if (created) close(); return created; });
   const choosePickerItem = (item: PickerItem) => {
     if (item.kind === "worktree") chooseWorktree(item.tree);
     else void createWorktree(item.branch, baseRef);
@@ -181,6 +198,22 @@ export function WorkspaceBar({
         {open === "workspace" ? (
           <div className="menu above workspace-menu">
             <>
+              {mode && onModeChange ? (
+                <div className="workspace-mode segmented" role="group" aria-label="Where this thread runs">
+                  <button
+                    className={mode === "current" ? "primary" : ""}
+                    aria-pressed={mode === "current"}
+                    onClick={() => onModeChange("current")}
+                  >Current checkout</button>
+                  <button
+                    className={mode === "worktree" ? "primary" : ""}
+                    aria-pressed={mode === "worktree"}
+                    disabled={!info?.isRepo}
+                    onClick={() => onModeChange("worktree")}
+                  >New worktree</button>
+                  <small>{mode === "worktree" ? `created from ${baseLabel} when you send` : "the checkout this project is on"}</small>
+                </div>
+              ) : null}
               <div className="worktree-search">
                 <Search size={13} />
                 <input
@@ -225,12 +258,30 @@ export function WorkspaceBar({
                       <Plus size={13} />
                       <span className="menu-label">
                         <em>Create worktree “{item.branch}”</em>
-                        <small>with exactly this name · from {baseRef} · ../{pathName(info?.worktreeParent ?? "")}/{worktreeSlug(item.branch) || "…"}</small>
+                        <small>with exactly this name · from {baseLabel} · ../{pathName(info?.worktreeParent ?? "")}/{worktreeSlug(item.branch) || "…"}</small>
                       </span>
                     </button>;
                   }
                   const { tree } = item;
                   const status = statusesByPath.get(tree.path);
+                  if (removing?.tree.path === tree.path) {
+                    const preview = removing.preview;
+                    return <div className="worktree-remove" key={tree.path}>
+                      <span className="menu-label">
+                        <em>Remove {tree.branch ?? tree.name}?</em>
+                        <small>
+                          {preview
+                            ? `${preview.dirtyFiles} uncommitted file${preview.dirtyFiles === 1 ? "" : "s"} · ${preview.ahead} commit${preview.ahead === 1 ? "" : "s"} beyond its base`
+                            : "reading what it holds…"}
+                        </small>
+                      </span>
+                      <button className="danger" onClick={() => {
+                        setRemoving(undefined);
+                        void onRemoveWorktree?.(tree);
+                      }}>Remove</button>
+                      <button onClick={() => setRemoving(undefined)}>Cancel</button>
+                    </div>;
+                  }
                   return <button
                     key={tree.path}
                     className={tree.isCurrent || index === worktreeCursor ? "selected" : ""}
@@ -244,6 +295,21 @@ export function WorkspaceBar({
                       <small>{worktreeStatusLabel(status, worktreeStatuses === undefined)}</small>
                     </span>
                     {status?.cleanupCandidate ? <small className="cleanup-candidate">cleanup candidate</small> : null}
+                    {!tree.isMain && !tree.isCurrent && onRemoveWorktree ? (
+                      <span
+                        className="worktree-remove-action"
+                        role="button"
+                        tabIndex={-1}
+                        aria-label={`Remove ${tree.branch ?? tree.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setRemoving({ tree });
+                          void onPreviewRemoval?.(tree)
+                            .then((preview) => setRemoving((shown) => shown?.tree.path === tree.path ? { tree, preview } : shown))
+                            .catch(() => undefined);
+                        }}
+                      ><Trash2 size={12} /></span>
+                    ) : null}
                   </button>;
                 }}
               />

@@ -264,7 +264,16 @@ puts a thread there instead — its transcript, read-only, with the title, statu
 and cost the thread index carries and a "Take over" button, while the composer
 goes on addressing the thread it was already addressing. Both take
 `{ pin: true }` for a tab the next preview must not replace. Agents Kit opens a
-spawned thread that way rather than switching to it.
+spawned thread that way rather than switching to it. A thread reads whether or
+not the host still holds a runtime for it: runtimes are capped and idle ones are
+released oldest first, so a released thread's transcript is projected from its
+session file, with the same paging, cursors and client-message correlation.
+
+One consequence for `pinTranscriptEntries`: your provider is now also called
+with a thread the host has only a file for. `sessionId`, `cwd`, `sessionFile`,
+`parentThreadId`, `sessionName()`, `entries()` and `transcript()` answer as
+usual; the members that need a live runtime (`complete`, `appendEntry`) throw,
+and a provider that throws simply contributes no pins for that thread.
 
 It also lends two document surfaces core owns: `ReviewMode`, the full-workbench
 review of a set of changes (file tree, diffs, line notes, commit box), and
@@ -297,6 +306,17 @@ the others use it. `use` runs as soon as the value exists — before or after
 the user's own activation — and whatever it returns is disposed when the
 provider withdraws or either side deactivates, so activation order does not
 matter. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
+
+`registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
+old one and is optional; `beforeNewThread(event, actions)` runs *before* a
+pending draft's first prompt is sent, while the thread still does not exist. It
+receives the draft's project (`projectPath`, `workspaceId`), the prompt, and
+`preparing(message)` — a line the transcript shows while the hook works — and
+may answer with `{ workspace: { workspaceId, displayPath, name? } }` to move the
+thread to another project. The first hook that names one wins; a hook that
+throws is reported and the draft stays where it was, so a prompt is never lost
+to a workspace that could not be prepared. Workspace Kit uses it to create the
+worktree a new thread runs in ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)).
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,

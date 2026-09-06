@@ -80,10 +80,11 @@ import {
 import { findPiBridge } from "./pi-bridge-client.js";
 import { composerCommandsForAdapter } from "./bridge-snapshot.js";
 import type { LiveTurnState } from "./live-turn-state.js";
-import { ThreadRuntime, isLocalPiRuntime, threadBackendKind } from "./thread-runtime.js";
+import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { LifecycleQueue } from "./lifecycle-queue.js";
 import { requireCapability } from "./runtime-types.js";
 import { localTranscriptCursorPolicy, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { PersistedThreadTranscript } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { ClientMessageTracker } from "./client-message-tracker.js";
 import { ThreadProjection } from "./thread-projection.js";
@@ -662,13 +663,14 @@ export class PiHost {
   }
 
   private requireThread(threadId: string | undefined): ThreadRuntime {
-    const thread = this.threadFor(threadId);
-    if (!thread) {
-      throw new Error(threadId && threadId !== this.active?.threadId
-        ? "That thread is not open any more. Open it again to continue."
-        : "Pi runtime is not ready");
-    }
-    return thread;
+    return this.threadFor(threadId) ?? this.noRuntimeFor(threadId);
+  }
+
+  /** No runtime holds this thread and nothing else can answer for it. */
+  private noRuntimeFor(threadId: string | undefined): never {
+    throw new Error(threadId && threadId !== this.active?.threadId
+      ? "That thread is not open any more. Open it again to continue."
+      : "Pi runtime is not ready");
   }
 
   /**
@@ -839,7 +841,12 @@ export class PiHost {
   }
 
   async loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
-    const thread = this.requireThread(sessionId);
+    const thread = this.threadFor(sessionId);
+    if (!thread) {
+      const result = this.persistedTranscript(sessionId).page(cursor);
+      this.lifecycleMetrics.recordIpc(result);
+      return result;
+    }
     const paging = thread.backend.capabilities.transcriptPaging;
     let result: TranscriptPage;
     if (paging) {
@@ -866,13 +873,44 @@ export class PiHost {
    */
   async readToolOutput(sessionId: string, toolCallId: string): Promise<import("../shared/contracts.js").UiToolOutputReadResult | undefined> {
     if (!toolCallId) throw new Error("A tool call id is required.");
-    const thread = this.requireThread(sessionId);
+    const thread = this.threadFor(sessionId);
+    if (!thread) {
+      const result = this.persistedTranscript(sessionId).toolOutput(toolCallId);
+      this.lifecycleMetrics.recordIpc(result);
+      return result;
+    }
     const paging = thread.backend.capabilities.transcriptPaging;
     const result = paging
       ? await paging.readToolOutput(toolCallId)
       : readLocalToolOutput(this.projection.branchMessages(thread), toolCallId);
     this.lifecycleMetrics.recordIpc(result);
     return result;
+  }
+
+  /**
+   * The transcript of a thread no runtime holds. Runtimes are capped and idle
+   * ones are released oldest first, so a thread's tab must read its session
+   * file rather than tell the reader to take the thread over first.
+   */
+  private persistedTranscript(sessionId: string): PersistedThreadTranscript {
+    const session = this.index.byId(sessionId);
+    // Nothing persisted to read: a thread of another backend keeps no session
+    // file, and an unknown id was never this host's.
+    if (!session || (session.backendKind ?? "pi") !== "pi") this.noRuntimeFor(sessionId);
+    const active = this.active;
+    return new PersistedThreadTranscript({
+      sessionId,
+      cwd: session.projectPath,
+      path: session.path,
+      ...(session.title ? { title: session.title } : {}),
+      ...(session.parentThreadId ? { parentThreadId: session.parentThreadId } : {}),
+    }, {
+      runtimeAdapter: this.piAdapter,
+      // Its own runtime is gone; the skills of the thread on screen are the
+      // same host's catalog, and the host's defaults when there is none.
+      skillCommands: active && isPiBackend(active) ? this.projection.composerCommands(active) : this.runtimeCommands,
+      pins: (thread) => this.projection.pinsFor(thread),
+    });
   }
 
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }

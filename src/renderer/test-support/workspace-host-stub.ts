@@ -21,7 +21,12 @@ interface WorkspaceHostClient {
   push(): Promise<unknown>;
   getWorkspaceInfo(workspace?: string): Promise<unknown>;
   getWorktreeStatuses(workspace?: string): Promise<unknown>;
-  createWorktree(branch: string, baseRef?: string, workspace?: string): Promise<unknown>;
+  getWorktreeBase(workspace?: string, options?: unknown): Promise<unknown>;
+  createWorktree(branch: string, options?: unknown, workspace?: string): Promise<unknown>;
+  getWorktreeRemoval(path: string, workspace?: string): Promise<unknown>;
+  removeWorktree(path: string, branch?: string, workspace?: string): Promise<unknown>;
+  ensureWorktree(path: string, branch?: string, workspace?: string): Promise<unknown>;
+  getProjectDefaults(workspace?: string): Promise<unknown>;
   switchRef(ref: string): Promise<unknown>;
   listEditors(): Promise<unknown>;
   openInEditor(editorId: string, relPath?: string): Promise<unknown>;
@@ -67,7 +72,12 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     readFile: unsupported("readFile"),
     commit: unsupported("commit"),
     push: unsupported("push"),
+    getWorktreeBase: async () => ({ ref: "origin/main", commit: "0".repeat(40), shortCommit: "0000000", fromOrigin: true }),
     createWorktree: unsupported("createWorktree"),
+    getWorktreeRemoval: async () => ({ path: "", dirtyFiles: 0, ahead: 0 }),
+    removeWorktree: unsupported("removeWorktree"),
+    ensureWorktree: async () => false,
+    getProjectDefaults: async () => ({}),
     switchRef: unsupported("switchRef"),
     openInEditor: unsupported("openInEditor"),
     checkpoints: async () => ({ checkpoints: [], restoreSupported: false }),
@@ -81,6 +91,11 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
   const field = <T,>(input: unknown, key: string): T | undefined =>
     input && typeof input === "object" ? (input as Record<string, T>)[key] : undefined;
   const optional = <T,>(value: T | undefined): [] | [T] => value === undefined ? [] : [value];
+  /** The two worktree options travel beside the command's own fields. */
+  const worktreeOptions = (input: unknown) => ({
+    ...(field<string>(input, "baseRef") === undefined ? {} : { baseRef: field<string>(input, "baseRef") }),
+    ...(field<boolean>(input, "startFromOrigin") === undefined ? {} : { startFromOrigin: field<boolean>(input, "startFromOrigin") }),
+  });
   return async (extensionId: string, command: string, input?: unknown): Promise<unknown> => {
     // Access Kit pushes its level on activation; tests that render App do not care.
     if (extensionId in extensions) return extensions[extensionId]!(command, input);
@@ -105,7 +120,12 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "push": return client.push();
       case "workspace-info": return client.getWorkspaceInfo(...optional(field<string>(input, "workspace")));
       case "worktree-statuses": return client.getWorktreeStatuses(...optional(field<string>(input, "workspace")));
-      case "create-worktree": return client.createWorktree(field(input, "branch")!, field(input, "baseRef"), field(input, "workspace"));
+      case "worktree-base": return client.getWorktreeBase(field(input, "workspace"), worktreeOptions(input));
+      case "create-worktree": return client.createWorktree(field(input, "branch")!, worktreeOptions(input), field(input, "workspace"));
+      case "worktree-removal-preview": return client.getWorktreeRemoval(field(input, "path")!, field(input, "workspace"));
+      case "remove-worktree": return client.removeWorktree(field(input, "path")!, field(input, "branch"), field(input, "workspace"));
+      case "ensure-worktree": return client.ensureWorktree(field(input, "path")!, field(input, "branch"), field(input, "workspace"));
+      case "project-defaults": return client.getProjectDefaults(field(input, "workspace"));
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();
       case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "relPath"));

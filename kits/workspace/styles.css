@@ -249,6 +249,25 @@
 .worktree-list > p { padding: 14px 10px; color: var(--faint); font-size: 12px; }
 .worktree-list .cleanup-candidate { color: var(--acid); }
 
+/* Where the thread of a pending draft runs; gone once it has one. */
+.workspace-mode {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  margin: 6px; padding: 4px; border: 1px solid var(--line); border-radius: 6px;
+}
+.workspace-mode > button { flex: 1; min-width: 96px; height: 24px; font-size: 12px; }
+.workspace-mode > small { flex-basis: 100%; padding: 2px 4px 0; color: var(--faint); font-size: 11px; }
+.worktree-remove-action {
+  display: inline-flex; align-items: center; padding: 2px; border-radius: 4px;
+  color: var(--faint); opacity: 0; transition: opacity 90ms ease;
+}
+.worktree-list > button:hover .worktree-remove-action { opacity: 1; }
+.worktree-remove-action:hover { color: var(--danger, var(--acid)); }
+.worktree-remove {
+  display: flex; align-items: center; gap: 8px; min-height: 49px; padding: 6px 10px;
+}
+.worktree-remove > .menu-label { flex: 1; min-width: 0; }
+.worktree-remove > button { height: 24px; padding: 0 10px; font-size: 12px; }
+
 .ref-picker { min-width: 300px; padding: 0; overflow: hidden; }
 .ref-search {
   display: flex; align-items: center; gap: 9px; height: 40px;

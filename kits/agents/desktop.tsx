@@ -3,7 +3,7 @@ import { Bot, CornerUpLeft } from "lucide-react";
 import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
 import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
-import { agentsStore, lineageOf } from "./store.js";
+import { agentsHost, agentsStore, lineageOf } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
 export function SpawnedBy({ snapshot, actions }: RegionProps) {
@@ -44,6 +44,8 @@ export const agentsExtension: DesktopExtension = {
       context.setThreadLineage(lineageOf(agentsStore.getSnapshot()));
     };
     context.host.onEvent(AGENTS_STATE_EVENT, apply);
+    // The panel's two worktree actions reach the host half through this.
+    agentsHost.invoke = (command, input) => context.host.invoke(command, input);
     // A reloaded renderer missed every earlier spawn; ask the host what it has.
     void context.host.invoke("state").then(apply).catch((error: unknown) => {
       if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the spawned threads", error);
@@ -58,6 +60,7 @@ export const agentsExtension: DesktopExtension = {
     });
     return () => {
       context.setThreadLineage(undefined);
+      delete agentsHost.invoke;
       agentsStore.clear();
     };
   },

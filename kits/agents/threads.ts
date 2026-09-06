@@ -6,6 +6,8 @@ import {
   MAX_WAIT_MS,
   isBusyStatus,
   type AgentThreadLink,
+  type AgentWorkspace,
+  type AgentWorkspaceMode,
   type AgentThreadStatus,
   type AgentsState,
 } from "./protocol.js";
@@ -16,6 +18,8 @@ export interface SpawnRequest {
   title?: string;
   model?: string;
   projectPath?: string;
+  /** Where the new thread works; the host decides when the caller says nothing. */
+  workspace?: AgentWorkspaceMode;
 }
 
 export interface ThreadLiveness {
@@ -58,11 +62,16 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
   const title = optionalText(fields.title, "title", 120);
   const model = optionalText(fields.model, "model", 200);
   const projectPath = optionalText(fields.projectPath, "projectPath", 4_096);
+  const workspace = optionalText(fields.workspace, "workspace", 16);
+  if (workspace && workspace !== "shared" && workspace !== "worktree") {
+    throw new Error('workspace must be "worktree" or "shared".');
+  }
   return {
     prompt: fields.prompt.trim(),
     ...(title ? { title } : {}),
     ...(model ? { model } : {}),
     ...(projectPath ? { projectPath } : {}),
+    ...(workspace ? { workspace: workspace as AgentWorkspaceMode } : {}),
   };
 }
 
@@ -280,6 +289,11 @@ export class AgentThreadBook {
       found.facts.error = message;
       found.link = { ...found.link, error: message };
     });
+  }
+
+  /** The checkout an agent works in, and what it changed there. */
+  noteWorkspace(idOrThreadId: string, workspace: AgentWorkspace | undefined): boolean {
+    return this.update(idOrThreadId, (found) => { found.link = { ...found.link, workspace }; });
   }
 
   noteTitle(idOrThreadId: string, title: string): boolean {

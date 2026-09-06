@@ -204,14 +204,14 @@ describe("a thread tab", () => {
     expect(screen.getByRole("button", { name: "Take over" })).toHaveProperty("disabled", true);
   });
 
-  it("reports the transcript the host refused and points at Take over", async () => {
+  it("reports what the host answered when the transcript cannot be read", async () => {
     render(<Harness
       initial={openThreadTab(EMPTY_STAGE, CHILD)}
       threads={storeWith(agentSession())}
       loadThread={async () => { throw new Error("That thread is not open any more."); }}
     />);
 
-    expect(await screen.findByText(/That thread is not open any more\. Take over makes it the thread on screen/u)).toBeTruthy();
+    expect(await screen.findByText("That thread is not open any more.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Take over" })).toHaveProperty("disabled", false);
   });
 

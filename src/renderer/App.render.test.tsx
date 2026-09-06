@@ -229,6 +229,16 @@ describe("App render isolation", () => {
     expect(renders).toBe(before);
   });
 
+  it("shows neither a dock column nor its toggle when no extension registered a panel", async () => {
+    const view = renderApp(undefined);
+    await screen.findByRole("button", { name: "Send" });
+    const shell = view.container.querySelector(".app-shell") as HTMLElement;
+    expect(shell.className).toContain("no-dock");
+    expect(shell.style.getPropertyValue("--dock-width")).toBe("0px");
+    expect(screen.queryByRole("button", { name: /^(Hide|Show) panel$/ })).toBeNull();
+    expect(view.container.querySelector(".instrument-dock")).toBeNull();
+  });
+
   it("resizes the right sidebar and resets it on double-click", async () => {
     // The dock exists once any extension registers a panel; core owns the resizer.
     const dockProbe: DesktopExtension = { id: "test.dock", name: "Dock probe", activate: (plugin) => { plugin.registerPanel({ id: "probe", label: "Probe", order: 1, Component: () => <div>probe</div> }); } };
