@@ -46,8 +46,11 @@ export function pickDmg(names, arch) {
   return wanted[0];
 }
 
+// An agent's shell may carry ELECTRON_RUN_AS_NODE; a launched Electron app inherits it and exits as plain Node.
+const launchEnv = () => { const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE; return env; };
+
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { stdio: options.quiet ? ["ignore", "pipe", "pipe"] : "inherit", encoding: "utf8" });
+  const result = spawnSync(command, args, { stdio: options.quiet ? ["ignore", "pipe", "pipe"] : "inherit", encoding: "utf8", env: launchEnv() });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed${result.stderr ? `: ${result.stderr.trim()}` : ""}`);
   }
