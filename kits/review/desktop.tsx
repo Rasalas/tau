@@ -22,7 +22,7 @@ export const reviewExtension: DesktopExtension = {
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
     return plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       const disposers = [
-        plugin.registerOverlay({ id: REVIEW_OVERLAY, Component: createReviewOverlay(plugin, workspace, store) }),
+        plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store) }),
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => store.openReview() }),
         plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" }),
         registerCommitMessages(plugin, store),

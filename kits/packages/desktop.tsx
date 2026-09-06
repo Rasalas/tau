@@ -214,6 +214,7 @@ export const packagesExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
+      profiles: ["desktop", "web"],
       Icon: Package,
       order: 30,
       Component: (props: SettingsPageProps) => (

@@ -72,7 +72,7 @@ export const accessKitExtension: DesktopExtension = {
   id: ACCESS_HOST_EXTENSION_ID,
   name: "Access Kit",
   activate(plugin) {
-    plugin.registerComposerControl({ id: "access.level", order: 30, Component: createControl(plugin.preferences) });
+    plugin.registerComposerControl({ id: "access.level", order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences) });
     for (const entry of ACCESS_LEVELS) {
       plugin.registerCommand({
         id: `access.${entry.id}`,

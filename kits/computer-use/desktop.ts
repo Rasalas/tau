@@ -62,6 +62,7 @@ export const computerUsePresentationExtension: DesktopExtension = {
       "computer-use.renderer",
       (tool) => tool.name.startsWith(COMPUTER_USE_TOOL_PREFIX),
       (tool) => presentComputerUse(tool.name, tool.args),
+      { profiles: ["desktop", "web", "compact"] },
     );
   },
 };

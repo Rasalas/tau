@@ -38,7 +38,7 @@ export const observatoryExtension: DesktopExtension = {
   id: SIGNALS_EXTENSION_ID,
   name: "Signals",
   activate(plugin) {
-    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", Icon: Activity, order: 30, Component: ObservatoryPanel });
+    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", Icon: Activity, order: 30, profiles: ["desktop", "web"], Component: ObservatoryPanel });
     plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel(SIGNALS_PANEL) });
     plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "observatory.open" });
     // A shell command is the one tool run whose own text says what happened.
@@ -51,6 +51,7 @@ export const observatoryExtension: DesktopExtension = {
         tone: "shell",
         detail: String(tool.args.command ?? "shell command"),
       }),
+      { profiles: ["desktop", "web", "compact"] },
     );
   },
 };

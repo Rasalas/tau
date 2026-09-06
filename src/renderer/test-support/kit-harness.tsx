@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react";
 import { ExtensionRegistry, type DesktopExtension, type HostExtensionBridge, type RegionPlacement, type WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
+import type { ClientProfile } from "../../workbench/client-profile";
 import { Region, StatusLine } from "../components/Regions";
 import { createMemoryStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
@@ -25,9 +26,9 @@ export interface KitHarness {
  * Kits live outside `src/`, so this, `workspaceHostStub` and
  * `createFakeHostClient` are the only renderer modules their tests reach for.
  */
-export function createKitHarness(invoke?: HostExtensionBridge["invoke"]): KitHarness {
+export function createKitHarness(invoke?: HostExtensionBridge["invoke"], profile?: ClientProfile): KitHarness {
   const preferences = new PreferencesStore();
-  const registry = new ExtensionRegistry({ invoke: invoke ?? (async () => undefined) }, { preferences });
+  const registry = new ExtensionRegistry({ invoke: invoke ?? (async () => undefined) }, { preferences, ...(profile ? { profile } : {}) });
   return { registry, preferences };
 }
 
@@ -89,3 +90,4 @@ export { createNewThreadDraft, writeNewThreadDraft } from "../../workbench/draft
 export { createNewThreadRequestId } from "../../shared/contracts";
 export { HostClientProvider, setHostClient } from "../host-client-context";
 export { HOST_CAPABILITY } from "../../shared/host-transport";
+export { CLIENT_PROFILES, type ClientProfile } from "../../workbench/client-profile";

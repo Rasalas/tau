@@ -360,6 +360,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   }, [client, cwd]);
 
   const desktop = registry.getExtensionSummaries();
+  const unrendered = registry.getUnrenderedContributions();
   const ids = [...new Set([...desktop.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)])].sort();
   const packages = inspection?.packages ?? [];
   const hostStatus = (half: HostExtensionSummary | undefined) => !half ? "—" : half.error ? `failed: ${half.error}` : half.active ? `active${half.commands.length ? ` · ${half.commands.length} commands` : ""}` : "off";
@@ -397,6 +398,23 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
           {ids.length === 0 ? <tr><td colSpan={5}>No extension is loaded (safe mode).</td></tr> : null}
         </tbody>
       </table>
+
+      <div className="settings-label">NOT ON THIS CLIENT</div>
+      <p className="lede">This client is the <b>{registry.getProfile()}</b> profile. Their host halves keep running; only the drawing is missing here.</p>
+      {unrendered.length > 0 ? (
+        <table className="inspector-table" aria-label="Contributions not on this client">
+          <thead><tr><th>Extension</th><th>Contribution</th><th>Renders on</th></tr></thead>
+          <tbody>
+            {unrendered.map((entry) => (
+              <tr key={`${entry.extensionId}:${entry.kind}:${entry.id}`} data-extension-id={entry.extensionId}>
+                <td><strong>{entry.extensionName}</strong><small>{entry.extensionId}</small></td>
+                <td>{entry.kind}<small>{entry.label ?? entry.id}</small></td>
+                <td>{entry.profiles.join(", ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : <div className="settings-note">This client draws every contribution the active extensions offered.</div>}
 
       <div className="settings-label">PACKAGES ON DISK</div>
       {inspection?.directories.map((entry) => (

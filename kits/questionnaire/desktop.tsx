@@ -230,6 +230,7 @@ export function createQuestionnaireExtension(store = new QuestionnaireStore()): 
     activate(plugin) {
       plugin.registerPromptRenderer({
         id: "questionnaire",
+        profiles: ["desktop", "web", "compact"],
         match: (prompt) => prompt.answerElsewhere !== true && questionnaireOf(prompt) !== undefined,
         Component: createQuestionnairePrompt(store),
         intercept: (prompt) => store.intercept(prompt),

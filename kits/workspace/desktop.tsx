@@ -51,10 +51,11 @@ export const workspaceExtension: DesktopExtension = {
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
 
-    context.registerSidebar({ id: "workspace.sidebar", order: 10, Component: bind(WorkspaceSidebar) });
+    context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
     context.registerProjectSource({
       id: "workspace.local-folder",
       label: "Local folder",
+      profiles: ["desktop"],
       description: "Open an existing checkout or any folder on this Mac.",
       glyph: "▱",
       order: 10,
@@ -63,23 +64,25 @@ export const workspaceExtension: DesktopExtension = {
     context.registerProjectSource({
       id: "workspace.git-clone",
       label: "Clone Git repository",
+      profiles: ["desktop"],
       description: "Clone an HTTPS or SSH URL, then open it as a project.",
       glyph: "⌘",
       order: 20,
       Component: bind(CloneProjectSource),
     });
-    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, Component: bind(FilesPanel) });
+    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, profiles: ["desktop"], Component: bind(FilesPanel) });
     // The Changes panel reads the same Git state as the rest of the kit, so it
     // travels with it; Review Kit still opens it by id from its own command.
-    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, Component: bind(ChangesPanel) });
+    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, profiles: ["desktop"], Component: bind(ChangesPanel) });
     // The kit owns its workspace state; these keep it following the workbench
     // and place its controls where core lends room.
-    context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, Component: bind(WorkspaceFollower) });
-    context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, Component: bind(WorkspaceTitleActions) });
-    context.registerRegion({ id: "workspace.turn-changes", placement: "transcript-footer", order: 10, Component: bind(TurnChangesDock) });
-    context.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, Component: bind(WorkspaceBarControl) });
+    context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop"], Component: bind(WorkspaceFollower) });
+    context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
+    context.registerRegion({ id: "workspace.turn-changes", placement: "transcript-footer", order: 10, profiles: ["desktop"], Component: bind(TurnChangesDock) });
+    context.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, profiles: ["desktop"], Component: bind(WorkspaceBarControl) });
     const documents = documentStates(store);
     context.registerDocumentSource({
+      profiles: ["desktop"],
       id: "workspace.documents",
       loadFile: (relPath) => host.readFile(relPath),
       loadDiff: (relPath, options) => host.getFileDiff(relPath, options),
@@ -128,6 +131,7 @@ export const workspaceExtension: DesktopExtension = {
         tone: "read",
         detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace"),
       }),
+      { profiles: ["desktop", "web", "compact"] },
     );
     context.registerToolRenderer(
       "workspace.write-renderer",
@@ -138,6 +142,7 @@ export const workspaceExtension: DesktopExtension = {
         tone: "write",
         detail: String(tool.args.path ?? "file mutation"),
       }),
+      { profiles: ["desktop", "web", "compact"] },
     );
   },
 };

@@ -48,8 +48,8 @@ export const agentsExtension: DesktopExtension = {
     void context.host.invoke("state").then(apply).catch((error: unknown) => {
       if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the spawned threads", error);
     });
-    context.registerPanel({ id: "agents", label: "Agents", Icon: Bot, order: 40, Component: AgentsPanel });
-    context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, Component: SpawnedBy });
+    context.registerPanel({ id: "agents", label: "Agents", Icon: Bot, order: 40, profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
+    context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, profiles: ["desktop", "web", "compact"], Component: SpawnedBy });
     context.registerCommand({
       id: "agents.open",
       label: "Show spawned agents",

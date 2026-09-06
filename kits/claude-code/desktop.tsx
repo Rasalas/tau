@@ -17,7 +17,7 @@ export const claudeCodeExtension: DesktopExtension = {
   id: CLAUDE_CODE_HOST_EXTENSION_ID,
   name: "Claude Code",
   activate(plugin) {
-    plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, Component: ClaudeCodeStatus });
+    plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, profiles: ["desktop", "web", "compact"], Component: ClaudeCodeStatus });
   },
 };
 

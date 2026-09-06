@@ -15,6 +15,7 @@ import type {
 } from "../shared/contracts";
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { PreferencesStore } from "./preferences";
+import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -76,7 +77,7 @@ export interface SidebarContributionProps {
   actions: WorkbenchActions;
 }
 
-export interface SidebarContribution {
+export interface SidebarContribution extends ProfileScoped {
   id: string;
   order?: number;
   Component: ComponentType<SidebarContributionProps>;
@@ -88,7 +89,7 @@ export interface ProjectSourceProps {
   onDone(): void;
 }
 
-interface ProjectSourceBase {
+interface ProjectSourceBase extends ProfileScoped {
   id: string;
   label: string;
   description: string;
@@ -139,7 +140,7 @@ export interface RegionProps {
   actions: WorkbenchActions;
 }
 
-export interface RegionContribution {
+export interface RegionContribution extends ProfileScoped {
   id: string;
   placement: RegionPlacement;
   order?: number;
@@ -147,7 +148,7 @@ export interface RegionContribution {
 }
 
 /** One item of the status line; `align` decides the side, `order` the position within it. */
-export interface StatusItemContribution {
+export interface StatusItemContribution extends ProfileScoped {
   id: string;
   order?: number;
   align?: "left" | "right";
@@ -160,7 +161,7 @@ export interface OverlayProps {
 }
 
 /** A full-workbench view an extension opens with `actions.openOverlay(id)`. */
-export interface OverlayContribution {
+export interface OverlayContribution extends ProfileScoped {
   id: string;
   Component: ComponentType<OverlayProps>;
 }
@@ -181,7 +182,7 @@ export interface ComposerControlProps {
   snapshot?: HostSnapshot;
 }
 
-export interface ComposerControlContribution {
+export interface ComposerControlContribution extends ProfileScoped {
   id: string;
   order?: number;
   /** `toolbar` sits beside model and thinking; `footer` spans the row below the editor. */
@@ -196,7 +197,7 @@ export interface PanelProps {
   actions: WorkbenchActions;
 }
 
-export interface PanelContribution {
+export interface PanelContribution extends ProfileScoped {
   id: string;
   label: string;
   /** The rail glyph; `lucide-react` is shared, so pass one of its icons. Missing draws core's fallback. */
@@ -217,7 +218,7 @@ export interface SettingsPageProps {
  * navigation and the pages that must survive safe mode; a page like this one is
  * gone with its extension.
  */
-export interface SettingsPageContribution {
+export interface SettingsPageContribution extends ProfileScoped {
   id: string;
   label: string;
   /** The nav glyph, the way a panel passes one. */
@@ -290,7 +291,7 @@ export interface PromptRendererProps {
  * Takes over the rendering of Pi dialogs it recognises, usually by a marker its
  * host entry left in `prompt.extras`. Core renders the four dialogs otherwise.
  */
-export interface PromptRendererContribution {
+export interface PromptRendererContribution extends ProfileScoped {
   id: string;
   match(prompt: ExtensionUiPrompt): boolean;
   Component: ComponentType<PromptRendererProps>;
@@ -311,7 +312,7 @@ export interface PromptHookContribution {
 }
 
 /** Who loads the stage's documents and knows which are changed. One at a time. */
-export interface DocumentSourceContribution {
+export interface DocumentSourceContribution extends ProfileScoped {
   id: string;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
@@ -394,7 +395,7 @@ export interface DesktopExtensionContext {
   inspectPackages(cwd: string): Promise<ExtensionInspection>;
   registerComposerControl(control: ComposerControlContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
-  registerTranscriptRows(id: string, order?: number): TranscriptRowsHandle;
+  registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
   setLiveStatus(sessionId: string, label: string | undefined): void;
   /** Publishes how threads this extension created relate to their parents; `undefined` withdraws it. */
@@ -427,6 +428,7 @@ export interface DesktopExtensionContext {
     id: string,
     match: (tool: UiToolRun) => boolean,
     render: (tool: UiToolRun) => ToolPresentation,
+    options?: ProfileScoped,
   ): () => void;
 }
 
@@ -494,6 +496,14 @@ const noHostBridge: HostExtensionBridge = {
   invoke: () => Promise.reject(new HostUnavailableError()),
 };
 
+/** What a contribution this client does not draw hands back: nothing to dispose. */
+const noContribution = (): void => undefined;
+const noTranscriptRows: TranscriptRowsHandle = {
+  setRows: () => undefined,
+  clear: () => undefined,
+  dispose: () => undefined,
+};
+
 /** Generalizes the desktop API's `invokeHostExtension` to whatever `HostClient` is active. */
 export function hostExtensionBridge(client: HostClient | undefined): HostExtensionBridge {
   return {
@@ -509,14 +519,22 @@ export class ExtensionRegistry {
 
   private readonly services: { preferences: PreferencesStore };
 
+  /** Which client is drawing. Every renderable contribution is filtered against it. */
+  private readonly profile: ClientProfile;
+
   // `services` defaults to a private store so the many tests that build a
   // registry without a workbench keep working; real activation passes the
   // renderer's shared instance explicitly.
   constructor(
     private readonly hostBridge: HostExtensionBridge = noHostBridge,
-    services?: { preferences: PreferencesStore },
+    services?: { preferences: PreferencesStore; profile?: ClientProfile },
   ) {
     this.services = services ?? { preferences: new PreferencesStore() };
+    this.profile = services?.profile ?? "desktop";
+  }
+
+  getProfile(): ClientProfile {
+    return this.profile;
   }
 
   private panels = new Map<string, Owned<PanelContribution>>();
@@ -549,6 +567,8 @@ export class ExtensionRegistry {
   private renderers = new Map<string, Owned<ToolRenderer>>();
   private options = new Map<string, ExtensionOption[]>();
   private contributionKinds = new Map<string, string[]>();
+  /** Every renderable contribution an active extension offered, with the clients it claims. */
+  private profiledContributions = new Map<string, ProfiledContribution[]>();
   private known = new Map<string, DesktopExtension>();
   /** Ids core activated itself; they are listed but never switched off. */
   private readonly coreIds = new Set<string>();
@@ -556,6 +576,35 @@ export class ExtensionRegistry {
   private listeners = new Set<() => void>();
   private version = 0;
   private sortedCache = new Map<string, { version: number; value: unknown[] }>();
+
+  /**
+   * Records a renderable contribution and answers whether this client draws it.
+   * A contribution the profile does not render is never registered, so its
+   * component never mounts; it stays on the list Settings shows.
+   */
+  private scopeToProfile(owner: ContributionOwner, kind: string, id: string, label: string | undefined, scoped: ProfileScoped | undefined): boolean {
+    const own = this.profiledContributions.get(owner.extensionId) ?? [];
+    this.profiledContributions.set(owner.extensionId, own);
+    own.push({
+      ...owner,
+      kind,
+      id,
+      ...(label === undefined ? {} : { label }),
+      profiles: scoped?.profiles ?? DEFAULT_CLIENT_PROFILES,
+      declared: scoped?.profiles !== undefined,
+    });
+    return rendersOnProfile(scoped?.profiles, this.profile);
+  }
+
+  /** Every renderable contribution the active extensions offered, drawn here or not. */
+  getProfiledContributions(): ProfiledContribution[] {
+    return [...this.profiledContributions.values()].flat();
+  }
+
+  /** What this client cannot draw: the "not on this client" list in Settings. */
+  getUnrenderedContributions(): ProfiledContribution[] {
+    return this.getProfiledContributions().filter((entry) => !rendersOnProfile(entry.profiles, this.profile));
+  }
 
   /**
    * Activates a contribution core itself owns — the runtime commands, their
@@ -577,6 +626,7 @@ export class ExtensionRegistry {
     this.deactivate(extension.id);
     this.known.set(extension.id, extension);
     const owner: ContributionOwner = { extensionId: extension.id, extensionName: extension.name };
+    this.profiledContributions.delete(extension.id);
     const kinds: string[] = [];
     const disposers: Array<() => void> = [];
     // Before `activate`, so the rules are in place when the first component mounts.
@@ -601,10 +651,12 @@ export class ExtensionRegistry {
       host: hostClient(extension.id),
       hostExtension: (extensionId) => hostClient(extensionId),
       registerPanel: (panel) => {
+        if (!this.scopeToProfile(owner, "panel", panel.id, panel.label, panel)) return noContribution;
         note(panel.label.toLowerCase());
         return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
       },
       registerSettingsPage: (page) => {
+        if (!this.scopeToProfile(owner, "settings page", page.id, page.label, page)) return noContribution;
         note("settings page");
         return this.register(this.settingsPages, page.id, { ...page, ...owner }, disposers);
       },
@@ -623,14 +675,17 @@ export class ExtensionRegistry {
         },
       },
       registerRegion: (region) => {
+        if (!this.scopeToProfile(owner, `${region.placement} region`, region.id, undefined, region)) return noContribution;
         note(`${region.placement} region`);
         return this.register(this.regions, region.id, { ...region, ...owner }, disposers);
       },
       registerStatusItem: (item) => {
+        if (!this.scopeToProfile(owner, "status item", item.id, undefined, item)) return noContribution;
         note("status line");
         return this.register(this.statusItems, item.id, { ...item, ...owner }, disposers);
       },
       registerOverlay: (overlay) => {
+        if (!this.scopeToProfile(owner, "overlay", overlay.id, undefined, overlay)) return noContribution;
         note("overlay");
         return this.register(this.overlays, overlay.id, { ...overlay, ...owner }, disposers);
       },
@@ -647,7 +702,8 @@ export class ExtensionRegistry {
         else this.lineages.delete(extension.id);
         this.changed();
       },
-      registerTranscriptRows: (id, order = 0) => {
+      registerTranscriptRows: (id, order = 0, options) => {
+        if (!this.scopeToProfile(owner, "transcript rows", id, undefined, options)) return noTranscriptRows;
         note("transcript rows");
         if (this.transcriptRows.has(id)) throw new Error(`Contribution id ${id} from ${extension.id} collides with another transcript row source`);
         const source = { order, owner, bySession: new Map<string, readonly TranscriptRow[]>() };
@@ -674,6 +730,7 @@ export class ExtensionRegistry {
         };
       },
       registerComposerControl: (control) => {
+        if (!this.scopeToProfile(owner, "composer control", control.id, undefined, control)) return noContribution;
         note("composer controls");
         return this.register(this.composerControls, control.id, { ...control, ...owner }, disposers);
       },
@@ -709,10 +766,12 @@ export class ExtensionRegistry {
         return dispose;
       },
       registerSidebar: (contribution) => {
+        if (!this.scopeToProfile(owner, "sidebar", contribution.id, undefined, contribution)) return noContribution;
         note("sidebar");
         return this.register(this.sidebarContributions, contribution.id, { ...contribution, ...owner }, disposers);
       },
       registerProjectSource: (source) => {
+        if (!this.scopeToProfile(owner, "project source", source.id, source.label, source)) return noContribution;
         note("project sources");
         return this.register(this.projectSources, source.id, { ...source, ...owner }, disposers);
       },
@@ -766,6 +825,7 @@ export class ExtensionRegistry {
         return this.register(this.slashCommands, command.name, { ...command, ...owner }, disposers);
       },
       registerPromptRenderer: (renderer) => {
+        if (!this.scopeToProfile(owner, "prompt renderer", renderer.id, undefined, renderer)) return noContribution;
         note("prompt renderers");
         return this.register(this.promptRenderers, renderer.id, { ...renderer, ...owner }, disposers);
       },
@@ -774,10 +834,12 @@ export class ExtensionRegistry {
         return this.register(this.promptHooks, hook.id, { ...hook, ...owner }, disposers);
       },
       registerDocumentSource: (source) => {
+        if (!this.scopeToProfile(owner, "document source", source.id, undefined, source)) return noContribution;
         note("documents");
         return this.register(this.documentSources, source.id, { ...source, ...owner }, disposers);
       },
-      registerToolRenderer: (id, match, render) => {
+      registerToolRenderer: (id, match, render, options) => {
+        if (!this.scopeToProfile(owner, "tool renderer", id, undefined, options)) return noContribution;
         note("tool renderers");
         return this.register(this.renderers, id, { id, match, render, ...owner }, disposers);
       },
@@ -806,6 +868,7 @@ export class ExtensionRegistry {
       let cleanupError: unknown;
       try { this.disposeAll(disposers); } catch (failure) { cleanupError = failure; }
       this.contributionKinds.delete(extension.id);
+      this.profiledContributions.delete(extension.id);
       this.activeExtensions.delete(extension.id);
       if (cleanupError) throw new AggregateError([error, cleanupError], `Extension ${extension.id} activation and cleanup failed`, { cause: error });
       throw error;
@@ -838,6 +901,7 @@ export class ExtensionRegistry {
     try { active.dispose(); } catch (error) { cleanupError = error; }
     this.activeExtensions.delete(id);
     this.contributionKinds.delete(id);
+    this.profiledContributions.delete(id);
     this.liveStatuses.delete(id);
     this.lineages.delete(id);
     this.changed();

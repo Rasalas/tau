@@ -77,9 +77,9 @@ export function createPiUiExtension(store = new PiUiStore()): DesktopExtension {
     name: "Pi UI",
     activate(plugin) {
       const { PiStatusItems, PiWidgetsAbove, PiWidgetsBelow } = createPiUiComponents(store);
-      plugin.registerStatusItem({ id: "pi-ui.status", align: "right", order: 50, Component: PiStatusItems });
-      plugin.registerRegion({ id: "pi-ui.widgets-above", placement: "composer-above", order: 50, Component: PiWidgetsAbove });
-      plugin.registerRegion({ id: "pi-ui.widgets-below", placement: "composer-below", order: 50, Component: PiWidgetsBelow });
+      plugin.registerStatusItem({ id: "pi-ui.status", align: "right", order: 50, profiles: ["desktop", "web", "compact"], Component: PiStatusItems });
+      plugin.registerRegion({ id: "pi-ui.widgets-above", placement: "composer-above", order: 50, profiles: ["desktop", "web", "compact"], Component: PiWidgetsAbove });
+      plugin.registerRegion({ id: "pi-ui.widgets-below", placement: "composer-below", order: 50, profiles: ["desktop", "web", "compact"], Component: PiWidgetsBelow });
       plugin.host.onEvent(PI_UI_EVENT, (payload) => { if (isThreadState(payload)) store.set(payload); });
       // A reloaded renderer missed earlier drawings; ask the host for the thread's state.
       const read = (sessionId?: string) => plugin.host.invoke("state", sessionId ? { sessionId } : undefined)

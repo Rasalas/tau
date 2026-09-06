@@ -24,6 +24,7 @@ import { applyHostEvent, type HostEventTargets } from "../workbench/host-events"
 import { PlatformProvider, setPlatform } from "./platform-context";
 import { createElectronPlatform } from "./platform-electron";
 import { HOST_CAPABILITY } from "../shared/host-transport";
+import { CLIENT_PROFILES } from "../workbench/client-profile";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, openFileTab, openThreadTab, pinTab as pinStageTab, setFileView, stageTabPath, type StageView } from "../workbench/stage";
@@ -49,10 +50,14 @@ export default function App() {
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const constructedExtensions = useRendererServices().extensions;
-  const safeMode = new URLSearchParams(window.location.search).get("safeMode") === "1";
+  const search = new URLSearchParams(window.location.search);
+  const safeMode = search.get("safeMode") === "1";
+  // The Electron window is the desktop client. `?profile=` is how the same
+  // window shows what a smaller client would leave out, before one exists.
+  const profile = CLIENT_PROFILES.find((candidate) => candidate === search.get("profile")) ?? "desktop";
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
   const [registry] = useState(() => {
-    const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences });
+    const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, profile });
     // Core's own contributions come first and stay on: safe mode is a workbench
     // without kits, not one without a command palette or a model picker.
     value.activateCore(runtimeControls);

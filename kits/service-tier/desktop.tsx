@@ -68,7 +68,7 @@ export const serviceTierKitExtension: DesktopExtension = {
   name: "Service Tier",
   activate(plugin) {
     let notify: (message: string) => void = (message) => console.warn(message);
-    plugin.registerComposerControl({ id: "service-tier.chip", order: 20, Component: createControl(plugin.host, (message) => notify(message)) });
+    plugin.registerComposerControl({ id: "service-tier.chip", order: 20, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.host, (message) => notify(message)) });
     for (const tier of ["standard", "fast"] as const) {
       plugin.registerCommand({
         id: `service-tier.${tier}`,

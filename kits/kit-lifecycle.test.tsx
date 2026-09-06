@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { expectKitActivatesCleanly } from "../src/renderer/test-support/kit-harness.js";
+import { CLIENT_PROFILES, createKitHarness, expectKitActivatesCleanly } from "../src/renderer/test-support/kit-harness.js";
 import agents from "./agents/desktop.js";
 import preview from "./preview/desktop.js";
 import packages from "./packages/desktop.js";
@@ -32,4 +32,48 @@ describe("packaged kits", () => {
       await expect(expectKitActivatesCleanly(extension, workspaceHostStub())).resolves.toBeUndefined();
     });
   }
+});
+
+// A kit that draws something has to say which clients can draw it. The default
+// is desktop-only, which is safe but silent: this makes the claim deliberate.
+describe("client profiles", () => {
+  for (const extension of kits) {
+    it(`${extension.id} declares a profile set for every contribution it renders`, () => {
+      const { registry } = createKitHarness(workspaceHostStub());
+      registry.activate(extension);
+      const silent = registry.getProfiledContributions().filter((entry) => !entry.declared);
+      expect(silent.map((entry) => `${entry.kind} ${entry.id}`)).toEqual([]);
+      registry.deactivate(extension.id);
+    });
+  }
+
+  for (const profile of CLIENT_PROFILES) {
+    it(`activates every kit on the ${profile} profile without an error`, () => {
+      for (const extension of kits) {
+        const { registry } = createKitHarness(workspaceHostStub(), profile);
+        expect(() => registry.activate(extension)).not.toThrow();
+        expect(registry.isActive(extension.id)).toBe(true);
+        registry.deactivate(extension.id);
+      }
+    });
+  }
+
+  it("leaves the host half of a kit alone when this client draws none of it", () => {
+    const invoked: string[] = [];
+    const host = async (extensionId: string, command: string) => { invoked.push(`${extensionId}:${command}`); return undefined; };
+    const { registry } = createKitHarness(host, "web");
+    registry.activate(workspace);
+    // Workspace Kit is desktop-only, so nothing of it is drawn here …
+    expect(registry.getPanels()).toEqual([]);
+    expect(registry.getSidebarContributions()).toEqual([]);
+    expect(registry.getDocumentSource()).toBeUndefined();
+    // … and every one of those contributions is named as absent, not lost.
+    const unrendered = registry.getUnrenderedContributions();
+    expect(unrendered.length).toBeGreaterThan(8);
+    expect(unrendered.every((entry) => entry.extensionId === workspace.id)).toBe(true);
+    // The host half was never asked to stand down: it keeps taking checkpoints.
+    expect(registry.isActive(workspace.id)).toBe(true);
+    expect(invoked.some((entry) => entry.includes("deactivate"))).toBe(false);
+    registry.deactivate(workspace.id);
+  });
 });

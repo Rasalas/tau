@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PanelIcon } from "./components/PanelIcon";
 import { ExtensionRegistry } from "./extension-system";
+import { PreferencesStore } from "./preferences";
 
 describe("ExtensionRegistry contribution selectors", () => {
   it("keeps sorted contribution references stable between reads", () => {
@@ -339,5 +340,45 @@ describe("ExtensionRegistry prompt renderers", () => {
     expect(answered).toEqual(["b"]);
     registry.deactivate("kit");
     expect(registry.getPromptRenderer(prompt({ kit: true }))).toBeUndefined();
+  });
+});
+
+describe("client profiles", () => {
+  const kit = { id: "kit", name: "Kit", activate(context: Parameters<Parameters<ExtensionRegistry["activate"]>[0]["activate"]>[0]) {
+    context.registerPanel({ id: "desk", label: "Desk", Component: () => null });
+    context.registerStatusItem({ id: "anywhere", profiles: ["desktop", "web", "compact"], Component: () => null });
+    context.registerToolRenderer("rows", () => true, () => ({ glyph: "•", title: "t", tone: "neutral" as const, detail: "" }), { profiles: ["web"] });
+  } };
+
+  it("draws everything a desktop client claims, and says nothing is missing", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(kit);
+    expect(registry.getProfile()).toBe("desktop");
+    expect(registry.getPanels()).toHaveLength(1);
+    expect(registry.getStatusItems()).toHaveLength(1);
+    expect(registry.getUnrenderedContributions().map((entry) => entry.id)).toEqual(["rows"]);
+  });
+
+  it("leaves out what a web client cannot draw and lists it by name and kind", () => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile: "web" });
+    registry.activate(kit);
+    expect(registry.getPanels()).toEqual([]);
+    expect(registry.getStatusItems()).toHaveLength(1);
+    expect(registry.presentTool({ id: "t", name: "any", args: {} } as never).glyph).toBe("•");
+    expect(registry.getUnrenderedContributions().map((entry) => `${entry.kind}:${entry.id}`)).toEqual(["panel:desk"]);
+  });
+
+  // A contribution that is not drawn is not a failed one: the extension keeps
+  // running, and the disposer it was handed still works.
+  it("hands a filtered contribution a disposer that does nothing", () => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile: "compact" });
+    let dispose: (() => void) | undefined;
+    registry.activate({ id: "one", name: "One", activate(context) {
+      dispose = context.registerPanel({ id: "p", label: "P", Component: () => null });
+    } });
+    expect(registry.isActive("one")).toBe(true);
+    expect(() => dispose?.()).not.toThrow();
+    registry.deactivate("one");
+    expect(registry.getUnrenderedContributions()).toEqual([]);
   });
 });
