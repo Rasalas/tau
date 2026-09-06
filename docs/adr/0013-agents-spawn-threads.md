@@ -52,10 +52,15 @@ sub-agent how it is doing.
 
 **The link lives in both session files** as custom entries
 (`tau.agents/parent` on the child, `tau.agents/child` on the parent), the same
-durable seam turn checkpoints use. `beforeOpen` reads them back, so opening
-either thread after a restart restores the relation. A spawned thread neither it
-nor its parent has opened since a restart is an ordinary thread until one of
-them does.
+durable seam turn checkpoints use. `beforeOpen` reads them back whenever either
+thread opens. That alone is too late for the navigator: it would show fifty
+agent threads in the rail until the user opened one of them. So the kit also
+keeps its own index, `~/.tau/agents-links.json`, written whenever a link is
+created and read *before* the extension finishes activating, so the first state
+the desktop half asks for already holds every link from the last run. The index
+sweep prunes an entry whose thread the index no longer lists, and one whose
+parent is gone — that thread is an ordinary thread again. The session entries
+stay the record of truth; the file is only the fast index.
 
 **Capacity queues, it does not refuse.** A parent runs eight children at a time
 (`maxRunningAgents` in `~/.tau/agents.json`, capped at 64). A spawn beyond that
