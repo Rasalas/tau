@@ -82,7 +82,7 @@ describe("Workspace Kit thread worktrees", () => {
   });
 
   it("stays in the checkout when the mode is current, and when creation fails", async () => {
-    const createWorktree = vi.fn(async () => { throw new Error("origin is unreachable"); });
+    const createWorktree = vi.fn(async (branch: string) => { throw new Error(`origin is unreachable for ${branch}`); });
     const notify = vi.fn();
     const workspaceStore = storeOver({ createWorktree });
     workspaceStore.bind(actionsWith({ notify }));
