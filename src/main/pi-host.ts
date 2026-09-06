@@ -24,7 +24,7 @@ import type {
   ThreadTreeNavigationResult,
   UiThreadTree,
 } from "../shared/contracts.js";
-import { createNewThreadRequestId, type ClientTurnIdentity } from "../shared/contracts.js";
+import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
   HOST_PROTOCOL_VERSION,
   catalogFromSnapshot,
@@ -67,6 +67,7 @@ import { ThreadBinding } from "./thread-binding.js";
 import { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
 import { RuntimePrewarm } from "./runtime-prewarm.js";
 import { PromptPreparation } from "./prompt-preparation.js";
+import { TurnDelivery } from "./turn-delivery.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
 import {
@@ -210,6 +211,8 @@ export class PiHost {
     requireBackend: (kind) => this.requireBackend(kind),
     permissionLevel: () => this.seam.permissionLevel(),
   });
+  /** Steering, follow-up, and every turn of a runtime that keeps no host journal. */
+  private readonly turns: TurnDelivery;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -357,6 +360,19 @@ export class PiHost {
       log: (label, detail) => this.log(label, detail),
       fail: (error) => this.fail(error),
       errorMessage: (error) => this.errorMessage(error),
+    });
+    this.turns = new TurnDelivery({
+      clientTurns: this.clientTurns,
+      clientMessages: this.clientMessages,
+      turnObservers: this.turnObservers,
+      projection: this.projection,
+      prompts: this.prompts,
+      binding: this.binding,
+      index: this.index,
+      assertAvailable: () => this.workbenchReload.assertAvailable(),
+      requireThread: (sessionId) => this.requireThread(sessionId),
+      emit: (event) => this.emit(event),
+      fail: (error, sessionId) => this.fail(error, sessionId),
     });
     markTauHostRuntime();
     this.emit = (event) => {
@@ -1338,88 +1354,6 @@ export class PiHost {
     });
   }
 
-  private async sendThroughRuntimeAdapter(
-    thread: ThreadRuntime,
-    text: string,
-    attachments: UiPromptAttachment[],
-    delivery: "prompt" | "steer" | "followUp",
-    identity?: ClientTurnIdentity,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    const clientMessageId = identity?.clientMessageId;
-    thread.adapterPending ??= 0;
-    thread.adapterAbortGeneration ??= 0;
-    const generation = thread.adapterAbortGeneration;
-    const wasPending = thread.adapterPending > 0;
-    thread.adapterPending += 1;
-    thread.adapterStreaming = true;
-    if (!wasPending) this.emit({ type: "agent-status", sessionId: thread.threadId, running: true });
-    const operation = thread.adapterQueue.then(() => {
-      if (generation !== thread.adapterAbortGeneration) {
-        if (clientMessageId) {
-          this.emit({
-            type: "user-message-failed",
-            sessionId: thread.threadId,
-            clientMessageId,
-            message: "The selected runtime request was aborted.",
-          });
-        }
-        const error = new Error("The selected runtime request was aborted.");
-        error.name = "AbortError";
-        throw error;
-      }
-      return this.sendThroughRuntimeAdapterNow(thread, text, attachments, delivery, identity, prepared);
-    });
-    const settled = operation.finally(() => {
-      thread.adapterPending = Math.max(0, thread.adapterPending - 1);
-      if (thread.adapterPending === 0) {
-        thread.adapterStreaming = false;
-        this.emit({ type: "agent-status", sessionId: thread.threadId, running: false });
-      }
-    });
-    thread.adapterQueue = settled.then(() => undefined, () => undefined);
-    return settled;
-  }
-
-  private async sendThroughRuntimeAdapterNow(
-    thread: ThreadRuntime,
-    text: string,
-    attachments: UiPromptAttachment[],
-    delivery: "prompt" | "steer" | "followUp",
-    identity?: ClientTurnIdentity,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    const clientMessageId = identity?.clientMessageId;
-    const commands = this.projection.composerCommands(thread);
-    if (prepared) this.prompts.assertBound(thread, text, prepared, commands);
-    const abortController = new AbortController();
-    thread.adapterAbortControllers ??= new Set<AbortController>();
-    thread.adapterAbortControllers.add(abortController);
-    try {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported by the selected runtime adapter.");
-      await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), ...(prepared ? { prepared } : {}), signal: abortController.signal });
-      thread.adapterMessages = await thread.backend.transcript();
-      const state = thread.state;
-      thread.adapterTitle = state.title;
-      thread.adapterTitleSource = state.titleSource;
-      await this.index.refreshShell(thread, true);
-    } catch (error) {
-      const aborted = error instanceof Error && error.name === "AbortError";
-      if (clientMessageId) {
-        this.emit({
-          type: "user-message-failed",
-          sessionId: thread.threadId,
-          clientMessageId,
-          message: aborted ? "The selected runtime request was aborted." : "The selected runtime rejected the message.",
-        });
-      }
-      if (!aborted) this.fail(error);
-      throw error;
-    } finally {
-      thread.adapterAbortControllers.delete(abortController);
-    }
-  }
-
   /** Resolves a prompt before the renderer creates its optimistic message. */
   async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     const target = sessionId
@@ -1493,39 +1427,6 @@ export class PiHost {
     }
   }
 
-  /**
-   * Delivery for a runtime that keeps no host-owned journal: it owns the turn
-   * itself, so there is no request marker and no host turn observer for it.
-   */
-  private async deliverRuntimeTurn(
-    thread: ThreadRuntime,
-    text: string,
-    attachments: UiPromptAttachment[],
-    delivery: "prompt" | "steer" | "followUp",
-    identity?: ClientTurnIdentity,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    if (thread.backend.turnReporting === "awaited") {
-      await this.sendThroughRuntimeAdapter(thread, text, attachments, delivery, identity, prepared);
-      return;
-    }
-    this.prompts.assertImageInput(thread, attachments);
-    if (prepared) this.prompts.assertBound(thread, text, prepared, this.projection.composerCommands(thread));
-    try {
-      if (identity) this.clientTurns.enqueue(thread.threadId, identity);
-      await thread.backend.prompt({
-        text,
-        delivery,
-        attachments,
-        ...(identity ? { identity } : {}),
-        ...(prepared ? { prepared } : {}),
-      });
-    } catch (error) {
-      if (identity) this.clientTurns.cancel(thread.threadId, identity);
-      throw error;
-    }
-  }
-
   async prompt(
     text: string,
     attachments: UiPromptAttachment[] = [],
@@ -1544,7 +1445,7 @@ export class PiHost {
     await this.binding.settle(thread);
     if (!thread.backend.capabilities.journal) {
       try {
-        await this.deliverRuntimeTurn(thread, text, attachments, "prompt", identity, prepared);
+        await this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared);
       } catch (error) {
         onPreflightResult?.({ accepted: false, error });
         throw error;
@@ -1677,7 +1578,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    await this.deliverQueuedTurn("steer", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
+    await this.turns.queued("steer", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
   }
 
   async followUp(
@@ -1687,60 +1588,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    await this.deliverQueuedTurn("followUp", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
-  }
-
-  /**
-   * Steering and follow-up share one path: both hand the runtime a message for
-   * a turn that is already in flight, so neither reports a preflight result.
-   */
-  private async deliverQueuedTurn(
-    delivery: "steer" | "followUp",
-    text: string,
-    attachments: UiPromptAttachment[],
-    sessionId?: string,
-    clientMessageIdOrIdentity?: ClientTurnRequest,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    this.workbenchReload.assertAvailable();
-    const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
-    const clientMessageId = identity?.clientMessageId;
-    let thread: ThreadRuntime | undefined;
-    let preparedTurnId: string | undefined;
-    try {
-      thread = this.requireThread(sessionId);
-      await this.binding.settle(thread);
-      if (!thread.backend.capabilities.journal) {
-        await this.deliverRuntimeTurn(thread, text, attachments, delivery, identity, prepared);
-        return;
-      }
-      if (identity) this.clientTurns.enqueue(thread.threadId, identity);
-      this.prompts.assertImageInput(thread, attachments);
-      const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
-      this.prompts.assertBound(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
-      if (!this.projection.isExtensionCommand(thread, resolvedPrepared.runtimeText)) {
-        preparedTurnId = randomUUID();
-        this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: true, expectsInput: false });
-      }
-      let markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
-      try {
-        await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), prepared: resolvedPrepared, attachments });
-      } catch (error) {
-        if (markerActive) {
-          this.clientMessages.failIfUnpersisted(thread, clientMessageId);
-          markerActive = false;
-        }
-        if (identity) this.clientTurns.cancel(thread.threadId, identity);
-        if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
-        throw error;
-      }
-    } catch (error) {
-      if (identity && thread?.backend.capabilities.journal) this.clientTurns.cancel(thread.threadId, identity);
-      if (delivery === "followUp") this.fail(error, sessionId);
-      else this.fail(error);
-      if (thread && preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
-      throw error;
-    }
+    await this.turns.queued("followUp", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
   }
 
   async abort(sessionId?: string): Promise<void> {
