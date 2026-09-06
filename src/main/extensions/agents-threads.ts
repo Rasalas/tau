@@ -1,8 +1,10 @@
 import {
+  DEFAULT_MAX_RUNNING_AGENTS,
   DEFAULT_WAIT_MS,
   MAX_AGENT_DEPTH,
-  MAX_CHILDREN_PER_PARENT,
+  MAX_RUNNING_AGENTS_CAP,
   MAX_WAIT_MS,
+  isBusyStatus,
   type AgentThreadLink,
   type AgentThreadStatus,
   type AgentsState,
@@ -21,16 +23,17 @@ export interface ThreadLiveness {
   idle: boolean;
 }
 
-/** Everything one spawned thread's status is derived from. */
+/** Everything one agent's status is derived from. */
 export interface AgentThreadFacts {
-  /** The first prompt is on its way but no turn has been accepted yet. */
+  /** Queued behind the parent's running budget; it has no thread yet. */
+  queued: boolean;
+  /** Its first prompt is on its way but no turn has been accepted yet. */
   spawning: boolean;
   turns: number;
   lastOutcome?: "completed" | "failed";
-  /** Question the child is holding on; the user answers it in the child's thread. */
   pendingToolPrompt?: string;
   error?: string;
-  /** Absent once the host released the thread's runtime. */
+  /** Absent before the agent starts, and once the host released its runtime. */
   live?: ThreadLiveness;
 }
 
@@ -87,8 +90,17 @@ export function parseModel(model: string): { provider: string; id: string } {
   return { provider, id };
 }
 
+/** What the user may set for how many children of one thread run at a time. */
+export function readMaxRunningAgents(value: unknown): number {
+  const requested = record(value).maxRunningAgents;
+  const count = typeof requested === "number" ? requested : Number(requested);
+  if (!Number.isFinite(count) || count < 1) return DEFAULT_MAX_RUNNING_AGENTS;
+  return Math.min(Math.floor(count), MAX_RUNNING_AGENTS_CAP);
+}
+
 export function deriveStatus(facts: AgentThreadFacts): AgentThreadStatus {
   if (facts.error) return "failed";
+  if (facts.queued) return "pending";
   if (facts.live?.streaming) return "running";
   if (facts.pendingToolPrompt) return "waiting";
   // Not streaming and not idle means the runtime is holding something open:
@@ -99,128 +111,181 @@ export function deriveStatus(facts: AgentThreadFacts): AgentThreadStatus {
   return facts.turns > 0 ? "completed" : "idle";
 }
 
-/** A status that still needs the host: such a child counts against the parent's budget. */
-export function isLiveStatus(status: AgentThreadStatus): boolean {
-  return status === "running" || status === "waiting";
-}
-
 interface AgentRecord {
   link: Omit<AgentThreadLink, "status">;
   facts: Omit<AgentThreadFacts, "live">;
 }
 
 /**
- * Every thread an agent spawned in this host, and what became of it. The book
+ * Every agent a thread spawned in this host, and what became of it. The book
  * holds no host object: liveness arrives through the `live` reader, so the
- * same book answers for a thread whose runtime the host has already released.
+ * same book answers for an agent whose runtime the host has already released,
+ * and for one that has no thread yet because it is still queued.
  */
 export class AgentThreadBook {
   private readonly records = new Map<string, AgentRecord>();
+  /** Tau thread id to the agent handle, for the observers that only know threads. */
+  private readonly byThread = new Map<string, string>();
+  private maxRunning = DEFAULT_MAX_RUNNING_AGENTS;
 
   constructor(private readonly live: (threadId: string) => ThreadLiveness | undefined) {}
 
+  setMaxRunning(count: number): void {
+    this.maxRunning = Math.max(1, Math.min(Math.floor(count), MAX_RUNNING_AGENTS_CAP));
+  }
+
+  get runningBudget(): number {
+    return this.maxRunning;
+  }
+
   /** Depth of any thread: 0 for one the user started. */
   depthOf(threadId: string): number {
-    return this.records.get(threadId)?.link.depth ?? 0;
+    return this.recordFor(threadId)?.link.depth ?? 0;
   }
 
-  /** Refuses a spawn the guard rails do not allow, with the reason the model reads. */
+  /** Refuses a spawn no budget can ever serve; a full budget only queues. */
   assertCanSpawn(parentThreadId: string): void {
-    const depth = this.depthOf(parentThreadId) + 1;
-    if (depth > MAX_AGENT_DEPTH) {
+    if (this.depthOf(parentThreadId) + 1 > MAX_AGENT_DEPTH) {
       throw new Error(`Sub-agents may nest ${MAX_AGENT_DEPTH} levels deep; do this work in this thread instead.`);
     }
-    const live = this.childrenOf(parentThreadId).filter((child) => isLiveStatus(child.status)).length;
-    if (live >= MAX_CHILDREN_PER_PARENT) {
-      throw new Error(`This thread already has ${live} sub-agents running; wait for one with tau_wait_for_thread before starting another.`);
-    }
   }
 
-  add(link: Omit<AgentThreadLink, "status">, spawning = true): void {
-    const existing = this.records.get(link.threadId);
-    this.records.set(link.threadId, {
-      link: { ...link, ...(existing?.link.title && !link.title ? { title: existing.link.title } : {}) },
-      facts: existing?.facts ?? { spawning, turns: 0 },
+  private recordFor(idOrThreadId: string): AgentRecord | undefined {
+    return this.records.get(idOrThreadId) ?? this.records.get(this.byThread.get(idOrThreadId) ?? "");
+  }
+
+  add(link: Omit<AgentThreadLink, "status">, facts: Partial<Omit<AgentThreadFacts, "live">> = {}): void {
+    const existing = this.records.get(link.id);
+    this.records.set(link.id, {
+      link: { ...existing?.link, ...link },
+      facts: existing?.facts ?? { queued: false, spawning: false, turns: 0, ...facts },
     });
+    if (link.threadId) this.byThread.set(link.threadId, link.id);
   }
 
-  has(threadId: string): boolean {
-    return this.records.has(threadId);
+  has(idOrThreadId: string): boolean {
+    return this.recordFor(idOrThreadId) !== undefined;
   }
 
-  /** A thread's link with its status derived now, or undefined when nothing spawned it. */
-  linkFor(threadId: string): AgentThreadLink | undefined {
-    const found = this.records.get(threadId);
-    return found ? { ...found.link, status: deriveStatus(this.factsFor(threadId)) } : undefined;
+  /** An agent's link with its status derived now, or undefined when nothing spawned it. */
+  linkFor(idOrThreadId: string): AgentThreadLink | undefined {
+    const found = this.recordFor(idOrThreadId);
+    return found ? { ...found.link, status: deriveStatus(this.factsFor(found.link.id)) } : undefined;
   }
 
-  factsFor(threadId: string): AgentThreadFacts {
-    const found = this.records.get(threadId);
-    if (!found) return { spawning: false, turns: 0 };
-    const live = this.live(threadId);
+  factsFor(idOrThreadId: string): AgentThreadFacts {
+    const found = this.recordFor(idOrThreadId);
+    if (!found) return { queued: false, spawning: false, turns: 0 };
+    const live = found.link.threadId ? this.live(found.link.threadId) : undefined;
     return { ...found.facts, ...(live ? { live } : {}) };
   }
 
   childrenOf(parentThreadId: string): AgentThreadLink[] {
     return [...this.records.values()]
       .filter((entry) => entry.link.parentThreadId === parentThreadId)
-      .map((entry) => this.linkFor(entry.link.threadId)!)
+      .map((entry) => this.linkFor(entry.link.id)!)
       .sort((left, right) => left.spawnedAt - right.spawnedAt);
   }
 
+  /** Children of one thread that hold a slot right now. */
+  busyChildren(parentThreadId: string): number {
+    return this.childrenOf(parentThreadId).filter((link) => isBusyStatus(link.status)).length;
+  }
+
+  /** The queued agents a parent has room to start, oldest first. */
+  startable(parentThreadId: string): AgentThreadLink[] {
+    const children = this.childrenOf(parentThreadId);
+    const free = this.maxRunning - children.filter((link) => isBusyStatus(link.status)).length;
+    if (free <= 0) return [];
+    return children.filter((link) => link.status === "pending").slice(0, free);
+  }
+
+  /** Every thread that currently has queued agents, for the pump to visit. */
+  parentsWithQueued(): string[] {
+    return [...new Set([...this.records.values()]
+      .filter((entry) => entry.facts.queued)
+      .map((entry) => entry.link.parentThreadId))];
+  }
+
   state(): AgentsState {
-    return { links: [...this.records.keys()].map((threadId) => this.linkFor(threadId)!) };
+    return { links: [...this.records.keys()].map((id) => this.linkFor(id)!), maxRunning: this.maxRunning };
   }
 
-  private update(threadId: string, change: (facts: AgentRecord["facts"]) => void): boolean {
-    const found = this.records.get(threadId);
+  private update(idOrThreadId: string, change: (found: AgentRecord) => void): boolean {
+    const found = this.recordFor(idOrThreadId);
     if (!found) return false;
-    const before = deriveStatus(this.factsFor(threadId));
-    change(found.facts);
-    return deriveStatus(this.factsFor(threadId)) !== before;
+    const before = JSON.stringify(this.linkFor(found.link.id));
+    change(found);
+    return JSON.stringify(this.linkFor(found.link.id)) !== before;
   }
 
-  /** A turn of a spawned thread started; it is no longer merely on its way. */
-  noteAccepted(threadId: string): boolean {
-    return this.update(threadId, (facts) => { facts.spawning = false; });
-  }
-
-  noteEnded(threadId: string, outcome: "completed" | "failed"): boolean {
-    return this.update(threadId, (facts) => {
-      facts.spawning = false;
-      facts.turns += 1;
-      facts.lastOutcome = outcome;
+  /** A queued agent got its thread; from here the host drives it. */
+  noteStarted(id: string, threadId: string, at: number): boolean {
+    return this.update(id, (found) => {
+      found.link = { ...found.link, threadId, startedAt: at };
+      found.facts.queued = false;
+      found.facts.spawning = true;
+      this.byThread.set(threadId, found.link.id);
     });
   }
 
-  /** A dialog the child opened, or `undefined` when it closed again. */
-  notePrompt(threadId: string, question: string | undefined): boolean {
-    return this.update(threadId, (facts) => {
-      if (question) facts.pendingToolPrompt = question;
-      else delete facts.pendingToolPrompt;
+  /** A turn of an agent started; it is no longer merely on its way. */
+  noteAccepted(idOrThreadId: string): boolean {
+    return this.update(idOrThreadId, (found) => { found.facts.spawning = false; });
+  }
+
+  noteEnded(idOrThreadId: string, outcome: "completed" | "failed", at: number): boolean {
+    return this.update(idOrThreadId, (found) => {
+      found.facts.spawning = false;
+      found.facts.turns += 1;
+      found.facts.lastOutcome = outcome;
+      found.link = { ...found.link, endedAt: at };
     });
   }
 
-  noteError(threadId: string, message: string): boolean {
-    return this.update(threadId, (facts) => { facts.spawning = false; facts.error = message; });
-  }
-
-  noteTitle(threadId: string, title: string): boolean {
-    const found = this.records.get(threadId);
-    if (!found || found.link.title === title) return false;
-    found.link = { ...found.link, title };
-    return true;
-  }
-
-  /** The thread's runtime closed; whatever it was holding is no longer open. */
-  noteClosed(threadId: string): boolean {
-    return this.update(threadId, (facts) => {
-      facts.spawning = false;
-      delete facts.pendingToolPrompt;
+  /** A dialog the agent opened, or `undefined` when it closed again. */
+  notePrompt(idOrThreadId: string, question: string | undefined): boolean {
+    return this.update(idOrThreadId, (found) => {
+      if (question) found.facts.pendingToolPrompt = question;
+      else delete found.facts.pendingToolPrompt;
+      found.link = { ...found.link, ...(question ? { pendingToolPrompt: question } : { pendingToolPrompt: undefined }) };
     });
   }
 
-  forget(threadId: string): boolean {
-    return this.records.delete(threadId);
+  noteTool(idOrThreadId: string, tool: string): boolean {
+    return this.update(idOrThreadId, (found) => { found.link = { ...found.link, lastTool: tool }; });
+  }
+
+  noteResult(idOrThreadId: string, result: string): boolean {
+    return this.update(idOrThreadId, (found) => { found.link = { ...found.link, result }; });
+  }
+
+  noteError(idOrThreadId: string, message: string): boolean {
+    return this.update(idOrThreadId, (found) => {
+      found.facts.queued = false;
+      found.facts.spawning = false;
+      found.facts.error = message;
+      found.link = { ...found.link, error: message };
+    });
+  }
+
+  noteTitle(idOrThreadId: string, title: string): boolean {
+    return this.update(idOrThreadId, (found) => { found.link = { ...found.link, title }; });
+  }
+
+  /** The agent's runtime closed; whatever it was holding is no longer open. */
+  noteClosed(idOrThreadId: string): boolean {
+    return this.update(idOrThreadId, (found) => {
+      found.facts.spawning = false;
+      delete found.facts.pendingToolPrompt;
+      found.link = { ...found.link, pendingToolPrompt: undefined };
+    });
+  }
+
+  forget(idOrThreadId: string): boolean {
+    const found = this.recordFor(idOrThreadId);
+    if (!found) return false;
+    if (found.link.threadId) this.byThread.delete(found.link.threadId);
+    return this.records.delete(found.link.id);
   }
 }

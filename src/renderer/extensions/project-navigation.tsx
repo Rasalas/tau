@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import type { UiProject, UiSession } from "../../shared/contracts";
 import type { UiDirectoryListing } from "../../shared/workspace-kit-protocol";
 import { workspaceKit } from "./workspace-kit-client";
@@ -14,44 +14,22 @@ export const WORKSPACE_EXTENSION_ID = "tau.workspace";
 
 const ROW_STRIDE = 94;
 
-/** Two levels is what Agents Kit allows; deeper rows would only lose the title. */
-const MAX_NESTING = 2;
-
 type NavigationRow =
   | { kind: "group"; id: string; label: string; count: number }
-  | { kind: "thread"; id: string; session: UiSession; depth: number };
-
-export interface NestedThread {
-  session: UiSession;
-  depth: number;
-}
+  | { kind: "thread"; id: string; session: UiSession };
 
 /**
- * Puts every thread directly under the one it was spawned from. A parent the
- * list does not hold, and a link that loops, leave the thread at the top.
+ * Threads an agent spawned stay out of the rail: fifty of them would bury the
+ * threads the user started. They come back for a search, for the thread on
+ * screen, and whenever the user asks for them.
  */
-export function nestThreads(sessions: readonly UiSession[], parents: Readonly<Record<string, string>>): NestedThread[] {
-  const present = new Set(sessions.map((session) => session.id));
-  const children = new Map<string, UiSession[]>();
-  const roots: UiSession[] = [];
-  for (const session of sessions) {
-    const parent = parents[session.id];
-    if (parent && parent !== session.id && present.has(parent)) {
-      children.set(parent, [...children.get(parent) ?? [], session]);
-    } else roots.push(session);
-  }
-  const rows: NestedThread[] = [];
-  const seen = new Set<string>();
-  const emit = (session: UiSession, depth: number) => {
-    if (seen.has(session.id)) return;
-    seen.add(session.id);
-    rows.push({ session, depth });
-    if (depth >= MAX_NESTING) return;
-    for (const child of children.get(session.id) ?? []) emit(child, depth + 1);
-  };
-  for (const root of roots) emit(root, 0);
-  for (const session of sessions) emit(session, 0);
-  return rows;
+export function visibleThreads(
+  sessions: readonly UiSession[],
+  parents: Readonly<Record<string, string>>,
+  options: { showAgents: boolean; searching: boolean; activeThreadId?: string },
+): UiSession[] {
+  if (options.showAgents || options.searching) return [...sessions];
+  return sessions.filter((session) => !parents[session.id] || session.id === options.activeThreadId);
 }
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
@@ -306,8 +284,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity,
   activityLabel,
   compact,
-  depth,
-  marker,
   workingChildren,
   modelProvider,
   startedAt,
@@ -318,8 +294,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity: ThreadActivity;
   activityLabel?: string;
   compact: boolean;
-  depth: number;
-  marker?: string;
   workingChildren: number;
   modelProvider?: string;
   startedAt?: number;
@@ -342,8 +316,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       compact={compact}
-      depth={depth}
-      marker={marker}
       workingChildren={workingChildren}
       modelProvider={modelProvider}
       startedAt={startedAt}
@@ -368,6 +340,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [settledOpen, setSettledOpen] = useState(true);
+  const [showAgents, setShowAgents] = useState(false);
   const [settledLimit, setSettledLimit] = useState(40);
   const [navigationIndex, setNavigationIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -394,7 +367,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   }, []);
 
   const needle = threadQuery.trim().toLocaleLowerCase();
-  const matching = threads
+  const listed = visibleThreads(threads, lineage.parents, {
+    showAgents,
+    searching: needle.length > 0,
+    ...(activityState.activeThreadId ? { activeThreadId: activityState.activeThreadId } : {}),
+  });
+  const hiddenAgents = threads.length - listed.length;
+  const matching = listed
     .filter(
       (session) =>
         !needle ||
@@ -409,8 +388,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
   const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];
 
-  const threadRow = ({ session, depth }: NestedThread) => ({ kind: "thread" as const, id: session.id, session, depth });
-  const nestedThreads = groupByProject ? [] : nestThreads(activeThreads, lineage.parents);
   const navigationRows: NavigationRow[] = groupByProject
     ? [...activeThreads.reduce((groups, session) => {
         const group = groups.get(session.projectName);
@@ -419,9 +396,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         return groups;
       }, new Map<string, UiSession[]>())].flatMap(([project, sessions]) => [
         { kind: "group" as const, id: `group:${project}`, label: project, count: sessions.length },
-        ...nestThreads(sessions, lineage.parents).map(threadRow),
+        ...sessions.map((session) => ({ kind: "thread" as const, id: session.id, session })),
       ])
-    : nestedThreads.map(threadRow);
+    : activeThreads.map((session) => ({ kind: "thread" as const, id: session.id, session }));
   const rowVirtualizer = useVirtualizer({
     count: navigationRows.length,
     getScrollElement: () => listRef.current,
@@ -446,7 +423,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return { activity: "idle", label: "IDLE" };
   };
 
-  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string, depth = 0) => (
+  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
@@ -454,8 +431,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={activity}
       activityLabel={label}
       compact={compactRows && activity !== "settled"}
-      depth={depth}
-      marker={lineage.markers[session.id]}
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
@@ -482,6 +457,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
               <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
             ) : <kbd>/</kbd>}
           </label>
+          {hiddenAgents > 0 || showAgents ? (
+            <button
+              className="sidebar-action"
+              title="Show agent threads"
+              aria-label="Show agent threads"
+              aria-pressed={showAgents}
+              onClick={() => setShowAgents((shown) => !shown)}
+            >
+              <Bot size={16} />
+            </button>
+          ) : null}
           <button
             className="sidebar-action"
             title="New thread (⌘N)"
@@ -522,7 +508,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                   <div className="thread-group-label">{row.label.toUpperCase()} · {row.count}<i /></div>
                 ) : (() => {
                   const status = activityFor(row.session.id);
-                  return renderRow(row.session, status.activity, status.label, row.depth);
+                  return renderRow(row.session, status.activity, status.label);
                 })()}
               </div>
             );

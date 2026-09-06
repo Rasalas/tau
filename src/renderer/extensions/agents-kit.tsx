@@ -1,45 +1,65 @@
+import { lazy, useSyncExternalStore } from "react";
+import { CornerUpLeft } from "lucide-react";
 import {
   AGENTS_HOST_EXTENSION_ID,
   AGENTS_STATE_EVENT,
-  isAgentsState,
-  type AgentsState,
 } from "../../shared/agents-kit-protocol";
-import { HostUnavailableError, type DesktopExtension, type ThreadLineage } from "../extension-system";
+import { HostUnavailableError, type DesktopExtension, type RegionProps } from "../extension-system";
+import { useThreadStore } from "../workbench-context";
+import { agentsStore, lineageOf } from "./agents-store";
 
-/** Marker the navigator puts on a row for a thread an agent started. */
-export const AGENT_MARKER = "agent";
+const LazyAgentsPanel = lazy(() => import("./agents-panel").then(({ AgentsPanel }) => ({ default: AgentsPanel })));
 
-export function lineageOf(state: AgentsState): ThreadLineage {
-  const parents: Record<string, string> = {};
-  const markers: Record<string, string> = {};
-  const workingChildren: Record<string, number> = {};
-  for (const link of state.links) {
-    parents[link.threadId] = link.parentThreadId;
-    markers[link.threadId] = AGENT_MARKER;
-    if (link.status === "running" || link.status === "waiting") {
-      workingChildren[link.parentThreadId] = (workingChildren[link.parentThreadId] ?? 0) + 1;
-    }
-  }
-  return { parents, markers, workingChildren };
+/** The way back from an agent's thread to the thread that started it. */
+export function SpawnedBy({ snapshot, actions }: RegionProps) {
+  const store = useThreadStore();
+  const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
+  const navigation = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const link = state?.links.find((entry) => entry.threadId === snapshot?.sessionId);
+  if (!link) return null;
+  const parent = navigation.threads.find((thread) => thread.id === link.parentThreadId);
+  return (
+    <button
+      type="button"
+      className="agent-parent-link"
+      disabled={!parent}
+      onClick={() => { if (parent) void actions.switchSession(parent.path); }}
+    >
+      <CornerUpLeft size={12} aria-hidden="true" />
+      spawned by {parent?.title ?? "another thread"}
+    </button>
+  );
 }
 
 /**
- * Agents Kit's desktop half. It draws nothing of its own: it publishes the
- * lineage of the threads its host half spawned, and whichever navigator is
- * active nests and counts them (ADR 0012).
+ * Agents Kit's desktop half. The spawned threads live in their own dock panel
+ * beside the conversation; the navigator only learns which threads are agents,
+ * so it can keep them out of the rail and count the working ones (ADR 0012).
  */
 export const agentsExtension: DesktopExtension = {
   id: AGENTS_HOST_EXTENSION_ID,
   name: "Agents",
   activate(context) {
     const apply = (payload: unknown) => {
-      if (isAgentsState(payload)) context.setThreadLineage(lineageOf(payload));
+      agentsStore.set(payload);
+      context.setThreadLineage(lineageOf(agentsStore.getSnapshot()));
     };
     context.host.onEvent(AGENTS_STATE_EVENT, apply);
     // A reloaded renderer missed every earlier spawn; ask the host what it has.
     void context.host.invoke("state").then(apply).catch((error: unknown) => {
       if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the spawned threads", error);
     });
-    return () => context.setThreadLineage(undefined);
+    context.registerPanel({ id: "agents", label: "Agents", glyph: "agents", order: 40, Component: LazyAgentsPanel });
+    context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, Component: SpawnedBy });
+    context.registerCommand({
+      id: "agents.open",
+      label: "Show spawned agents",
+      group: "Extensions",
+      run: (app) => app.openPanel("agents"),
+    });
+    return () => {
+      context.setThreadLineage(undefined);
+      agentsStore.clear();
+    };
   },
 };

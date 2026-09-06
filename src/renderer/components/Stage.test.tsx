@@ -140,7 +140,7 @@ describe("ChangesPanel", () => {
     vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
     render(withServices(workspaceStore,
       <WorkbenchContext.Provider value={workbench()}>
-        <ChangesPanel active extensionName="Review Kit" />
+        <ChangesPanel active extensionName="Review Kit" actions={{} as never} />
       </WorkbenchContext.Provider>,
     ));
 
@@ -164,7 +164,7 @@ describe("ChangesPanel", () => {
     vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
     render(withServices(workspaceStore,
       <WorkbenchContext.Provider value={workbench({ activeDocumentPath: `${CWD}/src/a.ts` })}>
-        <ChangesPanel active extensionName="Review Kit" />
+        <ChangesPanel active extensionName="Review Kit" actions={{} as never} />
       </WorkbenchContext.Provider>,
     ));
 
@@ -181,7 +181,7 @@ describe("FilesPanel", () => {
     vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
     render(withServices(workspaceStore,
       <WorkbenchContext.Provider value={workbench({ openFile, activeDocumentPath: `${CWD}/a.ts` })}>
-        <FilesPanel active extensionName="Workspace" />
+        <FilesPanel active extensionName="Workspace" actions={{} as never} />
       </WorkbenchContext.Provider>,
     ));
 

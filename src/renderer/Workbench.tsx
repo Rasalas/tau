@@ -22,7 +22,7 @@ import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundar
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
-import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
+import type { ExtensionRegistry, PanelProps, WorkbenchActions } from "./extension-system";
 import { useClientStorage } from "./client-storage-context";
 import type { ClientStorage } from "./client-storage";
 import { STORAGE_KEYS } from "./storage-keys";
@@ -76,14 +76,16 @@ export const MountedPanel = memo(function MountedPanel({
   extensionId,
   extensionName,
   registry,
+  actions,
   onNotify,
 }: {
-  Component: ComponentType<{ active: boolean; extensionName: string }>;
+  Component: ComponentType<PanelProps>;
   active: boolean;
   label: string;
   extensionId?: string;
   extensionName: string;
   registry?: ExtensionRegistry;
+  actions: WorkbenchActions;
   onNotify?(message: string): void;
 }) {
   return <div className={active ? "panel active" : "panel"}>
@@ -95,7 +97,7 @@ export const MountedPanel = memo(function MountedPanel({
       onNotify={onNotify}
     >
       <Suspense fallback={<LazyFeatureFallback label={label.toLowerCase()} />}>
-        <Component active={active} extensionName={extensionName} />
+        <Component active={active} extensionName={extensionName} actions={actions} />
       </Suspense>
     </LazyFeatureBoundary>
   </div>;
@@ -492,6 +494,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           extensionId={panel.extensionId}
           extensionName={panel.extensionName}
           registry={registry}
+          actions={actions}
           onNotify={actions.notify}
         /> : null)}</div> : null}
         <nav className="panel-rail">

@@ -191,6 +191,7 @@ export interface PanelProps {
   active: boolean;
   /** Name of the extension that contributed this panel, for the panel header. */
   extensionName: string;
+  actions: WorkbenchActions;
 }
 
 export interface PanelContribution {
@@ -313,13 +314,11 @@ export type ExtensionOption =
 export interface ThreadLineage {
   /** Child thread id to its parent's thread id. */
   parents: Readonly<Record<string, string>>;
-  /** Thread id to a short marker its row carries, e.g. "agent". */
-  markers: Readonly<Record<string, string>>;
   /** Parent thread id to how many of its children are working right now. */
   workingChildren: Readonly<Record<string, number>>;
 }
 
-export const EMPTY_THREAD_LINEAGE: ThreadLineage = { parents: {}, markers: {}, workingChildren: {} };
+export const EMPTY_THREAD_LINEAGE: ThreadLineage = { parents: {}, workingChildren: {} };
 
 /** The host entry of the same extension package, reached by extension id. */
 export interface HostExtensionClient {
@@ -703,7 +702,6 @@ export class ExtensionRegistry {
       ? EMPTY_THREAD_LINEAGE
       : [...this.lineages.values()].reduce((merged, lineage) => ({
         parents: { ...lineage.parents, ...merged.parents },
-        markers: { ...lineage.markers, ...merged.markers },
         workingChildren: { ...lineage.workingChildren, ...merged.workingChildren },
       }), EMPTY_THREAD_LINEAGE);
     this.lineageCache = { version: this.version, value };

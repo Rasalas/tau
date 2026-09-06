@@ -1,10 +1,14 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { GlobalHostEvent, UiMessage } from "../../shared/contracts.js";
+import type { GlobalHostEvent, UiMessage, UiToolRun } from "../../shared/contracts.js";
 import {
   AGENTS_HOST_EXTENSION_ID,
   AGENT_CHILD_ENTRY,
   AGENT_PARENT_ENTRY,
-  MAX_CHILDREN_PER_PARENT,
+  DEFAULT_MAX_RUNNING_AGENTS,
+  type AgentsState,
 } from "../../shared/agents-kit-protocol.js";
 import {
   HostExtensionRegistry,
@@ -15,8 +19,8 @@ import {
   type HostTurnObserver,
   type RuntimeExtensionContribution,
 } from "../host-extensions.js";
-import { createAgentsHostExtension, linksFromEntries, titleFromPrompt } from "./agents-host-extension.js";
-import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel } from "./agents-threads.js";
+import { createAgentsHostExtension, linksFromEntries, readAgentsSettings, titleFromPrompt } from "./agents-host-extension.js";
+import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./agents-threads.js";
 
 interface FakeTool {
   name: string;
@@ -79,16 +83,18 @@ function harness() {
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
     sessions: {
-      list: async () => [{ sessionId: "parent", path: "/sessions/parent.jsonl", cwd: "/project" }, { sessionId: "other", path: "/sessions/other.jsonl", cwd: "/other" }],
+      list: async () => [
+        { sessionId: "parent", path: "/sessions/parent.jsonl", cwd: "/project" },
+        { sessionId: "other", path: "/sessions/other.jsonl", cwd: "/other" },
+      ],
       open: () => { throw new Error("no session files in this test"); },
       prepare: async () => { throw new Error("no runtimes in this test"); },
-      start: async (options) => {
-        started.push(options);
+      start: async (startOptions) => {
+        started.push(startOptions);
         nextThread += 1;
         const sessionId = `child-${nextThread}`;
-        const thread = open(sessionId);
-        thread.streaming = true;
-        return { sessionId, cwd: options.cwd, ...(options.title ? { title: options.title } : {}) };
+        open(sessionId).streaming = true;
+        return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
       },
       exclusive: (work) => work(),
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
@@ -97,7 +103,7 @@ function harness() {
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     pinTranscriptEntries: () => () => undefined,
     decorateUiPrompt: () => () => undefined,
-    registerRuntimeExtension: (name, factory, options) => { runtimeExtensions.push({ name, factory, ...options }); return () => undefined; },
+    registerRuntimeExtension: (name, factory, extensionOptions) => { runtimeExtensions.push({ name, factory, ...extensionOptions }); return () => undefined; },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
@@ -121,15 +127,33 @@ function harness() {
     };
   };
 
-  return { registry, services, threads, started, events, observers, lifecycles, runtime, open, latestState: () => events.at(-1)?.type === "extension-event" ? (events.at(-1) as { payload: unknown }).payload : undefined };
+  /** The kit registers one turn observer; this is the host telling it what happened. */
+  const notify = async (event: "accepted" | "ended" | "closed" | "toolEnded", sessionId: string, extra?: unknown) => {
+    for (const observer of observers) {
+      if (event === "accepted") observer.accepted?.(sessionId, "turn-1", { deferBefore: false });
+      if (event === "ended") await observer.ended?.(sessionId, "turn-1", (extra as "completed" | "failed") ?? "completed");
+      if (event === "closed") await observer.closed?.(sessionId);
+      if (event === "toolEnded") observer.toolEnded?.(sessionId, extra as UiToolRun, "/project");
+    }
+  };
+
+  const state = async (): Promise<AgentsState> =>
+    await registry.invoke(AGENTS_HOST_EXTENSION_ID, "state") as AgentsState;
+
+  return { registry, services, threads, started, events, observers, lifecycles, runtime, open, notify, state };
 }
 
-async function activated() {
+async function activated(settingsPath?: string) {
   const bench = harness();
   bench.open("parent");
-  await bench.registry.activate(createAgentsHostExtension());
+  await bench.registry.activate(createAgentsHostExtension(settingsPath ? { settingsPath } : {}));
+  // The kit reads its budget from disk during activation.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   return bench;
 }
+
+/** The agent handle a completed spawn reports. */
+const handleOf = (result: unknown) => (result as { threadId: string }).threadId;
 
 describe("Agents Kit tool arguments", () => {
   it("refuses a spawn without a prompt and bounds what it accepts", () => {
@@ -159,38 +183,50 @@ describe("Agents Kit tool arguments", () => {
     expect(titleFromPrompt("Reply with ALPHA. Then stop.")).toBe("Reply with ALPHA.");
     expect(titleFromPrompt("x".repeat(80))).toHaveLength(58);
   });
+
+  it("clamps the running budget the user configured", () => {
+    expect(readMaxRunningAgents(undefined)).toBe(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(readMaxRunningAgents({ maxRunningAgents: 0 })).toBe(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(readMaxRunningAgents({ maxRunningAgents: 12 })).toBe(12);
+    expect(readMaxRunningAgents({ maxRunningAgents: 500 })).toBe(64);
+  });
 });
 
 describe("Agents Kit status", () => {
-  it("derives a status from liveness, turns and what the thread is holding open", () => {
-    expect(deriveStatus({ spawning: true, turns: 0 })).toBe("running");
-    expect(deriveStatus({ spawning: false, turns: 0, live: { streaming: true, idle: false } })).toBe("running");
-    expect(deriveStatus({ spawning: false, turns: 1, pendingToolPrompt: "Allow?", live: { streaming: false, idle: false } })).toBe("waiting");
-    expect(deriveStatus({ spawning: false, turns: 0, live: { streaming: false, idle: false } })).toBe("waiting");
-    expect(deriveStatus({ spawning: false, turns: 1, lastOutcome: "completed", live: { streaming: false, idle: true } })).toBe("completed");
-    expect(deriveStatus({ spawning: false, turns: 1, lastOutcome: "failed" })).toBe("failed");
-    expect(deriveStatus({ spawning: false, turns: 0, error: "gone" })).toBe("failed");
-    expect(deriveStatus({ spawning: false, turns: 0 })).toBe("idle");
+  it("derives a status from liveness, turns and what the agent is holding open", () => {
+    const facts = { queued: false, spawning: false, turns: 0 };
+    expect(deriveStatus({ ...facts, queued: true })).toBe("pending");
+    expect(deriveStatus({ ...facts, spawning: true })).toBe("running");
+    expect(deriveStatus({ ...facts, live: { streaming: true, idle: false } })).toBe("running");
+    expect(deriveStatus({ ...facts, turns: 1, pendingToolPrompt: "Allow?", live: { streaming: false, idle: false } })).toBe("waiting");
+    expect(deriveStatus({ ...facts, live: { streaming: false, idle: false } })).toBe("waiting");
+    expect(deriveStatus({ ...facts, turns: 1, lastOutcome: "completed", live: { streaming: false, idle: true } })).toBe("completed");
+    expect(deriveStatus({ ...facts, turns: 1, lastOutcome: "failed" })).toBe("failed");
+    expect(deriveStatus({ ...facts, error: "gone" })).toBe("failed");
+    expect(deriveStatus(facts)).toBe("idle");
   });
 
-  it("keeps a parent's budget and depth", () => {
-    const book = new AgentThreadBook(() => ({ streaming: true, idle: false }));
-    for (let index = 0; index < MAX_CHILDREN_PER_PARENT; index += 1) {
-      book.assertCanSpawn("parent");
-      book.add({ threadId: `c${index}`, parentThreadId: "parent", spawnedBy: "tau_spawn_thread", spawnedAt: index, projectPath: "/project", depth: 1 });
-    }
-    expect(() => book.assertCanSpawn("parent")).toThrow("already has 8 sub-agents running");
-    book.add({ threadId: "grandchild", parentThreadId: "c0", spawnedBy: "tau_spawn_thread", spawnedAt: 9, projectPath: "/project", depth: 2 });
-    expect(() => book.assertCanSpawn("grandchild")).toThrow("may nest 2 levels deep");
-  });
+  it("stops nesting at depth 2 and hands out slots oldest first", () => {
+    const streaming = new Set(["t0", "t1"]);
+    const book = new AgentThreadBook((threadId) => ({ streaming: streaming.has(threadId), idle: !streaming.has(threadId) }));
+    book.setMaxRunning(2);
+    const link = (id: string, parent: string, at: number, depth = 1) =>
+      ({ id, parentThreadId: parent, spawnedBy: "tau_spawn_thread", spawnedAt: at, projectPath: "/project", depth, title: id });
+    for (const index of [0, 1, 2]) book.add(link(`c${index}`, "parent", index), { queued: true });
+    expect(book.startable("parent").map((entry) => entry.id)).toEqual(["c0", "c1"]);
+    book.noteStarted("c0", "t0", 10);
+    book.noteStarted("c1", "t1", 11);
+    expect(book.startable("parent")).toEqual([]);
+    expect(book.busyChildren("parent")).toBe(2);
+    streaming.delete("t0");
+    book.noteEnded("t0", "completed", 12);
+    expect(book.startable("parent").map((entry) => entry.id)).toEqual(["c2"]);
 
-  it("stops counting a child that finished against the parent's budget", () => {
-    const book = new AgentThreadBook(() => ({ streaming: false, idle: true }));
-    book.add({ threadId: "c1", parentThreadId: "parent", spawnedBy: "tau_spawn_thread", spawnedAt: 1, projectPath: "/project", depth: 1 });
-    book.noteEnded("c1", "completed");
-    expect(book.linkFor("c1")?.status).toBe("completed");
-    expect(book.childrenOf("parent")).toHaveLength(1);
-    book.assertCanSpawn("parent");
+    // A depth-1 agent may still delegate once; its child may not.
+    book.assertCanSpawn("t0");
+    book.add(link("grand", "t0", 20, 2));
+    book.noteStarted("grand", "t2", 21);
+    expect(() => book.assertCanSpawn("t2")).toThrow("may nest 2 levels deep");
   });
 });
 
@@ -218,7 +254,9 @@ describe("Agents Kit", () => {
     expect(bench.threads.get("parent")!.entries).toEqual([
       { type: "custom", customType: AGENT_CHILD_ENTRY, data: expect.objectContaining({ threadId: "child-1", depth: 1, title: "Reply with ALPHA" }) },
     ]);
-    expect(bench.latestState()).toEqual({ links: [expect.objectContaining({ threadId: "child-1", parentThreadId: "parent", status: "running" })] });
+    const state = await bench.state();
+    expect(state.maxRunning).toBe(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(state.links).toEqual([expect.objectContaining({ threadId: "child-1", parentThreadId: "parent", status: "running" })]);
   });
 
   it("takes the model the caller names and refuses a project the host does not have", async () => {
@@ -229,48 +267,95 @@ describe("Agents Kit", () => {
     await expect(parent.call("tau_spawn_thread", { prompt: "go", projectPath: "/nowhere" })).rejects.toThrow("not a project this host has open");
   });
 
+  it("queues spawns beyond the running budget and starts them in order as slots free", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const spawns = [];
+    for (let index = 0; index < 20; index += 1) {
+      spawns.push(await parent.call("tau_spawn_thread", { prompt: `task ${index}`, title: `T${index}` }) as { status: string });
+    }
+    // Exactly the budget started; every later spawn was accepted, not refused.
+    expect(spawns.filter((entry) => entry.status === "running")).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(spawns.filter((entry) => entry.status === "pending")).toHaveLength(20 - DEFAULT_MAX_RUNNING_AGENTS);
+    expect(bench.started.map((entry) => entry.title)).toEqual(["T0", "T1", "T2", "T3", "T4", "T5", "T6", "T7"]);
+
+    // Two of them finish; the two oldest queued agents take their slots.
+    for (const threadId of ["child-1", "child-2"]) {
+      bench.threads.get(threadId)!.streaming = false;
+      await bench.notify("ended", threadId, "completed");
+    }
+    expect(bench.started.map((entry) => entry.title)).toEqual(["T0", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"]);
+
+    const listed = await parent.call("tau_list_threads") as { threads: Array<{ title: string; status: string }> };
+    expect(listed.threads).toHaveLength(20);
+    expect(listed.threads.filter((entry) => entry.status === "pending")).toHaveLength(10);
+    expect(listed.threads.filter((entry) => entry.status === "completed")).toHaveLength(2);
+  });
+
+  it("honours the running budget the user configured", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-settings-"));
+    const path = join(directory, "agents.json");
+    await writeFile(path, JSON.stringify({ maxRunningAgents: 2 }), "utf8");
+    try {
+      await expect(readAgentsSettings(path)).resolves.toBe(2);
+      const bench = await activated(path);
+      await expect(bench.state()).resolves.toMatchObject({ maxRunning: 2 });
+      const parent = bench.runtime("parent");
+      const statuses = [];
+      for (const index of [0, 1, 2]) {
+        statuses.push(((await parent.call("tau_spawn_thread", { prompt: `t${index}` })) as { status: string }).status);
+      }
+      expect(statuses).toEqual(["running", "running", "pending"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reports status from the host's own view of the thread", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
-    const { threadId } = await parent.call("tau_spawn_thread", { prompt: "Reply with ALPHA" }) as { threadId: string };
-    await expect(parent.call("tau_get_thread_status", { threadId })).resolves.toMatchObject({ status: "running", turns: 0 });
+    const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "Reply with ALPHA" }));
+    await expect(parent.call("tau_get_thread_status", { threadId: handle })).resolves.toMatchObject({ status: "running", turns: 0 });
 
-    const child = bench.threads.get(threadId)!;
+    const child = bench.threads.get(handle)!;
     child.messages = [{ role: "assistant", text: "ALPHA" } as UiMessage];
     child.streaming = false;
-    for (const observer of bench.observers) await observer.ended?.(threadId, "turn-1", "completed");
+    await bench.notify("toolEnded", handle, { name: "bash" });
+    await bench.notify("ended", handle, "completed");
 
-    await expect(parent.call("tau_get_thread_status", { threadId })).resolves.toEqual({
-      threadId,
+    await expect(parent.call("tau_get_thread_status", { threadId: handle })).resolves.toEqual({
+      threadId: handle,
       title: "Reply with ALPHA",
       status: "completed",
       turns: 1,
       lastAssistantMessage: "ALPHA",
     });
+    const state = await bench.state();
+    expect(state.links[0]).toMatchObject({ lastTool: "bash", result: "ALPHA", status: "completed" });
     await expect(parent.call("tau_get_thread_status", { threadId: "someone-else" })).rejects.toThrow("not a thread this one spawned");
   });
 
-  it("surfaces a question the child is holding as waiting, not as an answer for the parent", async () => {
+  it("surfaces a question the agent is holding as waiting, not as an answer for the parent", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
-    const { threadId } = await parent.call("tau_spawn_thread", { prompt: "go" }) as { threadId: string };
-    bench.threads.get(threadId)!.streaming = false;
-    bench.runtime(threadId).fire("ui_prompt_start", { kind: "confirm", title: "Run rm -rf?" });
+    const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "go" }));
+    bench.threads.get(handle)!.streaming = false;
+    bench.runtime(handle).fire("ui_prompt_start", { kind: "confirm", title: "Run rm -rf?" });
 
-    await expect(parent.call("tau_get_thread_status", { threadId }))
+    await expect(parent.call("tau_get_thread_status", { threadId: handle }))
       .resolves.toMatchObject({ status: "waiting", pendingToolPrompt: "Run rm -rf?" });
   });
 
-  it("waits for the child's turn to end and returns its final answer", async () => {
+  it("waits for the agent's turn to end and returns its final answer", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
-    const { threadId } = await parent.call("tau_spawn_thread", { prompt: "Reply with BETA" }) as { threadId: string };
-    const waiting = parent.call("tau_wait_for_thread", { threadId, timeoutMs: 5_000 });
+    const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "Reply with BETA" }));
+    const waiting = parent.call("tau_wait_for_thread", { threadId: handle, timeoutMs: 5_000 });
 
-    const child = bench.threads.get(threadId)!;
+    const child = bench.threads.get(handle)!;
     child.messages = [{ role: "assistant", text: "BETA" } as UiMessage];
     child.streaming = false;
-    for (const observer of bench.observers) await observer.ended?.(threadId, "turn-1", "completed");
+    await bench.notify("ended", handle, "completed");
 
     await expect(waiting).resolves.toMatchObject({ status: "completed", lastAssistantMessage: "BETA", turns: 1 });
   });
@@ -278,9 +363,9 @@ describe("Agents Kit", () => {
   it("gives up on the tool's own abort signal instead of holding the turn open", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
-    const { threadId } = await parent.call("tau_spawn_thread", { prompt: "go" }) as { threadId: string };
+    const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "go" }));
     const controller = new AbortController();
-    const waiting = parent.call("tau_wait_for_thread", { threadId }, controller.signal);
+    const waiting = parent.call("tau_wait_for_thread", { threadId: handle }, controller.signal);
     controller.abort();
     await expect(waiting).resolves.toMatchObject({ timedOut: true, status: "running" });
   });
@@ -303,11 +388,11 @@ describe("Agents Kit", () => {
       { type: "custom", customType: AGENT_CHILD_ENTRY, data: { version: 1, threadId: "child-9", spawnedAt: 5, projectPath: "/project", depth: 1, title: "Nine" } },
     ];
     expect(linksFromEntries("parent", entries)).toEqual([
-      { threadId: "child-9", parentThreadId: "parent", spawnedBy: "tau_spawn_thread", spawnedAt: 5, projectPath: "/project", depth: 1, title: "Nine" },
+      { id: "child-9", threadId: "child-9", parentThreadId: "parent", spawnedBy: "tau_spawn_thread", spawnedAt: 5, projectPath: "/project", depth: 1, title: "Nine" },
     ]);
 
     await bench.lifecycles[0]!.beforeOpen?.({ sessionId: "parent", entries: () => entries } as never);
-    await expect(bench.registry.invoke(AGENTS_HOST_EXTENSION_ID, "state")).resolves.toEqual({
+    await expect(bench.state()).resolves.toMatchObject({
       links: [expect.objectContaining({ threadId: "child-9", parentThreadId: "parent" })],
     });
   });
@@ -315,13 +400,13 @@ describe("Agents Kit", () => {
   it("survives its threads going away", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
-    const { threadId } = await parent.call("tau_spawn_thread", { prompt: "go" }) as { threadId: string };
-    bench.threads.delete(threadId);
+    const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "go" }));
+    bench.threads.delete(handle);
     bench.threads.delete("parent");
-    for (const observer of bench.observers) await observer.closed?.(threadId);
+    await bench.notify("closed", handle);
 
-    await expect(parent.call("tau_get_thread_status", { threadId })).resolves.toMatchObject({ status: "idle", turns: 0 });
-    await bench.lifecycles[0]!.sweep?.({ sessions: [], liveThreads: [], projectPaths: [], deleted: [{ sessionId: threadId, cwd: "/project" }] });
+    await expect(parent.call("tau_get_thread_status", { threadId: handle })).resolves.toMatchObject({ status: "idle", turns: 0 });
+    await bench.lifecycles[0]!.sweep?.({ sessions: [], liveThreads: [], projectPaths: [], deleted: [{ sessionId: handle, cwd: "/project" }] });
     await expect(parent.call("tau_list_threads")).resolves.toEqual({ threads: [] });
   });
 });

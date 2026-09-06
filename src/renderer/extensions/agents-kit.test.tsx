@@ -1,26 +1,44 @@
 // @vitest-environment jsdom
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import type { UiSession } from "../../shared/contracts";
-import { AGENTS_HOST_EXTENSION_ID, type AgentsState } from "../../shared/agents-kit-protocol";
+import {
+  AGENTS_HOST_EXTENSION_ID,
+  type AgentThreadLink,
+  type AgentThreadStatus,
+  type AgentsState,
+} from "../../shared/agents-kit-protocol";
 import { setHostClient } from "../host-client-context";
 import { setClientStorage } from "../client-storage";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { renderApp } from "../test-support/render-app";
 import { workspaceHostStub } from "../test-support/workspace-host-stub";
-import { AGENT_MARKER, lineageOf } from "./agents-kit";
-import { nestThreads } from "./project-navigation";
+import { createAgentsStore, lineageOf } from "./agents-store";
+import { activityLine, agentsPanelModel, formatCost, formatElapsed } from "./agents-model";
+import { panelRows } from "./agents-panel";
+import { visibleThreads } from "./project-navigation";
 
-// jsdom gives the scroll rail no height, so the real virtualizer renders no
-// row at all. This test is about which rows the navigator builds, not about
-// how few of them it draws.
+/**
+ * jsdom gives a scroll rail no height, so the real virtualizer would render no
+ * row at all. A fixed window of eight instead proves the panel hands the whole
+ * list to the virtualizer and mounts only what it gets back.
+ */
+const VIRTUAL_WINDOW = 8;
 vi.mock("@tanstack/react-virtual", () => ({
   defaultRangeExtractor: (range: { startIndex: number; endIndex: number }) =>
     Array.from({ length: range.endIndex - range.startIndex + 1 }, (_, offset) => range.startIndex + offset),
-  useVirtualizer: ({ count, getItemKey }: { count: number; getItemKey?: (index: number) => string | number }) => ({
-    getTotalSize: () => count * 94,
-    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, key: getItemKey?.(index) ?? index, start: index * 94, size: 94 })),
+  useVirtualizer: ({ count, getItemKey, estimateSize }: {
+    count: number;
+    getItemKey?: (index: number) => string | number;
+    estimateSize?: (index: number) => number;
+  }) => ({
+    getTotalSize: () => count * 58,
+    getVirtualItems: () => Array.from({ length: Math.min(count, VIRTUAL_WINDOW) }, (_, index) => ({
+      index,
+      key: getItemKey?.(index) ?? index,
+      start: index * 58,
+      size: estimateSize?.(index) ?? 58,
+    })),
     measureElement: () => undefined,
     scrollToIndex: () => undefined,
     scrollToOffset: () => undefined,
@@ -29,7 +47,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
-function session(id: string, title: string, modifiedAt: number): UiSession {
+function session(id: string, title: string, modifiedAt: number, costUsd?: number): UiSession {
   return {
     id,
     path: `/sessions/${id}.jsonl`,
@@ -38,67 +56,182 @@ function session(id: string, title: string, modifiedAt: number): UiSession {
     projectPath: "/project",
     projectName: "project",
     messageCount: 1,
+    ...(costUsd === undefined ? {} : {
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd, turns: 1 },
+    }),
+  };
+}
+
+function link(id: string, parentThreadId: string, status: AgentThreadStatus, spawnedAt: number, extra: Partial<AgentThreadLink> = {}): AgentThreadLink {
+  return {
+    id,
+    threadId: id,
+    parentThreadId,
+    spawnedBy: "tau_spawn_thread",
+    spawnedAt,
+    projectPath: "/project",
+    depth: 1,
+    title: id.toUpperCase(),
+    status,
+    ...extra,
   };
 }
 
 const state: AgentsState = {
+  maxRunning: 8,
   links: [
-    { threadId: "alpha", parentThreadId: "parent", spawnedBy: "tau_spawn_thread", spawnedAt: 1, projectPath: "/project", depth: 1, title: "ALPHA", status: "running" },
-    { threadId: "beta", parentThreadId: "parent", spawnedBy: "tau_spawn_thread", spawnedAt: 2, projectPath: "/project", depth: 1, title: "BETA", status: "completed" },
+    link("alpha", "parent", "running", 1, { startedAt: 1_000, lastTool: "bash" }),
+    link("beta", "parent", "completed", 2, { result: "BETA" }),
   ],
 };
 
 describe("Agents Kit lineage", () => {
-  it("turns spawned threads into parents, markers and a working count", () => {
-    expect(lineageOf(state)).toEqual({
-      parents: { alpha: "parent", beta: "parent" },
-      markers: { alpha: AGENT_MARKER, beta: AGENT_MARKER },
-      workingChildren: { parent: 1 },
-    });
-    expect(lineageOf({ links: [{ ...state.links[1]!, status: "waiting" }] }).workingChildren).toEqual({ parent: 1 });
+  it("names each agent's parent and counts the ones still working", () => {
+    expect(lineageOf(state)).toEqual({ parents: { alpha: "parent", beta: "parent" }, workingChildren: { parent: 1 } });
+    expect(lineageOf({ maxRunning: 8, links: [link("a", "p", "waiting", 1)] }).workingChildren).toEqual({ p: 1 });
+    expect(lineageOf({ maxRunning: 8, links: [link("a", "p", "pending", 1)] }).workingChildren).toEqual({});
+    expect(lineageOf(undefined)).toEqual({ parents: {}, workingChildren: {} });
   });
 
-  it("places children under their parent and leaves an orphan at the top", () => {
-    const threads = [session("beta", "BETA", 3), session("parent", "Parent", 2), session("alpha", "ALPHA", 1)];
-    expect(nestThreads(threads, { alpha: "parent", beta: "parent" }).map((row) => [row.session.id, row.depth]))
-      .toEqual([["parent", 0], ["beta", 1], ["alpha", 1]]);
-    expect(nestThreads(threads, { alpha: "gone" }).map((row) => [row.session.id, row.depth]))
-      .toEqual([["beta", 0], ["parent", 0], ["alpha", 0]]);
-    // A link that loops must still list both threads exactly once.
-    expect(nestThreads(threads, { alpha: "beta", beta: "alpha" }).map((row) => row.session.id).sort())
-      .toEqual(["alpha", "beta", "parent"]);
+  it("keeps only what the host pushed", () => {
+    const store = createAgentsStore();
+    const seen = vi.fn();
+    store.subscribe(seen);
+    store.set({ not: "a state" });
+    expect(store.getSnapshot()).toBeUndefined();
+    store.set(state);
+    expect(store.getSnapshot()).toBe(state);
+    expect(seen).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("the navigator with spawned threads", () => {
-  it("nests them under the thread that spawned them, marked and counted", async () => {
-    const client = createFakeHostClient({
-      bootstrap: async () => ({
-        version: 1,
-        threadIndex: {
-          projects: [{ path: "/project", name: "project", lastOpenedAt: 3 }],
-          sessions: [session("parent", "Parent thread", 3), session("alpha", "ALPHA", 2), session("beta", "BETA", 1)],
-        },
-        detail: { sessionId: "parent", messages: [], isStreaming: false, activeTools: [] },
-        catalog: { sessionId: "parent", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
-        project: { cwd: "/project" },
-      }),
-      invokeHostExtension: workspaceHostStub({}, {
-        [AGENTS_HOST_EXTENSION_ID]: async (command) => command === "state" ? state : undefined,
-      }),
-    });
+describe("the Agents panel model", () => {
+  const threads = [session("parent", "Parent thread", 3, 0.5), session("alpha", "Alpha reply", 2, 0.25), session("beta", "Beta reply", 1, 0.25)];
 
+  it("groups the active thread's agents and totals its cost with theirs", () => {
+    const model = agentsPanelModel(state, "parent", threads);
+    expect(model.groups).toHaveLength(1);
+    expect(model.groups[0]).toMatchObject({ parentThreadId: "parent", active: true });
+    expect(model.groups[0]!.rows.map((row) => [row.title, row.status, row.costUsd]))
+      .toEqual([["Alpha reply", "running", 0.25], ["Beta reply", "completed", 0.25]]);
+    expect(model).toMatchObject({ running: 1, completed: 1, waiting: 0, failed: 0, pending: 0, totalCostUsd: 1, runningElsewhere: 0 });
+    expect(formatCost(model.totalCostUsd)).toBe("$1.00");
+    expect(formatCost(undefined)).toBe("–");
+  });
+
+  it("leaves the total unknown when nothing has counted a cost", () => {
+    const model = agentsPanelModel(state, "parent", [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2)]);
+    expect(model.totalCostUsd).toBeUndefined();
+    expect(model.groups[0]!.rows[0]!.costUsd).toBeUndefined();
+  });
+
+  it("shows an agent its siblings and the thread that spawned it", () => {
+    const model = agentsPanelModel(state, "alpha", threads);
+    expect(model.groups.map((group) => group.parentThreadId)).toEqual(["parent"]);
+    expect(model.groups[0]!.rows.map((row) => row.id)).toEqual(["alpha", "beta"]);
+  });
+
+  it("offers a jump when the thread on screen has no agents of its own", () => {
+    const model = agentsPanelModel(state, "unrelated", [...threads, session("unrelated", "Something else", 4)]);
+    expect(model.groups).toEqual([]);
+    expect(model.runningElsewhere).toBe(1);
+    expect(model.jumpTo).toEqual({ threadId: "parent", path: "/sessions/parent.jsonl", title: "Parent thread" });
+  });
+
+  it("groups by parent once depth 2 is in play", () => {
+    const deep: AgentsState = {
+      maxRunning: 8,
+      links: [...state.links, { ...link("gamma", "alpha", "running", 3), depth: 2 }],
+    };
+    const model = agentsPanelModel(deep, "parent", [...threads, session("gamma", "Gamma", 0)]);
+    expect(model.groups.map((group) => [group.parentThreadId, group.active])).toEqual([["parent", true], ["alpha", false]]);
+    expect(panelRows(model).map((row) => row.kind)).toEqual(["group", "agent", "agent", "group", "agent"]);
+  });
+
+  it("says what a row is doing in one line", () => {
+    expect(activityLine({ id: "a", title: "A", status: "running", lastTool: "bash" })).toBe("▸ bash");
+    expect(activityLine({ id: "a", title: "A", status: "pending" })).toBe("Queued for a free slot");
+    expect(activityLine({ id: "a", title: "A", status: "waiting", pendingToolPrompt: "Run rm?" })).toBe("Needs you: Run rm?");
+    expect(activityLine({ id: "a", title: "A", status: "failed", error: "boom" })).toBe("boom");
+    expect(activityLine({ id: "a", title: "A", status: "completed", result: "done" })).toBe("done");
+  });
+
+  it("keeps elapsed time the same shape at every scale", () => {
+    expect(formatElapsed(4_400)).toBe("4s");
+    expect(formatElapsed(184_000)).toBe("3m 04s");
+    expect(formatElapsed(3_720_000)).toBe("1h 02m");
+  });
+});
+
+function appWith(agents: AgentsState, sessions: UiSession[], activeThreadId: string) {
+  return createFakeHostClient({
+    bootstrap: async () => ({
+      version: 1,
+      threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 3 }], sessions },
+      detail: { sessionId: activeThreadId, messages: [], isStreaming: false, activeTools: [] },
+      catalog: { sessionId: activeThreadId, models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+      project: { cwd: "/project" },
+    }),
+    invokeHostExtension: workspaceHostStub({}, {
+      [AGENTS_HOST_EXTENSION_ID]: async (command) => command === "state" ? agents : undefined,
+    }),
+  });
+}
+
+describe("the Agents panel", () => {
+  it("lists sixty agents without mounting sixty rows", async () => {
+    const many: AgentsState = {
+      maxRunning: 8,
+      links: Array.from({ length: 60 }, (_, index) =>
+        link(`agent-${index}`, "parent", index < 8 ? "running" : "pending", index, { startedAt: Date.now() - 5_000 })),
+    };
+    const sessions = [session("parent", "Parent thread", 100), ...many.links.map((entry, index) => session(entry.id, `Agent ${index}`, 60 - index))];
+    renderApp(appWith(many, sessions, "parent"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    const heading = await screen.findByRole("heading", { name: "Agents" });
+    const panel = heading.closest(".agents-panel") as HTMLElement;
+    await waitFor(() => expect(panel.querySelectorAll(".agent-row").length).toBeGreaterThan(0));
+
+    expect(panel.querySelectorAll(".agent-row")).toHaveLength(VIRTUAL_WINDOW);
+    expect(panel.textContent).toContain("8 running");
+    expect(panel.textContent).toContain("52 pending");
+    expect(panel.querySelector(".agent-total-cost")!.textContent).toBe("–");
+  });
+
+  it("switches to the agent's thread when its row is clicked", async () => {
+    const switchSession = vi.fn(async () => ({ version: 1 as const, updates: [] }));
+    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
+    client.switchSession = switchSession;
     renderApp(client);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
+    await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/alpha.jsonl"));
+  });
+});
+
+describe("the navigator with agent threads", () => {
+  it("hides spawned threads until a search or the toggle asks for them", () => {
+    const threads = [session("parent", "Parent", 3), session("alpha", "Alpha", 2), session("beta", "Beta", 1)];
+    const parents = { alpha: "parent", beta: "parent" };
+    expect(visibleThreads(threads, parents, { showAgents: false, searching: false }).map((entry) => entry.id)).toEqual(["parent"]);
+    expect(visibleThreads(threads, parents, { showAgents: true, searching: false }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
+    expect(visibleThreads(threads, parents, { showAgents: false, searching: true }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
+    // The thread on screen is never hidden, however it was created.
+    expect(visibleThreads(threads, parents, { showAgents: false, searching: false, activeThreadId: "beta" }).map((entry) => entry.id))
+      .toEqual(["parent", "beta"]);
+  });
+
+  it("keeps agents out of the rail, badges the parent, and reveals them on request", async () => {
+    const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)];
+    renderApp(appWith(state, sessions, "parent"));
     await screen.findByRole("navigation", { name: "Threads" });
 
-    const rowOf = (title: string) => screen.getByText(title).closest("article")!;
-    await waitFor(() => expect(rowOf("ALPHA").className).toContain("nested"));
+    await waitFor(() => expect(screen.getByLabelText("1 agent running")).toBeTruthy());
+    expect(screen.queryByText("Alpha reply")).toBeNull();
 
-    expect(rowOf("Parent thread").className).not.toContain("nested");
-    expect(rowOf("ALPHA").style.getPropertyValue("--thread-depth")).toBe("1");
-    expect(rowOf("BETA").style.getPropertyValue("--thread-depth")).toBe("1");
-    expect(rowOf("ALPHA").textContent).toContain(AGENT_MARKER);
-    expect(rowOf("Parent thread").textContent).not.toContain(AGENT_MARKER);
-    expect(screen.getByLabelText("1 sub-agent running").closest("article")).toBe(rowOf("Parent thread"));
+    fireEvent.click(screen.getByRole("button", { name: "Show agent threads" }));
+    expect(await screen.findByText("Alpha reply")).toBeTruthy();
   });
 });
