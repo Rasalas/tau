@@ -44,6 +44,12 @@ const desktopBundles = new DesktopBundleStore();
 registerDesktopBundleScheme();
 const hostLog = new HostLog({ dir: join(app.getPath("userData"), "logs") });
 
+// Every extension is compiled by esbuild, which spawns a binary that cannot
+// live in the archive. `packaged-app` redirects it while it loads.
+if (app.isPackaged && !process.env.ESBUILD_BINARY_PATH) {
+  hostLog.warn("esbuild.binary.missing", "Nothing outside the archive to spawn; extensions cannot be compiled.");
+}
+
 process.on("uncaughtException", (error) => {
   hostLog.error("process.uncaughtException", error);
   dialog.showErrorBox("Tau hit an unexpected error and needs to close", `Details were written to:\n${hostLog.filePath}`);
@@ -256,6 +262,11 @@ function createLocalHostMethods(): HostMethodTable {
         return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })) };
       },
       rebuildWorkbench: (context) => {
+        // An installed Tau carries no sources and no toolchain. Reporting
+        // success lets the reload it is part of go on and pick up extensions.
+        if (app.isPackaged) {
+          return Promise.resolve({ ok: true, durationMs: 0, mainChanged: false, output: "An installed Tau has no sources to rebuild." });
+        }
         if (rebuild) return rebuild;
         rebuild = rebuildWorkbench(app.getAppPath(), {
           onOutput: (line) => {

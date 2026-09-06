@@ -1,3 +1,5 @@
+// esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
+import { unpackedPath } from "./packaged-app.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -77,7 +79,8 @@ function workerSourcePath(): string {
  */
 export function workerEntryPath(): Promise<string> {
   entryPromise ??= (async () => {
-    const compiled = join(dirname(fileURLToPath(import.meta.url)), "host-extension-worker.cjs");
+    // A worker thread opens its entry itself, so this has to be a real file.
+    const compiled = unpackedPath(join(dirname(fileURLToPath(import.meta.url)), "host-extension-worker.cjs"));
     if (existsSync(compiled)) return compiled;
     const result = await build({
       entryPoints: [workerSourcePath()],
