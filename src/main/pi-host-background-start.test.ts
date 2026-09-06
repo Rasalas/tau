@@ -68,12 +68,12 @@ function hostWithHeldStarts() {
   const host = new PiHost("/repo", () => undefined, history as never, false, false);
   const internals = host as unknown as Record<string, any>;
   internals.rememberProject = async () => {};
-  internals.refreshThreadShell = async () => {};
-  internals.refreshThreadIndex = async () => {};
-  internals.startIndexRecovery = () => {};
-  internals.scheduleRuntimePrewarm = () => {};
-  internals.scheduleSpareThread = () => {};
-  internals.labelFor = () => undefined;
+  internals.index.refreshShell = async () => {};
+  internals.index.refresh = async () => {};
+  internals.index.startRecovery = () => {};
+  internals.prewarm.scheduleThreads = () => {};
+  internals.prewarm.scheduleSpare = () => {};
+  internals.projects.label = () => undefined;
 
   const active = fakeThread("active", delivered);
   internals.threads.adopt({ threadId: "active", cwd: "/repo", runtime: active, isolation: "in-process" });
@@ -84,7 +84,7 @@ function hostWithHeldStarts() {
   let peakOpening = 0;
   const releases: Array<() => void> = [];
   let opened = 0;
-  internals.openThread = async () => {
+  internals.runtimes.open = async () => {
     opening += 1;
     peakOpening = Math.max(peakOpening, opening);
     await new Promise<void>((resolve) => { releases.push(resolve); });

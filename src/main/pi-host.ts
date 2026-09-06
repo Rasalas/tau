@@ -3,17 +3,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
-import {
-  createAgentSessionFromServices,
-  createAgentSessionRuntime,
-  createAgentSessionServices,
-  getAgentDir,
-  SessionManager,
-  SettingsManager,
-  type AgentSessionRuntime,
-  type CreateAgentSessionRuntimeFactory,
-  type SessionInfo,
-} from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiAnswer,
   HostBootstrap,
@@ -23,22 +13,18 @@ import type {
   HostSnapshot,
   PreparedThreadCapability,
   ShellActionResult,
-  ThreadIndexSnapshot,
   UiComposerCommand,
-  UiMessage,
   UiModel,
   UiPromptAttachment,
   SubmissionResult,
   UiSkillDraft,
-  UiSession,
   NewThreadRequestId,
   ThreadBackendKind,
   PreparedPrompt,
   ThreadTreeNavigationResult,
   UiThreadTree,
-  UiThreadUsage,
 } from "../shared/contracts.js";
-import { createNewThreadRequestId, type ClientTurnIdentity } from "../shared/contracts.js";
+import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
   HOST_PROTOCOL_VERSION,
   catalogFromSnapshot,
@@ -54,16 +40,13 @@ import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
-import { createPiModelRuntime } from "./pi-model-runtime.js";
-import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
-import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
+import { RuntimeResourceCache } from "./runtime-resource-cache.js";
 import { ExtensionPackageActivator } from "./extension-package-activation.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import {
   HostExtensionRegistry,
-  HostProjectFactsSet,
   HostThreadLifecycleSet,
   HostTurnObserverSet,
   type HostExtension,
@@ -78,8 +61,14 @@ import {
   type RuntimeSessionInfo,
 } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
+import { ProjectFactsCache } from "./project-facts-cache.js";
+import { ThreadIndex } from "./thread-index.js";
+import { ThreadBinding } from "./thread-binding.js";
+import { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
+import { RuntimePrewarm } from "./runtime-prewarm.js";
+import { PromptPreparation } from "./prompt-preparation.js";
+import { TurnDelivery } from "./turn-delivery.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
-import { promptImages } from "./prompt-attachments.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
 import {
   createAttachedSessionHost,
@@ -100,55 +89,31 @@ import { ClientMessageTracker } from "./client-message-tracker.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
-import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import { markTauHostRuntime } from "./tau-runtime-owner.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 import { randomBytes } from "node:crypto";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { clientMessageCancelMarker, clientMessageFingerprint, CLIENT_MESSAGE_CANCEL_MARKER, unclaimedClientMessageIds } from "../shared/client-message-correlation.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
-import {
-  prepareSkillPrompt,
-  skillMessagePresentation,
-} from "./skill-invocation.js";
+import { skillMessagePresentation } from "./skill-invocation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
-import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
-import { loadExternalSessionShells } from "./external-session-shells.js";
 import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
-import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import type { HostLogger } from "./host-log.js";
 import {
   textFromContent,
-  mapMessage,
   turnActivityHistoryFromMessages,
   firstSentence,
   visibleTitleText,
   safeSessionTitle,
-  mapSessions,
-  sessionIndexUpdates,
-  reconcileActiveThreadShell,
-  mergeSessionIndexScan,
   boundedToolOutput,
-  threadUsageEqual,
 } from "./host-messages.js";
-import { SessionUsageIndex, hasThreadUsage, readSessionFileStamp } from "./session-usage.js";
-import { PARENT_LINK_ENTRY, SessionLineageIndex, parentLinkEntry } from "./session-lineage.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 
-/** A thread nobody has spent anything on shows no cost at all, not a zero. */
-function usageOrUndefined(usage: UiThreadUsage | undefined): UiThreadUsage | undefined {
-  return hasThreadUsage(usage) ? usage : undefined;
-}
-
-/** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
-const SHUTDOWN_ABORT_MS = 3_000;
-
 type Emit = (event: HostEvent) => void;
-type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
 interface PromptPreflightResult {
   accepted: boolean;
   error?: unknown;
@@ -194,7 +159,6 @@ export class PiHost {
   private readonly kitStateDir: string;
   private readonly logger?: HostLogger;
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
-  private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
   private readonly threads = new ThreadRuntimeRegistry<ThreadRuntime>({
     maxLive: MAX_LIVE_THREADS,
     // A thread with work in flight, an open question, or nothing saved yet has
@@ -208,20 +172,10 @@ export class PiHost {
       // than in Pi's message array. It is therefore safe to release once its
       // own visible projection has been persisted.
       && (record.runtime.state.hasMessages || (record.runtime.adapterMessages?.length ?? 0) > 0),
-    dispose: (record) => this.disposeThread(record.runtime),
+    dispose: (record) => this.runtimes.dispose(record.runtime),
   });
-  /** Runtimes being opened, keyed by session file, so a prewarm and a switch share one. */
-  private readonly openingThreads = new Map<string, Promise<ThreadRuntime>>();
-  /** A blank runtime for the current project, so a new thread is ready before it is asked for. */
-  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined>; cancel: () => void };
   private preparedThreadCapabilityGeneration = 0;
-  /** Session managers whose runtime is being built in the background, outside any measurement. */
-  private readonly backgroundManagers = new WeakSet<SessionManager>();
   private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
-  /** Extension bindings still running beside the switch that opened their thread. */
-  private readonly pendingBinds = new Map<ThreadRuntime, Promise<void>>();
-  private prewarmTimer?: ReturnType<typeof setTimeout>;
-  private sessions: UiSession[] = [];
   /** Serialises thread lifecycle work; reentrant, so a hook of one operation cannot wait for it. */
   private readonly lifecycle = new LifecycleQueue({
     onSlow: (operation, elapsedMs) => this.log("lifecycle.slow", `${operation} · ${Math.round(elapsedMs / 100) / 10}s`),
@@ -234,31 +188,31 @@ export class PiHost {
   });
   /** Monotonic ownership epoch; stale lifecycle work may not publish or activate. */
   private activationEpoch = 0;
-  private threadIndexScan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
   private readonly detailStore = new ThreadDetailStore(5);
-  /** Publications coalesced into the next tick, keyed by what they carry. */
-  private readonly coalescedPublishes = new Map<"shells" | "index", ReturnType<typeof setTimeout>>();
-  private indexRecoveryTimer?: ReturnType<typeof setInterval>;
   private projectLabel?: string;
-  /** Last known label per project; the provider is never awaited on an interactive path. */
-  private readonly knownLabels = new Map<string, string | undefined>();
-  private readonly labelRefreshes = new Map<string, Promise<void>>();
-  /** What extensions know about projects: name, label, nesting. */
-  private readonly projectFacts = new HostProjectFactsSet();
-  /** A linked worktree keeps the repository's project name instead of becoming a new project. */
-  private readonly knownProjectNames = new Map<string, string>();
-  /** Which known project paths are nested in another project. Unclassified paths stay absent. */
-  private readonly knownNestedProjects = new Map<string, boolean>();
-  private readonly nestedClassifications = new Map<string, Promise<void>>();
-  private readonly pendingShellUpdates = new Map<string, UiSession>();
-  /** What each thread has cost, cached by session file so a scan never reads one. */
-  private readonly threadUsage: SessionUsageIndex;
-  private usageCacheLoaded?: Promise<void>;
-  /** Who spawned each thread, read from the session files and cached by stamp. */
-  private readonly threadLineage: SessionLineageIndex;
-  private lineageCacheLoaded?: Promise<void>;
-  /** The parent of a thread this host started or indexed, for its live shell. */
-  private readonly threadParents = new Map<string, string>();
+  /** What extensions know about projects: name, label, nesting, all cached. */
+  private readonly projects = new ProjectFactsCache({
+    onLabel: (cwd, label) => this.publishLabel(cwd, label),
+    onNesting: () => this.index.publishSnapshotSoon(),
+    recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
+    log: (label, detail) => this.log(label, detail),
+    errorMessage: (error) => this.errorMessage(error),
+  });
+  /** Every persisted thread, the shell it is drawn as, and the publication of both. */
+  private readonly index: ThreadIndex;
+  /** Tau's dialog surface inside a runtime's extensions, and the events it lets through. */
+  private readonly binding: ThreadBinding;
+  /** A thread's runtime from build to teardown. */
+  private readonly runtimes: ThreadRuntimeLifecycle;
+  /** Runtimes built before anyone asks for them: the spare, and the neighbours of the thread on screen. */
+  private readonly prewarm: RuntimePrewarm;
+  /** The runtime spelling of a prompt, and the proof that a caller may execute it. */
+  private readonly prompts = new PromptPreparation({
+    requireBackend: (kind) => this.requireBackend(kind),
+    permissionLevel: () => this.seam.permissionLevel(),
+  });
+  /** Steering, follow-up, and every turn of a runtime that keeps no host journal. */
+  private readonly turns: TurnDelivery;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -266,61 +220,6 @@ export class PiHost {
   /** Extensions stepping into thread opening, forking, activation and the index sweep. */
   private readonly threadLifecycle = new HostThreadLifecycleSet();
   private readonly turnObservers = new HostTurnObserverSet();
-  private readonly createRuntime: CreateAgentSessionRuntimeFactory = async ({
-    cwd,
-    agentDir,
-    sessionManager,
-    sessionStartEvent,
-  }) => {
-    const reason = sessionStartEvent?.reason ?? "initial";
-    const scenario = reason === "initial" ? "bootstrap" : reason === "resume" ? "cold-switch" : "warm-switch";
-    const ownsMeasurement = !this.lifecycleMetrics.isActive() && !this.backgroundManagers.has(sessionManager);
-    if (ownsMeasurement) this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", scenario);
-    const totalStartedAt = performance.now();
-
-    const settingsStartedAt = performance.now();
-    const settingsManager = SettingsManager.create(cwd, agentDir);
-    this.logRuntimePhase("settings", settingsStartedAt, reason, cwd);
-
-    const modelsStartedAt = performance.now();
-    const modelRuntime = await createPiModelRuntime(agentDir);
-    this.logRuntimePhase("models", modelsStartedAt, reason, cwd);
-
-    const resourcesStartedAt = performance.now();
-    const resourceKey = this.resourceFingerprint(cwd, settingsManager);
-    const cachedResources = this.resourceDiscoveryCache.get(resourceKey);
-    const services = await createAgentSessionServices({
-      cwd,
-      agentDir,
-      settingsManager,
-      modelRuntime,
-      resourceLoaderOptions: {
-        ...(cachedResources ? cachedResourceOptions(cachedResources) : {}),
-        noExtensions: this.safeMode,
-        // Host extensions add theirs through the services facade; none in safe mode.
-        extensionFactories: this.runtimeExtensionsFor(settingsManager, { sessionId: sessionManager.getSessionId(), cwd }),
-      },
-    });
-    if (!cachedResources) this.resourceDiscoveryCache.set(resourceKey, captureResourceDiscovery(services.resourceLoader));
-    this.logRuntimePhase(cachedResources ? "resources-cache-hit" : "resources", resourcesStartedAt, reason, cwd);
-
-    const sessionStartedAt = performance.now();
-    const created = await createAgentSessionFromServices({
-      services,
-      sessionManager,
-      sessionStartEvent,
-    });
-    this.logRuntimePhase("session", sessionStartedAt, reason, cwd);
-    this.logRuntimePhase("total", totalStartedAt, reason, cwd);
-    if (ownsMeasurement) this.lifecycleMetrics.end();
-
-    return {
-      ...created,
-      services,
-      diagnostics: services.diagnostics,
-    };
-  };
-
   constructor(
     cwd: string,
     emit: Emit,
@@ -339,13 +238,25 @@ export class PiHost {
     this.platform = options.platform ?? {};
     this.kitStateDir = options.kitStateDir ?? join(tmpdir(), "tau-kit-state");
     this.logger = options.logger;
-    this.threadUsage = new SessionUsageIndex({
-      ...(options.sessionUsageCachePath ? { path: options.sessionUsageCachePath } : {}),
-      ...(this.logger ? { logger: this.logger } : {}),
-      onResolved: (sessionPath, usage) => this.applyScannedUsage(sessionPath, usage),
-    });
-    this.threadLineage = new SessionLineageIndex({
-      ...(options.sessionLineageCachePath ? { path: options.sessionLineageCachePath } : {}),
+    this.index = new ThreadIndex({
+      cwd: () => this.cwd,
+      safeMode: this.safeMode,
+      sessionsDir: this.sessionsDirOverride,
+      projects: this.projects,
+      workspaces: this.workspaces,
+      projectHistory: this.projectHistory,
+      threadLifecycle: this.threadLifecycle,
+      backends: () => this.seam.backends,
+      liveThreads: () => this.threads.list().map((record) => record.runtime),
+      hostThread: (thread) => this.hostThreadFor(thread),
+      emit: (event) => this.emit(event),
+      emitUpdate: (update) => this.emitUpdate(update),
+      log: (label, detail) => this.log(label, detail),
+      fail: (error) => this.fail(error),
+      errorMessage: (error) => this.errorMessage(error),
+    }, {
+      ...(options.sessionUsageCachePath ? { usageCachePath: options.sessionUsageCachePath } : {}),
+      ...(options.sessionLineageCachePath ? { lineageCachePath: options.sessionLineageCachePath } : {}),
       ...(this.logger ? { logger: this.logger } : {}),
     });
     const port = this.hostPort();
@@ -381,6 +292,88 @@ export class PiHost {
       (thread) => this.projection.mapping(thread),
       (event) => this.emit(event),
     );
+    this.binding = new ThreadBinding({
+      extensionUi: this.extensionUi,
+      clientTurns: this.clientTurns,
+      clientMessages: this.clientMessages,
+      turnObservers: this.turnObservers,
+      projection: this.projection,
+      isActive: (thread) => this.active === thread,
+      isCurrent: (thread) => this.threads.get(thread.threadId)?.runtime === thread,
+      onSessionEvent: (event, thread, threadId, threadCwd) => this.handleSessionEvent(event, thread, threadId, threadCwd),
+      emitForThread: (thread, event) => this.emitForThread(thread, event),
+      presentUi: (method, ...args) => this.presentUi(method, ...args),
+      setWindowTitle: (title) => this.onWindowTitle?.(title),
+      publishActiveCatalog: () => this.publishActiveCatalog(),
+      recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
+      logPhase: (phase, startedAt, reason, phaseCwd, thread) => this.logPhaseEvent(phase, startedAt, reason, phaseCwd, undefined, thread),
+      log: (label, detail) => this.log(label, detail),
+      logForThread: (thread, label, detail) => this.logForThread(thread, label, detail),
+      fail: (error, sessionId, thread) => this.fail(error, sessionId, thread),
+      errorMessage: (error) => this.errorMessage(error),
+    });
+    this.runtimes = new ThreadRuntimeLifecycle({
+      safeMode: this.safeMode,
+      agentDir: this.agentDir,
+      cwd: () => this.cwd,
+      activeSessionFile: () => this.active?.sessionFile,
+      adapterFor: (kind) => this.adapterFor(kind),
+      requireBackend: (kind) => this.requireBackend(kind),
+      permissionLevel: () => this.seam.permissionLevel(),
+      sessionFile: (manager) => this.seam.sessionFile(manager),
+      runtimeExtensions: (settingsManager, session) => this.runtimeExtensionsFor(settingsManager, session),
+      runtimeExtensionNames: () => this.seam.runtimeExtensions.map((entry) => entry.name),
+      threadLifecycle: this.threadLifecycle,
+      turnObservers: this.turnObservers,
+      clientTurns: this.clientTurns,
+      extensionUi: this.extensionUi,
+      projection: this.projection,
+      projects: this.projects,
+      binding: this.binding,
+      lifecycleMetrics: this.lifecycleMetrics,
+      adopt: (thread) => this.adoptThread(thread),
+      currentRuntime: (threadId) => this.threads.get(threadId)?.runtime,
+      liveThreadForPath: (path) => this.liveThreadForPath(path),
+      indexedSession: (path) => this.index.byPath(path),
+      presentUi: (method, ...args) => this.presentUi(method, ...args),
+      releaseTool: (toolCallId) => { this.toolOwners.delete(toolCallId); },
+      emitMessage: (threadId, message) => this.emit(message.role === "user"
+        ? { type: "user-message", sessionId: threadId, message }
+        : { type: "assistant-end", sessionId: threadId, message }),
+      logRuntimePhase: (phase, startedAt, reason, phaseCwd) => this.logRuntimePhase(phase, startedAt, reason, phaseCwd),
+      log: (label, detail) => this.log(label, detail),
+      errorMessage: (error) => this.errorMessage(error),
+    });
+    this.prewarm = new RuntimePrewarm({
+      automatic: this.automaticPrewarm,
+      safeMode: this.safeMode,
+      maxLiveThreads: MAX_LIVE_THREADS,
+      cwd: () => this.cwd,
+      sessionsDir: this.sessionsDirOverride,
+      runtimes: this.runtimes,
+      extensionUi: this.extensionUi,
+      liveThreadIds: () => this.liveThreadIds(),
+      hasLocalActive: () => Boolean(this.localActive),
+      indexedSessions: () => this.index.list(),
+      prewarmSession: (path) => this.prewarmSession(path),
+      recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
+      log: (label, detail) => this.log(label, detail),
+      fail: (error) => this.fail(error),
+      errorMessage: (error) => this.errorMessage(error),
+    });
+    this.turns = new TurnDelivery({
+      clientTurns: this.clientTurns,
+      clientMessages: this.clientMessages,
+      turnObservers: this.turnObservers,
+      projection: this.projection,
+      prompts: this.prompts,
+      binding: this.binding,
+      index: this.index,
+      assertAvailable: () => this.workbenchReload.assertAvailable(),
+      requireThread: (sessionId) => this.requireThread(sessionId),
+      emit: (event) => this.emit(event),
+      fail: (error, sessionId) => this.fail(error, sessionId),
+    });
     markTauHostRuntime();
     this.emit = (event) => {
       this.lifecycleMetrics.recordIpc(event);
@@ -422,19 +415,19 @@ export class PiHost {
       openWorkspace: (path) => this.setWorkspace(path),
       knownWorkspacePath: (path) => this.knownWorkspacePath(path),
       workspaceRef: (path) => this.workspaces.ref(path),
-      projectName: (cwd) => this.loadProjectName(cwd),
-      rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
+      projectName: (cwd) => this.projects.loadName(cwd),
+      rememberProjectName: (cwd, name) => { this.projects.rememberName(cwd, name); },
       runtimeOwner: () => this.ownedByPi(this.active) ? "pi" : "tau",
       thread: (sessionId) => this.hostThread(sessionId),
       setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
       attachedRuntime: (sessionId) => this.ownedByPi(this.threadFor(sessionId)) ? this.attached.hostRuntime : undefined,
-      describeProjects: (facts) => this.projectFacts.add(facts),
+      describeProjects: (facts) => this.projects.add(facts),
       noteSubprocess: () => this.lifecycleMetrics.countSubprocess(),
       refreshExtensionPackages: () => this.packages?.refresh() ?? Promise.resolve(),
       prepareThread: (session, manager, options) => this.prepareThread(session, manager, options),
       startThread: (options) => this.startThread(options),
       exclusive: (work) => this.lifecycle.run("extension.exclusive", work),
-      refreshThreadIndex: () => this.refreshThreadIndex("none").catch(() => this.threadIndexSnapshot()),
+      refreshThreadIndex: () => this.index.refresh("none").catch(() => this.index.snapshot()),
       registerThreadLifecycle: (lifecycle) => this.threadLifecycle.add(lifecycle),
       registerTurnObserver: (observer) => this.turnObservers.add(observer),
       pinTranscriptEntries: () => { throw new Error("The extension seam owns transcript pins."); },
@@ -460,13 +453,8 @@ export class PiHost {
     return thread && !this.ownedByPi(thread) ? this.hostThreadFor(thread) : undefined;
   }
 
-  /** The thread that spawned this one, from the index or from the start that made it. */
-  private threadParentOf(threadId: string): string | undefined {
-    return this.threadParents.get(threadId) ?? this.sessions.find((session) => session.id === threadId)?.parentThreadId;
-  }
-
   private hostThreadFor(thread: ThreadRuntime): HostThread {
-    const parentThreadId = () => this.threadParentOf(thread.threadId);
+    const parentThreadId = () => this.index.parentOf(thread.threadId);
     return {
       sessionId: thread.threadId, cwd: thread.cwd, backendKind: thread.backend.kind,
       get sessionFile() { return thread.sessionFile; },
@@ -484,7 +472,7 @@ export class PiHost {
       shortcuts: (userBindings) => thread.backend.capabilities.extensions?.shortcuts(userBindings) ?? [],
       runShortcut: async (keys, userBindings) => {
         // A shortcut handler draws through ctx.ui, which only exists once bound.
-        await this.settleBind(thread);
+        await this.binding.settle(thread);
         return thread.backend.capabilities.extensions?.runShortcut(keys, userBindings) ?? false;
       },
       entries: () => thread.entries,
@@ -494,7 +482,7 @@ export class PiHost {
 
   /** Opens a runtime for a session file an extension created; it stays off screen until activated. */
   private async prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string } = {}): Promise<HostPreparedThread> {
-    const runtime = await this.openThread(
+    const runtime = await this.runtimes.open(
       manager,
       { type: "session_start", reason: "resume", ...(options.previousSessionFile ? { previousSessionFile: options.previousSessionFile } : {}) },
       { adopt: false, prepared: true },
@@ -529,7 +517,7 @@ export class PiHost {
         if (settled) return;
         settled = true;
         if (this.threads.get(runtime.threadId)?.runtime === runtime) await this.threads.release(runtime.threadId);
-        else await this.disposeThread(runtime);
+        else await this.runtimes.dispose(runtime);
       },
     };
   }
@@ -550,13 +538,8 @@ export class PiHost {
       const marks = new PhaseTimer(requestedAt);
       marks.mark("queue");
       const manager = SessionManager.create(cwd, this.sessionsDirOverride);
-      if (options.parent) {
-        // The link goes in before the first prompt, so it is the entry after
-        // the header and the index reads it without opening the thread.
-        manager.appendCustomEntry(PARENT_LINK_ENTRY, parentLinkEntry(options.parent.threadId, options.parent.details));
-        this.threadParents.set(manager.getSessionId(), options.parent.threadId);
-      }
-      const runtime = await this.openThread(
+      if (options.parent) this.index.linkParent(manager, options.parent);
+      const runtime = await this.runtimes.open(
         manager,
         { type: "session_start", reason: "new" },
         { adopt: false, prepared: true },
@@ -568,14 +551,14 @@ export class PiHost {
         if (options.model) await requireCapability(runtime.backend, "catalogWrite").setModel(options.model.provider, options.model.id);
         marks.mark("model");
         // The shell has to exist before a title can be published against it.
-        await this.refreshThreadShell(runtime, true);
+        await this.index.refreshShell(runtime, true);
         marks.mark("shell");
         if (options.title) await this.applyThreadTitle(runtime, options.title, "renamed");
         marks.mark("title");
         this.log("thread.start.timing", `${runtime.threadId.slice(0, 8)} · ${marks.report()}`);
       } catch (error) {
         if (this.threads.has(runtime.threadId)) await this.threads.release(runtime.threadId);
-        else await this.disposeThread(runtime);
+        else await this.runtimes.dispose(runtime);
         throw error;
       }
       runtime.releaseEventBarrier((event, owner, sessionId, eventCwd, error) => {
@@ -713,7 +696,7 @@ export class PiHost {
 
   /** The blank thread on screen, when the named one cannot be one of this run's. */
   private emptyThreadOnScreen(threadId: string): ThreadRuntime | undefined {
-    if (this.sessions.some((session) => session.id === threadId)) return undefined;
+    if (this.index.byId(threadId)) return undefined;
     const active = this.active;
     return active && !active.state.hasMessages ? active : undefined;
   }
@@ -740,7 +723,7 @@ export class PiHost {
     if (!path) return undefined;
     const external = externalThreadFromPath(path);
     if (external) return this.threads.get(external.threadId)?.runtime;
-    const indexed = this.sessions.find((session) => session.path === path);
+    const indexed = this.index.byPath(path);
     if (indexed?.backendKind && indexed.backendKind !== "pi") return this.threads.get(indexed.id)?.runtime;
     return this.threads.list().find((record) => samePath(record.runtime.sessionFile, path))?.runtime;
   }
@@ -759,17 +742,17 @@ export class PiHost {
       const latest = (await this.requireBackend(kind).listThreads())
         .filter((record) => record.cwd === cwd)
         .sort((left, right) => right.updatedAt - left.updatedAt)[0];
-      return this.openExternalThread(kind, latest?.threadId ?? randomUUID(), cwd, { resume: Boolean(latest) });
+      return this.runtimes.openExternal(kind, latest?.threadId ?? randomUUID(), cwd, { resume: Boolean(latest) });
     }
     try {
-      return await this.openThread(await this.initialSessionManager(cwd), undefined);
+      return await this.runtimes.open(await this.initialSessionManager(cwd), undefined);
     } catch (error) {
       // The last session of this workspace points at a folder that is gone
       // (Pi refuses to resume it); a fresh session in the workspace is the
       // right answer at startup, where nobody chose that session.
       if (!(error instanceof Error && error.name === "MissingSessionCwdError")) throw error;
       this.log("session.cwd-missing", this.errorMessage(error));
-      return this.openThread(SessionManager.create(cwd, this.sessionsDirOverride), undefined);
+      return this.runtimes.open(SessionManager.create(cwd, this.sessionsDirOverride), undefined);
     }
   }
 
@@ -784,7 +767,7 @@ export class PiHost {
         await this.rememberProject(this.cwd);
         // Classify saved projects while the runtime opens. Each answer is a
         // single git call, so it is ready long before bootstrap reads the list.
-        for (const project of this.projectHistory.list()) this.classifyNestedInBackground(project.path);
+        for (const project of this.projectHistory.list()) this.projects.classify(project.path);
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
@@ -800,16 +783,16 @@ export class PiHost {
           if (!await this.activateThread(thread, false, activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         }
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
-        this.labelFor(this.cwd);
+        this.projects.label(this.cwd);
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
         // The global index is independent of the active detail. Publish it when
         // ready rather than making first content wait for every session file.
-        void this.refreshThreadIndex("index").then(() => {
+        void this.index.refresh("index").then(() => {
           this.recordBackgroundLifecycle("session-index", indexStartedAt);
           this.log("bootstrap.full-ready");
-          this.startIndexRecovery();
-          this.scheduleRuntimePrewarm();
+          this.index.startRecovery();
+          this.prewarm.scheduleThreads();
         }).catch((error) => this.fail(error));
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
@@ -824,11 +807,11 @@ export class PiHost {
   async bootstrap(): Promise<HostBootstrap> {
     // The project list is withheld while a checkout is unclassified. Bootstrap
     // is the one publication the client cannot miss, so settle it here.
-    await Promise.allSettled([...this.nestedClassifications.values()]);
+    await this.projects.settleClassifications();
     const host = { ...this.snapshotSync(await this.ensureModels()), projectLabel: this.projectLabel };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
-      threadIndex: this.threadIndexSnapshot(),
+      threadIndex: this.index.snapshot(),
       version: HOST_PROTOCOL_VERSION,
       detail,
       catalog: catalogFromSnapshot(host),
@@ -926,12 +909,12 @@ export class PiHost {
   /** Publishes a thread the runtime created and now owns; one identity and publication path. */
   private async completeRuntimeOwnedNewThread(thread: ThreadRuntime, requestId: NewThreadRequestId): Promise<NewThreadResult> {
     this.cwd = thread.cwd;
-    await this.refreshThreadShell(thread, true);
+    await this.index.refreshShell(thread, true);
     return this.newThreadResult(this.lifecycleUpdates(await this.snapshot()), { accepted: true }, requestId, thread.threadId);
   }
 
   private lifecycleUpdates(snapshot: HostSnapshot, requestId?: NewThreadRequestId): HostUpdate[] {
-    const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
+    const shell = this.index.byId(snapshot.sessionId);
     return [
       ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
       { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
@@ -960,7 +943,7 @@ export class PiHost {
       if (!this.isCurrentActivation(activationEpoch)) return;
       const snapshot = this.snapshotSync([]);
       if (!this.isCurrentActivation(activationEpoch)) return;
-      const shell = this.sessions.find((thread) => thread.id === snapshot.sessionId);
+      const shell = this.index.byId(snapshot.sessionId);
       const initialUpdates: HostUpdate[] = [
         ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
         { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
@@ -1020,7 +1003,7 @@ export class PiHost {
       : await (async () => {
         const manager = await this.initialSessionManager(cwd);
         return this.liveThreadForPath(manager.getSessionFile())
-          ?? await this.openThread(manager, { type: "session_start", reason: "resume", previousSessionFile: this.active?.sessionFile });
+          ?? await this.runtimes.open(manager, { type: "session_start", reason: "resume", previousSessionFile: this.active?.sessionFile });
       })();
     if (!await this.activateThread(thread, false, activationEpoch)) return this.staleActivationResult();
     this.logReplacement("workspace", startedAt);
@@ -1032,7 +1015,7 @@ export class PiHost {
     const update: HostUpdate = {
       version: HOST_PROTOCOL_VERSION,
       type: "thread-index",
-      index: this.threadIndexSnapshot(),
+      index: this.index.snapshot(),
     };
     this.emitUpdate(update);
     return this.actionResult([update]);
@@ -1120,14 +1103,14 @@ export class PiHost {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       const ownedRequestId = requestId ?? createNewThreadRequestId(randomUUID());
       try {
-        this.assertImageInput(owner, attachments);
+        this.prompts.assertImageInput(owner, attachments);
       } catch (error) {
         return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, ownedRequestId);
       }
       try {
         const rebind = promptRebindForThread(prepared, owner.threadId);
         const ownedPrepared = rebind ? await owner.backend.preparePrompt(initialPrompt ?? "", rebind.skill) : prepared;
-        if (ownedPrepared) this.assertPreparedPrompt(owner, initialPrompt ?? "", ownedPrepared, this.projection.composerCommands(owner));
+        if (ownedPrepared) this.prompts.assertBound(owner, initialPrompt ?? "", ownedPrepared, this.projection.composerCommands(owner));
         if (identity) this.clientTurns.enqueueAny(identity);
         const outcome = await runtimeThreads.create({
           requestId: ownedRequestId,
@@ -1148,19 +1131,8 @@ export class PiHost {
         return this.newThreadResult([], { accepted: false, message: reason }, ownedRequestId);
       }
     }
-    // A prepared prompt from the currently visible thread may be carried into
-    // a new-thread request. It is deliberately re-prepared after the new
-    // backend is created; only an owner-less preflight can be validated here.
     if (prepared && prepared.tauThreadId === undefined && prepared.sessionId === undefined) {
-      const adapter = this.adapterFor(backendKind);
-      const commands = backendKind !== "pi"
-        ? this.externalComposerCommands(backendKind, cwd ?? this.cwd)
-        : this.runtimeCommands;
-      validatePreparedPrompt(initialPrompt ?? "", prepared, {
-        backendKind,
-        runtimeCapabilities: adapter.capabilities,
-        commands,
-      });
+      this.prompts.assertUnbound(initialPrompt ?? "", prepared, this.adapterFor(backendKind), this.composerCommandsFor(backendKind, cwd ?? this.cwd), backendKind);
     }
     return this.lifecycle.run("new-thread", async () => {
       // A superseded request still creates its thread and delivers its prompt
@@ -1168,11 +1140,11 @@ export class PiHost {
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       if (this.isCurrentActivation(activationEpoch)) this.attached.session.detach();
-      const spare = backendKind === "pi" ? await this.takePreparedThread(targetCwd) : undefined;
+      const spare = backendKind === "pi" ? await this.prewarm.takeSpare(targetCwd) : undefined;
       const thread = spare
         ?? (backendKind !== "pi"
-          ? await this.openExternalThread(backendKind, randomUUID(), targetCwd, { resume: false })
-          : await this.openThread(
+          ? await this.runtimes.openExternal(backendKind, randomUUID(), targetCwd, { resume: false })
+          : await this.runtimes.open(
             SessionManager.create(targetCwd, this.sessionsDirOverride),
             { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
             { adopt: false, prepared: true },
@@ -1182,14 +1154,14 @@ export class PiHost {
       try {
         // Decode and validate attachment data before promoting a prepared
         // runtime, so malformed input cannot leave an adopted blank thread.
-        this.assertImageInput(thread, attachments);
+        this.prompts.assertImageInput(thread, attachments);
         lifecycle = "adopting";
         await this.adoptThread(thread);
         lifecycle = "adopted";
         visible = await this.activateThread(thread, true, activationEpoch);
         // A newer activation owns the visible thread. This one still needs its
         // shell in the index so the workbench can list and open it.
-        if (!visible) await this.refreshThreadShell(thread, true);
+        if (!visible) await this.index.refreshShell(thread, true);
         lifecycle = "promoted";
         if (isLocalPiRuntime(thread)) {
           // Shell/index publication precedes releasing buffered runtime events;
@@ -1203,7 +1175,7 @@ export class PiHost {
         if (initialPrompt?.trim()) {
           const presentation = prepared?.skill ?? skillMessagePresentation(initialPrompt, thread.runtimeAdapter, this.projection.composerCommands(thread));
           const visiblePrompt = prepared?.visibleText ?? (presentation && "text" in presentation ? presentation.text : visibleTitleText(initialPrompt));
-          this.retitleShell(thread.threadId, firstSentence(visiblePrompt));
+          this.index.retitle(thread.threadId, firstSentence(visiblePrompt));
         }
       } catch (error) {
         // A pure validation failure leaves an untouched spare available. Once
@@ -1211,13 +1183,13 @@ export class PiHost {
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
         if (lifecycle === "prepared") {
-          if (isLocalPiRuntime(thread)) this.retainPreparedThread(thread);
-          else await this.disposeThread(thread);
+          if (isLocalPiRuntime(thread)) this.prewarm.retainSpare(thread);
+          else await this.runtimes.dispose(thread);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
         } else if (lifecycle !== "promoted") {
           if (this.threads.has(thread.threadId)) await this.threads.release(thread.threadId);
-          else await this.disposeThread(thread);
-          this.scheduleSpareThread(targetCwd, true);
+          else await this.runtimes.dispose(thread);
+          this.prewarm.scheduleSpare(targetCwd, true);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
         }
         thread.cancelEventBarrier();
@@ -1226,7 +1198,7 @@ export class PiHost {
         return { ...active, submission: { accepted: false, message: this.errorMessage(error) }, ...(requestId ? { requestId } : {}) };
       }
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
-      if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
+      if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd);
       if (visible) void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
         // Delivery is intentionally detached from acceptance. AgentSession may
@@ -1289,9 +1261,7 @@ export class PiHost {
       if (owner?.backend.capabilities.newThread) {
         return { cwd: targetCwd, generation, supportsImageInput: owner.state.supportsImageInput };
       }
-      if (!this.spare || this.spare.cwd !== targetCwd) this.scheduleSpareThread(targetCwd, true);
-      const spare = this.spare?.cwd === targetCwd ? this.spare : undefined;
-      const prepared = spare ? await spare.pending : undefined;
+      const prepared = await this.prewarm.awaitSpare(targetCwd);
       return { cwd: targetCwd, generation, supportsImageInput: prepared?.state.supportsImageInput ?? false };
     });
   }
@@ -1325,7 +1295,7 @@ export class PiHost {
       if (!forkedManager.createBranchedSession(entryId)) throw new Error("Failed to create the forked thread.");
       // Extensions carry what they keep beside the source into the fork.
       await this.threadLifecycle.afterFork(this.hostThreadFor(thread), this.seam.sessionFile(forkedManager));
-      const forked = await this.openThread(
+      const forked = await this.runtimes.open(
         forkedManager,
         { type: "session_start", reason: "fork", previousSessionFile: sourceFile },
       );
@@ -1384,186 +1354,26 @@ export class PiHost {
     });
   }
 
-  private async sendThroughRuntimeAdapter(
-    thread: ThreadRuntime,
-    text: string,
-    attachments: UiPromptAttachment[],
-    delivery: "prompt" | "steer" | "followUp",
-    identity?: ClientTurnIdentity,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    const clientMessageId = identity?.clientMessageId;
-    thread.adapterPending ??= 0;
-    thread.adapterAbortGeneration ??= 0;
-    const generation = thread.adapterAbortGeneration;
-    const wasPending = thread.adapterPending > 0;
-    thread.adapterPending += 1;
-    thread.adapterStreaming = true;
-    if (!wasPending) this.emit({ type: "agent-status", sessionId: thread.threadId, running: true });
-    const operation = thread.adapterQueue.then(() => {
-      if (generation !== thread.adapterAbortGeneration) {
-        if (clientMessageId) {
-          this.emit({
-            type: "user-message-failed",
-            sessionId: thread.threadId,
-            clientMessageId,
-            message: "The selected runtime request was aborted.",
-          });
-        }
-        const error = new Error("The selected runtime request was aborted.");
-        error.name = "AbortError";
-        throw error;
-      }
-      return this.sendThroughRuntimeAdapterNow(thread, text, attachments, delivery, identity, prepared);
-    });
-    const settled = operation.finally(() => {
-      thread.adapterPending = Math.max(0, thread.adapterPending - 1);
-      if (thread.adapterPending === 0) {
-        thread.adapterStreaming = false;
-        this.emit({ type: "agent-status", sessionId: thread.threadId, running: false });
-      }
-    });
-    thread.adapterQueue = settled.then(() => undefined, () => undefined);
-    return settled;
-  }
-
-  private async sendThroughRuntimeAdapterNow(
-    thread: ThreadRuntime,
-    text: string,
-    attachments: UiPromptAttachment[],
-    delivery: "prompt" | "steer" | "followUp",
-    identity?: ClientTurnIdentity,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    const clientMessageId = identity?.clientMessageId;
-    const commands = this.projection.composerCommands(thread);
-    if (prepared) this.assertPreparedPrompt(thread, text, prepared, commands);
-    const abortController = new AbortController();
-    thread.adapterAbortControllers ??= new Set<AbortController>();
-    thread.adapterAbortControllers.add(abortController);
-    try {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported by the selected runtime adapter.");
-      await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), ...(prepared ? { prepared } : {}), signal: abortController.signal });
-      thread.adapterMessages = await thread.backend.transcript();
-      const state = thread.state;
-      thread.adapterTitle = state.title;
-      thread.adapterTitleSource = state.titleSource;
-      await this.refreshThreadShell(thread, true);
-    } catch (error) {
-      const aborted = error instanceof Error && error.name === "AbortError";
-      if (clientMessageId) {
-        this.emit({
-          type: "user-message-failed",
-          sessionId: thread.threadId,
-          clientMessageId,
-          message: aborted ? "The selected runtime request was aborted." : "The selected runtime rejected the message.",
-        });
-      }
-      if (!aborted) this.fail(error);
-      throw error;
-    } finally {
-      thread.adapterAbortControllers.delete(abortController);
-    }
-  }
-
-  /**
-   * Prepared prompt data is an opaque host result, but IPC callers can still
-   * replay or forge it. Bind it to the exact visible input and runtime owner
-   * before allowing the backend to execute the runtime spelling.
-   */
-  private assertPreparedPrompt(
-    thread: ThreadRuntime,
-    text: string,
-    prepared: PreparedPrompt,
-    commands: readonly UiComposerCommand[],
-  ): void {
-    this.assertPreparedPromptData(
-      text,
-      prepared,
-      threadBackendKind(thread),
-      thread.threadId,
-      thread.backend.providerSessionId,
-      thread.runtimeAdapter,
-      commands,
-    );
-  }
-
-  private assertPreparedPromptData(
-    text: string,
-    prepared: PreparedPrompt,
-    backendKind: ThreadBackendKind,
-    threadId: string | undefined,
-    providerSessionId: string | undefined,
-    adapter: AgentRuntimeAdapter,
-    commands: readonly UiComposerCommand[],
-  ): void {
-    validatePreparedPrompt(text, prepared, {
-      backendKind,
-      threadId,
-      providerSessionId,
-      runtimeCapabilities: adapter.capabilities,
-      commands,
-    });
-  }
-
   /** Resolves a prompt before the renderer creates its optimistic message. */
   async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     const target = sessionId
       ? await this.awaitThread(sessionId)
       : (this.active && threadBackendKind(this.active) === this.defaultBackendKind ? this.active : undefined);
     if (target) return target.backend.preparePrompt(text, skill);
-    const adapter = this.adapterFor(this.defaultBackendKind);
-    const commands = this.defaultBackendKind !== "pi"
-      ? this.externalComposerCommands(this.defaultBackendKind, this.cwd)
-      : this.runtimeCommands;
-    return this.preparePromptForAdapter(text, skill, adapter, commands, undefined, this.defaultBackendKind);
+    const kind = this.defaultBackendKind;
+    return this.prompts.prepare(text, skill, this.adapterFor(kind), this.composerCommandsFor(kind, this.cwd), undefined, kind);
   }
 
-  private preparePromptForAdapter(
-    text: string,
-    skill: UiSkillDraft | undefined,
-    adapter: AgentRuntimeAdapter,
-    commands: readonly UiComposerCommand[],
-    threadId: string | undefined,
-    backendKind: ThreadBackendKind,
-  ): PreparedPrompt {
-    if (adapter.id !== "pi") this.requireBackend(adapter.id).assertPromptAllowed?.(this.seam.permissionLevel());
-    const effectiveCommands = commands;
-    const prepared = prepareSkillPrompt(text, adapter, effectiveCommands, skill);
-    const skillNames = [...knownSkillNames(effectiveCommands)];
-    const result: PreparedPrompt = {
-      ...(threadId ? { tauThreadId: threadId } : {}),
-      ...(threadId && adapter.id === "pi" ? { providerSessionId: threadId } : {}),
-      ...(threadId ? { sessionId: threadId } : {}),
-      backendKind,
-      runtimeCapabilities: adapter.capabilities,
-      visibleText: prepared.text,
-      runtimeText: prepared.runtimeText,
-      ...(prepared.skill ? { skill: prepared.skill } : {}),
-      sourceFingerprint: clientMessageFingerprint(text, skillNames),
-    };
-    validatePreparedPrompt(text, result, {
-      backendKind,
-      threadId,
-      providerSessionId: threadId && adapter.id === "pi" ? threadId : undefined,
-      runtimeCapabilities: adapter.capabilities,
-      commands: effectiveCommands,
-    });
-    return result;
-  }
-
-  /** Images travel to a runtime only when it says its model takes them. */
-  private assertImageInput(thread: ThreadRuntime, attachments: readonly UiPromptAttachment[]): void {
-    if (attachments.length === 0) return;
-    if (!thread.state.supportsImageInput) throw new Error("The active model does not support image input.");
-    promptImages(attachments);
+  /** The commands a backend's composer offers, before any thread of it exists. */
+  private composerCommandsFor(kind: ThreadBackendKind, cwd: string): readonly UiComposerCommand[] {
+    return kind !== "pi" ? this.externalComposerCommands(kind, cwd) : this.runtimeCommands;
   }
 
   async switchSession(path: string): Promise<HostActionResult> {
     const activationEpoch = this.beginActivation();
     // The index carries the lifecycle owner; the virtual path of an external
     // thread is the fallback for entries that predate the index.
-    const indexedSession = this.sessions.find((session) => session.path === path);
+    const indexedSession = this.index.byPath(path);
     const backendKind = indexedSession?.backendKind ?? externalThreadFromPath(path)?.kind;
     // A thread whose runtime is already live switches immediately and outside
     // the lifecycle queue: nothing is created, aborted or replaced.
@@ -1592,7 +1402,7 @@ export class PiHost {
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
-        const thread = alreadyLive ?? await this.openThreadForPath(path, "resume", false, backendKind);
+        const thread = alreadyLive ?? await this.runtimes.openForPath(path, "resume", false, backendKind);
         if (!await this.activateThread(thread, false, activationEpoch)) return this.staleActivationResult();
         this.logReplacement("resume", startedAt);
         return this.activeUpdates(activationEpoch);
@@ -1605,49 +1415,15 @@ export class PiHost {
   /** Opens a thread's runtime ahead of time so switching to it is immediate. */
   async prewarmSession(path: string): Promise<void> {
     if (!this.localActive || this.safeMode || this.liveThreadForPath(path)) return;
-    const backendKind = this.sessions.find((session) => session.path === path)?.backendKind
-      ?? externalThreadFromPath(path)?.kind;
+    const backendKind = this.index.byPath(path)?.backendKind ?? externalThreadFromPath(path)?.kind;
     const startedAt = performance.now();
     try {
-      await this.openThreadForPath(path, "resume", true, backendKind);
+      await this.runtimes.openForPath(path, "resume", true, backendKind);
       this.log("runtime.prewarm.ready", basename(path));
     } catch (error) {
       this.log("runtime.prewarm.failed", this.errorMessage(error));
     } finally {
       this.recordBackgroundLifecycle("prewarm", startedAt);
-    }
-  }
-
-  /**
-   * Delivery for a runtime that keeps no host-owned journal: it owns the turn
-   * itself, so there is no request marker and no host turn observer for it.
-   */
-  private async deliverRuntimeTurn(
-    thread: ThreadRuntime,
-    text: string,
-    attachments: UiPromptAttachment[],
-    delivery: "prompt" | "steer" | "followUp",
-    identity?: ClientTurnIdentity,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    if (thread.backend.turnReporting === "awaited") {
-      await this.sendThroughRuntimeAdapter(thread, text, attachments, delivery, identity, prepared);
-      return;
-    }
-    this.assertImageInput(thread, attachments);
-    if (prepared) this.assertPreparedPrompt(thread, text, prepared, this.projection.composerCommands(thread));
-    try {
-      if (identity) this.clientTurns.enqueue(thread.threadId, identity);
-      await thread.backend.prompt({
-        text,
-        delivery,
-        attachments,
-        ...(identity ? { identity } : {}),
-        ...(prepared ? { prepared } : {}),
-      });
-    } catch (error) {
-      if (identity) this.clientTurns.cancel(thread.threadId, identity);
-      throw error;
     }
   }
 
@@ -1666,10 +1442,10 @@ export class PiHost {
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
     // The switch that opened this thread may still be binding its extensions.
-    await this.settleBind(thread);
+    await this.binding.settle(thread);
     if (!thread.backend.capabilities.journal) {
       try {
-        await this.deliverRuntimeTurn(thread, text, attachments, "prompt", identity, prepared);
+        await this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared);
       } catch (error) {
         onPreflightResult?.({ accepted: false, error });
         throw error;
@@ -1678,13 +1454,13 @@ export class PiHost {
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
-    this.assertImageInput(thread, attachments);
+    this.prompts.assertImageInput(thread, attachments);
     // Resolve the runtime spelling once at the backend boundary. The same
     // prepared object is then used for marker correlation and delivery, so a
     // resource-registry change cannot cause host and backend to normalize
     // different dialects for one turn.
     const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
-    this.assertPreparedPrompt(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
+    this.prompts.assertBound(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
     const prompt = resolvedPrepared.runtimeText;
     const isExtensionCommand = this.projection.isExtensionCommand(thread, prompt);
     const preparedTurnId = isExtensionCommand ? undefined : randomUUID();
@@ -1736,7 +1512,7 @@ export class PiHost {
       void run.then(async () => {
         if (preflightState === "pending") reportPreflight({ accepted: true });
         if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
-        if (this.threads.get(thread.threadId)?.runtime === thread) await this.refreshThreadShell(thread, true);
+        if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
         else if (preflightState === "accepted") {
@@ -1781,11 +1557,11 @@ export class PiHost {
       }
       return this.requireActive();
     });
-    await this.settleBind(thread);
+    await this.binding.settle(thread);
     const shell = requireCapability(thread.backend, "shellAction", "Run project actions in Pi instead.");
     if (shell.isRunning()) throw new Error("Another project action is already running.");
     const result = await shell.run(shellCommand, includeInContext);
-    if (this.threads.get(thread.threadId)?.runtime === thread) await this.refreshThreadShell(thread, true);
+    if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
     this.log("action.shell", `${result.exitCode ?? "cancelled"} · ${shellCommand}`);
     return {
       output: boundedToolOutput(result.output),
@@ -1802,7 +1578,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    await this.deliverQueuedTurn("steer", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
+    await this.turns.queued("steer", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
   }
 
   async followUp(
@@ -1812,60 +1588,7 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    await this.deliverQueuedTurn("followUp", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
-  }
-
-  /**
-   * Steering and follow-up share one path: both hand the runtime a message for
-   * a turn that is already in flight, so neither reports a preflight result.
-   */
-  private async deliverQueuedTurn(
-    delivery: "steer" | "followUp",
-    text: string,
-    attachments: UiPromptAttachment[],
-    sessionId?: string,
-    clientMessageIdOrIdentity?: ClientTurnRequest,
-    prepared?: PreparedPrompt,
-  ): Promise<void> {
-    this.workbenchReload.assertAvailable();
-    const identity = clientIdentityForRequest(clientMessageIdOrIdentity);
-    const clientMessageId = identity?.clientMessageId;
-    let thread: ThreadRuntime | undefined;
-    let preparedTurnId: string | undefined;
-    try {
-      thread = this.requireThread(sessionId);
-      await this.settleBind(thread);
-      if (!thread.backend.capabilities.journal) {
-        await this.deliverRuntimeTurn(thread, text, attachments, delivery, identity, prepared);
-        return;
-      }
-      if (identity) this.clientTurns.enqueue(thread.threadId, identity);
-      this.assertImageInput(thread, attachments);
-      const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
-      this.assertPreparedPrompt(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
-      if (!this.projection.isExtensionCommand(thread, resolvedPrepared.runtimeText)) {
-        preparedTurnId = randomUUID();
-        this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: true, expectsInput: false });
-      }
-      let markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
-      try {
-        await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), prepared: resolvedPrepared, attachments });
-      } catch (error) {
-        if (markerActive) {
-          this.clientMessages.failIfUnpersisted(thread, clientMessageId);
-          markerActive = false;
-        }
-        if (identity) this.clientTurns.cancel(thread.threadId, identity);
-        if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
-        throw error;
-      }
-    } catch (error) {
-      if (identity && thread?.backend.capabilities.journal) this.clientTurns.cancel(thread.threadId, identity);
-      if (delivery === "followUp") this.fail(error, sessionId);
-      else this.fail(error);
-      if (thread && preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
-      throw error;
-    }
+    await this.turns.queued("followUp", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
   }
 
   async abort(sessionId?: string): Promise<void> {
@@ -1889,7 +1612,7 @@ export class PiHost {
   async setModel(provider: string, id: string): Promise<HostActionResult> {
     const thread = this.requireActive();
     await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);
-    if (this.threads.get(thread.threadId)?.runtime === thread) await this.refreshThreadShell(thread, false);
+    if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, false);
     this.log("model.changed", `${provider}/${id}`);
     return this.catalogResult();
   }
@@ -1922,28 +1645,11 @@ export class PiHost {
       const state = thread.state;
       thread.adapterTitle = state.title;
       thread.adapterTitleSource = state.titleSource;
-      return this.publishThreadTitle(thread.threadId, state.title ?? title);
+      return this.index.publishTitle(thread.threadId, state.title ?? title);
     }
     thread.adapterTitle = title;
     thread.adapterTitleSource = "generated";
-    return this.publishThreadTitle(thread.threadId, title);
-  }
-
-  private publishThreadTitle(sessionId: string, title: string): HostUpdate {
-    const now = Date.now();
-    this.sessions = this.sessions.map((thread) =>
-      thread.id === sessionId ? { ...thread, title, modifiedAt: now } : thread,
-    );
-    const shell = this.sessions.find((thread) => thread.id === sessionId);
-    if (!shell) throw new Error("The active thread is missing from the session index.");
-    this.log("title.renamed", title);
-    const update: HostUpdate = {
-      version: HOST_PROTOCOL_VERSION,
-      type: "thread-shell",
-      update: { sessionId, shell },
-    };
-    this.emitUpdate(update);
-    return update;
+    return this.index.publishTitle(thread.threadId, title);
   }
 
   prepareWorkbenchReload(mode: import("../shared/contracts.js").WorkbenchReloadMode): Promise<import("../shared/contracts.js").WorkbenchReloadPreparation> { return this.workbenchReload.prepare(mode); }
@@ -1963,10 +1669,10 @@ export class PiHost {
       if (thread.state.streaming) throw new Error("Wait for the active run before reloading Pi.");
       await reload.reload();
       this.modelCatalogCache.invalidate();
-      this.resourceDiscoveryCache.invalidate();
+      this.runtimes.invalidateResources();
       // Other idle runtimes still hold the old resources; they are cheap to
       // rebuild on demand, so drop them rather than reload each one.
-      this.discardSpare();
+      this.prewarm.discardSpare();
       for (const record of this.threads.list()) {
         if (record.runtime !== thread && isLocalPiRuntime(record.runtime)
           && record.runtime.state.idle
@@ -1981,8 +1687,8 @@ export class PiHost {
       this.log("runtime.reloaded");
       const snapshot = await this.snapshot();
       for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
-      this.scheduleRuntimePrewarm();
-      this.scheduleSpareThread(this.cwd);
+      this.prewarm.scheduleThreads();
+      this.prewarm.scheduleSpare(this.cwd);
     });
   }
 
@@ -1997,7 +1703,7 @@ export class PiHost {
 
   async snapshot(): Promise<HostSnapshot> {
     const models = await this.ensureModels();
-    return { ...this.snapshotSync(models), projectLabel: this.labelFor(this.cwd) };
+    return { ...this.snapshotSync(models), projectLabel: this.projects.label(this.cwd) };
   }
 
   /** Workspace metadata is only exposed for projects already admitted by the host. */
@@ -2005,7 +1711,7 @@ export class PiHost {
     return findKnownWorkspacePath(this.resolveWorkspacePath(cwd), new Set([
       this.cwd,
       ...this.projectHistory.list().map((project) => project.path),
-      ...this.sessions.map((session) => session.projectPath),
+      ...this.index.list().map((session) => session.projectPath),
       ...this.threads.list().map((thread) => thread.cwd),
     ]));
   }
@@ -2014,20 +1720,12 @@ export class PiHost {
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
       this.toolOutputBatcher.dispose();
-      for (const timer of this.coalescedPublishes.values()) clearTimeout(timer);
-      this.coalescedPublishes.clear();
-      if (this.indexRecoveryTimer) clearInterval(this.indexRecoveryTimer);
-      this.indexRecoveryTimer = undefined;
-      if (this.prewarmTimer) clearTimeout(this.prewarmTimer);
-      this.prewarmTimer = undefined;
-      this.pendingShellUpdates.clear();
+      this.prewarm.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
       try { await this.hostExtensions.dispose(); } catch (error) { teardownErrors.push(error); }
-      try { await this.discardSpare(); } catch (error) { teardownErrors.push(error); }
-      const opening = [...this.openingThreads.values()];
-      this.openingThreads.clear();
-      await Promise.allSettled(opening);
+      try { await this.prewarm.discardSpare(); } catch (error) { teardownErrors.push(error); }
+      await this.runtimes.settleOpening();
       const results = await Promise.allSettled(this.threads.list().map((record) => this.threads.release(record.threadId)));
       for (const result of results) if (result.status === "rejected") teardownErrors.push(result.reason);
       try {
@@ -2036,12 +1734,7 @@ export class PiHost {
         teardownErrors.push(error);
       }
       try {
-        await this.threadUsage.dispose();
-      } catch (error) {
-        teardownErrors.push(error);
-      }
-      try {
-        await this.threadLineage.dispose();
+        await this.index.dispose();
       } catch (error) {
         teardownErrors.push(error);
       }
@@ -2055,247 +1748,8 @@ export class PiHost {
   // Thread runtime lifecycle
   // ---------------------------------------------------------------------------
 
-  /** Opens a thread of a registered backend; no Pi session is allocated for it. */
-  private async openExternalThread(
-    kind: ThreadBackendKind,
-    threadId: string,
-    cwd: string,
-    options: { background?: boolean; adopt?: boolean; resume?: boolean } = {},
-  ): Promise<ThreadRuntime> {
-    if (this.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
-    const provider = this.requireBackend(kind);
-    const backend = await provider.open(threadId, cwd, { resume: options.resume !== false }, {
-      projectName: this.projectNameFor(cwd),
-      projectLabel: this.knownLabels.get(cwd),
-      permissionLevel: () => this.seam.permissionLevel(),
-      onMessage: (message) => {
-        const thread = this.threads.get(threadId)?.runtime;
-        if (thread) {
-          thread.adapterMessages = [...thread.adapterMessages, message];
-          this.emit(message.role === "user"
-            ? { type: "user-message", sessionId: threadId, message }
-            : { type: "assistant-end", sessionId: threadId, message });
-        }
-      },
-    });
-    const thread = new ThreadRuntime(backend);
-    thread.adapterMessages = await backend.transcript();
-    const state = backend.state();
-    thread.adapterTitle = state.title;
-    thread.adapterTitleSource = state.titleSource;
-    if (options.adopt !== false) await this.adoptThread(thread);
-    return thread;
-  }
-
-  /**
-   * Builds a runtime for one session, binds Tau's UI to it, and hands it to the
-   * registry. The thread is live afterwards but not yet on screen.
-   */
-  private async openThread(
-    manager: SessionManager,
-    sessionStartEvent: RuntimeStartEvent | undefined,
-    options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal } = {},
-  ): Promise<ThreadRuntime> {
-    const cwd = manager.getCwd() || this.cwd;
-    const marks = new PhaseTimer();
-    // Extensions repair what they keep beside a session before its runtime can
-    // start a turn. A session this call is creating has nothing beside it yet,
-    // and asking anyway cost every new thread the checkpoint kit's two-second
-    // lease timeout, since the turn that spawned it holds that lease.
-    const created = sessionStartEvent?.reason === "new";
-    if (manager.getSessionFile() && !created) await this.threadLifecycle.beforeOpen(this.seam.sessionFile(manager));
-    marks.mark("before-open");
-    if (options.background) this.backgroundManagers.add(manager);
-    let runtime: AgentSessionRuntime | undefined;
-    let thread: ThreadRuntime | undefined;
-    let backend: PiThreadRuntimeBackend | undefined;
-    try {
-      const createdRuntime = await createAgentSessionRuntime(this.createRuntime, {
-        cwd,
-        agentDir: this.agentDir,
-        sessionManager: manager,
-        sessionStartEvent,
-      });
-      runtime = createdRuntime;
-      backend = new PiThreadRuntimeBackend(createdRuntime, this.adapterFor("pi"), {
-        mapMessages: (messages) => messages
-          .map((message, index) => mapMessage(message, index, this.projection.mapping(thread!)))
-          .filter((message): message is UiMessage => Boolean(message?.text || message?.skill)),
-      });
-      marks.mark("create-runtime");
-      thread = new ThreadRuntime(backend, createdRuntime);
-      const preparedThread = thread;
-      if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
-      const cancelPrepared = () => {
-        this.extensionUi.cancelFor(preparedThread.threadId);
-        void preparedThread.backend.abort().catch((error) => this.log("runtime.prepared.abort", this.errorMessage(error)));
-      };
-      if (options.abortSignal) {
-        options.abortSignal.addEventListener("abort", cancelPrepared, { once: true });
-        if (options.abortSignal.aborted) cancelPrepared();
-      }
-      await backend!.start(sessionStartEvent?.reason === "resume" ? "resume" : "create");
-      marks.mark("backend-start");
-      // An interactive open shows the thread while it binds; a prewarmed or
-      // spare runtime is off every critical path and is handed over bound.
-      if (options.background) await this.bindThread(thread);
-      else void this.bindThread(thread, true);
-      if (options.abortSignal?.aborted) throw new Error("Prepared runtime creation was cancelled.");
-      this.installThreadHooks(thread);
-      if (options.adopt !== false) await this.adoptThread(thread);
-      marks.mark("hooks");
-      this.log("thread.open.timing", `${thread.threadId.slice(0, 8)} · ${marks.report()}`);
-      return thread;
-    } catch (error) {
-      // A prepared runtime may have created extension questions while binding.
-      // Keep its barrier active until every callback and teardown side effect
-      // has completed, then discard all buffered output.
-      if (thread) this.extensionUi.cancelFor(thread.sessionId);
-      if (runtime) {
-        const cleanupErrors = await this.teardownRuntime(runtime);
-        thread?.cancelEventBarrier();
-        if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "Pi runtime initialization failed", { cause: error });
-      } else thread?.cancelEventBarrier();
-      throw error;
-    } finally {
-      this.backgroundManagers.delete(manager);
-    }
-  }
-
   private async adoptThread(thread: ThreadRuntime): Promise<void> {
     await this.threads.adopt({ threadId: thread.threadId, cwd: thread.cwd, runtime: thread, isolation: "in-process" });
-  }
-
-  /** One runtime per session file: concurrent opens for the same path share it. */
-  private openThreadForPath(
-    path: string,
-    reason: "resume",
-    background = false,
-    backendKind?: ThreadBackendKind,
-  ): Promise<ThreadRuntime> {
-    const live = this.liveThreadForPath(path);
-    if (live) return Promise.resolve(live);
-    let pending = this.openingThreads.get(path);
-    if (!pending) {
-      pending = (async () => {
-        const external = externalThreadFromPath(path);
-        const indexedSession = this.sessions.find((session) => session.path === path);
-        const owner = backendKind ?? indexedSession?.backendKind ?? external?.kind ?? "pi";
-        if (owner !== "pi") {
-          if (this.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
-          const threadId = external?.threadId ?? indexedSession?.id;
-          if (!threadId) throw new Error("The thread has no durable Tau thread id.");
-          const record = await this.requireBackend(owner).lookup(threadId);
-          if (!record) throw new Error("The selected thread is no longer available in its runtime.");
-          return this.openExternalThread(owner, record.threadId, record.cwd, { background });
-        }
-        if (external) throw new Error("The selected thread is owned by another runtime backend.");
-        let manager: SessionManager;
-        manager = SessionManager.open(path);
-        return this.openThread(
-          manager,
-          { type: "session_start", reason, previousSessionFile: this.active?.sessionFile },
-          { background },
-        );
-      })().then((thread) => thread).finally(() => {
-        if (this.openingThreads.get(path) === pending) this.openingThreads.delete(path);
-      });
-      this.openingThreads.set(path, pending);
-    }
-    return pending;
-  }
-
-  /**
-   * Binds Tau's dialog surface into a runtime's extensions. Pi binds them one
-   * after another, so the wait runs beside the switch instead of in front of
-   * it. Subscription and marker recovery stay synchronous: they decide which
-   * runtime events reach the host, and none may be missed.
-   */
-  private bindThread(thread: ThreadRuntime, deferred = false): Promise<void> {
-    const extensions = thread.backend.capabilities.extensions;
-    if (!extensions) return Promise.resolve();
-    thread.backend.capabilities.events?.subscribe((event, threadId) => this.handleSessionEvent(event, thread, threadId, thread.cwd));
-    this.recoverOrphanedClientMessageMarkers(thread);
-    const bind = () => extensions.bind({
-      ui: {
-        sessionId: () => thread.threadId,
-        ask: (prompt) => this.extensionUi.ask(prompt, thread),
-        notify: (message, level) => this.emitForThread(thread, { type: "notice", message, level, sessionId: thread.threadId }),
-        setWindowTitle: (title) => {
-          if (!thread.deferTitle(title)) this.onWindowTitle?.(title);
-        },
-        unsupported: (method) => this.logForThread(thread, "extension-ui.unsupported", method),
-        setStatus: (key, text) => this.presentUi("setStatus", thread.threadId, key, text),
-        setWidget: (key, lines, placement) => this.presentUi("setWidget", thread.threadId, key, lines, placement),
-        setWorkingMessage: (message) => this.presentUi("setWorkingMessage", thread.threadId, message),
-      },
-      onError: (error) => this.fail(error, thread.threadId, thread),
-    });
-    if (!deferred) return this.runBind(thread, bind, "caller");
-    const bound = this.runBind(thread, bind, "host");
-    this.pendingBinds.set(thread, bound);
-    void bound.finally(() => { if (this.pendingBinds.get(thread) === bound) this.pendingBinds.delete(thread); });
-    return bound;
-  }
-
-  /**
-   * Runs one binding and the catalog publication that follows it. A deferred
-   * binding reports its own failure, because the thread it belongs to is
-   * already on screen and cannot be unwound; an awaited binding leaves the
-   * error with its caller.
-   */
-  private async runBind(thread: ThreadRuntime, bind: () => Promise<void>, owner: "host" | "caller"): Promise<void> {
-    const bindStartedAt = performance.now();
-    try {
-      await bind();
-      // Extensions contribute prompts, skills and themes while they bind.
-      if (this.active === thread) await this.publishActiveCatalog();
-    } catch (error) {
-      if (owner === "caller") throw error;
-      if (this.threads.get(thread.threadId)?.runtime === thread) this.fail(error, thread.threadId, thread);
-      else this.logForThread(thread, "runtime.bind.failed", this.errorMessage(error));
-    } finally {
-      this.recordBackgroundLifecycle("bind", bindStartedAt);
-      this.logPhaseEvent("bind", bindStartedAt, "active", thread.cwd, undefined, thread);
-    }
-  }
-
-  /**
-   * Waits for a binding that is still running. Only callers outside the
-   * lifecycle queue may use it: an extension can ask for that queue through
-   * `sessions.exclusive` while it binds, and holding it here would deadlock
-   * (ADR 0004).
-   */
-  private async settleBind(thread: ThreadRuntime): Promise<void> {
-    await this.pendingBinds.get(thread);
-  }
-
-  /**
-   * A persisted request marker can outlive a host process that crashed or was
-   * disconnected before Pi emitted the corresponding user message. Cancel
-   * those markers before subscribing to a reopened runtime so they cannot be
-   * assigned to a later, unrelated turn.
-   */
-  private recoverOrphanedClientMessageMarkers(thread: ThreadRuntime): void {
-    const staleIds = unclaimedClientMessageIds(thread.entries, knownSkillNames(this.projection.composerCommands(thread)));
-    for (const clientMessageId of staleIds) {
-      thread.appendJournalEntry(CLIENT_MESSAGE_CANCEL_MARKER, clientMessageCancelMarker(clientMessageId).data);
-      this.clientMessages.forget(thread, clientMessageId);
-    }
-  }
-
-  private installThreadHooks(thread: ThreadRuntime): void {
-    const extensions = thread.backend.capabilities.extensions;
-    if (!extensions) return;
-    extensions.setLifecycleHooks(() => {
-      extensions.unbind();
-      this.clientTurns.settle(thread.threadId);
-      thread.resetLiveState();
-      void this.turnObservers.reset(thread.threadId).catch((error) => this.log("turn-observer.reset.failed", this.errorMessage(error)));
-    }, async () => {
-      // Pi drives this rebind itself and waits for it; only the switch path defers.
-      await this.bindThread(thread);
-    });
   }
 
   /** Puts a live thread on screen. Cheap: it changes pointers and publishes state. */
@@ -2328,7 +1782,7 @@ export class PiHost {
         activationCommitted = true;
         return false;
       }
-      await this.refreshThreadShell(thread, touch);
+      await this.index.refreshShell(thread, touch);
       if (!this.isCurrentActivation(activationEpoch)) {
         await restore?.rollback();
         activationCommitted = true;
@@ -2336,8 +1790,8 @@ export class PiHost {
       }
       this.log("session.opened", thread.threadId.slice(0, 8));
       this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(thread.cwd) });
-      this.scheduleRuntimePrewarm();
-      if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
+      this.prewarm.scheduleThreads();
+      if (this.defaultBackendKind === "pi") this.prewarm.scheduleSpare(thread.cwd);
       await restore?.commit();
       activationCommitted = true;
       return true;
@@ -2358,167 +1812,9 @@ export class PiHost {
     this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
   }
 
-  private async disposeThread(thread: ThreadRuntime): Promise<void> {
-    this.clientTurns.settle(thread.threadId);
-    this.extensionUi.cancelFor(thread.threadId);
-    this.presentUi("clear", thread.threadId);
-    thread.adapterAbortGeneration += 1;
-    thread.unsubscribe?.();
-    thread.unsubscribe = undefined;
-    try {
-      for (const controller of thread.adapterAbortControllers) controller.abort();
-      const state = thread.state;
-      if (state.streaming || !state.idle) {
-        await Promise.race([
-          thread.backend.abort(),
-          new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_ABORT_MS).unref?.()),
-        ]);
-      }
-    } catch (error) {
-      this.log("runtime.adapter.abort-failed", this.errorMessage(error));
-    }
-    thread.backend.capabilities.extensions?.unbind();
-    for (const id of thread.tools.keys()) this.toolOwners.delete(id);
-    // Stop Pi before observers close: closing first would drop work in
-    // flight while the provider could still mutate the checkout.
-    const errors = thread.runtime ? await this.abortRuntime(thread.runtime) : [];
-    try {
-      await this.turnObservers.closed(thread.threadId);
-    } catch (error) {
-      errors.push(error);
-    }
-    if (thread.runtime) errors.push(...await this.disposeRuntime(thread.runtime));
-    else {
-      try { await thread.backend.dispose(); } catch (error) { errors.push(error); }
-    }
-    thread.cancelEventBarrier();
-    if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");
-  }
-
-  private async teardownRuntime(runtime: AgentSessionRuntime): Promise<unknown[]> {
-    const errors = await this.abortRuntime(runtime);
-    errors.push(...await this.disposeRuntime(runtime));
-    return errors;
-  }
-
-  private async abortRuntime(runtime: AgentSessionRuntime): Promise<unknown[]> {
-    const errors: unknown[] = [];
-    try {
-      // A run that will not stop must not block shutdown forever.
-      await Promise.race([
-        runtime.session.abort(),
-        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_ABORT_MS).unref?.()),
-      ]);
-    } catch (error) {
-      errors.push(error);
-    }
-    return errors;
-  }
-
-  private async disposeRuntime(runtime: AgentSessionRuntime): Promise<unknown[]> {
-    const errors: unknown[] = [];
-    let disposed = false;
-    try {
-      await runtime.dispose();
-      disposed = true;
-    } catch (error) {
-      errors.push(error);
-    }
-    if (!disposed) {
-      try {
-        runtime.session.dispose();
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-    return errors;
-  }
-
-  private scheduleSpareThread(cwd: string, force = false): void {
-    if ((!this.automaticPrewarm && !force) || this.safeMode || this.spare?.cwd === cwd) return;
-    void this.discardSpare().catch((error) => this.fail(error));
-    const startedAt = performance.now();
-    const cancellation = new AbortController();
-    const pending = this.openThread(
-      SessionManager.create(cwd, this.sessionsDirOverride),
-      { type: "session_start", reason: "new", previousSessionFile: undefined },
-      { background: true, adopt: false, prepared: true, abortSignal: cancellation.signal },
-    ).then((thread) => {
-      this.log("runtime.spare.ready", basename(cwd));
-      return thread;
-    }).catch((error) => {
-      this.log("runtime.spare.failed", this.errorMessage(error));
-      return undefined;
-    }).finally(() => this.recordBackgroundLifecycle("spare", startedAt));
-    this.spare = { cwd, pending, cancel: () => cancellation.abort() };
-  }
-
-  private async takePreparedThread(cwd: string): Promise<ThreadRuntime | undefined> {
-    const spare = this.spare;
-    if (!spare || spare.cwd !== cwd) return undefined;
-    this.spare = undefined;
-    const thread = await spare.pending;
-    if (!thread) return undefined;
-    return thread;
-  }
-
-  private retainPreparedThread(thread: ThreadRuntime): void {
-    this.spare = { cwd: thread.cwd, pending: Promise.resolve(thread), cancel: () => {
-      this.extensionUi.cancelFor(thread.sessionId);
-      void thread.backend.abort().catch((error) => this.log("runtime.prepared.abort", this.errorMessage(error)));
-    } };
-  }
-
-  private async discardSpare(): Promise<void> {
-    const spare = this.spare;
-    this.spare = undefined;
-    if (!spare) return;
-    spare.cancel();
-    const thread = await spare.pending;
-    if (thread) await this.disposeThread(thread);
-  }
-
-  private projectNameFor(cwd: string): string {
-    return this.knownProjectNames.get(cwd) ?? (basename(cwd) || cwd);
-  }
-
-  private async loadProjectName(cwd: string): Promise<string> {
-    const known = this.knownProjectNames.get(cwd);
-    if (known) return known;
-    const name = await this.projectFacts.name(cwd).catch(() => undefined) ?? (basename(cwd) || cwd);
-    this.knownProjectNames.set(cwd, name);
-    return name;
-  }
-
   private async rememberProject(cwd: string): Promise<void> {
     await this.workspaces.learn(cwd);
-    await this.projectHistory.remember(cwd, await this.loadProjectName(cwd));
-  }
-
-  /**
-   * The label a project carries, as last seen. A refresh always runs in the
-   * background and publishes when the answer changes, so opening or switching a
-   * thread never waits on the provider — a busy repository used to hold
-   * switches for seconds behind its own status scan.
-   */
-  private labelFor(cwd: string): string | undefined {
-    this.refreshLabelInBackground(cwd);
-    return this.knownLabels.get(cwd);
-  }
-
-  private refreshLabelInBackground(cwd: string): void {
-    if (this.labelRefreshes.has(cwd)) return;
-    const startedAt = performance.now();
-    const pending = this.projectFacts.label(cwd).then((label) => {
-      const known = this.knownLabels.has(cwd);
-      const previous = this.knownLabels.get(cwd);
-      this.knownLabels.set(cwd, label);
-      if (!known || previous !== label) this.publishLabel(cwd, label);
-    }).catch((error) => this.log("project-label.failed", `${basename(cwd)}: ${this.errorMessage(error)}`)).finally(() => {
-      this.recordBackgroundLifecycle("project-label", startedAt);
-      this.labelRefreshes.delete(cwd);
-    });
-    this.labelRefreshes.set(cwd, pending);
+    await this.projectHistory.remember(cwd, await this.projects.loadName(cwd));
   }
 
   private publishLabel(cwd: string, label: string | undefined): void {
@@ -2526,31 +1822,12 @@ export class PiHost {
       this.projectLabel = label;
       this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd, label } });
     }
-    const changed = this.sessions.filter((session) => session.projectPath === cwd && session.projectLabel !== label);
-    if (changed.length === 0) return;
-    this.sessions = this.sessions.map((session) => session.projectPath === cwd ? { ...session, projectLabel: label } : session);
-    for (const session of this.sessions) {
-      if (session.projectPath === cwd) this.publishThreadShellSoon(session);
-    }
+    this.index.publishLabel(cwd, label);
   }
 
   private recordBackgroundLifecycle(name: string, startedAt: number): void {
     this.backgroundLifecycle.push({ name, durationMs: Math.round((performance.now() - startedAt) * 10) / 10 });
     if (this.backgroundLifecycle.length > 100) this.backgroundLifecycle.shift();
-  }
-
-  private scheduleRuntimePrewarm(): void {
-    if (!this.automaticPrewarm || this.safeMode || this.prewarmTimer) return;
-    this.prewarmTimer = setTimeout(() => {
-      this.prewarmTimer = undefined;
-      if (!this.localActive) return;
-      const live = this.liveThreadIds();
-      const candidates = this.sessions
-        .filter((session) => session.projectPath === this.cwd && !live.has(session.id) && !this.openingThreads.has(session.path))
-        .slice(0, Math.max(0, MAX_LIVE_THREADS - 2 - live.size));
-      for (const session of candidates) void this.prewarmSession(session.path);
-    }, 1_000);
-    this.prewarmTimer.unref?.();
   }
 
   // ---------------------------------------------------------------------------
@@ -2592,7 +1869,7 @@ export class PiHost {
     // Only a runtime the host builds itself pays for a catalog scan; every
     // other one answers from what it already holds.
     if (!isLocalPiRuntime(active)) return active.backend.models();
-    const key = this.resourceFingerprint(this.cwd);
+    const key = this.runtimes.fingerprint(this.cwd);
     const cached = this.modelCatalogCache.get(key);
     if (cached) return cached;
     const models = await active.backend.models();
@@ -2600,274 +1877,11 @@ export class PiHost {
     return models;
   }
 
-  private resourceFingerprint(cwd: string, settingsManager?: SettingsManager): string {
-    return runtimeResourceFingerprint({
-      cwd,
-      settings: settingsManager
-        ? { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings(), safeMode: this.safeMode }
-        : { safeMode: this.safeMode },
-      extensions: { enabled: !this.safeMode, hostExtensions: this.seam.runtimeExtensions.map((entry) => entry.name) },
-      providerState: { agentDir: this.agentDir },
-    });
-  }
-
-  private externalSessionShells(): Promise<UiSession[]> {
-    return loadExternalSessionShells({
-      safeMode: this.safeMode, providers: this.seam.backends.values(),
-      projectName: (cwd) => this.projectNameFor(cwd), projectLabel: (cwd) => this.labelFor(cwd),
-      onError: (provider, error) => this.log("runtime-backend.list.failed", `${provider.kind}: ${this.errorMessage(error)}`),
-    });
-  }
-
-  /**
-   * One deduplicated pass over every persisted session. Concurrent callers
-   * share it, so the recovery timer can never run a second sweep into the
-   * lifecycle hooks while one is still in flight.
-   */
-  private async refreshThreadIndex(publish: "none" | "index" | "changes"): Promise<ThreadIndexSnapshot> {
-    this.threadIndexScan ??= this.scanThreadIndex().finally(() => { this.threadIndexScan = undefined; });
-    const { previous, next } = await this.threadIndexScan;
-    if (publish === "index") this.emit({ type: "thread-index", threadIndex: this.threadIndexSnapshot() });
-    else if (publish === "changes") for (const update of sessionIndexUpdates(previous, next)) this.emitUpdate(update);
-    return this.threadIndexSnapshot();
-  }
-
-  private async scanThreadIndex(): Promise<{ previous: readonly UiSession[]; next: UiSession[] }> {
-    const scanStartedAt = Date.now();
-    this.usageCacheLoaded ??= this.threadUsage.load().catch(() => undefined);
-    this.lineageCacheLoaded ??= this.threadLineage.load().catch(() => undefined);
-    const [sessionInfos] = await Promise.all([SessionManager.listAll(this.sessionsDirOverride), this.usageCacheLoaded, this.lineageCacheLoaded]);
-    // Stamps are a stat per file; reading the files themselves is what the
-    // usage index defers, so the scan stays a listing.
-    const stamps = new Map(await Promise.all(sessionInfos.map(async (info) =>
-      [info.path, await readSessionFileStamp(info.path)] as const)));
-    this.threadUsage.retain(sessionInfos.map((info) => info.path));
-    // Two lines per session file the cache has not answered yet, so the rail
-    // knows which threads an agent spawned before it paints them.
-    const parents = await this.threadLineage.resolve(sessionInfos.map((info) => ({
-      path: info.path,
-      ...(stamps.get(info.path) ? { stamp: stamps.get(info.path)! } : {}),
-    })));
-    this.threadLineage.retain(sessionInfos.map((info) => info.path));
-    for (const info of sessionInfos) {
-      const parent = parents.get(info.path);
-      if (parent && parent !== info.id) this.threadParents.set(info.id, parent);
-    }
-    const scanned = await mapSessions(
-      sessionInfos,
-      this.cwd,
-      async (cwd) => this.labelFor(cwd),
-      (cwd) => this.projectNameFor(cwd),
-      new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
-      (info) => this.liveThreadUsage(info.id) ?? usageOrUndefined(this.threadUsage.lookup(info.path, stamps.get(info.path))),
-      (info) => parents.get(info.path) ?? this.threadParents.get(info.id),
-    );
-    const previous = this.sessions;
-    const external = await this.externalSessionShells();
-    const byId = new Map(scanned.map((session) => [session.id, session] as const));
-    for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
-    const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds());
-    this.sessions = next;
-    await this.sweepSessions(sessionInfos, previous, next);
-    return { previous, next };
-  }
-
-  private startIndexRecovery(): void {
-    if (this.indexRecoveryTimer) return;
-    this.indexRecoveryTimer = setInterval(() => {
-      void this.refreshThreadIndex("changes").catch((error) => this.fail(error));
-    }, 30_000);
-    this.indexRecoveryTimer.unref?.();
-  }
-
-  /** Extensions reconcile what they keep beside sessions; a missing file is deletion, eviction is not. */
-  private async sweepSessions(sessionInfos: readonly SessionInfo[], previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
-    const nextIds = new Set(next.map((session) => session.id));
-    const liveIds = this.liveThreadIds();
-    const deleted = previous
-      .filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path))
-      .map((session) => ({ sessionId: session.id, cwd: session.projectPath }));
-    for (const threadId of [...this.threadParents.keys()]) {
-      if (!nextIds.has(threadId) && !liveIds.has(threadId)) this.threadParents.delete(threadId);
-    }
-    await this.threadLifecycle.sweep({
-      sessions: sessionInfos.map((info) => ({
-        sessionId: info.id,
-        path: info.path,
-        cwd: info.cwd,
-        ...(this.threadParents.get(info.id) ? { parentThreadId: this.threadParents.get(info.id)! } : {}),
-      })),
-      liveThreads: this.threads.list().map((record) => this.hostThreadFor(record.runtime)),
-      projectPaths: this.projectHistory.list().map((project) => project.path),
-      deleted,
-    });
-  }
-
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
   private async refreshActiveThreadIndex(touch = true): Promise<void> {
     const thread = this.active;
     if (!thread) return;
-    await this.refreshThreadShell(thread, touch);
-  }
-
-  private sessionShellPath(thread: ThreadRuntime): string {
-    const kind = threadBackendKind(thread);
-    return kind !== "pi" ? externalThreadPath(kind, thread.threadId) : thread.sessionFile ?? thread.threadId;
-  }
-
-  private async refreshThreadShell(thread: ThreadRuntime, touch: boolean): Promise<void> {
-    const projectPath = thread.cwd;
-    const usage = this.rememberThreadUsage(thread);
-    const existing = this.sessions.find((entry) => entry.id === thread.threadId);
-    const visibleMessages = await thread.backend.transcript();
-    const shell = reconcileActiveThreadShell({
-      id: thread.threadId,
-      path: this.sessionShellPath(thread),
-      explicitTitle: safeSessionTitle(thread.state.title) || safeSessionTitle(thread.adapterTitle),
-      derivedTitle: firstSentence(visibleTitleText(visibleMessages.find((message) => message.role === "user")?.text ?? "")),
-      now: Date.now(),
-      projectPath,
-      projectName: this.projectNameFor(projectPath),
-      projectLabel: this.labelFor(projectPath),
-      messageCount: visibleMessages.length,
-      backendKind: threadBackendKind(thread),
-      modelProvider: thread.backend.catalogView().model?.provider ?? this.seam.backends.get(threadBackendKind(thread))?.modelProvider,
-      ...(usage ? { usage } : {}),
-      ...(this.threadParentOf(thread.threadId) ? { parentThreadId: this.threadParentOf(thread.threadId)! } : {}),
-    }, existing, touch);
-    this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
-    this.publishThreadShellSoon(shell);
-  }
-
-  /**
-   * A live thread's own total, straight from its runtime. It supersedes the
-   * cache, and seeds it, so an open thread is never re-read from disk.
-   */
-  private rememberThreadUsage(thread: ThreadRuntime): UiThreadUsage | undefined {
-    const usage = usageOrUndefined(thread.backend.catalogView().usage);
-    const file = thread.sessionFile;
-    if (usage && file) {
-      void readSessionFileStamp(file)
-        .then((stamp) => this.threadUsage.record(file, stamp, usage))
-        .catch(() => undefined);
-    }
-    return usage;
-  }
-
-  private liveThreadUsage(threadId: string): UiThreadUsage | undefined {
-    const record = this.threads.get(threadId);
-    return record ? usageOrUndefined(record.runtime.backend.catalogView().usage) : undefined;
-  }
-
-  /** A deferred session-file read finished; the thread's shell carries the number now. */
-  private applyScannedUsage(sessionPath: string, usage: UiThreadUsage): void {
-    const shell = this.sessions.find((entry) => entry.path === sessionPath);
-    if (!shell || threadUsageEqual(shell.usage, usage)) return;
-    const updated = usageOrUndefined(usage) ? { ...shell, usage } : shell;
-    if (updated === shell) return;
-    this.sessions = this.sessions.map((entry) => entry.id === shell.id ? updated : entry);
-    this.publishThreadShellSoon(updated);
-  }
-
-  private retitleShell(sessionId: string, title: string): void {
-    const shell = this.sessions.find((entry) => entry.id === sessionId);
-    if (!shell || shell.title === title) return;
-    const titled = { ...shell, title };
-    this.sessions = this.sessions.map((entry) => entry.id === sessionId ? titled : entry);
-    this.publishThreadShellSoon(titled);
-  }
-
-  /** A thread shell names its project the way every other published shape does. */
-  private sessionWithIdentity(session: UiSession): UiSession {
-    const { workspaceId, displayPath } = this.workspaces.ref(session.projectPath);
-    return { ...session, workspaceId, projectDisplayPath: displayPath };
-  }
-
-  private publishThreadShellSoon(shell: UiSession): void {
-    this.pendingShellUpdates.set(shell.id, shell);
-    this.publishSoon("shells", () => {
-      const updates = [...this.pendingShellUpdates.values()];
-      this.pendingShellUpdates.clear();
-      for (const pending of updates) {
-        this.emitUpdate({
-          version: HOST_PROTOCOL_VERSION,
-          type: "thread-shell",
-          update: { sessionId: pending.id, shell: this.sessionWithIdentity(pending) },
-        });
-      }
-    });
-  }
-
-  /** Collapse repeated publications of one kind into a single later emit. */
-  private publishSoon(kind: "shells" | "index", publish: () => void): void {
-    if (this.coalescedPublishes.has(kind)) return;
-    const timer = setTimeout(() => {
-      this.coalescedPublishes.delete(kind);
-      publish();
-    }, 0);
-    timer.unref?.();
-    this.coalescedPublishes.set(kind, timer);
-  }
-
-  private threadIndexSnapshot(): ThreadIndexSnapshot {
-    const projects = this.projectHistory.list();
-    const knownPaths = new Set(projects.map((project) => project.path));
-    for (const thread of this.sessions) {
-      if (knownPaths.has(thread.projectPath) || this.projectHistory.isHidden(thread.projectPath)) continue;
-      projects.push({
-        path: thread.projectPath,
-        name: thread.projectName,
-        lastOpenedAt: thread.modifiedAt,
-      });
-      knownPaths.add(thread.projectPath);
-    }
-    projects.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
-    return {
-      projects: projects.filter((project) => this.isProjectRoot(project.path)).map((project) => ({ ...project, ...this.workspaces.ref(project.path) })),
-      sessions: this.sessions.map((session) => this.sessionWithIdentity(session)),
-    };
-  }
-
-  /**
-   * A project nested in another (Workspace Kit: a linked worktree) is not a
-   * root of its own; the workspace bar moves inside the parent instead. The
-   * provider is never awaited here; an unclassified path is withheld until its
-   * background answer arrives.
-   */
-  private isProjectRoot(cwd: string): boolean {
-    const nested = this.knownNestedProjects.get(cwd);
-    if (nested === undefined) {
-      this.classifyNestedInBackground(cwd);
-      return false;
-    }
-    return !nested;
-  }
-
-  private classifyNestedInBackground(cwd: string): void {
-    if (this.nestedClassifications.has(cwd)) return;
-    const startedAt = performance.now();
-    const pending = this.projectFacts.nested(cwd).then((nested) => {
-      if (this.knownNestedProjects.get(cwd) === nested) return;
-      this.knownNestedProjects.set(cwd, nested);
-      this.publishThreadIndexSoon();
-    }).catch(() => {
-      // A path no provider can classify is simply a root.
-      if (this.knownNestedProjects.has(cwd)) return;
-      this.knownNestedProjects.set(cwd, false);
-      this.publishThreadIndexSoon();
-    }).finally(() => {
-      this.recordBackgroundLifecycle("project-classification", startedAt);
-      this.nestedClassifications.delete(cwd);
-    });
-    this.nestedClassifications.set(cwd, pending);
-  }
-
-  private publishThreadIndexSoon(): void {
-    this.publishSoon("index", () => this.emitUpdate({
-      version: HOST_PROTOCOL_VERSION,
-      type: "thread-index",
-      index: this.threadIndexSnapshot(),
-    }));
+    await this.index.refreshShell(thread, touch);
   }
 
   /** Commands of an external backend; a supplied catalog is re-spelled in the backend's dialect. */

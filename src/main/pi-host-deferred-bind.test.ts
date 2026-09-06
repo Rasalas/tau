@@ -7,7 +7,7 @@ import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import type { RuntimeExtensionBindings } from "./runtime-types.js";
 
 interface HostInternals {
-  bindThread(thread: ThreadRuntime, deferred: boolean): Promise<void>;
+  binding: { bind(thread: ThreadRuntime, deferred: boolean): Promise<void> };
   threads: { adopt(record: unknown): Promise<void> };
 }
 
@@ -75,7 +75,7 @@ async function hostWithBindingThread(bind: (bindings: RuntimeExtensionBindings) 
   const internals = host as unknown as HostInternals;
   const thread = bindableThread(bind, prompts);
   await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
-  const bound = internals.bindThread(thread, true);
+  const bound = internals.binding.bind(thread, true);
   return { host, events, prompts, bound };
 }
 

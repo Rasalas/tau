@@ -190,12 +190,12 @@ function localHost(adapter: AgentRuntimeAdapter) {
     : { defaultBackendKind: adapter.id, hostExtensions: [backendKit(adapter)] });
   const internals = host as unknown as {
     threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
-    labelFor: () => undefined;
-    publishThreadShellSoon: () => void;
+    projects: { label: () => undefined };
+    index: { publishShellSoon: () => void };
     activateHostExtensions(): Promise<void>;
   };
-  internals.labelFor = () => undefined;
-  internals.publishThreadShellSoon = () => undefined;
+  internals.projects.label = () => undefined;
+  internals.index.publishShellSoon = () => undefined;
   const ready = adapter.id === "pi" ? Promise.resolve() : internals.activateHostExtensions();
   return { host, session, thread, internals, emitted, ready };
 }
