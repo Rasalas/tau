@@ -1,5 +1,5 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { UiQuestionnaireQuestion } from "../shared/questionnaire-protocol.js";
+import type { UiQuestionnaireQuestion } from "./protocol.js";
 
 /** Events `@juicesharp/rpiv-ask-user-question` publishes on Pi's shared bus. */
 export const ASK_USER_PROMPT_EVENT = "rpiv:ask-user:prompt";

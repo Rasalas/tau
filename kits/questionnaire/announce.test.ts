@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ASK_USER_BLOCKED_EVENT, ASK_USER_PROMPT_EVENT, createQuestionnaireExtension } from "./questionnaire-extension.js";
+import { ASK_USER_BLOCKED_EVENT, ASK_USER_PROMPT_EVENT, createQuestionnaireExtension } from "./announce.js";
 
 function fakePi() {
   const hooks = new Map<string, (event: unknown, ctx: unknown) => void>();

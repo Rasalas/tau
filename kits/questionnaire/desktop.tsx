@@ -1,10 +1,20 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { ExtensionUiAnswer, ExtensionUiPrompt } from "../../shared/contracts";
-import { choiceOptions, freeTextOption, optionForLabel, splitInputTitle, splitOption, splitPromptTitle } from "../../shared/extension-prompt-options";
-import { QUESTIONNAIRE_HOST_EXTENSION_ID, questionnaireOf, type UiQuestionnaireQuestion } from "../../shared/questionnaire-protocol";
-import { ExtensionPromptFrame, OptionRow } from "../components/ExtensionPrompt";
-import type { DesktopExtension, PromptRendererProps } from "../extension-system";
+import {
+  ExtensionPromptFrame,
+  OptionRow,
+  choiceOptions,
+  freeTextOption,
+  optionForLabel,
+  splitInputTitle,
+  splitOption,
+  splitPromptTitle,
+  type DesktopExtension,
+  type ExtensionUiAnswer,
+  type ExtensionUiPrompt,
+  type PromptRendererProps,
+} from "tau";
+import { QUESTIONNAIRE_HOST_EXTENSION_ID, questionnaireOf, type UiQuestionnaireQuestion } from "./protocol.js";
 
 /** What the user picked (or pre-picked) for one question of a questionnaire. */
 export interface QuestionnaireChoice {
@@ -230,3 +240,5 @@ export function createQuestionnaireExtension(store = new QuestionnaireStore()): 
 }
 
 export const questionnaireExtension = createQuestionnaireExtension();
+
+export default questionnaireExtension;

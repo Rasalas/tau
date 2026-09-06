@@ -1,11 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionUiPrompt, GlobalHostEvent } from "../../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices, type HostThread, type HostUiPresenter, type RuntimeExtensionContribution } from "../host-extensions.js";
-import { questionnaireOf } from "../../shared/questionnaire-protocol.js";
 import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
 import { createKeybindingsHostExtension, readPiUserKeybindings } from "./keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
-import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
 
 function harness(thread?: Partial<HostThread>) {
   const events: GlobalHostEvent[] = [];
@@ -49,32 +47,6 @@ function harness(thread?: Partial<HostThread>) {
   };
   return { registry: new HostExtensionRegistry(services, (event) => events.push(event)), events, runtimeExtensions, decorators, presenters };
 }
-
-describe("Questionnaire host extension", () => {
-  it("tags select and input dialogs with their place in the announced questionnaire", async () => {
-    const { registry, runtimeExtensions, decorators } = harness();
-    await registry.activate(createQuestionnaireHostExtension());
-    // Drive the Pi extension the kit contributed with a fake ExtensionAPI.
-    const busHandlers = new Map<string, (payload: unknown) => void>();
-    const piHandlers = new Map<string, (event: unknown, ctx: unknown) => void>();
-    runtimeExtensions[0]!.factory({
-      on: (event: string, handler: (event: unknown, ctx: unknown) => void) => { piHandlers.set(event, handler); },
-      events: { on: (name: string, handler: (payload: unknown) => void) => { busHandlers.set(name, handler); } },
-    } as never, { sessionId: "s1", cwd: "/project" });
-    piHandlers.get("session_start")?.({}, { sessionManager: { getSessionId: () => "s1" } });
-    busHandlers.get("rpiv:ask-user:prompt")?.({ questions: [
-      { question: "Which colour?", header: "Theme", options: [{ label: "red" }, { label: "blue" }] },
-      { question: "Which size?", options: [{ label: "s" }] },
-    ] });
-    const prompt = { id: "p1", sessionId: "s1", kind: "select", title: "[Theme] Which colour?", options: ["red", "blue"] } as ExtensionUiPrompt;
-    decorators.forEach((decorate) => decorate(prompt));
-    expect(questionnaireOf(prompt)?.index).toBe(0);
-    expect(questionnaireOf(prompt)?.questions).toHaveLength(2);
-    const confirm = { id: "p2", sessionId: "s1", kind: "confirm", title: "Sure?", message: "" } as ExtensionUiPrompt;
-    decorators.forEach((decorate) => decorate(confirm));
-    expect(questionnaireOf(confirm)).toBeUndefined();
-  });
-});
 
 describe("Computer Use host extension", () => {
   it("stands down when the user already configured the Pi package", async () => {

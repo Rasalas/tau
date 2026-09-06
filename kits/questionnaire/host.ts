@@ -1,6 +1,6 @@
-import { QUESTIONNAIRE_HOST_EXTENSION_ID, tagQuestionnaire, type UiQuestionnaireQuestion } from "../../shared/questionnaire-protocol.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
-import { createQuestionnaireExtension } from "../questionnaire-extension.js";
+import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { createQuestionnaireExtension } from "./announce.js";
+import { QUESTIONNAIRE_HOST_EXTENSION_ID, tagQuestionnaire, type UiQuestionnaireQuestion } from "./protocol.js";
 
 /**
  * Questionnaire Kit's host entry. The ask-user tool walks its questions one
@@ -11,7 +11,6 @@ export function createQuestionnaireHostExtension(): HostExtension {
   return {
     id: QUESTIONNAIRE_HOST_EXTENSION_ID,
     name: "Questionnaires",
-    permissions: ["runtime:extend"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       /** Questionnaires announced per thread, and how many of their questions were asked so far. */
@@ -33,3 +32,5 @@ export function createQuestionnaireHostExtension(): HostExtension {
     },
   };
 }
+
+export default createQuestionnaireHostExtension;

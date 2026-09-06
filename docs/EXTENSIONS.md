@@ -114,6 +114,15 @@ and `Menu` with its `MenuItem` and `MenuSection` types — the popover list a
 composer chip drops, with the scrim, the Escape handling and the shift that
 keeps it clear of a native view.
 
+A package that takes over a Pi dialog (`registerPromptRenderer`) gets the
+pieces core draws its own four with, so its dialog is not a look-alike:
+`ExtensionPromptFrame` and `OptionRow` (the frame and one choice row), the
+`PromptRendererProps` and `PromptRendererContribution` types, and the parsers
+for what the ask tool folds into a dialog's title and options —
+`splitPromptTitle`, `splitInputTitle`, `splitOption`, `choiceOptions`,
+`freeTextOption` and `optionForLabel`, with their `OptionParts` and
+`OptionPreview` types.
+
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies, and the
 text projections a package that reads transcripts needs: `textFromContent`

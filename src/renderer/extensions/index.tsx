@@ -27,7 +27,6 @@ import { piUiExtension } from "./pi-ui";
 import { PREVIEW_PANEL, PreviewFollower, isPreviewState, previewKit, previewStore } from "./preview-store";
 import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_STATE_EVENT } from "../../shared/preview-protocol";
 import { packagesExtension } from "./packages-kit";
-import { questionnaireExtension } from "./questionnaire-kit";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages";
 
 let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
@@ -305,7 +304,6 @@ export const bundledExtensions = [
   agentsExtension,
   piUiExtension,
   previewExtension,
-  questionnaireExtension,
   packagesExtension,
   settingsExtension,
   claudeCodeExtension,

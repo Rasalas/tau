@@ -13,6 +13,16 @@ export { HostUnavailableError } from "./extension-system";
 export { errorMessage } from "./error-message";
 export { Menu } from "./components/Menu";
 export type { MenuItem, MenuSection } from "./components/Menu";
+export { ExtensionPromptFrame, OptionRow } from "./components/ExtensionPrompt";
+export {
+  choiceOptions,
+  freeTextOption,
+  optionForLabel,
+  splitInputTitle,
+  splitOption,
+  splitPromptTitle,
+} from "../shared/extension-prompt-options";
+export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -42,6 +52,8 @@ export type {
   CommandContribution,
   CommandSurface,
   PromptHookContribution,
+  PromptRendererContribution,
+  PromptRendererProps,
   PromptSubmittedEvent,
   DocumentSourceContribution,
   ToolPresentation,
