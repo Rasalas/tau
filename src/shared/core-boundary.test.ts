@@ -84,7 +84,7 @@ describe("core boundary", () => {
 
   // The two core files only shrink. Raise a ceiling deliberately, in the same
   // change that explains why the core had to grow.
-  for (const [file, ceiling] of Object.entries({ "src/main/pi-host.ts": 3_000, "src/renderer/App.tsx": 1_800 })) {
+  for (const [file, ceiling] of Object.entries({ "src/main/pi-host.ts": 2_300, "src/renderer/App.tsx": 1_800 })) {
     it(`${file} stays under ${ceiling} lines`, () => {
       expect(readFileSync(file, "utf8").split("\n").length).toBeLessThanOrEqual(ceiling);
     });
