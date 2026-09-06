@@ -1,6 +1,5 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
-import { AGENT_PARENT_ENTRY } from "../shared/agents-kit-protocol.js";
 import { type PersistedJsonLogger, readPersistedJson, writePersistedJson } from "./persisted-json.js";
 import type { SessionFileStamp } from "./session-usage.js";
 
@@ -23,8 +22,12 @@ const SAVE_DELAY_MS = 2_000;
 /** Session files read at once when the cache misses; matches the index's own provider reads. */
 const CONCURRENCY = 10;
 
-/** The custom entry a spawned thread's session carries; the kit that spawns owns the name. */
-export const PARENT_LINK_ENTRY = AGENT_PARENT_ENTRY;
+/**
+ * The custom entry a spawned thread's session carries. `sessions.start({ parent })`
+ * writes it, this index reads it, and Agents Kit reads it back through
+ * `tau/host-extension`; the name is the kit's, the record is core's.
+ */
+export const PARENT_LINK_ENTRY = "tau.agents/parent";
 
 /** The link data a spawned thread's session carries. */
 export function parentLinkEntry(parentThreadId: string, details: Record<string, unknown> = {}): Record<string, unknown> {
@@ -36,7 +39,7 @@ function parentThreadIdOf(line: string): string | undefined {
   try { value = JSON.parse(line); } catch { return undefined; }
   if (!value || typeof value !== "object") return undefined;
   const entry = value as { type?: unknown; customType?: unknown; data?: unknown };
-  if (entry.type !== "custom" || entry.customType !== AGENT_PARENT_ENTRY) return undefined;
+  if (entry.type !== "custom" || entry.customType !== PARENT_LINK_ENTRY) return undefined;
   const data = entry.data;
   if (!data || typeof data !== "object") return undefined;
   const parent = (data as { parentThreadId?: unknown }).parentThreadId;
@@ -48,7 +51,7 @@ export function parentThreadIdFromEntries(entries: Iterable<unknown>): string | 
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
     const item = entry as { type?: unknown; customType?: unknown; data?: unknown };
-    if (item.type !== "custom" || item.customType !== AGENT_PARENT_ENTRY) continue;
+    if (item.type !== "custom" || item.customType !== PARENT_LINK_ENTRY) continue;
     const parent = (item.data as { parentThreadId?: unknown } | undefined)?.parentThreadId;
     if (typeof parent === "string" && parent) return parent;
   }
@@ -68,7 +71,7 @@ export async function readSessionParent(path: string, options: { deep?: boolean 
     for await (const line of lines) {
       index += 1;
       if (index === 1) continue;
-      if (line.includes(AGENT_PARENT_ENTRY)) {
+      if (line.includes(PARENT_LINK_ENTRY)) {
         const parent = parentThreadIdOf(line);
         if (parent) return parent;
       }

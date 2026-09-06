@@ -1,10 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Bot } from "lucide-react";
-import type { AgentThreadStatus } from "../../shared/agents-kit-protocol";
-import type { PanelProps } from "../extension-system";
-import { useThreadStore, useWorkbenchShell } from "../workbench-context";
-import { agentsStore } from "./agents-store";
+import { useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
+import type { AgentThreadStatus } from "./protocol.js";
+import { agentsStore } from "./store.js";
 import {
   activityLine,
   agentsPanelModel,
@@ -13,7 +12,7 @@ import {
   type AgentGroup,
   type AgentRow,
   type AgentsPanelModel,
-} from "./agents-model";
+} from "./model.js";
 
 /** Rows are one fixed height, which is what lets the list virtualize cleanly. */
 const ROW_HEIGHT = 58;

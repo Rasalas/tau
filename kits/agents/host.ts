@@ -2,18 +2,23 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readPersistedJson, writePersistedJson } from "../persisted-json.js";
 import { Type } from "typebox";
 import type { AgentToolResult, ExtensionContext, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  PARENT_LINK_ENTRY,
+  readPersistedJson,
+  writePersistedJson,
+  type HostExtension,
+  type HostExtensionContext,
+  type RuntimeSessionInfo,
+} from "tau/host-extension";
 import {
   AGENTS_HOST_EXTENSION_ID,
   AGENTS_STATE_EVENT,
   AGENT_CHILD_ENTRY,
-  AGENT_PARENT_ENTRY,
   MAX_AGENT_DEPTH,
   type AgentThreadLink,
-} from "../../shared/agents-kit-protocol.js";
-import type { HostExtension, HostExtensionContext, RuntimeSessionInfo } from "../host-extensions.js";
+} from "./protocol.js";
 import {
   AgentThreadBook,
   decodeSpawnRequest,
@@ -21,7 +26,7 @@ import {
   decodeTimeout,
   parseModel,
   readMaxRunningAgents,
-} from "./agents-threads.js";
+} from "./threads.js";
 
 /** A first prompt that never reaches its thread would leave it "running" forever. */
 const SPAWN_ACCEPT_GRACE_MS = 60_000;
@@ -119,7 +124,7 @@ export function linksFromEntries(sessionId: string, entries: readonly unknown[])
     const projectPath = typeof data.projectPath === "string" ? data.projectPath : "";
     const title = typeof data.title === "string" ? data.title : "Sub-agent";
     const common = { spawnedBy, spawnedAt, projectPath, depth, title };
-    if (item.customType === AGENT_PARENT_ENTRY && typeof data.parentThreadId === "string") {
+    if (item.customType === PARENT_LINK_ENTRY && typeof data.parentThreadId === "string") {
       links.push({ ...common, id: sessionId, threadId: sessionId, parentThreadId: data.parentThreadId });
     } else if (item.customType === AGENT_CHILD_ENTRY && typeof data.threadId === "string") {
       links.push({ ...common, id: data.threadId, threadId: data.threadId, parentThreadId: sessionId });
@@ -523,3 +528,5 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
     },
   };
 }
+
+export default createAgentsHostExtension;

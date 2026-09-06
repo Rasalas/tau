@@ -1,5 +1,5 @@
-import { isAgentsState, isBusyStatus, type AgentsState } from "../../shared/agents-kit-protocol";
-import type { ThreadLineage } from "../extension-system";
+import type { ThreadLineage } from "tau";
+import { isAgentsState, isBusyStatus, type AgentsState } from "./protocol.js";
 
 /**
  * What the host half pushed about spawned threads, held once for the panel and

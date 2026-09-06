@@ -86,10 +86,11 @@ members a **worker cannot reach** (§6), so a package that wants a Pi tool needs
 | `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, not both. |
 
 `desktop` and `host` entries are compiled with esbuild at load time (Node
-builtins and `electron` stay external for the host half, `react` and
-`lucide-react` stay external — bound to the renderer's own copies — for the
-desktop half), so a package brings its own dependencies from its own
-`node_modules` and needs no build step of its own.
+builtins and `electron` stay external for the host half, `react`, `react-dom`
+and `lucide-react` stay external — bound to the renderer's own copies — for the
+desktop half, because a second copy of React or of react-dom holds its own
+internals and quietly stops working), so a package brings its own dependencies
+from its own `node_modules` and needs no build step of its own.
 
 ### The three modules a package imports from Tau
 
@@ -108,8 +109,12 @@ Beyond the contribution types, `tau` exports `useWorkbench`,
 `useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
 hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
 the browser preview), `errorMessage` (the one-line `unknown` → `string` every
-half needs for `actions.notify`), and the `PreferencesStore` type (the store on
-`context.preferences`, so a package can pass it around in its own signatures).
+half needs for `actions.notify`), `formatCost` (a dollar amount the way the
+composer writes it, and nothing at all for a model with no pricing, so a row
+never reads `$0.00` for a missing price), the `PreferencesStore` type (the store
+on `context.preferences`, so a package can pass it around in its own
+signatures), and the `ThreadLineage` type (what `context.setThreadLineage`
+takes).
 
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies, and the
@@ -118,7 +123,15 @@ text projections a package that reads transcripts needs: `textFromContent`
 to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
 thread title), `safeSessionTitle`, `buildTitleConversation` (a thread's first
 exchanges as the prompt a title model reads) and `parseSkillEnvelope` /
-`isSkillName` (Pi's skill envelope grammar).
+`isSkillName` (Pi's skill envelope grammar). It also exports the contracts types
+the seam's own signatures speak (`UiMessage`, `UiToolRun`, `UiThreadUsage`,
+`UiComposerCommand`, `ExtensionUiPrompt`, `GlobalHostEvent`,
+`HostExtensionSummary`, `ThreadBackendKind`), `readPersistedJson` /
+`writePersistedJson` (a versioned JSON file written atomically and quarantined
+rather than discarded when it will not parse — how a package keeps its own state
+beside Tau's), and `PARENT_LINK_ENTRY` / `parentLinkEntry` (the custom entry
+`sessions.start({ parent })` writes on a spawned thread and the thread index
+reads back as `UiSession.parentThreadId`).
 
 ### `engines` and `engines.api`
 

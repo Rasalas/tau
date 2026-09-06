@@ -1,11 +1,10 @@
-import { formatCost as formatMoney } from "../cost-format";
-import type { UiSession, UiThreadUsage } from "../../shared/contracts";
+import { formatCost as formatMoney, type UiSession, type UiThreadUsage } from "tau";
 import {
   isOpenStatus,
   type AgentThreadLink,
   type AgentThreadStatus,
   type AgentsState,
-} from "../../shared/agents-kit-protocol";
+} from "./protocol.js";
 
 /** One row of the Agents panel: a spawned thread plus what the index knows about it. */
 export interface AgentRow {

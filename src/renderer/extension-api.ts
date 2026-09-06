@@ -11,6 +11,7 @@ export {
 } from "./workbench-context";
 export { HostUnavailableError } from "./extension-system";
 export { errorMessage } from "./error-message";
+export { formatCost } from "./cost-format";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -25,6 +26,7 @@ export type {
   RegionProps,
   RegionContribution,
   StatusItemContribution,
+  ThreadLineage,
   OverlayProps,
   OverlayContribution,
   WorkbenchEvent,

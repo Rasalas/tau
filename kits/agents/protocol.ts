@@ -9,10 +9,12 @@ export const AGENTS_HOST_EXTENSION_ID = "tau.agents";
 /** Pushed whenever an agent appears, changes status or goes away. */
 export const AGENTS_STATE_EVENT = "state";
 
-/** Custom entry the child's session carries: who spawned it. */
-export const AGENT_PARENT_ENTRY = "tau.agents/parent";
-
-/** Custom entry the parent's session carries: one thread it spawned. */
+/**
+ * Custom entry the parent's session carries: one thread it spawned. The child's
+ * half of the link is core's: `sessions.start({ parent })` writes it and the
+ * thread index reads it, so it arrives as `PARENT_LINK_ENTRY` from
+ * `tau/host-extension`.
+ */
 export const AGENT_CHILD_ENTRY = "tau.agents/child";
 
 /** `pending` is queued behind the parent's running budget; it has no thread yet. */
