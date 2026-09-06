@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiWorktreeStatus, WorkspaceInfo } from "tau";
 import { WorkspaceBar } from "./WorkspaceBar.js";
 
-const styles = readFileSync("src/renderer/styles.css", "utf8");
+// The kit ships its own rules now; this is the file the manifest names.
+const styles = readFileSync("kits/workspace/styles.css", "utf8");
 
 const handlers = {
   onOpenWorktree: vi.fn(async () => true),
