@@ -85,7 +85,9 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
     {!session
       ? <div className="stage-empty" role="status">This thread is not in the index any more. It may have been deleted or pruned.</div>
       : state.error
-        ? <div className="stage-empty" role="status">{state.error}</div>
+        // The host only reads a transcript it is holding a runtime for, and it
+        // releases the least recently used one. Take over opens the thread again.
+        ? <div className="stage-empty" role="status">{state.error} Take over opens it again.</div>
         : !state.loaded
           ? <div className="stage-empty" role="status">Loading the transcript…</div>
           : state.messages.length === 0
@@ -102,5 +104,3 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
             </div>}
   </section>;
 }
-
-export default ThreadDocument;
