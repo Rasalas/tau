@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiSession } from "../../shared/contracts";
+import type { UiMessage, UiSession } from "../../shared/contracts";
 import {
   AGENTS_HOST_EXTENSION_ID,
   type AgentThreadLink,
@@ -47,7 +47,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
-function session(id: string, title: string, modifiedAt: number, costUsd?: number): UiSession {
+function session(id: string, title: string, modifiedAt: number, costUsd?: number, parentThreadId?: string): UiSession {
   return {
     id,
     path: `/sessions/${id}.jsonl`,
@@ -56,6 +56,7 @@ function session(id: string, title: string, modifiedAt: number, costUsd?: number
     projectPath: "/project",
     projectName: "project",
     messageCount: 1,
+    ...(parentThreadId ? { parentThreadId } : {}),
     ...(costUsd === undefined ? {} : {
       usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd, turns: 1 },
     }),
@@ -148,6 +149,31 @@ describe("the Agents panel model", () => {
     expect(panelRows(model).map((row) => row.kind)).toEqual(["group", "agent", "agent", "group", "agent"]);
   });
 
+  it("lists the children the thread index names when the kit has no links at all", () => {
+    const indexed = [
+      session("parent", "Parent thread", 3, 0.5),
+      session("alpha", "Alpha reply", 2, 0.25, "parent"),
+      session("beta", "Beta reply", 1, 0.25, "parent"),
+    ];
+    const model = agentsPanelModel(undefined, "parent", indexed);
+    expect(model.groups).toHaveLength(1);
+    expect(model.groups[0]!.rows.map((row) => [row.threadId, row.title, row.path]))
+      .toEqual([["beta", "Beta reply", "/sessions/beta.jsonl"], ["alpha", "Alpha reply", "/sessions/alpha.jsonl"]]);
+    expect(model.totalCostUsd).toBe(1);
+    // Reading one of them still shows the family it belongs to.
+    expect(agentsPanelModel(undefined, "alpha", indexed).groups.map((group) => group.parentThreadId)).toEqual(["parent"]);
+  });
+
+  it("prefers the live link over the index row for the same thread", () => {
+    const indexed = [
+      session("parent", "Parent thread", 3),
+      session("alpha", "Alpha reply", 2, undefined, "parent"),
+      session("beta", "Beta reply", 1, undefined, "parent"),
+    ];
+    const model = agentsPanelModel({ maxRunning: 8, links: [link("alpha", "parent", "running", 1)] }, "parent", indexed);
+    expect(model.groups[0]!.rows.map((row) => [row.threadId, row.status])).toEqual([["alpha", "running"], ["beta", "idle"]]);
+  });
+
   it("says what a row is doing in one line", () => {
     expect(activityLine({ id: "a", title: "A", status: "running", lastTool: "bash" })).toBe("▸ bash");
     expect(activityLine({ id: "a", title: "A", status: "pending" })).toBe("Queued for a free slot");
@@ -163,12 +189,12 @@ describe("the Agents panel model", () => {
   });
 });
 
-function appWith(agents: AgentsState, sessions: UiSession[], activeThreadId: string) {
+function appWith(agents: AgentsState, sessions: UiSession[], activeThreadId: string, messages: UiMessage[] = []) {
   return createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
       threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 3 }], sessions },
-      detail: { sessionId: activeThreadId, messages: [], isStreaming: false, activeTools: [] },
+      detail: { sessionId: activeThreadId, messages, isStreaming: false, activeTools: [] },
       catalog: { sessionId: activeThreadId, models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
       project: { cwd: "/project" },
     }),
@@ -221,6 +247,26 @@ describe("the navigator with agent threads", () => {
     // The thread on screen is never hidden, however it was created.
     expect(visibleThreads(threads, parents, { showAgents: false, searching: false, activeThreadId: "beta" }).map((entry) => entry.id))
       .toEqual(["parent", "beta"]);
+  });
+
+  it("hides a spawned thread the index named even when no extension published lineage", () => {
+    const threads = [
+      session("parent", "Parent", 3),
+      session("alpha", "Alpha", 2, undefined, "parent"),
+      session("beta", "Beta", 1, undefined, "parent"),
+    ];
+    expect(visibleThreads(threads, {}, { showAgents: false, searching: false }).map((entry) => entry.id)).toEqual(["parent"]);
+    expect(visibleThreads(threads, {}, { showAgents: true, searching: false }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
+    expect(visibleThreads(threads, {}, { showAgents: false, searching: false, activeThreadId: "alpha" }).map((entry) => entry.id))
+      .toEqual(["parent", "alpha"]);
+  });
+
+  it("offers the way back from a child the index alone knows", async () => {
+    const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")];
+    renderApp(appWith({ maxRunning: 8, links: [] }, sessions, "alpha", [
+      { id: "m1", role: "user", text: "Reply with A", timestamp: 1 },
+    ]));
+    expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
   });
 
   it("keeps agents out of the rail, badges the parent, and reveals them on request", async () => {

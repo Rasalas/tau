@@ -22,6 +22,10 @@ type NavigationRow =
  * Threads an agent spawned stay out of the rail: fifty of them would bury the
  * threads the user started. They come back for a search, for the thread on
  * screen, and whenever the user asks for them.
+ *
+ * A thread is an agent's when an extension published its lineage, or when the
+ * thread index read the link off the thread's own session file - which is what
+ * keeps them out of the rail on a machine no extension has told anything yet.
  */
 export function visibleThreads(
   sessions: readonly UiSession[],
@@ -29,7 +33,8 @@ export function visibleThreads(
   options: { showAgents: boolean; searching: boolean; activeThreadId?: string },
 ): UiSession[] {
   if (options.showAgents || options.searching) return [...sessions];
-  return sessions.filter((session) => !parents[session.id] || session.id === options.activeThreadId);
+  return sessions.filter((session) =>
+    !(parents[session.id] ?? session.parentThreadId) || session.id === options.activeThreadId);
 }
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {

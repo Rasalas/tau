@@ -29,6 +29,7 @@ import {
   titleFromPrompt,
   writeAgentLinks,
 } from "./agents-host-extension.js";
+import { parentLinkEntry } from "../session-lineage.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./agents-threads.js";
 
 interface FakeTool {
@@ -107,7 +108,16 @@ function harness() {
         nextThread += 1;
         const sessionId = `child-${nextThread}`;
         await startGate?.();
-        open(sessionId).streaming = true;
+        const thread = open(sessionId);
+        thread.streaming = true;
+        // The host records the link in the new session before its first prompt.
+        if (startOptions.parent) {
+          thread.entries.push({
+            type: "custom",
+            customType: AGENT_PARENT_ENTRY,
+            data: parentLinkEntry(startOptions.parent.threadId, startOptions.parent.details),
+          });
+        }
         return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
       },
       exclusive: (work) => work(),
@@ -267,7 +277,13 @@ describe("Agents Kit", () => {
     const spawned = await parent.call("tau_spawn_thread", { prompt: "Reply with ALPHA" }) as { threadId: string; title: string; status: string };
 
     expect(spawned).toEqual({ threadId: "child-1", title: "Reply with ALPHA", status: "running" });
-    expect(bench.started).toEqual([{ cwd: "/project", prompt: "Reply with ALPHA", title: "Reply with ALPHA", model: { provider: "anthropic", id: "sonnet" } }]);
+    expect(bench.started).toEqual([{
+      cwd: "/project",
+      prompt: "Reply with ALPHA",
+      title: "Reply with ALPHA",
+      model: { provider: "anthropic", id: "sonnet" },
+      parent: { threadId: "parent", details: expect.objectContaining({ depth: 1, spawnedBy: "tau_spawn_thread", title: "Reply with ALPHA" }) },
+    }]);
     expect(bench.threads.get("child-1")!.entries).toEqual([
       { type: "custom", customType: AGENT_PARENT_ENTRY, data: expect.objectContaining({ parentThreadId: "parent", spawnedBy: "tau_spawn_thread", depth: 1 }) },
     ]);

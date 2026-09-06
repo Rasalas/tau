@@ -138,6 +138,51 @@ version 2 and carries `startedAt` and `endedAt`, so an agent restored after a
 restart still shows its duration instead of an em dash. A version 1 file reads
 as before, without the times.
 
+## Amendment, 2026-09-06: the thread index knows a child's parent
+
+The original decision left the link in two places, and both could be absent at
+once. `beforeOpen` reads the custom entries back only when someone opens the
+parent or the child, and `~/.tau/agents-links.json` is a file a user can delete.
+That is what happened: the links file was gone, no parent had been reopened, and
+fifty sub-agents were ordinary threads in the rail again. Nothing else on disk
+said what they were.
+
+**A spawned thread now records the link itself, before its first prompt.**
+`sessions.start` takes a `parent`, and the host appends the `tau.agents/parent`
+entry to the new session as the entry after its header. The thread index reads
+two lines of each session file it has not answered for, so it knows the child's
+parent without opening either thread and without asking any extension
+(`src/main/session-lineage.ts`).
+
+**`UiSession` gains `parentThreadId`**, reversing this ADR's own rejection of
+it. The reason that rejection gave still holds - lineage is a relation an
+extension creates - but the *record* of it is a fact the thread's own session
+file carries, and the index reads facts off session files for a living (title,
+cwd, model provider, cost). Nothing else in the workbench could hide fifty
+threads on first paint from a file no one had opened. The kit's lineage still
+wins where it exists; `parentThreadId` is what answers when it does not.
+
+**Pi's own header field was the wrong seam.** `SessionHeader.parentSession`
+would have been free - `SessionManager.list` already returns it as
+`parentSessionPath` - but it is a path, and Pi writes it for `/new` chains and
+for `createBranchedSession`, which is how Tau forks a thread. Hiding by it would
+have hidden every forked thread from the rail.
+
+**The reads are cached like the rest of the index**, keyed by session file plus
+size and mtime, in `session-lineage.json` beside the usage cache. A parent never
+changes, so a file that once answered is never read again. A cache this build
+did not write - none at all, or one from an older version - makes the first pass
+of the run read whole files instead of two lines, which is how children created
+before the entry moved to the front are found once and then cached like
+everything else.
+
+**`~/.tau/agents-links.json` stays, and is no longer load-bearing.** It carries
+`startedAt` and `endedAt`, which no entry written at spawn time can know, so an
+agent restored after a restart still shows how long it ran. Everything else in
+it the index now carries: the sweep restores a link for any indexed session with
+a `parentThreadId` the book does not know, so the tools, the running budget and
+the depth limit survive the file's loss as well as the rail does.
+
 ## Consequences
 
 - The user watches sub-agents work, opens them, answers their questions and
@@ -153,8 +198,11 @@ as before, without the times.
 - Cost per row comes from `UiThreadUsage` on the thread index, so the panel
   never opens a child to price it, and every cost reads `–` until the host
   counts one.
-- We rejected nesting Pi sessions (invisible, unanswerable, unsteerable),
-  rejected putting `parentThreadId` in `UiSession` (core would then own a
-  relation only an extension creates), and rejected nesting agent rows in the
-  thread rail (it does not survive fifty of them, and it costs the user the
-  conversation they were reading).
+- A deleted `agents-links.json`, a fresh machine, or a kit that never activated
+  costs an elapsed time and a live status, not the fact that a thread is an
+  agent's.
+- We rejected nesting Pi sessions (invisible, unanswerable, unsteerable) and
+  rejected nesting agent rows in the thread rail (it does not survive fifty of
+  them, and it costs the user the conversation they were reading). We rejected
+  putting `parentThreadId` in `UiSession` and then reversed that; see the second
+  amendment for why.

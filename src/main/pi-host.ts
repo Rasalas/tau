@@ -133,6 +133,7 @@ import {
   threadUsageEqual,
 } from "./host-messages.js";
 import { SessionUsageIndex, hasThreadUsage, readSessionFileStamp } from "./session-usage.js";
+import { PARENT_LINK_ENTRY, SessionLineageIndex, parentLinkEntry } from "./session-lineage.js";
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
 
@@ -245,6 +246,11 @@ export class PiHost {
   /** What each thread has cost, cached by session file so a scan never reads one. */
   private readonly threadUsage: SessionUsageIndex;
   private usageCacheLoaded?: Promise<void>;
+  /** Who spawned each thread, read from the session files and cached by stamp. */
+  private readonly threadLineage: SessionLineageIndex;
+  private lineageCacheLoaded?: Promise<void>;
+  /** The parent of a thread this host started or indexed, for its live shell. */
+  private readonly threadParents = new Map<string, string>();
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -328,6 +334,10 @@ export class PiHost {
       ...(options.sessionUsageCachePath ? { path: options.sessionUsageCachePath } : {}),
       ...(this.logger ? { logger: this.logger } : {}),
       onResolved: (sessionPath, usage) => this.applyScannedUsage(sessionPath, usage),
+    });
+    this.threadLineage = new SessionLineageIndex({
+      ...(options.sessionLineageCachePath ? { path: options.sessionLineageCachePath } : {}),
+      ...(this.logger ? { logger: this.logger } : {}),
     });
     const port = this.hostPort();
     this.seam = createHostExtensionSeam(port);
@@ -440,10 +450,17 @@ export class PiHost {
     return thread && !this.ownedByPi(thread) ? this.hostThreadFor(thread) : undefined;
   }
 
+  /** The thread that spawned this one, from the index or from the start that made it. */
+  private threadParentOf(threadId: string): string | undefined {
+    return this.threadParents.get(threadId) ?? this.sessions.find((session) => session.id === threadId)?.parentThreadId;
+  }
+
   private hostThreadFor(thread: ThreadRuntime): HostThread {
+    const parentThreadId = () => this.threadParentOf(thread.threadId);
     return {
       sessionId: thread.threadId, cwd: thread.cwd, backendKind: thread.backend.kind,
       get sessionFile() { return thread.sessionFile; },
+      get parentThreadId() { return parentThreadId(); },
       get usage() { return thread.backend.catalogView().usage; },
       isStreaming: () => thread.state.streaming || thread.adapterStreaming,
       isIdle: () => !thread.state.streaming && thread.state.idle && !thread.adapterStreaming
@@ -523,8 +540,15 @@ export class PiHost {
     const thread = await this.lifecycle.runBackground("start-thread", async () => {
       const marks = new PhaseTimer(requestedAt);
       marks.mark("queue");
+      const manager = SessionManager.create(cwd);
+      if (options.parent) {
+        // The link goes in before the first prompt, so it is the entry after
+        // the header and the index reads it without opening the thread.
+        manager.appendCustomEntry(PARENT_LINK_ENTRY, parentLinkEntry(options.parent.threadId, options.parent.details));
+        this.threadParents.set(manager.getSessionId(), options.parent.threadId);
+      }
       const runtime = await this.openThread(
-        SessionManager.create(cwd),
+        manager,
         { type: "session_start", reason: "new" },
         { adopt: false, prepared: true },
       );
@@ -2003,6 +2027,11 @@ export class PiHost {
       } catch (error) {
         teardownErrors.push(error);
       }
+      try {
+        await this.threadLineage.dispose();
+      } catch (error) {
+        teardownErrors.push(error);
+      }
       if (teardownErrors.length > 0) {
         throw new AggregateError(teardownErrors, "Pi runtime shutdown failed");
       }
@@ -2593,12 +2622,24 @@ export class PiHost {
   private async scanThreadIndex(): Promise<{ previous: readonly UiSession[]; next: UiSession[] }> {
     const scanStartedAt = Date.now();
     this.usageCacheLoaded ??= this.threadUsage.load().catch(() => undefined);
-    const [sessionInfos] = await Promise.all([SessionManager.listAll(), this.usageCacheLoaded]);
+    this.lineageCacheLoaded ??= this.threadLineage.load().catch(() => undefined);
+    const [sessionInfos] = await Promise.all([SessionManager.listAll(), this.usageCacheLoaded, this.lineageCacheLoaded]);
     // Stamps are a stat per file; reading the files themselves is what the
     // usage index defers, so the scan stays a listing.
     const stamps = new Map(await Promise.all(sessionInfos.map(async (info) =>
       [info.path, await readSessionFileStamp(info.path)] as const)));
     this.threadUsage.retain(sessionInfos.map((info) => info.path));
+    // Two lines per session file the cache has not answered yet, so the rail
+    // knows which threads an agent spawned before it paints them.
+    const parents = await this.threadLineage.resolve(sessionInfos.map((info) => ({
+      path: info.path,
+      ...(stamps.get(info.path) ? { stamp: stamps.get(info.path)! } : {}),
+    })));
+    this.threadLineage.retain(sessionInfos.map((info) => info.path));
+    for (const info of sessionInfos) {
+      const parent = parents.get(info.path);
+      if (parent && parent !== info.id) this.threadParents.set(info.id, parent);
+    }
     const scanned = await mapSessions(
       sessionInfos,
       this.cwd,
@@ -2606,6 +2647,7 @@ export class PiHost {
       (cwd) => this.projectNameFor(cwd),
       new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
       (info) => this.liveThreadUsage(info.id) ?? usageOrUndefined(this.threadUsage.lookup(info.path, stamps.get(info.path))),
+      (info) => parents.get(info.path) ?? this.threadParents.get(info.id),
     );
     const previous = this.sessions;
     const external = await this.externalSessionShells();
@@ -2632,8 +2674,16 @@ export class PiHost {
     const deleted = previous
       .filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path))
       .map((session) => ({ sessionId: session.id, cwd: session.projectPath }));
+    for (const threadId of [...this.threadParents.keys()]) {
+      if (!nextIds.has(threadId) && !liveIds.has(threadId)) this.threadParents.delete(threadId);
+    }
     await this.threadLifecycle.sweep({
-      sessions: sessionInfos.map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
+      sessions: sessionInfos.map((info) => ({
+        sessionId: info.id,
+        path: info.path,
+        cwd: info.cwd,
+        ...(this.threadParents.get(info.id) ? { parentThreadId: this.threadParents.get(info.id)! } : {}),
+      })),
       liveThreads: this.threads.list().map((record) => this.hostThreadFor(record.runtime)),
       projectPaths: this.projectHistory.list().map((project) => project.path),
       deleted,
@@ -2670,6 +2720,7 @@ export class PiHost {
       backendKind: threadBackendKind(thread),
       modelProvider: thread.backend.catalogView().model?.provider ?? this.seam.backends.get(threadBackendKind(thread))?.modelProvider,
       ...(usage ? { usage } : {}),
+      ...(this.threadParentOf(thread.threadId) ? { parentThreadId: this.threadParentOf(thread.threadId)! } : {}),
     }, existing, touch);
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishThreadShellSoon(shell);

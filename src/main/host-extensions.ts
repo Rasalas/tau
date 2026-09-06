@@ -113,6 +113,8 @@ export interface HostSessionSummary {
   sessionId: string;
   path: string;
   cwd: string;
+  /** The thread that spawned this one, as the index read it from the session file. */
+  parentThreadId?: string;
 }
 
 /** A thread an extension asks the host to run for it, off screen. */
@@ -124,6 +126,13 @@ export interface HostThreadStartOptions {
   title?: string;
   /** Model the thread starts with; the host's own default otherwise. */
   model?: { provider: string; id: string };
+  /**
+   * The thread this one is spawned from. The host records the link in the new
+   * session before its first prompt, so the thread index knows the child's
+   * parent without opening either thread; `details` is stored beside it for
+   * the kit that asked for the thread.
+   */
+  parent?: { threadId: string; details?: Record<string, unknown> };
 }
 
 export interface HostStartedThread {
@@ -244,6 +253,8 @@ export interface HostThread {
   readonly backendKind: ThreadBackendKind;
   /** The session file behind the thread, once it has one. */
   readonly sessionFile: string | undefined;
+  /** The thread that spawned this one; absent for a thread the user started. */
+  readonly parentThreadId?: string;
   /** Tokens and money the thread has used so far; absent when the runtime has no total. */
   readonly usage?: UiThreadUsage;
   isStreaming(): boolean;

@@ -519,6 +519,8 @@ export async function mapSessions(
   knownModelProviders: ReadonlyMap<string, string> = new Map(),
   /** Already-known cost for a session file; the index never reads one itself. */
   usageFor: (session: SessionInfo) => UiThreadUsage | undefined = () => undefined,
+  /** The thread that spawned this one, already resolved from the session file. */
+  parentOf: (session: SessionInfo) => string | undefined = () => undefined,
 ): Promise<UiSession[]> {
   const recent = [...sessions]
     .sort((a, b) => b.modified.getTime() - a.modified.getTime());
@@ -554,6 +556,8 @@ export async function mapSessions(
     if (modelProvider) shell.modelProvider = modelProvider;
     const usage = usageFor(session);
     if (usage) shell.usage = usage;
+    const parentThreadId = parentOf(session);
+    if (parentThreadId && parentThreadId !== session.id) shell.parentThreadId = parentThreadId;
     return shell;
   });
 }
@@ -570,7 +574,8 @@ export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
     left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
     left.projectName === right.projectName && left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount && left.backendKind === right.backendKind &&
-    left.modelProvider === right.modelProvider && threadUsageEqual(left.usage, right.usage);
+    left.modelProvider === right.modelProvider && left.parentThreadId === right.parentThreadId &&
+    threadUsageEqual(left.usage, right.usage);
 }
 
 export function sessionIndexUpdates(previous: readonly UiSession[], next: readonly UiSession[]): HostUpdate[] {
@@ -604,6 +609,8 @@ export interface ActiveThreadShellInput {
   backendKind?: ThreadBackendKind;
   modelProvider?: string;
   usage?: UiThreadUsage;
+  /** The thread that spawned this one; a shell never loses a link it already had. */
+  parentThreadId?: string;
 }
 
 export function reconcileActiveThreadShell(
@@ -623,6 +630,9 @@ export function reconcileActiveThreadShell(
     ...(input.backendKind ? { backendKind: input.backendKind } : {}),
     ...(input.modelProvider ?? existing?.modelProvider ? { modelProvider: input.modelProvider ?? existing?.modelProvider } : {}),
     ...(input.usage ?? existing?.usage ? { usage: input.usage ?? existing?.usage } : {}),
+    ...(input.parentThreadId ?? existing?.parentThreadId
+      ? { parentThreadId: input.parentThreadId ?? existing?.parentThreadId }
+      : {}),
   };
 }
 
