@@ -8,6 +8,8 @@ export interface ThreadActivitySnapshot {
   waitingThreadIds: readonly string[];
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
+  /** Threads whose last delivery the host refused; cleared when one starts again. */
+  failedThreadIds: readonly string[];
   /** Local start times for live sidebar timers, keyed by Tau thread id. */
   runningStartedAt: Readonly<Record<string, number>>;
 }
@@ -25,6 +27,8 @@ export interface ThreadStoreSnapshot {
   waitingThreadIds: readonly string[];
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
+  /** Threads whose last delivery the host refused; cleared when one starts again. */
+  failedThreadIds: readonly string[];
   /** Local start times for live sidebar timers, keyed by Tau thread id. */
   runningStartedAt: Readonly<Record<string, number>>;
 }
@@ -37,6 +41,7 @@ const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
   unreadThreadIds: [],
   waitingThreadIds: [],
   runningThreadIds: [],
+  failedThreadIds: [],
   runningStartedAt: {},
 };
 
@@ -95,7 +100,7 @@ export class ThreadStore {
   private projectListeners = new Set<() => void>();
   private activityListeners = new Set<() => void>();
   private activitySnapshot: ThreadActivitySnapshot = {
-    activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [], runningThreadIds: [], runningStartedAt: {},
+    activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [], runningThreadIds: [], failedThreadIds: [], runningStartedAt: {},
   };
   private shellListeners = new Map<string, Set<() => void>>();
   private runningTools = new Map<string, string>();
@@ -188,6 +193,8 @@ export class ThreadStore {
     this.publish({
       ...this.snapshot,
       runningThreadIds: running ? (alreadyRunning ? current : [...current, threadId]) : current.filter((id) => id !== threadId),
+      // A thread that runs again is no longer the thread that failed.
+      failedThreadIds: running ? this.snapshot.failedThreadIds.filter((id) => id !== threadId) : this.snapshot.failedThreadIds,
       runningStartedAt,
     });
   }
@@ -206,6 +213,12 @@ export class ThreadStore {
     this.runningTools.delete(id);
     const runningToolName = [...this.runningTools.values()].at(-1);
     this.publish({ ...this.snapshot, runningToolName });
+  }
+
+  /** A delivery the host refused. The thread keeps saying so until it runs again. */
+  markFailed(threadId: string): void {
+    if (!threadId || this.snapshot.failedThreadIds.includes(threadId)) return;
+    this.publish({ ...this.snapshot, failedThreadIds: [...this.snapshot.failedThreadIds, threadId] });
   }
 
   markUnread(threadId: string): void {
@@ -242,6 +255,7 @@ export class ThreadStore {
       next.unreadThreadIds === this.snapshot.unreadThreadIds &&
       next.waitingThreadIds === this.snapshot.waitingThreadIds &&
       next.runningThreadIds === this.snapshot.runningThreadIds &&
+      next.failedThreadIds === this.snapshot.failedThreadIds &&
       next.runningStartedAt === this.snapshot.runningStartedAt
     ) return;
     const previous = this.snapshot;
@@ -254,6 +268,7 @@ export class ThreadStore {
       next.unreadThreadIds !== previous.unreadThreadIds ||
       next.waitingThreadIds !== previous.waitingThreadIds ||
       next.runningThreadIds !== previous.runningThreadIds ||
+      next.failedThreadIds !== previous.failedThreadIds ||
       next.runningStartedAt !== previous.runningStartedAt
     ) {
       this.activitySnapshot = {
@@ -263,6 +278,7 @@ export class ThreadStore {
         unreadThreadIds: next.unreadThreadIds,
         waitingThreadIds: next.waitingThreadIds,
         runningThreadIds: next.runningThreadIds,
+        failedThreadIds: next.failedThreadIds,
         runningStartedAt: next.runningStartedAt,
       };
       this.activityListeners.forEach((listener) => listener());

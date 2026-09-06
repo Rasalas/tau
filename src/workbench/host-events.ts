@@ -123,6 +123,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       }
       if (event.sessionId === threadStore.getSnapshot().activeThreadId
         || recoveryScope === targets.currentDraftKey()) view.setNotice(event.message);
+      // A supervisor watching a list of threads sees the refusal on the row,
+      // not only in a toast the thread on screen gets.
+      threadStore.markFailed(event.sessionId);
       break;
     }
     case "agent-status":
