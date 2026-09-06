@@ -56,6 +56,21 @@ describe("ExtensionRegistry contribution selectors", () => {
     expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["ctrl+shift+k"]);
   });
 
+  it("stops shadowing when the single binding is disposed, not only on deactivation", () => {
+    const registry = new ExtensionRegistry();
+    let dispose = () => undefined as void;
+    registry.activateCore({ id: "core", name: "Core", activate(context) {
+      context.registerCommand({ id: "runtime.model", label: "Model", group: "Runtime", run: () => undefined });
+      context.registerKeybinding({ keys: "ctrl+shift+l", commandId: "runtime.model" });
+    } });
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      dispose = context.registerKeybinding({ keys: "alt+l", commandId: "runtime.model", replaces: "runtime.model" });
+    } });
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["alt+l"]);
+    dispose();
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["ctrl+shift+l"]);
+  });
+
   it("takes over the chord it replaces instead of reporting a conflict", () => {
     const registry = new ExtensionRegistry();
     registry.activateCore({ id: "core", name: "Core", activate(context) {

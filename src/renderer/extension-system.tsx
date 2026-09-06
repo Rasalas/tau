@@ -720,10 +720,18 @@ export class ExtensionRegistry {
         if (!chord || !id) throw new Error(`Keybinding "${binding.keys}" from ${extension.id} is not a key chord`);
         note("keybindings");
         const resolved: ResolvedKeybinding = { ...binding, keys: id, chord, label: formatKeyChord(chord), ...owner };
-        if (binding.replaces) disposers.push(this.shadowCommand(binding.replaces));
+        const dropShadow = binding.replaces ? this.shadowCommand(binding.replaces) : undefined;
+        // Whatever this registration turned out to be, disposing it also stops
+        // shadowing the command it replaced.
+        const withShadow = (dispose: () => void) => {
+          if (!dropShadow) return dispose;
+          const both = () => { dispose(); dropShadow(); };
+          disposers.push(dropShadow);
+          return both;
+        };
         const existing = this.keybindings.get(id);
-        // The chord this binding shadows is already on the command it shadows:
-        // take it over rather than call it a conflict, and give it back on dispose.
+        // The chord is already on the command this binding replaces: take it
+        // over rather than call it a conflict, and give it back on dispose.
         if (existing && binding.replaces && existing.commandId === binding.replaces) {
           this.keybindings.set(id, resolved);
           const restore = () => {
@@ -732,7 +740,7 @@ export class ExtensionRegistry {
           };
           disposers.push(restore);
           this.changed();
-          return restore;
+          return withShadow(restore);
         }
         if (existing) {
           const conflict: KeybindingConflict = { keys: id, commandId: binding.commandId, extensionId: extension.id, boundTo: { commandId: existing.commandId, extensionId: existing.extensionId } };
@@ -744,9 +752,9 @@ export class ExtensionRegistry {
           };
           disposers.push(dispose);
           this.changed();
-          return dispose;
+          return withShadow(dispose);
         }
-        return this.register(this.keybindings, id, resolved, disposers);
+        return withShadow(this.register(this.keybindings, id, resolved, disposers));
       },
       registerSlashCommand: (command) => {
         if (!/^[a-z][a-z0-9:-]*$/u.test(command.name)) throw new Error(`Slash command name "${command.name}" from ${extension.id} must be lowercase letters, digits, ":" or "-"`);
