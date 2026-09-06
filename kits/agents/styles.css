@@ -11,7 +11,7 @@
 .agent-count > i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 .agent-count.status-running > i, .agent-count.status-waiting > i { background: var(--working); }
 .agent-count.status-completed > i { background: var(--ready); }
-.agent-count.status-failed > i { background: #d05a4a; }
+.agent-count.status-failed > i { background: var(--fail); }
 .agent-total-cost { color: var(--muted-2); font: 500 10px var(--mono); }
 .agent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px; }
 .agent-group-label {
@@ -23,7 +23,7 @@
   padding: 6px 8px; border: 1px solid transparent; border-radius: 6px;
   background: none; text-align: left; cursor: pointer;
 }
-.agent-row:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line); }
+.agent-row:hover:not(:disabled) { background: var(--hover); border-color: var(--line); }
 .agent-row:disabled { cursor: default; opacity: .7; }
 .agent-row-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .agent-row-head > strong {
@@ -35,12 +35,12 @@
 .agent-dot.status-running, .agent-dot.status-waiting { background: var(--working); }
 .agent-dot.status-pending { background: transparent; border: 1px solid var(--faint); }
 .agent-dot.status-completed { background: var(--ready); }
-.agent-dot.status-failed { background: #d05a4a; }
+.agent-dot.status-failed { background: var(--fail); }
 .agent-row-activity {
   font-size: 11.5px; color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.agent-row.status-failed .agent-row-activity { color: #d98a7c; }
+.agent-row.status-failed .agent-row-activity { color: var(--fail-ink); }
 .agent-row-meta {
   display: flex; align-items: baseline; gap: 8px; min-width: 0;
   font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint);

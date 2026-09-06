@@ -14,7 +14,7 @@
 .packages-scope { margin-top: 8px; }
 .packages-log {
   margin-top: 10px; max-width: 560px; padding: 9px 12px;
-  border-left: 2px solid var(--line-strong); background: #191916;
+  border-left: 2px solid var(--line-strong); background: var(--inset);
   font: 10.5px var(--mono); color: var(--muted); line-height: 1.7;
 }
 .packages-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

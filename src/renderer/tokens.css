@@ -1,0 +1,161 @@
+/*
+ * The token contract.
+ *
+ * Every colour Tau draws is named here and nowhere else: `styles.css` and the
+ * kit stylesheets use `var(--token)` (or a `color-mix()` of one) and define no
+ * colour of their own. A theme package is a stylesheet that sets these names
+ * again — that is the whole of the contract, and `docs/EXTENSIONS.md` is the
+ * table.
+ *
+ * Loaded as a `<link>` from `index.html`, before the workbench's own
+ * stylesheet, so the first paint is already themed and no runtime import can
+ * delay it. `src/renderer/tokens.test.ts` fails on a raw colour outside this
+ * file and on a text token that misses WCAG AA.
+ */
+
+:root {
+  /* ------------------------------------------------------------ surfaces */
+  --well: #11110f;              /* deepest: an inset control */
+  --shell: #131311;             /* the window */
+  --rail: #151513;              /* the sidebar */
+  --chrome: #161614;            /* title bar, panel chrome */
+  --stage: #191917;             /* the document area and panel bodies */
+  --sunken: #1c1c18;            /* a well inside a surface */
+  --field: #1d1d19;             /* an input */
+  --thread-active: #1e1e1a;     /* the selected thread row */
+  --raised: #22221d;            /* a chip or inline code */
+  --raised-strong: #272722;     /* a raised surface that is hovered or floating */
+  --raised-hover: #343431;      /* the hover of a raised control */
+  --overlay: #1a1a17;           /* a modal panel */
+  --float: #1f1f1b;             /* a menu, a toast, a popover card */
+  --hover: #1a1a17;             /* the wash under a hovered row */
+  --hover-strong: #1c1c19;      /* the same, in a list that needs to read */
+  --code-bg: #101010;           /* code blocks, tool output, diffs */
+  --inset: #191916;             /* a block inside a settings page */
+  --chip: #26261f;              /* a small label's background */
+  --chip-hover: #2a2a23;
+  --track: #393932;             /* an empty progress track */
+  --scrim: #0a0a09e8;           /* the dim behind a modal */
+  --scrim-deep: #050505ed;      /* the dim behind a full-screen image */
+  --drop-card: #20221cee;       /* the card in a drag-and-drop overlay */
+
+  /* ----------------------------------------------------------- hairlines */
+  --line: #26261f;
+  --line-soft: #23231e;
+  --line-inset: #1f1f1a;        /* between rows of one list */
+  --line-card: #2a2a23;
+  --line-control: #2b2b24;
+  --line-strong: #2f2f28;
+  --line-field: #34342c;
+  --line-focus: #404036;        /* a field with focus inside it */
+  --line-float: #3a3a31;        /* a menu or popover edge */
+  --line-hover: #4a4a40;        /* a control's edge while hovered */
+  --edge-highlight: #ffffff08;  /* the inner top edge of a raised surface */
+  --edge-highlight-strong: #ffffff26;
+  --edge-line: #ffffff0f;       /* the edge of a selected row */
+  --wash: #ffffff04;            /* a fill barely above its surface */
+  --wash-2: #ffffff0a;
+
+  /* ----------------------------------------------------------------- ink */
+  --ink: #e7e4d9;               /* headings and emphasis */
+  --ink-prose: #ddd9cd;         /* assistant prose */
+  --ink-2: #c9c6ba;             /* body text of the chrome */
+  --ink-3: #a09e92;             /* secondary text */
+  --ink-code: #b5b3a6;          /* code and diff bodies */
+  --muted: #8b8a7f;             /* labels */
+  --muted-2: #7c7b70;           /* small print */
+  --faint: #6b6a5f;             /* glyphs and disabled text */
+  --fainter: #4f4e45;           /* a mark that is only a hint of one */
+  --scrollbar: #33332b;
+  --scrollbar-hover: #45453b;
+
+  /* -------------------------------------------------------------- accent */
+  --acid: #c7ff3d;              /* the accent as a fill */
+  --acid-text: #c7ff3d;         /* the accent as text or an icon on a surface */
+  --acid-ink: #141512;          /* text on the accent fill */
+  --acid-strong: #d4ff63;       /* the accent fill, hovered */
+  --acid-bg: #1b2010;
+  --acid-line: #3a4423;
+  --acid-chip: #2c3915;
+  --acid-track: #3d4d18;
+  --acid-glow: #c7ff3dbb;
+  --focus: #c7ff3d;             /* the focus ring */
+
+  /* -------------------------------------------------------------- status */
+  --working: #ff8a4d;
+  --ready: #7ade9f;
+  --removed: #f07a6a;
+  --stop: #e5484d;
+  --stop-ink: #ffffff;          /* the square on the stop button */
+  --cyan: #6fd3cf;
+  --danger: #d88c83;            /* destructive text */
+  --danger-line: #6f3838;
+  --danger-bg: #251917;
+  --warn: #e0a34d;
+  --warn-chip: #33241d;
+  --fail: #d05a4a;              /* a failed run's mark */
+  --fail-ink: #d98a7c;          /* what that run says */
+  --info: #4d7cff;              /* a step in progress */
+  --info-deep: #426fe1;
+  --info-ink: #79acf0;          /* the same, as text */
+  --done: #13c99a;              /* a step that finished */
+  --stale: #c9a18b;             /* how long ago something ran */
+  --folder: #a59d68;
+
+  /* ---------------------------------------------------------------- diff */
+  --diff-add-bg: #1e2a17;
+  --diff-add-ink: #c6e6a8;
+  --diff-add-mark: #527a3c;     /* the changed run inside an added line */
+  --diff-add-mark-ink: #e1ffc8;
+  --diff-add-mark-line: #76a957;
+  --diff-del-bg: #2b1a17;
+  --diff-del-ink: #e0a89e;
+  --diff-del-mark: #8b433b;
+  --diff-del-mark-ink: #ffd1c8;
+  --diff-del-mark-line: #b95b50;
+  --syntax-fn: #d9e88f;         /* highlight.js function and class names */
+
+  /* ------------------------------------------------------------- project */
+  /* A project's colour is its own hue; the theme owns how deep it reads. */
+  --project-tint-s: 34%;
+  --project-tint-l: 15%;
+  --project-ink-s: 70%;
+  --project-ink-l: 66%;
+
+  /* Provider marks are brand chips: the tile flips with the theme, the two
+     family tints do not. */
+  --provider-bg: #f3f1e9;
+  --provider-ink: #171713;
+  --provider-google: #f8faff;
+  --provider-claude: #f3e8df;
+
+  /* The reload curtain: a full-screen boundary of its own. */
+  --reload-core: #25320f;
+  --reload-halo: #171a10;
+  --reload-panel: #171a11;
+
+  /* ------------------------------------------------------------- shadows */
+  --shadow-soft: #00000066;
+  --shadow: #00000099;
+  --shadow-strong: #000000cc;
+  --elevation-1: 0 5px 18px var(--shadow-soft);
+  --elevation-2: 0 16px 40px var(--shadow);
+  --elevation-3: 0 40px 100px var(--shadow-strong);
+
+  /* --------------------------------------------------- type, size, motion */
+  /* System stacks keep first paint offline and use stable, locally available metrics. */
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  --motion-fast: 120ms;
+  --motion: 180ms;
+  --motion-slow: 320ms;
+  --ease: cubic-bezier(.4, 0, .2, 1);
+}
