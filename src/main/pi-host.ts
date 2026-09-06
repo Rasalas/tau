@@ -502,8 +502,9 @@ export class PiHost {
       try {
         await this.adoptThread(runtime);
         if (options.model) await requireCapability(runtime.backend, "catalogWrite").setModel(options.model.provider, options.model.id);
-        if (options.title) await this.applyThreadTitle(runtime, options.title, "renamed");
+        // The shell has to exist before a title can be published against it.
         await this.refreshThreadShell(runtime, true);
+        if (options.title) await this.applyThreadTitle(runtime, options.title, "renamed");
       } catch (error) {
         if (this.threads.has(runtime.threadId)) await this.threads.release(runtime.threadId);
         else await this.disposeThread(runtime);

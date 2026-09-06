@@ -53,28 +53,55 @@ export interface WorkspaceKitForkOptions {
  * host and Pi bridge share this object rather than importing Git persistence or
  * fork transaction details into their runtime adapters.
  */
+/**
+ * How long ref housekeeping waits for a checkout another turn is holding.
+ * Cleaning orphan refs is never urgent, and the caller may be opening a thread
+ * from inside that very turn, so waiting for the lease would deadlock the host.
+ */
+export const MAINTENANCE_LEASE_TIMEOUT_MS = 2_000;
+
+function leaseTimedOut(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Timed out waiting for the workspace checkpoint lease");
+}
+
 export function createWorkspaceKitCheckpointMaintenance(
   leaseManager = new WorkspaceCheckpointLeaseManager(),
+  options: { maintenanceLeaseTimeoutMs?: number; onSkipped?(cwd: string, sessionId: string): void } = {},
 ): WorkspaceKitCheckpointMaintenance {
   const withLease = async <T>(
     cwd: string,
     sessionId: string,
     operation: () => Promise<T>,
-  ): Promise<T> => {
-    const lease = await leaseManager.acquire(cwd, {
-      sessionId,
-      turnId: `maintenance-${randomUUID()}`,
-    });
+    timeoutMs?: number,
+  ): Promise<T | undefined> => {
+    let lease;
+    try {
+      lease = await leaseManager.acquire(cwd, {
+        sessionId,
+        turnId: `maintenance-${randomUUID()}`,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      });
+    } catch (error) {
+      if (timeoutMs !== undefined && leaseTimedOut(error)) {
+        options.onSkipped?.(cwd, sessionId);
+        return undefined;
+      }
+      throw error;
+    }
     try {
       return await operation();
     } finally {
       await lease.release();
     }
   };
+  const timeout = options.maintenanceLeaseTimeoutMs ?? MAINTENANCE_LEASE_TIMEOUT_MS;
+  const sweep = async <T>(cwd: string, sessionId: string, operation: () => Promise<T>): Promise<void> => {
+    await withLease(cwd, sessionId, operation, timeout);
+  };
   return {
-    cleanupSessionRefs: (cwd, sessionId) => withLease(cwd, sessionId, () => workspaceGit.cleanupTurnCheckpointSessionRefs(cwd, sessionId)),
-    cleanupOrphanRefs: (cwd, sessionId, checkpoints, backups) => withLease(cwd, sessionId, () => workspaceGit.cleanupOrphanTurnCheckpointRefs(cwd, sessionId, checkpoints, undefined, backups)),
-    cleanupLiveRefs: (cwd, sessions) => withLease(cwd, "tau-checkpoint-gc", () => workspaceGit.cleanupCheckpointRefsForLiveSessions(cwd, sessions)),
+    cleanupSessionRefs: (cwd, sessionId) => sweep(cwd, sessionId, () => workspaceGit.cleanupTurnCheckpointSessionRefs(cwd, sessionId)),
+    cleanupOrphanRefs: (cwd, sessionId, checkpoints, backups) => sweep(cwd, sessionId, () => workspaceGit.cleanupOrphanTurnCheckpointRefs(cwd, sessionId, checkpoints, undefined, backups)),
+    cleanupLiveRefs: (cwd, sessions) => sweep(cwd, "tau-checkpoint-gc", () => workspaceGit.cleanupCheckpointRefsForLiveSessions(cwd, sessions)),
     rehomeFork: async ({ cwd, sourceSessionId, targetSessionId, checkpoints, appendEntry, committedCheckpoints, lease }) => {
       const operation = async () => {
         if (checkpoints.length === 0) return;
@@ -121,7 +148,8 @@ export function createWorkspaceKitCheckpointMaintenance(
           throw error;
         }
       };
-      return lease ? operation() : withLease(cwd, targetSessionId, operation);
+      // A fork's inheritance is a transaction, not housekeeping: it waits.
+      await (lease ? operation() : withLease(cwd, targetSessionId, operation));
     },
   };
 }
