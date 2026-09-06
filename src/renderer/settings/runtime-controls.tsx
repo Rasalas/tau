@@ -1,6 +1,7 @@
 import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
 import type { DesktopExtension, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
+import { THEME_PREFERENCES, nextTheme, type ThemePreference } from "../theme";
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = {
   focused: "focused",
@@ -17,6 +18,17 @@ function applyTranscriptDetail(preferences: PreferencesStore, app: WorkbenchActi
   if (sessionId) preferences.overrideTranscriptDetail(sessionId, level);
   else preferences.setTranscriptDetail(level);
   app.notify(`Transcript: ${DETAIL_LABELS[level]}`);
+}
+
+const THEME_LABELS: Record<ThemePreference, string> = {
+  system: "follow the system",
+  dark: "dark",
+  light: "light",
+};
+
+function applyTheme(preferences: PreferencesStore, app: WorkbenchActions, theme: ThemePreference): void {
+  preferences.setTheme(theme);
+  app.notify(`Theme: ${THEME_LABELS[theme]}`);
 }
 
 /**
@@ -54,6 +66,20 @@ export const runtimeControls: DesktopExtension = {
         app,
         nextTranscriptDetail(plugin.preferences.transcriptDetailFor(app.activeThread()?.sessionId)),
       ),
+    });
+    for (const theme of THEME_PREFERENCES) {
+      plugin.registerCommand({
+        id: `runtime.theme-${theme}`,
+        label: `Theme: ${THEME_LABELS[theme]}`,
+        group: "Runtime",
+        run: (app) => applyTheme(plugin.preferences, app, theme),
+      });
+    }
+    plugin.registerCommand({
+      id: "runtime.theme",
+      label: "Cycle the theme",
+      group: "Runtime",
+      run: (app) => applyTheme(plugin.preferences, app, nextTheme(plugin.preferences.getSnapshot().theme)),
     });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
     plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", run: (app) => app.openCommandPalette() });

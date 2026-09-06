@@ -18,6 +18,35 @@ describe("runtime controls extension", () => {
   });
 });
 
+describe("runtime controls theme commands", () => {
+  it("puts all three answers and the cycle in the palette", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(runtimeControls);
+    const labels = Object.fromEntries(registry.getCommands().filter((item) => item.id.startsWith("runtime.theme")).map((item) => [item.id, item.label]));
+    expect(labels).toEqual({
+      "runtime.theme-system": "Theme: follow the system",
+      "runtime.theme-dark": "Theme: dark",
+      "runtime.theme-light": "Theme: light",
+      "runtime.theme": "Cycle the theme",
+    });
+  });
+
+  it("cycles the stored preference and says which one it landed on", async () => {
+    const preferences = new PreferencesStore();
+    const registry = new ExtensionRegistry(undefined, { preferences });
+    registry.activate(runtimeControls);
+    const notify = vi.fn();
+    const actions = { notify } as unknown as WorkbenchActions;
+
+    await registry.getCommands().find((item) => item.id === "runtime.theme")!.run(actions);
+    expect(preferences.getSnapshot().theme).toBe("dark");
+    expect(notify).toHaveBeenCalledWith("Theme: dark");
+
+    await registry.getCommands().find((item) => item.id === "runtime.theme-light")!.run(actions);
+    expect(preferences.getSnapshot().theme).toBe("light");
+  });
+});
+
 describe("runtime controls slash commands", () => {
   it("offers one reload command and reports a failure", async () => {
     const registry = new ExtensionRegistry();

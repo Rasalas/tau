@@ -1,6 +1,7 @@
 import { getClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcript-folding";
+import { DEFAULT_THEME, isThemePreference, type ThemePreference } from "./theme";
 
 export interface PreferencesState {
   /** How much of a turn's work the transcript shows; see `TranscriptDetail`. */
@@ -9,6 +10,8 @@ export interface PreferencesState {
   transcriptDetailOverride?: { threadId: string; level: TranscriptDetail };
   /** Whether the workbench shows what threads cost. */
   showCosts: boolean;
+  /** Which token set the window paints with; `system` follows the OS. */
+  theme: ThemePreference;
   editorId?: string;
   settledThreadIds: readonly string[];
   pinnedThreadIds: readonly string[];
@@ -24,6 +27,7 @@ export interface PreferencesState {
 const DEFAULTS: PreferencesState = {
   transcriptDetail: "focused",
   showCosts: true,
+  theme: DEFAULT_THEME,
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
@@ -56,6 +60,7 @@ function load(): PreferencesState {
         ? raw.transcriptDetail
         : raw.showThinking === true ? "detailed" : "focused",
       showCosts: raw.showCosts !== false,
+      theme: isThemePreference(raw.theme) ? raw.theme : DEFAULT_THEME,
       editorId: typeof raw.editorId === "string" ? raw.editorId : undefined,
       settledThreadIds: stringList(raw.settledThreadIds),
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
@@ -100,6 +105,10 @@ export class PreferencesStore {
 
   setShowCosts(showCosts: boolean): void {
     this.update({ showCosts });
+  }
+
+  setTheme(theme: ThemePreference): void {
+    this.update({ theme });
   }
 
   setEditor(editorId: string): void {

@@ -10,6 +10,7 @@ import { setClientStorage } from "../workbench/client-storage";
 import { ClientStorageProvider } from "./client-storage-context";
 import { createRendererServices } from "./renderer-services";
 import { RendererServicesProvider } from "./renderer-services-context";
+import { followThemePreference } from "./theme";
 import "./styles.css";
 
 const search = new URLSearchParams(window.location.search);
@@ -34,6 +35,9 @@ void host?.connection.start().catch(() => undefined);
 const clientStorage = createLocalStorageAdapter();
 setClientStorage(clientStorage);
 const services = createRendererServices();
+// Before the first render: `index.html` paints the OS's theme, and a stored
+// preference that disagrees has to win without a flash of the other one.
+followThemePreference(services.preferences);
 
 const root = createRoot(document.getElementById("root")!);
 if (search.has("rendererBenchmark")) {
