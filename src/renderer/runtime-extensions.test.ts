@@ -133,6 +133,41 @@ describe("runtime desktop extensions", () => {
     expect(registry.getExtensionSummaries()[0]?.active).toBe(true);
   });
 
+  it("links a bundle's stylesheet while the extension is active and takes it away with it", async () => {
+    const registry = new ExtensionRegistry();
+    const h = {
+      load: async () => ({
+        bundles: [{
+          id: "x.styled",
+          path: "/x/styled.tsx",
+          scope: "global" as const,
+          code: "",
+          url: "tau-ext://bundles/x.styled/abc123.js",
+          styles: ".styled { color: red; }",
+          stylesUrl: "tau-ext://bundles/x.styled/def456.css",
+          permissions: [],
+          granted: true,
+        }],
+        errors: [],
+        skipped: [],
+      }),
+      importModule: async () => ({ default: { id: "x.styled", name: "Styled", activate() {} } }),
+      isEnabled: () => true,
+      notify: vi.fn(),
+      log: vi.fn(),
+    };
+    await new RuntimeExtensions(registry, h).sync("/project");
+    const link = () => document.head.querySelector<HTMLLinkElement>('link[data-tau-extension="x.styled"]');
+    expect(link()?.href).toBe("tau-ext://bundles/x.styled/def456.css");
+
+    registry.setActive("x.styled", false);
+    expect(link()).toBeNull();
+    registry.setActive("x.styled", true);
+    expect(link()?.href).toBe("tau-ext://bundles/x.styled/def456.css");
+    registry.deactivate("x.styled");
+    expect(link()).toBeNull();
+  });
+
   it("validates the extension shape and lists shared exports", () => {
     expect(isDesktopExtension({ id: "a", name: "A", activate() {} })).toBe(true);
     expect(isDesktopExtension({ id: "a" })).toBe(false);

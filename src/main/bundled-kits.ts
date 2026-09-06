@@ -35,6 +35,7 @@ export interface BundledKit {
   manifest: ExtensionManifest;
   hostEntry?: string;
   desktopEntry?: string;
+  stylesEntry?: string;
   /** True when the entries are compiled output rather than TypeScript sources. */
   prebuilt: boolean;
 }
@@ -183,6 +184,7 @@ export async function loadBundledKitDesktopHalves(
         path: kit.desktopEntry,
         scope: "bundled",
         code: await desktopHalf(kit, kit.desktopEntry, options),
+        ...(kit.stylesEntry ? { styles: await readFile(kit.stylesEntry, "utf8") } : {}),
         permissions: kit.manifest.permissions ?? [],
         granted: true,
       });

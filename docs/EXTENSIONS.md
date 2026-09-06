@@ -84,7 +84,8 @@ either. Computer Use (`kits/computer-use/`) is the example: it loads
   "isolation": "worker",
   "source": { "url": "https://github.com/acme/hello", "commit": "0123456789abcdef" },
   "desktop": "./desktop.tsx",
-  "host": "./host.ts"
+  "host": "./host.ts",
+  "styles": "./styles.css"
 }
 ```
 
@@ -98,6 +99,7 @@ either. Computer Use (`kits/computer-use/`) is the example: it loads
 | `isolation` | `"worker"` (default) or `"in-process"` (§6). |
 | `source` | `{ url, commit? }`, shown in Settings → Inspector. Provenance only — it proves nothing by itself (§4). |
 | `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, not both. |
+| `styles` | Relative path of a stylesheet loaded while the desktop half is active; it needs a `desktop` entry. |
 
 `desktop` and `host` entries are compiled with esbuild at load time (Node
 builtins and `electron` stay external for the host half, `react`, `react-dom`
@@ -105,6 +107,16 @@ and `lucide-react` stay external — bound to the renderer's own copies — for 
 desktop half, because a second copy of React or of react-dom holds its own
 internals and quietly stops working), so a package brings its own dependencies
 from its own `node_modules` and needs no build step of its own.
+
+`styles` is not compiled: the loader reads the file, the host publishes it
+beside the desktop bundle over `tau-ext://bundles/<id>/<hash>.css`, and the
+renderer links it in `document.head` when the extension activates and removes
+it when the extension stops — switching a package off in Settings takes its
+rules with it. The rules are ordinary global CSS, so prefix them with something
+of your own (Tau's own kits use their id: `.preview-*`, `.agent-*`); they land
+after the workbench's own stylesheet. Core's own class vocabulary — the panel
+frame, the menu, the chips, the prompt frame, the thread row — stays in core
+and is documented in [CORE.md](CORE.md): use it, do not restyle it.
 
 ### The three modules a package imports from Tau
 

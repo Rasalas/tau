@@ -421,7 +421,25 @@ export interface DesktopExtension {
   name: string;
   permissions?: readonly string[];
   granted?: boolean;
+  /** The stylesheet the manifest names, as the host serves it (`url`) or as its source. */
+  styles?: { url?: string; css?: string };
   activate(context: DesktopExtensionContext): void | (() => void);
+}
+
+/**
+ * Puts an extension's stylesheet in the document and takes it out again. A
+ * served `url` is a `<link>`, which the browser blocks rendering on until it
+ * has it, so the extension's first paint is never unstyled.
+ */
+function mountStyles(extension: DesktopExtension): (() => void) | undefined {
+  const styles = extension.styles;
+  if (!styles?.url && !styles?.css) return undefined;
+  const element = styles.url
+    ? Object.assign(document.createElement("link"), { rel: "stylesheet", href: styles.url })
+    : Object.assign(document.createElement("style"), { textContent: styles.css ?? "" });
+  element.dataset.tauExtension = extension.id;
+  document.head.append(element);
+  return () => { element.remove(); };
 }
 
 export interface ExtensionSummary {
@@ -545,6 +563,9 @@ export class ExtensionRegistry {
     const owner: ContributionOwner = { extensionId: extension.id, extensionName: extension.name };
     const kinds: string[] = [];
     const disposers: Array<() => void> = [];
+    // Before `activate`, so the rules are in place when the first component mounts.
+    const unmountStyles = mountStyles(extension);
+    if (unmountStyles) disposers.push(unmountStyles);
     const note = (kind: string) => { if (!kinds.includes(kind)) kinds.push(kind); };
     const hostClient = (extensionId: string): HostExtensionClient => ({
       invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),

@@ -64,7 +64,7 @@ async function buildKits() {
   const kits = await kitDirectories();
   await rm(OUTPUT, { recursive: true, force: true });
   for (const kit of kits) {
-    const { manifest, hostEntry, desktopEntry } = parseExtensionManifest(kit.directory, kit.source);
+    const { manifest, hostEntry, desktopEntry, stylesEntry } = parseExtensionManifest(kit.directory, kit.source);
     const target = join(OUTPUT, manifest.id);
     await mkdir(target, { recursive: true });
     const shipped = { ...manifest };
@@ -75,6 +75,11 @@ async function buildKits() {
     if (desktopEntry) {
       await writeFile(join(target, "desktop.js"), await bundleDesktopExtension(desktopEntry, { sharedExports }), "utf8");
       shipped.desktop = "./desktop.js";
+    }
+    if (stylesEntry) {
+      // Copied, not compiled: a kit's stylesheet is plain CSS the renderer links.
+      await writeFile(join(target, "styles.css"), await readFile(stylesEntry, "utf8"), "utf8");
+      shipped.styles = "./styles.css";
     }
     await writeFile(join(target, MANIFEST_FILE), `${JSON.stringify(shipped, null, 2)}\n`, "utf8");
     console.log(`kit ${manifest.id} -> dist-kits/${manifest.id}`);

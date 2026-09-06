@@ -136,6 +136,11 @@ export class RuntimeExtensions {
         }
         extension.permissions = bundle.permissions;
         extension.granted = bundle.granted;
+        // The stylesheet travels with the extension object, so switching the
+        // extension off in Settings takes its rules with it and back on brings
+        // them again — the registry owns both ends (see `activate`).
+        if (bundle.stylesUrl) extension.styles = { url: bundle.stylesUrl };
+        else if (bundle.styles) extension.styles = { css: bundle.styles };
         this.registry.addKnown(extension);
         if (bundle.granted !== false && this.host.isEnabled(extension.id)) this.registry.activate(extension);
         next.push({ extension, bundle });

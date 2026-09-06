@@ -44,6 +44,8 @@ export interface ExtensionManifest {
   desktop?: string;
   /** Relative path of the host entry (a module default-exporting a HostExtension or `activate`). */
   host?: string;
+  /** Relative path of a stylesheet loaded while the desktop half is active. */
+  styles?: string;
 }
 
 export interface ExtensionPackage {
@@ -52,6 +54,7 @@ export interface ExtensionPackage {
   manifest: ExtensionManifest;
   desktopEntry?: string;
   hostEntry?: string;
+  stylesEntry?: string;
   /** The source string `packages.json` lists, for a package the installer put there. */
   installedFrom?: string;
   /** What `tau-extension.sig` proved; a package that fails its own hashes never gets here. */
@@ -106,11 +109,11 @@ function parseSource(value: unknown): { url: string; commit?: string } | undefin
 }
 
 /** Parses and validates one manifest; entries are resolved but not read. */
-export function parseExtensionManifest(directory: string, source: string): { manifest: ExtensionManifest; desktopEntry?: string; hostEntry?: string } {
+export function parseExtensionManifest(directory: string, source: string): { manifest: ExtensionManifest; desktopEntry?: string; hostEntry?: string; stylesEntry?: string } {
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host } = raw as Record<string, unknown>;
+  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host, styles } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
   if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
@@ -120,7 +123,9 @@ export function parseExtensionManifest(directory: string, source: string): { man
   const parsedSource = parseSource(manifestSource);
   const desktopEntry = relativeEntry(directory, desktop, "desktop");
   const hostEntry = relativeEntry(directory, host, "host");
+  const stylesEntry = relativeEntry(directory, styles, "styles");
   if (!desktopEntry && !hostEntry) throw new Error(`${MANIFEST_FILE} names neither a "desktop" nor a "host" entry`);
+  if (stylesEntry && !desktopEntry) throw new Error(`"styles" needs a "desktop" entry: a stylesheet lives as long as the desktop half`);
   return {
     manifest: {
       id,
@@ -132,9 +137,11 @@ export function parseExtensionManifest(directory: string, source: string): { man
       ...(parsedSource ? { source: parsedSource } : {}),
       ...(typeof desktop === "string" ? { desktop } : {}),
       ...(typeof host === "string" ? { host } : {}),
+      ...(typeof styles === "string" ? { styles } : {}),
     },
     ...(desktopEntry ? { desktopEntry } : {}),
     ...(hostEntry ? { hostEntry } : {}),
+    ...(stylesEntry ? { stylesEntry } : {}),
   };
 }
 

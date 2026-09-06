@@ -301,7 +301,11 @@ function createLocalHostMethods(): HostMethodTable {
         // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
         desktopBundles.clear();
         return {
-          bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })),
+          bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({
+            ...bundle,
+            url: desktopBundles.publish(bundle.id, bundle.code),
+            ...(bundle.styles ? { stylesUrl: desktopBundles.publishStyles(bundle.id, bundle.styles) } : {}),
+          })),
           errors: [...kits.errors, ...result.errors],
           skipped: result.skipped,
         };
