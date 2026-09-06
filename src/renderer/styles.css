@@ -1587,15 +1587,6 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
   width: 20px; height: 20px; flex: none; display: grid; place-items: center;
   border-radius: 6px; background: var(--acid-chip); color: var(--acid);
 }
-/* Paging between the questions of one questionnaire. */
-.extension-pager { flex: none; display: flex; align-items: center; gap: 2px; }
-.extension-pager > span { font: 500 11px var(--mono); color: var(--muted); padding: 0 3px; letter-spacing: .04em; }
-.extension-pager > button {
-  width: 20px; height: 20px; display: grid; place-items: center;
-  border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer;
-}
-.extension-pager > button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
-.extension-pager > button:disabled { color: var(--fainter); cursor: default; }
 .extension-prompt-message {
   margin: 6px 4px 2px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap;
 }
