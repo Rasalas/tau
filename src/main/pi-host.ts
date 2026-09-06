@@ -2052,8 +2052,10 @@ export class PiHost {
     options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal } = {},
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
+    const marks = new PhaseTimer();
     // Extensions repair what they keep beside a session before its runtime can start a turn.
     if (manager.getSessionFile()) await this.threadLifecycle.beforeOpen(this.seam.sessionFile(manager));
+    marks.mark("before-open");
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
     let thread: ThreadRuntime | undefined;
@@ -2071,6 +2073,7 @@ export class PiHost {
           .map((message, index) => mapMessage(message, index, this.projection.mapping(thread!)))
           .filter((message): message is UiMessage => Boolean(message?.text || message?.skill)),
       });
+      marks.mark("create-runtime");
       thread = new ThreadRuntime(backend, createdRuntime);
       const preparedThread = thread;
       if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
@@ -2083,6 +2086,7 @@ export class PiHost {
         if (options.abortSignal.aborted) cancelPrepared();
       }
       await backend!.start(sessionStartEvent?.reason === "resume" ? "resume" : "create");
+      marks.mark("backend-start");
       // An interactive open shows the thread while it binds; a prewarmed or
       // spare runtime is off every critical path and is handed over bound.
       if (options.background) await this.bindThread(thread);
@@ -2090,6 +2094,8 @@ export class PiHost {
       if (options.abortSignal?.aborted) throw new Error("Prepared runtime creation was cancelled.");
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
+      marks.mark("hooks");
+      this.log("thread.open.timing", `${thread.threadId.slice(0, 8)} · ${marks.report()}`);
       return thread;
     } catch (error) {
       // A prepared runtime may have created extension questions while binding.
