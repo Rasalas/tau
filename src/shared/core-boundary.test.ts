@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -35,7 +36,7 @@ function words(source: string): string[] {
 
 /** The host keeps thread and title handling; only the moved features are checked there. */
 const HOST_RULES = new Set(["checkpoint", "git", "editor", "tier", "access", "claude"]);
-const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-kit-checkpoints", "pi-turn-checkpoint-extension", "turn-checkpoint-codec", "claude-code/"];
+const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-kit-checkpoints", "pi-turn-checkpoint-extension", "turn-checkpoint-codec"];
 
 describe("core boundary", () => {
   it("src/main/pi-host.ts names no moved feature and imports no feature module", () => {
@@ -44,6 +45,19 @@ describe("core boundary", () => {
     expect(offenders).toEqual([]);
     const imports = HOST_FORBIDDEN_IMPORTS.filter((name) => source.includes(`./${name}.js`) || source.includes(`/${name}.js`));
     expect(imports).toEqual([]);
+  });
+
+  it("src/ has no extensions directory: a kit lives under kits/", () => {
+    const found: string[] = [];
+    const walk = (directory: string): void => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name === "extensions") found.push(join(directory, entry.name));
+        else walk(join(directory, entry.name));
+      }
+    };
+    walk("src");
+    expect(found).toEqual([]);
   });
 
   // The two core files only shrink. Raise a ceiling deliberately, in the same
