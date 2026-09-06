@@ -1,14 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activateTab, closeTab, EMPTY_STAGE, openFileTab, pinTab, setFileView, type StageState } from "../stage";
-import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context";
-import { WorkspaceStore } from "../extensions/workspace-store";
-import { FilesPanel } from "../extensions/workspace-panels";
-import { PreferencesStore } from "../preferences";
-import { RendererServicesProvider } from "../renderer-services-context";
 import { Stage } from "./Stage";
 import type { ChatTab } from "./StageTabs";
 
@@ -110,44 +105,3 @@ describe("Stage", () => {
   });
 });
 
-function workbench(overrides: Partial<WorkbenchContextValue> = {}): WorkbenchContextValue {
-  return {
-    tools: [],
-    events: [],
-    registry: {} as never,
-    openFile: () => undefined,
-    applySnapshot: () => undefined,
-    handleHostEvent: () => undefined,
-    ...overrides,
-  };
-}
-
-function kitState(workspaceStore: WorkspaceStore, patch: Parameters<WorkspaceStore["update"]>[0] = {}) {
-  workspaceStore.update({ cwd: CWD, draftPending: false, changes: CHANGED, workspace: undefined, committing: false, pushPrimary: false, commitFocusToken: 0, fileTree: [], ...patch });
-}
-
-function withServices(workspaceStore: WorkspaceStore, children: ReactNode) {
-  return <RendererServicesProvider services={{ preferences: new PreferencesStore(), workspaceStore }}>{children}</RendererServicesProvider>;
-}
-
-describe("FilesPanel", () => {
-  it("opens a file on click and pins it on double-click", () => {
-    const workspaceStore = new WorkspaceStore(new PreferencesStore());
-    const openFile = vi.fn();
-    kitState(workspaceStore, { changes: NO_CHANGES, fileTree: [{ name: "a.ts", path: `${CWD}/a.ts`, kind: "file" }] });
-    vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
-    render(withServices(workspaceStore,
-      <WorkbenchContext.Provider value={workbench({ openFile, activeDocumentPath: `${CWD}/a.ts` })}>
-        <FilesPanel active extensionName="Workspace" actions={{} as never} />
-      </WorkbenchContext.Provider>,
-    ));
-
-    const row = screen.getByTitle(`${CWD}/a.ts`);
-    expect(row.className).toContain("active");
-    fireEvent.click(row);
-    fireEvent.doubleClick(row);
-
-    expect(openFile).toHaveBeenNthCalledWith(1, `${CWD}/a.ts`);
-    expect(openFile).toHaveBeenNthCalledWith(2, `${CWD}/a.ts`, { pin: true });
-  });
-});

@@ -24,7 +24,7 @@ import { PI_RUNTIME_ADAPTER, prepareSkillPrompt, skillInvocationCommand, skillMe
 import type { UiSkillDraft } from "../../src/shared/contracts.js";
 import { validatePreparedPrompt } from "../../src/shared/prepared-prompt.js";
 import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChangesPage } from "../../src/shared/workspace-kit-types.js";
-import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type CheckpointEvent, type WorkspaceCheckpointList } from "../../src/shared/workspace-kit-protocol.js";
+import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type CheckpointEvent, type WorkspaceCheckpointList } from "../../kits/workspace/checkpoint-protocol.js";
 import { WorkspaceCheckpointLeaseManager } from "../../src/main/workspace-checkpoint-lease.js";
 import { tauOwnsRuntime } from "../../src/main/tau-runtime-owner.js";
 import { assistantAnchorForMessage } from "../../src/main/pi-turn-checkpoint-extension.js";

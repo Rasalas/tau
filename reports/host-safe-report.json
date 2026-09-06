@@ -1,71 +1,153 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-31T20:43:11.884Z",
+  "generatedAt": "2026-09-06T13:50:22.754Z",
   "mode": "safe",
   "wallClock": [
     {
       "scenario": "bootstrap",
-      "durationMs": 258.8000420000001
+      "durationMs": 54.56758300000001
     },
     {
       "scenario": "cold-switch",
-      "durationMs": 10.401749999999993
+      "durationMs": 12.346332999999959
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.017624999999952706
+      "durationMs": 0.027082999999947788
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 8.17208299999993
+      "durationMs": 9.167083999999932
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.0012080000001333246
+      "durationMs": 0.002208999999993466
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.10029099999997015
+      "durationMs": 0.7418749999999363
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.0008330000000569271
+      "durationMs": 0.00254199999994853
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.14483300000006238
+      "durationMs": 0.5126249999998436
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.0007920000000467553
+      "durationMs": 0.0025000000000545697
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.16612499999996544
+      "durationMs": 0.4111250000000837
+    },
+    {
+      "scenario": "bootstrap",
+      "durationMs": 62.375332999999955
+    },
+    {
+      "scenario": "cold-switch",
+      "durationMs": 33.923542
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.0027079999999841675
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 30.469459000000143
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.003083000000060565
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 28.976957999999968
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.0025000000000545697
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 39.930875000000015
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.0029170000000249274
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 33.56687499999998
+    },
+    {
+      "scenario": "bootstrap",
+      "durationMs": 68.46112500000004
+    },
+    {
+      "scenario": "cold-switch",
+      "durationMs": 42.059208000000126
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.0031249999999545253
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 38.69224999999983
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.007749999999987267
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 20.98266600000011
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.0032089999999698193
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 23.140457999999853
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.003249999999979991
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 25.66429100000005
     }
   ],
   "summaries": {
     "bootstrap": {
-      "median": 258.8000420000001,
-      "p95": 258.8000420000001,
-      "maximum": 258.8000420000001
+      "median": 62.375332999999955,
+      "p95": 67.85254580000003,
+      "maximum": 68.46112500000004,
+      "cold": 54.56758300000001
     },
     "cold-switch": {
-      "median": 10.401749999999993,
-      "p95": 10.401749999999993,
-      "maximum": 10.401749999999993
+      "median": 33.923542,
+      "p95": 41.24564140000011,
+      "maximum": 42.059208000000126
     },
     "prewarm": {
-      "median": 0.0008330000000569271,
-      "p95": 0.017624999999952706,
-      "maximum": 0.017624999999952706
+      "median": 0.0030000000000427463,
+      "p95": 0.016449849999969488,
+      "maximum": 0.027082999999947788
     },
     "warm-switch": {
-      "median": 0.14483300000006238,
-      "p95": 8.17208299999993,
-      "maximum": 8.17208299999993
+      "median": 24.40237449999995,
+      "p95": 39.249631249999915,
+      "maximum": 39.930875000000015
     }
   },
+  "hostRuns": 3,
   "phases": [
     {
       "mode": "safe",
@@ -73,65 +155,28 @@
       "phases": [
         {
           "name": "settings",
-          "durationMs": 1.6
+          "durationMs": 0.3
         },
         {
           "name": "models",
-          "durationMs": 18.8
+          "durationMs": 8.2
         },
         {
           "name": "resources",
-          "durationMs": 37.2
+          "durationMs": 11.4
         },
         {
           "name": "session",
-          "durationMs": 1.8
+          "durationMs": 0.3
         },
         {
           "name": "total",
-          "durationMs": 59.6
-        },
-        {
-          "name": "bind",
-          "durationMs": 0.4
+          "durationMs": 20.2
         }
       ],
-      "totalMs": 258.7,
-      "subprocesses": 4,
-      "ipcBytes": 22691
-    },
-    {
-      "mode": "safe",
-      "scenario": "cold-switch",
-      "phases": [
-        {
-          "name": "settings",
-          "durationMs": 0.4
-        },
-        {
-          "name": "models",
-          "durationMs": 2.4
-        },
-        {
-          "name": "resources-cache-hit",
-          "durationMs": 6.3
-        },
-        {
-          "name": "session",
-          "durationMs": 0.4
-        },
-        {
-          "name": "total",
-          "durationMs": 9.5
-        },
-        {
-          "name": "bind",
-          "durationMs": 0
-        }
-      ],
-      "totalMs": 9.9,
+      "totalMs": 68.4,
       "subprocesses": 0,
-      "ipcBytes": 1076
+      "ipcBytes": 23565
     },
     {
       "mode": "safe",
@@ -143,11 +188,11 @@
         },
         {
           "name": "models",
-          "durationMs": 2.1
+          "durationMs": 10.2
         },
         {
           "name": "resources-cache-hit",
-          "durationMs": 5.2
+          "durationMs": 8
         },
         {
           "name": "session",
@@ -155,17 +200,107 @@
         },
         {
           "name": "total",
-          "durationMs": 7.8
-        },
-        {
-          "name": "bind",
-          "durationMs": 0.1
+          "durationMs": 18.8
         }
       ],
-      "totalMs": 8.1,
+      "totalMs": 41.9,
       "subprocesses": 0,
-      "ipcBytes": 1617
+      "ipcBytes": 1346
+    },
+    {
+      "mode": "safe",
+      "scenario": "cold-switch",
+      "phases": [
+        {
+          "name": "settings",
+          "durationMs": 0.3
+        },
+        {
+          "name": "models",
+          "durationMs": 9.4
+        },
+        {
+          "name": "resources-cache-hit",
+          "durationMs": 9.7
+        },
+        {
+          "name": "session",
+          "durationMs": 0.7
+        },
+        {
+          "name": "total",
+          "durationMs": 20.1
+        }
+      ],
+      "totalMs": 38.4,
+      "subprocesses": 0,
+      "ipcBytes": 2051
     }
   ],
-  "background": []
+  "background": [
+    {
+      "name": "project-classification",
+      "durationMs": 0
+    },
+    {
+      "name": "bind",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0.1
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0.3
+    },
+    {
+      "name": "bind",
+      "durationMs": 0.1
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "bind",
+      "durationMs": 0.2
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    },
+    {
+      "name": "project-label",
+      "durationMs": 0
+    }
+  ]
 }

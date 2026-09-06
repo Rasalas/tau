@@ -46,6 +46,8 @@ export interface BundledKitsOptions {
   cacheDir?: string;
   /** Versions a kit's `engines` is checked against; a stale `dist-kits` fails here. */
   versions?: ExtensionHostVersions;
+  /** Read `kits/` even when a prebuilt `dist-kits/` exists: a test wants the sources it sits beside, not last build's output. */
+  sources?: boolean;
 }
 
 export interface BundledKitFailure {
@@ -59,8 +61,9 @@ export interface BundledKitFailure {
  * once `npm run build` has run, and the prebuilt one wins so that the app and
  * its release artifact load the same bytes.
  */
-export async function resolveKitsRoot(appPath: string): Promise<{ directory: string; prebuilt: boolean } | undefined> {
-  for (const [name, prebuilt] of [[PREBUILT_KITS_DIRECTORY, true], [KIT_SOURCE_DIRECTORY, false]] as const) {
+export async function resolveKitsRoot(appPath: string, sources = false): Promise<{ directory: string; prebuilt: boolean } | undefined> {
+  const candidates = sources ? [[KIT_SOURCE_DIRECTORY, false]] as const : [[PREBUILT_KITS_DIRECTORY, true], [KIT_SOURCE_DIRECTORY, false]] as const;
+  for (const [name, prebuilt] of candidates) {
     const directory = join(appPath, name);
     if (await stat(directory).then((info) => info.isDirectory()).catch(() => false)) return { directory, prebuilt };
   }
@@ -96,7 +99,7 @@ export async function listBundledKits(
 }
 
 async function kitsOf(options: BundledKitsOptions): Promise<{ kits: BundledKit[]; errors: BundledKitFailure[] }> {
-  const root = await resolveKitsRoot(options.appPath);
+  const root = await resolveKitsRoot(options.appPath, options.sources);
   return root ? listBundledKits(root, options.versions) : { kits: [], errors: [] };
 }
 

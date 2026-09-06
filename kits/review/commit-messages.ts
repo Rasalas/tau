@@ -1,4 +1,5 @@
 import type { DesktopExtensionContext, ExtensionOption, PreferencesStore } from "tau";
+import type { WorkspaceStoreApi } from "../workspace/protocol.js";
 import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 
 const MODEL_OPTION = "commit-model";
@@ -36,8 +37,8 @@ export const COMMIT_MESSAGE_OPTIONS: ExtensionOption[] = [
   },
 ];
 
-export function registerCommitMessages(plugin: DesktopExtensionContext): () => void {
-  return plugin.workspaceStore.registerCommitMessageSuggester(async ({ changes, diffs, actions }) => {
+export function registerCommitMessages(plugin: DesktopExtensionContext, workspace: WorkspaceStoreApi): () => void {
+  return workspace.registerCommitMessageSuggester(async ({ changes, diffs, actions }) => {
     const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
     if (!model) throw new Error("No model is selected for commit message generation.");
     const result = await plugin.host.invoke("suggest-commit-message", {

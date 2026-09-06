@@ -14,12 +14,6 @@ import type {
 } from "../shared/contracts";
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { PreferencesStore } from "./preferences";
-import { WorkspaceStore } from "./extensions/workspace-store";
-
-function createDefaultServices(): { preferences: PreferencesStore; workspaceStore: WorkspaceStore } {
-  const preferences = new PreferencesStore();
-  return { preferences, workspaceStore: new WorkspaceStore(preferences) };
-}
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -60,6 +54,8 @@ export interface WorkbenchActions {
   composerDraft(): string;
   /** Applies a host action result the way core actions do, refreshing what it touched. */
   applyHostResult(result: HostActionResult): void;
+  /** Puts text on the host's clipboard. */
+  copyText(text: string): Promise<void>;
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
   openOverlay(id: string): void;
   closeOverlay(): void;
@@ -371,8 +367,6 @@ export interface DesktopExtensionContext {
   events: WorkbenchEvents;
   /** The renderer's shared preferences store; extensions read and write through it instead of importing a singleton. */
   preferences: PreferencesStore;
-  /** Workspace Kit's own store, for the extensions that make up that kit. */
-  workspaceStore: WorkspaceStore;
   registerRegion(region: RegionContribution): () => void;
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
@@ -391,6 +385,18 @@ export interface DesktopExtensionContext {
   setLiveStatus(sessionId: string, label: string | undefined): void;
   /** Publishes how threads this extension created relate to their parents; `undefined` withdraws it. */
   setThreadLineage(lineage: ThreadLineage | undefined): void;
+  /**
+   * Publishes a value the extensions of one product may share, under an id
+   * their own protocol file names. Core never looks inside it, and the offer
+   * is withdrawn when this extension deactivates.
+   */
+  provideService<T>(id: string, value: T): () => void;
+  /**
+   * Uses a value another extension published, now or as soon as it appears —
+   * so activation order does not matter. `use` may return its own disposer,
+   * which runs when the provider withdraws or this extension deactivates.
+   */
+  useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
@@ -441,6 +447,12 @@ interface ToolRenderer {
 
 type Owned<T> = T & ContributionOwner;
 
+/** One `useService` registration: the callback and whatever it left behind. */
+interface ServiceUser {
+  use(value: unknown): (() => void) | void;
+  dispose?: () => void;
+}
+
 /** Thrown when there is no host to route to, e.g. in the browser preview. */
 export class HostUnavailableError extends Error {
   constructor() { super("The Electron host is not available."); this.name = "HostUnavailableError"; }
@@ -463,16 +475,16 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
 export class ExtensionRegistry {
   private readonly hostEventListeners = new Map<string, Map<string, Set<(payload: unknown) => void>>>();
 
-  private readonly services: { preferences: PreferencesStore; workspaceStore: WorkspaceStore };
+  private readonly services: { preferences: PreferencesStore };
 
-  // `services` defaults to a private pair so the many tests that build a
+  // `services` defaults to a private store so the many tests that build a
   // registry without a workbench keep working; real activation passes the
-  // renderer's shared instances explicitly.
+  // renderer's shared instance explicitly.
   constructor(
     private readonly hostBridge: HostExtensionBridge = noHostBridge,
-    services?: { preferences: PreferencesStore; workspaceStore: WorkspaceStore },
+    services?: { preferences: PreferencesStore },
   ) {
-    this.services = services ?? createDefaultServices();
+    this.services = services ?? { preferences: new PreferencesStore() };
   }
 
   private panels = new Map<string, Owned<PanelContribution>>();
@@ -497,6 +509,9 @@ export class ExtensionRegistry {
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
+  /** Values one extension published for another; core only routes them by id. */
+  private extensionServices = new Map<string, ContributionOwner & { value: unknown }>();
+  private serviceUsers = new Map<string, Set<ServiceUser>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
   private options = new Map<string, ExtensionOption[]>();
   private contributionKinds = new Map<string, string[]>();
@@ -546,7 +561,6 @@ export class ExtensionRegistry {
     });
     const context: DesktopExtensionContext = {
       preferences: this.services.preferences,
-      workspaceStore: this.services.workspaceStore,
       host: hostClient(extension.id),
       hostExtension: (extensionId) => hostClient(extensionId),
       registerPanel: (panel) => {
@@ -625,6 +639,37 @@ export class ExtensionRegistry {
       registerComposerControl: (control) => {
         note("composer controls");
         return this.register(this.composerControls, control.id, { ...control, ...owner }, disposers);
+      },
+      provideService: (id, value) => {
+        const held = this.extensionServices.get(id);
+        if (held) throw new Error(`Extension service ${id} is already provided by ${held.extensionId}`);
+        note("services");
+        this.extensionServices.set(id, { value, ...owner });
+        this.rebindServiceUsers(id, value);
+        const dispose = () => {
+          if (this.extensionServices.get(id)?.extensionId !== extension.id) return;
+          this.extensionServices.delete(id);
+          this.releaseServiceUsers(id);
+          this.changed();
+        };
+        disposers.push(dispose);
+        this.changed();
+        return dispose;
+      },
+      useService: (id, use) => {
+        const user: ServiceUser = { use: use as ServiceUser["use"] };
+        const users = this.serviceUsers.get(id) ?? new Set<ServiceUser>();
+        this.serviceUsers.set(id, users);
+        users.add(user);
+        const held = this.extensionServices.get(id);
+        if (held) user.dispose = user.use(held.value) ?? undefined;
+        const dispose = () => {
+          users.delete(user);
+          user.dispose?.();
+          user.dispose = undefined;
+        };
+        disposers.push(dispose);
+        return dispose;
       },
       registerSidebar: (contribution) => {
         note("sidebar");
@@ -706,6 +751,25 @@ export class ExtensionRegistry {
       if (cleanupError) throw new AggregateError([error, cleanupError], `Extension ${extension.id} activation and cleanup failed`, { cause: error });
       throw error;
     }
+  }
+
+  private rebindServiceUsers(id: string, value: unknown): void {
+    for (const user of this.serviceUsers.get(id) ?? []) {
+      user.dispose?.();
+      user.dispose = user.use(value) ?? undefined;
+    }
+  }
+
+  private releaseServiceUsers(id: string): void {
+    for (const user of this.serviceUsers.get(id) ?? []) {
+      user.dispose?.();
+      user.dispose = undefined;
+    }
+  }
+
+  /** Ids of the values extensions have published for one another. */
+  getServiceIds(): string[] {
+    return [...this.extensionServices.keys()];
   }
 
   deactivate(id: string): void {

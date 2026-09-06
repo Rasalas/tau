@@ -10,11 +10,11 @@ import {
   type WorkspaceChangesQuery,
 } from "tau";
 import { automaticCommitMessages } from "./commit-messages.js";
+import type { WorkspaceStoreApi } from "./protocol.js";
 import type { WorkspaceChangesReader } from "./workspace.js";
 
 /** Review Kit's full-workbench review of the live worktree, over Workspace Kit's state. */
-export function createReviewOverlay(plugin: DesktopExtensionContext, workspace: WorkspaceChangesReader) {
-  const store = plugin.workspaceStore;
+export function createReviewOverlay(plugin: DesktopExtensionContext, workspace: WorkspaceChangesReader, store: WorkspaceStoreApi) {
   return function ReviewOverlay({ onClose }: OverlayProps) {
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const review = state.review ?? { primaryPush: false };

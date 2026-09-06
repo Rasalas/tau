@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, RendererServicesProvider } from "../../src/renderer/test-support/kit-harness.js";
 import { accessKitExtension } from "./desktop.js";
 import { ACCESS_HOST_EXTENSION_ID } from "./protocol.js";
 
@@ -32,7 +32,11 @@ describe("Access Kit desktop extension", () => {
     const [control] = registry.getComposerControls();
     expect(control?.id).toBe("access.level");
     const snapshot = { backendKind: "claude-code", runtimeCapabilities: { skillInvocationDialect: "claude-code", interactiveApprovals: false } } as unknown as HostSnapshot;
-    render(<control.Component snapshot={snapshot} />);
+    render(
+      <RendererServicesProvider services={{ preferences }}>
+        <control.Component snapshot={snapshot} />
+      </RendererServicesProvider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: /full access/u }));
     const ask = screen.getByRole("menuitem", { name: /ask before edits/u });
     expect(ask).toHaveProperty("disabled", true);

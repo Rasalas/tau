@@ -9,10 +9,10 @@ import { PiHost } from "./pi-host.js";
 
 const appPath = fileURLToPath(new URL("../..", import.meta.url));
 /** Everything Tau ships, the way the app assembles it: kits from `kits/` included. */
-const shipped = shippedHostExtensions({ appPath }, () => undefined);
+const shipped = shippedHostExtensions({ appPath, sources: true }, () => undefined);
 /** Kits that no longer live in the host but arrive through the bundled loader. */
 // Every kit with a host half; Signals is desktop-only and has no summary here.
-const PACKAGED_KIT_IDS = ["tau.access", "tau.agents", "tau.claude-code", "tau.computer-use", "tau.keybindings", "tau.packages", "tau.pi-ui", "tau.preview", "tau.questionnaire", "tau.review", "tau.service-tier", "tau.thread-titles", "tau.worktree-names"];
+const PACKAGED_KIT_IDS = ["tau.access", "tau.agents", "tau.claude-code", "tau.computer-use", "tau.keybindings", "tau.packages", "tau.pi-ui", "tau.preview", "tau.questionnaire", "tau.review", "tau.service-tier", "tau.thread-titles", "tau.workspace", "tau.worktree-names"];
 
 type Internals = {
   activateHostExtensions(): Promise<void>;

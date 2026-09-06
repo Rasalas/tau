@@ -14,8 +14,6 @@ export { errorMessage } from "./error-message";
 // The placement seam of ADR 0012: a kit that has the host draw a native view
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
 export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
-export { formatCost } from "./cost-format";
-export { Menu } from "./components/Menu";
 export type { MenuItem, MenuSection } from "./components/Menu";
 export { ExtensionPromptFrame, OptionRow } from "./components/ExtensionPrompt";
 export {
@@ -27,7 +25,27 @@ export {
   splitPromptTitle,
 } from "../shared/extension-prompt-options";
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
-export { ChangesTree, ReviewMode } from "./extension-components";
+export { ReviewMode } from "./extension-components";
+export { ChangesTree } from "./components/ChangesTree";
+export { usePreferences } from "./renderer-services-context";
+export { useClientStorage } from "./client-storage-context";
+export { getClientStorage } from "./client-storage";
+export { useHostCapabilities, hostHasLocalFiles } from "./use-host-capabilities";
+export { hostAvailable } from "./host-client-context";
+export { useKeepClear } from "./reserved-region";
+export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "./turn-activity";
+export { formatCost, threadCostLabel, threadUsageDetail } from "./cost-format";
+// Presentation core owns and an extension may reuse: the list primitives, the
+// menu, the file glyphs, the thread row (it draws provider icons from core's
+// asset pipeline, which an esbuild-bundled package has no loader for) and the
+// paging state machine behind every changed-file list.
+export { VirtualList } from "./components/VirtualList";
+export { Menu } from "./components/Menu";
+export { FileKindIcon } from "./components/FileKindIcon";
+export { ThreadRow } from "./components/ThreadRow";
+export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
+/** The full-window review surface, as its own chunk: `lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })))`. */
+export const loadReviewMode = () => import("./components/ReviewMode").then((module) => module.ReviewMode);
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -75,18 +93,10 @@ export type {
 } from "./workbench-context";
 export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "./thread-store";
 export type { PreferencesStore } from "./preferences";
-/** The vocabulary of changes and diffs the document surfaces above speak. */
-export type {
-  ChangeStatus,
-  DiffLoadOptions,
-  UiChangedFile,
-  UiDiffHunk,
-  UiDiffLine,
-  UiEditor,
-  UiFileDiff,
-  UiWorkspaceChanges,
-  UiWorkspaceChangesPage,
-  WorkspaceChangesQuery,
-  WorkspaceDiffScope,
-} from "../shared/workspace-kit-types";
+export type { ClientStorage } from "./client-storage";
+export type { ThreadActivity } from "./components/ThreadRow";
+export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
+export type { WorkspaceRef } from "../shared/workspace-identity";
+export type * from "../shared/workspace-kit-types";
+export type { TurnCheckpointStatus, UiTurnCheckpoint } from "../shared/turn-checkpoint-types";
 export type * from "../shared/contracts";

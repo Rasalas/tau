@@ -28,9 +28,30 @@ const presentationStub: DesktopExtension = {
   },
 };
 
+/**
+ * Stands in for whichever kit names the file tools; the group only cares that
+ * a renderer answered, not which package it came from.
+ */
+const fileTools: DesktopExtension = {
+  id: "test.file-tools",
+  name: "File tools",
+  activate(context) {
+    context.registerToolRenderer(
+      "test.read",
+      (tool) => ["read", "grep", "find", "ls"].includes(tool.name),
+      (tool) => ({ glyph: "→", title: tool.name, tone: "read", detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace") }),
+    );
+    context.registerToolRenderer(
+      "test.write",
+      (tool) => tool.name === "edit" || tool.name === "write",
+      (tool) => ({ glyph: "±", title: tool.name, tone: "write", detail: String(tool.args.path ?? "file mutation") }),
+    );
+  },
+};
+
 function registryWithBundledExtensions(): ExtensionRegistry {
   const registry = new ExtensionRegistry();
-  for (const extension of [...bundledExtensions, presentationStub]) registry.activate(extension);
+  for (const extension of [...bundledExtensions, presentationStub, fileTools]) registry.activate(extension);
   return registry;
 }
 

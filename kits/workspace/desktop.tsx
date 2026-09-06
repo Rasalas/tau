@@ -1,0 +1,144 @@
+import {
+  errorMessage,
+  type DesktopExtension,
+  type UiEditor,
+  type UiWorkspaceChanges,
+} from "tau";
+import {
+  createWorkspaceHostClient,
+  WORKSPACE_CHANGES_PANEL,
+  WORKSPACE_FILES_PANEL,
+  WORKSPACE_HOST_EXTENSION_ID,
+  WORKSPACE_STORE_SERVICE,
+} from "./protocol.js";
+import { registerCheckpoints } from "./checkpoints.js";
+import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
+import { CloneProjectSource, LocalFolderSource, WorkspaceSidebar } from "./navigation.js";
+import { ChangesPanel, FilesPanel } from "./panels.js";
+import { WorkspaceStore } from "./store.js";
+import { withWorkspaceStore } from "./store-context.js";
+import { WorkspaceTitleActions } from "./title.js";
+
+/** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
+function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChanges; editor?: UiEditor } {
+  let last: { changes: UiWorkspaceChanges; editor?: UiEditor } | undefined;
+  let inputs: [unknown, unknown, string | undefined] | undefined;
+  return () => {
+    const state = store.getSnapshot();
+    const editor = store.activeEditor();
+    const next: [unknown, unknown, string | undefined] = [state.changes, state.editors, editor?.id];
+    if (!last || !inputs || inputs.some((value, index) => value !== next[index])) {
+      inputs = next;
+      last = { changes: state.changes, editor };
+    }
+    return last;
+  };
+}
+
+/**
+ * Workspace Kit's desktop half: the thread rail, the project sources, the
+ * Files and Changes panels, the title-bar controls, the worktree bar and the
+ * turn checkpoints. Everything reads one store, which the kit creates here and
+ * publishes for the kits built on it (Review, Worktree Names).
+ */
+export const workspaceExtension: DesktopExtension = {
+  id: WORKSPACE_HOST_EXTENSION_ID,
+  name: "Workspace Kit",
+  activate(context) {
+    const host = createWorkspaceHostClient((command, input) => context.host.invoke(command, input));
+    const store = new WorkspaceStore(context.preferences, host);
+    const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
+    context.provideService(WORKSPACE_STORE_SERVICE, store);
+
+    context.registerSidebar({ id: "workspace.sidebar", order: 10, Component: bind(WorkspaceSidebar) });
+    context.registerProjectSource({
+      id: "workspace.local-folder",
+      label: "Local folder",
+      description: "Open an existing checkout or any folder on this Mac.",
+      glyph: "▱",
+      order: 10,
+      Component: bind(LocalFolderSource),
+    });
+    context.registerProjectSource({
+      id: "workspace.git-clone",
+      label: "Clone Git repository",
+      description: "Clone an HTTPS or SSH URL, then open it as a project.",
+      glyph: "⌘",
+      order: 20,
+      Component: bind(CloneProjectSource),
+    });
+    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", glyph: "files", order: 10, Component: bind(FilesPanel) });
+    // The Changes panel reads the same Git state as the rest of the kit, so it
+    // travels with it; Review Kit still opens it by id from its own command.
+    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", glyph: "changes", order: 20, Component: bind(ChangesPanel) });
+    // The kit owns its workspace state; these keep it following the workbench
+    // and place its controls where core lends room.
+    context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, Component: bind(WorkspaceFollower) });
+    context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, Component: bind(WorkspaceTitleActions) });
+    context.registerRegion({ id: "workspace.turn-changes", placement: "transcript-footer", order: 10, Component: bind(TurnChangesDock) });
+    context.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, Component: bind(WorkspaceBarControl) });
+    const documents = documentStates(store);
+    context.registerDocumentSource({
+      id: "workspace.documents",
+      loadFile: (relPath) => host.readFile(relPath),
+      loadDiff: (relPath, options) => host.getFileDiff(relPath, options),
+      openInEditor: (relPath) => void store.openInEditor(relPath),
+      getState: documents,
+      subscribe: store.subscribe,
+    });
+    context.events.on("user-message", (event) => store.turnStarted(event.sessionId));
+    context.events.on("agent-status", (event) => { if (!event.running) store.turnSettled(event.sessionId); });
+    context.events.on("tool-end", (event) => store.toolFinished(event.tool));
+    // Transcript checkpoint cards and their historical review belong to the
+    // workspace contribution. Removing Workspace Kit therefore removes both
+    // the card and its diff surface without App knowing their implementation.
+    registerCheckpoints(context, store);
+    context.registerOptions([
+      { id: "group-by-project", kind: "toggle", label: "Group threads by project instead of recency", defaultValue: false },
+      { id: "show-settled", kind: "toggle", label: "Show settled shelf", defaultValue: true },
+      { id: "compact-rows", kind: "toggle", label: "Compact rows in the thread rail", defaultValue: false },
+      { id: "sources", kind: "chips", label: "Add-project sources", values: ["local folder", "git clone"] },
+    ]);
+    context.registerCommand({ id: "workspace.files", label: "Open file index", group: "Project", run: (app) => app.openPanel(WORKSPACE_FILES_PANEL) });
+    context.registerCommand({ id: "workspace.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
+    context.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", run: async (app) => {
+      try {
+        const picked = await host.pickFolder();
+        if (picked) await app.openWorkspace(picked.workspaceId);
+      } catch (error) {
+        app.notify(errorMessage(error));
+      }
+    } });
+    context.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", run: (app) => app.settleActiveThread() });
+    // The branch is the kit's fact; the title menu only lends the slot.
+    context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], run: async (app) => {
+      const branch = store.getSnapshot().workspace?.branch;
+      if (!branch) { app.notify("Branch is unavailable."); return; }
+      try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error)); }
+    } });
+    context.registerKeybinding({ keys: "mod+p", commandId: "workspace.open-project" });
+    context.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });
+    context.registerToolRenderer(
+      "workspace.read-renderer",
+      (tool) => tool.name === "read" || tool.name === "grep" || tool.name === "find" || tool.name === "ls",
+      (tool) => ({
+        glyph: "→",
+        title: tool.name,
+        tone: "read",
+        detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace"),
+      }),
+    );
+    context.registerToolRenderer(
+      "workspace.write-renderer",
+      (tool) => tool.name === "edit" || tool.name === "write",
+      (tool) => ({
+        glyph: "±",
+        title: tool.name,
+        tone: "write",
+        detail: String(tool.args.path ?? "file mutation"),
+      }),
+    );
+  },
+};
+
+export default workspaceExtension;

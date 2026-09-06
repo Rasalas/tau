@@ -2,8 +2,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
 import { createKitHarness, type KitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { PreferencesStore } from "../../src/renderer/test-support/kit-harness.js";
+import { createWorkspaceHostClient, WORKSPACE_STORE_SERVICE } from "../workspace/protocol.js";
+import { WorkspaceStore } from "../workspace/store.js";
 import { namingModel, worktreeNamesExtension } from "./desktop.js";
 import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
+
+/** Stands in for Workspace Kit: the store, published under the id both kits name. */
+function workspaceProvider(store: WorkspaceStore) {
+  return {
+    id: "tau.workspace",
+    name: "Workspace Kit",
+    activate: (context: Parameters<typeof worktreeNamesExtension.activate>[0]) => context.provideService(WORKSPACE_STORE_SERVICE, store),
+  };
+}
 
 const threadModel = { provider: "anthropic", id: "claude" };
 
@@ -26,7 +38,9 @@ describe("naming model", () => {
 describe("Worktree Names desktop extension", () => {
   it("offers naming to Workspace Kit while active and asks the host with the task", async () => {
     const invoke = vi.fn(async () => ({ branch: "fix/steer-queue-messages" }));
-    const { registry, workspaceStore } = createKitHarness(invoke);
+    const { registry } = createKitHarness(invoke);
+    const workspaceStore = new WorkspaceStore(new PreferencesStore(), createWorkspaceHostClient(async () => undefined));
+    registry.activate(workspaceProvider(workspaceStore));
     const notify = vi.fn();
     const actions = {
       notify,

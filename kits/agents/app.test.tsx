@@ -5,6 +5,7 @@ import type { UiMessage, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
+import { workspaceExtension } from "../workspace/desktop.js";
 import { agentsExtension } from "./desktop.js";
 import { AGENTS_HOST_EXTENSION_ID, type AgentThreadLink, type AgentThreadStatus, type AgentsState } from "./protocol.js";
 
@@ -99,7 +100,7 @@ describe("the Agents panel", () => {
         link(`agent-${index}`, "parent", index < 8 ? "running" : "pending", index, { startedAt: Date.now() - 5_000 })),
     };
     const sessions = [session("parent", "Parent thread", 100), ...many.links.map((entry, index) => session(entry.id, `Agent ${index}`, 60 - index))];
-    renderApp(appWith(many, sessions, "parent"), { extensions: [agentsExtension] });
+    renderApp(appWith(many, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
 
     fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
     const heading = await screen.findByRole("heading", { name: "Agents" });
@@ -116,7 +117,7 @@ describe("the Agents panel", () => {
     const switchSession = vi.fn(async () => ({ version: 1 as const, updates: [] }));
     const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
     client.switchSession = switchSession;
-    renderApp(client, { extensions: [agentsExtension] });
+    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
 
     fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
     fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
@@ -129,13 +130,13 @@ describe("the navigator with agent threads", () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")];
     renderApp(appWith({ maxRunning: 8, links: [] }, sessions, "alpha", [
       { id: "m1", role: "user", text: "Reply with A", timestamp: 1 },
-    ]), { extensions: [agentsExtension] });
+    ]), { extensions: [workspaceExtension, agentsExtension] });
     expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
   });
 
   it("keeps agents out of the rail, badges the parent, and reveals them on request", async () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)];
-    renderApp(appWith(state, sessions, "parent"), { extensions: [agentsExtension] });
+    renderApp(appWith(state, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
     await screen.findByRole("navigation", { name: "Threads" });
 
     await waitFor(() => expect(screen.getByLabelText("1 agent running")).toBeTruthy());

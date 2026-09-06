@@ -33,6 +33,14 @@ async function sharedExportNames() {
     entryPoints: [join(ROOT, "src/renderer/extension-api.ts")],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022",
     metafile: true, logLevel: "silent", external: ["react", "react-dom", "react/jsx-runtime", "lucide-react"],
+    // Only the export names matter here. Vite resolves the icons and images the
+    // API's components import; esbuild has no loader for them, so they stay out.
+    plugins: [{
+      name: "assets-are-external",
+      setup(api) {
+        api.onResolve({ filter: /\.(svg|png|jpe?g|webp|gif|css)(\?.*)?$/ }, (args) => ({ path: args.path, external: true }));
+      },
+    }],
   });
   names.tau = Object.values(result.metafile.outputs)[0].exports;
   return names;

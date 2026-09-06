@@ -1,15 +1,20 @@
 /**
  * Review Kit's contract between its host entry and its desktop entry, and the
- * few Workspace Kit facts it stands on. The desktop side gathers the diff and
+ * Workspace Kit facts it stands on. The desktop side gathers the diff and
  * picks the model; the host side asks the model for a commit message.
  */
 export const REVIEW_HOST_EXTENSION_ID = "tau.review";
 
-/** The overlay the review command opens; Workspace Kit opens it by this id too. */
-export const REVIEW_OVERLAY = "review.workspace";
-
-/** Review Kit's panel in the instrument dock. */
-export const REVIEW_CHANGES_PANEL = "changes";
+// Review reads the worktree Workspace Kit owns: its host entry answers with
+// changes and diffs, its store arrives as a service, and it opens the review
+// overlay by this id, so the id is that kit's to name.
+export {
+  WORKSPACE_CHANGES_PANEL,
+  WORKSPACE_HOST_EXTENSION_ID,
+  WORKSPACE_REVIEW_OVERLAY as REVIEW_OVERLAY,
+  WORKSPACE_STORE_SERVICE,
+  type WorkspaceStoreApi,
+} from "../workspace/protocol.js";
 
 export type CommitMessageStyle = "conventional" | "gitmoji" | "plain";
 
@@ -26,14 +31,3 @@ export interface ReviewHostCommands {
     output: { message: string };
   };
 }
-
-/**
- * What Review needs from Workspace Kit: its extension id and the two commands
- * that answer with changes and with one file's diff. Ticket 06 owns
- * `kits/workspace/protocol.ts`; when it lands, these three declarations are
- * replaced by an import from it and nothing else here moves.
- */
-export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
-
-export const WORKSPACE_CHANGES_COMMAND = "changes";
-export const WORKSPACE_FILE_DIFF_COMMAND = "file-diff";

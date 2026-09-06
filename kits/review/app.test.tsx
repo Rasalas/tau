@@ -5,6 +5,7 @@ import type { UiFileDiff, UiWorkspaceChanges } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
+import { workspaceExtension } from "../workspace/desktop.js";
 import { reviewExtension } from "./desktop.js";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 
@@ -58,14 +59,14 @@ function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, revi
 }
 
 /**
- * The kit in the real workbench. Core lends a panel slot and an overlay slot;
- * everything inside them — the changed files, the diff and the commit message
- * the kit's own host entry writes — belongs to Review Kit.
+ * The kit in the real workbench, over the Workspace Kit it reads. Core lends
+ * an overlay slot; the diff and the commit message the kit's own host entry
+ * writes belong to Review Kit, the Changes panel to Workspace Kit.
  */
 describe("Review Kit in the workbench", () => {
   it("commits the worktree from the changes panel", async () => {
     const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: true, detail: "Committed and pushed." }));
-    renderApp(workbench({ commit }), { extensions: [reviewExtension] });
+    renderApp(workbench({ commit }), { extensions: [workspaceExtension, reviewExtension] });
 
     fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
     expect(await screen.findByTitle("src/a.ts")).toBeTruthy();
@@ -80,7 +81,7 @@ describe("Review Kit in the workbench", () => {
 
   it("opens the full review over a changed file and proposes a commit message", async () => {
     const suggest = vi.fn(async () => ({ message: "feat(review): describe the change" }));
-    renderApp(workbench({}, suggest), { extensions: [reviewExtension] });
+    renderApp(workbench({}, suggest), { extensions: [workspaceExtension, reviewExtension] });
 
     fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));

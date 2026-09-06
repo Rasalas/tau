@@ -11,7 +11,10 @@ describe("Signals in the workbench", () => {
   it("opens from the panel rail and streams what the workbench recorded", async () => {
     renderApp(undefined, { extensions: [observatoryExtension] });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Signals" }));
+    // The dock opens on the first panel by itself; with Signals alone, a click on
+    // its pressed rail button would collapse the dock again.
+    const rail = await screen.findByRole("button", { name: "Signals" });
+    if (rail.getAttribute("aria-pressed") !== "true") fireEvent.click(rail);
 
     expect(await screen.findByText("preview.mode")).toBeTruthy();
     expect(screen.getByText("Electron host unavailable; showing fixture state")).toBeTruthy();

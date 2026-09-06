@@ -166,6 +166,28 @@ shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`
 `WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage` —
 are exported as types beside them.
 
+It also exports the renderer's shared state and presentation:
+
+| Export | What it is |
+|---|---|
+| `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
+| `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
+| `useHostCapabilities`, `hostHasLocalFiles` | what the connected host announced; `hostHasLocalFiles` reads the ambient client when given none. |
+| `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
+| `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
+| `formatCost`, `threadCostLabel`, `threadUsageDetail` | core's money and token formatting. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. |
+| `loadReviewMode` | the full-window review surface, as its own chunk. |
+| the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
+
+`context.provideService(id, value)` and `context.useService(id, use)` are how
+the extensions of one product reach one another without core learning what
+travels between them: one publishes under an id its own protocol file names,
+the others use it. `use` runs as soon as the value exists — before or after
+the user's own activation — and whatever it returns is disposed when the
+provider withdraws or either side deactivates, so activation order does not
+matter. `actions.copyText(text)` puts text on the host's clipboard.
+
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
 `GlobalHostEvent` — what `context.emit` becomes on the wire, which a package's
@@ -174,7 +196,18 @@ own tests read off the host harness — …) and of a runtime backend
 `RuntimeTransport`, `RuntimePermissionLevel`, … — types only, so nothing of
 core is bundled), plus `HostCommandError`, `isExpectedCommandError`, the
 permission and isolation vocabularies, the `PiShortcut` and `PiUserKeybindings`
-types that `HostThread.shortcuts` and `runShortcut` speak, and the
+types that `HostThread.shortcuts` and `runShortcut` speak, the workspace
+vocabulary (`src/shared/workspace-kit-types.ts` and
+`turn-checkpoint-types.ts`), `HostActionResult`, `WorkspaceRef`,
+`isWorkspaceRelativePath`/`namesWorkspace`, `readBoundedFileContent`,
+`gitExecutable`/`findExecutable`, `assertAllowedCloneSource`, and the Git and
+checkpoint engine a workspace package needs: the `workspaceGit` namespace,
+`GitCoordinator`, `WorkspaceCheckpointLeaseManager`,
+`listLiveWorkspaceLeaseSessions`, `createWorkspaceKitCheckpointFeature` /
+`createWorkspaceKitCheckpointMaintenance`, `assistantAnchorForMessage` and the
+turn-checkpoint codec. Those modules stay in `src/main` for the same reason
+`host-text.ts` does: Tau's own Pi extension reads them under jiti, where no
+`tau/` specifier resolves (ADR 0014). It also re-exports the
 text projections a package that reads transcripts needs: `textFromContent`
 (content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
 to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a

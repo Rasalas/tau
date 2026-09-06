@@ -1,6 +1,5 @@
 import type { HostExtension } from "../host-extensions.js";
 import { loadBundledKitHostHalves, type BundledKitsOptions } from "../bundled-kits.js";
-import { createWorkspaceHostExtension } from "./workspace-host-extension.js";
 
 /**
  * Every host half Tau ships, as the host activates them: the kits that already
@@ -21,6 +20,5 @@ export function shippedHostExtensions(
 /** Host entries of the kits still built in the host. Safe mode starts with none of them. */
 export function bundledHostExtensions(): HostExtension[] {
   return [
-    createWorkspaceHostExtension(),
   ];
 }

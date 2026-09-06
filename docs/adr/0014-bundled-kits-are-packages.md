@@ -58,6 +58,46 @@ serving them costs nothing, so the alternative — same-origin modules from a
 build-time manifest — was not needed. The renderer's initial chunk shrinks by
 whatever the kits used to weigh.
 
+## Amendment, 2026-09-06: a kit's own state is a kit's own
+
+Moving Workspace Kit forced the question `context.workspaceStore` had been
+avoiding: the largest kit's store sat on `DesktopExtensionContext` and on
+`RendererServices`, so core constructed a kit's state and handed it to every
+extension. Nothing in core read it.
+
+**The kit owns the store.** It creates it in `activate`, binds it to its own
+components through a React context it owns (`withWorkspaceStore`), and
+publishes it for the kits built on it with two new members of the context:
+
+```ts
+provideService<T>(id: string, value: T): () => void;
+useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
+```
+
+Core routes them by id and never looks inside. `useService` runs its callback
+whenever the value exists — before or after the user's own activation — and
+disposes whatever the callback returned when the provider withdraws, so
+activation order does not matter and a withdrawn kit takes the contributions
+built on it with it. Workspace Kit publishes `tau.workspace/store`; Worktree
+Names fills its worktree-namer offer, Review Kit its commit-message offer and
+its review overlay.
+
+**`ThreadRow` became API, not the kit's own component.** It draws provider
+icons from `@lobehub/icons-static-svg` and a PNG through Vite's asset
+pipeline; neither bundler a package goes through (`bundleDesktopExtension`,
+`bundleHostExtension`) has a loader for those files. A thread is core's (ADR
+0003) and its row is how core draws one, so the row is published from `tau`
+and any navigator kit gets the same one.
+
+**The Git and checkpoint engine stayed in core.** `workspace-git.ts`,
+`workspace-checkpoint-lease.ts`, `workspace-kit-checkpoints.ts` and
+`pi-turn-checkpoint-extension.ts` are read by `.pi/extensions/tau-session-bridge.ts`
+under jiti, exactly as `host-text.ts` is, so they are published through
+`tau/host-extension` instead of moving. The one file the bridge and the kit
+share, `kits/workspace/checkpoint-protocol.ts`, names only `tau/host-extension`
+— the specifier NodeNext and jiti both resolve — and `protocol.ts` re-exports
+it. Ticket 09 splits the bridge and folds both back in.
+
 ## Consequences
 
 - `EXTENSION_API_VERSION` is 1.2.0. What a kit needs and cannot get is now an

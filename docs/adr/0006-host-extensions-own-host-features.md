@@ -16,7 +16,7 @@ The host gets an extension registry (`src/main/host-extensions.ts`). A host exte
 
 The renderer reaches every host extension through one desktop API call, `invokeHostExtension(extensionId, command, input)`, and receives from it through one global event, `extension-event`. A desktop extension sees its own host entry as `context.host` with `invoke` and `onEvent`, scoped to its id. Core routes by id and validates nothing about the payload; a host extension treats its input as untrusted.
 
-A feature package therefore has up to three entries: a Pi extension (agent behavior), a host extension (host behavior) and a desktop extension (views). They share a contract file the package owns, such as `src/shared/workspace-kit-protocol.ts`. Core never imports it.
+A feature package therefore has up to three entries: a Pi extension (agent behavior), a host extension (host behavior) and a desktop extension (views). They share a contract file the package owns, such as `kits/workspace/protocol.ts`. Core never imports it.
 
 Workspace Kit's Git and file commands are the first host extension. Safe mode starts the host with no host extensions.
 
