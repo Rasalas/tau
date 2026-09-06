@@ -1,63 +1,31 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-06T13:50:22.754Z",
+  "generatedAt": "2026-09-06T14:59:26.874Z",
   "mode": "safe",
   "wallClock": [
     {
       "scenario": "bootstrap",
-      "durationMs": 54.56758300000001
+      "durationMs": 66.17595899999992
     },
     {
       "scenario": "cold-switch",
-      "durationMs": 12.346332999999959
+      "durationMs": 12.1881249999999
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.027082999999947788
+      "durationMs": 0.027749999999969077
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 9.167083999999932
+      "durationMs": 11.000708000000031
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.002208999999993466
+      "durationMs": 0.0026669999999739957
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 0.7418749999999363
-    },
-    {
-      "scenario": "prewarm",
-      "durationMs": 0.00254199999994853
-    },
-    {
-      "scenario": "warm-switch",
-      "durationMs": 0.5126249999998436
-    },
-    {
-      "scenario": "prewarm",
-      "durationMs": 0.0025000000000545697
-    },
-    {
-      "scenario": "warm-switch",
-      "durationMs": 0.4111250000000837
-    },
-    {
-      "scenario": "bootstrap",
-      "durationMs": 62.375332999999955
-    },
-    {
-      "scenario": "cold-switch",
-      "durationMs": 33.923542
-    },
-    {
-      "scenario": "prewarm",
-      "durationMs": 0.0027079999999841675
-    },
-    {
-      "scenario": "warm-switch",
-      "durationMs": 30.469459000000143
+      "durationMs": 0.7142089999999826
     },
     {
       "scenario": "prewarm",
@@ -65,31 +33,63 @@
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 28.976957999999968
+      "durationMs": 1.0682500000000346
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.0025000000000545697
+      "durationMs": 0.0025840000000698637
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 39.930875000000015
-    },
-    {
-      "scenario": "prewarm",
-      "durationMs": 0.0029170000000249274
-    },
-    {
-      "scenario": "warm-switch",
-      "durationMs": 33.56687499999998
+      "durationMs": 0.655875000000151
     },
     {
       "scenario": "bootstrap",
-      "durationMs": 68.46112500000004
+      "durationMs": 22.01670899999999
     },
     {
       "scenario": "cold-switch",
-      "durationMs": 42.059208000000126
+      "durationMs": 37.641374999999925
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.003040999999939231
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 37.47325000000001
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.002375000000029104
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 16.098334000000023
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.0024170000001504377
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 32.95491599999991
+    },
+    {
+      "scenario": "prewarm",
+      "durationMs": 0.0029580000000350992
+    },
+    {
+      "scenario": "warm-switch",
+      "durationMs": 35.106042000000116
+    },
+    {
+      "scenario": "bootstrap",
+      "durationMs": 144.8517499999998
+    },
+    {
+      "scenario": "cold-switch",
+      "durationMs": 42.39733299999989
     },
     {
       "scenario": "prewarm",
@@ -97,54 +97,54 @@
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 38.69224999999983
+      "durationMs": 39.27087500000016
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.007749999999987267
+      "durationMs": 0.006125000000110958
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 20.98266600000011
+      "durationMs": 16.58195899999987
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.0032089999999698193
+      "durationMs": 0.002791000000115673
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 23.140457999999853
+      "durationMs": 32.139291000000185
     },
     {
       "scenario": "prewarm",
-      "durationMs": 0.003249999999979991
+      "durationMs": 0.002916000000141139
     },
     {
       "scenario": "warm-switch",
-      "durationMs": 25.66429100000005
+      "durationMs": 20.33116599999994
     }
   ],
   "summaries": {
     "bootstrap": {
-      "median": 62.375332999999955,
-      "p95": 67.85254580000003,
-      "maximum": 68.46112500000004,
-      "cold": 54.56758300000001
+      "median": 66.17595899999992,
+      "p95": 136.9841708999998,
+      "maximum": 144.8517499999998,
+      "cold": 66.17595899999992
     },
     "cold-switch": {
-      "median": 33.923542,
-      "p95": 41.24564140000011,
-      "maximum": 42.059208000000126
+      "median": 37.641374999999925,
+      "p95": 41.921737199999896,
+      "maximum": 42.39733299999989
     },
     "prewarm": {
-      "median": 0.0030000000000427463,
-      "p95": 0.016449849999969488,
-      "maximum": 0.027082999999947788
+      "median": 0.002937000000088119,
+      "p95": 0.015856250000047097,
+      "maximum": 0.027749999999969077
     },
     "warm-switch": {
-      "median": 24.40237449999995,
-      "p95": 39.249631249999915,
-      "maximum": 39.930875000000015
+      "median": 18.456562499999905,
+      "p95": 38.28218125000007,
+      "maximum": 39.27087500000016
     }
   },
   "hostRuns": 3,
@@ -159,11 +159,11 @@
         },
         {
           "name": "models",
-          "durationMs": 8.2
+          "durationMs": 15
         },
         {
           "name": "resources",
-          "durationMs": 11.4
+          "durationMs": 16.1
         },
         {
           "name": "session",
@@ -171,12 +171,12 @@
         },
         {
           "name": "total",
-          "durationMs": 20.2
+          "durationMs": 31.7
         }
       ],
-      "totalMs": 68.4,
+      "totalMs": 144.8,
       "subprocesses": 0,
-      "ipcBytes": 23565
+      "ipcBytes": 23589
     },
     {
       "mode": "safe",
@@ -184,28 +184,28 @@
       "phases": [
         {
           "name": "settings",
+          "durationMs": 0.6
+        },
+        {
+          "name": "models",
+          "durationMs": 11.6
+        },
+        {
+          "name": "resources-cache-hit",
+          "durationMs": 8.5
+        },
+        {
+          "name": "session",
           "durationMs": 0.2
         },
         {
-          "name": "models",
-          "durationMs": 10.2
-        },
-        {
-          "name": "resources-cache-hit",
-          "durationMs": 8
-        },
-        {
-          "name": "session",
-          "durationMs": 0.3
-        },
-        {
           "name": "total",
-          "durationMs": 18.8
+          "durationMs": 21
         }
       ],
-      "totalMs": 41.9,
+      "totalMs": 42.1,
       "subprocesses": 0,
-      "ipcBytes": 1346
+      "ipcBytes": 1352
     },
     {
       "mode": "safe",
@@ -217,11 +217,11 @@
         },
         {
           "name": "models",
-          "durationMs": 9.4
+          "durationMs": 10
         },
         {
           "name": "resources-cache-hit",
-          "durationMs": 9.7
+          "durationMs": 8.8
         },
         {
           "name": "session",
@@ -229,12 +229,12 @@
         },
         {
           "name": "total",
-          "durationMs": 20.1
+          "durationMs": 19.8
         }
       ],
-      "totalMs": 38.4,
+      "totalMs": 39,
       "subprocesses": 0,
-      "ipcBytes": 2051
+      "ipcBytes": 2059
     }
   ],
   "background": [
@@ -252,11 +252,11 @@
     },
     {
       "name": "project-label",
-      "durationMs": 0.3
+      "durationMs": 0.6
     },
     {
       "name": "bind",
-      "durationMs": 0.1
+      "durationMs": 0
     },
     {
       "name": "project-label",
