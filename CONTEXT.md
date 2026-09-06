@@ -81,4 +81,8 @@ file patches are historical lazy reads from the ref pair, never data copied
 into the entry or transport snapshot. Refs remain while the session/checkpoint
 is retained, are cloned into a fork's namespace with the same turn anchor, and
 are garbage-collected when the owning session is actually deleted or pruned;
-runtime eviction alone does not delete them.
+runtime eviction alone does not delete them. A ref counts as orphaned only when
+neither the persisted session file nor a live thread of that session claims it,
+and one written in the last ten minutes is kept whatever the journals say —
+publishing the pair and appending its entry are two steps, and no lease spans
+the gap once capture has released.
