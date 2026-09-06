@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { classifyAsset, evaluateBuildBudgets } from "./build-report.mjs";
-import { evaluateStartBudgets } from "./start-report.mjs";
+import { buildFixtureEnv, evaluateStartBudgets } from "./start-report.mjs";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 import { evaluateHostBudgets } from "./host-budget.mjs";
 import { evaluateGitBudgets } from "./git-budget.mjs";
@@ -51,6 +51,13 @@ describe("performance report checks", () => {
     expect(html).not.toMatch(/fonts\.(googleapis|gstatic)\.com/u);
     expect(styles).not.toMatch(/@import\s+url\(/u);
     expect(styles).not.toMatch(/backdrop-filter\s*:/u);
+  });
+
+  it("drops ELECTRON_RUN_AS_NODE from the start fixture's env so Electron stays Electron", () => {
+    const env = buildFixtureEnv({ PATH: "/usr/bin", ELECTRON_RUN_AS_NODE: "1" });
+    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    expect(env.ELECTRON_IS_DEV).toBe("0");
+    expect(env.PATH).toBe("/usr/bin");
   });
 
   it("fails startup when paint is missing or external requests appear", () => {

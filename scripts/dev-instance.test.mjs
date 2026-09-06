@@ -59,6 +59,7 @@ describe("parseArgs", () => {
       sharedSessions: false,
       port: undefined,
       workspace: undefined,
+      agentDir: undefined,
     });
   });
 
@@ -70,6 +71,7 @@ describe("parseArgs", () => {
       sharedSessions: true,
       port: undefined,
       workspace: undefined,
+      agentDir: undefined,
     });
   });
 
@@ -79,6 +81,14 @@ describe("parseArgs", () => {
 
   it("reads --workspace as a path", () => {
     expect(parseArgs(["--workspace", "/tmp/some-repo"]).workspace).toBe("/tmp/some-repo");
+  });
+
+  it("reads --agent-dir as a path", () => {
+    expect(parseArgs(["--agent-dir", "/tmp/shadow-agent"]).agentDir).toBe("/tmp/shadow-agent");
+  });
+
+  it("rejects a --agent-dir with no value", () => {
+    expect(() => parseArgs(["--agent-dir"])).toThrow(/--agent-dir needs a path/);
   });
 
   it("rejects a non-numeric --port", () => {

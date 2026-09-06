@@ -6,6 +6,9 @@ import { createServer } from "node:net";
 import { existsSync, mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+// Required from plain Node (not from inside Electron itself), the "electron"
+// package's default export is the real binary's path, not the app API.
+import electronBinaryPath from "electron";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEV_DIR = join(ROOT, ".tau-dev");
@@ -24,7 +27,7 @@ export function derivePort(seed, { base = PORT_BASE, range = PORT_RANGE } = {}) 
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
 export function parseArgs(argv) {
-  const options = { build: false, safe: false, fresh: false, sharedSessions: false, port: undefined, workspace: undefined };
+  const options = { build: false, safe: false, fresh: false, sharedSessions: false, port: undefined, workspace: undefined, agentDir: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--build") options.build = true;
@@ -39,8 +42,12 @@ export function parseArgs(argv) {
       const value = argv[++index];
       if (!value) throw new Error("--workspace needs a path");
       options.workspace = value;
+    } else if (arg === "--agent-dir") {
+      const value = argv[++index];
+      if (!value) throw new Error("--agent-dir needs a path");
+      options.agentDir = value;
     } else {
-      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --port <n>, --workspace <path>)`);
+      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --port <n>, --workspace <path>, --agent-dir <path>)`);
     }
   }
   return options;
@@ -100,13 +107,23 @@ async function main() {
   const userData = join(DEV_DIR, "userdata");
   const workspace = options.workspace ? resolve(options.workspace) : join(DEV_DIR, "workspace");
   const mainEntry = join(ROOT, "dist-electron", "main", "index.js");
-  const electronBin = join(ROOT, "node_modules", ".bin", "electron");
+  // The real binary, not node_modules/.bin/electron: that file is a Node
+  // shim that execs the binary as its own child and forwards signals to it.
+  // A caller who stops this instance later (npm run cdp -- stop) can only
+  // signal the pid spawned here directly; going through the shim leaves the
+  // real process orphaned the moment the shim itself is killed, since a
+  // killed process gets no chance to forward the signal it just received.
+  const electronBin = electronBinaryPath;
   // Pi's own session store, isolated per instance so its threads never land
   // in the user's real ~/.pi/agent/sessions and show up in their own sidebar.
   // --shared-sessions opts back into that real store for the rare test that
   // needs the user's own threads (auth, models, settings, extensions always
   // come from the real ~/.pi/agent either way — only the sessions dir moves).
   const sessionsDir = options.sharedSessions ? undefined : join(DEV_DIR, "pi-sessions");
+  // --agent-dir points PI_CODING_AGENT_DIR at a shadow directory (a test's own
+  // keybindings.json, say) without touching the real ~/.pi/agent; see the
+  // shadow-dir recipe in docs/agents/testing-the-app.md.
+  const agentDir = options.agentDir ? resolve(options.agentDir) : undefined;
 
   if (options.fresh) {
     assertUnderDevDir(userData);
@@ -143,7 +160,11 @@ async function main() {
     TAU_WORKSPACE: workspace,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
+    ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
   };
+  // Set in an agent's own shell, this would run Electron as plain Node
+  // instead (app.whenReady never exists); each script that spawns Electron
+  // must drop it itself.
   delete env.ELECTRON_RUN_AS_NODE;
 
   const child = spawn(electronBin, [".", `--remote-debugging-port=${port}`], {
@@ -154,11 +175,11 @@ async function main() {
 
   writeFileSync(
     join(DEV_DIR, "instance.json"),
-    `${JSON.stringify({ pid: child.pid, port, userData, workspace, sessionsDir: sessionsDir ?? null, logPath, startedAt: new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify({ pid: child.pid, port, userData, workspace, sessionsDir: sessionsDir ?? null, agentDir: agentDir ?? null, logPath, startedAt: new Date().toISOString() }, null, 2)}\n`,
   );
   console.log(
     `[dev-instance] pid=${child.pid} port=${port} userData=${userData} workspace=${workspace} `
-    + `sessions=${sessionsDir ?? "(shared: ~/.pi/agent/sessions)"} log=${logPath}`,
+    + `sessions=${sessionsDir ?? "(shared: ~/.pi/agent/sessions)"} agentDir=${agentDir ?? "(default: ~/.pi/agent)"} log=${logPath}`,
   );
 
   const forward = (signal) => () => { if (!child.killed) child.kill(signal); };

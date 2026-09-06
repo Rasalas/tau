@@ -63,6 +63,69 @@ export function keySpec(name) {
   throw new Error(`press: unknown key ${JSON.stringify(name)} (known: ${Object.keys(KEY_TABLE).join(", ")}, or any single character)`);
 }
 
+// CDP Input.dispatchKeyEvent's `modifiers` bitmask.
+const MODIFIER_BITS = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
+
+// Same spelling as the workbench's own chords (src/renderer/keybindings.ts):
+// "mod" is the platform's primary modifier, resolved below.
+const CHORD_MODIFIERS = {
+  mod: "mod",
+  ctrl: "ctrl",
+  control: "ctrl",
+  shift: "shift",
+  alt: "alt",
+  option: "alt",
+  meta: "meta",
+  cmd: "meta",
+  command: "meta",
+  super: "meta",
+};
+
+const CHORD_KEY_ALIASES = {
+  esc: "Escape",
+  escape: "Escape",
+  return: "Enter",
+  enter: "Enter",
+  tab: "Tab",
+  backspace: "Backspace",
+  up: "ArrowUp",
+  arrowup: "ArrowUp",
+  down: "ArrowDown",
+  arrowdown: "ArrowDown",
+  left: "ArrowLeft",
+  arrowleft: "ArrowLeft",
+  right: "ArrowRight",
+  arrowright: "ArrowRight",
+  space: " ",
+};
+
+function resolveChordKeySpec(name) {
+  const alias = CHORD_KEY_ALIASES[name];
+  if (alias) return keySpec(alias);
+  return keySpec(name.length === 1 ? name : name[0].toUpperCase() + name.slice(1));
+}
+
+/**
+ * Parses a chord like `mod+shift+d` or `mod+k`, the same spelling the
+ * workbench's own keybindings use: `mod` is the platform's primary modifier
+ * (meta on macOS, ctrl elsewhere). Returns `undefined` for a bare key
+ * (`press` handles that as a single keystroke, not a chord).
+ */
+export function parseChord(spec, { platform = process.platform } = {}) {
+  const parts = spec.trim().toLowerCase().split("+").map((part) => part.trim());
+  if (parts.length < 2 || parts.some((part) => !part)) return undefined;
+  const modifiers = new Set();
+  for (const part of parts.slice(0, -1)) {
+    const modifier = CHORD_MODIFIERS[part];
+    if (!modifier) throw new Error(`press: unknown modifier ${JSON.stringify(part)} in chord ${JSON.stringify(spec)}`);
+    modifiers.add(modifier === "mod" ? (platform === "darwin" ? "meta" : "ctrl") : modifier);
+  }
+  const key = resolveChordKeySpec(parts.at(-1));
+  let bits = 0;
+  for (const modifier of modifiers) bits |= MODIFIER_BITS[modifier];
+  return { key, modifiers: bits };
+}
+
 /** Splits `[port] <command> [...args]`; a leading all-digit token is the port. */
 export function parseCli(argv) {
   const args = [...argv];
@@ -217,7 +280,15 @@ async function runCommand(session, command, args) {
     return { typed: text, into: expr };
   }
   if (command === "press") {
-    if (args.length !== 1) throw new Error("usage: press <key>");
+    if (args.length !== 1) throw new Error("usage: press <key> (or a chord: mod+shift+d, mod+k)");
+    const chord = parseChord(args[0]);
+    if (chord) {
+      // A held modifier suppresses the browser's own "char"/textInput event
+      // for a real chord, so only rawKeyDown/keyUp are dispatched here.
+      await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: chord.modifiers, ...chord.key });
+      await session.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: chord.modifiers, ...chord.key });
+      return { pressed: args[0] };
+    }
     const spec = keySpec(args[0]);
     await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...spec });
     if (spec.text) await session.send("Input.dispatchKeyEvent", { type: "char", ...spec });
@@ -250,7 +321,38 @@ async function runCommand(session, command, args) {
   if (command === "toasts") {
     return evaluate(session, "toasts()");
   }
-  throw new Error(`unknown command ${JSON.stringify(command)} (known: eval, click, type, press, wait-for, screenshot, snapshot, toasts, pid)`);
+  throw new Error(`unknown command ${JSON.stringify(command)} (known: eval, click, type, press, wait-for, screenshot, snapshot, toasts, pid, stop)`);
+}
+
+/**
+ * SIGTERM, then SIGKILL if the process is still alive after a short grace
+ * period. Electron's main process does not reliably quit on SIGTERM alone
+ * (observed on macOS: it can sit for 10+ seconds without exiting, with no
+ * signal handler of its own to blame — src/main/index.ts installs none), so
+ * a bare `kill <pid>` is not a dependable way to stop an instance.
+ */
+export async function stopProcess(pid, {
+  kill = (targetPid, signal) => process.kill(targetPid, signal),
+  isAlive = (targetPid) => { try { process.kill(targetPid, 0); return true; } catch { return false; } },
+  wait: waitFn = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms)),
+  graceMs = 2000,
+  pollMs = 100,
+} = {}) {
+  kill(pid, "SIGTERM");
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline && isAlive(pid)) await waitFn(pollMs);
+  if (!isAlive(pid)) return { pid, escalated: false };
+  kill(pid, "SIGKILL");
+  return { pid, escalated: true };
+}
+
+/** /json/version proves the port is actually a live devtools endpoint before ps is trusted. */
+async function findLivePid(port) {
+  await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+  const psOutput = execFileSync("ps", ["-eo", "pid=,command="], { encoding: "utf8" });
+  const pid = pidFromPsOutput(psOutput, port);
+  if (!pid) throw new Error(`no process on this machine is listening with --remote-debugging-port=${port}`);
+  return pid;
 }
 
 async function main() {
@@ -274,12 +376,19 @@ async function main() {
 
   if (parsed.command === "pid") {
     try {
-      // /json/version proves the port is actually a live devtools endpoint before ps is trusted.
-      await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
-      const psOutput = execFileSync("ps", ["-eo", "pid=,command="], { encoding: "utf8" });
-      const pid = pidFromPsOutput(psOutput, port);
-      if (!pid) throw new Error(`no process on this machine is listening with --remote-debugging-port=${port}`);
-      console.log(pid);
+      console.log(await findLivePid(port));
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (parsed.command === "stop") {
+    try {
+      const pid = await findLivePid(port);
+      const result = await stopProcess(pid);
+      console.log(result.escalated ? `${pid} (SIGTERM was ignored; sent SIGKILL)` : `${pid}`);
     } catch (error) {
       console.error(error.message);
       process.exitCode = 1;

@@ -23,11 +23,28 @@ It builds only if `dist-electron/main/index.js` is missing (pass `--build` to fo
 
 The instance also gets its own Pi session store, `.tau-dev/pi-sessions`, via `PI_CODING_AGENT_SESSION_DIR`. Pi normally keeps every session under `~/.pi/agent/sessions/<encoded cwd>/`, and Tau's thread index lists all of them across every project — without this, an instance's test threads (a verification run's "Index n" sub-agent threads, for example) would land in the user's real session store and show up in their own Tau sidebar under "All projects". Auth, models, settings, and extensions still come from the real `~/.pi/agent`; only the session store moves. Pass `--shared-sessions` for the rare test that needs the user's own real threads (it skips the override and reads/writes `~/.pi/agent/sessions` directly — treat it like `--workspace` pointing outside `.tau-dev`: only use it when the test is specifically about the user's existing threads).
 
-Run it with `run_in_background` (or the harness's own backgrounding) — you need the terminal free to drive it. Flags: `--safe` (`TAU_NO_EXTENSIONS=1`), `--fresh` (wipes this instance's userData and its `.tau-dev/pi-sessions` first — safe, since it never wipes outside `.tau-dev`), `--shared-sessions` (use the real `~/.pi/agent/sessions` instead of the isolated one), `--workspace <path>` (an existing repo instead of the scratch one), `--port <n>` (pin the port).
+Run it with `run_in_background` (or the harness's own backgrounding) — you need the terminal free to drive it. Flags: `--safe` (`TAU_NO_EXTENSIONS=1`), `--fresh` (wipes this instance's userData and its `.tau-dev/pi-sessions` first — safe, since it never wipes outside `.tau-dev`), `--shared-sessions` (use the real `~/.pi/agent/sessions` instead of the isolated one), `--workspace <path>` (an existing repo instead of the scratch one), `--port <n>` (pin the port), `--agent-dir <path>` (sets `PI_CODING_AGENT_DIR`, Pi's own config directory, for this instance).
+
+### Testing a custom keybindings.json without touching the real one
+
+`--agent-dir <path>` points the instance at a directory of your own instead of the real `~/.pi/agent` — the one place Pi keeps `keybindings.json`. Build a shadow directory rather than editing the real one:
+
+```
+mkdir -p /tmp/tau-shadow-agent
+ln -s ~/.pi/agent/auth.json /tmp/tau-shadow-agent/auth.json
+ln -s ~/.pi/agent/settings.json /tmp/tau-shadow-agent/settings.json
+ln -s ~/.pi/agent/npm /tmp/tau-shadow-agent/npm
+echo '{"app.session.new": "mod+shift+d"}' > /tmp/tau-shadow-agent/keybindings.json
+npm run dev:instance -- --build --agent-dir /tmp/tau-shadow-agent
+```
+
+Symlink whatever the test needs from the real dir (auth, settings, the `npm` extension cache, …) so models and extensions keep working; write `keybindings.json` itself as a plain file so the instance reads your test's bindings. Never write into the real `~/.pi/agent` — the shadow directory is the only thing that ever changes.
 
 ## Keep it alive across turns
 
 Treat the verification loop, not one assistant turn, as the instance's lifetime. Do not stop it because one pass finished — a follow-up turn may reuse it. Before starting another one, check whether a live instance already answers: `npm run cdp -- pid` succeeds only while one is running, and `.tau-dev/instance.json` (written by `dev-instance.mjs`) names its port and userData.
+
+**But stop it once the task itself is done.** "Keep it alive across turns" is about not restarting between passes of the same task — it is not license to leave an instance running once you deliver your final report. When you are about to report your work as finished, stop every instance you started, by PID (see "Tear down only your own PID" below), before you report.
 
 ## Drive it
 
@@ -41,11 +58,12 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 - `eval <expr>` — runs an async JS expression in the renderer. In scope: `all(sel)`, `byText(sel, /re/)`, `rect(el)`, `setValue(el, v)`, `sleep(ms)`, `toasts()`.
 - `click <expr>` — resolves `expr` to an element and dispatches real `mouseMoved`/`mousePressed`/`mouseReleased` events at its center. A plain `el.click()` is ignored by React-controlled rows in the sidebar; this is why `click` exists instead of `eval`-ing `.click()`.
 - `type <expr> <text>` — sets a textarea's value through its native setter and fires `input`, the way React's controlled composer expects.
-- `press <key>` — dispatches a real key event: `Enter`, `Escape`, `Tab`, `Backspace`, an arrow, or any single character.
+- `press <key>` — dispatches a real key event: `Enter`, `Escape`, `Tab`, `Backspace`, an arrow, or any single character. Also takes a chord — `mod+shift+d`, `mod+k`, `ctrl+enter` — with the same spelling as the workbench's own keybindings; `mod` resolves to the platform's primary modifier (⌘ on macOS, Ctrl elsewhere). Use this to fire a keybinding instead of clicking.
 - `wait-for <expr> [timeoutMs]` — polls `expr` until truthy (default 15 s timeout).
 - `screenshot <file.png>` — writes a PNG via `Page.captureScreenshot`.
 - `toasts` — the current toast list as JSON.
 - `pid` — the instance's own Electron PID, found by cross-checking the port's devtools endpoint against `ps`. Kill only this PID.
+- `stop` — stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process does not reliably quit on SIGTERM alone (it installs no handler of its own) — use this instead of a bare `kill <pid>`, which can leave the process running indefinitely.
 
 ## Known traps
 
@@ -59,7 +77,7 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 
 ## Tear down only your own PID
 
-Stop exactly the PID `npm run cdp -- pid` names (or the one `dev-instance.mjs` printed). Never `pkill -f Electron` or `pkill -f electron` — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or in this worktree. Never point `TAU_USER_DATA` anywhere but a path under this worktree's `.tau-dev/`; the isolated instance must never read or write the user's real `~/Library/Application Support/tau`. The same goes for the Pi session store: leave `PI_CODING_AGENT_SESSION_DIR` at its default (`--shared-sessions` aside) so test threads never land in the user's real `~/.pi/agent/sessions`.
+Stop exactly the PID `npm run cdp -- pid` names (or the one `dev-instance.mjs` printed) — `npm run cdp -- stop` does this and escalates to SIGKILL if a bare `kill` would not have been enough. Never `pkill -f Electron` or `pkill -f electron` — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or in this worktree. Never point `TAU_USER_DATA` anywhere but a path under this worktree's `.tau-dev/`; the isolated instance must never read or write the user's real `~/Library/Application Support/tau`. The same goes for the Pi session store: leave `PI_CODING_AGENT_SESSION_DIR` at its default (`--shared-sessions` aside) so test threads never land in the user's real `~/.pi/agent/sessions`.
 
 ## Advanced: attached mode, where a `pi` TUI owns the session
 
