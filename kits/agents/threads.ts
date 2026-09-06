@@ -8,7 +8,7 @@ import {
   type AgentThreadLink,
   type AgentThreadStatus,
   type AgentsState,
-} from "../../shared/agents-kit-protocol.js";
+} from "./protocol.js";
 
 /** What Agents Kit reads from a tool call. The model may send anything. */
 export interface SpawnRequest {

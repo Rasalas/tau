@@ -2,16 +2,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AGENT_PARENT_ENTRY } from "../shared/agents-kit-protocol.js";
 import { writePersistedJson } from "./persisted-json.js";
-import { SessionLineageIndex, parentLinkEntry, parentThreadIdFromEntries, readSessionParent } from "./session-lineage.js";
+import { PARENT_LINK_ENTRY, SessionLineageIndex, parentLinkEntry, parentThreadIdFromEntries, readSessionParent } from "./session-lineage.js";
 import { readSessionFileStamp } from "./session-usage.js";
 
 const header = (id: string) =>
   JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-09-06T10:00:00.000Z", cwd: "/project" });
 
 const parentEntry = (parentThreadId: string) =>
-  JSON.stringify({ type: "custom", customType: AGENT_PARENT_ENTRY, id: "e1", parentId: null, timestamp: "2026-09-06T10:00:01.000Z", data: parentLinkEntry(parentThreadId, { depth: 1 }) });
+  JSON.stringify({ type: "custom", customType: PARENT_LINK_ENTRY, id: "e1", parentId: null, timestamp: "2026-09-06T10:00:01.000Z", data: parentLinkEntry(parentThreadId, { depth: 1 }) });
 
 const message = (id: string, text: string) =>
   JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-09-06T10:00:02.000Z", message: { role: "user", content: [{ type: "text", text }] } });
@@ -51,7 +50,7 @@ describe("a spawned thread's own session file", () => {
   it("reads the same link out of entries the host already holds", () => {
     expect(parentThreadIdFromEntries([
       { type: "message", id: "m1" },
-      { type: "custom", customType: AGENT_PARENT_ENTRY, data: parentLinkEntry("parent") },
+      { type: "custom", customType: PARENT_LINK_ENTRY, data: parentLinkEntry("parent") },
     ])).toBe("parent");
     expect(parentThreadIdFromEntries([{ type: "custom", customType: "other", data: { parentThreadId: "parent" } }])).toBeUndefined();
   });

@@ -23,7 +23,6 @@ import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
 import type { WorkspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
-import { agentsExtension } from "./agents-kit";
 import { piUiExtension } from "./pi-ui";
 import { packagesExtension } from "./packages-kit";
 import { questionnaireExtension } from "./questionnaire-kit";
@@ -271,7 +270,6 @@ export const bundledExtensions = [
   reviewExtension,
   observatoryExtension,
   computerUsePresentationExtension,
-  agentsExtension,
   piUiExtension,
   questionnaireExtension,
   packagesExtension,

@@ -14,6 +14,7 @@ export { errorMessage } from "./error-message";
 // The placement seam of ADR 0012: a kit that has the host draw a native view
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
 export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
+export { formatCost } from "./cost-format";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -28,6 +29,7 @@ export type {
   RegionProps,
   RegionContribution,
   StatusItemContribution,
+  ThreadLineage,
   OverlayProps,
   OverlayContribution,
   WorkbenchEvent,

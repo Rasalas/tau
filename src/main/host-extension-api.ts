@@ -8,10 +8,28 @@
  * bump `EXTENSION_API_VERSION` when you do.
  */
 export type * from "./host-extensions.js";
+/** The contracts types the host seam's own signatures speak, so a host half can name what it is handed. */
+export type {
+  ExtensionUiPrompt,
+  GlobalHostEvent,
+  HostExtensionSummary,
+  ThreadBackendKind,
+  UiComposerCommand,
+  UiMessage,
+  UiThreadUsage,
+  UiToolRun,
+} from "../shared/contracts.js";
 export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
 export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
 export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
+export {
+  readPersistedJson,
+  writePersistedJson,
+  type PersistedJsonLogger,
+  type PersistedJsonRead,
+  type ReadPersistedJsonOptions,
+  type WritePersistedJsonOptions,
+} from "./persisted-json.js";
+export { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
-// What `context.emit` becomes on the wire; a kit's own tests read it off the harness.
-export type { GlobalHostEvent } from "../shared/contracts.js";
 export type { WorkspaceRef } from "../shared/workspace-identity.js";

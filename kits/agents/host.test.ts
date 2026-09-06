@@ -3,23 +3,26 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { GlobalHostEvent, UiMessage, UiToolRun } from "../../shared/contracts.js";
 import {
-  AGENTS_HOST_EXTENSION_ID,
-  AGENT_CHILD_ENTRY,
-  AGENT_PARENT_ENTRY,
-  DEFAULT_MAX_RUNNING_AGENTS,
-  type AgentsState,
-} from "../../shared/agents-kit-protocol.js";
-import {
-  HostExtensionRegistry,
+  PARENT_LINK_ENTRY,
+  parentLinkEntry,
+  type GlobalHostEvent,
   type HostExtensionServices,
   type HostThread,
   type HostThreadLifecycle,
   type HostThreadStartOptions,
   type HostTurnObserver,
   type RuntimeExtensionContribution,
-} from "../host-extensions.js";
+  type UiMessage,
+  type UiToolRun,
+} from "tau/host-extension";
+import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import {
+  AGENTS_HOST_EXTENSION_ID,
+  AGENT_CHILD_ENTRY,
+  DEFAULT_MAX_RUNNING_AGENTS,
+  type AgentsState,
+} from "./protocol.js";
 import {
   createAgentsHostExtension,
   decodeStoredLinks,
@@ -28,9 +31,8 @@ import {
   readAgentsSettings,
   titleFromPrompt,
   writeAgentLinks,
-} from "./agents-host-extension.js";
-import { parentLinkEntry } from "../session-lineage.js";
-import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./agents-threads.js";
+} from "./host.js";
+import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./threads.js";
 
 interface FakeTool {
   name: string;
@@ -114,7 +116,7 @@ function harness() {
         if (startOptions.parent) {
           thread.entries.push({
             type: "custom",
-            customType: AGENT_PARENT_ENTRY,
+            customType: PARENT_LINK_ENTRY,
             data: parentLinkEntry(startOptions.parent.threadId, startOptions.parent.details),
           });
         }
@@ -133,7 +135,11 @@ function harness() {
     presentUi: () => () => undefined,
   };
 
-  const registry = new HostExtensionRegistry(services, (event) => events.push(event));
+  let invoke: (command: string, input?: unknown) => Promise<unknown> = () => Promise.reject(new Error("the kit is not activated"));
+  const activate = async (options: { settingsPath?: string; linksPath?: string }) => {
+    const registry = await activateHostKit(createAgentsHostExtension(options), services, (event) => events.push(event));
+    invoke = (command, input) => registry.invoke(AGENTS_HOST_EXTENSION_ID, command, input);
+  };
 
   /** Loads the kit's Pi extension into one runtime and returns its tools. */
   const runtime = (sessionId: string, cwd = "/project") => {
@@ -161,21 +167,20 @@ function harness() {
     }
   };
 
-  const state = async (): Promise<AgentsState> =>
-    await registry.invoke(AGENTS_HOST_EXTENSION_ID, "state") as AgentsState;
+  const state = async (): Promise<AgentsState> => await invoke("state") as AgentsState;
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { registry, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts };
+  return { activate, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string } = {}) {
   const bench = harness();
   bench.open("parent");
-  await bench.registry.activate(createAgentsHostExtension({
+  await bench.activate({
     linksPath: paths.linksPath ?? join(tmpdir(), `tau-agents-none-${randomUUID()}.json`),
     ...(paths.settingsPath ? { settingsPath: paths.settingsPath } : {}),
-  }));
+  });
   return bench;
 }
 
@@ -285,7 +290,7 @@ describe("Agents Kit", () => {
       parent: { threadId: "parent", details: expect.objectContaining({ depth: 1, spawnedBy: "tau_spawn_thread", title: "Reply with ALPHA" }) },
     }]);
     expect(bench.threads.get("child-1")!.entries).toEqual([
-      { type: "custom", customType: AGENT_PARENT_ENTRY, data: expect.objectContaining({ parentThreadId: "parent", spawnedBy: "tau_spawn_thread", depth: 1 }) },
+      { type: "custom", customType: PARENT_LINK_ENTRY, data: expect.objectContaining({ parentThreadId: "parent", spawnedBy: "tau_spawn_thread", depth: 1 }) },
     ]);
     expect(bench.threads.get("parent")!.entries).toEqual([
       { type: "custom", customType: AGENT_CHILD_ENTRY, data: expect.objectContaining({ threadId: "child-1", depth: 1, title: "Reply with ALPHA" }) },

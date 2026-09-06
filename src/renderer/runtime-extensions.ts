@@ -1,4 +1,5 @@
 import * as React from "react";
+import * as ReactDom from "react-dom";
 import * as JsxRuntime from "react/jsx-runtime";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
@@ -7,6 +8,9 @@ import * as tauApi from "./extension-api";
 /** Modules an extension may import by bare name; each resolves to the renderer's own copy. */
 export const SHARED_MODULES: Record<string, object> = {
   react: React,
+  // `flushSync` and `createPortal` reach into the running root; a second copy
+  // of react-dom holds its own internals and silently does nothing.
+  "react-dom": ReactDom,
   "react/jsx-runtime": JsxRuntime,
   tau: tauApi,
 };

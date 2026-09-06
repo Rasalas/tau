@@ -1,14 +1,9 @@
-import { lazy, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { CornerUpLeft } from "lucide-react";
-import {
-  AGENTS_HOST_EXTENSION_ID,
-  AGENTS_STATE_EVENT,
-} from "../../shared/agents-kit-protocol";
-import { HostUnavailableError, type DesktopExtension, type RegionProps } from "../extension-system";
-import { useThreadStore } from "../workbench-context";
-import { agentsStore, lineageOf } from "./agents-store";
-
-const LazyAgentsPanel = lazy(() => import("./agents-panel").then(({ AgentsPanel }) => ({ default: AgentsPanel })));
+import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
+import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT } from "./protocol.js";
+import { AgentsPanel } from "./panel.js";
+import { agentsStore, lineageOf } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
 export function SpawnedBy({ snapshot, actions }: RegionProps) {
@@ -53,7 +48,7 @@ export const agentsExtension: DesktopExtension = {
     void context.host.invoke("state").then(apply).catch((error: unknown) => {
       if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the spawned threads", error);
     });
-    context.registerPanel({ id: "agents", label: "Agents", glyph: "agents", order: 40, Component: LazyAgentsPanel });
+    context.registerPanel({ id: "agents", label: "Agents", glyph: "agents", order: 40, Component: AgentsPanel });
     context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, Component: SpawnedBy });
     context.registerCommand({
       id: "agents.open",
@@ -67,3 +62,5 @@ export const agentsExtension: DesktopExtension = {
     };
   },
 };
+
+export default agentsExtension;

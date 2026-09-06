@@ -26,13 +26,13 @@ const { bundleDesktopExtension } = await import(join(MAIN, "desktop-extensions.j
  */
 async function sharedExportNames() {
   const names = {};
-  for (const specifier of ["react", "react/jsx-runtime", "lucide-react"]) {
+  for (const specifier of ["react", "react-dom", "react/jsx-runtime", "lucide-react"]) {
     names[specifier] = Object.keys(await import(specifier));
   }
   const result = await build({
     entryPoints: [join(ROOT, "src/renderer/extension-api.ts")],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022",
-    metafile: true, logLevel: "silent", external: ["react", "react/jsx-runtime", "lucide-react"],
+    metafile: true, logLevel: "silent", external: ["react", "react-dom", "react/jsx-runtime", "lucide-react"],
   });
   names.tau = Object.values(result.metafile.outputs)[0].exports;
   return names;
