@@ -1,8 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcutsState, type PiUserKeybindings } from "../../shared/keybindings-protocol.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import type { HostExtension, HostExtensionContext, PiUserKeybindings } from "tau/host-extension";
+import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcutsState } from "./protocol.js";
 
 /** The user's entries in Pi's keybindings.json; a missing or broken file counts as empty. */
 export async function readPiUserKeybindings(agentDir: string): Promise<PiUserKeybindings> {
@@ -33,16 +32,15 @@ const optionalString = (input: unknown, key: string): string | undefined => {
 };
 
 /**
- * Host entry of the Runtime Controls extension: Pi's keybindings.json and the
- * shortcuts Pi extensions registered, so the workbench can honour both.
+ * Keybindings' host entry: Pi's keybindings.json and the shortcuts Pi
+ * extensions registered, so the workbench can honour both.
  */
-export function createKeybindingsHostExtension(options: { agentDir?: string } = {}): HostExtension {
+export function createKeybindingsHostExtension(): HostExtension {
   return {
     id: KEYBINDINGS_HOST_EXTENSION_ID,
-    name: "Runtime Controls",
-    permissions: ["sessions"],
+    name: "Keybindings",
     activate(context: HostExtensionContext) {
-      const agentDir = () => options.agentDir ?? getAgentDir();
+      const agentDir = () => context.services.agentDir;
       context.registerCommand("pi-keybindings", async (): Promise<PiKeybindingsState> => {
         const user = await readPiUserKeybindings(agentDir());
         const bindings: Record<string, string[]> = {};
@@ -67,3 +65,5 @@ export function createKeybindingsHostExtension(options: { agentDir?: string } = 
     },
   };
 }
+
+export default createKeybindingsHostExtension;

@@ -21,6 +21,7 @@ async function workspace(): Promise<string> {
 async function client(cwd: string) {
   const services: HostExtensionServices = {
     cwd: () => cwd,
+    agentDir: "/agent",
     safeMode: false,
     log: () => undefined,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),

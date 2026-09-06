@@ -124,7 +124,9 @@ for what the ask tool folds into a dialog's title and options —
 `OptionPreview` types.
 
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
-`isExpectedCommandError`, the permission and isolation vocabularies, and the
+`isExpectedCommandError`, the permission and isolation vocabularies, the
+`PiShortcut` and `PiUserKeybindings` types that `HostThread.shortcuts` and
+`runShortcut` speak, and the
 text projections a package that reads transcripts needs: `textFromContent`
 (content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
 to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
@@ -170,6 +172,11 @@ A package's `permissions` array draws from a fixed list
 | `runtime:extend` | register Pi runtime extensions, runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
+
+`services.agentDir` is ungated: it is the path of Pi's own configuration
+directory (`~/.pi/agent`, or what `PI_AGENT_DIR` names), and reading inside it
+is ordinary file work that no permission gates either. A worker gets it in its
+bootstrap, so it costs no round trip.
 
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like

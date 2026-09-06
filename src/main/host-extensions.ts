@@ -302,6 +302,12 @@ export interface HostUiPresenter {
 export interface HostExtensionServices {
   /** The workspace the host currently has open. */
   cwd(): string;
+  /**
+   * Pi's own configuration directory (`~/.pi/agent`, or what `PI_AGENT_DIR`
+   * names). The path only: reading inside it is ordinary file work, which no
+   * permission gates, so this one is ungated too.
+   */
+  readonly agentDir: string;
   readonly safeMode: boolean;
   log(label: string, detail?: string): void;
   /** Opens a project the way a project switch does; the same path re-activates it. */

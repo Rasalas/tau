@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { ExtensionUiPrompt, GlobalHostEvent } from "../../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices, type HostThread, type HostUiPresenter, type RuntimeExtensionContribution } from "../host-extensions.js";
 import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
-import { createKeybindingsHostExtension, readPiUserKeybindings } from "./keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
 
 function harness(thread?: Partial<HostThread>) {
@@ -12,6 +11,7 @@ function harness(thread?: Partial<HostThread>) {
   const presenters: HostUiPresenter[] = [];
   const services: HostExtensionServices = {
     cwd: () => "/project",
+    agentDir: "/agent",
     safeMode: false,
     log: vi.fn(),
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
@@ -57,29 +57,6 @@ describe("Computer Use host extension", () => {
     expect(contribution?.enabledFor?.({ global: {}, project: {} })).toBe(true);
     expect(contribution?.enabledFor?.({ global: { packages: ["npm:@amaster.ai/pi-computer-use"] }, project: {} })).toBe(false);
     expect(contribution?.enabledFor?.({ global: {}, project: { packages: [{ source: "npm:@amaster.ai/pi-computer-use@1.0.0" }] } })).toBe(false);
-  });
-});
-
-describe("Keybindings host extension", () => {
-  it("reads the user's keybindings.json and routes Pi shortcuts to the thread", async () => {
-    const { mkdtemp, writeFile } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const agentDir = await mkdtemp(join(tmpdir(), "tau-keys-"));
-    await writeFile(join(agentDir, "keybindings.json"), JSON.stringify({ "app.session.new": "ctrl+n", "app.interrupt": ["escape", "ctrl+c"], "app.exit": 7 }));
-    const ran: string[] = [];
-    const { registry } = harness({
-      sessionId: "s1",
-      shortcuts: (bindings) => [{ keys: "ctrl+shift+p", description: `pick (${Object.keys(bindings).length} user bindings)`, source: "persona.ts" }],
-      runShortcut: async (keys) => { ran.push(keys); return keys === "ctrl+shift+p"; },
-    });
-    await registry.activate(createKeybindingsHostExtension({ agentDir }));
-    await expect(registry.invoke("tau.runtime-settings", "pi-keybindings")).resolves.toEqual({ bindings: { "app.session.new": ["ctrl+n"], "app.interrupt": ["escape", "ctrl+c"] } });
-    await expect(registry.invoke("tau.runtime-settings", "shortcuts")).resolves.toEqual({ sessionId: "s1", shortcuts: [{ keys: "ctrl+shift+p", description: "pick (2 user bindings)", source: "persona.ts" }] });
-    await registry.invoke("tau.runtime-settings", "run-shortcut", { keys: "ctrl+shift+p" });
-    await expect(registry.invoke("tau.runtime-settings", "run-shortcut", { keys: "ctrl+x" })).rejects.toThrow("Pi has no shortcut for ctrl+x.");
-    expect(ran).toEqual(["ctrl+shift+p", "ctrl+x"]);
-    await expect(readPiUserKeybindings(join(agentDir, "missing"))).resolves.toEqual({});
   });
 });
 

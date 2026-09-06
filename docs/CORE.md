@@ -27,7 +27,7 @@ Threads
 Workbench
 
 - the window, the two layout slots (left sidebar, right dock) and shared modals
-- command palette and keybinding dispatch; the chords themselves are extension contributions
+- command palette and keybinding dispatch; the chords themselves are extension contributions — `kits/keybindings/` binds Tau's own, replaces them from `~/.pi/agent/keybindings.json` and adds one command per Pi extension shortcut
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
 - one versioned request/push protocol between client and host, with reconnect and replay; Electron IPC is one transport of it, and the one generic method host extensions use travels on it
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen

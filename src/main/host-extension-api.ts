@@ -12,4 +12,5 @@ export { HostCommandError, isExpectedCommandError } from "./host-extension-error
 export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
 export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
+export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 export type { WorkspaceRef } from "../shared/workspace-identity.js";

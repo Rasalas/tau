@@ -7,6 +7,7 @@ function services(): HostExtensionServices & { logs: string[] } {
   return {
     logs,
     cwd: () => "/project",
+    agentDir: "/agent",
     safeMode: false,
     log: (label, detail) => { logs.push(detail ? `${label} ${detail}` : label); },
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
