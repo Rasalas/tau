@@ -3,6 +3,7 @@ import type {
   ThreadIndexSnapshot,
   UiComposerCommand,
   UiContextUsage,
+  UiThreadUsage,
   UiMessage,
   UiModel,
   UiTaskProgress,
@@ -50,6 +51,8 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscript
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
   contextUsage?: UiContextUsage;
+  /** What the thread has spent; absent when the host has not counted it. */
+  usage?: UiThreadUsage;
   /** Whether another page exists; omitted by older protocol peers. */
   hasMore?: boolean;
 }

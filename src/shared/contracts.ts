@@ -165,6 +165,17 @@ export interface PreparedPrompt {
   sourceFingerprint: string;
 }
 
+/** Tokens and money a thread has used so far, summed over its assistant messages. */
+export interface UiThreadUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  turns: number;
+}
+
 export interface UiSession {
   id: string;
   path: string;
@@ -184,6 +195,8 @@ export interface UiSession {
   backendKind?: ThreadBackendKind;
   /** Provider of the thread's selected model, when the host has observed it. */
   modelProvider?: string;
+  /** What the thread has spent; absent when the host has not counted it. */
+  usage?: UiThreadUsage;
 }
 
 export interface UiProject {
