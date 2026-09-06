@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-02. Extended 2026-09-04 with the `tau-ext` scheme and the renderer sandbox, and 2026-09-05 with isolated host packages.
+Accepted, 2026-09-02. Extended 2026-09-04 with the `tau-ext` scheme and the renderer sandbox, 2026-09-05 with isolated host packages, and 2026-09-06 with an enforced `network`.
 
 ## Context
 
@@ -54,10 +54,21 @@ Everything is asynchronous where the in-process facade is not, `exclusive(work)`
 
 **One activation model.** The worker-backed extension is a plain `HostExtension` the registry activates like any other, so `PiHost` and the seam never learn that a worker exists. `context.fail(reason)` is the one addition: a worker that throws, exits, exceeds its heap or misses the command timeout is terminated, its package deactivated with the reason, and the host keeps running. The Inspector and the extension page show the mode and the failure.
 
+## 2026-09-06: `network` is enforced in the worker
+
+`network` was in the vocabulary and in the approval box but gated nothing: no `HostExtensionServices` member maps to it, because a package that dials out never asks the host for anything. It is the one permission the main side cannot see, so the worker enforces it for itself.
+
+**The grant travels in the bootstrap.** `WorkerBootstrap` now carries `permissions`, the same list `createWorkerHostExtension` already had (absent means empty — an isolated extension is always a package). Nothing else changed on the wire.
+
+**Two doors, both shut before the bundle loads.** Without `network`, `host-extension-worker.ts` replaces whichever of `fetch`, `WebSocket`, `EventSource` and `XMLHttpRequest` this Node defines on the worker global, and extends the existing `Module._load` hook to refuse `http`, `https`, `net`, `tls`, `dgram`, `http2` and `dns` — under any `node:` prefix and any submodule, so `node:dns/promises` is the same door as `dns`. Both throw `Extension <id> lacks permission network` and log `host-extension.denied` through the port, so the Inspector and Signals show a denied socket exactly like a denied service member. `child_process` is not on the list: spawning stays governed by `process`. A bundled `ws` or `undici` needs `net`/`tls` and hits the same wall.
+
+**In-process is where it stops.** A package granted `in-process` runs with everything the host process can reach; there is no interception point that would hold there, and adding one would be theatre. `in-process` is itself the grant, and for such a package `network` is advisory — Settings says so in the approval box. Bundled kits keep the full facade as before.
+
 ## Consequences
 
 - A user sees what a package wants before any of its code runs, in either scope.
 - A desktop package cannot reach raw IPC: `window.tau` is defined away at bundle time and `globalThis.__tauShared.tau` is the only bridge.
 - A host package can no longer freeze the workbench with a synchronous loop, exhaust the host's heap, or crash it by exiting. It still reads files through Node directly and can still lie in its manifest: the worker bounds the blast radius, it is not an OS sandbox.
 - An isolated package pays a round trip per service call and cannot hold a live host object, which is why a kit that needs one declares `in-process` — and asks the user for it.
+- A worker package that did not ask for `network` cannot open a socket, and the user sees the attempt. A package that asked for `in-process` can, which is one more reason to read that line in the approval box.
 - The CSP no longer allows arbitrary blob scripts, so an injection that can build a string can no longer turn it into a module.

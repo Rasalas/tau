@@ -16,7 +16,16 @@ export const PERMISSION_WORKSPACE_SWITCH = "workspace:switch" as const;
 export const PERMISSION_SESSIONS = "sessions" as const;
 export const PERMISSION_RUNTIME_EXTEND = "runtime:extend" as const;
 export const PERMISSION_PROCESS = "process" as const;
+/**
+ * Outbound network access. Enforced inside the worker a package is isolated in
+ * (`fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket
+ * builtins throw without it); advisory for an `in-process` package, which by
+ * definition runs with everything the host process can reach.
+ */
 export const PERMISSION_NETWORK = "network" as const;
+
+/** The one line Settings shows a package that runs in-process without `network`. */
+export const NETWORK_ADVISORY_NOTE = "network access is enforced only for isolated packages";
 
 /**
  * Where a package's host half runs. `worker` is the default for packages: a

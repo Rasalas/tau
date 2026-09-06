@@ -116,7 +116,7 @@ A package's `permissions` array draws from a fixed list
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. |
 | `runtime:extend` | register Pi runtime extensions, runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
 | `process` | spawn child processes and look up commands on the host's PATH. |
-| `network` | make outbound network requests. |
+| `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
 
 A package with no `permissions` field asks for nothing; a bundled kit (which
 declares nothing either, by construction) keeps the full, unguarded facade —
@@ -127,13 +127,12 @@ and is logged as `host-extension.denied` (`guardedServices`, wraps
 `HostExtensionServices`; the same check runs for a worker's calls, dispatched
 into the identical guarded facade from the main side).
 
-**Discrepancy worth flagging:** `network` is declared in the vocabulary and
-documented as the permission for outbound requests, but nothing in the host
-or worker sandbox currently enforces it — no `HostExtensionServices` member
-is gated on it (`HOST_SERVICE_PERMISSIONS` has no entry that maps to
-`network`), and a worker's Node `fetch`/`http`/`https` are not blocked or
-proxied. Declaring or omitting `network` is informational today; do not treat
-it as an enforced boundary until it is wired to something.
+`network` is the one permission not in `HOST_SERVICE_PERMISSIONS`: a package
+that dials out never asks the host for anything, so there is no member to gate.
+The worker enforces it for itself instead — see §6. For an `in-process`
+package it stays advisory, because a package running in the host process can
+reach everything the host process can; that is what granting `in-process`
+means.
 
 ### Isolation
 
@@ -293,6 +292,10 @@ its own. There is no revocation list: removing a key from
   terminates the worker and deactivates the package with the reason recorded.
   A synchronous infinite loop inside a worker's command is also survivable —
   the worker that hangs is not the main process.
+- **A denied permission is not a failure:** reaching past the grant — a guarded
+  service member, or the network without `network` — throws inside the command
+  and logs `host-extension.denied`, but the package stays active. Only the
+  three-strikes rule above can turn repeated denials into a deactivation.
 - **What the user sees:** the deactivation reason is recorded in
   `summaries()` and shown on the package's own settings page — never a crash
   or a frozen workbench. On the renderer side every slot a package renders
@@ -304,9 +307,10 @@ its own. There is no revocation list: removing a key from
 
 By default a package's host half runs in a worker thread: no Electron
 (`import "electron"` throws, intercepted through `Module._load`, the only hook
-Node 22.14 gives Electron for this), a 256 MB heap cap, and a facade that only
-carries plain data across the port — nothing that hands out a live object.
-From `src/main/host-extension-worker-protocol.ts` and ADR 0009:
+Node 22.14 gives Electron for this), no network unless it asked for it, a
+256 MB heap cap, and a facade that only carries plain data across the port —
+nothing that hands out a live object. From
+`src/main/host-extension-worker-protocol.ts` and ADR 0009:
 
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
 |---|---|
@@ -329,6 +333,24 @@ the permission list ("runs inside the host process, outside the worker
 isolation") and is recorded in the grant, so a package that later leaves the
 worker has to be approved again even if its permission list did not change.
 
+### The network, in a worker
+
+A worker that was not granted `network` has no way out. Before the package's
+bundle is loaded, `host-extension-worker.ts` replaces whichever of `fetch`,
+`WebSocket`, `EventSource` and `XMLHttpRequest` this Node defines on the worker
+global, and refuses `require`/`import` of `http`, `https`, `net`, `tls`,
+`dgram`, `http2` and `dns` — under any `node:` prefix and any submodule, so
+`node:dns/promises` is the same door as `dns`. Both throw
+`Extension <id> lacks permission network` and log `host-extension.denied`, so
+Signals and the Inspector show a denied socket exactly like a denied service
+member. A bundled `ws` or `undici` needs `net`/`tls`, so it hits the same wall.
+`child_process` is *not* on that list: spawning stays governed by `process`.
+
+An `in-process` package is a different story. It runs with everything the host
+process can reach, so `network` there is advisory and the approval box says so:
+"network access is enforced only for isolated packages". If you want the
+permission to mean something, stay in the worker.
+
 Bundled kits are never packages and are always in-process by construction —
 they register runtime backends and Pi extensions, hand out session managers
 and take part in the activation transaction, none of which the worker table
@@ -338,8 +360,9 @@ above can carry.
 
 `npm run smoke:extension-install` is the end-to-end test of the installer
 path: keygen, sign, install a folder and a Git source into a temp home, list
-them, tamper with a signed file and watch the scan refuse it, then remove
-both. It needs `npm run build` first (it imports the compiled main modules
+them, run the signed package's host half in its worker (one command inside its
+grant, one that dials out without `network` and is refused), tamper with a
+signed file and watch the scan refuse it, then remove both. It needs `npm run build` first (it imports the compiled main modules
 from `dist-electron/main`). Run it as-is to see the whole install/sign/verify
 path exercised without opening Tau at all:
 
@@ -350,7 +373,7 @@ npm run smoke:extension-install
 
 Its fixture is generated inline (`writePackage` in
 `scripts/extension-install-smoke.mjs`) rather than checked into the repo — it
-writes a manifest and a one-command host half to a temp directory, signs it,
+writes a manifest and a two-command host half to a temp directory, signs it,
 and drives it through `installExtensionSource`, `listExtensionPackages` and
 `loadHostExtensionPackages` directly, including running its worker and
 invoking a command. Read it for the lowest-level API surface (no Electron, no

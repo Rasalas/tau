@@ -52,10 +52,12 @@ async function writePackage(root, id, name) {
   const dir = join(root, name);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "tau-extension.json"), `${JSON.stringify({ id, name, version: "1.0.0", permissions: ["workspace:read"], host: "./host.ts" }, null, 2)}\n`);
-  // The host half answers one command, so the smoke can run it in its worker.
+  // The host half answers two commands, so the smoke can run it in its worker:
+  // one inside its grant, one that dials out without asking for "network".
   await writeFile(join(dir, "host.ts"), `export default {
   activate(context) {
     context.registerCommand("ping", async (input) => ({ pong: input.n * 2, cwd: await context.services.cwd() }));
+    context.registerCommand("dial", async () => (await fetch("http://127.0.0.1:1/")).status);
   },
 };
 `);
@@ -132,16 +134,26 @@ const loaded = await loadHostExtensionPackages(project, join(home, ".pi", "agent
 const isolated = loaded.extensions.find((entry) => entry.extension.id === "acme.hello");
 if (!isolated) fail(`the approved package did not load: ${JSON.stringify(loaded.errors)}`);
 if (isolated.extension.isolation !== "worker") fail(`the package runs ${isolated.extension.isolation}, not in a worker`);
+const logs = [];
 const registry = new HostExtensionRegistry(
-  { cwd: () => project, safeMode: false, log: () => undefined },
+  { cwd: () => project, safeMode: false, log: (label, detail) => logs.push(`${label} ${detail ?? ""}`.trim()) },
   () => undefined,
   { commandTimeoutMs: 20_000 },
 );
 if (!await registry.activate(isolated.extension)) fail(`the worker did not start: ${registry.summaries()[0]?.error}`);
 const answer = await registry.invoke("acme.hello", "ping", { n: 21 });
 if (answer.pong !== 42 || answer.cwd !== project) fail(`the worker answered ${JSON.stringify(answer)}`);
-await registry.dispose();
 step("worker isolation", `acme.hello answered ping from its worker (${JSON.stringify(answer)})`);
+
+// 8b. The same package asked for no "network", so its worker has no way out.
+const denied = await registry.invoke("acme.hello", "dial").then(
+  (status) => fail(`the worker reached the network without the permission (status ${status})`),
+  (error) => error.message,
+);
+if (!denied.includes("lacks permission network")) fail(`dialling out failed for the wrong reason: ${denied}`);
+if (!logs.some((line) => line.startsWith("host-extension.denied"))) fail(`the denial was not logged: ${logs.join(" | ")}`);
+await registry.dispose();
+step("network denied", denied);
 
 // 9. A file that no longer matches its signed hash stops the package loading.
 await writeFile(join(source, "host.ts"), "export default { activate() { /* changed after signing */ } };\n");

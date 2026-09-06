@@ -20,12 +20,40 @@ import {
 /**
  * The entry an isolated host extension runs in. It loads the package's
  * compiled bundle, hands it a facade that answers by message, and holds no
- * Electron and no live host object of its own.
+ * Electron and no live host object of its own. Without the `network` grant it
+ * also holds no socket: the guards below run before the bundle is loaded.
  */
 
 const port = parentPort;
 if (!port) throw new Error("host-extension-worker must run inside a worker thread");
 const boot = workerData as WorkerBootstrap;
+
+const send = (message: WorkerToHostMessage): void => { port.postMessage(message); };
+
+const granted = new Set(boot.permissions);
+
+/**
+ * Node builtins that open a socket. `network` is the only permission the main
+ * side cannot enforce for itself — nothing crosses the port when a package
+ * dials out — so the worker closes these doors before the bundle is loaded.
+ * `child_process` is deliberately absent: it stays governed by `process`.
+ */
+const NETWORK_MODULES = new Set(["http", "https", "net", "tls", "dgram", "http2", "dns"]);
+
+/** Globals that reach the network without a `require`; only what this Node has. */
+const NETWORK_GLOBALS = ["fetch", "WebSocket", "EventSource", "XMLHttpRequest"] as const;
+
+/** Reads like a denied service member, so the Inspector and Signals show both the same way. */
+function denyNetwork(what: string): never {
+  const message = `Extension ${boot.id} lacks permission network`;
+  send({ t: "log", label: "host-extension.denied", detail: `${message} (${what})` });
+  throw new Error(message);
+}
+
+/** `node:dns/promises` and `dns` are the same door. */
+function moduleName(request: string): string {
+  return (request.startsWith("node:") ? request.slice(5) : request).split("/")[0] ?? request;
+}
 
 // Electron's API only exists in the main process, and reaching it from here
 // would be the hole the isolation is meant to close. `Module._load` is the one
@@ -37,9 +65,23 @@ loader._load = (request: string, parent: unknown, isMain: boolean): unknown => {
   if (request === "electron" || request.startsWith("electron/")) {
     throw new Error(`Extension ${boot.id} runs isolated in a worker, where Electron is not available. Declare "isolation": "in-process" in its manifest if it must run in the host process.`);
   }
+  if (!granted.has("network") && NETWORK_MODULES.has(moduleName(request))) denyNetwork(`require("${request}")`);
   return load(request, parent, isMain);
 };
 /* eslint-enable no-underscore-dangle */
+
+// Before the bundle runs, so its top-level code cannot capture the real ones.
+if (!granted.has("network")) {
+  for (const name of NETWORK_GLOBALS) {
+    if (!(name in globalThis)) continue;
+    Object.defineProperty(globalThis, name, {
+      value: function denied(): never { return denyNetwork(name); },
+      writable: true,
+      configurable: true,
+      enumerable: false,
+    });
+  }
+}
 
 /** Facade members that would hand out a live object; a worker cannot have them (ADR 0009). */
 const UNAVAILABLE = new Set([
@@ -50,8 +92,6 @@ const UNAVAILABLE = new Set([
   "setPermissionLevel",
   "presentUi",
 ]);
-
-const send = (message: WorkerToHostMessage): void => { port.postMessage(message); };
 
 let nextId = 1;
 const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();

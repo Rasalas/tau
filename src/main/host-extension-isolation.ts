@@ -39,6 +39,8 @@ import {
  *
  * Permission enforcement stays here — the services this dispatches into are
  * the ones `guardedServices` wrapped, so a worker cannot reach past its grant.
+ * `network` is the exception: nothing crosses the port when a package dials
+ * out, so the grant travels in the bootstrap and the worker enforces it.
  */
 
 export interface WorkerHostExtensionOptions {
@@ -132,7 +134,14 @@ export function createWorkerHostExtension(options: WorkerHostExtensionOptions): 
 async function activateWorker(options: WorkerHostExtensionOptions, context: HostExtensionContext): Promise<() => Promise<void>> {
   const services: HostExtensionServices = context.services;
   const hookTimeoutMs = options.hookTimeoutMs ?? 30_000;
-  const bootstrap: WorkerBootstrap = { file: options.file, id: options.id, name: options.name, safeMode: services.safeMode };
+  const bootstrap: WorkerBootstrap = {
+    file: options.file,
+    id: options.id,
+    name: options.name,
+    safeMode: services.safeMode,
+    // An isolated extension is always a package, so an absent list is an empty one.
+    permissions: options.permissions ?? [],
+  };
   const worker = new Worker(options.workerEntry ?? await workerEntryPath(), {
     workerData: bootstrap,
     resourceLimits: { ...DEFAULT_RESOURCE_LIMITS, ...options.resourceLimits },

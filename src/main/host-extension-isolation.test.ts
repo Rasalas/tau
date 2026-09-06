@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +60,22 @@ function describeUnavailable(services) {
 const ELECTRON_FIXTURE = `
 import { app } from "electron";
 export default { activate() { app.getName(); } };
+`;
+
+/** Both ways out to the network: the global and the socket builtin. */
+const NETWORK_FIXTURE = `
+export default {
+  id: "acme.network",
+  name: "Network Package",
+  activate(context) {
+    context.registerCommand("fetch", async (input) => {
+      const response = await fetch("http://127.0.0.1:" + input.port + "/ping");
+      return await response.text();
+    });
+    context.registerCommand("require-http", () => typeof require("http").request);
+    context.registerCommand("require-node-dns", () => typeof require("node:dns/promises").lookup);
+  },
+};
 `;
 
 interface Recorder {
@@ -132,6 +149,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
 let scratch: string;
 let bundle: string;
 let electronBundle: string;
+let networkBundle: string;
 
 beforeAll(async () => {
   scratch = await mkdtemp(join(tmpdir(), "tau-worker-package-"));
@@ -142,6 +160,12 @@ beforeAll(async () => {
   electronBundle = await writeHostExtensionBundle(
     await bundleHostExtension(join(scratch, "electron-host.ts")),
     { id: "acme.electron", name: "Electron Package" },
+    scratch,
+  );
+  await writeFile(join(scratch, "network-host.ts"), NETWORK_FIXTURE);
+  networkBundle = await writeHostExtensionBundle(
+    await bundleHostExtension(join(scratch, "network-host.ts")),
+    { id: "acme.network", name: "Network Package" },
     scratch,
   );
 }, 60_000);
@@ -251,4 +275,58 @@ describe("isolated host extensions", () => {
     await until(() => !registry.isActive("acme.worker"));
     expect(registry.summaries()[0]?.error).toBeTruthy();
   }, 40_000);
+
+  describe("the network permission", () => {
+    const network = (permissions: string[]) => harness({ permissions, id: "acme.network", name: "Network Package", file: networkBundle });
+
+    let server: Server;
+    let port: number;
+
+    beforeAll(async () => {
+      server = createServer((_request, response) => { response.end("pong"); });
+      await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", resolve); });
+      port = (server.address() as { port: number }).port;
+    });
+
+    afterAll(async () => { await new Promise<void>((resolve) => { server.close(() => resolve()); }); });
+
+    it("refuses fetch and the socket builtins without it, and logs the denial", async () => {
+      const { registry, extension, recorder } = network(["workspace:read"]);
+      await expect(registry.activate(extension)).resolves.toBe(true);
+      try {
+        await expect(registry.invoke("acme.network", "fetch", { port })).rejects.toThrow("Extension acme.network lacks permission network");
+        await expect(registry.invoke("acme.network", "require-http")).rejects.toThrow("Extension acme.network lacks permission network");
+        expect(registry.isActive("acme.network")).toBe(true);
+        const denials = recorder.logs.filter((line) => line.startsWith("host-extension.denied"));
+        expect(denials).toEqual([
+          "host-extension.denied Extension acme.network lacks permission network (fetch)",
+          'host-extension.denied Extension acme.network lacks permission network (require("http"))',
+        ]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("refuses a node: prefixed builtin and its submodule too", async () => {
+      const { registry, extension } = network([]);
+      await registry.activate(extension);
+      try {
+        await expect(registry.invoke("acme.network", "require-node-dns")).rejects.toThrow("Extension acme.network lacks permission network");
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("lets a granted package reach the network", async () => {
+      const { registry, extension, recorder } = network(["network"]);
+      await registry.activate(extension);
+      try {
+        await expect(registry.invoke("acme.network", "fetch", { port })).resolves.toBe("pong");
+        await expect(registry.invoke("acme.network", "require-http")).resolves.toBe("function");
+        expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toEqual([]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+  });
 });

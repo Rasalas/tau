@@ -15,6 +15,8 @@ export interface WorkerBootstrap {
   id: string;
   name: string;
   safeMode: boolean;
+  /** The grant, so the worker can close what the main side cannot see: `network`. */
+  permissions: readonly string[];
 }
 
 /** An open thread as a worker sees it. */

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Package, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
+import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
@@ -244,7 +245,12 @@ function ExtensionPage({
             <p>It asks for no permissions.</p>
           )}
           {summary.isolation === "in-process" ? (
-            <ul><li><code>in-process</code> — runs inside the host process, outside the worker isolation</li></ul>
+            <>
+              <ul><li><code>in-process</code> — runs inside the host process, outside the worker isolation</li></ul>
+              {summary.permissions?.includes(PERMISSION_NETWORK) ? null : (
+                <p className="settings-note">{NETWORK_ADVISORY_NOTE}, so this package can reach the network without asking.</p>
+              )}
+            </>
           ) : null}
           <div className="extension-grant-actions">
             <button type="button" className="grant-allow" onClick={() => void handleGrant(true)}>Allow</button>
