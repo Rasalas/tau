@@ -108,6 +108,12 @@ desktop half, because a second copy of React or of react-dom holds its own
 internals and quietly stops working), so a package brings its own dependencies
 from its own `node_modules` and needs no build step of its own.
 
+`registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
+`lucide-react` is a shared module, so a package draws its glyph from the set
+the workbench itself uses, and core no longer keeps a table of names it would
+have to know a kit by. A panel without one gets core's fallback glyph.
+`registerSettingsPage` takes the same `Icon`.
+
 `styles` is not compiled: the loader reads the file, the host publishes it
 beside the desktop bundle over `tau-ext://bundles/<id>/<hash>.css`, and the
 renderer links it in `document.head` when the extension activates and removes
@@ -133,8 +139,8 @@ is an esbuild alias onto Tau's own compiled module, which is why
 
 `DesktopExtensionContext` additionally offers `registerSettingsPage` — a page
 of the Settings modal with its own nav entry, typed `SettingsPageContribution`
-(`id`, `label`, an optional `glyph` spelled the way panels spell theirs, an
-optional `order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
+(`id`, `label`, an optional `Icon` the way panels pass theirs, an optional
+`order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
 `onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
 package folders and the shipped kits (`ExtensionInspection`) without loading
 any code. Core keeps Defaults, Keybindings and the Inspector; every other page

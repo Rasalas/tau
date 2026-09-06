@@ -1,25 +1,44 @@
+// @vitest-environment jsdom
+import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { PanelIcon } from "./components/PanelIcon";
 import { ExtensionRegistry } from "./extension-system";
 
 describe("ExtensionRegistry contribution selectors", () => {
   it("keeps sorted contribution references stable between reads", () => {
     const registry = new ExtensionRegistry();
     registry.addKnown({ id: "test", name: "Test", activate(context) {
-      context.registerPanel({ id: "panel", label: "Panel", glyph: "p", Component: () => null });
+      context.registerPanel({ id: "panel", label: "Panel", Component: () => null });
     } });
     registry.activate({ id: "test", name: "Test", activate(context) {
-      context.registerPanel({ id: "panel", label: "Panel", glyph: "p", Component: () => null });
+      context.registerPanel({ id: "panel", label: "Panel", Component: () => null });
     } });
     expect(registry.getPanels()).toBe(registry.getPanels());
+  });
+
+  it("draws a panel's own icon, and core's fallback for a panel without one", () => {
+    const Marker = ({ size = 15 }: { size?: number }) => <i data-size={size} />;
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "with", name: "With", activate(context) {
+      context.registerPanel({ id: "with", label: "With", Icon: Marker, Component: () => null });
+    } });
+    registry.activate({ id: "without", name: "Without", activate(context) {
+      context.registerPanel({ id: "without", label: "Without", Component: () => null });
+    } });
+    const [withIcon, withoutIcon] = registry.getPanels();
+    expect(render(<PanelIcon Icon={withIcon!.Icon} />).container.querySelector("i")?.dataset.size).toBe("15");
+    // Core knows no kit by name: the fallback is what an icon-less panel gets.
+    expect(withoutIcon!.Icon).toBeUndefined();
+    expect(render(<PanelIcon Icon={withoutIcon!.Icon} size={14} />).container.querySelector("svg")).not.toBeNull();
   });
 
   it("rejects cross-extension contribution collisions without removing the owner", () => {
     const registry = new ExtensionRegistry();
     registry.activate({ id: "first", name: "First", activate(context) {
-      context.registerPanel({ id: "shared", label: "First panel", glyph: "1", Component: () => null });
+      context.registerPanel({ id: "shared", label: "First panel", Component: () => null });
     } });
     expect(() => registry.activate({ id: "second", name: "Second", activate(context) {
-      context.registerPanel({ id: "shared", label: "Second panel", glyph: "2", Component: () => null });
+      context.registerPanel({ id: "shared", label: "Second panel", Component: () => null });
     } })).toThrow("collides with first");
     expect(registry.getPanels().map((panel) => panel.extensionId)).toEqual(["first"]);
   });

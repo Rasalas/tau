@@ -1,5 +1,6 @@
 import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, type KeyChord } from "./keybindings";
 import type { ComponentType, ReactNode } from "react";
+import type { PanelIconComponent } from "./components/PanelIcon";
 import type { HostClient } from "./host-client";
 import type { HostActionResult } from "../shared/host-protocol";
 import type {
@@ -194,7 +195,8 @@ export interface PanelProps {
 export interface PanelContribution {
   id: string;
   label: string;
-  glyph: string;
+  /** The rail glyph; `lucide-react` is shared, so pass one of its icons. Missing draws core's fallback. */
+  Icon?: PanelIconComponent;
   order?: number;
   Component: ComponentType<PanelProps>;
 }
@@ -214,8 +216,8 @@ export interface SettingsPageProps {
 export interface SettingsPageContribution {
   id: string;
   label: string;
-  /** Icon name, as panels spell it (`PanelIcon`); an unknown one falls back. */
-  glyph?: string;
+  /** The nav glyph, the way a panel passes one. */
+  Icon?: PanelIconComponent;
   order?: number;
   Component: ComponentType<SettingsPageProps>;
 }

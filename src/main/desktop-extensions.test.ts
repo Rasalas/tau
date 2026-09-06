@@ -30,7 +30,7 @@ describe("desktop extension bundling", () => {
       import { useState } from "react";
       import type { DesktopExtension } from "tau";
       function Panel() { const [n] = useState(1); return <b>{n}</b>; }
-      const extension: DesktopExtension = { id: "x.hello", name: "Hello", activate(plugin) { plugin.registerPanel({ id: "hello", label: "Hello", glyph: "signals", Component: Panel }); } };
+      const extension: DesktopExtension = { id: "x.hello", name: "Hello", activate(plugin) { plugin.registerPanel({ id: "hello", label: "Hello", Component: Panel }); } };
       export default extension;
     `);
     const code = await bundleDesktopExtension(join(dir, "hello.tsx"), {

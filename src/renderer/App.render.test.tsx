@@ -231,7 +231,7 @@ describe("App render isolation", () => {
 
   it("resizes the right sidebar and resets it on double-click", async () => {
     // The dock exists once any extension registers a panel; core owns the resizer.
-    const dockProbe: DesktopExtension = { id: "test.dock", name: "Dock probe", activate: (plugin) => { plugin.registerPanel({ id: "probe", label: "Probe", glyph: "files", order: 1, Component: () => <div>probe</div> }); } };
+    const dockProbe: DesktopExtension = { id: "test.dock", name: "Dock probe", activate: (plugin) => { plugin.registerPanel({ id: "probe", label: "Probe", order: 1, Component: () => <div>probe</div> }); } };
     const view = renderApp(undefined, { extensions: [dockProbe] });
     const shell = view.container.querySelector(".app-shell") as HTMLElement;
     const resizer = await screen.findByRole("separator", { name: "Resize right sidebar" });

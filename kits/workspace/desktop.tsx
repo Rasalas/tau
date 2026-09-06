@@ -1,3 +1,4 @@
+import { Files, GitCompare } from "lucide-react";
 import {
   errorMessage,
   type DesktopExtension,
@@ -67,10 +68,10 @@ export const workspaceExtension: DesktopExtension = {
       order: 20,
       Component: bind(CloneProjectSource),
     });
-    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", glyph: "files", order: 10, Component: bind(FilesPanel) });
+    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, Component: bind(FilesPanel) });
     // The Changes panel reads the same Git state as the rest of the kit, so it
     // travels with it; Review Kit still opens it by id from its own command.
-    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", glyph: "changes", order: 20, Component: bind(ChangesPanel) });
+    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, Component: bind(ChangesPanel) });
     // The kit owns its workspace state; these keep it following the workbench
     // and place its controls where core lends room.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, Component: bind(WorkspaceFollower) });
