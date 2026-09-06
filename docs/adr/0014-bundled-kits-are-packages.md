@@ -98,22 +98,53 @@ share, `kits/workspace/checkpoint-protocol.ts`, names only `tau/host-extension`
 — the specifier NodeNext and jiti both resolve — and `protocol.ts` re-exports
 it. Ticket 09 splits the bridge and folds both back in.
 
+## Amendment, 2026-09-06: a kit reaches the Pi runtime it does not own
+
+The paragraph above was the transition. Ticket 09a split the bridge, so it is
+no longer true.
+
+`.pi/extensions/tau-session-bridge.ts` is Tau's own Pi extension, loaded by
+jiti inside a Pi TUI that owns a session Tau attaches to. It carried Workspace
+Kit's checkpoint feature and the title generator, and therefore imported both
+kits and the core modules behind them. It now owns only what core owns — turn
+ledger, transcript paging, skill prompts, prompt attachments, runtime
+ownership — and lends a kit a seam (`PiKitBridge`): register a command,
+publish an event, refresh the snapshot, pin entries, observe accepted turns,
+read the projected transcript, open another session.
+
+**A kit's Pi half is delivered prebuilt, not as source.** The manifest gains a
+`pi` entry; `scripts/build-kits.mjs` compiles it into `dist-kits/<id>/pi.cjs`
+with the host bundler (Pi external), and the bridge requires that file. So a
+kit's Pi code never passes through jiti and never needs a `tau/*` specifier to
+resolve inside Pi. The runtime-extension factory a host half registers stays
+what it is: the same feature, in the runtime Tau owns.
+
+With the bridge no longer reading them, `workspace-git.ts`,
+`workspace-checkpoint-lease.ts`, `workspace-kit-checkpoints.ts`,
+`pi-turn-checkpoint-extension.ts`, `git-coordinator.ts`, `file-content.ts` and
+the `turn-checkpoint-*` family moved into `kits/workspace/`,
+`checkpoint-protocol.ts` folded back into `protocol.ts`, and
+`tau/host-extension` stopped re-exporting them (1.3.0 published them for one
+wave and never shipped). Core kept `workspace-kit-types.ts`, because the stage
+renders changed files and diffs itself, and `clone-source.ts`, because the
+package installer clones too.
+
 ## Consequences
 
 - `EXTENSION_API_VERSION` is 1.2.0. What a kit needs and cannot get is now an
   API decision with a version attached, not a reachable import.
-- The two core lists shrink by one entry per migrated kit and reach zero in
-  ticket 09; `src/main/extensions/index.ts` and `src/renderer/extensions/index.tsx`
-  are the transition, not the design.
+- The two core lists shrank by one entry per migrated kit and reached zero;
+  `src/main/extensions/index.ts` and `src/renderer/extensions/index.tsx` were the
+  transition, not the design, and are gone.
 - A kit's tests live with the kit and may reach exactly two core modules:
   `src/main/test-support/host-kit-harness.ts` and
   `src/renderer/test-support/kit-harness.tsx`. `RendererServices.extensions` lets
   a kit put its own desktop half in front of the real `App`, which is how the
   App-level tests of a moved kit travel with it.
-- Text projections core and the title kit share (`src/main/host-text.ts`) stayed
-  in core, because Tau's own Pi extension (`.pi/extensions/tau-session-bridge.ts`)
-  reads them and runs inside Pi, where jiti resolves no `tau/` specifier. Splitting
-  that bridge is ticket 09's job and the moment to move them.
+- Text projections core and the title kit share (`src/main/host-text.ts`) stay
+  in core because core titles threads too, and are published through
+  `tau/host-extension`. The bridge no longer reads them (see the amendment
+  above); the kit's Pi half gets them bundled, like any other API value.
 - Nothing here makes a kit removable at runtime that was not before, and nothing
   makes it optional: safe mode still loads no kit at all, on either side.
 

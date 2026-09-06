@@ -29,7 +29,7 @@ forked and deleted like any other, and a question it asks is answered by the
 user *in that thread*, because that is where its `ctx.ui` dialog belongs.
 
 **The kit is `tau.agents`**, a bundled kit with `sessions` and `runtime:extend`
-(`src/main/extensions/agents-host-extension.ts`). Its host half registers one
+(`kits/agents/host.ts`; it was `src/main/extensions/agents-host-extension.ts` when this was decided). Its host half registers one
 Pi extension into every Tau-hosted runtime, contributing four tools:
 `tau_spawn_thread`, `tau_get_thread_status`, `tau_wait_for_thread` and
 `tau_list_threads`. The calling thread's id is the `RuntimeSessionInfo` the seam
