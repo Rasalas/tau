@@ -9,8 +9,8 @@ export { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID };
 export interface ClaudeCodeHostExtensionOptions {
   /** A prepared adapter (tests inject a fake transport); the CLI adapter otherwise. */
   adapter?: ClaudeCodeAgentRuntimeAdapter;
-  /** Where the session store lives; `services.agentDir` otherwise. */
-  agentDir?: string;
+  /** The session directory the store is placed beside; `services.sessionsDir` otherwise. */
+  sessionsDir?: string;
   /** Commands offered instead of the shared skill directories (tests). */
   commands?: readonly UiComposerCommand[];
 }
@@ -52,7 +52,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
     permissions: ["process", "sessions", "runtime:extend"],
     activate(context) {
       const services: HostExtensionServices = context.services;
-      const storePath = ClaudeRuntimeSessionStore.defaultPath(options.agentDir ?? services.agentDir);
+      const storePath = ClaudeRuntimeSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ storePath });
       const store = adapter.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: storePath });
       const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number]): HostBackendThreadRecord => ({

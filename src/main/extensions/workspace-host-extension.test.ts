@@ -22,6 +22,7 @@ async function client(cwd: string) {
   const services: HostExtensionServices = {
     cwd: () => cwd,
     agentDir: "/agent",
+    sessionsDir: "/agent/sessions",
     safeMode: false,
     log: () => undefined,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),

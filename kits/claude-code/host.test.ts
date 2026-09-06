@@ -16,9 +16,10 @@ async function harness(findCommand: (name: string) => string | undefined) {
   const agentDir = await mkdtemp(join(tmpdir(), "tau-claude-host-"));
   directories.push(agentDir);
   const backends: HostRuntimeBackendProvider[] = [];
-  const registry = await activateHostKit(createClaudeCodeHostExtension({ agentDir }), {
+  const registry = await activateHostKit(createClaudeCodeHostExtension(), {
     findCommand,
     agentDir,
+    sessionsDir: join(agentDir, "sessions"),
     skills: () => [{ name: "tdd", description: "Test first" }, { name: "not a skill name", description: "ignored" }],
     registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
   });

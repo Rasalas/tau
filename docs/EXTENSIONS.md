@@ -243,7 +243,11 @@ A package's `permissions` array draws from a fixed list
 `services.agentDir` is ungated: it is the path of Pi's own configuration
 directory (`~/.pi/agent`, or what `PI_AGENT_DIR` names), and reading inside it
 is ordinary file work that no permission gates either. A worker gets it in its
-bootstrap, so it costs no round trip.
+bootstrap, so it costs no round trip. `services.sessionsDir` is its sibling:
+the Pi session directory Tau actually uses (`PI_CODING_AGENT_SESSION_DIR` when
+set, else `<agentDir>/sessions`). A package that persists thread-like state of
+its own keeps it beside that directory, so an isolated test instance never
+writes into the user's real store.
 
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like

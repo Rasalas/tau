@@ -78,6 +78,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
   return {
     cwd: () => "/project",
     agentDir: "/agent",
+    sessionsDir: "/agent/sessions",
     safeMode: false,
     log: () => undefined,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),

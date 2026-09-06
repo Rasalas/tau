@@ -55,7 +55,7 @@ export interface ClaudeCodeRuntimeOptions {
   maxBuffer?: number;
   timeoutMs?: number;
   killGraceMs?: number;
-  /** Where the adapter persists what it needs to resume; the host half derives it from `services.agentDir`. */
+  /** Where the adapter persists what it needs to resume; the host half derives it from `services.sessionsDir`. */
   storePath: string;
 }
 

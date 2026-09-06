@@ -83,6 +83,7 @@ function harness() {
   const services: HostExtensionServices = {
     cwd: () => "/project",
     agentDir: "/agent",
+    sessionsDir: "/agent/sessions",
     safeMode: false,
     log: vi.fn(),
     refreshExtensionPackages: async () => undefined,

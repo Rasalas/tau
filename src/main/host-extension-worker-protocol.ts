@@ -16,6 +16,8 @@ export interface WorkerBootstrap {
   name: string;
   /** Pi's configuration directory, as `HostExtensionServices.agentDir` reports it. */
   agentDir: string;
+  /** The Pi session directory, as `HostExtensionServices.sessionsDir` reports it. */
+  sessionsDir: string;
   safeMode: boolean;
   /** The grant, so the worker can close what the main side cannot see: `network`. */
   permissions: readonly string[];
@@ -88,6 +90,7 @@ export const FACT_HOOKS = ["name", "label", "nested"] as const;
  */
 export interface WorkerHostServices {
   readonly agentDir: string;
+  readonly sessionsDir: string;
   readonly safeMode: boolean;
   cwd(): Promise<string>;
   /** Fire and forget: the host log never answers. */

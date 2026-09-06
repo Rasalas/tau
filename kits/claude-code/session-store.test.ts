@@ -289,3 +289,10 @@ describe("Claude runtime session store", () => {
     expect(await readFile(filePath, "utf8")).toBe(original);
   });
 });
+
+describe("ClaudeRuntimeSessionStore.defaultPath", () => {
+  it("sits beside the Pi session directory, so a redirected store stays isolated", () => {
+    expect(ClaudeRuntimeSessionStore.defaultPath("/home/u/.pi/agent/sessions")).toBe("/home/u/.pi/agent/tau/claude-runtime-sessions.json");
+    expect(ClaudeRuntimeSessionStore.defaultPath("/repo/.tau-dev/pi-sessions")).toBe("/repo/.tau-dev/tau/claude-runtime-sessions.json");
+  });
+});

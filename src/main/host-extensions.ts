@@ -318,6 +318,13 @@ export interface HostExtensionServices {
    * permission gates, so this one is ungated too.
    */
   readonly agentDir: string;
+  /**
+   * Where Tau reads and writes Pi sessions: `PI_CODING_AGENT_SESSION_DIR`
+   * when set (a dev instance's scratch store), else Pi's `<agentDir>/sessions`.
+   * A package that keeps thread-like state of its own puts it beside this
+   * directory, so a test instance never writes into the user's real store.
+   */
+  readonly sessionsDir: string;
   readonly safeMode: boolean;
   log(label: string, detail?: string): void;
   /** Opens a project the way a project switch does; the same path re-activates it. */

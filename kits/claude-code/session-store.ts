@@ -1,6 +1,6 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
@@ -284,8 +284,13 @@ export class ClaudeRuntimeSessionStore {
     this.now = options.now ?? Date.now;
   }
 
-  static defaultPath(agentDir: string): string {
-    return join(agentDir, "tau", "claude-runtime-sessions.json");
+  /**
+   * Beside the Pi session directory: `~/.pi/agent/tau/` for the default store,
+   * and a dev instance's own `.tau-dev/tau/` when its sessions are redirected,
+   * so a test thread never lands in the user's real sidebar.
+   */
+  static defaultPath(sessionsDir: string): string {
+    return join(dirname(sessionsDir), "tau", "claude-runtime-sessions.json");
   }
 
   async load(): Promise<void> {

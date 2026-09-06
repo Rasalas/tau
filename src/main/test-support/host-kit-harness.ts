@@ -25,6 +25,7 @@ export function activateHostKit(
   const registry = new HostExtensionRegistry({
     cwd: () => "/project",
     agentDir: "/agent",
+    sessionsDir: "/agent/sessions",
     safeMode: false,
     log: () => undefined,
     ...services,
