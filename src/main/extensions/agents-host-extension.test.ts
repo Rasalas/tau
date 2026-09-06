@@ -606,4 +606,24 @@ describe("Agents Kit", () => {
     await bench.lifecycles[0]!.sweep?.({ sessions: [], liveThreads: [], projectPaths: [], deleted: [{ sessionId: handle, cwd: "/project" }] });
     await expect(parent.call("tau_list_threads")).resolves.toEqual({ threads: [] });
   });
+
+  it("takes back an agent the index still names after its own links file was lost", async () => {
+    const bench = await activated();
+    await bench.lifecycles[0]!.sweep?.({
+      sessions: [
+        { sessionId: "parent", path: "/sessions/parent.jsonl", cwd: "/project" },
+        { sessionId: "child-a", path: "/sessions/child-a.jsonl", cwd: "/project", parentThreadId: "parent" },
+        { sessionId: "loose", path: "/sessions/loose.jsonl", cwd: "/project" },
+      ],
+      liveThreads: [],
+      projectPaths: ["/project"],
+      deleted: [],
+    });
+
+    await expect(bench.state()).resolves.toMatchObject({
+      links: [expect.objectContaining({ threadId: "child-a", parentThreadId: "parent", status: "idle" })],
+    });
+    await expect(bench.runtime("parent").call("tau_list_threads")).resolves
+      .toMatchObject({ threads: [expect.objectContaining({ threadId: "child-a" })] });
+  });
 });
