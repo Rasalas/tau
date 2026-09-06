@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   createAgentSessionFromServices,
@@ -188,6 +189,9 @@ export class PiHost {
   /** Mints and resolves the ids clients name workspaces by. */
   private readonly workspaces: WorkspaceIdentity;
   private readonly platform: HostPlatform;
+
+  /** Root of the folders host extensions keep their own state in. */
+  private readonly kitStateDir: string;
   private readonly logger?: HostLogger;
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly resourceDiscoveryCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
@@ -333,6 +337,7 @@ export class PiHost {
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
     this.workspaces = options.workspaceIdentity ?? new WorkspaceIdentity(randomBytes(16).toString("hex"));
     this.platform = options.platform ?? {};
+    this.kitStateDir = options.kitStateDir ?? join(tmpdir(), "tau-kit-state");
     this.logger = options.logger;
     this.threadUsage = new SessionUsageIndex({
       ...(options.sessionUsageCachePath ? { path: options.sessionUsageCachePath } : {}),
@@ -393,6 +398,7 @@ export class PiHost {
     return {
       safeMode: this.safeMode,
       platform: this.platform,
+      stateDir: this.kitStateDir,
       clientTurns: this.clientTurns,
       emit: (event) => this.emit(event),
       emitUpdate: (update) => this.emitUpdate(update),

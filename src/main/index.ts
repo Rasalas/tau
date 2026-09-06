@@ -87,6 +87,9 @@ const hostOptions = {
   }),
   logger: hostLog,
   workspaceIdentity,
+  // A kit's own state lives under this instance's userData, so TAU_USER_DATA
+  // isolates a dev instance's kit state the way it isolates everything else.
+  kitStateDir: join(app.getPath("userData"), "kit-state"),
   sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
   platform: {

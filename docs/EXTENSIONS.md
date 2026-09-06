@@ -282,6 +282,15 @@ set, else `<agentDir>/sessions`). A package that persists thread-like state of
 its own keeps it beside that directory, so an isolated test instance never
 writes into the user's real store.
 
+`services.stateDir` is the third of them and the one to reach for first: the
+package's own folder under Tau's user data, `<userData>/kit-state/<id>/`. It is
+ungated like the other two, it is never shared with another package, and
+nothing creates it until the package writes there. `TAU_USER_DATA` moves it
+with everything else, so a dev instance's state is its own — Agents Kit keeps
+its link index there. What belongs in the *user's* `~/.tau` instead is
+configuration the user edits: Agents Kit reads its running budget from
+`~/.tau/agents.json` and never writes it.
+
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like
 any other package and is guarded like one — being bundled decides who has to

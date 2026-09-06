@@ -91,6 +91,8 @@ export interface AttachedSessionPort {
 export interface ExtensionServicesPort {
   readonly safeMode: boolean;
   readonly platform: HostPlatform;
+  /** Root of the per-extension state folders; the registry binds each extension's own under it. */
+  readonly stateDir: string;
   cwd(): string;
   setCwd(cwd: string): void;
   log(label: string, detail?: string): void;
@@ -215,6 +217,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     cwd: () => port.cwd(),
     agentDir: getAgentDir(),
     sessionsDir: resolvePiSessionsDirOverride() ?? join(getAgentDir(), "sessions"),
+    stateDir: port.stateDir,
     safeMode: port.safeMode,
     log: (label, detail) => port.log(label, detail),
     openWorkspace: (path) => port.openWorkspace(path),

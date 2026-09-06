@@ -72,6 +72,7 @@ async function main(): Promise<void> {
           }),
           logger: hostLog,
           workspaceIdentity,
+          kitStateDir: join(userData, "kit-state"),
           sessionUsageCachePath: join(userData, "session-usage.json"),
           sessionLineageCachePath: join(userData, "session-lineage.json"),
         });

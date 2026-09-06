@@ -94,6 +94,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     cwd: () => "/project",
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
+    stateDir: "/state",
     safeMode: false,
     log: (label, detail) => { recorder.logs.push(detail ? `${label} ${detail}` : label); },
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),

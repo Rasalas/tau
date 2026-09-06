@@ -26,6 +26,7 @@ export function activateHostKit(
     cwd: () => "/project",
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
+    stateDir: "/state",
     safeMode: false,
     log: () => undefined,
     ...services,
