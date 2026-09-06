@@ -6,6 +6,18 @@ while writing this, a footnote says so.
 
 ## 1. What a package is
 
+A **bundled kit is a package Tau ships.** Everything below is true of both:
+the kits under `kits/` in this repository carry the same `tau-extension.json`,
+declare the same `permissions` and `isolation`, are compiled by the same two
+bundlers and are activated by the same registry, with the same
+`guardedServices` in front of the host seam. Two things differ, and only two:
+a kit needs no grant (shipping it *is* the approval, so it never appears
+waiting for approval and never reaches `~/.tau/extension-grants.json`), and it
+is loaded from `dist-kits/` beside the app rather than from a folder in
+`~/.tau`. Settings lists it as `bundled` with its permissions.
+[ADR 0014](adr/0014-bundled-kits-are-packages.md) has the reasoning;
+[`kits/README.md`](../kits/README.md) is the recipe.
+
 A package is a folder under `~/.tau/extensions` (every project) or
 `<project>/.tau/extensions` (that project only, and only where Pi trusts the
 project) with a manifest named `tau-extension.json` at its root
@@ -79,11 +91,40 @@ builtins and `electron` stay external for the host half, `react` and
 desktop half), so a package brings its own dependencies from its own
 `node_modules` and needs no build step of its own.
 
+### The three modules a package imports from Tau
+
+| Specifier | Resolves to | For |
+|---|---|---|
+| `tau` | `src/renderer/extension-api.ts` | the desktop half |
+| `tau/host-extension` | `src/main/host-extension-api.ts` | an `in-process` host half |
+| `tau/host` | `src/main/host-extension-worker-protocol.ts` | a `worker` host half |
+
+Both bundlers resolve them for you, so a package never ships a copy. `tau`
+arrives in the renderer through `globalThis.__tauShared`; `tau/host-extension`
+is an esbuild alias onto Tau's own compiled module, which is why
+`HostCommandError` thrown from a package is the same class the registry checks.
+
+Beyond the contribution types, `tau` exports `useWorkbench`,
+`useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
+hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
+the browser preview), `errorMessage` (the one-line `unknown` → `string` every
+half needs for `actions.notify`), and the `PreferencesStore` type (the store on
+`context.preferences`, so a package can pass it around in its own signatures).
+
+`tau/host-extension` re-exports every host seam type plus `HostCommandError`,
+`isExpectedCommandError`, the permission and isolation vocabularies, and the
+text projections a package that reads transcripts needs: `textFromContent`
+(content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
+to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
+thread title), `safeSessionTitle`, `buildTitleConversation` (a thread's first
+exchanges as the prompt a title model reads) and `parseSkillEnvelope` /
+`isSkillName` (Pi's skill envelope grammar).
+
 ### `engines` and `engines.api`
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.0.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.2.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only
@@ -118,10 +159,12 @@ A package's `permissions` array draws from a fixed list
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
 
-A package with no `permissions` field asks for nothing; a bundled kit (which
-declares nothing either, by construction) keeps the full, unguarded facade —
-that is in fact how the host tells a "trusted kit" apart from "a package":
-a package's list is checked even when it is empty. Reaching a service member
+A package with no `permissions` field asks for nothing, and a list that is
+there is checked even when it is empty. A kit Tau ships declares its list like
+any other package and is guarded like one — being bundled decides who has to
+approve the list, not whether it is enforced. (A host extension constructed in
+the host with no `permissions` property at all keeps the full, unguarded
+facade; that is what the kits not yet moved to `kits/` still do.) Reaching a service member
 the manifest did not ask for throws `Extension <id> lacks permission <name>`
 and is logged as `host-extension.denied` (`guardedServices`, wraps
 `HostExtensionServices`; the same check runs for a worker's calls, dispatched
@@ -355,10 +398,11 @@ process can reach, so `network` there is advisory and the approval box says so:
 "network access is enforced only for isolated packages". If you want the
 permission to mean something, stay in the worker.
 
-Bundled kits are never packages and are always in-process by construction —
-they register runtime backends and Pi extensions, hand out session managers
-and take part in the activation transaction, none of which the worker table
-above can carry.
+A kit Tau ships chooses the same way and for the same reasons: most declare
+`in-process`, because they register runtime backends and Pi extensions, hand
+out session managers or take part in the activation transaction, none of which
+the worker table above can carry. The difference is only that nobody is asked
+to approve it (ADR 0014).
 
 ## 7. Testing a package locally
 

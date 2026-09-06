@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-02. Amended the same day: `version` and `engines` (see below). Amended 2026-09-06: `EXTENSION_API_VERSION` raised to 1.1.0 (see "Version history" below).
+Accepted, 2026-09-02. Amended the same day: `version` and `engines` (see below). Amended 2026-09-06: `EXTENSION_API_VERSION` raised to 1.1.0, then to 1.2.0 (see "Version history" below).
 
 ## Context
 
@@ -29,8 +29,10 @@ Amendment: the manifest may carry `version` (the package's own semver) and `engi
 | 1.0.0 | 2026-09-02 | First cut of `HostExtensionServices`, `DesktopExtension` and the `tau` hooks. |
 | 1.1.0 | 2026-09-06 | `workspaceRef` on `HostExtensionServices`; `context.fail` for a worker-isolated host extension; the worker-thread facade and `isolation: "worker" \| "in-process"` in the manifest (ADR 0009); the `tau.packages` installer commands (ADR 0011); the Workspace Kit `clone` command takes `{ repositoryUrl, parentPath? }`. All additive, so a package that names `engines.api` as `^1.0.0` keeps loading: same major, and the host's minor is at least the one the package asks for. A package that pins an exact `api` (no `^`) keeps that opt-out, the same as npm's own `engines` grammar. |
 
+| 1.2.0 | 2026-09-06 | `tau/host-extension` and `tau/host` as modules the host bundler resolves, so a value import (`HostCommandError`, the text projections, `parseSkillEnvelope`) works where only types did; `errorMessage` and the `PreferencesStore` type on `tau`; `scope: "bundled"` on `DesktopExtensionBundle`. All additive ([ADR 0014](0014-bundled-kits-are-packages.md)). |
+
 ## Consequences
 
 - A package installs, updates and uninstalls by copying, editing or deleting a folder. `/install`, `/update`, `/remove` and Allow rescan and re-bind it on the spot ([ADR 0011](0011-extension-distribution.md)); `/reload` is the fallback for a folder edited by hand.
-- A bundled kit and an installed package look the same to the host and the renderer; the bundled kits are the reference for the shape.
+- A bundled kit and an installed package look the same to the host and the renderer. Since [ADR 0014](0014-bundled-kits-are-packages.md) they are the same thing: a kit under `kits/` carries this manifest and goes through these loaders.
 - Distribution followed in [ADR 0011](0011-extension-distribution.md): `npm:`, `git:` and folder sources, a source list per scope, and an optional Ed25519 signature. The folder is still the unit; an installed package and a hand-copied one are indistinguishable to the scan.
