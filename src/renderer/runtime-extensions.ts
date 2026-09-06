@@ -4,9 +4,14 @@ import * as JsxRuntime from "react/jsx-runtime";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
 import * as tauApi from "./extension-api";
+import { DEFERRED_SHARED_MODULES, type SharedModuleSpecifier } from "../shared/shared-modules";
 
-/** Modules an extension may import by bare name; each resolves to the renderer's own copy. */
-export const SHARED_MODULES: Record<string, object> = {
+/**
+ * The renderer's own copies of the modules an extension may import by bare
+ * name. `src/shared/shared-modules.ts` names them; a specifier missing here is
+ * one that has not been loaded yet (see `loadSharedIcons`).
+ */
+export const SHARED_MODULES: Partial<Record<SharedModuleSpecifier, object>> & Record<string, object> = {
   react: React,
   // `flushSync` and `createPortal` reach into the running root; a second copy
   // of react-dom holds its own internals and silently does nothing.
@@ -16,9 +21,9 @@ export const SHARED_MODULES: Record<string, object> = {
 };
 
 /**
- * The icon set is the one shared module the workbench itself barely uses; a
- * namespace import would put every icon into the initial bundle. It is
- * fetched as its own chunk the first time a package actually needs it.
+ * The deferred shared modules — the icon set — as their own chunk: a namespace
+ * import would put every icon into the initial bundle. Fetched the first time a
+ * package actually needs one.
  */
 let iconModule: Promise<object> | undefined;
 export function loadSharedIcons(): Promise<object> {
@@ -31,9 +36,11 @@ export function loadSharedIcons(): Promise<object> {
 
 export function sharedExportNames(modules: Record<string, object> = SHARED_MODULES): Record<string, string[]> {
   const names = Object.fromEntries(Object.entries(modules).map(([name, module]) => [name, Object.keys(module)]));
-  // Still a shared specifier before the icon set is loaded; the host fills in
-  // the export names from its own copy when the list is empty.
-  if (modules === SHARED_MODULES && !("lucide-react" in names)) names["lucide-react"] = [];
+  // Still a shared specifier before its chunk is loaded; the host fills in the
+  // export names from its own copy when the list is empty.
+  if (modules === SHARED_MODULES) {
+    for (const name of DEFERRED_SHARED_MODULES) names[name] ??= [];
+  }
   return names;
 }
 

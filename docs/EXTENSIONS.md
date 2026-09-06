@@ -106,7 +106,10 @@ builtins and `electron` stay external for the host half, `react`, `react-dom`
 and `lucide-react` stay external — bound to the renderer's own copies — for the
 desktop half, because a second copy of React or of react-dom holds its own
 internals and quietly stops working), so a package brings its own dependencies
-from its own `node_modules` and needs no build step of its own.
+from its own `node_modules` and needs no build step of its own. The shared list
+is one list: `src/shared/shared-modules.ts` names the specifiers, the renderer
+publishes exactly those and the kit prebuild takes its externals from the same
+file, so a prebuilt kit binds what a compiled-on-the-fly one binds.
 
 `registerKeybinding({ keys, commandId })` adds a chord; the first binding of a
 chord wins and a later one is recorded as a conflict. Pass `replaces:

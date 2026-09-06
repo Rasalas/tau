@@ -10,6 +10,7 @@ import { MANIFEST_FILE, manifestIncompatibility, parseExtensionManifest, type Ex
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources } from "./extension-sources.js";
 import type { ExtensionHostVersions } from "../shared/extension-compat.js";
+import { DEFERRED_SHARED_MODULES } from "../shared/shared-modules.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 
@@ -131,7 +132,7 @@ export interface BundleOptions {
  * empty export list, and the host reads the names from its own copy so the
  * shim still binds every named import.
  */
-const HOST_RESOLVED_SHARED = new Set(["lucide-react"]);
+const HOST_RESOLVED_SHARED = new Set<string>(DEFERRED_SHARED_MODULES);
 const hostExportNames = new Map<string, Promise<string[]>>();
 
 function sharedExportNamesFor(specifier: string, reported: readonly string[] | undefined): Promise<string[]> {

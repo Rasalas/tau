@@ -17,6 +17,7 @@ const watch = process.argv.includes("--watch");
 
 const { MANIFEST_FILE, bundleHostExtension, parseExtensionManifest } = await import(join(MAIN, "extension-packages.js"));
 const { bundleDesktopExtension } = await import(join(MAIN, "desktop-extensions.js"));
+const { SHARED_MODULE_PACKAGES } = await import(join(ROOT, "dist-electron/shared/shared-modules.js"));
 
 /**
  * Export names of the modules a desktop bundle imports by bare name. The
@@ -26,13 +27,13 @@ const { bundleDesktopExtension } = await import(join(MAIN, "desktop-extensions.j
  */
 async function sharedExportNames() {
   const names = {};
-  for (const specifier of ["react", "react-dom", "react/jsx-runtime", "lucide-react"]) {
+  for (const specifier of SHARED_MODULE_PACKAGES) {
     names[specifier] = Object.keys(await import(specifier));
   }
   const result = await build({
     entryPoints: [join(ROOT, "src/renderer/extension-api.ts")],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022",
-    metafile: true, logLevel: "silent", external: ["react", "react-dom", "react/jsx-runtime", "lucide-react"],
+    metafile: true, logLevel: "silent", external: [...SHARED_MODULE_PACKAGES],
     // Only the export names matter here. Vite resolves the icons and images the
     // API's components import; esbuild has no loader for them, so they stay out.
     plugins: [{
