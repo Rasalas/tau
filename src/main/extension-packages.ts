@@ -325,7 +325,8 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
       permissions: pkg.manifest.permissions ?? [],
       isolation: packageIsolation(pkg.manifest),
-      granted: isPackageGranted(pkg.manifest, grantsFile.grants),
+      // A theme runs no code and asks for nothing: there is no grant to wait for.
+      granted: isThemeManifest(pkg.manifest) || isPackageGranted(pkg.manifest, grantsFile.grants),
       ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
       ...(pkg.installedFrom ? { installedFrom: pkg.installedFrom } : {}),
       ...(pkg.signature ? { signature: { state: pkg.signature.state, label: describeSignature(pkg.signature) } } : {}),

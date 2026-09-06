@@ -62,6 +62,20 @@ describe("extension packages", () => {
     expect(isThemeManifest({ id: "a.b", desktop: "./d.tsx", styles: "./s.css" } as never)).toBe(false);
   });
 
+  it("reports a theme as granted: there is nothing to approve", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    await writePackage(project, "terracotta", { id: "acme.theme", name: "Terracotta", styles: "./theme.css" }, { "theme.css": ":root {}" });
+    const inspection = await inspectExtensionPackages(project, join(home, "agent"), {
+      home,
+      trusted: () => true,
+      versions: { tau: "0.1.1", pi: "0.84.4", api: "1.3.0" },
+      grantsFilePath: join(home, "grants.json"),
+    });
+    const theme = inspection.packages.find((entry) => entry.id === "acme.theme");
+    expect(theme).toMatchObject({ theme: true, granted: true, desktop: false, host: false });
+  });
+
   it("refuses a theme that asks for anything, and a manifest that names no entry at all", () => {
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.theme", name: "T", styles: "./t.css", permissions: ["process"] })))
       .toThrow("a theme is only a stylesheet and cannot hold permissions");

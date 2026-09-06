@@ -27,6 +27,7 @@
 
 /* What a package is, beside its name: a theme brings only a stylesheet. */
 .package-kind {
+  display: inline-block; white-space: nowrap;
   margin-left: 7px; padding: 1px 6px; border-radius: var(--radius-xs);
   background: var(--acid-chip); color: var(--acid-text);
   font: 600 9px var(--mono); font-style: normal; letter-spacing: .06em; text-transform: uppercase;
