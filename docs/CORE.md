@@ -27,12 +27,30 @@ Threads
 Workbench
 
 - the window, the two layout slots (left sidebar, right dock) and shared modals
+- the stage: the document area beside the conversation, whose tabs hold files and threads
 - command palette and keybinding dispatch; the chords themselves are extension contributions — `kits/keybindings/` binds Tau's own, replaces them from `~/.pi/agent/keybindings.json` and adds one command per Pi extension shortcut
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
 - one versioned request/push protocol between client and host, with reconnect and replay; Electron IPC is one transport of it, and the one generic method host extensions use travels on it
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
 - enough persisted state to restore the workbench
+
+### The stage
+
+The stage is the column beside the conversation, and its tabs are of two kinds.
+A **file** tab shows source or the working-tree diff; core owns the tab strip
+and the placement, and whoever registered the document source loads the
+content. A **thread** tab shows another thread's transcript, read-only, drawn
+with the same `VirtualTranscript` the conversation uses and headed by the title,
+status and cost the thread index carries. It exists so a sub-agent's chat can be
+read without becoming the thread the composer talks to; "Take over" is the one
+button that does switch — and even then the child stays out of the rail, which
+never lists a thread with a parent. It reloads when the index republishes that thread's
+entry — which is what the host does when a background turn settles — and polls
+every two seconds only while the index says the thread is streaming. A tab whose
+session the index no longer knows shows an empty state rather than an error.
+`WorkbenchActions.openThread(sessionId)` is how an extension opens one; the
+Agents Kit panel is the caller that motivated it.
 
 ## Not in core
 
@@ -44,7 +62,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Turn checkpoints and restore | Workspace Kit on both sides: capture, restore, recovery and ref upkeep in `kits/workspace/host-lifecycle.ts` through the seam's lifecycle hooks and turn observer; cards, status and the restore dialog in `kits/workspace/checkpoints.tsx`. The Git and lease engine it drives lives with it (`kits/workspace/workspace-git.ts`, `workspace-checkpoint-lease.ts`, `workspace-kit-checkpoints.ts`, the `turn-checkpoint-*` family), and `kits/workspace/pi.ts` is the half that captures a turn inside a Pi TUI Tau is only attached to. Core keeps only what an anchor needs: a pinned text-empty assistant entry stays in the transcript | Workspace Kit |
 | Thread rail: the sidebar, its search, the settled shelf and the project switcher | Workspace Kit's `kits/workspace/navigation.tsx`, filled through `registerSidebar`. Core owns threads and draws a row with `ThreadRow` from the `tau` API; without the kit the window has no sidebar and still shows a composer and a transcript | Workspace Kit |
 | Review mode, diff viewer, changed-files dock | Review Kit overlay over the store Workspace Kit publishes as `tau.workspace/store`; the Files and Changes panels and the dock are Workspace Kit's | Review Kit |
-| Stage tabs, file viewer | tabs and placement stay core (the document area); loading, changed markers and editors come from the registered document source | core placement, Workspace Kit content |
+| Stage tabs, file viewer | tabs and placement stay core (the document area); loading, changed markers and editors come from the registered document source. A thread tab is core's own content: it reads the transcript through `transcript-page` and draws it with core's `VirtualTranscript` | core placement, Workspace Kit file content |
 | Thread title generation | Thread Title Generator: `kits/thread-titles/`, a package Tau ships (ADR 0014) | Thread Title Generator |
 | Installing, updating and removing extension packages: `/install`, `/remove`, `/update` and the Settings → Packages page | Packages Kit: `kits/packages/`, a package Tau ships. The installer itself (npm, git, `packages.json`, signatures) stays core behind the `packages` permission; the kit owns the verbs, the wording and the page | Packages Kit |
 | Signals: host events, live counts and the shell-run presentation | Signals: `kits/signals/`, a package Tau ships (ADR 0014); core lends the panel slot and the `useObservatory` hook it reads | Signals |
@@ -88,7 +106,7 @@ when only a kit ever mounts that component.
 
 | Stayed in core | Why |
 |---|---|
-| The window and its slots: `.app-shell`, `.workbench-center`, `.instrument-dock`, `.panel-rail`, `.panel-stage`, `.panel-header`, `.panel-body`, `.dock-resizer`, `.stage*` | Core's layout and the frame a panel contribution is drawn into. Four kits fill it; none of them owns it. |
+| The window and its slots: `.app-shell`, `.workbench-center`, `.instrument-dock`, `.panel-rail`, `.panel-stage`, `.panel-header`, `.panel-body`, `.dock-resizer`, `.stage*`, `.thread-document` | Core's layout and the frame a panel contribution is drawn into. Four kits fill it; none of them owns it. |
 | The thread row: `.thread-row`, `.thread-main`, `.thread-title`, `.thread-branch`, `.thread-project-icon`, `.thread-activity`, `.activity-*`, `.thread-cost*`, `.thread-agent-count`, `.thread-settle`, `.provider-icon*` | `ThreadRow` is core's component, published on `tau` (ADR 0014): a thread is core's and its row is how core draws one. The rail around it is Workspace Kit's and moved. |
 | The menu: `.menu`, `.menu-anchor`, `.menu-label`, `.menu-heading`, `.menu-scrim`, `.menu-hint`, `.chev` | `Menu` on `tau`; Workspace Kit, Access Kit and Service Tier all open core's menu. |
 | Buttons and chips: `.chrome-button`, `.chrome-ghost`, `.icon-button`, `.text-button`, `.mini-button`, `.chip`, `.runtime-chip`, `.switch`, `.segmented`, `.primary`, `.danger`, `.accent` | The shared vocabulary of the workbench. Access Kit and Service Tier draw their composer chips entirely with it, so those two kits have no stylesheet at all. |

@@ -47,6 +47,8 @@ export interface WorkbenchActions {
   activeThread(): { sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; draftPending: boolean } | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff. */
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
+  /** Opens a thread in the stage as a read-only tab, leaving the active thread alone. */
+  openThread(sessionId: string, options?: { pin?: boolean }): void;
   /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
   runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
   /** Keeps the composer from submitting until the returned release is called. */

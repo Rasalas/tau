@@ -33,22 +33,14 @@ function spawned(id: string, parentThreadId?: string): UiSession {
 }
 
 describe("threads an agent spawned", () => {
-  it("hides spawned threads until a search or the toggle asks for them", () => {
+  it("keeps a spawned thread out of the rail, including the one on screen", () => {
     const threads = [session("parent"), session("alpha"), session("beta")];
     const parents = { alpha: "parent", beta: "parent" };
-    expect(visibleThreads(threads, parents, { showAgents: false, searching: false }).map((entry) => entry.id)).toEqual(["parent"]);
-    expect(visibleThreads(threads, parents, { showAgents: true, searching: false }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
-    expect(visibleThreads(threads, parents, { showAgents: false, searching: true }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
-    // The thread on screen is never hidden, however it was created.
-    expect(visibleThreads(threads, parents, { showAgents: false, searching: false, activeThreadId: "beta" }).map((entry) => entry.id))
-      .toEqual(["parent", "beta"]);
+    expect(visibleThreads(threads, parents).map((entry) => entry.id)).toEqual(["parent"]);
   });
 
   it("hides a spawned thread the index named even when no extension published lineage", () => {
     const threads = [spawned("parent"), spawned("alpha", "parent"), spawned("beta", "parent")];
-    expect(visibleThreads(threads, {}, { showAgents: false, searching: false }).map((entry) => entry.id)).toEqual(["parent"]);
-    expect(visibleThreads(threads, {}, { showAgents: true, searching: false }).map((entry) => entry.id)).toEqual(["parent", "alpha", "beta"]);
-    expect(visibleThreads(threads, {}, { showAgents: false, searching: false, activeThreadId: "alpha" }).map((entry) => entry.id))
-      .toEqual(["parent", "alpha"]);
+    expect(visibleThreads(threads, {}).map((entry) => entry.id)).toEqual(["parent"]);
   });
 });

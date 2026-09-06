@@ -11,7 +11,7 @@ import {
 export interface AgentRow {
   id: string;
   threadId?: string;
-  /** The thread's path, so a click can switch to it. */
+  /** The thread's session file, present only once the thread index knows it. */
   path?: string;
   title: string;
   status: AgentThreadStatus;

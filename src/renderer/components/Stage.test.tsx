@@ -1,13 +1,22 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { UiMessage, UiSession } from "../../shared/contracts";
 import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
-import { activateTab, closeTab, EMPTY_STAGE, openFileTab, pinTab, setFileView, type StageState } from "../stage";
+import { activateTab, closeTab, EMPTY_STAGE, openFileTab, openThreadTab, pinTab, setFileView, type StageState } from "../stage";
+import { ThreadStore } from "../thread-store";
+import { ThreadStoreContext } from "../workbench-context";
 import { Stage } from "./Stage";
 import type { ChatTab } from "./StageTabs";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  cleanup();
+  vi.restoreAllMocks();
+  // The virtualizer remeasures rows in a requestAnimationFrame it never
+  // cancels. Drain those while the jsdom window still exists.
+  await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
+});
 
 const CWD = "/repo";
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
@@ -16,14 +25,17 @@ const CHANGED: UiWorkspaceChanges = {
   added: 1, removed: 0, proposedMessage: "Update a",
 };
 
-function Harness({ initial, changes = NO_CHANGES, chatTab, onClose }: {
+function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = new ThreadStore(), loadThread, onTakeOverThread }: {
   initial: StageState;
   changes?: UiWorkspaceChanges;
   chatTab?: ChatTab;
   onClose?: (id: string) => void;
+  threads?: ThreadStore;
+  loadThread?: (sessionId: string) => Promise<UiMessage[]>;
+  onTakeOverThread?: (sessionId: string) => void;
 }) {
   const [stage, setStage] = useState(initial);
-  return <Stage
+  return <ThreadStoreContext.Provider value={threads}><Stage
     stage={stage}
     cwd={CWD}
     changes={changes}
@@ -35,7 +47,32 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose }: {
     onPin={(id) => setStage((current) => pinTab(current, id))}
     onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
     onOpenInEditor={() => undefined}
-  />;
+    loadThread={loadThread ?? (async () => [])}
+    onTakeOverThread={onTakeOverThread ?? (() => undefined)}
+  /></ThreadStoreContext.Provider>;
+}
+
+const CHILD = "child-thread";
+
+function agentSession(overrides: Partial<UiSession> = {}): UiSession {
+  return {
+    id: CHILD, path: `/sessions/${CHILD}.jsonl`, title: "Alpha reply", modifiedAt: 3,
+    projectPath: CWD, projectName: "repo", messageCount: 2, ...overrides,
+  };
+}
+
+function reply(text: string): UiMessage[] {
+  return [
+    { id: "m1", role: "user", text: "Reply with a sentence", timestamp: 1 },
+    { id: "m2", role: "assistant", text, timestamp: 2 },
+  ];
+}
+
+function storeWith(session?: UiSession, running = false): ThreadStore {
+  const store = new ThreadStore();
+  store.applyThreadIndex({ projects: [], sessions: session ? [session] : [] });
+  if (running) store.setThreadRunning(CHILD, true);
+  return store;
 }
 
 describe("Stage", () => {
@@ -102,6 +139,113 @@ describe("Stage", () => {
     expect(windowEscape).not.toHaveBeenCalled();
     expect(screen.queryByRole("tab")).toBeNull();
     window.removeEventListener("keydown", windowEscape);
+  });
+});
+
+describe("a thread tab", () => {
+  it("names the tab from the index and renders the thread's transcript read-only", async () => {
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={storeWith(agentSession())}
+      loadThread={async () => reply("The child answered.")}
+    />);
+
+    expect(screen.getByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
+    expect(await screen.findByText("The child answered.")).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("reloads while the index says the thread is streaming and stops when it settles", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const loads: string[] = [];
+    const store = storeWith(agentSession(), true);
+    let answer = "First half";
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={store}
+      loadThread={async (sessionId) => { loads.push(sessionId); return reply(answer); }}
+    />);
+    await screen.findByText("First half");
+
+    answer = "Second half";
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+    expect(await screen.findByText("Second half")).toBeTruthy();
+
+    act(() => store.setThreadRunning(CHILD, false));
+    const settled = loads.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+    expect(loads).toHaveLength(settled);
+    vi.useRealTimers();
+  });
+
+  it("reloads once the index reports the thread changed", async () => {
+    const store = storeWith(agentSession());
+    let answer = "Before";
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={store}
+      loadThread={async () => reply(answer)}
+    />);
+    await screen.findByText("Before");
+
+    answer = "After";
+    act(() => store.applyThreadShell(CHILD, agentSession({ modifiedAt: 9, messageCount: 4 })));
+    expect(await screen.findByText("After")).toBeTruthy();
+  });
+
+  it("shows an empty state and no take-over when the session is gone", async () => {
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={storeWith()}
+      loadThread={async () => { throw new Error("That thread is not open any more."); }}
+    />);
+
+    expect(await screen.findByText(/not in the index any more/u)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Take over" })).toHaveProperty("disabled", true);
+  });
+
+  it("reports the transcript the host refused and points at Take over", async () => {
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={storeWith(agentSession())}
+      loadThread={async () => { throw new Error("That thread is not open any more."); }}
+    />);
+
+    expect(await screen.findByText(/That thread is not open any more\. Take over makes it the thread on screen/u)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Take over" })).toHaveProperty("disabled", false);
+  });
+
+  it("loads again once the taken-over thread is the one on screen", async () => {
+    const store = storeWith(agentSession());
+    let held = false;
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={store}
+      loadThread={async () => {
+        if (!held) throw new Error("That thread is not open any more.");
+        return reply("Now it reads.");
+      }}
+    />);
+    await screen.findByText(/That thread is not open any more/u);
+
+    held = true;
+    act(() => store.setActiveThread(CHILD));
+    expect(await screen.findByText("Now it reads.")).toBeTruthy();
+  });
+
+  it("hands the thread to the composer only when Take over is pressed", async () => {
+    const onTakeOverThread = vi.fn();
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={storeWith(agentSession())}
+      loadThread={async () => reply("Done")}
+      onTakeOverThread={onTakeOverThread}
+    />);
+    await screen.findByText("Done");
+
+    expect(onTakeOverThread).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Take over" }));
+    await waitFor(() => expect(onTakeOverThread).toHaveBeenCalledWith(CHILD));
   });
 });
 

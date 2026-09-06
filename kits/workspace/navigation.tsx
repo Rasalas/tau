@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, Bot, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
   ThreadRow,
   usePreferences,
@@ -25,9 +25,11 @@ type NavigationRow =
   | { kind: "thread"; id: string; session: UiSession };
 
 /**
- * Threads an agent spawned stay out of the rail: fifty of them would bury the
- * threads the user started. They come back for a search, for the thread on
- * screen, and whenever the user asks for them.
+ * Threads an agent spawned are never in the rail — not in the settled shelf,
+ * not in a search, not even while one is the thread on screen after a take-over
+ * (the header above the transcript names it). Fifty of them would bury the
+ * threads the user started; the Agents panel and the stage tabs it opens are
+ * where they belong.
  *
  * A thread is an agent's when an extension published its lineage, or when the
  * thread index read the link off the thread's own session file - which is what
@@ -36,11 +38,8 @@ type NavigationRow =
 export function visibleThreads(
   sessions: readonly UiSession[],
   parents: Readonly<Record<string, string>>,
-  options: { showAgents: boolean; searching: boolean; activeThreadId?: string },
 ): UiSession[] {
-  if (options.showAgents || options.searching) return [...sessions];
-  return sessions.filter((session) =>
-    !(parents[session.id] ?? session.parentThreadId) || session.id === options.activeThreadId);
+  return sessions.filter((session) => !(parents[session.id] ?? session.parentThreadId));
 }
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
@@ -355,7 +354,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [settledOpen, setSettledOpen] = useState(true);
-  const [showAgents, setShowAgents] = useState(false);
   const [settledLimit, setSettledLimit] = useState(40);
   const [navigationIndex, setNavigationIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -382,13 +380,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   }, []);
 
   const needle = threadQuery.trim().toLocaleLowerCase();
-  const listed = visibleThreads(threads, lineage.parents, {
-    showAgents,
-    searching: needle.length > 0,
-    ...(activityState.activeThreadId ? { activeThreadId: activityState.activeThreadId } : {}),
-  });
-  const hiddenAgents = threads.length - listed.length;
-  const matching = listed
+  const matching = visibleThreads(threads, lineage.parents)
     .filter(
       (session) =>
         !needle ||
@@ -472,17 +464,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
               <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
             ) : <kbd>/</kbd>}
           </label>
-          {hiddenAgents > 0 || showAgents ? (
-            <button
-              className="sidebar-action"
-              title="Show agent threads"
-              aria-label="Show agent threads"
-              aria-pressed={showAgents}
-              onClick={() => setShowAgents((shown) => !shown)}
-            >
-              <Bot size={16} />
-            </button>
-          ) : null}
           <button
             className="sidebar-action"
             title="New thread (⌘N)"

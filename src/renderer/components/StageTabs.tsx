@@ -1,15 +1,66 @@
-import { MessageSquare, X } from "lucide-react";
+import { Bot, MessageSquare, X } from "lucide-react";
+import type { ReactNode } from "react";
 import type { StageTab } from "../stage";
+import { useThreadShell } from "../use-thread-shell";
 import { FileKindIcon } from "./FileKindIcon";
 
-function tabName(tab: StageTab): string {
-  return tab.path.split(/[\\/]/u).filter(Boolean).at(-1) ?? tab.path;
+function fileName(path: string): string {
+  return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
 }
 
 export interface ChatTab {
   active: boolean;
   streaming: boolean;
   onSelect(active: boolean): void;
+}
+
+/** What every tab of the strip does, whatever it holds. */
+interface TabChrome {
+  active: boolean;
+  preview: boolean;
+  activate(): void;
+  close(): void;
+  pin(): void;
+}
+
+function StageTabButton({ chrome, title, label, icon, marker }: {
+  chrome: TabChrome;
+  title: string;
+  label: string;
+  icon: ReactNode;
+  marker?: ReactNode;
+}) {
+  return <div
+    role="tab"
+    tabIndex={0}
+    aria-selected={chrome.active}
+    title={title}
+    className={`stage-tab ${chrome.active ? "active" : ""} ${chrome.preview ? "preview" : ""}`}
+    onClick={chrome.activate}
+    onDoubleClick={chrome.pin}
+    onAuxClick={(event) => { if (event.button === 1) chrome.close(); }}
+    onKeyDown={(event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chrome.activate(); }
+    }}
+  >
+    <span className="stage-tab-icon">{icon}</span>
+    <span className="stage-tab-label">{label}</span>
+    {marker}
+    <button
+      className="stage-tab-close"
+      aria-label={`Close ${label}`}
+      tabIndex={-1}
+      onClick={(event) => { event.stopPropagation(); chrome.close(); }}
+    >
+      <X size={12} />
+    </button>
+  </div>;
+}
+
+/** A thread tab is named by the index, so a thread titled later renames its tab. */
+function ThreadStageTab({ sessionId, chrome }: { sessionId: string; chrome: TabChrome }) {
+  const label = useThreadShell(sessionId)?.title || "Agent";
+  return <StageTabButton chrome={chrome} title={label} label={label} icon={<Bot size={13} />} />;
 }
 
 export function StageTabs({ tabs, activeId, changedPaths, chatTab, onActivate, onClose, onPin }: {
@@ -40,37 +91,26 @@ export function StageTabs({ tabs, activeId, changedPaths, chatTab, onActivate, o
       </div>
     ) : null}
     {tabs.map((tab) => {
-      const active = tab.id === activeId && !chatTab?.active;
-      const name = tabName(tab);
+      const chrome: TabChrome = {
+        active: tab.id === activeId && !chatTab?.active,
+        preview: tab.preview,
+        activate: () => { chatTab?.onSelect(false); onActivate(tab.id); },
+        close: () => onClose(tab.id),
+        pin: () => onPin(tab.id),
+      };
+      if (tab.kind === "thread") return <ThreadStageTab key={tab.id} sessionId={tab.sessionId} chrome={chrome} />;
+      const name = fileName(tab.path);
       const changed = changedPaths.has(tab.path);
       // A diff tab whose file is clean again renders as source, so name it that way.
       const label = tab.view === "diff" && changed ? `${name} (diff)` : name;
-      return <div
+      return <StageTabButton
         key={tab.id}
-        role="tab"
-        tabIndex={0}
-        aria-selected={active}
+        chrome={chrome}
         title={tab.path}
-        className={`stage-tab ${active ? "active" : ""} ${tab.preview ? "preview" : ""}`}
-        onClick={() => { chatTab?.onSelect(false); onActivate(tab.id); }}
-        onDoubleClick={() => onPin(tab.id)}
-        onAuxClick={(event) => { if (event.button === 1) onClose(tab.id); }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatTab?.onSelect(false); onActivate(tab.id); }
-        }}
-      >
-        <span className="stage-tab-icon"><FileKindIcon name={name} size={13} /></span>
-        <span className="stage-tab-label">{label}</span>
-        {changed ? <em>M</em> : null}
-        <button
-          className="stage-tab-close"
-          aria-label={`Close ${label}`}
-          tabIndex={-1}
-          onClick={(event) => { event.stopPropagation(); onClose(tab.id); }}
-        >
-          <X size={12} />
-        </button>
-      </div>;
+        label={label}
+        icon={<FileKindIcon name={name} size={13} />}
+        marker={changed ? <em>M</em> : null}
+      />;
     })}
   </div>;
 }

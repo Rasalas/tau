@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
-import type { StageTab, StageView } from "../stage";
+import type { StageFileTab, StageView } from "../stage";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
 import { DiffPane } from "./DiffPane";
 
@@ -51,7 +51,7 @@ function SourceView({ content }: { content: UiFileContent }) {
 }
 
 export function FileViewer({ tab, relativePath, changed, editor, loadFile, loadDiff, onChangeView, onOpenInEditor }: {
-  tab: StageTab;
+  tab: StageFileTab;
   relativePath: string;
   /** The working tree differs from HEAD for this file, so a diff exists. */
   changed: boolean;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeTab, closeTab, EMPTY_STAGE, fileTabId, openFileTab, pinTab, setFileView } from "./stage";
+import { activeTab, closeTab, EMPTY_STAGE, fileTabId, openFileTab, openThreadTab, pinTab, setFileView, threadTabId } from "./stage";
 
 const A = "/repo/src/a.ts";
 const B = "/repo/src/b.ts";
@@ -60,3 +60,44 @@ describe("stage tabs", () => {
     expect(closeTab(state, fileTabId(A)).activeId).toBe(fileTabId(B));
   });
 });
+
+describe("thread tabs", () => {
+  const CHILD = "child-thread";
+
+  it("opens a thread as a preview that the next preview replaces", () => {
+    let state = openThreadTab(EMPTY_STAGE, CHILD);
+    expect(activeTab(state)).toMatchObject({ id: threadTabId(CHILD), kind: "thread", sessionId: CHILD, preview: true });
+    state = openFileTab(state, A);
+    expect(state.tabs.map((tab) => tab.id)).toEqual([fileTabId(A)]);
+  });
+
+  it("keeps a pinned thread beside the files and activates it again instead of duplicating it", () => {
+    let state = openFileTab(EMPTY_STAGE, A, { pin: true });
+    state = openThreadTab(state, CHILD, { pin: true });
+    state = openFileTab(state, B, { pin: true });
+    state = openThreadTab(state, CHILD);
+    expect(state.tabs.map((tab) => tab.id)).toEqual([fileTabId(A), threadTabId(CHILD), fileTabId(B)]);
+    expect(state.activeId).toBe(threadTabId(CHILD));
+    expect(activeTab(state)).toMatchObject({ preview: false });
+  });
+
+  it("pins a previewed thread through pinTab and through opening it with pin", () => {
+    const preview = openThreadTab(EMPTY_STAGE, CHILD);
+    expect(activeTab(pinTab(preview, threadTabId(CHILD)))).toMatchObject({ preview: false });
+    expect(activeTab(openThreadTab(preview, CHILD, { pin: true }))).toMatchObject({ preview: false });
+  });
+
+  it("closes a thread tab the way it closes a file tab", () => {
+    let state = openFileTab(EMPTY_STAGE, A, { pin: true });
+    state = openThreadTab(state, CHILD, { pin: true });
+    state = closeTab(state, threadTabId(CHILD));
+    expect(state.tabs.map((tab) => tab.id)).toEqual([fileTabId(A)]);
+    expect(state.activeId).toBe(fileTabId(A));
+  });
+
+  it("leaves a thread tab alone when a file view is requested for it", () => {
+    const state = openThreadTab(EMPTY_STAGE, CHILD, { pin: true });
+    expect(setFileView(state, threadTabId(CHILD), "diff")).toEqual(state);
+  });
+});
+

@@ -1739,6 +1739,9 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .stage-empty { padding: 26px 20px; color: var(--faint); font: 12px var(--sans); }
 .stage-image { flex: 1; min-height: 0; display: grid; place-items: center; overflow: auto; padding: 24px; }
 .stage-image img { max-width: 100%; max-height: 100%; }
+/* A thread read in the stage: core's transcript, in a column that narrow. */
+.thread-document .transcript { padding: 18px 20px 12px; }
+.thread-document .stage-pane-header > strong { font-family: var(--sans); }
 .source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: 12px/1.75 var(--mono); }
 .source-grid { display: grid; grid-template-columns: max-content 1fr; min-width: max-content; flex: 1; }
 .source-gutter {

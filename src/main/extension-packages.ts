@@ -4,7 +4,7 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
@@ -76,7 +76,9 @@ function relativeEntry(directory: string, value: unknown, key: string): string |
   if (typeof value !== "string" || !value.trim()) throw new Error(`"${key}" must be a relative path`);
   if (isAbsolute(value)) throw new Error(`"${key}" must be relative to the package folder`);
   const path = resolve(directory, value);
-  if (!path.startsWith(resolve(directory) + "/")) throw new Error(`"${key}" must stay inside the package folder`);
+  // `relative` speaks the platform's separator; a prefix check with "/" broke on Windows.
+  const inside = relative(resolve(directory), path);
+  if (!inside || inside.startsWith("..") || isAbsolute(inside)) throw new Error(`"${key}" must stay inside the package folder`);
   return path;
 }
 
