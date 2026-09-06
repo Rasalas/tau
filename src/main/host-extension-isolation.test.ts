@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { bundleHostExtension, writeHostExtensionBundle } from "./extension-packages.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
-import { HostExtensionRegistry, type HostExtensionServices, type HostThreadLifecycle, type HostThread } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtensionServices, type HostThreadLifecycle, type HostThread, type HostThreadStartOptions } from "./host-extensions.js";
 
 /**
  * The isolated half of ADR 0009: a package's host entry, bundled by the real
@@ -40,7 +40,8 @@ export default {
       });
       await services.describeProjects({ name: async (cwd) => "named " + cwd });
       await services.setPendingWork("session-1", 2);
-      return { inside, unavailable: describeUnavailable(services) };
+      const started = await services.sessions.start({ cwd: "/project", prompt: "go", title: "Child" });
+      return { inside, started, unavailable: describeUnavailable(services) };
     });
   },
 };
@@ -66,11 +67,12 @@ interface Recorder {
   pins: Array<(thread: HostThread) => Iterable<string>>;
   pending: Array<(sessionId: string) => number>;
   names: Array<(cwd: string) => Promise<string | undefined>>;
+  started: HostThreadStartOptions[];
   exclusiveDepth: number;
 }
 
 function services(): { services: HostExtensionServices; recorder: Recorder } {
-  const recorder: Recorder = { logs: [], lifecycles: [], pins: [], pending: [], names: [], exclusiveDepth: 0 };
+  const recorder: Recorder = { logs: [], lifecycles: [], pins: [], pending: [], names: [], started: [], exclusiveDepth: 0 };
   const facade: HostExtensionServices = {
     cwd: () => "/project",
     safeMode: false,
@@ -104,6 +106,10 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
       list: async () => [{ sessionId: "session-1", path: "/sessions/one.jsonl", cwd: "/project" }],
       open: () => { throw new Error("no session files in this test"); },
       prepare: async () => { throw new Error("no runtimes in this test"); },
+      start: async (options) => {
+        recorder.started.push(options);
+        return { sessionId: "session-2", cwd: options.cwd, ...(options.title ? { title: options.title } : {}) };
+      },
       exclusive: async (work) => {
         recorder.exclusiveDepth += 1;
         try { return await work(); } finally { recorder.exclusiveDepth -= 1; }
@@ -195,8 +201,10 @@ describe("isolated host extensions", () => {
     const { registry, extension, recorder } = harness();
     await registry.activate(extension);
     try {
-      const result = await registry.invoke("acme.worker", "facade") as { inside: string; unavailable: string };
+      const result = await registry.invoke("acme.worker", "facade") as { inside: string; started: unknown; unavailable: string };
       expect(result.inside).toBe("session-1");
+      expect(result.started).toEqual({ sessionId: "session-2", cwd: "/project", title: "Child" });
+      expect(recorder.started).toEqual([{ cwd: "/project", prompt: "go", title: "Child" }]);
       expect(result.unavailable).toContain("not available to an isolated host extension");
       expect(recorder.exclusiveDepth).toBe(0);
       expect([...recorder.pins[0]!({ sessionId: "session-1" } as HostThread)]).toEqual(["entry-1"]);

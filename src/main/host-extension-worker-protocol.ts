@@ -1,7 +1,7 @@
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { ThreadBackendKind, UiMessage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
-import type { DirectoryPickerOptions, HostSessionSummary } from "./host-extensions.js";
+import type { DirectoryPickerOptions, HostSessionSummary, HostStartedThread, HostThreadStartOptions } from "./host-extensions.js";
 
 /**
  * The wire between the main process and an isolated host extension. Only plain
@@ -105,6 +105,8 @@ export interface WorkerHostServices {
     list(): Promise<HostSessionSummary[]>;
     /** Reads a session file once; the manager behind it stays in the host. */
     read(path: string): Promise<WorkerSessionSnapshot>;
+    /** Starts a thread for a project and delivers its first prompt, off screen. */
+    start(options: HostThreadStartOptions): Promise<HostStartedThread>;
     /** Runs `work` inside the host's thread lifecycle lock, one round trip wide. */
     exclusive<T>(work: () => Promise<T> | T): Promise<T>;
   };

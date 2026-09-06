@@ -108,6 +108,7 @@ const services: WorkerHostServices = {
   sessions: {
     list: () => rpc("sessions.list") as ReturnType<WorkerHostServices["sessions"]["list"]>,
     read: (path) => rpc("sessions.read", path) as ReturnType<WorkerHostServices["sessions"]["read"]>,
+    start: (options) => rpc("sessions.start", options) as ReturnType<WorkerHostServices["sessions"]["start"]>,
     exclusive: <T>(work: () => Promise<T> | T): Promise<T> => {
       const id = nextId++;
       exclusiveWork.set(id, async () => work());
