@@ -69,3 +69,27 @@
   font: 10px var(--mono); color: var(--faint);
 }
 .agent-parent-link:hover:not(:disabled) { color: var(--ink-3); }
+
+/* ------------------------------------------------------ spawn card */
+
+/* One card per spawn batch in the transcript, never folded away with the turn. */
+.agent-spawn-card {
+  margin: 6px 0; padding: 8px 10px;
+  border: 1px solid var(--line-card); border-radius: 10px; background: var(--chrome);
+}
+.agent-spawn-card > header {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  font-size: 12.5px; color: var(--ink-2);
+}
+.agent-spawn-card > header > strong { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-spawn-card > header > small { font: 10px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+.agent-spawn-card > ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.agent-spawn-link {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 4px 2px; background: none; border: 0; border-radius: 6px; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: 12px; text-align: left;
+}
+.agent-spawn-link:hover:not(:disabled) { background: var(--raised); color: var(--ink-2); }
+.agent-spawn-link:disabled { cursor: default; opacity: .6; }
+.agent-spawn-link > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-spawn-link > small { font: 10px var(--mono); color: var(--faint); }

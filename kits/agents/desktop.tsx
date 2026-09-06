@@ -3,6 +3,7 @@ import { Bot, CornerUpLeft } from "lucide-react";
 import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
 import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
+import { SpawnCard } from "./spawn-card.js";
 import { agentsHost, agentsStore, lineageOf } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
@@ -52,6 +53,14 @@ export const agentsExtension: DesktopExtension = {
     });
     context.registerPanel({ id: "agents", label: "Agents", Icon: Bot, order: 40, profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
     context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, profiles: ["desktop", "web", "compact"], Component: SpawnedBy });
+    // A spawn is not a tool call to skim past: the card is the way into the
+    // threads it started, so it never folds with the rest of the turn.
+    context.registerToolCard({
+      id: "agents.spawn",
+      match: (tool) => tool.name === "tau_spawn_thread",
+      profiles: ["desktop", "web", "compact"],
+      Component: SpawnCard,
+    });
     context.registerCommand({
       id: "agents.open",
       label: "Show spawned agents",

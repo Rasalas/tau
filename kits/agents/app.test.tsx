@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiMessage, UiSession } from "tau";
+import type { UiMessage, UiSession, UiTurnActivityEntry } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
@@ -83,12 +83,13 @@ function appWith(
   activeThreadId: string,
   messages: UiMessage[] = [],
   onAgentsCommand?: (command: string, input?: unknown) => unknown,
+  turnActivityHistory: UiTurnActivityEntry[] = [],
 ) {
   return createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
       threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 3 }], sessions },
-      detail: { sessionId: activeThreadId, messages, isStreaming: false, activeTools: [] },
+      detail: { sessionId: activeThreadId, messages, isStreaming: false, activeTools: [], turnActivityHistory },
       catalog: { sessionId: activeThreadId, models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
       project: { cwd: "/project" },
     }),
@@ -222,5 +223,47 @@ describe("the navigator with agent threads", () => {
 
     expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
+  });
+
+  it("draws one card for a spawn batch and opens each agent from it", async () => {
+    const spawn = (id: string, threadId: string) => ({
+      id,
+      name: "tau_spawn_thread",
+      args: { prompt: `work on ${threadId}` },
+      status: "done" as const,
+      output: JSON.stringify({ threadId }),
+      startedAt: 1,
+      endedAt: 2,
+    });
+    const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)];
+    const client = appWith(state, sessions, "parent", [
+      { id: "user", role: "user", text: "Split the work", timestamp: 1 },
+      { id: "reply", role: "assistant", text: "Two agents are on it.", timestamp: 4 },
+    ], undefined, [{
+      id: "turn-activity-user",
+      anchorMessageId: "user",
+      status: "completed",
+      tools: [
+        spawn("call-1", "alpha"),
+        spawn("call-2", "beta"),
+        { id: "read", name: "read", args: { path: "plan.md" }, status: "done" as const, startedAt: 2, endedAt: 3 },
+      ],
+    }]);
+    client.loadTranscript = async (sessionId: string) => ({
+      sessionId, hasMore: false,
+      messages: [{ id: "a1", role: "assistant" as const, text: "Alpha finished the job.", timestamp: 1 }],
+    });
+    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
+
+    // The card names the batch and stays out of the turn's fold.
+    expect(await screen.findByText("Started 2 agents · 1 working")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Worked for/u })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Alpha reply, running" }));
+    expect(await screen.findByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
+    expect(await screen.findByText("Alpha finished the job.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Agents" }));
+    expect(await screen.findByRole("heading", { name: "Agents" })).toBeTruthy();
   });
 });

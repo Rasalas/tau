@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import type { UiSession } from "tau";
+import type { UiSession, UiToolRun } from "tau";
 import { createAgentsStore, lineageOf } from "./store.js";
-import { activityLine, agentsPanelModel, formatCost, formatElapsed } from "./model.js";
+import { activityLine, agentsPanelModel, formatCost, formatElapsed, spawnCardModel, spawnedThreadId } from "./model.js";
 import { panelRows } from "./panel.js";
 import type { AgentThreadLink, AgentThreadStatus, AgentsState } from "./protocol.js";
 
@@ -148,3 +148,58 @@ describe("the Agents panel model", () => {
   });
 });
 
+
+describe("the spawn card", () => {
+  const spawn = (id: string, partial: Partial<UiToolRun> = {}): UiToolRun => ({
+    id,
+    name: "tau_spawn_thread",
+    args: { prompt: `do ${id}` },
+    status: "done",
+    startedAt: 1,
+    endedAt: 3,
+    ...partial,
+  });
+
+  it("names each agent of the batch from the thread the call reported", () => {
+    const model = spawnCardModel(
+      [spawn("call-1", { output: '{"threadId":"alpha"}' }), spawn("call-2", { output: '{"threadId":"beta"}' })],
+      state,
+      [session("alpha", "Index the code", 1, 0.25), session("beta", "Write the docs", 2, 0.5)],
+    );
+    expect(model.headline).toBe("Started 2 agents · 1 working");
+    expect(model.status).toBe("running");
+    expect(model.totalCostUsd).toBe(0.75);
+    expect(model.rows.map((row) => [row.title, row.status, row.threadId])).toEqual([
+      ["Index the code", "running", "alpha"],
+      ["Write the docs", "completed", "beta"],
+    ]);
+  });
+
+  it("falls back to the links spawned in the call's own window", () => {
+    const model = spawnCardModel([spawn("call-1"), spawn("call-2")], state, []);
+    expect(model.rows.map((row) => row.threadId)).toEqual(["alpha", "beta"]);
+  });
+
+  it("still names an agent from the prompt when nothing else knows it", () => {
+    const model = spawnCardModel([spawn("call-1", { args: { prompt: "Read the code\nand report" } })], undefined, []);
+    expect(model.rows[0]).toMatchObject({ title: "Read the code", status: "completed" });
+    expect(model.rows[0].threadId).toBeUndefined();
+    expect(model.headline).toBe("Started 1 agent · all done");
+  });
+
+  it("reads a failed call as a failed agent", () => {
+    const model = spawnCardModel([spawn("call-1", { status: "error" })], undefined, []);
+    expect(model.headline).toBe("Started 1 agent · 1 failed");
+    expect(model.status).toBe("failed");
+  });
+
+  it("reads a call still in flight as an agent that has not started", () => {
+    const model = spawnCardModel([spawn("call-1", { status: "running", endedAt: undefined })], undefined, []);
+    expect(model.headline).toBe("Started 1 agent · 1 queued");
+  });
+
+  it("reads the thread out of a result that is not JSON without throwing", () => {
+    expect(spawnedThreadId(spawn("call-1", { output: "not json" }))).toBeUndefined();
+    expect(spawnedThreadId(spawn("call-1", { output: '{"id":"gamma"}' }))).toBe("gamma");
+  });
+});

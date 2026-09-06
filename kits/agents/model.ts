@@ -1,5 +1,6 @@
-import { formatCost as formatMoney, type UiSession, type UiThreadUsage } from "tau";
+import { formatCost as formatMoney, type UiSession, type UiThreadUsage, type UiToolRun } from "tau";
 import {
+  isBusyStatus,
   isOpenStatus,
   type AgentThreadLink,
   type AgentThreadStatus,
@@ -235,4 +236,118 @@ export function activityLine(row: AgentRow): string {
   if (row.status === "waiting") return row.pendingToolPrompt ? `Needs you: ${row.pendingToolPrompt}` : "Waiting for you";
   if (row.status === "running") return row.lastTool ? `▸ ${row.lastTool}` : "Working";
   return row.result ?? row.lastTool ?? "Finished";
+}
+
+
+/**
+ * One agent a `tau_spawn_thread` batch started, as its card row shows it. The
+ * thread id comes from the tool's own result, so the card still names its
+ * agents after a restart that lost the kit's live state.
+ */
+export interface SpawnCardRow {
+  id: string;
+  threadId?: string;
+  /** The session file, present once the thread index knows the thread. */
+  path?: string;
+  title: string;
+  status: AgentThreadStatus;
+  costUsd?: number;
+}
+
+export interface SpawnCardModel {
+  rows: SpawnCardRow[];
+  /** "Started 3 agents · 2 working". */
+  headline: string;
+  /** The batch as a whole, for the card's status dot. */
+  status: AgentThreadStatus;
+  totalCostUsd?: number;
+}
+
+function jsonRecord(text: string | undefined): Record<string, unknown> | undefined {
+  if (!text) return undefined;
+  try {
+    const value = JSON.parse(text) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The thread a spawn call reported; its result is JSON with the new thread's id. */
+export function spawnedThreadId(tool: UiToolRun): string | undefined {
+  const result = jsonRecord(tool.output);
+  const threadId = result?.threadId ?? result?.id;
+  return typeof threadId === "string" && threadId ? threadId : undefined;
+}
+
+/**
+ * The link a spawn call made. Its result names the thread; a call whose result
+ * is not readable falls back to the link this thread spawned in that window,
+ * which is what a card of a run replayed from a session file has to work from.
+ */
+function linkFor(tool: UiToolRun, links: readonly AgentThreadLink[], taken: ReadonlySet<string>): AgentThreadLink | undefined {
+  const threadId = spawnedThreadId(tool);
+  if (threadId) {
+    const matched = links.find((link) => link.threadId === threadId || link.id === threadId);
+    if (matched) return matched;
+  }
+  const endedAt = tool.endedAt ?? Number.MAX_SAFE_INTEGER;
+  return links.find((link) => !taken.has(link.id)
+    && link.spawnedBy === tool.name
+    && link.spawnedAt >= tool.startedAt
+    && link.spawnedAt <= endedAt + 2_000);
+}
+
+function spawnTitle(tool: UiToolRun, link: AgentThreadLink | undefined, session: UiSession | undefined): string {
+  if (session?.title) return session.title;
+  if (link?.title) return link.title;
+  const title = tool.args.title ?? tool.args.prompt;
+  const text = typeof title === "string" ? title.trim().split("\n")[0] : "";
+  return text ? (text.length > 60 ? `${text.slice(0, 59)}…` : text) : "Agent";
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** What the card says about a batch: its rows, its headline and its dot. */
+export function spawnCardModel(
+  tools: readonly UiToolRun[],
+  state: AgentsState | undefined,
+  threads: readonly UiSession[],
+): SpawnCardModel {
+  const links = state?.links ?? [];
+  const sessions = new Map(threads.map((session) => [session.id, session] as const));
+  const taken = new Set<string>();
+  const rows = tools.map((tool) => {
+    const link = linkFor(tool, links, taken);
+    if (link) taken.add(link.id);
+    const threadId = link?.threadId ?? spawnedThreadId(tool);
+    const session = threadId ? sessions.get(threadId) : undefined;
+    const cost = session?.usage?.costUsd;
+    const status: AgentThreadStatus = link?.status
+      ?? (tool.status === "error" ? "failed" : tool.status === "running" ? "pending" : session ? "idle" : "completed");
+    return {
+      id: link?.id ?? tool.id,
+      ...(threadId ? { threadId } : {}),
+      ...(session?.path ? { path: session.path } : {}),
+      title: spawnTitle(tool, link, session),
+      status,
+      ...(cost === undefined ? {} : { costUsd: cost }),
+    };
+  });
+
+  const working = rows.filter((row) => isBusyStatus(row.status)).length;
+  const failed = rows.filter((row) => row.status === "failed").length;
+  const pending = rows.filter((row) => row.status === "pending").length;
+  const costs = rows.flatMap((row) => row.costUsd === undefined ? [] : [row.costUsd]);
+  const tail = working > 0
+    ? `${working} working`
+    : failed > 0 ? `${failed} failed` : pending > 0 ? `${pending} queued` : "all done";
+  return {
+    rows,
+    headline: `Started ${plural(rows.length, "agent", "agents")} · ${tail}`,
+    status: working > 0 ? "running" : failed > 0 ? "failed" : pending > 0 ? "pending" : "completed",
+    ...(costs.length > 0 ? { totalCostUsd: costs.reduce((sum, value) => sum + value, 0) } : {}),
+  };
 }
