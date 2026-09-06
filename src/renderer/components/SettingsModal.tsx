@@ -400,7 +400,10 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
       </table>
 
       <div className="settings-label">NOT ON THIS CLIENT</div>
-      <p className="lede">This client is the <b>{registry.getProfile()}</b> profile. Their host halves keep running; only the drawing is missing here.</p>
+      <p className="lede">
+        This client is the <b>{registry.getProfile()}</b> profile.
+        {unrendered.length > 0 ? " These contributions are not drawn here; the extensions and their host halves keep running." : ""}
+      </p>
       {unrendered.length > 0 ? (
         <table className="inspector-table" aria-label="Contributions not on this client">
           <thead><tr><th>Extension</th><th>Contribution</th><th>Renders on</th></tr></thead>
@@ -414,7 +417,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
             ))}
           </tbody>
         </table>
-      ) : <div className="settings-note">This client draws every contribution the active extensions offered.</div>}
+      ) : <div className="settings-note">It draws every contribution the active extensions offered.</div>}
 
       <div className="settings-label">PACKAGES ON DISK</div>
       {inspection?.directories.map((entry) => (

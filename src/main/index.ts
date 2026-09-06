@@ -214,6 +214,9 @@ async function createWindow(): Promise<void> {
   const remoteToken = remoteHostUrl ? clientHostToken() : undefined;
   const query: Record<string, string> = {
     ...(safeMode ? { safeMode: "1" } : {}),
+    // Which client this window claims to be (ADR 0016). Unset is `desktop`;
+    // setting it is how the desktop window shows what a smaller one leaves out.
+    ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
     ...(remoteHostUrl ? { host: remoteHostUrl } : {}),
     ...(remoteToken ? { token: remoteToken } : {}),
   };
