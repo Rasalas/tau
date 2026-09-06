@@ -1,16 +1,12 @@
 import { parseSkillEnvelope } from "../shared/skill-envelope.js";
 
 /**
- * Text projections core, Tau's Pi bridge and the title kit all read the same
- * way: content blocks to plain text, a model's answer to a thread title, and
- * the first exchanges of a thread as the prompt a title model reads. A leaf
- * module on purpose — `tau/host-extension` re-exports it, so a kit that imports
- * one of these bundles nothing else.
- *
- * The title shapes live here rather than in `kits/thread-titles` because the
- * bridge (`.pi/extensions/tau-session-bridge.ts`) runs inside Pi, where jiti
- * resolves no `tau/` specifier. Ticket 09 splits that bridge; this is the
- * moment to move them.
+ * Text projections core and the title kit read the same way: content blocks to
+ * plain text, a model's answer to a thread title, and the first exchanges of a
+ * thread as the prompt a title model reads. A leaf module on purpose —
+ * `tau/host-extension` re-exports it, so a kit that imports one of these
+ * bundles nothing else. Core titles threads itself (`thread.completeTitle`),
+ * which is why these stay here rather than in `kits/thread-titles`.
  */
 
 export function textFromContent(content: unknown): string {
