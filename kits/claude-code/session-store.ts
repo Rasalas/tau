@@ -1,9 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { UiMessage, UiSkillInvocation } from "../../../shared/contracts.js";
-import { parseSkillEnvelope } from "../../../shared/skill-envelope.js";
-import { type PersistedJsonLogger, readPersistedJson, writePersistedJson } from "../../persisted-json.js";
+import { parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -15,7 +13,6 @@ const MAX_ID_LENGTH = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 
-import type { ThreadTitleSource } from "../../runtime-types.js";
 
 export type ClaudeTitleSource = ThreadTitleSource;
 

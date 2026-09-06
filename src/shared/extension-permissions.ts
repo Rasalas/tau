@@ -88,4 +88,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   installPackage: "packages",
   removePackage: "packages",
   updatePackages: "packages",
+  // The skill catalog is what a runtime offers a thread; the permission that
+  // lets a package register a runtime backend is the one that lets it read it.
+  skills: "runtime:extend",
 };

@@ -1,27 +1,26 @@
-import { getAgentDir, loadSkills } from "@earendil-works/pi-coding-agent";
-import type { UiComposerCommand } from "../../../shared/contracts.js";
-import type { HostBackendThreadRecord, HostExtension, HostRuntimeBackendProvider } from "../../host-extensions.js";
-import { skillInvocationCommand } from "../../skill-invocation.js";
+import { skillInvocationCommand, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
+import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "./protocol.js";
 import { assertClaudePermissionPolicySupported, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
-
-import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "../../../shared/claude-code-protocol.js";
 
 export { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID };
 
 export interface ClaudeCodeHostExtensionOptions {
   /** A prepared adapter (tests inject a fake transport); the CLI adapter otherwise. */
   adapter?: ClaudeCodeAgentRuntimeAdapter;
+  /** Where the session store lives; `services.agentDir` otherwise. */
   agentDir?: string;
   /** Commands offered instead of the shared skill directories (tests). */
   commands?: readonly UiComposerCommand[];
 }
 
-/** Claude gets only skill metadata from the shared skill directories; it never sees Pi's resource loader. */
-export function claudeComposerCommands(cwd: string, agentDir: string, adapter: ClaudeCodeAgentRuntimeAdapter): UiComposerCommand[] {
-  const result = loadSkills({ cwd, agentDir, skillPaths: [], includeDefaults: true });
-  return result.skills
+/** Claude gets only skill metadata from the host's skill catalog; it never sees Pi's resource loader. */
+export function claudeComposerCommands(
+  skills: readonly { name: string; description?: string }[],
+  adapter: ClaudeCodeAgentRuntimeAdapter,
+): UiComposerCommand[] {
+  return skills
     .filter((skill) => /^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(skill.name))
     .map((skill) => ({
       name: `skill:${skill.name}`,
@@ -52,9 +51,10 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
     name: "Claude Code",
     permissions: ["process", "sessions", "runtime:extend"],
     activate(context) {
-      const agentDir = options.agentDir ?? getAgentDir();
-      const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ agentDir });
-      const store = adapter.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(agentDir) });
+      const services: HostExtensionServices = context.services;
+      const storePath = ClaudeRuntimeSessionStore.defaultPath(options.agentDir ?? services.agentDir);
+      const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ storePath });
+      const store = adapter.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: storePath });
       const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
         threadId: entry.tauThreadId,
         cwd: entry.cwd,
@@ -66,7 +66,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         ? options.commands.map((command) => command.source === "skill"
           ? { ...command, skillCommand: skillInvocationCommand(command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name, adapter) }
           : command)
-        : claudeComposerCommands(cwd, agentDir, adapter);
+        : claudeComposerCommands(services.skills(cwd), adapter);
       const provider: HostRuntimeBackendProvider = {
         kind: CLAUDE_CODE_BACKEND_KIND,
         adapter,
@@ -77,7 +77,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           return entry ? record(entry) : undefined;
         },
         open: async (threadId, cwd, { resume }, thread) => {
-          assertCommandInstalled(context.services.findCommand);
+          assertCommandInstalled(services.findCommand);
           const backend = new ClaudeThreadRuntimeBackend(threadId, cwd, {
             adapter,
             store,
@@ -96,9 +96,11 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       };
       context.registerCommand("status", () => {
         const command = claudeCommand();
-        return { kind: CLAUDE_CODE_BACKEND_KIND, command, path: context.services.findCommand(command) };
+        return { kind: CLAUDE_CODE_BACKEND_KIND, command, path: services.findCommand(command) };
       });
-      return context.services.registerRuntimeBackend(provider);
+      return services.registerRuntimeBackend(provider);
     },
   };
 }
+
+export default createClaudeCodeHostExtension;

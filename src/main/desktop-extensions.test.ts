@@ -42,6 +42,27 @@ describe("desktop extension bundling", () => {
     expect(code).toContain("export {");
   });
 
+  it("ships only the shared bindings the extension imports, in the code and in the map", async () => {
+    const dir = await scratch();
+    await writeFile(join(dir, "one-icon.tsx"), `
+      import { Bot } from "icons";
+      import type { DesktopExtension } from "tau";
+      const extension: DesktopExtension = { id: "x.icon", name: "Icon", activate(plugin) { plugin.registerStatusItem({ id: "icon", align: "left", Component: () => <Bot /> }); } };
+      export default extension;
+    `);
+    const icons = Array.from({ length: 2000 }, (_, index) => `Icon${index}`);
+    const code = await bundleDesktopExtension(join(dir, "one-icon.tsx"), {
+      sharedExports: { icons: ["Bot", ...icons], "react/jsx-runtime": ["jsx", "jsxs", "Fragment"], tau: [] },
+    });
+    expect(code).toContain('pick("Bot")');
+    expect(code).not.toContain('pick("Icon1")');
+    // The generated shim is nobody's source, so the inline map does not carry it either.
+    const map = JSON.parse(Buffer.from(/base64,([A-Za-z0-9+/=]+)/u.exec(code)![1], "base64").toString("utf8")) as { sources: string[]; sourcesContent: (string | null)[] };
+    expect(map.sourcesContent[map.sources.indexOf("tau-shared:icons")]).toBeNull();
+    expect(map.sourcesContent[map.sources.findIndex((source) => source.endsWith("one-icon.tsx"))]).toContain("registerStatusItem");
+    expect(code.length).toBeLessThan(20_000);
+  });
+
   it("loads the user folder always and the project folder only when Pi trusts the project", async () => {
     const home = await scratch();
     const project = await scratch();

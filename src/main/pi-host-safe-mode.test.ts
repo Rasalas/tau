@@ -4,17 +4,20 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { shippedHostExtensions } from "./extensions/index.js";
+import { selectDefaultBackend } from "./runtime-adapters.js";
 import { PiHost } from "./pi-host.js";
 
 const appPath = fileURLToPath(new URL("../..", import.meta.url));
 /** Everything Tau ships, the way the app assembles it: kits from `kits/` included. */
 const shipped = shippedHostExtensions({ appPath }, () => undefined);
 /** Kits that no longer live in the host but arrive through the bundled loader. */
-const PACKAGED_KIT_IDS = ["tau.computer-use", "tau.review", "tau.thread-titles", "tau.worktree-names"];
+// Every kit with a host half; Signals is desktop-only and has no summary here.
+const PACKAGED_KIT_IDS = ["tau.access", "tau.agents", "tau.claude-code", "tau.computer-use", "tau.keybindings", "tau.packages", "tau.pi-ui", "tau.preview", "tau.questionnaire", "tau.review", "tau.service-tier", "tau.thread-titles", "tau.worktree-names"];
 
 type Internals = {
   activateHostExtensions(): Promise<void>;
   runtimeExtensionsFor(settings: { getGlobalSettings(): object; getProjectSettings(): object }): Array<{ name: string }>;
+  requireBackend(kind: string): { kind: string };
 };
 const settings = { getGlobalSettings: () => ({}), getProjectSettings: () => ({}) };
 
@@ -36,6 +39,20 @@ describe("PiHost safe mode", () => {
     expect(summaries.filter((summary) => PACKAGED_KIT_IDS.includes(summary.id)).map((summary) => summary.id).sort()).toEqual(PACKAGED_KIT_IDS);
     expect(summaries.filter((summary) => !summary.active)).toEqual([]);
     expect(internals.runtimeExtensionsFor(settings).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-computer-use", "tau-preview", "tau-questionnaire", "tau-service-tier", "tau-turn-checkpoints"]);
+  });
+
+  // A runtime backend now arrives from a package rather than from a host
+  // constructor. `start()` activates the kits before it checks the default
+  // backend, so the kind the environment named is registered by then; until
+  // then the host says which extension is missing rather than failing blankly.
+  it("finds the default backend a kit registered, and names the gap before the kits load", async () => {
+    const kind = selectDefaultBackend("claude-code");
+    expect(kind).toBe("claude-code");
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: shipped, defaultBackendKind: kind });
+    const internals = host as unknown as Internals;
+    expect(() => internals.requireBackend(kind)).toThrow('Runtime backend "claude-code" is not installed');
+    await internals.activateHostExtensions();
+    expect(internals.requireBackend(kind).kind).toBe(kind);
   });
 });
 

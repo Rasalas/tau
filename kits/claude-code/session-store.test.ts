@@ -2,8 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { formatChatTranscript } from "../../../shared/chat-transcript.js";
-import type { UiMessage } from "../../../shared/contracts.js";
+import type { UiMessage } from "tau/host-extension";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 const temporaryDirectories: string[] = [];
@@ -121,14 +120,7 @@ describe("Claude runtime session store", () => {
 
     const reloadedA = await new ClaudeRuntimeSessionStore({ filePath }).get("thread-a");
     expect(reloadedA?.messages[0]?.text).toBe(raw);
-    const exported = formatChatTranscript({
-      cwd: "/workspace-a",
-      threadId: "thread-a",
-      exportedAt: new Date("2026-08-31T00:00:00.000Z"),
-      messages: reloadedA?.messages.map((message) => ({ role: message.role, content: message.text })) ?? [],
-    });
-    expect(exported).toContain(raw);
-    expect(exported).toContain("SECRET FROM A");
+    expect(reloadedA?.messages[0]?.text).toContain("SECRET FROM A");
   });
 
   it("keeps unknown and malformed wrappers lossless across a restart", async () => {

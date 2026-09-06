@@ -283,6 +283,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "setThreadTitle": return services.setThreadTitle(String(args[0]), String(args[1]), args[2] as "generated" | "renamed");
       case "noteSubprocess": return services.noteSubprocess();
       case "findCommand": return services.findCommand(String(args[0]));
+      case "skills": return services.skills(String(args[0]));
       case "refreshExtensionPackages": return services.refreshExtensionPackages();
       case "sessions.list": return services.sessions.list();
       case "sessions.read": return readSession(String(args[0]));

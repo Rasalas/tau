@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, PreparedPrompt, UiComposerCommand } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
-import { createClaudeCodeHostExtension } from "./extensions/claude-code/host-extension.js";
-import type { ClaudeCodeAgentRuntimeAdapter } from "./extensions/claude-code/runtime-adapter.js";
+import type { HostExtension } from "./host-extensions.js";
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { prepareSkillPrompt } from "./skill-invocation.js";
@@ -11,6 +10,27 @@ import { promptImages } from "./prompt-attachments.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 
 const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", description: "Test-driven development" }];
+
+/**
+ * A kit that registers a runtime backend, standing in for whichever package
+ * ships one. The host must reach an external runtime through this seam and
+ * nothing else, so the tests below need no real backend kit.
+ */
+function backendKit(adapter: AgentRuntimeAdapter, composerCommands: readonly UiComposerCommand[] = []): HostExtension {
+  return {
+    id: `test.${adapter.id}`,
+    name: adapter.id,
+    permissions: ["runtime:extend"],
+    activate: (context) => context.services.registerRuntimeBackend({
+      kind: adapter.id,
+      adapter,
+      listThreads: async () => [],
+      lookup: async () => undefined,
+      open: () => { throw new Error("this test never opens a thread through the provider"); },
+      composerCommands: () => [...composerCommands],
+    }),
+  };
+}
 
 function localHost(adapter: AgentRuntimeAdapter) {
   const emitted: unknown[] = [];
@@ -167,7 +187,7 @@ function localHost(adapter: AgentRuntimeAdapter) {
   // A non-Pi adapter reaches the host the way it does in production: as a registered backend.
   const host = new PiHost("/repo", (event) => emitted.push(event), {} as never, false, false, adapter.id === "pi"
     ? { runtimeAdapter: adapter }
-    : { defaultBackendKind: adapter.id, hostExtensions: [createClaudeCodeHostExtension({ adapter: adapter as ClaudeCodeAgentRuntimeAdapter })] });
+    : { defaultBackendKind: adapter.id, hostExtensions: [backendKit(adapter)] });
   const internals = host as unknown as {
     threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
     labelFor: () => undefined;
@@ -288,14 +308,14 @@ describe("PiHost skill delivery", () => {
   });
 
   it("reprojects supplied skill catalogs through the selected Claude dialect", async () => {
-    const adapter = {
+    const adapter: AgentRuntimeAdapter = {
       id: "claude-code",
       capabilities: { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false },
       transport: { sendPrompt: vi.fn(async () => ({})) },
-    } as unknown as ClaudeCodeAgentRuntimeAdapter;
+    };
     const host = new PiHost("/repo", () => undefined, {} as never, false, false, {
       defaultBackendKind: "claude-code",
-      hostExtensions: [createClaudeCodeHostExtension({ adapter })],
+      hostExtensions: [backendKit(adapter)],
       runtimeCommands: [{ ...commands[0], skillCommand: "/skill:tdd" }],
     });
     const internals = host as unknown as { activateHostExtensions(): Promise<void>; externalComposerCommands(kind: string, cwd: string): UiComposerCommand[] };

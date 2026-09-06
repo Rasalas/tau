@@ -1,0 +1,10 @@
+{
+  "id": "tau.claude-code",
+  "name": "Claude Code",
+  "version": "1.0.0",
+  "engines": { "api": "^1.2.0" },
+  "permissions": ["process", "sessions", "runtime:extend"],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts"
+}

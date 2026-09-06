@@ -1,7 +1,7 @@
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
-import type { DirectoryPickerOptions, HostSessionSummary, HostStartedThread, HostThreadStartOptions } from "./host-extensions.js";
+import type { DirectoryPickerOptions, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions } from "./host-extensions.js";
 
 /**
  * The wire between the main process and an isolated host extension. Only plain
@@ -107,6 +107,7 @@ export interface WorkerHostServices {
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   noteSubprocess(): Promise<void>;
   findCommand(name: string): Promise<string | undefined>;
+  skills(cwd: string): Promise<HostSkill[]>;
   refreshExtensionPackages(): Promise<void>;
   /** Answers the index's questions about a project folder, by round trip. */
   describeProjects(facts: WorkerProjectFacts): Promise<() => void>;

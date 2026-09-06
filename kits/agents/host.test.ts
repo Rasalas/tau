@@ -103,6 +103,7 @@ function harness() {
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    skills: () => [],
     sessions: {
       list: async () => [
         { sessionId: "parent", path: "/sessions/parent.jsonl", cwd: "/project" },

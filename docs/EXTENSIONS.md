@@ -166,10 +166,14 @@ shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`
 `WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage` —
 are exported as types beside them.
 
-`tau/host-extension` re-exports every host seam type plus `HostCommandError`,
-`isExpectedCommandError`, the permission and isolation vocabularies,
-`GlobalHostEvent` (what `context.emit` becomes on the wire, which a package's
-own tests read off the host harness), the `PiShortcut` and `PiUserKeybindings`
+`tau/host-extension` re-exports every host seam type, every type of the host
+protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
+`GlobalHostEvent` — what `context.emit` becomes on the wire, which a package's
+own tests read off the host harness — …) and of a runtime backend
+(`ThreadRuntimeBackend`, `ThreadBackendPromptInput`, `AgentRuntimeAdapter`,
+`RuntimeTransport`, `RuntimePermissionLevel`, … — types only, so nothing of
+core is bundled), plus `HostCommandError`, `isExpectedCommandError`, the
+permission and isolation vocabularies, the `PiShortcut` and `PiUserKeybindings`
 types that `HostThread.shortcuts` and `runShortcut` speak, and the
 text projections a package that reads transcripts needs: `textFromContent`
 (content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
@@ -186,6 +190,15 @@ beside Tau's), and `PARENT_LINK_ENTRY` / `parentLinkEntry` (the custom entry
 `sessions.start({ parent })` writes on a spawned thread and the thread index
 reads back as `UiSession.parentThreadId`), and, for the package manager, the row shape and the scope name as types: `InstalledPackage`,
 `PackageRemoval` and `PackageScope`.
+
+A package that owns whole threads — a runtime backend — gets four more values:
+`prepareSkillPrompt` and `skillInvocationCommand` (a composer draft turned into
+what a runtime is actually sent, in that runtime's own dialect),
+`validatePreparedPrompt` (core's check that a prepared prompt still matches the
+thread it was prepared for), `clientMessageFingerprint` (how core correlates a
+sent message with the one the runtime echoes back), `knownSkillNames`, and
+`readPersistedJson` / `writePersistedJson` (atomic, mode-0600 JSON with the
+quarantine-and-restart behaviour Tau's own state files have).
 
 ### `engines` and `engines.api`
 
@@ -221,8 +234,8 @@ A package's `permissions` array draws from a fixed list
 | `workspace:read` | read the current project's path, name and file contents through the host services. |
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
-| `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. |
-| `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
+| `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
+| `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`). |
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
@@ -447,7 +460,7 @@ nothing that hands out a live object. From
 | `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
-| `noteSubprocess`, `findCommand` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
+| `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |

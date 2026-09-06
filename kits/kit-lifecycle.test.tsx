@@ -12,13 +12,15 @@ import serviceTier from "./service-tier/desktop.js";
 import computerUse from "./computer-use/desktop.js";
 import review from "./review/desktop.js";
 import signals from "./signals/desktop.js";
+import claudeCode from "./claude-code/desktop.js";
+import piUi from "./pi-ui/desktop.js";
 import titleGenerator from "./thread-titles/desktop.js";
 import worktreeNames from "./worktree-names/desktop.js";
 
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [access, agents, computerUse, keybindings, packages, preview, questionnaire, review, serviceTier, signals, titleGenerator, worktreeNames];
+const kits = [access, agents, claudeCode, computerUse, keybindings, packages, piUi, preview, questionnaire, review, serviceTier, signals, titleGenerator, worktreeNames];
 
 afterEach(cleanup);
 

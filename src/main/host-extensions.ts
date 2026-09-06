@@ -11,7 +11,6 @@ import type {
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
-import type { PiUiWidgetPlacement } from "../shared/pi-ui-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { ThreadRuntimeBackend } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
@@ -284,6 +283,9 @@ export interface HostThread {
   appendEntry(customType: string, data: unknown): void;
 }
 
+/** Where Pi's `ctx.ui` asks for a text widget, relative to the composer. */
+export type PiUiWidgetPlacement = "aboveEditor" | "belowEditor";
+
 /**
  * Terminal surfaces of Pi's `ctx.ui` a host extension may draw somewhere.
  * A call no presenter handles is reported to the thread log as unsupported.
@@ -294,6 +296,12 @@ export interface HostUiPresenter {
   setWorkingMessage?(sessionId: string, message: string | undefined): void;
   /** The thread's runtime went away; forget what it drew. */
   clear?(sessionId: string): void;
+}
+
+/** One entry of a workspace's skill catalog, as `services.skills` reports it. */
+export interface HostSkill {
+  name: string;
+  description?: string;
 }
 
 /**
@@ -336,6 +344,8 @@ export interface HostExtensionServices {
   noteSubprocess(): void;
   /** Absolute path of a command on the host's PATH (the login shell's, see `shell-environment.ts`), or undefined. */
   findCommand(name: string): string | undefined;
+  /** The skills a workspace offers, the catalog the composer lists; a runtime backend publishes them as its own commands. */
+  skills(cwd: string): readonly HostSkill[];
   /**
    * Re-reads the extension packages of this workspace and starts, restarts or
    * stops their halves to match what is on disk and granted. It needs no

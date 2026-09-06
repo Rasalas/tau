@@ -9,13 +9,11 @@ const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPane
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
-import { claudeCodeExtension } from "./claude-code-kit";
 import { workspaceKit } from "./workspace-kit-client";
 import { registerCheckpoints } from "./workspace-checkpoints";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./workspace-dock";
 import { WorkspaceTitleActions } from "./workspace-title";
 import type { WorkspaceStore } from "./workspace-store";
-import { piUiExtension } from "./pi-ui";
 
 let lastDocumentState: { changes: import("../../shared/workspace-kit-types").UiWorkspaceChanges; editor?: import("../../shared/workspace-kit-types").UiEditor } | undefined;
 let lastDocumentInputs: [unknown, unknown, string | undefined] | undefined;
@@ -124,6 +122,4 @@ export const workspaceExtension: DesktopExtension = {
 
 export const bundledExtensions = [
   workspaceExtension,
-  piUiExtension,
-  claudeCodeExtension,
 ];

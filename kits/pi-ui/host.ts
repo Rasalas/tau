@@ -1,5 +1,5 @@
-import { EMPTY_PI_UI_STATE, PI_UI_EVENT, PI_UI_HOST_EXTENSION_ID, type PiUiThreadState } from "../../shared/pi-ui-protocol.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { EMPTY_PI_UI_STATE, PI_UI_EVENT, PI_UI_HOST_EXTENSION_ID, type PiUiThreadState } from "./protocol.js";
 
 const optionalString = (input: unknown, key: string): string | undefined => {
   const value = input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;
@@ -7,7 +7,7 @@ const optionalString = (input: unknown, key: string): string | undefined => {
 };
 
 /**
- * Host entry of the Pi UI extension: keeps what Pi extensions drew through
+ * Host entry of the Pi UI kit: keeps what Pi extensions drew through
  * `ctx.ui.setStatus`, `setWidget` and `setWorkingMessage` per thread and
  * publishes every change to the desktop half.
  */
@@ -51,3 +51,5 @@ export function createPiUiHostExtension(): HostExtension {
     },
   };
 }
+
+export default createPiUiHostExtension;

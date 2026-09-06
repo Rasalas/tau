@@ -8,20 +8,12 @@
  * bump `EXTENSION_API_VERSION` when you do.
  */
 export type * from "./host-extensions.js";
-/** The contracts types the host seam's own signatures speak, so a host half can name what it is handed. */
-export type {
-  ExtensionUiPrompt,
-  GlobalHostEvent,
-  HostExtensionSummary,
-  ThreadBackendKind,
-  UiComposerCommand,
-  UiMessage,
-  UiThreadUsage,
-  UiToolRun,
-} from "../shared/contracts.js";
+export type * from "./runtime-types.js";
+export type * from "./runtime-adapters.js";
+export type * from "../shared/contracts.js";
 export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
 export { buildTitleConversation, cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText, type TitleMessage } from "./host-text.js";
-export { isSkillName, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
+export { prepareSkillPrompt, skillInvocationCommand, type PreparedSkillPrompt, type SkillRuntimeAdapter } from "./skill-invocation.js";
 export {
   readPersistedJson,
   writePersistedJson,
@@ -31,6 +23,9 @@ export {
   type WritePersistedJsonOptions,
 } from "./persisted-json.js";
 export { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
+export { clientMessageFingerprint } from "../shared/client-message-correlation.js";
+export { validatePreparedPrompt } from "../shared/prepared-prompt.js";
+export { isSkillName, knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
 export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 export type { WorkspaceRef } from "../shared/workspace-identity.js";

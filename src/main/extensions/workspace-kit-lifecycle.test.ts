@@ -92,6 +92,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    skills: () => [],
     refreshExtensionPackages: async () => undefined,
     listPackages: async () => [],
     installPackage: async () => { throw new Error("no installer in this test"); },

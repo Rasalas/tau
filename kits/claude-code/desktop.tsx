@@ -1,6 +1,6 @@
 import { Bot } from "lucide-react";
-import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "../../shared/claude-code-protocol";
-import type { DesktopExtension, RegionProps } from "../extension-system";
+import type { DesktopExtension, RegionProps } from "tau";
+import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "./protocol.js";
 
 /** Names the runtime behind a Claude thread; Pi threads show nothing. */
 export function ClaudeCodeStatus({ snapshot }: RegionProps) {
@@ -20,3 +20,5 @@ export const claudeCodeExtension: DesktopExtension = {
     plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, Component: ClaudeCodeStatus });
   },
 };
+
+export default claudeCodeExtension;

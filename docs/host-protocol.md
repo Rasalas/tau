@@ -195,4 +195,4 @@ Current stores:
 | --- | --- | --- |
 | `<userData>/projects.json` | `src/main/project-history.ts` | 2 |
 | `<userData>/host-id` | `src/main/workspace-identity.ts` | plain text |
-| `<agentDir>/tau/claude-runtime-sessions.json` | `src/main/extensions/claude-code/session-store.ts` | 1 |
+| `<agentDir>/tau/claude-runtime-sessions.json` | `kits/claude-code/session-store.ts` | 1 |

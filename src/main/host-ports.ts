@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { SessionManager, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiPrompt,
   HostEvent,
@@ -230,6 +230,8 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     describeProjects: (facts) => port.describeProjects(facts),
     noteSubprocess: () => port.noteSubprocess(),
     findCommand: (name) => findExecutable(name),
+    skills: (cwd) => loadSkills({ cwd, agentDir: getAgentDir(), skillPaths: [], includeDefaults: true }).skills
+      .map(({ name, description }) => ({ name, ...(description ? { description } : {}) })),
     refreshExtensionPackages: () => port.refreshExtensionPackages(),
     listPackages: () => listExtensionSources(installer()),
     installPackage: (source, scope, progress) => { port.noteSubprocess(); return installExtensionSource(source, scope, installer(progress)); },
