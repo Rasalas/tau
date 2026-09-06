@@ -1961,28 +1961,6 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .inspector-folder code { font: 10.5px var(--mono); color: var(--ink-2); word-break: break-all; }
 .inspector-folder + .inspector-table { margin-top: 10px; }
 
-.packages-form { display: flex; gap: 8px; max-width: 560px; align-items: center; }
-.packages-form input {
-  flex: 1; min-width: 0; border: 1px solid var(--line-control); border-radius: 9px;
-  background: var(--sunken); color: var(--ink-2); font: 12px var(--mono); padding: 9px 12px;
-}
-.packages-form input:focus { outline: 0; border-color: var(--line-field); }
-.packages-form > button { padding: 8px 14px; border-radius: 6px; font-size: 11.5px; cursor: pointer; }
-.packages-form > button:disabled { opacity: .5; cursor: default; }
-.packages-scope { margin-top: 8px; }
-.packages-log {
-  margin-top: 10px; max-width: 560px; padding: 9px 12px;
-  border-left: 2px solid var(--line-strong); background: #191916;
-  font: 10.5px var(--mono); color: var(--muted); line-height: 1.7;
-}
-.packages-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.packages-actions > button {
-  border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2);
-  border-radius: 4px; padding: 3px 9px; font-size: 11px; cursor: pointer;
-}
-.packages-actions > button:disabled { opacity: .5; cursor: default; }
-.packages-actions > small { font: 10px var(--mono); color: var(--faint); }
-
 .extension-grant-box {
   margin-top: 16px; max-width: 460px; padding: 12px;
   border: 1px solid var(--line-strong); border-radius: 6px; background: #191916;

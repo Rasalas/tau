@@ -6,5 +6,6 @@
   "permissions": ["packages"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
   "host": "./host.ts"
 }
