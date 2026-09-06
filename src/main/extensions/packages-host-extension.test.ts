@@ -24,15 +24,17 @@ async function packageFolder(root: string): Promise<string> {
 
 function harness(cwd: string) {
   const events: GlobalHostEvent[] = [];
+  const refreshExtensionPackages = vi.fn(async () => undefined);
   const services = {
     cwd: () => cwd,
     safeMode: false,
     log: vi.fn(),
     noteSubprocess: vi.fn(),
     findCommand: () => undefined,
+    refreshExtensionPackages,
   } as unknown as HostExtensionServices;
   const registry = new HostExtensionRegistry(services, (event) => events.push(event));
-  return { events, registry };
+  return { events, registry, refreshExtensionPackages };
 }
 
 describe("packages host extension", () => {
@@ -51,21 +53,31 @@ describe("packages host extension", () => {
     const home = await scratch();
     const project = await scratch();
     const source = await packageFolder(await scratch());
-    const { events, registry } = harness(project);
+    const { events, registry, refreshExtensionPackages } = harness(project);
     await registry.activate(createPackagesHostExtension({ home }));
 
     const installed = await registry.invoke(PACKAGES_HOST_EXTENSION_ID, "install", { source, scope: "project" });
     expect(installed).toMatchObject({ installed: { id: "acme.hello", scope: "project" } });
     expect(events.some((event) => event.type === "extension-event" && event.name === "changed")).toBe(true);
+    // The host rescans, so approving in Settings is the only step left.
+    expect(refreshExtensionPackages).toHaveBeenCalledTimes(1);
+    expect((installed as { message: string }).message).toContain("approve it in Settings to start it");
+    expect((installed as { message: string }).message).not.toContain("/reload");
 
     const listed = await registry.invoke(PACKAGES_HOST_EXTENSION_ID, "list") as { packages: Array<{ id?: string }> };
     expect(listed.packages.map((entry) => entry.id)).toEqual(["acme.hello"]);
     expect(describeInstalled({ source, scope: "project", directory: source, id: "acme.hello", version: "1.0.0", signature: { state: "unsigned" } }))
       .toBe("acme.hello 1.0.0 · project · unsigned");
 
-    await registry.invoke(PACKAGES_HOST_EXTENSION_ID, "remove", { source, scope: "project" });
+    const removed = await registry.invoke(PACKAGES_HOST_EXTENSION_ID, "remove", { source, scope: "project" }) as { message: string };
+    expect(refreshExtensionPackages).toHaveBeenCalledTimes(2);
+    expect(removed.message).toBe(`Removed ${source}.`);
     const empty = await registry.invoke(PACKAGES_HOST_EXTENSION_ID, "list") as { packages: unknown[] };
     expect(empty.packages).toEqual([]);
+
+    const updated = await registry.invoke(PACKAGES_HOST_EXTENSION_ID, "update", {}) as { message: string };
+    expect(refreshExtensionPackages).toHaveBeenCalledTimes(3);
+    expect(updated.message).not.toContain("/reload");
   });
 
   it("rejects a missing source and an unknown scope", async () => {

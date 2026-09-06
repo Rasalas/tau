@@ -24,6 +24,8 @@ Pi solves the same problem without one. `pi install <source>` takes `npm:<packag
 
 **Installing is not activating.** `install` records and reports; the grant flow of ADR 0009 still decides whether either half runs. An update that keeps the permission list keeps the grant, because a grant is matched on id and permissions; a changed list means the package waits again.
 
+**Every verb ends in a rescan.** `install`, `update` and `remove` call `refreshExtensionPackages()` on the host seam, which re-reads both scopes and reconciles the running halves: a granted package starts, an updated one is rebuilt and restarted, a removed one loses its halves and its slots. The service needs no permission because it can only apply answers the user already gave — an ungranted package is still never imported. `/reload` stays as the manual fallback for a folder someone edited by hand.
+
 **Signatures are an optional layer.** A package may carry `tau-extension.sig` next to its manifest:
 
 ```json

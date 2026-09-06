@@ -61,6 +61,15 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
       const announce = (name: string, payload: unknown) => {
         context.emit("changed", { command: name, result: payload });
       };
+      // The scan is what turns a folder on disk into running halves, so an
+      // installed, updated or removed package takes effect without a reload.
+      const rescan = async () => {
+        try {
+          await services.refreshExtensionPackages();
+        } catch (error) {
+          services.log("packages.rescan.failed", error instanceof Error ? error.message : String(error));
+        }
+      };
       // One line per step of a long command, for whatever settings page is watching.
       const step = (message: string) => {
         services.log("packages.progress", message);
@@ -75,8 +84,9 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
         services.noteSubprocess();
         services.log("packages.install", `${source} (${scope})`);
         const installed = await installExtensionSource(source, scope, installer(step));
+        await rescan();
         announce("install", installed);
-        return { installed, message: `${describeInstalled(installed)} — approve it in Settings, then run /reload.` };
+        return { installed, message: `${describeInstalled(installed)} — approve it in Settings to start it.` };
       }, { long: true });
 
       context.registerCommand("remove", async (input) => {
@@ -85,20 +95,22 @@ export function createPackagesHostExtension(options: { home?: string } = {}): Ho
         const result = await removeExtensionSource(source, scope, installer());
         if (!result.removed) throw new Error(`${source} is not listed in the ${scope} packages.json.`);
         services.log("packages.remove", `${source} (${scope})`);
+        await rescan();
         announce("remove", result);
-        return { ...result, message: `Removed ${source}. Run /reload to drop it from this session.` };
+        return { ...result, message: `Removed ${source}.` };
       });
 
       context.registerCommand("update", async (input) => {
         services.noteSubprocess();
         const updated = await updateExtensionSources(optionalSource(input), installer(step));
+        await rescan();
         announce("update", updated);
         const failed = updated.filter((entry) => entry.error);
         return {
           packages: updated,
           message: updated.length === 0
             ? "No package source is installed."
-            : `${updated.length - failed.length} of ${updated.length} updated. Run /reload to apply.`,
+            : `${updated.length - failed.length} of ${updated.length} updated and re-activated.`,
         };
       }, { long: true });
     },

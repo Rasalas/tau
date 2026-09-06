@@ -106,7 +106,7 @@ function ModelOptionRow({
  * Packages on disk the user has not answered for yet. A host-only package has no
  * desktop half in the registry, so without this it would never reach the approval UI.
  */
-function useAwaitingApproval(cwd: string | undefined, known: readonly ExtensionSummary[]): ExtensionSummary[] {
+function useAwaitingApproval(cwd: string | undefined, known: readonly ExtensionSummary[], revision: number): ExtensionSummary[] {
   const client = useHostClient();
   const [packages, setPackages] = useState<ExtensionInspection["packages"]>([]);
   useEffect(() => {
@@ -114,7 +114,8 @@ function useAwaitingApproval(cwd: string | undefined, known: readonly ExtensionS
     let cancelled = false;
     client?.inspectExtensions(cwd).then((result) => { if (!cancelled) setPackages(result.packages); }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [client, cwd]);
+    // `revision` moves when an answer was given, so an approved package leaves the list.
+  }, [client, cwd, revision]);
   const knownIds = known.map((entry) => entry.id).join("\u0000");
   return useMemo(() => {
     const ids = new Set(knownIds ? knownIds.split("\u0000") : []);
@@ -172,14 +173,16 @@ function ExtensionPage({
     onChanged();
   };
 
-  // A grant is the package's first start; a denial keeps both halves off.
+  // A grant is the package's first start; a denial keeps both halves off. The
+  // host starts or stops its own half and pushes the desktop half after it, so
+  // a package approved here needs no reload.
   const handleGrant = async (allow: boolean) => {
     try {
+      preferences.setExtensionEnabled(summary.id, allow);
       await client?.grantExtension(summary.id, allow);
       registry.setGranted(summary.id, allow);
-      preferences.setExtensionEnabled(summary.id, allow);
       registry.setActive(summary.id, allow);
-      await client?.setHostExtensionActive(summary.id, allow);
+      setHostHalves(await client?.listHostExtensions() ?? []);
       onChanged();
     } catch (error) {
       onNotify(error instanceof Error ? error.message : String(error));
@@ -339,7 +342,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   return (
     <div className="settings-page inspector-page">
       <h3>Inspector</h3>
-      <p className="lede">Every extension both halves know, and the package folders on disk. Edit a package, then run /reload.</p>
+      <p className="lede">Every extension both halves know, and the package folders on disk. Edit a package's files, then run /update or /reload.</p>
 
       <div className="settings-label">VERSIONS</div>
       <div className="inspector-versions">
@@ -430,7 +433,8 @@ export function SettingsModal({
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const loaded = registry.getExtensionSummaries();
-  const awaiting = useAwaitingApproval(snapshot?.cwd, loaded);
+  const [answered, setAnswered] = useState(0);
+  const awaiting = useAwaitingApproval(snapshot?.cwd, loaded, answered);
   const summaries = [...loaded, ...awaiting];
   const active = summaries.find((summary) => summary.id === page);
 
@@ -524,7 +528,7 @@ export function SettingsModal({
           ) : page === "inspector" ? (
             <InspectorPage registry={registry} cwd={snapshot?.cwd} />
           ) : active ? (
-            <ExtensionPage summary={active} registry={registry} models={snapshot?.models ?? []} cwd={snapshot?.cwd} onChanged={() => onSetPage(active.id)} onNotify={onNotify} />
+            <ExtensionPage summary={active} registry={registry} models={snapshot?.models ?? []} cwd={snapshot?.cwd} onChanged={() => { setAnswered((count) => count + 1); onSetPage(active.id); }} onNotify={onNotify} />
           ) : (
             <div className="settings-page"><p className="lede">Select a page.</p></div>
           )}

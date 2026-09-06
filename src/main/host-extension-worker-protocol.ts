@@ -99,6 +99,7 @@ export interface WorkerHostServices {
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   noteSubprocess(): Promise<void>;
   findCommand(name: string): Promise<string | undefined>;
+  refreshExtensionPackages(): Promise<void>;
   /** Answers the index's questions about a project folder, by round trip. */
   describeProjects(facts: WorkerProjectFacts): Promise<() => void>;
   readonly sessions: {

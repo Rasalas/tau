@@ -78,6 +78,8 @@ export interface ExtensionServicesPort {
   attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
   describeProjects(facts: HostProjectFacts): () => void;
   noteSubprocess(): void;
+  /** Re-reads the workspace's extension packages and applies the user's grants. */
+  refreshExtensionPackages(): Promise<void>;
   /** Opens a runtime for a session file an extension created; it stays off screen. */
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
@@ -189,6 +191,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     describeProjects: (facts) => port.describeProjects(facts),
     noteSubprocess: () => port.noteSubprocess(),
     findCommand: (name) => findExecutable(name),
+    refreshExtensionPackages: () => port.refreshExtensionPackages(),
     sessions: {
       list: async () => (await SessionManager.listAll()).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
       open: (path) => {

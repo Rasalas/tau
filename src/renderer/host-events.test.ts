@@ -29,11 +29,36 @@ function fixture() {
     setTranscriptTurnStart: vi.fn(),
     applyHostUpdate: vi.fn(),
     applyThreadIndex: vi.fn(),
+    syncDesktopExtensions: vi.fn(),
   };
   return { targets, threadStore, view, registry };
 }
 
 describe("applyHostEvent", () => {
+  it("re-reads the desktop halves when the host's package set moves", () => {
+    const { targets } = fixture();
+
+    applyHostEvent({ type: "extension-packages-changed" }, targets);
+
+    expect(targets.syncDesktopExtensions).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns a package the host had to stop into one toast that points at Settings", () => {
+    const { targets, view } = fixture();
+
+    applyHostEvent({
+      type: "extension-deactivated",
+      extensionId: "acme.hello",
+      name: "Hello",
+      reason: 'command "loop" timed out after 30000ms',
+    }, targets);
+
+    expect(view.getNotice()).toEqual({
+      message: 'Package Hello deactivated: command "loop" timed out after 30000ms. Re-enable it in Settings \u2192 Extensions.',
+      level: "warning",
+    });
+  });
+
   it("routes host updates through the store boundary", () => {
     const { targets } = fixture();
     const update = { version: 1, type: "project", project: { cwd: "/repo" } } as const;

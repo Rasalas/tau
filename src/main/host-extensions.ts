@@ -290,6 +290,13 @@ export interface HostExtensionServices {
   noteSubprocess(): void;
   /** Absolute path of a command on the host's PATH (the login shell's, see `shell-environment.ts`), or undefined. */
   findCommand(name: string): string | undefined;
+  /**
+   * Re-reads the extension packages of this workspace and starts, restarts or
+   * stops their halves to match what is on disk and granted. It needs no
+   * permission because it can only apply the user's own answers: a package
+   * without a grant is still never imported.
+   */
+  refreshExtensionPackages(): Promise<void>;
   readonly sessions: HostSessionServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
@@ -453,8 +460,18 @@ export class HostExtensionRegistry {
     this.failures.set(extension.id, reason);
     this.services.log("host-extension.failed", `${extension.name}: ${reason}`);
     if (this.active.get(extension.id) === record) {
+      this.announceDeactivation(extension, reason);
       void this.deactivate(extension.id).catch(() => undefined);
     }
+  }
+
+  /**
+   * The one place a deactivation the user did not ask for is announced, so a
+   * client can raise exactly one toast for it. A failure during `activate` is
+   * not one of these: nothing was running yet, and `summaries()` carries it.
+   */
+  private announceDeactivation(extension: HostExtension, reason: string): void {
+    this.publish({ type: "extension-deactivated", extensionId: extension.id, name: extension.name, reason });
   }
 
   /** Re-activates an extension the registry knows, after `deactivate`. */
@@ -525,11 +542,14 @@ export class HostExtensionRegistry {
       this.consecutiveFailures.set(extensionId, failures);
 
       if (isTimeout || failures >= 3) {
+        // The reason names no extension: it is read beside the name, in a
+        // summary row and in the client's toast.
         const reason = isTimeout
-          ? `Host extension ${record.extension.name} command "${command}" timed out after ${timeoutMs}ms`
-          : `Host extension ${record.extension.name} deactivated after 3 consecutive failures: ${error instanceof Error ? error.message : String(error)}`;
+          ? `command "${command}" timed out after ${timeoutMs}ms`
+          : `failed three times in a row — ${error instanceof Error ? error.message : String(error)}`;
         this.failures.set(extensionId, reason);
         this.services.log("host-extension.failed", `${record.extension.name}: ${reason}`);
+        this.announceDeactivation(record.extension, reason);
         await this.deactivate(extensionId);
       }
       throw error;

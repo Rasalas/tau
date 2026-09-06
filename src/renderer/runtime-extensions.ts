@@ -82,6 +82,7 @@ export async function importBundle(bundle: DesktopExtensionBundle): Promise<unkn
 export class RuntimeExtensions {
   private loaded: RuntimeExtensionRecord[] = [];
   private generation = 0;
+  private cwd?: string;
 
   constructor(private readonly registry: ExtensionRegistry, private readonly host: RuntimeExtensionHost) {}
 
@@ -89,7 +90,17 @@ export class RuntimeExtensions {
     return this.loaded;
   }
 
+  /**
+   * Loads the same workspace again, for a host that reports its package set
+   * moved: an approval, an install, an update or a removal. Before the first
+   * sync there is no workspace to load, and this does nothing.
+   */
+  async resync(): Promise<readonly RuntimeExtensionRecord[]> {
+    return this.cwd === undefined ? this.loaded : this.sync(this.cwd);
+  }
+
   async sync(cwd: string): Promise<readonly RuntimeExtensionRecord[]> {
+    this.cwd = cwd;
     const generation = ++this.generation;
     const result = await this.host.load(cwd, sharedExportNames());
     if (generation !== this.generation) return this.loaded;

@@ -136,7 +136,7 @@ export function PackagesPage({ cwd, onNotify }: { cwd?: string; onNotify(message
       <h3>Packages</h3>
       <p className="lede">
         Install extension packages the way Pi does: <code>npm:&lt;package&gt;</code>, <code>git:&lt;url&gt;</code> or a folder on this machine.
-        An install never starts a package; approve its permissions on its own page, then run /reload.
+        An install never starts a package: approve its permissions on its own page, and both halves start there and then.
       </p>
 
       <div className="settings-label">INSTALL FROM A SOURCE</div>
