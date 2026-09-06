@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiComposerCommand } from "../../../shared/contracts.js";
+import type { UiComposerCommand } from "tau/host-extension";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
 import { createClaudeCodeRuntimeAdapter } from "./runtime-adapter.js";
@@ -18,9 +18,10 @@ describe("thread runtime backends", () => {
   it("owns Claude transcript, skill preparation, and restart restoration without a Pi carrier", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-thread-backend-"));
     directories.push(directory);
-    const store = new ClaudeRuntimeSessionStore({ filePath: join(directory, "sessions.json") });
+    const filePath = join(directory, "sessions.json");
+    const store = new ClaudeRuntimeSessionStore({ filePath });
     const sendPrompt = vi.fn(async () => ({ assistantText: "Claude answer" }));
-    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", store });
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath });
     adapter.transport.sendPrompt = sendPrompt;
     const first = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", {
       adapter,
@@ -71,9 +72,10 @@ describe("thread runtime backends", () => {
   it("rejects manual approvals during prompt preparation before transport use", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-thread-policy-"));
     directories.push(directory);
-    const store = new ClaudeRuntimeSessionStore({ filePath: join(directory, "sessions.json") });
+    const filePath = join(directory, "sessions.json");
+    const store = new ClaudeRuntimeSessionStore({ filePath });
     const sendPrompt = vi.fn(async () => ({ assistantText: "must not run" }));
-    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", store });
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath });
     adapter.transport.sendPrompt = sendPrompt;
     const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", {
       adapter,

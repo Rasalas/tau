@@ -15,7 +15,6 @@ const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
 import { accessKitExtension } from "./access-kit";
-import { claudeCodeExtension } from "./claude-code-kit";
 import { workspaceKit } from "./workspace-kit-client";
 import { registerCheckpoints } from "./workspace-checkpoints";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./workspace-dock";
@@ -310,5 +309,4 @@ export const bundledExtensions = [
   questionnaireExtension,
   packagesExtension,
   settingsExtension,
-  claudeCodeExtension,
 ];

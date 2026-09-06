@@ -119,6 +119,8 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     },
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    agentDir: () => "/agent",
+    skills: () => [],
     refreshExtensionPackages: async () => undefined,
     sessions: {
       list: async () => [{ sessionId: "session-1", path: "/sessions/one.jsonl", cwd: "/project" }],

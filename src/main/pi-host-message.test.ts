@@ -3,7 +3,6 @@ import type { UiComposerCommand } from "../shared/contracts.js";
 import { historyCompletenessForBridgeSnapshot, mapBridgeMessages, mapBridgeTranscriptPageValue, mapMessage } from "./host-messages.js";
 import { decodeHostCursor } from "./transcript-cursor.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
-import { createClaudeCodeRuntimeAdapter } from "./extensions/claude-code/runtime-adapter.js";
 import { bridgeTranscriptPage } from "../shared/bridge-transcript-pager.js";
 
 const skillCommands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill" }];
@@ -197,8 +196,9 @@ describe("Pi message mapping", () => {
     expect(message?.skill?.copyText).not.toContain("/tmp/tdd");
   });
 
-  it("uses the runtime adapter dialect for Claude Code without reading model.provider", () => {
-    const claudeCode = createClaudeCodeRuntimeAdapter({ command: "claude-test" });
+  it("uses the runtime adapter dialect an external backend declares, not model.provider", () => {
+    // The dialect is the adapter's, whichever kit registered the backend.
+    const claudeCode = { id: "claude-code" as const, capabilities: { skillInvocationDialect: "claude-code" as const } };
     const message = mapMessage({
       role: "user",
       content: [{ type: "text", text: "$tdd fix it" }],

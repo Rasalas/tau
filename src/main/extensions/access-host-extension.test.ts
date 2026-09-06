@@ -25,6 +25,8 @@ function harness() {
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    agentDir: () => "/agent",
+    skills: () => [],
     refreshExtensionPackages: async () => undefined,
     sessions: {
       list: async () => [],

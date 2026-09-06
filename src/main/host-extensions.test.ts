@@ -22,6 +22,8 @@ function services(): HostExtensionServices & { logs: string[] } {
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    agentDir: () => "/agent",
+    skills: () => [],
     refreshExtensionPackages: async () => undefined,
     sessions: {
       list: async () => [],

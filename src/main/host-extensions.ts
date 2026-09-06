@@ -296,6 +296,12 @@ export interface HostUiPresenter {
   clear?(sessionId: string): void;
 }
 
+/** One entry of a workspace's skill catalog, as `services.skills` reports it. */
+export interface HostSkill {
+  name: string;
+  description?: string;
+}
+
 /**
  * Host-side extension seam. Core owns the workspace, the thread lifecycle and
  * the event channel; a host extension owns a feature and reaches the renderer
@@ -330,6 +336,10 @@ export interface HostExtensionServices {
   noteSubprocess(): void;
   /** Absolute path of a command on the host's PATH (the login shell's, see `shell-environment.ts`), or undefined. */
   findCommand(name: string): string | undefined;
+  /** Pi's agent directory: where Tau and Pi keep their data, and where a kit puts what it persists. */
+  agentDir(): string;
+  /** The skills a workspace offers, the catalog the composer lists; a runtime backend publishes them as its own commands. */
+  skills(cwd: string): readonly HostSkill[];
   /**
    * Re-reads the extension packages of this workspace and starts, restarts or
    * stops their halves to match what is on disk and granted. It needs no

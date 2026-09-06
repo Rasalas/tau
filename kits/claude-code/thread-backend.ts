@@ -1,24 +1,22 @@
-import type {
-  PreparedPrompt,
-  UiComposerCommand,
-  UiMessage,
-  UiModel,
-  UiSkillDraft,
-} from "../../../shared/contracts.js";
-import { clientMessageFingerprint } from "../../../shared/client-message-correlation.js";
-import { validatePreparedPrompt } from "../../../shared/prepared-prompt.js";
-import { knownSkillNames } from "../../../shared/skill-envelope.js";
-import { prepareSkillPrompt } from "../../skill-invocation.js";
-import type { RuntimePermissionLevel } from "../../runtime-adapters.js";
-import type {
-  ThreadBackendCapabilities,
-  ThreadBackendPromptInput,
-  ThreadBackendPromptResult,
-  ThreadBackendState,
-  ThreadCatalogView,
-  ThreadRuntimeBackend,
-  ThreadTitleSource,
-} from "../../runtime-types.js";
+import {
+  clientMessageFingerprint,
+  knownSkillNames,
+  prepareSkillPrompt,
+  validatePreparedPrompt,
+  type PreparedPrompt,
+  type RuntimePermissionLevel,
+  type ThreadBackendCapabilities,
+  type ThreadBackendPromptInput,
+  type ThreadBackendPromptResult,
+  type ThreadBackendState,
+  type ThreadCatalogView,
+  type ThreadRuntimeBackend,
+  type ThreadTitleSource,
+  type UiComposerCommand,
+  type UiMessage,
+  type UiModel,
+  type UiSkillDraft,
+} from "tau/host-extension";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 

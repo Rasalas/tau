@@ -107,9 +107,14 @@ function sharedModuleSource(specifier: string, exportNames: readonly string[]): 
     `const m = globalThis.__tauShared?.[${JSON.stringify(specifier)}];`,
     `if (!m) throw new Error(${JSON.stringify(`Shared module ${specifier} is not available in this workbench`)});`,
     `export default (m && typeof m === "object" && "default" in m ? m.default : m);`,
+    // A binding esbuild cannot prove pure is a binding it must keep, and a
+    // property read is never provably pure. Routing every name through an
+    // annotated picker lets it drop the ones the package never imports —
+    // `lucide-react` reports some 3000, and a status icon needs one.
+    `/* @__NO_SIDE_EFFECTS__ */ const pick = (name) => m[name];`,
   ];
   for (const name of exportNames) {
-    if (isIdentifier(name)) lines.push(`export const ${name} = m[${JSON.stringify(name)}];`);
+    if (isIdentifier(name)) lines.push(`export const ${name} = /* @__PURE__ */ pick(${JSON.stringify(name)});`);
   }
   return lines.join("\n");
 }
@@ -168,7 +173,29 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
       },
     }],
   });
-  return result.outputFiles.map((file) => file.text).join("\n");
+  return withoutGeneratedSources(result.outputFiles.map((file) => file.text).join("\n"));
+}
+
+const INLINE_MAP = /\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)/u;
+
+/**
+ * Drops the shim sources from the inline map. They are generated bindings, not
+ * anybody's code, and `lucide-react` alone carries some 3000 lines of them —
+ * which the map would ship even though tree shaking already dropped all but
+ * the names the package imports. The author's own sources stay.
+ */
+function withoutGeneratedSources(code: string): string {
+  const match = INLINE_MAP.exec(code);
+  if (!match) return code;
+  try {
+    const map = JSON.parse(Buffer.from(match[1], "base64").toString("utf8")) as { sources?: string[]; sourcesContent?: (string | null)[] };
+    if (!map.sources || !map.sourcesContent) return code;
+    map.sourcesContent = map.sourcesContent.map((content, index) => map.sources![index]?.startsWith("tau-shared:") ? null : content);
+    return code.replace(match[0], `//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map), "utf8").toString("base64")}`);
+  } catch {
+    // A map we cannot read is a map we leave alone; the bundle is what matters.
+    return code;
+  }
 }
 
 /**

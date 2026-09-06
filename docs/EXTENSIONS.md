@@ -113,7 +113,9 @@ half needs for `actions.notify`), and the `PreferencesStore` type (the store on
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
-`GlobalHostEvent`, … — types only, so nothing of core is bundled), plus
+`GlobalHostEvent`, …) and of a runtime backend (`ThreadRuntimeBackend`,
+`ThreadBackendPromptInput`, `AgentRuntimeAdapter`, `RuntimeTransport`,
+`RuntimePermissionLevel`, … — types only, so nothing of core is bundled), plus
 `HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies, and the
 text projections a package that reads transcripts needs: `textFromContent`
@@ -122,6 +124,15 @@ to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
 thread title), `safeSessionTitle`, `buildTitleConversation` (a thread's first
 exchanges as the prompt a title model reads) and `parseSkillEnvelope` /
 `isSkillName` (Pi's skill envelope grammar).
+
+A package that owns whole threads — a runtime backend — gets four more values:
+`prepareSkillPrompt` and `skillInvocationCommand` (a composer draft turned into
+what a runtime is actually sent, in that runtime's own dialect),
+`validatePreparedPrompt` (core's check that a prepared prompt still matches the
+thread it was prepared for), `clientMessageFingerprint` (how core correlates a
+sent message with the one the runtime echoes back), `knownSkillNames`, and
+`readPersistedJson` / `writePersistedJson` (atomic, mode-0600 JSON with the
+quarantine-and-restart behaviour Tau's own state files have).
 
 ### `engines` and `engines.api`
 
@@ -157,8 +168,8 @@ A package's `permissions` array draws from a fixed list
 | `workspace:read` | read the current project's path, name and file contents through the host services. |
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
-| `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. |
-| `runtime:extend` | register Pi runtime extensions, runtime backends, permission levels and UI decorators — the members that hand out a live runtime. |
+| `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and learn the agent directory (`agentDir`) a package persists its own state under. |
+| `runtime:extend` | register Pi runtime extensions, runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`), which a runtime backend republishes as its own commands. |
 | `process` | spawn child processes and look up commands on the host's PATH. |
 | `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
 
@@ -368,7 +379,7 @@ nothing that hands out a live object. From
 | `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
-| `noteSubprocess`, `findCommand` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
+| `noteSubprocess`, `findCommand`, `agentDir`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 

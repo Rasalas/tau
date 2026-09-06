@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiPrompt,
   HostEvent,
@@ -196,6 +196,9 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     describeProjects: (facts) => port.describeProjects(facts),
     noteSubprocess: () => port.noteSubprocess(),
     findCommand: (name) => findExecutable(name),
+    agentDir: () => getAgentDir(),
+    skills: (cwd) => loadSkills({ cwd, agentDir: getAgentDir(), skillPaths: [], includeDefaults: true }).skills
+      .map(({ name, description }) => ({ name, ...(description ? { description } : {}) })),
     refreshExtensionPackages: () => port.refreshExtensionPackages(),
     sessions: {
       list: async () => (await SessionManager.listAll(resolvePiSessionsDirOverride())).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),

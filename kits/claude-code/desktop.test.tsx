@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { HostSnapshot } from "../../shared/contracts";
-import { ExtensionRegistry } from "../extension-system";
-import { claudeCodeExtension } from "./claude-code-kit";
+import type { HostSnapshot } from "tau";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { claudeCodeExtension } from "./desktop.js";
 
 describe("Claude Code desktop extension", () => {
   it("marks Claude threads in the status line and stays silent for Pi", () => {
-    const registry = new ExtensionRegistry();
+    const { registry } = createKitHarness();
     registry.activate(claudeCodeExtension);
     const [item] = registry.getStatusItems();
     expect(item?.id).toBe("claude-code.runtime");

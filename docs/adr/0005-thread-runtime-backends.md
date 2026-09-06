@@ -36,9 +36,9 @@ commands for it. Core creates, resumes, indexes and prompts such threads
 through the provider and never learns which program answers; their shell
 paths are virtual (`tau-thread:<kind>:<id>`).
 
-Claude Code is the first such provider, bundled as the host extension
-`tau.claude-code` under `src/main/extensions/claude-code/` (adapter, thread
-backend, session store, tests). Removing that extension leaves Pi as the only
+Claude Code is the first such provider, shipped as the kit `tau.claude-code`
+under `kits/claude-code/` (adapter, thread backend, session store, tests), a
+package Tau ships (ADR 0014) rather than a host constructor. Removing that extension leaves Pi as the only
 backend; `TAU_RUNTIME_ADAPTER=claude-code` then stops the host start with a message
 naming the missing extension. What the renderer needs to know about
 a backend travels as runtime capabilities (`ownsModelSelection`,

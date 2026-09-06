@@ -1,8 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { AccessLevel } from "../../../shared/access-kit-protocol.js";
-import type { SkillRuntimeAdapter } from "../../skill-invocation.js";
-import type { RuntimePromptInput, RuntimeTransport } from "../../runtime-adapters.js";
+import type { RuntimePermissionLevel, RuntimePromptInput, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 export interface RuntimePermissionPolicy {
@@ -12,7 +9,7 @@ export interface RuntimePermissionPolicy {
   tools: readonly string[];
 }
 
-const CLAUDE_POLICIES: Record<AccessLevel, RuntimePermissionPolicy> = {
+const CLAUDE_POLICIES: Record<RuntimePermissionLevel, RuntimePermissionPolicy> = {
   "read-only": { permissionMode: "plan", tools: ["Read", "Glob", "Grep"] },
   // Keep the CLI's tool surface explicit. `default` would make the adapter's
   // behavior depend on a user's Claude installation and can expose tools that
@@ -40,7 +37,7 @@ export function assertClaudePermissionPolicySupported(policy: RuntimePermissionP
   }
 }
 
-export function runtimePermissionPolicy(level: AccessLevel): RuntimePermissionPolicy {
+export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimePermissionPolicy {
   const policy = CLAUDE_POLICIES[level];
   return { permissionMode: policy.permissionMode, tools: [...policy.tools] };
 }
@@ -58,9 +55,8 @@ export interface ClaudeCodeRuntimeOptions {
   maxBuffer?: number;
   timeoutMs?: number;
   killGraceMs?: number;
-  store?: ClaudeRuntimeSessionStore;
-  storePath?: string;
-  agentDir?: string;
+  /** Where the adapter persists what it needs to resume; the host half derives it from `services.agentDir()`. */
+  storePath: string;
 }
 
 interface RunningChild {
@@ -259,14 +255,12 @@ function runClaudeProcess(
  * Production Claude Code transport. It owns every child process and never
  * hands Claude's slash dialect to the embedded Pi session.
  */
-export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions = {}): ClaudeCodeAgentRuntimeAdapter {
+export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions): ClaudeCodeAgentRuntimeAdapter {
   const command = options.command ?? process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude";
   const maxBuffer = options.maxBuffer ?? 8 * 1024 * 1024;
   const timeoutMs = options.timeoutMs ?? 30_000;
   const killGraceMs = options.killGraceMs ?? 500;
-  const sessionStore = options.store ?? new ClaudeRuntimeSessionStore({
-    filePath: options.storePath ?? ClaudeRuntimeSessionStore.defaultPath(options.agentDir ?? getAgentDir()),
-  });
+  const sessionStore = new ClaudeRuntimeSessionStore({ filePath: options.storePath });
   const activeProcesses = new Map<string, Set<RunningChild>>();
   const requestQueues = new Map<string, Promise<void>>();
   const abortGenerations = new Map<string, number>();

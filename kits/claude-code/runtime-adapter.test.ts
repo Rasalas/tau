@@ -2,7 +2,6 @@ import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, selectDefaultBackend } from "../../runtime-adapters.js";
 import { claudeCodeArgs, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy } from "./runtime-adapter.js";
 
 // Naming the interpreter directly drops one `env` PATH lookup per spawned
@@ -18,7 +17,7 @@ const STUB_SOURCES = {
   stdout: "process.stdout.write('o'.repeat(200)); setInterval(() => {}, 1000);\n",
 } as const;
 
-describe("runtime adapter selection", () => {
+describe("Claude Code runtime adapter", () => {
   // One temp directory and one stub per behavior for the whole file. Creating
   // and removing a directory inside every test made the spawning cases depend
   // on the host's filesystem load rather than on the adapter.
@@ -44,24 +43,11 @@ describe("runtime adapter selection", () => {
 
   afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
-  it("runs Pi unless the environment names another backend", () => {
-    expect(selectDefaultBackend("pi")).toBe("pi");
-    expect(selectDefaultBackend(undefined)).toBe("pi");
-    expect(PI_AGENT_RUNTIME_ADAPTER.capabilities.skillInvocationDialect).toBe("pi");
-    expect(PI_AGENT_RUNTIME_ADAPTER.transport).toBeUndefined();
-  });
-
-  it("names the Claude Code backend explicitly and builds its transport", () => {
-    expect(selectDefaultBackend(" Claude-Code ")).toBe("claude-code");
-    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude-test" });
+  it("declares its kind, its capabilities and a transport core will accept", () => {
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude-test", storePath: store("selection") });
     expect(adapter.id).toBe("claude-code");
     expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false });
     expect(adapter.transport.sendPrompt).toBeTypeOf("function");
-    expect(assertRuntimeAdapter(adapter)).toBe(adapter);
-  });
-
-  it("forces Pi in safe mode even when Claude was requested", () => {
-    expect(selectDefaultBackend("claude-code", { safeMode: true })).toBe("pi");
   });
 
   it("builds an explicit Tau permission policy and terminates options before prompt text", () => {
@@ -136,14 +122,6 @@ describe("runtime adapter selection", () => {
     const adapter = createClaudeCodeRuntimeAdapter({ command: stub("stdout"), storePath: store("stdout"), maxBuffer: 128, killGraceMs: 20 });
     await expect(adapter.transport.sendPrompt({ cwd: process.cwd(), tauThreadId: "stdout-session", sessionId: "provider-stdout", text: "overflow" }))
       .rejects.toThrow("Claude Code stdout truncated");
-  });
-
-  it("rejects an adapter whose shape does not fit its kind", () => {
-    expect(() => assertRuntimeAdapter({ id: "pi", capabilities: { skillInvocationDialect: "claude-code" } })).toThrow("must declare");
-    expect(() => assertRuntimeAdapter({ id: "claude-code", capabilities: { skillInvocationDialect: "claude-code" } })).toThrow("requires");
-    // A provider name is not a backend; without a transport it is refused where it would be used.
-    expect(() => assertRuntimeAdapter({ id: "anthropic", capabilities: { skillInvocationDialect: "pi" } })).toThrow("requires a configured transport");
-    expect(() => assertRuntimeAdapter({ id: "", capabilities: { skillInvocationDialect: "pi" } })).toThrow("Unsupported runtime adapter");
   });
 
   it.skipIf(process.platform === "win32")("rejects unsupported manual policy before spawning Claude", async () => {
