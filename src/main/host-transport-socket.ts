@@ -1,3 +1,4 @@
+import type { Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   HOST_ERROR,
@@ -28,6 +29,12 @@ export interface SocketHostTransportOptions {
   token: string;
   /** `TAU_HOST_INSECURE=1`: bind a public interface although nothing is encrypted. */
   allowNonLoopback?: boolean;
+  /**
+   * An HTTP server to upgrade on instead of a socket of its own. A host that
+   * also serves the web client gives its one here, so the browser reaches the
+   * page and the protocol at the same origin and the same port.
+   */
+  attachTo?: Server;
   logger?: HostLogger;
 }
 
@@ -48,7 +55,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const bind = parseListen(options.listen);
   assertListenAllowed(bind, options.allowNonLoopback === true);
   const { host, port } = bind;
-  const server = new WebSocketServer({ host, port, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES });
+  const http = options.attachTo;
+  const server = http
+    ? new WebSocketServer({ server: http, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES })
+    : new WebSocketServer({ host, port, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES });
   const authenticated = new Set<WebSocket>();
 
   const send = (socket: WebSocket, frame: HostServerFrame): void => {
@@ -97,10 +107,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   });
 
   await new Promise<void>((resolve, reject) => {
-    server.once("listening", resolve);
-    server.once("error", reject);
+    const listening = http ?? server;
+    listening.once("error", reject);
+    if (http) http.listen(port, host, () => resolve());
+    else server.once("listening", () => resolve());
   });
-  const address = server.address();
+  const address = (http ?? server).address();
   const boundPort = typeof address === "object" && address ? address.port : port;
   options.logger?.info("host-transport-socket.listening", { host, port: boundPort });
 
@@ -109,9 +121,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     deliver: (push) => {
       for (const socket of authenticated) send(socket, { type: "push", push });
     },
-    close: () => new Promise<void>((resolve) => {
+    close: async () => {
       for (const socket of authenticated) socket.close();
-      server.close(() => resolve());
-    }),
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (http) await new Promise<void>((resolve) => http.close(() => resolve()));
+    },
   };
 }

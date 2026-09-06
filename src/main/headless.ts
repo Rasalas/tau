@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ import { HostPushLog } from "./host-push-log.js";
 import { createHostMethods } from "./host-methods.js";
 import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createWebClientServer } from "./host-web-server.js";
 import { parseListen } from "./host-listen.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
@@ -32,6 +34,8 @@ const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
 const hostVersion = process.env.npm_package_version || "0.0.0";
 // dist-electron/main/headless.js -> the app root the kits are shipped in.
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+// The built browser client, when there is one; `npm run build:web` writes it.
+const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
 const hostLog = new HostLog({ dir: join(userData, "logs") });
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
@@ -116,19 +120,32 @@ async function main(): Promise<void> {
     },
   });
 
+  const token = readOrCreateHostToken();
+  // A built client turns this host into something a browser can open. Without
+  // one the host is exactly what it was: a socket and nothing else.
+  const web = existsSync(join(webRoot, "index.html")) ? createWebClientServer({ dir: webRoot, token }) : undefined;
   socket = await startSocketHostTransport({
     listen,
     methods,
     pushLog,
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
-    token: readOrCreateHostToken(),
+    token,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    ...(web ? { attachTo: web.server } : {}),
     logger: hostLog,
   });
+  const { host: boundHost } = parseListen(listen);
   // The smoke test reads this line to learn the port when it asked for 0.
-  console.log(`tau-host listening on ws://${parseListen(listen).host}:${socket.port}`);
+  console.log(`tau-host listening on ws://${boundHost}:${socket.port}`);
   console.log(`token: ${hostTokenPath()} (copy it to the client machine, or pass it as TAU_HOST_TOKEN)`);
+  if (web) {
+    // The code lives in the fragment: no proxy, no access log and no Referer
+    // ever carries it, and the page drops it before it renders anything.
+    console.log(`web client: http://${boundHost}:${socket.port}/#pair=${web.issueCode()} (single use, 10 minutes)`);
+  } else {
+    console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
+  }
 
   const shutdown = () => {
     void (async () => {
