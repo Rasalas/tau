@@ -108,11 +108,19 @@ Beyond the contribution types, `tau` exports `useWorkbench`,
 `useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
 hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
 the browser preview), `errorMessage` (the one-line `unknown` → `string` every
-half needs for `actions.notify`), and the `PreferencesStore` type (the store on
-`context.preferences`, so a package can pass it around in its own signatures).
+half needs for `actions.notify`), the `PreferencesStore` type (the store on
+`context.preferences`, so a package can pass it around in its own signatures),
+and `reserveRegion` / `reservedRegion` with the `ReservedRegion` type — the
+placement seam of [ADR 0012](adr/0012-preview-browser.md). A package whose host
+half draws a native view over its panel publishes that rectangle with
+`reserveRegion`, and the workbench's own floats (menus, popovers, toasts) slide
+out of it rather than disappear behind it; `reserveRegion(undefined)` gives the
+window back. Nothing is reserved until a package asks for it.
 
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
-`isExpectedCommandError`, the permission and isolation vocabularies, and the
+`isExpectedCommandError`, the permission and isolation vocabularies,
+`GlobalHostEvent` (what `context.emit` becomes on the wire, which a package's
+own tests read off the host harness), and the
 text projections a package that reads transcripts needs: `textFromContent`
 (content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
 to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
@@ -397,6 +405,14 @@ An `in-process` package is a different story. It runs with everything the host
 process can reach, so `network` there is advisory and the approval box says so:
 "network access is enforced only for isolated packages". If you want the
 permission to mean something, stay in the worker.
+
+Electron works the same way round. An `in-process` host half may
+`import { BrowserWindow } from "electron"` — the host bundler keeps `electron`
+and the `node:*` builtins external and the main process resolves them, so no
+seam hands the module out and none has to. That is how `kits/preview/view.ts`
+gets its `WebContentsView` and the window to hang it on. Keep the import
+dynamic, behind a `process.versions.electron` check, if the package also has to
+work on a host without a window.
 
 A kit Tau ships chooses the same way and for the same reasons: most declare
 `in-process`, because they register runtime backends and Pi extensions, hand

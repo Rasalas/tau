@@ -1,20 +1,23 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import {
-  EMPTY_PREVIEW_STATE,
-  PREVIEW_HOST_EXTENSION_ID,
-  createPreviewHostClient,
-  type PreviewState,
-} from "../../shared/preview-protocol";
-import { HostUnavailableError, type RegionProps } from "../extension-system";
-import { getHostClient } from "../host-client-context";
+import { HostUnavailableError, type HostExtensionClient, type RegionProps } from "tau";
+import { EMPTY_PREVIEW_STATE, createPreviewHostClient, type PreviewState } from "./protocol.js";
+
+/**
+ * The kit's own host entry, handed over by `activate`. The panel is a React
+ * component the workbench renders, not something the extension context reaches,
+ * so the connection is a module binding rather than a prop.
+ */
+let connection: HostExtensionClient | undefined;
+
+export function connectPreviewHost(host: HostExtensionClient): () => void {
+  connection = host;
+  return () => { if (connection === host) connection = undefined; };
+}
 
 /** Preview Kit's host entry, reached through the generic extension channel. */
-export const previewKit = createPreviewHostClient((command, input) => {
-  const client = getHostClient();
-  return client
-    ? client.invokeHostExtension(PREVIEW_HOST_EXTENSION_ID, command, input)
-    : Promise.reject(new HostUnavailableError());
-});
+export const previewKit = createPreviewHostClient((command, input) => connection
+  ? connection.invoke(command, input)
+  : Promise.reject(new HostUnavailableError()));
 
 export const PREVIEW_PANEL = "preview";
 

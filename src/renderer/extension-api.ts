@@ -11,6 +11,9 @@ export {
 } from "./workbench-context";
 export { HostUnavailableError } from "./extension-system";
 export { errorMessage } from "./error-message";
+// The placement seam of ADR 0012: a kit that has the host draw a native view
+// over its panel publishes that rectangle, and core's own floats keep clear of it.
+export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
 export type {
   DesktopExtension,
   DesktopExtensionContext,

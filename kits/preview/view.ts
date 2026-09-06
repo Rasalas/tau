@@ -1,7 +1,7 @@
 import { BrowserWindow, WebContentsView, session, shell } from "electron";
 import { sep } from "node:path";
-import type { PreviewState } from "../../shared/preview-protocol.js";
-import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./preview-host-extension.js";
+import type { PreviewState } from "./protocol.js";
+import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.js";
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const PARTITION = "persist:tau-preview";

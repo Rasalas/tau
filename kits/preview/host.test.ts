@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { GlobalHostEvent } from "../../shared/contracts.js";
-import { HostExtensionRegistry, type HostExtensionServices, type RuntimeExtensionContribution } from "../host-extensions.js";
-import { PREVIEW_HOST_EXTENSION_ID } from "../../shared/preview-protocol.js";
+import type { GlobalHostEvent, RuntimeExtensionContribution } from "tau/host-extension";
+import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { PREVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import {
   createPreviewHostExtension,
   normalizePreviewUrl,
@@ -11,7 +11,7 @@ import {
   readPreviewBounds,
   type PreviewRect,
   type PreviewSurface,
-} from "./preview-host-extension.js";
+} from "./host.js";
 
 function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
   const placed: Array<{ rect: PreviewRect; visible: boolean }> = [];
@@ -33,28 +33,19 @@ function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
   return { surface, placed, loaded, evaluated };
 }
 
-function harness() {
+/** Activates the kit and returns its Pi tools, as a thread's runtime would see them. */
+async function activate(createSurface: () => Promise<PreviewSurface | undefined>, cwd = "/project") {
   const events: GlobalHostEvent[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
-  const services = {
-    cwd: () => "/project",
-    safeMode: false,
-    log: vi.fn(),
+  const registry = await activateHostKit(createPreviewHostExtension(createSurface), {
     registerRuntimeExtension: (name: string, factory: RuntimeExtensionContribution["factory"]) => {
       runtimeExtensions.push({ name, factory });
       return () => undefined;
     },
-  } as unknown as HostExtensionServices;
-  const registry = new HostExtensionRegistry(services, (event) => events.push(event));
-  return { registry, events, runtimeExtensions };
-}
-
-/** Activates the kit and returns its Pi tools, as a thread's runtime would see them. */
-async function activate(createSurface: () => Promise<PreviewSurface | undefined>, cwd = "/project") {
-  const context = harness();
-  await context.registry.activate(createPreviewHostExtension(createSurface));
+  }, (event) => events.push(event));
+  const context = { registry, events, runtimeExtensions };
   const tools: ToolDefinition[] = [];
-  context.runtimeExtensions[0]!.factory({ registerTool: (tool: ToolDefinition) => tools.push(tool) } as never, { sessionId: "s1", cwd });
+  runtimeExtensions[0]!.factory({ registerTool: (tool: ToolDefinition) => tools.push(tool) } as never, { sessionId: "s1", cwd });
   const call = async (name: string, params: unknown) => {
     const tool = tools.find((candidate) => candidate.name === name);
     if (!tool) throw new Error(`no tool ${name}`);

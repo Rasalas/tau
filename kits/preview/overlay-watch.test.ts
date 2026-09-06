@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OverlayWatch, blockingOverlayPresent } from "./overlay-watch";
+import { OverlayWatch, blockingOverlayPresent } from "./overlay-watch.js";
 
 function mount(className: string): HTMLElement {
   const element = document.createElement("div");

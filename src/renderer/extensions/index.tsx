@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { HostUnavailableError, type DesktopExtension, type DesktopExtensionContext, type WorkbenchActions } from "../extension-system";
+import { HostUnavailableError, type DesktopExtension, type DesktopExtensionContext } from "../extension-system";
 import { errorMessage } from "../error-message";
 import { getHostClient } from "../host-client-context";
 import type { PiKeybindingsState, PiShortcutsState } from "../../shared/keybindings-protocol";
@@ -9,7 +9,6 @@ import type { PiKeybindingsState, PiShortcutsState } from "../../shared/keybindi
 // actually rendered.
 const LazyChangesPanel = lazy(() => import("./workspace-panels").then(({ ChangesPanel }) => ({ default: ChangesPanel })));
 const LazyFilesPanel = lazy(() => import("./workspace-panels").then(({ FilesPanel }) => ({ default: FilesPanel })));
-const LazyPreviewPanel = lazy(() => import("./preview-panel").then(({ PreviewPanel }) => ({ default: PreviewPanel })));
 const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ ObservatoryPanel }) => ({ default: ObservatoryPanel })));
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
@@ -26,8 +25,6 @@ import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { agentsExtension } from "./agents-kit";
 import { piUiExtension } from "./pi-ui";
-import { PREVIEW_PANEL, PreviewFollower, isPreviewState, previewKit, previewStore } from "./preview-store";
-import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_STATE_EVENT } from "../../shared/preview-protocol";
 import { packagesExtension } from "./packages-kit";
 import { questionnaireExtension } from "./questionnaire-kit";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages";
@@ -241,38 +238,6 @@ function bindPiShortcuts(plugin: DesktopExtensionContext, isDisposed: () => bool
   return clear;
 }
 
-/**
- * Preview Kit: a browser panel the host draws over, and the tools that let the
- * agent open, read and drive the page it just changed.
- */
-export const previewExtension: DesktopExtension = {
-  id: PREVIEW_HOST_EXTENSION_ID,
-  name: "Preview",
-  activate(plugin) {
-    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", glyph: "preview", order: 40, Component: LazyPreviewPanel });
-    plugin.registerRegion({ id: "preview.follower", placement: "composer-above", order: 60, Component: PreviewFollower });
-    plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(payload); });
-    const open = async (url: string, app: WorkbenchActions): Promise<string | undefined> => {
-      app.openPanel(PREVIEW_PANEL);
-      if (!url) return undefined;
-      try {
-        await previewKit.open({ url });
-      } catch (error) {
-        return errorMessage(error);
-      }
-      return undefined;
-    };
-    plugin.registerCommand({ id: "preview.open", label: "Open preview panel", group: "Extensions", run: (app) => { void open("", app); } });
-    plugin.registerSlashCommand({
-      name: "preview",
-      description: "Open a URL in the preview panel",
-      argumentHint: "<url>",
-      run: (args, app) => open(args.trim(), app),
-    });
-    plugin.registerKeybinding({ keys: "mod+shift+b", commandId: "preview.open" });
-  },
-};
-
 export const settingsExtension: DesktopExtension = {
   id: "tau.runtime-settings",
   name: "Runtime Controls",
@@ -308,7 +273,6 @@ export const bundledExtensions = [
   computerUsePresentationExtension,
   agentsExtension,
   piUiExtension,
-  previewExtension,
   questionnaireExtension,
   packagesExtension,
   settingsExtension,

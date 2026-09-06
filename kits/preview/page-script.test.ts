@@ -9,7 +9,7 @@ import {
   previewScroll,
   previewSnapshot,
   previewType,
-} from "./preview-page-script.js";
+} from "./page-script.js";
 
 const FIXTURE = `
   <h1>Preview fixture</h1>
