@@ -211,8 +211,26 @@ describe("a thread tab", () => {
       loadThread={async () => { throw new Error("That thread is not open any more."); }}
     />);
 
-    expect(await screen.findByText(/That thread is not open any more\. Take over opens it again\./u)).toBeTruthy();
+    expect(await screen.findByText(/That thread is not open any more\. Take over makes it the thread on screen/u)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Take over" })).toHaveProperty("disabled", false);
+  });
+
+  it("loads again once the taken-over thread is the one on screen", async () => {
+    const store = storeWith(agentSession());
+    let held = false;
+    render(<Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD)}
+      threads={store}
+      loadThread={async () => {
+        if (!held) throw new Error("That thread is not open any more.");
+        return reply("Now it reads.");
+      }}
+    />);
+    await screen.findByText(/That thread is not open any more/u);
+
+    held = true;
+    act(() => store.setActiveThread(CHILD));
+    expect(await screen.findByText("Now it reads.")).toBeTruthy();
   });
 
   it("hands the thread to the composer only when Take over is pressed", async () => {
