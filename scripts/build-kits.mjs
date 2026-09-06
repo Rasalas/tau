@@ -4,6 +4,9 @@
 // are imported from the compiled main modules, so there is one implementation.
 //
 // The shipped app has no `kits/` and no toolchain: it reads `dist-kits/`.
+//
+// `kits/package.json` names the distribution (`@tau/kits`) and its `files` list
+// is the shape of `dist-kits/`; writing a file it does not cover fails the build.
 import { build } from "esbuild";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,6 +16,8 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SOURCE = join(ROOT, "kits");
 const OUTPUT = join(ROOT, "dist-kits");
 const MAIN = join(ROOT, "dist-electron/main");
+/** The distribution index the app reads for the version of the set it ships. */
+const INDEX_FILE = "manifest.json";
 const watch = process.argv.includes("--watch");
 
 const { MANIFEST_FILE, bundleHostExtension, parseExtensionManifest } = await import(join(MAIN, "extension-packages.js"));
@@ -59,26 +64,48 @@ async function kitDirectories() {
   return found;
 }
 
+/** `files` matcher: `*` covers one path segment, which is all the list needs. */
+function shipped(patterns, relative) {
+  return patterns.some((pattern) => {
+    const expression = pattern.split("/").map((part) => part.replaceAll("*", "[^/]*")).join("/");
+    return new RegExp(`^${expression}$`, "u").test(relative);
+  });
+}
+
 async function buildKits() {
+  const distribution = JSON.parse(await readFile(join(SOURCE, "package.json"), "utf8"));
   const sharedExports = await sharedExportNames();
   const kits = await kitDirectories();
   await rm(OUTPUT, { recursive: true, force: true });
+  const write = async (relative, contents) => {
+    if (!shipped(distribution.files, relative)) {
+      throw new Error(`dist-kits/${relative} is not covered by the "files" list in kits/package.json.`);
+    }
+    await writeFile(join(OUTPUT, relative), contents, "utf8");
+  };
+  const ids = [];
   for (const kit of kits) {
     const { manifest, hostEntry, desktopEntry } = parseExtensionManifest(kit.directory, kit.source);
-    const target = join(OUTPUT, manifest.id);
-    await mkdir(target, { recursive: true });
-    const shipped = { ...manifest };
+    await mkdir(join(OUTPUT, manifest.id), { recursive: true });
+    const shippedManifest = { ...manifest };
     if (hostEntry) {
-      await writeFile(join(target, "host.cjs"), await bundleHostExtension(hostEntry), "utf8");
-      shipped.host = "./host.cjs";
+      await write(`${manifest.id}/host.cjs`, await bundleHostExtension(hostEntry));
+      shippedManifest.host = "./host.cjs";
     }
     if (desktopEntry) {
-      await writeFile(join(target, "desktop.js"), await bundleDesktopExtension(desktopEntry, { sharedExports }), "utf8");
-      shipped.desktop = "./desktop.js";
+      await write(`${manifest.id}/desktop.js`, await bundleDesktopExtension(desktopEntry, { sharedExports }));
+      shippedManifest.desktop = "./desktop.js";
     }
-    await writeFile(join(target, MANIFEST_FILE), `${JSON.stringify(shipped, null, 2)}\n`, "utf8");
+    await write(`${manifest.id}/${MANIFEST_FILE}`, `${JSON.stringify(shippedManifest, null, 2)}\n`);
+    ids.push(manifest.id);
     console.log(`kit ${manifest.id} -> dist-kits/${manifest.id}`);
   }
+  // The version belongs to the set, not to a kit: each kit keeps its own
+  // `version` in its own manifest, and the index says which distribution
+  // shipped them together.
+  const index = { name: distribution.name, version: distribution.version, engines: distribution.engines, kits: ids.sort() };
+  await mkdir(OUTPUT, { recursive: true });
+  await write(INDEX_FILE, `${JSON.stringify(index, null, 2)}\n`);
   return kits.length;
 }
 

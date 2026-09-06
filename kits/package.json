@@ -1,0 +1,16 @@
+{
+  "name": "@tau/kits",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The extension distribution Tau ships: every kit under this folder, built into dist-kits/.",
+  "engines": {
+    "api": "^1.3.0"
+  },
+  "files": [
+    "manifest.json",
+    "*/tau-extension.json",
+    "*/host.cjs",
+    "*/desktop.js"
+  ]
+}

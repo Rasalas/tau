@@ -6,6 +6,12 @@ differences are that a kit needs no grant (shipping it is the approval) and that
 it is loaded from `dist-kits/` rather than from `~/.tau/extensions`
 ([ADR 0014](../docs/adr/0014-bundled-kits-are-packages.md)).
 
+Together they are **`@tau/kits`**, the distribution Tau ships beside its core.
+`package.json` here names it and carries its version; `files` is the shape of
+`dist-kits/`, and the build fails on a file that list does not cover. Tau is
+two artifacts from one repository: core, which runs alone
+(`npm run start:safe`), and this set on top of it.
+
 ```
 kits/<name>/
   tau-extension.json   id, name, version, engines.api, permissions, isolation, entries
@@ -60,3 +66,24 @@ some kit files under NodeNext, where the extension is required.
 `npm run build:kits` writes `dist-kits/`; `npm run build` runs it, `npm run dev`
 watches it. The loader prefers `dist-kits/` over `kits/`, so an edit needs the
 watcher (or `npm run build:kits`) before the app sees it.
+
+Beside the kit folders the build writes `dist-kits/manifest.json`: the name,
+version and `engines` from this `package.json` plus the ids it built. The
+version lives in that one index rather than being stamped into each kit's
+`tau-extension.json`, because a kit's `version` is its own — the set moves as a
+set, and a shipped manifest that differs from its source would be one more thing
+to keep true. Settings → Packages reads the index and heads the bundled list
+with it; from a checkout without `dist-kits/` the loader reads this file
+instead, so the two agree.
+
+## Versioning
+
+`version` is the distribution's, raised when the set changes. `engines.api` is
+the `EXTENSION_API_VERSION` line every kit builds against; `src/shared/kits-boundary.test.ts`
+fails when it drifts from that constant or from a kit's own `engines.api`.
+
+There is no npm workspace here, deliberately. `@tau/kits` is `private` and
+declares no dependencies: the kits reach core through the three API modules,
+which both bundlers resolve by alias, and take React and the icons from the
+renderer at runtime. A workspace would add a `node_modules` root with nothing
+in it and another thing for electron-builder to prune.
