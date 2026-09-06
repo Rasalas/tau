@@ -3,6 +3,7 @@ import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
+import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
@@ -20,7 +21,7 @@ function DefaultsPage({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const preferences = usePreferences();
-  const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
+  const { showCosts, transcriptDetail } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
 
   return (
     <div className="settings-page">
@@ -57,6 +58,23 @@ function DefaultsPage({
           </button>
         ))}
       </div>
+
+      <div className="settings-label">TRANSCRIPT DETAIL</div>
+      <div className="segmented">
+        {TRANSCRIPT_DETAIL_LEVELS.map((level) => (
+          <button
+            key={level}
+            className={level === transcriptDetail ? "active" : ""}
+            onClick={() => preferences.setTranscriptDetail(level)}
+          >
+            {level}
+          </button>
+        ))}
+      </div>
+      <p className="settings-note">
+        Focused reads a settled turn as one line; detailed opens every group and shows thinking;
+        everything adds full tool output and timestamps. ⇧⌘T cycles them for the thread on screen.
+      </p>
 
       <div className="settings-label">COSTS</div>
       <div className="settings-toggle-row">

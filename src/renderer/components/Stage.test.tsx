@@ -7,6 +7,7 @@ import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-k
 import { activateTab, closeTab, EMPTY_STAGE, openFileTab, openThreadTab, pinTab, setFileView, type StageState } from "../../workbench/stage";
 import { ThreadStore } from "../../workbench/thread-store";
 import { ThreadStoreContext } from "../workbench-context";
+import { TestProviders } from "../test-support/test-providers";
 import { Stage } from "./Stage";
 import type { ChatTab } from "./StageTabs";
 
@@ -35,7 +36,7 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = ne
   onTakeOverThread?: (sessionId: string) => void;
 }) {
   const [stage, setStage] = useState(initial);
-  return <ThreadStoreContext.Provider value={threads}><Stage
+  return <TestProviders><ThreadStoreContext.Provider value={threads}><Stage
     stage={stage}
     cwd={CWD}
     changes={changes}
@@ -49,7 +50,7 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = ne
     onOpenInEditor={() => undefined}
     loadThread={loadThread ?? (async () => [])}
     onTakeOverThread={onTakeOverThread ?? (() => undefined)}
-  /></ThreadStoreContext.Provider>;
+  /></ThreadStoreContext.Provider></TestProviders>;
 }
 
 const CHILD = "child-thread";

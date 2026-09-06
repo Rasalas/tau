@@ -269,7 +269,7 @@ function liveRow(tools: readonly UiToolRun[], input: WorkGroupInput): { row: Wor
   while (start > 0 && tools[start - 1].status !== "error") start -= 1;
   if (start === tools.length) return undefined;
   const live = tools.slice(start);
-  const newest = live.findLast((tool) => tool.status === "running") ?? live.at(-1)!;
+  const newest = [...live].reverse().find((tool) => tool.status === "running") ?? live.at(-1)!;
   const fact = classifyToolRun(newest, input.presentationOf?.(newest) ?? {});
   return {
     row: {

@@ -85,28 +85,39 @@ describe("Message actions", () => {
 });
 
 describe("Message reasoning presentation", () => {
-  it("shows thinking as a collapsed block that opens on demand, like Pi's terminal", () => {
-    const view = render(<TestProviders><Message message={{
-      id: "assistant",
-      role: "assistant",
-      text: "Visible answer",
-      thinking: "Internal reasoning summary",
-      timestamp: 0,
-    }} /></TestProviders>);
+  const reasoning = {
+    id: "assistant",
+    role: "assistant",
+    text: "Visible answer",
+    thinking: "Internal reasoning summary",
+    timestamp: 0,
+  } as const;
 
+  it("leaves thinking out of a focused transcript", () => {
+    const view = render(<TestProviders><Message message={reasoning} /></TestProviders>);
     expect(screen.getByText("Visible answer")).toBeTruthy();
-    expect(screen.queryByText("Internal reasoning summary")).toBeNull();
-    const details = view.container.querySelector("details.message-thinking") as HTMLDetailsElement;
-    expect(details.open).toBe(false);
-    fireEvent(details, new Event("toggle", { bubbles: false }));
-    details.open = true;
-    fireEvent(details, new Event("toggle", { bubbles: false }));
+    expect(view.container.querySelector("details.message-thinking")).toBeNull();
+  });
+
+  it("shows thinking open from detailed, and still lets the reader close it", () => {
+    const view = render(<TestProviders><Message message={reasoning} detail="detailed" /></TestProviders>);
+
     expect(screen.getByText("Internal reasoning summary")).toBeTruthy();
+    const details = view.container.querySelector("details.message-thinking") as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+    details.open = false;
+    fireEvent(details, new Event("toggle", { bubbles: false }));
+    expect(screen.queryByText("Internal reasoning summary")).toBeNull();
   });
 
   it("renders thinking alone while the answer has not started", () => {
-    render(<TestProviders><Message message={{ id: "assistant", role: "assistant", text: "", thinking: "Considering options", timestamp: 0 }} streaming /></TestProviders>);
+    render(<TestProviders><Message message={{ id: "assistant", role: "assistant", text: "", thinking: "Considering options", timestamp: 0 }} detail="detailed" streaming /></TestProviders>);
     expect(screen.getByText(/Thinking/u)).toBeTruthy();
+  });
+
+  it("stamps the answer with its time only at everything", () => {
+    const view = render(<TestProviders><Message message={reasoning} detail="everything" /></TestProviders>);
+    expect(view.container.querySelector("time.message-stamp")).toBeTruthy();
   });
 
   it("does not render an empty thinking placeholder", () => {

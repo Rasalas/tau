@@ -1,4 +1,23 @@
-import type { DesktopExtension } from "../extension-system";
+import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
+import type { DesktopExtension, WorkbenchActions } from "../extension-system";
+import type { PreferencesStore } from "../preferences";
+
+const DETAIL_LABELS: Record<TranscriptDetail, string> = {
+  focused: "focused",
+  detailed: "detailed",
+  everything: "everything",
+};
+
+/**
+ * A level the user picks from the palette belongs to the thread in front of
+ * them; with no thread on screen it is the default for every thread.
+ */
+function applyTranscriptDetail(preferences: PreferencesStore, app: WorkbenchActions, level: TranscriptDetail): void {
+  const sessionId = app.activeThread()?.sessionId;
+  if (sessionId) preferences.overrideTranscriptDetail(sessionId, level);
+  else preferences.setTranscriptDetail(level);
+  app.notify(`Transcript: ${DETAIL_LABELS[level]}`);
+}
 
 /**
  * Runtime Controls: core's own contributions to the registry. Model and
@@ -18,7 +37,24 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", run: (app) => app.newSession() });
-    plugin.registerCommand({ id: "runtime.toggle-thinking", label: "Expand or collapse thinking blocks", group: "Thread", run: () => plugin.preferences.setShowThinking(!plugin.preferences.getSnapshot().showThinking) });
+    for (const level of TRANSCRIPT_DETAIL_LEVELS) {
+      plugin.registerCommand({
+        id: `runtime.transcript-${level}`,
+        label: `Transcript: ${DETAIL_LABELS[level]}`,
+        group: "Thread",
+        run: (app) => applyTranscriptDetail(plugin.preferences, app, level),
+      });
+    }
+    plugin.registerCommand({
+      id: "runtime.transcript-detail",
+      label: "Cycle transcript detail",
+      group: "Thread",
+      run: (app) => applyTranscriptDetail(
+        plugin.preferences,
+        app,
+        nextTranscriptDetail(plugin.preferences.transcriptDetailFor(app.activeThread()?.sessionId)),
+      ),
+    });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
     plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", run: (app) => app.openCommandPalette() });
     plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", run: (app) => app.openThreadTree("navigate") });
@@ -32,5 +68,6 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
+    plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
   },
 };

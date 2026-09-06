@@ -539,6 +539,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 function ConversationTranscript({ view, thread }: { view: ThreadViewStore; thread: WorkbenchThread }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   const optimistic = useSyncExternalStore(view.subscribeToOptimistic, view.getOptimisticMessages);
+  const preferences = usePreferences();
+  useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const {
     conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
     applyTranscriptPage, transcriptScopeKey, transcriptScope, transcriptTurnStart,
@@ -567,6 +569,7 @@ function ConversationTranscript({ view, thread }: { view: ThreadViewStore; threa
       turnStart={visibleTranscriptTurnStart}
       isStreaming={Boolean(conversationSnapshot?.isStreaming)}
       activities={transcriptActivities}
+      detail={preferences.transcriptDetailFor(conversationSnapshot?.sessionId)}
       liveStatus={liveStatusLabel !== undefined
         ? <LiveStatus label={liveStatusLabel} />
         : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0

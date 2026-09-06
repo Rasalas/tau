@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { ChevronDown } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptActivity } from "./transcript-activity";
+import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { TranscriptTurnNavigation } from "./TranscriptTurnNavigation";
 import {
   clientIdentityKey,
@@ -122,6 +123,8 @@ export interface TranscriptViewportProps {
   turnStart?: TranscriptTurnStart;
   isStreaming: boolean;
   activities?: readonly TranscriptActivity[];
+  /** How much of a turn this transcript shows; `focused` leaves thinking out. */
+  detail?: TranscriptDetail;
   liveStatus?: ReactNode;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
@@ -135,6 +138,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   turnStart,
   isStreaming,
   activities = [],
+  detail,
   scope,
   scopeKey,
   revision,
@@ -275,6 +279,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
           scrollRef={scrollRef}
           isStreaming={isStreaming}
           activities={activities}
+          detail={detail}
           messageScopeKey={messageScopeKey}
           revision={revision}
           lookupRevision={lookupRevision}

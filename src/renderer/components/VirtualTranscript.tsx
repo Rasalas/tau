@@ -2,6 +2,7 @@ import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptScrollAnchor } from "../../workbench/transcript-history";
+import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { Message } from "./Message";
 import {
   groupTranscriptActivitiesForMessageIds,
@@ -21,6 +22,8 @@ export interface VirtualTranscriptProps {
   activityAfterMessageId?: string;
   activities?: readonly TranscriptActivity[];
   activeTurnStartId?: string;
+  /** How much of a turn this transcript shows; `focused` leaves thinking out. */
+  detail?: TranscriptDetail;
   /** Changes only when the ordered message ID set changes (not on deltas). */
   messageScopeKey?: string;
   /** Visible record revision; only invalidates this memoized component. */
@@ -72,6 +75,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   activityAfterMessageId,
   activities = [],
   activeTurnStartId,
+  detail,
   messageScopeKey,
   lookupRevision,
   anchorRef,
@@ -253,6 +257,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
         <Message
           message={message}
           streaming={Boolean(isStreaming && message === messages.at(-1) && message.role === "assistant")}
+          detail={detail}
           onCopy={onCopyMessage}
           onFork={onForkMessage}
           onToggleExpanded={onMessageToggleExpanded}

@@ -5,6 +5,7 @@ import { formatCost } from "../cost-format";
 import { errorMessage } from "../../workbench/error-message";
 import { useThreadShell } from "../use-thread-shell";
 import { useThreadStore } from "../workbench-context";
+import { usePreferences } from "../renderer-services-context";
 import { VirtualTranscript } from "./VirtualTranscript";
 
 /** How often a streaming thread's tab re-reads its transcript. An idle tab polls nothing. */
@@ -67,6 +68,9 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
     node.scrollTop = node.scrollHeight;
   }, [state.messages]);
 
+  const preferences = usePreferences();
+  useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const detail = preferences.transcriptDetailFor(sessionId);
   const title = session?.title || "Agent";
   const cost = session?.usage?.costUsd === undefined ? undefined : formatCost(session.usage.costUsd);
   const status = [streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
@@ -100,6 +104,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
                   scrollRef={scrollRef}
                   isStreaming={streaming}
                   sessionKey={sessionId}
+                  detail={detail}
                 />
               </div>
             </div>}

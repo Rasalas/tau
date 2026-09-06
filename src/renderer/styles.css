@@ -2294,6 +2294,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .message-thinking > summary .chev { transition: transform 120ms ease; }
 .message-thinking[open] > summary .chev { transform: rotate(90deg); }
 .message-thinking-body { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-card); opacity: 0.85; font-size: 13px; }
+.message-stamp { display: block; margin-top: 6px; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* Regions and status line: placement is core, content belongs to extensions. */
 .workbench-region { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

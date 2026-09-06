@@ -1,11 +1,11 @@
 import { Bot, ChevronRight } from "lucide-react";
-import { memo, useState, useSyncExternalStore } from "react";
+import { memo, useState } from "react";
 import type { UiMessage } from "../../shared/contracts";
+import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { MessageActions } from "./MessageActions";
 import { UserMessage } from "./UserMessage";
 import { Markdown } from "./Markdown";
-import type { PreferencesStore } from "../preferences";
-import { usePreferences } from "../renderer-services-context";
+import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
 interface AsyncActivity {
   label: string;
@@ -26,14 +26,10 @@ export function parseAsyncActivity(text: string): AsyncActivity | undefined {
   return { label, detail: text };
 }
 
-const readShowThinking = (preferences: PreferencesStore) => preferences.getSnapshot().showThinking;
-
-/** Pi shows thinking as a collapsible block; Ctrl+T there is the palette command here. */
+/** Pi shows thinking as a collapsible block; the transcript detail level is the switch here. */
 function ThinkingDisclosure({ thinking, streaming }: { thinking: string; streaming?: boolean }) {
-  const preferences = usePreferences();
-  const expandedByDefault = useSyncExternalStore(preferences.subscribe, () => readShowThinking(preferences), () => readShowThinking(preferences));
   const [toggled, setToggled] = useState<boolean>();
-  const open = toggled ?? expandedByDefault;
+  const open = toggled ?? true;
   return (
     <details className="message-thinking" open={open} onToggle={(event) => setToggled((event.target as HTMLDetailsElement).open)}>
       <summary><ChevronRight size={12} className="chev" /> Thinking{streaming && !thinking.trim() ? "…" : ""}</summary>
@@ -59,6 +55,7 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
 export const Message = memo(function Message({
   message,
   streaming = false,
+  detail = "focused",
   onCopy,
   onFork,
   onToggleExpanded,
@@ -66,6 +63,8 @@ export const Message = memo(function Message({
 }: {
   message: UiMessage;
   streaming?: boolean;
+  /** How much of the turn this transcript shows; `focused` leaves thinking out. */
+  detail?: TranscriptDetail;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
@@ -82,7 +81,7 @@ export const Message = memo(function Message({
     return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
   }
 
-  const thinking = message.thinking?.trim() ? message.thinking : undefined;
+  const thinking = detail !== "focused" && message.thinking?.trim() ? message.thinking : undefined;
   if (!message.text && !thinking) return null;
 
   return (
@@ -93,6 +92,11 @@ export const Message = memo(function Message({
           <div className="message-text">
             <Markdown streaming={streaming}>{message.text}</Markdown>
           </div>
+        ) : null}
+        {detail === "everything" && message.text ? (
+          <time className="message-stamp" dateTime={new Date(message.timestamp).toISOString()} title={fullTimestamp(message.timestamp)}>
+            {compactTimestamp(message.timestamp)}
+          </time>
         ) : null}
       </article>
       {onCopy ? <MessageActions
