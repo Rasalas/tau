@@ -2748,6 +2748,13 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .toast[data-level="error"] b { color: var(--danger, #c0392b); }
 .toast span { font-size: 12px; max-width: 460px; }
 .toast i { color: var(--faint); font-style: normal; }
+.update-toast { cursor: default; }
+.update-toast button {
+  border: 1px solid var(--line-float); border-radius: 6px; background: transparent;
+  color: var(--ink-2); font: 500 11px var(--sans); padding: 4px 10px; cursor: pointer;
+}
+.update-toast button:hover { border-color: var(--working); color: var(--ink-1); }
+.update-toast button.dismiss { border: 0; color: var(--faint); padding: 4px 2px; font-size: 13px; }
 
 @media (prefers-reduced-motion: reduce) {
   .project-picker, .project-modal, .toast, .reload-conflict, .tool-activity, .tool-activity-detail, .tool-run,

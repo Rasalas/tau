@@ -32,6 +32,8 @@ export interface HostEventTargets {
   applyThreadIndex(index: ThreadIndexSnapshot): void;
   /** Re-reads the desktop halves the host serves, after its package set moved. */
   syncDesktopExtensions(): void;
+  /** A downloaded Tau waiting for a restart. */
+  setUpdateReady(version: string): void;
 }
 
 type WorkbenchEvent = Parameters<ExtensionRegistry["dispatchWorkbenchEvent"]>[0];
@@ -71,6 +73,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
         `Package ${event.name} deactivated: ${event.reason}. Re-enable it in Settings → Extensions.`,
         "warning",
       );
+      return;
+    case "app-update":
+      targets.setUpdateReady(event.version);
       return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;

@@ -26,6 +26,8 @@ import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { resolveStartupWorkspace } from "./startup-workspace.js";
+import electronUpdater from "electron-updater";
+import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(app.getAppPath(), "assets/tau-icon.png");
@@ -44,6 +46,12 @@ configureAppIdentity(app, process.env.TAU_USER_DATA);
 const desktopBundles = new DesktopBundleStore();
 registerDesktopBundleScheme();
 const hostLog = new HostLog({ dir: join(app.getPath("userData"), "logs") });
+
+// Every extension is compiled by esbuild, which spawns a binary that cannot
+// live in the archive. `packaged-app` redirects it while it loads.
+if (app.isPackaged && !process.env.ESBUILD_BINARY_PATH) {
+  hostLog.warn("esbuild.binary.missing", "Nothing outside the archive to spawn; extensions cannot be compiled.");
+}
 
 process.on("uncaughtException", (error) => {
   hostLog.error("process.uncaughtException", error);
@@ -107,6 +115,7 @@ const jobs = new HostJobRunner(broadcast);
 let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
 let projectHistory: ProjectHistory;
+let updates: AppUpdates | undefined;
 let shutdownStarted = false;
 let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
@@ -268,6 +277,11 @@ function createLocalHostMethods(): HostMethodTable {
         return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })) };
       },
       rebuildWorkbench: (context) => {
+        // An installed Tau carries no sources and no toolchain. Reporting
+        // success lets the reload it is part of go on and pick up extensions.
+        if (app.isPackaged) {
+          return Promise.resolve({ ok: true, durationMs: 0, mainChanged: false, output: "An installed Tau has no sources to rebuild." });
+        }
         if (rebuild) return rebuild;
         rebuild = rebuildWorkbench(app.getAppPath(), {
           onOutput: (line) => {
@@ -281,6 +295,7 @@ function createLocalHostMethods(): HostMethodTable {
         app.relaunch();
         app.quit();
       },
+      installUpdate: () => updates?.install() ?? false,
     },
   });
 }
@@ -322,6 +337,14 @@ if (primaryInstance) app.whenReady().then(async () => {
     userData: app.getPath("userData"),
   });
   app.dock?.setIcon(appIconPath);
+  updates = createAppUpdates({
+    updater: electronUpdater.autoUpdater,
+    enabled: app.isPackaged,
+    log: hostLog,
+    onDownloaded: (version) => publish({ type: "app-update", version }),
+  });
+  installUpdateMenuItem(() => void updates?.checkForUpdates());
+  updates.checkOnStartup();
   serveDesktopBundles(desktopBundles);
   // Nothing in the workbench asks for a camera, a microphone or a location, and
   // an extension rendering inside it must not be able to ask on its behalf.

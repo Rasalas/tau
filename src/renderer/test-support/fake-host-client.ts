@@ -65,6 +65,7 @@ function defaults(): HostClient {
     releaseWorkbenchReload: async () => undefined,
     rebuildWorkbench: async () => ({ ok: true, durationMs: 0, mainChanged: false, output: "" }),
     relaunchWorkbench: async () => undefined,
+    installUpdate: async () => ({ installing: false }),
 
     platform: "test",
     copyText: async () => undefined,

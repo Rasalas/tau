@@ -10,6 +10,7 @@ import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 import { type ComposerAttachmentHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
 import { type ThreadTreeMode } from "./components/ThreadTreeModal";
+import { UpdateToast } from "./components/UpdateToast";
 import type { TranscriptTurnStart } from "./components/transcript-navigation";
 import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
 import { useConversationActivities } from "./conversation-activities";
@@ -146,6 +147,8 @@ export default function App() {
   const [, setDeliveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   const [dockOpen, setDockOpen] = useState(true);
+  /** The version the host downloaded; the toast that offers the restart reads it. */
+  const [updateReady, setUpdateReady] = useState<string>();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
   const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
@@ -453,6 +456,7 @@ export default function App() {
     applyHostUpdate,
     applyThreadIndex,
     syncDesktopExtensions,
+    setUpdateReady,
   }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, preferences, registry, setTranscriptTurnStart, submission, syncDesktopExtensions, threadStore, viewStore]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
@@ -1081,6 +1085,11 @@ export default function App() {
 
   return <>
     <Workbench model={workbenchModel} />
+    {updateReady ? <UpdateToast
+      version={updateReady}
+      onRestart={() => { void client?.installUpdate(); }}
+      onDismiss={() => setUpdateReady(undefined)}
+    /> : null}
     {reloadUi}
   </>;
 }

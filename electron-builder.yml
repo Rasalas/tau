@@ -1,0 +1,94 @@
+appId: dev.tbuck.tau
+productName: Tau
+copyright: Copyright © Torben Buck
+directories:
+  output: release
+  buildResources: assets
+
+# The default `**/*` plus exclusions: everything the app needs at runtime lives
+# in dist/, dist-electron/ and the production node_modules, and electron-builder
+# already prunes devDependencies. Listing the sources to leave out keeps a new
+# runtime file from silently going missing.
+files:
+  - "!.github"
+  - "!.pi"
+  - "!.scratch"
+  - "!benchmarks"
+  - "!docs"
+  - "!examples"
+  - "!reports"
+  - "!release"
+  - "!scripts"
+  - "!src"
+  - "!*.md"
+  - "!index.html"
+  - "!electron-builder.yml"
+  - "!t3.json"
+  - "!.oxlintrc.json"
+  - "!tsconfig*.json"
+  - "!vite.config.ts"
+  - "!vitest.config.ts"
+  - "!**/*.test.js"
+  - "!**/*.test.js.map"
+  # esbuild's npm command line, a second 10 MB copy of the binary the library
+  # itself never runs.
+  - "!node_modules/esbuild/bin"
+  # Pi ships its handbook and example extensions for the CLI; Tau reads neither,
+  # and the examples alone carry a 4 MB WebAssembly demo.
+  - "!node_modules/@earendil-works/pi-coding-agent/docs"
+  - "!node_modules/@earendil-works/pi-coding-agent/examples"
+  - "!node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md"
+  - "!node_modules/@earendil-works/pi-coding-agent/npm-shrinkwrap.json"
+
+# Files a real path on disk must reach, so an archive entry will not do.
+asarUnpack:
+  # The host compiles every extension with esbuild, which spawns its own native
+  # binary; a process cannot be spawned from inside the archive.
+  - "node_modules/@esbuild/**"
+  # `new Worker(file)` reads the entry before Electron's archive support is
+  # installed in the worker, and the headless host is started as a plain script.
+  - "dist-electron/main/**"
+  # Pi resizes images in a worker thread that instantiates WebAssembly from disk.
+  - "node_modules/@earendil-works/pi-coding-agent/dist/utils/image-resize-worker.js"
+  - "node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node/**"
+  # Computer use launches a driver app of its own.
+  - "node_modules/@amaster.ai/pi-computer-use/bin/**"
+  - "**/*.node"
+
+mac:
+  # Architectures come from the command line (`--arm64 --x64`); without one the
+  # build is for the host.
+  target: [dmg, zip]
+  # Computer use ships a driver binary per platform, ~30 MB each.
+  files: ["!node_modules/@amaster.ai/pi-computer-use/bin/{linux,win32}-*"]
+  icon: assets/tau-icon.png
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  entitlements: assets/entitlements.mac.plist
+  # Signing and notarization stay off unless CSC_LINK/APPLE_ID are in the
+  # environment; electron-builder turns both on by itself once they are.
+  gatekeeperAssess: false
+
+dmg:
+  title: ${productName} ${version}
+
+linux:
+  target: [AppImage]
+  files: ["!node_modules/@amaster.ai/pi-computer-use/bin/{darwin,win32}-*"]
+  icon: assets/tau-icon.png
+  category: Development
+  executableName: tau
+
+win:
+  target: [nsis]
+  files: ["!node_modules/@amaster.ai/pi-computer-use/bin/{darwin,linux}-*"]
+  icon: assets/tau-icon.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+publish:
+  provider: github
+  owner: Rasalas
+  repo: tau

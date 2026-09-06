@@ -388,6 +388,8 @@ export type GlobalHostEvent =
   /** A host extension the registry had to stop, with the reason to show the user. */
   | { type: "extension-deactivated"; extensionId: string; name: string; reason: string; sessionId?: undefined }
   | { type: "error"; message: string; sessionId?: undefined }
+  /** A new Tau finished downloading and installs on the next restart. */
+  | { type: "app-update"; version: string; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */

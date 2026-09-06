@@ -80,6 +80,8 @@ export interface HostClient {
   releaseWorkbenchReload(): Promise<void>;
   rebuildWorkbench(): Promise<WorkbenchBuildResult>;
   relaunchWorkbench(): Promise<void>;
+  /** Restarts into a downloaded update. */
+  installUpdate(): Promise<{ installing: boolean }>;
 
   // Clipboard, window chrome, and the host event stream.
   readonly platform: string;
@@ -161,6 +163,7 @@ export function createHostClient(connection: HostConnection): HostClient {
       ? connection.runJob<WorkbenchBuildResult>("rebuild-workbench")
       : call<WorkbenchBuildResult>("rebuild-workbench"),
     relaunchWorkbench: () => call<void>("relaunch-workbench"),
+    installUpdate: () => call<{ installing: boolean }>("install-update"),
 
     platform: connection.platform,
     copyText: (text) => call<void>("copy-text", [text]),

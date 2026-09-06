@@ -32,6 +32,7 @@ function tableMethods(): Set<string> {
       loadDesktopExtensions: unavailable,
       rebuildWorkbench: unavailable,
       relaunchWorkbench: unavailable,
+      installUpdate: unavailable,
     },
   });
   return new Set(Object.keys(methods));

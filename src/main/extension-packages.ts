@@ -1,3 +1,5 @@
+// esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
+import "./packaged-app.js";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
