@@ -1,3 +1,4 @@
+import { formatCost as formatMoney } from "../cost-format";
 import type { UiSession, UiThreadUsage } from "../../shared/contracts";
 import {
   isOpenStatus,
@@ -162,8 +163,9 @@ export function formatElapsed(milliseconds: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
+/** The composer's own money format, so a row never says `$0.00` for a fraction of a cent. */
 export function formatCost(costUsd: number | undefined): string {
-  return costUsd === undefined ? "–" : `$${costUsd.toFixed(2)}`;
+  return (costUsd === undefined ? undefined : formatMoney(costUsd)) ?? "–";
 }
 
 /** The one line under a row's title: what it is doing, or what it said. */
