@@ -517,8 +517,52 @@ describe("Agents Kit", () => {
       await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" });
       await settle();
       await expect(readAgentLinks(linksPath)).resolves.toEqual([
-        { threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread" },
+        { threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number) },
       ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps when an agent ran in the index, and reads a v1 file without those times", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-links-"));
+    const linksPath = join(directory, "agents-links.json");
+    try {
+      const bench = await activated({ linksPath });
+      const parent = bench.runtime("parent");
+      const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "Reply with ALPHA" }));
+      bench.threads.get(handle)!.streaming = false;
+      await bench.notify("ended", handle, "completed");
+      await settle();
+      const [stored] = await readAgentLinks(linksPath);
+      expect(stored?.startedAt).toEqual(expect.any(Number));
+      expect(stored?.endedAt).toBeGreaterThanOrEqual(stored!.startedAt!);
+
+      // A file the previous build wrote has no times; every other field reads on.
+      await writeFile(linksPath, JSON.stringify({
+        version: 1,
+        links: [{ threadId: "old-child", parentThreadId: "parent", depth: 1, spawnedAt: 7, projectPath: "/project", title: "Old", spawnedBy: "tau_spawn_thread" }],
+      }), "utf8");
+      await expect(readAgentLinks(linksPath)).resolves.toEqual([
+        { threadId: "old-child", parentThreadId: "parent", depth: 1, spawnedAt: 7, projectPath: "/project", title: "Old", spawnedBy: "tau_spawn_thread" },
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("shows a restored agent's duration after a restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-links-"));
+    const linksPath = join(directory, "agents-links.json");
+    try {
+      await writeAgentLinks([{
+        threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: 1_000,
+        projectPath: "/project", title: "Index 1", spawnedBy: "tau_spawn_thread",
+        startedAt: 1_100, endedAt: 4_600,
+      }], linksPath);
+      const bench = await activated({ linksPath });
+      const [restored] = (await bench.state()).links;
+      expect(restored).toMatchObject({ threadId: "child-1", startedAt: 1_100, endedAt: 4_600 });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
