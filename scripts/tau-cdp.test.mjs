@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSnapshot, keySpec, parseCli, pidFromPsOutput, resolvePort } from "./tau-cdp.mjs";
+import { formatSnapshot, keySpec, parseChord, parseCli, pidFromPsOutput, resolvePort, stopProcess } from "./tau-cdp.mjs";
 
 describe("parseCli", () => {
   it("splits a leading numeric token as the port", () => {
@@ -75,6 +75,66 @@ describe("keySpec", () => {
 
   it("throws on an unknown multi-character name", () => {
     expect(() => keySpec("Home")).toThrow(/unknown key/);
+  });
+});
+
+describe("parseChord", () => {
+  it("resolves mod to meta on macOS", () => {
+    const chord = parseChord("mod+k", { platform: "darwin" });
+    expect(chord.modifiers).toBe(4);
+    expect(chord.key).toMatchObject({ key: "k", code: "KeyK" });
+  });
+
+  it("resolves mod to ctrl off macOS", () => {
+    const chord = parseChord("mod+k", { platform: "linux" });
+    expect(chord.modifiers).toBe(2);
+  });
+
+  it("combines mod with other modifiers, order independent", () => {
+    const chord = parseChord("mod+shift+d", { platform: "darwin" });
+    expect(chord.modifiers).toBe(4 | 8);
+    expect(chord.key).toMatchObject({ key: "d", code: "KeyD" });
+  });
+
+  it("accepts a named key in a chord", () => {
+    const chord = parseChord("mod+enter", { platform: "darwin" });
+    expect(chord.key).toMatchObject({ key: "Enter", code: "Enter" });
+  });
+
+  it("returns undefined for a bare key (not a chord)", () => {
+    expect(parseChord("d")).toBeUndefined();
+    expect(parseChord("Enter")).toBeUndefined();
+  });
+
+  it("throws on an unknown modifier", () => {
+    expect(() => parseChord("hyper+d")).toThrow(/unknown modifier/);
+  });
+});
+
+describe("stopProcess", () => {
+  it("does not escalate when SIGTERM alone ends the process", async () => {
+    const calls = [];
+    let alive = true;
+    const result = await stopProcess(4242, {
+      kill: (pid, signal) => { calls.push([pid, signal]); if (signal === "SIGTERM") alive = false; },
+      isAlive: () => alive,
+      wait: async () => {},
+    });
+    expect(calls).toEqual([[4242, "SIGTERM"]]);
+    expect(result).toEqual({ pid: 4242, escalated: false });
+  });
+
+  it("escalates to SIGKILL when the process outlives the grace period", async () => {
+    const calls = [];
+    const result = await stopProcess(4242, {
+      kill: (pid, signal) => calls.push([pid, signal]),
+      isAlive: () => true,
+      wait: async () => {},
+      graceMs: 10,
+      pollMs: 1,
+    });
+    expect(calls).toEqual([[4242, "SIGTERM"], [4242, "SIGKILL"]]);
+    expect(result).toEqual({ pid: 4242, escalated: true });
   });
 });
 

@@ -24,12 +24,23 @@ export function evaluateStartBudgets(report, budgets) {
   return failures;
 }
 
+/**
+ * The env for the Electron fixture child. `ELECTRON_RUN_AS_NODE` in the
+ * caller's own shell (common in an agent's environment) would run this
+ * binary as plain Node instead of Electron, so `app.whenReady` never exists.
+ */
+export function buildFixtureEnv(baseEnv = process.env) {
+  const env = { ...baseEnv, ELECTRON_IS_DEV: "0" };
+  delete env.ELECTRON_RUN_AS_NODE;
+  return env;
+}
+
 function runFixture() {
   const result = spawnSync(ELECTRON, [join(ROOT, "scripts", "start-fixture.cjs")], {
     cwd: ROOT,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ELECTRON_IS_DEV: "0" },
+    env: buildFixtureEnv(),
   });
   if (result.status !== 0) throw new Error(result.stderr || "start fixture failed");
   const line = result.stdout.trim().split("\n").at(-1);
