@@ -108,8 +108,11 @@ Beyond the contribution types, `tau` exports `useWorkbench`,
 `useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
 hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
 the browser preview), `errorMessage` (the one-line `unknown` → `string` every
-half needs for `actions.notify`), and the `PreferencesStore` type (the store on
-`context.preferences`, so a package can pass it around in its own signatures).
+half needs for `actions.notify`), the `PreferencesStore` type (the store on
+`context.preferences`, so a package can pass it around in its own signatures),
+and `Menu` with its `MenuItem` and `MenuSection` types — the popover list a
+composer chip drops, with the scrim, the Escape handling and the shift that
+keeps it clear of a native view.
 
 `tau/host-extension` re-exports every host seam type plus `HostCommandError`,
 `isExpectedCommandError`, the permission and isolation vocabularies, and the

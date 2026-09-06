@@ -1,7 +1,7 @@
-import type { AccessLevel } from "../../shared/access-kit-protocol.js";
-import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_EVENT, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "../../shared/access-kit-protocol.js";
-import { createAccessExtension } from "../access-extension.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
+import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { createAccessExtension } from "./gate.js";
+import type { AccessLevel } from "./protocol.js";
+import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_EVENT, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
 
 /**
  * Access Kit's host entry. It owns the access level, contributes the Pi gate
@@ -12,7 +12,6 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
   return {
     id: ACCESS_HOST_EXTENSION_ID,
     name: "Access Kit",
-    permissions: ["runtime:extend", "sessions"],
     activate(context: HostExtensionContext) {
       let level = initialLevel;
       const { services } = context;
@@ -36,3 +35,5 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
     },
   };
 }
+
+export default createAccessHostExtension;

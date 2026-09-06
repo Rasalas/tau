@@ -1,8 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { AccessLevel } from "../../../shared/access-kit-protocol.js";
 import type { SkillRuntimeAdapter } from "../../skill-invocation.js";
-import type { RuntimePromptInput, RuntimeTransport } from "../../runtime-adapters.js";
+import type { RuntimePermissionLevel, RuntimePromptInput, RuntimeTransport } from "../../runtime-adapters.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 export interface RuntimePermissionPolicy {
@@ -12,7 +11,7 @@ export interface RuntimePermissionPolicy {
   tools: readonly string[];
 }
 
-const CLAUDE_POLICIES: Record<AccessLevel, RuntimePermissionPolicy> = {
+const CLAUDE_POLICIES: Record<RuntimePermissionLevel, RuntimePermissionPolicy> = {
   "read-only": { permissionMode: "plan", tools: ["Read", "Glob", "Grep"] },
   // Keep the CLI's tool surface explicit. `default` would make the adapter's
   // behavior depend on a user's Claude installation and can expose tools that
@@ -40,7 +39,7 @@ export function assertClaudePermissionPolicySupported(policy: RuntimePermissionP
   }
 }
 
-export function runtimePermissionPolicy(level: AccessLevel): RuntimePermissionPolicy {
+export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimePermissionPolicy {
   const policy = CLAUDE_POLICIES[level];
   return { permissionMode: policy.permissionMode, tools: [...policy.tools] };
 }

@@ -11,6 +11,8 @@ export {
 } from "./workbench-context";
 export { HostUnavailableError } from "./extension-system";
 export { errorMessage } from "./error-message";
+export { Menu } from "./components/Menu";
+export type { MenuItem, MenuSection } from "./components/Menu";
 export type {
   DesktopExtension,
   DesktopExtensionContext,

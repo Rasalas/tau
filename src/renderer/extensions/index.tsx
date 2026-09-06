@@ -14,7 +14,6 @@ const LazyObservatoryPanel = lazy(() => import("./observatory-panel").then(({ Ob
 const LazyCloneProjectSource = lazy(() => import("./project-navigation").then(({ CloneProjectSource }) => ({ default: CloneProjectSource })));
 const LazyLocalFolderSource = lazy(() => import("./project-navigation").then(({ LocalFolderSource }) => ({ default: LocalFolderSource })));
 const LazyWorkspaceSidebar = lazy(() => import("./project-navigation").then(({ WorkspaceSidebar }) => ({ default: WorkspaceSidebar })));
-import { accessKitExtension } from "./access-kit";
 import { claudeCodeExtension } from "./claude-code-kit";
 import { workspaceKit } from "./workspace-kit-client";
 import { registerCheckpoints } from "./workspace-checkpoints";
@@ -300,7 +299,6 @@ export const settingsExtension: DesktopExtension = {
 };
 
 export const bundledExtensions = [
-  accessKitExtension,
   serviceTierKitExtension,
   workspaceExtension,
   reviewExtension,

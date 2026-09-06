@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccessExtension, isMutatingToolCall } from "./access-extension.js";
+import { createAccessExtension, isMutatingToolCall } from "./gate.js";
 
 function gate(level: "read-only" | "ask" | "full", confirm: (title: string, message: string) => Promise<boolean>) {
   let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
