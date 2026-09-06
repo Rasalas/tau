@@ -19,6 +19,12 @@ Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. T
 - [ADR 0012](docs/adr/0012-preview-browser.md) records why the preview is a host-owned browser view drawn over the panel.
 - [docs/RELEASE.md](docs/RELEASE.md) explains how a release is cut, how updates reach users, and how signing is enabled.
 
+Notes and research, not kept current:
+
+- [docs/opencode-diff-viewer-lessons.md](docs/opencode-diff-viewer-lessons.md) inspects OpenCode's two diff-review layouts.
+- [docs/research/pi-remote-session.md](docs/research/pi-remote-session.md) decides whether Tau should attach to Pi through Pi's own client instead of the session bridge.
+- [docs/research/model-provider-icons.md](docs/research/model-provider-icons.md) recommends a source for model-provider icons.
+
 ## Core and kits
 
 Tau is two artifacts built from one repository.
@@ -103,7 +109,7 @@ npm run start:safe
 
 The production renderer is minified and does not ship source maps unless `TAU_SOURCEMAP=true` is explicitly set. Review, Settings, optional panels, and Highlight.js languages are demand-loaded; their slots expose a Retry action if a chunk cannot be loaded.
 
-`npm run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter.html) over `src/`, `.pi/` and `scripts/` (config in `.oxlintrc.json`: `correctness` and `suspicious` rules as errors, `perf` as warnings). CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full Vitest suite, and a production build on every pull request and push to `main`; `.github/workflows/performance.yml` stays the separate, slower gate for build/startup/renderer budgets, and `.github/workflows/release.yml` builds and publishes the artifacts of a `v*.*.*` tag ([docs/RELEASE.md](docs/RELEASE.md)).
+`npm run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter.html) over the whole repository except `dist/`, `dist-electron/` and `node_modules/` (config in `.oxlintrc.json`: `correctness` and `suspicious` rules as errors, `perf` as warnings); an override turns `no-await-in-loop` and `no-map-spread` off under `kits/`, `scripts/`, `src/main/` and `.pi/`, where sequential awaits and immutable per-element updates are the point, and keeps both on elsewhere. CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full Vitest suite, and a production build on every pull request and push to `main`; `.github/workflows/performance.yml` stays the separate, slower gate for build/startup/renderer budgets, and `.github/workflows/release.yml` builds and publishes the artifacts of a `v*.*.*` tag ([docs/RELEASE.md](docs/RELEASE.md)).
 
 ### Reach the host over a socket
 
@@ -164,7 +170,7 @@ An extension with a host half is a package: a folder under one of those two dire
 }
 ```
 
-`id` is shared by both halves (lowercase, dot-separated) and must equal the id the desktop module exports; `desktop` and `host` are relative entry paths, either may be omitted. `isolation` is `worker` (the default) or `in-process`, see below. `version` is the package's own semver. `engines` names the ranges of `tau` (the app version), `pi` (the bundled Pi) and `api` (the contribution interfaces, `EXTENSION_API_VERSION` in `src/shared/extension-compat.ts`) the package runs on; ranges take `*`, `1.2.3`, `^1.2.0`, `~1.2.0`, `>=1 <2` and `||`. A package whose engines do not fit stays off on both sides and is listed with the reason in the Inspector. Both fields are optional; while Tau's own version is `0.0.0`, pin `api` rather than `tau`.
+`id` is shared by both halves (lowercase, dot-separated) and must equal the id the desktop module exports; `desktop` and `host` are relative entry paths, either may be omitted. `isolation` is `worker` (the default) or `in-process`, see below. `version` is the package's own semver. `engines` names the ranges of `tau` (the app version), `pi` (the bundled Pi) and `api` (the contribution interfaces, `EXTENSION_API_VERSION` in `src/shared/extension-compat.ts`) the package runs on; ranges take `*`, `1.2.3`, `^1.2.0`, `~1.2.0`, `>=1 <2` and `||`. A package whose engines do not fit stays off on both sides and is listed with the reason in the Inspector. Both fields are optional; while Tau's own version stays pre-1.0 (see `package.json`), pin `api` rather than `tau`.
 
 #### Install a package
 
@@ -293,7 +299,7 @@ context.registerDocumentSource(...);
 
 Every contribution is stamped with the extension that supplied it, which is what lets the palette, panel headers and settings page attribute behaviour back to its source. `registerOptions` is the whole of the settings surface: an extension declares toggles and chip rows, and Tau renders the page from that declaration — an extension with no options shows only its on/off switch.
 
-See `src/renderer/extension-system.tsx` and `src/renderer/extensions/index.tsx`. The left sidebar and right dock are empty core slots. Workspace Kit contributes the thread and project sidebar, local-folder and Git-clone sources, and Files. Review Kit contributes Changes and the diff review. Other bundled extensions contribute Signals, thread title generation, and the runtime commands.
+See `src/renderer/extension-system.tsx` and the kits under `kits/` ([docs/CORE.md](docs/CORE.md) lists what each one owns). The left sidebar and right dock are empty core slots. Workspace Kit contributes the thread and project sidebar, local-folder and Git-clone sources, and Files. Review Kit contributes Changes and the diff review. Other bundled kits contribute Signals, thread title generation, and the runtime commands.
 
 ## Deliberately missing
 

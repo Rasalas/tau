@@ -70,10 +70,12 @@ gh run watch                # or: gh run view --log-failed
 gh run download --dir /tmp/artifacts
 ```
 
-The `release` job stays skipped unless the ref is a `v*.*.*` tag or `publish`
-is `true`, so a dispatch with `publish=false` cannot attach anything to a
-GitHub Release; the three `tau-*` artifacts (and `latest*.yml`) land as
-workflow run artifacts instead, good for a week.
+The `release` job stays skipped unless the ref is a tag starting with `v` or
+`publish` is `true`, so a dispatch with `publish=false` cannot attach anything
+to a GitHub Release; the three `tau-*` artifacts (and `latest*.yml`) land as
+workflow run artifacts instead, good for a week. The `push` trigger above only
+ever delivers `v*.*.*` tags; the `v`-prefix check on `release` is what keeps a
+`workflow_dispatch` run against some other tag from also publishing.
 
 A build job that fails uploads a `tau-<platform>-diagnostics` artifact
 alongside it — `release/builder-debug.yml` (electron-builder's own verbose
@@ -232,5 +234,9 @@ electron-builder just wrote), with `TAU_USER_DATA` and
 `PI_CODING_AGENT_SESSION_DIR` pointed at a scratch directory and a
 `--remote-debugging-port` to drive it. All fifteen kits loaded from inside
 `app.asar`, a prompt round-tripped, and safe mode came up with none of them.
-That run is what turned up the dock-icon crash above: an audit of the archive
-would never have found it.
+That run is what turned up the dock-icon crash: `app.dock.setIcon` pointed at
+`assets/tau-icon.png`, a checkout-only path that does not exist inside
+`app.asar`, and threw inside the same `whenReady` callback that creates the
+window, taking the window down with it. Fixed 2026-09-06 by treating a missing
+icon file as no icon instead of an error (`src/main/index.ts`); an audit of
+the archive would never have found it.

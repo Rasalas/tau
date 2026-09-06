@@ -328,8 +328,8 @@ of npm's — `*`, an exact version, `^`, `~`, comparators (`>=`, `>`, `<=`, `<`,
 `=`), a bare major or major.minor as an implicit exact-line match, and `||`
 for alternatives (`satisfiesRange` in `extension-compat.ts`). A range Tau
 cannot parse is a manifest error, not a silent "incompatible" — a typo in
-`engines` surfaces immediately. While Tau's own version is still `0.0.0`, pin
-`engines.api` rather than `engines.tau`.
+`engines` surfaces immediately. While Tau's own version stays pre-1.0 (see
+`package.json`), pin `engines.api` rather than `engines.tau`.
 
 ### Permissions vocabulary
 
