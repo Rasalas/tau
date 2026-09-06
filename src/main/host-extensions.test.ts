@@ -22,6 +22,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    refreshExtensionPackages: async () => undefined,
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no sessions in this test"); },
@@ -167,7 +168,8 @@ describe("HostExtensionRegistry", () => {
 
   it("deactivates an extension when a command times out", async () => {
     const s = services();
-    const r = new HostExtensionRegistry(s, () => {}, { commandTimeoutMs: 50 });
+    const events: GlobalHostEvent[] = [];
+    const r = new HostExtensionRegistry(s, (event) => events.push(event), { commandTimeoutMs: 50 });
     await r.activate({
       id: "slow.kit",
       name: "Slow Kit",
@@ -177,12 +179,16 @@ describe("HostExtensionRegistry", () => {
     });
     await expect(r.invoke("slow.kit", "hang")).rejects.toThrow("timed out after 50ms");
     expect(r.isActive("slow.kit")).toBe(false);
-    expect(r.summaries().find((e) => e.id === "slow.kit")?.error).toContain("timed out after 50ms");
+    expect(r.summaries().find((e) => e.id === "slow.kit")?.error).toBe('command "hang" timed out after 50ms');
     expect(s.logs.some((line) => line.includes("host-extension.failed") && line.includes("timed out"))).toBe(true);
+    // One announcement, so the client raises exactly one toast for it.
+    expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([
+      { type: "extension-deactivated", extensionId: "slow.kit", name: "Slow Kit", reason: expect.stringContaining("timed out after 50ms") },
+    ]);
   });
 
   it("deactivates an extension after 3 consecutive failures", async () => {
-    const { registry: r } = registry();
+    const { registry: r, events } = registry();
     let fails = true;
     await r.activate({
       id: "flaky.kit",
@@ -206,6 +212,34 @@ describe("HostExtensionRegistry", () => {
     // 3rd failure -> deactivates!
     await expect(r.invoke("flaky.kit", "flaky")).rejects.toThrow("failure");
     expect(r.isActive("flaky.kit")).toBe(false);
-    expect(r.summaries().find((e) => e.id === "flaky.kit")?.error).toContain("deactivated after 3 consecutive failures");
+    expect(r.summaries().find((e) => e.id === "flaky.kit")?.error).toBe("failed three times in a row — failure");
+    expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([
+      { type: "extension-deactivated", extensionId: "flaky.kit", name: "Flaky Kit", reason: "failed three times in a row — failure" },
+    ]);
+  });
+
+  it("announces a failure the extension reports itself, once, and keeps an activation failure quiet", async () => {
+    const { registry: r, events } = registry();
+    let reportFailure: ((reason: string) => void) | undefined;
+    await r.activate({
+      id: "worker.kit",
+      name: "Worker Kit",
+      activate: (ctx) => { reportFailure = ctx.fail; },
+    });
+
+    reportFailure?.("worker exited with code 1");
+    reportFailure?.("worker exited with code 1");
+    await Promise.resolve();
+
+    expect(r.isActive("worker.kit")).toBe(false);
+    expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([
+      { type: "extension-deactivated", extensionId: "worker.kit", name: "Worker Kit", reason: "worker exited with code 1" },
+    ]);
+
+    // A package that fails while activating never ran, so nothing is announced.
+    events.length = 0;
+    await r.activate({ id: "broken.kit", name: "Broken Kit", activate: (ctx) => { ctx.fail("heap out of memory"); } });
+    expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([]);
+    expect(r.summaries().find((entry) => entry.id === "broken.kit")?.error).toBe("heap out of memory");
   });
 });

@@ -32,6 +32,23 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
 }
 
 describe("runtime desktop extensions", () => {
+  it("re-reads the same workspace on resync, and does nothing before the first sync", async () => {
+    const registry = new ExtensionRegistry();
+    const activate = vi.fn();
+    const { host: h } = host([{ path: "/x/hello.tsx", module: { default: { id: "x.hello", name: "Hello", activate } } }]);
+    const load = vi.fn(h.load);
+    const runtime = new RuntimeExtensions(registry, { ...h, load });
+
+    await runtime.resync();
+    expect(load).not.toHaveBeenCalled();
+
+    await runtime.sync("/project");
+    await runtime.resync();
+
+    expect(load.mock.calls.map((call) => call[0])).toEqual(["/project", "/project"]);
+    expect(activate).toHaveBeenCalledTimes(2);
+  });
+
   it("activates a loaded module and replaces it on the next sync", async () => {
     const registry = new ExtensionRegistry();
     const activate = vi.fn((plugin: { registerCommand(command: { id: string; label: string; group: string; run(): void }): void }) => {

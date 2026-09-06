@@ -55,8 +55,7 @@ import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
-import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult } from "./extension-packages.js";
-import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
+import { ExtensionPackageActivator } from "./extension-package-activation.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import {
@@ -168,12 +167,8 @@ export class PiHost {
   private readonly seam: HostExtensionSeam;
   private readonly hostExtensions: HostExtensionRegistry;
   private readonly pendingHostExtensions: readonly HostExtension[];
-  private readonly hostExtensionPackages?: (cwd: string) => Promise<HostPackageLoadResult>;
-  private packagedHostExtensionIds = new Set<string>();
-  private packagedHostExtensionEntries = new Map<string, { extension: HostExtension; package: ExtensionPackage }>();
-  /** Packages found on disk but never imported, because the user has not approved them. */
-  private packagedUngranted = new Map<string, ExtensionPackage>();
-  private readonly grantsFilePath?: string;
+  /** The host halves of installed packages; absent in safe mode, where no package loads. */
+  private readonly packages?: ExtensionPackageActivator;
   /** Mints and resolves the ids clients name workspaces by. */
   private readonly workspaces: WorkspaceIdentity;
   private readonly platform: HostPlatform;
@@ -312,14 +307,23 @@ export class PiHost {
     this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? "pi";
     this.runtimeCommands = options.runtimeCommands ?? [];
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
-    this.hostExtensionPackages = this.safeMode ? undefined : options.hostExtensionPackages;
-    this.grantsFilePath = options.grantsFilePath;
     this.workspaces = options.workspaceIdentity ?? new WorkspaceIdentity(randomBytes(16).toString("hex"));
     this.platform = options.platform ?? {};
     this.logger = options.logger;
     const port = this.hostPort();
     this.seam = createHostExtensionSeam(port);
     this.hostExtensions = new HostExtensionRegistry(this.seam.services, (event) => this.emit(event));
+    const loadPackages = this.safeMode ? undefined : options.hostExtensionPackages;
+    this.packages = loadPackages && new ExtensionPackageActivator({
+      registry: this.hostExtensions,
+      load: loadPackages,
+      cwd: () => this.cwd,
+      agentDir: this.agentDir,
+      bundled: (id) => this.pendingHostExtensions.some((extension) => extension.id === id),
+      log: (label, detail) => this.log(label, detail),
+      publish: (event) => this.emit(event),
+      ...(options.grantsFilePath ? { grantsFilePath: options.grantsFilePath } : {}),
+    });
     this.attached = new AttachedThreadBackend(createAttachedSessionHost(port));
     this.attachedThread = new ThreadRuntime(this.attached);
     this.projection = new ThreadProjection(
@@ -387,6 +391,7 @@ export class PiHost {
       attachedRuntime: (sessionId) => this.ownedByPi(this.threadFor(sessionId)) ? this.attached.hostRuntime : undefined,
       describeProjects: (facts) => this.projectFacts.add(facts),
       noteSubprocess: () => this.lifecycleMetrics.countSubprocess(),
+      refreshExtensionPackages: () => this.packages?.refresh() ?? Promise.resolve(),
       prepareThread: (session, manager, options) => this.prepareThread(session, manager, options),
       exclusive: (work) => this.lifecycle.run("extension.exclusive", work),
       refreshThreadIndex: () => this.refreshThreadIndex("none").catch(() => this.threadIndexSnapshot()),
@@ -498,50 +503,7 @@ export class PiHost {
 
   private async activateHostExtensions(): Promise<void> {
     for (const extension of this.pendingHostExtensions) await this.hostExtensions.activate(extension);
-    await this.syncHostExtensionPackages();
-  }
-
-  /** Replaces the host halves of extension packages with what the workspace's folders hold now. */
-  private async syncHostExtensionPackages(): Promise<void> {
-    if (!this.hostExtensionPackages) return;
-    let loaded: HostPackageLoadResult;
-    try {
-      loaded = await this.hostExtensionPackages(this.cwd);
-    } catch (error) {
-      this.log("host-extension.packages.failed", this.errorMessage(error));
-      return;
-    }
-    for (const failure of loaded.errors) this.log("host-extension.package.failed", `${failure.path}: ${failure.message}`);
-    for (const skip of loaded.skipped) this.log("host-extension.package.skipped", `${skip.directory}: ${skip.reason}`);
-    this.packagedUngranted = new Map(loaded.ungranted.map((pkg) => [pkg.manifest.id, pkg]));
-    for (const pkg of loaded.ungranted) {
-      this.log("host-extension.package.ungranted", `${pkg.manifest.name} · ${pkg.scope} · awaiting approval`);
-    }
-    const next = new Set(loaded.extensions.map((entry) => entry.extension.id));
-    for (const id of this.packagedHostExtensionIds) {
-      if (!next.has(id)) {
-        this.packagedHostExtensionEntries.delete(id);
-        await this.hostExtensions.remove(id).catch((error) => this.log("host-extension.remove.failed", `${id}: ${this.errorMessage(error)}`));
-      }
-    }
-    const grantsFile = await readExtensionGrants(this.grantsFilePath).catch(() => ({ grants: [] }));
-    for (const entry of loaded.extensions) {
-      const { extension, package: pkg } = entry;
-      this.packagedHostExtensionEntries.set(extension.id, entry);
-      if (this.pendingHostExtensions.some((bundled) => bundled.id === extension.id)) {
-        this.log("host-extension.package.failed", `${pkg.directory}: id ${extension.id} belongs to a bundled kit`);
-        continue;
-      }
-      this.hostExtensions.addKnown(extension);
-      const granted = isPackageGranted(pkg.manifest, grantsFile.grants);
-      if (!granted) {
-        this.log("host-extension.package.ungranted", `${extension.name} · awaiting permission grant`);
-        continue;
-      }
-      await this.hostExtensions.activate(extension);
-      this.log("host-extension.package.loaded", `${extension.name} · ${pkg.scope} · ${pkg.directory}`);
-    }
-    this.packagedHostExtensionIds = next;
+    await this.packages?.start();
   }
 
   /** Turns a known host extension off or on again; the desktop toggle calls this for a package's host half. */
@@ -552,28 +514,9 @@ export class PiHost {
     return this.listHostExtensions();
   }
 
-  /**
-   * Records the user's answer for a package and applies it. Approving one that
-   * was never imported re-runs the package sync, which is where the import happens.
-   */
+  /** Records the user's answer for a package and starts or stops both of its halves. */
   async grantExtension(id: string, grant: boolean): Promise<void> {
-    const manifest = this.packagedHostExtensionEntries.get(id)?.package.manifest
-      ?? this.packagedUngranted.get(id)?.manifest
-      ?? (await listExtensionPackages(this.cwd, this.agentDir)).packages.find((pkg) => pkg.manifest.id === id)?.manifest;
-    if (!manifest) return;
-    await grantPackage(manifest, grant, this.grantsFilePath);
-    this.log(grant ? "host-extension.granted" : "host-extension.revoked", id);
-    if (!grant) {
-      await this.hostExtensions.deactivate(id);
-      return;
-    }
-    const entry = this.packagedHostExtensionEntries.get(id);
-    if (entry) {
-      await this.hostExtensions.activate(entry.extension);
-      this.log("host-extension.enabled", id);
-      return;
-    }
-    await this.syncHostExtensionPackages();
+    await this.packages?.grant(id, grant);
   }
 
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown> {
@@ -587,13 +530,8 @@ export class PiHost {
 
   listHostExtensions(): HostExtensionSummary[] {
     const summaries = this.hostExtensions.summaries();
-    const known = new Set(summaries.map((summary) => summary.id));
     // A package awaiting approval has no code loaded, but the user still has to see it.
-    for (const pkg of this.packagedUngranted.values()) {
-      if (!known.has(pkg.manifest.id)) {
-        summaries.push({ id: pkg.manifest.id, name: pkg.manifest.name, active: false, commands: [], isolation: packageIsolation(pkg.manifest) });
-      }
-    }
+    summaries.push(...this.packages?.waitingSummaries(new Set(summaries.map((summary) => summary.id))) ?? []);
     return summaries;
   }
 
@@ -1921,7 +1859,7 @@ export class PiHost {
         }
       }
       this.extensionCount = thread.state.extensionCount;
-      await this.syncHostExtensionPackages();
+      await this.packages?.refresh();
       this.log("runtime.reloaded");
       const snapshot = await this.snapshot();
       for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);

@@ -36,6 +36,7 @@ async function client(cwd: string) {
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    refreshExtensionPackages: async () => undefined,
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no sessions in this test"); },

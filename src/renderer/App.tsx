@@ -436,6 +436,9 @@ export default function App() {
     if (!workspaceCwd || !client) return;
     void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
   }, [client, runtimeExtensions, workspaceCwd]);
+  const syncDesktopExtensions = useCallback(() => {
+    void runtimeExtensions.resync().catch((error) => setNotice(errorMessage(error)));
+  }, [runtimeExtensions, setNotice]);
 
   const hostEventTargets = useMemo<HostEventTargets>(() => ({
     client,
@@ -449,7 +452,8 @@ export default function App() {
     setTranscriptTurnStart,
     applyHostUpdate,
     applyThreadIndex,
-  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, preferences, registry, setTranscriptTurnStart, submission, threadStore, viewStore]);
+    syncDesktopExtensions,
+  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, preferences, registry, setTranscriptTurnStart, submission, syncDesktopExtensions, threadStore, viewStore]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
   useEffect(() => {

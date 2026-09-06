@@ -91,6 +91,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
+    refreshExtensionPackages: async () => undefined,
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no such session"); },

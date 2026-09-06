@@ -30,6 +30,8 @@ export interface HostEventTargets {
   setTranscriptTurnStart(value: TranscriptTurnStart | undefined, expectedTurnId?: string): void;
   applyHostUpdate(update: HostUpdate): void;
   applyThreadIndex(index: ThreadIndexSnapshot): void;
+  /** Re-reads the desktop halves the host serves, after its package set moved. */
+  syncDesktopExtensions(): void;
 }
 
 type WorkbenchEvent = Parameters<ExtensionRegistry["dispatchWorkbenchEvent"]>[0];
@@ -58,6 +60,17 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       return;
     case "extension-event":
       registry.dispatchExtensionEvent(event);
+      return;
+    case "extension-packages-changed":
+      // A package the user just approved, installed or updated: its desktop
+      // half is built and served now, so the slots appear without a reload.
+      targets.syncDesktopExtensions();
+      return;
+    case "extension-deactivated":
+      view.setNotice(
+        `Package ${event.name} deactivated: ${event.reason}. Re-enable it in Settings → Extensions.`,
+        "warning",
+      );
       return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;

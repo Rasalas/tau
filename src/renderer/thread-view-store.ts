@@ -286,6 +286,11 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
       // Follow-ups wait in the workbench queue; this only mirrors the runtime's
       // own steering queue into the event log.
       return withEvent(state, "queue.changed", `${event.steering.length} steering · ${event.followUp.length} follow-up`);
+    // The extension registries live outside this view; `applyHostEvent` routes
+    // these two before the thread reducer ever sees them.
+    case "extension-packages-changed":
+    case "extension-deactivated":
+      return state;
     default: {
       const exhaustive: never = event;
       return exhaustive;

@@ -104,6 +104,7 @@ const services: WorkerHostServices = {
   setThreadTitle: async (sessionId, title, source) => { await rpc("setThreadTitle", sessionId, title, source); },
   noteSubprocess: async () => { await rpc("noteSubprocess"); },
   findCommand: (name) => rpc("findCommand", name) as Promise<string | undefined>,
+  refreshExtensionPackages: async () => { await rpc("refreshExtensionPackages"); },
   describeProjects: (facts) => registerHooks("describeProjects", facts as Record<string, unknown>, FACT_HOOKS),
   sessions: {
     list: () => rpc("sessions.list") as ReturnType<WorkerHostServices["sessions"]["list"]>,
