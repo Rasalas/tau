@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-02. Amended the same day: `version` and `engines` (see below).
+Accepted, 2026-09-02. Amended the same day: `version` and `engines` (see below). Amended 2026-09-06: `EXTENSION_API_VERSION` raised to 1.1.0 (see "Version history" below).
 
 ## Context
 
@@ -21,6 +21,13 @@ A package is a folder under `~/.tau/extensions` or `<project>/.tau/extensions` w
 `id` is lowercase and dot-separated and is the id both halves export; `desktop` and `host` are relative entry paths inside the folder, either may be missing. The host compiles each entry with esbuild at load time, so a package may import its dependencies from its own `node_modules` and never needs a build step. Project packages load only where Pi trusts the project. The Settings toggle of a package turns both halves off and on.
 
 Amendment: the manifest may carry `version` (the package's own semver) and `engines`, ranges of `tau`, `pi` and `api` the package runs on. `api` is the version of the contribution interfaces (`EXTENSION_API_VERSION` in `src/shared/extension-compat.ts`); its major moves when `HostExtensionServices`, `DesktopExtension` or the `tau` hooks break, its minor when they grow. The check runs in the host's scan (`listExtensionPackages`) and in the desktop loader with the same versions, so an incompatible package is off on both sides and listed with the reason. A range Tau cannot read is a manifest error, not a silent miss. The range grammar is a deliberately small subset of npm's (`*`, exact, `^`, `~`, comparators, `||`); Tau depends on no semver library for it.
+
+### Version history
+
+| API version | Date | Additions |
+| --- | --- | --- |
+| 1.0.0 | 2026-09-02 | First cut of `HostExtensionServices`, `DesktopExtension` and the `tau` hooks. |
+| 1.1.0 | 2026-09-06 | `workspaceRef` on `HostExtensionServices`; `context.fail` for a worker-isolated host extension; the worker-thread facade and `isolation: "worker" \| "in-process"` in the manifest (ADR 0009); the `tau.packages` installer commands (ADR 0011); the Workspace Kit `clone` command takes `{ repositoryUrl, parentPath? }`. All additive, so a package that names `engines.api` as `^1.0.0` keeps loading: same major, and the host's minor is at least the one the package asks for. A package that pins an exact `api` (no `^`) keeps that opt-out, the same as npm's own `engines` grammar. |
 
 ## Consequences
 

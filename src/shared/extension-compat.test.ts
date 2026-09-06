@@ -47,4 +47,22 @@ describe("extension compatibility", () => {
     expect(describeIncompatibility({ pi: "^0.90.0" }, versions)).toBe("needs Pi ^0.90.0, this Tau has 0.84.4");
     expect(describeIncompatibility({ tau: ">=1.0.0" }, versions)).toBe("needs Tau >=1.0.0, this Tau has 0.0.0");
   });
+
+  it("keeps a package written against an older minor loading, per ADR 0008's additive rule", () => {
+    // EXTENSION_API_VERSION is 1.1.0: same major as 1.0.0, minor grew. A package
+    // that asks for "^1.0.0" (the README's own convention) still loads; one
+    // that needs a minor Tau has not shipped yet, or a different major, does not.
+    const versions = { tau: "0.0.0", pi: "0.84.4", api: EXTENSION_API_VERSION };
+    expect(describeIncompatibility({ api: "^1.0.0" }, versions)).toBeUndefined();
+    expect(describeIncompatibility({ api: "1.1.0" }, versions)).toBeUndefined();
+    expect(describeIncompatibility({ api: "1.2.0" }, versions)).toBe(
+      `needs the extension API 1.2.0, this Tau has ${EXTENSION_API_VERSION}`,
+    );
+    expect(describeIncompatibility({ api: "2.0.0" }, versions)).toBe(
+      `needs the extension API 2.0.0, this Tau has ${EXTENSION_API_VERSION}`,
+    );
+    // No engines field at all, or no "api" inside it, is still unconstrained.
+    expect(describeIncompatibility(undefined, versions)).toBeUndefined();
+    expect(describeIncompatibility({ pi: ">=0.80" }, versions)).toBeUndefined();
+  });
 });
