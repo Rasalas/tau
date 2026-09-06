@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
 import { errorMessage } from "../error-message";
 import type { PanelProps } from "../extension-system";
+import { reserveRegion } from "../reserved-region";
+import { overlayWatch } from "./overlay-watch";
 import { isPreviewState, previewKit, previewStore, usePreviewState } from "./preview-store";
 
 /**
@@ -15,15 +17,23 @@ export function PreviewPanel({ active, extensionName }: PanelProps) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const editing = useRef(false);
+  const covered = useRef(false);
+  // React detaches the ref before an unmount effect runs, so the last measured
+  // rectangle is what the closing `visible: false` report has to carry.
+  const box = useRef({ x: 0, y: 0, width: 0, height: 0 });
 
   const report = useCallback((visible: boolean) => {
     const element = surface.current;
-    if (!element) return;
-    const rect = element.getBoundingClientRect();
-    const drawable = visible && rect.width > 0 && rect.height > 0;
-    void previewKit
-      .bounds({ x: rect.x, y: rect.y, width: rect.width, height: rect.height, visible: drawable })
-      .catch(() => undefined);
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      box.current = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }
+    const rect = box.current;
+    const drawable = visible && !covered.current && rect.width > 0 && rect.height > 0;
+    reserveRegion(drawable
+      ? { left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height }
+      : undefined);
+    void previewKit.bounds({ ...rect, visible: drawable }).catch(() => undefined);
   }, []);
 
   // A reloaded renderer missed the pushes; ask the host what it shows.
@@ -38,17 +48,26 @@ export function PreviewPanel({ active, extensionName }: PanelProps) {
       report(false);
       return undefined;
     }
-    report(true);
     const follow = () => report(true);
     const observer = new ResizeObserver(follow);
     observer.observe(surface.current);
     window.addEventListener("resize", follow);
     // The dock can move under the panel without resizing it.
     window.addEventListener("scroll", follow, true);
+    // A modal, the palette or the settings sheet cannot be drawn over the view,
+    // so the view leaves the window while one is up. Subscribing reports the
+    // current answer at once, which is also this effect's first bounds report:
+    // a panel that mounts under an open modal starts hidden, and one that is
+    // resized under it stays hidden.
+    const stopWatching = overlayWatch.subscribe((blocked) => {
+      covered.current = blocked;
+      follow();
+    });
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", follow);
       window.removeEventListener("scroll", follow, true);
+      stopWatching();
       report(false);
     };
   }, [active, report]);

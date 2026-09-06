@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { UiImagePreview, UiMessageImage } from "../../shared/contracts";
 import type { HostClient } from "../host-client";
 import { useHostClient } from "../host-client-context";
+import { keepClearShift, reservedRegion } from "../reserved-region";
 import { AttachmentImageDialog, type AttachmentImage } from "./AttachmentImageDialog";
 import { localImagePaths } from "./MessageText";
 
@@ -95,10 +96,15 @@ function ImageContextMenu({
     const menu = menuRef.current;
     if (!menu) return;
     const margin = 8;
-    setPosition({
-      x: Math.max(margin, Math.min(x, window.innerWidth - menu.offsetWidth - margin)),
-      y: Math.max(margin, Math.min(y, window.innerHeight - menu.offsetHeight - margin)),
-    });
+    const left = Math.max(margin, Math.min(x, window.innerWidth - menu.offsetWidth - margin));
+    const top = Math.max(margin, Math.min(y, window.innerHeight - menu.offsetHeight - margin));
+    // Staying inside the window is not enough: the host may own a rectangle of
+    // it, and a menu drawn into that rectangle is simply not there.
+    const shift = keepClearShift(
+      { left, top, right: left + menu.offsetWidth, bottom: top + menu.offsetHeight },
+      reservedRegion(),
+    );
+    setPosition({ x: left - shift, y: top });
   }, [x, y]);
 
   useLayoutEffect(() => {

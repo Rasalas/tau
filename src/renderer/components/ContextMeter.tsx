@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useKeepClear } from "../reserved-region";
 import type { UiContextUsage } from "../../shared/contracts";
 
 export interface ContextBreakdown {
@@ -32,6 +33,9 @@ export function ContextMeter({
   onCompact(): void;
 }) {
   const [open, setOpen] = useState(false);
+  const popover = useRef<HTMLDivElement>(null);
+  // It hangs past the composer's right edge, which is where the dock begins.
+  useKeepClear(popover, open);
   const percent = Math.min(100, Math.max(0, usage.percent));
   const free = Math.max(0, usage.contextWindow - usage.tokens);
 
@@ -51,7 +55,7 @@ export function ContextMeter({
         <i />
       </button>
       {open ? (
-        <div className="context-popover">
+        <div className="context-popover" ref={popover}>
           <header>
             <strong>Context</strong>
             <span>{compact(usage.tokens)} / {compact(usage.contextWindow)}</span>

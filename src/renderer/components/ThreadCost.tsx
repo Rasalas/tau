@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useKeepClear } from "../reserved-region";
 import type { UiThreadUsage } from "../../shared/contracts";
 import { threadCostLabel, threadUsageDetail } from "../cost-format";
 
@@ -8,6 +9,9 @@ import { threadCostLabel, threadUsageDetail } from "../cost-format";
  */
 export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
   const [open, setOpen] = useState(false);
+  const popover = useRef<HTMLDivElement>(null);
+  // It hangs past the composer's right edge, which is where the dock begins.
+  useKeepClear(popover, open);
   const label = threadCostLabel(usage);
   if (!label) return null;
   const detail = threadUsageDetail(usage);
@@ -27,7 +31,7 @@ export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
         {label}
       </button>
       {open ? (
-        <div className="thread-cost-popover">
+        <div className="thread-cost-popover" ref={popover}>
           <header>
             <strong>Spent</strong>
             <b>{label}</b>

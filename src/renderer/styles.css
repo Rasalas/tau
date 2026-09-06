@@ -205,6 +205,8 @@ button > svg { pointer-events: none; }
 
 .menu-anchor { position: relative; display: flex; }
 .menu-scrim { position: fixed; inset: 0; z-index: 60; border: 0; background: transparent; cursor: default; }
+/* Slid aside by useKeepClear when the host owns a rectangle of the window. */
+.keeps-clear { translate: var(--keep-clear-x, 0px) 0; }
 .menu {
   position: absolute; z-index: 61; min-width: 200px;
   display: flex; flex-direction: column; padding: 6px;
@@ -2765,12 +2767,24 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 @keyframes reload-breathe { 50% { transform: scale(1.22); opacity: .55; } }
 @keyframes reload-field { 50% { transform: scale(1.08); opacity: .32; } }
 
+/*
+ * Centred on the workbench's centre column, not the window: the dock is where
+ * the host draws its native preview view, and a toast that reached it would
+ * simply be invisible. `--stage-*` is published by Workbench from that column.
+ */
 .toast {
-  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 90;
+  position: fixed; bottom: 22px; z-index: 90;
+  left: var(--stage-left, 0px); right: var(--stage-right, 0px);
+  margin-inline: auto; width: max-content;
+  max-width: calc(100vw - var(--stage-left, 0px) - var(--stage-right, 0px) - 24px);
   display: flex; align-items: center; gap: 10px;
   border: 1px solid var(--line-float); border-radius: 9px;
   background: #1f1f1b; color: var(--ink-2); box-shadow: 0 16px 40px #000a;
-  padding: 10px 14px; cursor: pointer; animation: centered-modal-enter .16s ease;
+  padding: 10px 14px; cursor: pointer; animation: toast-enter .16s ease;
+}
+@keyframes toast-enter {
+  from { opacity: 0; transform: translateY(7px) scale(.985); }
+  to { opacity: 1; transform: none; }
 }
 .toast b { font: 500 10px var(--mono); color: var(--working); letter-spacing: .1em; }
 .toast[data-level="warning"] b { color: var(--warn, #b7791f); }
