@@ -4,19 +4,6 @@
  */
 export const THREAD_TITLES_HOST_EXTENSION_ID = "tau.thread-titles";
 
-export interface ThreadTitlesHostCommands {
-  /**
-   * Titles the thread with a model. Without `force` it stays silent when the
-   * thread already has a name or nothing to title yet; with `force` those are errors.
-   * `prompt` is the just-submitted user text, so an automatic title needs neither
-   * the transcript nor the run to have started.
-   */
-  "generate": {
-    input: { provider: string; modelId: string; force?: boolean; sessionId?: string; prompt?: string };
-    output: { title: string } | undefined;
-  };
-}
-
 /**
  * How the kit asks a model for a title, wherever it runs: the host half sends
  * it through `HostThread.complete`, the Pi half through Pi's own model

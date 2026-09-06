@@ -1,6 +1,6 @@
 // esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
 import "./packaged-app.js";
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { build } from "esbuild";
@@ -272,13 +272,4 @@ export async function loadDesktopExtensions(
 export function desktopExtensionLabel(path: string): string {
   const name = basename(path);
   return /^index\./u.test(name) ? basename(dirname(path)) : name.replace(/\.[^.]+$/u, "");
-}
-
-/** Reads a source file back for diagnostics; never throws. */
-export async function readExtensionSource(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(await realpath(path), "utf8");
-  } catch {
-    return undefined;
-  }
 }

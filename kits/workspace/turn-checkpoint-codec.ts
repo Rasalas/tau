@@ -117,13 +117,6 @@ export function cloneStoredTurnCheckpoint(checkpoint: StoredTurnCheckpoint): Sto
   };
 }
 
-/** Compatibility projection for callers that only need the UI-safe summary. */
-export function summariesFromStoredTurnCheckpoints(
-  checkpoints: readonly StoredTurnCheckpoint[],
-): UiTurnCheckpoint[] {
-  return checkpoints.map(cloneTurnCheckpoint);
-}
-
 /** Re-home an inherited checkpoint while preserving its turn and assistant anchor. */
 export function rehomeStoredTurnCheckpoint(
   checkpoint: StoredTurnCheckpoint,

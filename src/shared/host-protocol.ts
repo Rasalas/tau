@@ -110,15 +110,6 @@ export interface NewThreadResult extends HostActionResult {
   sessionId?: string;
 }
 
-/** Bootstrap is shell-first; no legacy full snapshot crosses IPC. */
-export interface GranularHostBootstrap {
-  version: HostProtocolVersion;
-  detail: ThreadDetail;
-  catalog: HostCatalog;
-  project: ProjectMetadata;
-  index?: ThreadIndexUpdate;
-}
-
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }

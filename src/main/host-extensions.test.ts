@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
-import { HostCommandError, HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
+import { HostCommandError } from "./host-extension-errors.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
 
 function services(): HostExtensionServices & { logs: string[] } {
   const logs: string[] = [];
