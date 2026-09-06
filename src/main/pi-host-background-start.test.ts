@@ -84,7 +84,7 @@ function hostWithHeldStarts() {
   let peakOpening = 0;
   const releases: Array<() => void> = [];
   let opened = 0;
-  internals.openThread = async () => {
+  internals.runtimes.open = async () => {
     opening += 1;
     peakOpening = Math.max(peakOpening, opening);
     await new Promise<void>((resolve) => { releases.push(resolve); });

@@ -500,7 +500,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takeSpareThread = async () => undefined;
-    internals.openThread = async () => staleThread;
+    internals.runtimes.open = async () => staleThread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
@@ -542,7 +542,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takeSpareThread = async () => undefined;
-    internals.openThread = async () => staleThread;
+    internals.runtimes.open = async () => staleThread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
@@ -572,7 +572,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takePreparedThread = async () => undefined;
-    internals.openThread = async () => thread;
+    internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
@@ -609,7 +609,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takePreparedThread = async () => undefined;
-    internals.openThread = async () => thread;
+    internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     let releaseCatalog!: () => void;
@@ -654,7 +654,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takePreparedThread = async () => undefined;
-    internals.openThread = async () => thread;
+    internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.snapshotSync = () => ({
@@ -704,7 +704,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takePreparedThread = async () => undefined;
-    internals.openThread = async () => newThread;
+    internals.runtimes.open = async () => newThread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
@@ -726,7 +726,7 @@ describe("PiHost.generateThreadTitle", () => {
     }];
     internals.attachAvailableBridge = async () => false;
     internals.recoverPendingRestoreTransactions = async () => {};
-    internals.openThreadForPath = async () => coldThread;
+    internals.runtimes.openForPath = async () => coldThread;
     internals.activateThread = async () => true;
 
     const switching = host.switchSession("/cold.jsonl");
@@ -749,7 +749,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takePreparedThread = async () => undefined;
-    internals.openThread = async () => thread;
+    internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
@@ -778,7 +778,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takePreparedThread = async () => undefined;
-    internals.openThread = async () => thread;
+    internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
@@ -812,7 +812,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.index.refreshShell = async () => {};
     internals.detachBridge = () => {};
     internals.takePreparedThread = async () => undefined;
-    internals.openThread = async () => thread;
+    internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.scheduleSpareThread = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
