@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   errorMessage,
   hostAvailable,
@@ -40,6 +40,10 @@ interface CheckpointState {
   persisted: readonly UiTurnCheckpoint[];
   /** Whether the host can restore one of them for this thread. */
   restoreSupported: boolean;
+  /** A negative answer that predates the thread's runtime; ask again. */
+  supportStale: boolean;
+  /** Bumped whenever the thread's own work may have changed what restores. */
+  verifyGeneration: number;
   /** Checkpoints announced live for the thread on screen, keyed by id. */
   live: Map<string, UiTurnCheckpoint>;
   restorable: ReadonlySet<string>;
@@ -52,7 +56,7 @@ interface CheckpointState {
 
 /** The kit's own checkpoint state; App knows none of it. */
 export class CheckpointStore {
-  private state: CheckpointState = { persisted: [], restoreSupported: false, live: new Map(), restorable: new Set(), restoreBusy: false };
+  private state: CheckpointState = { persisted: [], restoreSupported: false, supportStale: false, verifyGeneration: 0, live: new Map(), restorable: new Set(), restoreBusy: false };
   private listeners = new Set<() => void>();
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -61,10 +65,22 @@ export class CheckpointStore {
     this.listeners.forEach((listener) => listener());
   }
   resetThread(): void {
-    this.update({ sessionId: undefined, persisted: [], restoreSupported: false, live: new Map(), restorable: new Set(), restore: undefined, review: undefined });
+    this.update({ sessionId: undefined, persisted: [], restoreSupported: false, supportStale: false, live: new Map(), restorable: new Set(), restore: undefined, review: undefined });
   }
   loaded(sessionId: string, list: WorkspaceCheckpointList): void {
-    this.update({ sessionId, persisted: list.checkpoints, restoreSupported: list.restoreSupported });
+    this.update({ sessionId, persisted: list.checkpoints, restoreSupported: list.restoreSupported, supportStale: false });
+  }
+  /**
+   * Both host answers behind a restore control are about a moment: support is
+   * read off the thread's live runtime, which a cold start lists before it
+   * binds, and a checkpoint is unrestorable while its own capture is pending.
+   * Every no is therefore provisional, and this asks for both again.
+   */
+  revalidate(): void {
+    this.update({
+      verifyGeneration: this.state.verifyGeneration + 1,
+      ...(this.state.sessionId && !this.state.restoreSupported ? { supportStale: true } : {}),
+    });
   }
   announce(checkpoint: UiTurnCheckpoint): void {
     const live = new Map(this.state.live);
@@ -90,21 +106,33 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const sessionId = workbenchSnapshot?.sessionId;
     const streaming = Boolean(workbenchSnapshot?.isStreaming);
-    const loaded = state.sessionId === sessionId;
-    const restoreSupported = loaded && state.restoreSupported;
-    const checkpoints = useMemo(() => mergeCheckpoints(loaded ? state.persisted : undefined, state.live), [loaded, state.persisted, state.live]);
+    const listed = state.sessionId === sessionId;
+    const restoreSupported = listed && state.restoreSupported;
+    const checkpoints = useMemo(() => mergeCheckpoints(listed ? state.persisted : undefined, state.live), [listed, state.persisted, state.live]);
 
     // The host lists the thread's checkpoints once per thread; live events add
     // to them. A thread reset (the active-thread event) empties the list, so it
-    // is loaded again whenever the store has nothing for the thread on screen.
+    // is loaded again whenever the store has nothing for the thread on screen,
+    // and once more when a run proved the runtime the first answer lacked.
     useEffect(() => {
-      if (!sessionId || !hostAvailable() || loaded) return;
+      if (!sessionId || !hostAvailable() || (listed && !state.supportStale)) return;
       let cancelled = false;
       workspaceStore.host.checkpoints(sessionId)
         .then((list) => { if (!cancelled) store.loaded(sessionId, list); })
         .catch((error) => { if (!cancelled) actions.notify(errorMessage(error)); });
       return () => { cancelled = true; };
-    }, [actions, loaded, sessionId]);
+    }, [actions, listed, state.supportStale, sessionId]);
+
+    // A turn that just ended is proof the thread has a runtime, whether or not
+    // it recorded a checkpoint. Nothing else tells the renderer that the host
+    // would now answer differently.
+    const ran = useRef(false);
+    useEffect(() => {
+      if (streaming) { ran.current = true; return; }
+      if (!ran.current) return;
+      ran.current = false;
+      store.revalidate();
+    }, [streaming]);
 
     useEffect(() => {
       if (!state.notice) return;
@@ -112,9 +140,12 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
       store.update({ notice: undefined });
     }, [actions, state.notice]);
 
-    // Verify restorability once per thread and checkpoint set; the host checks refs and workspace.
+    // Verify restorability per thread, checkpoint set and revalidation; the host
+    // checks refs and workspace, and refuses while the thread or a capture of it
+    // is still working. The checkpoint of a turn is announced from inside that
+    // capture, so the first answer for a fresh card is always no.
     useEffect(() => {
-      if (!sessionId || !restoreSupported || !hostAvailable()) { store.update({ restorable: new Set() }); return; }
+      if (!sessionId || !restoreSupported || streaming || !hostAvailable()) { store.update({ restorable: new Set() }); return; }
       let cancelled = false;
       void Promise.all(checkpoints.map(async (checkpoint) => {
         if (checkpoint.completeness === "partial") return undefined;
@@ -124,7 +155,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
         if (!cancelled) store.update({ restorable: new Set(ids.filter((id): id is string => Boolean(id))) });
       });
       return () => { cancelled = true; };
-    }, [sessionId, restoreSupported, checkpoints]);
+    }, [sessionId, restoreSupported, checkpoints, streaming, state.verifyGeneration]);
 
     const requestRestore = useCallback(async (checkpoint: UiTurnCheckpoint) => {
       if (checkpoint.completeness === "partial") { actions.notify("This checkpoint is incomplete and cannot be restored safely. Use Fork instead."); return; }
@@ -245,10 +276,18 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
   plugin.events.on("active-thread-changed", () => store.resetThread());
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
-    if (event?.type === "turn-checkpoint") { store.announce(event.checkpoint); workspaceStore.checkpointRecorded(event.sessionId); }
+    // Only the card is drawn from the announcement: the capture that emits it
+    // still holds the turn, so nothing about restoring it is answerable yet.
+    if (event?.type === "turn-checkpoint") {
+      store.announce(event.checkpoint);
+      workspaceStore.checkpointRecorded(event.sessionId);
+    }
     // The capture briefly waits for the workspace lease before Pi starts; say so in place of the spinner.
     else if (event?.type === "turn-checkpoint-status") {
       plugin.setLiveStatus(event.sessionId, event.status === "queued" || event.status === "waiting" ? "Waiting for workspace…" : undefined);
+      // The capture is over: the thread has a runtime and holds nothing, which
+      // is exactly what the two host answers behind a restore control need.
+      if (event.status === "released") store.revalidate();
       if (event.status === "skipped") store.update({ notice: "Turn changes were not recorded: another turn is active in this workspace." });
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });

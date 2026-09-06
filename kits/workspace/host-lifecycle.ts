@@ -135,7 +135,12 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
           if (status === "skipped") services.log("turn.checkpoint.skipped", `${capture.id}: workspace busy`);
           emit({ type: "turn-checkpoint-status", sessionId, turnId: capture.id, status });
         },
-        onReleased: (capture) => { record.deferred.delete(capture.id); },
+        onReleased: (capture) => {
+          record.deferred.delete(capture.id);
+          // The capture counts as pending work until here, and pending work is
+          // what makes `canRestore` say no. Tell the cards it is over.
+          emit({ type: "turn-checkpoint-status", sessionId, turnId: capture.id, status: "released" });
+        },
       }),
     };
     features.set(sessionId, record);

@@ -571,6 +571,197 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getByText("Historical turn")).toBeTruthy();
   });
 
+  it("offers restore once the thread that cold-started has run a turn", async () => {
+    const checkpoint = {
+      id: "turn-1",
+      turnId: "turn-1",
+      sessionId: "session",
+      anchorMessageId: "answer-entry",
+      beforeSnapshotId: "refs/tau/checkpoints/session/turn-1/before",
+      afterSnapshotId: "refs/tau/checkpoints/session/turn-1/after",
+      startedAt: 1,
+      endedAt: 3,
+      files: [{ path: "note.txt", name: "note.txt", directory: "", status: "added" as const, added: 1, removed: 0 }],
+      fileCount: 1,
+      added: 1,
+      removed: 0,
+      branch: "main",
+    };
+    // A cold start lists the thread before its runtime binds, so the host has
+    // nothing to restore from yet and says so.
+    const checkpoints = vi.fn(async () => ({
+      restoreSupported: checkpoints.mock.calls.length > 1,
+      checkpoints: [checkpoint],
+    }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "prompt", role: "user" as const, text: "Write note.txt", timestamp: 1 },
+            { id: "answer", sourceEntryId: "answer-entry", role: "assistant" as const, text: "Done", timestamp: 2 },
+          ],
+          isStreaming: false,
+          activeTools: [],
+        },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project", branch: "main" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        checkpoints,
+        canRestoreCheckpoint: async () => true,
+      }),
+    });
+
+    renderApp(client, { extensions: [workspaceExtension] });
+    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
+    expect(screen.queryByText("Restore")).toBeNull();
+
+    act(() => {
+      client.emit({
+        type: "extension-event",
+        extensionId: "tau.workspace",
+        name: "checkpoint",
+        payload: { type: "turn-checkpoint", sessionId: "session", checkpoint },
+      });
+      client.emit({
+        type: "extension-event",
+        extensionId: "tau.workspace",
+        name: "checkpoint",
+        payload: { type: "turn-checkpoint-status", sessionId: "session", turnId: "turn-1", status: "released" },
+      });
+    });
+
+    expect(await screen.findByText("Restore")).toBeTruthy();
+    expect(checkpoints).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-asks for restore support when a turn without a checkpoint settles", async () => {
+    const checkpoint = {
+      id: "turn-1",
+      turnId: "turn-1",
+      sessionId: "session",
+      anchorMessageId: "answer-entry",
+      beforeSnapshotId: "refs/tau/checkpoints/session/turn-1/before",
+      afterSnapshotId: "refs/tau/checkpoints/session/turn-1/after",
+      startedAt: 1,
+      endedAt: 3,
+      files: [{ path: "note.txt", name: "note.txt", directory: "", status: "added" as const, added: 1, removed: 0 }],
+      fileCount: 1,
+      added: 1,
+      removed: 0,
+      branch: "main",
+    };
+    const checkpoints = vi.fn(async () => ({
+      restoreSupported: checkpoints.mock.calls.length > 1,
+      checkpoints: [checkpoint],
+    }));
+    const messages = [
+      { id: "prompt", role: "user" as const, text: "Write note.txt", timestamp: 1 },
+      { id: "answer", sourceEntryId: "answer-entry", role: "assistant" as const, text: "Done", timestamp: 2 },
+    ];
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages, isStreaming: true, activeTools: [] },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project", branch: "main" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        checkpoints,
+        canRestoreCheckpoint: async () => true,
+      }),
+    });
+
+    renderApp(client, { extensions: [workspaceExtension] });
+    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
+    expect(screen.queryByText("Restore")).toBeNull();
+
+    act(() => client.emit({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "thread-detail",
+        detail: { sessionId: "session", messages, isStreaming: false, activeTools: [] },
+      },
+    }));
+
+    expect(await screen.findByText("Restore")).toBeTruthy();
+  });
+
+  it("verifies the checkpoint of the running turn again once that turn settles", async () => {
+    const checkpoint = {
+      id: "turn-1",
+      turnId: "turn-1",
+      sessionId: "session",
+      anchorMessageId: "answer-entry",
+      beforeSnapshotId: "refs/tau/checkpoints/session/turn-1/before",
+      afterSnapshotId: "refs/tau/checkpoints/session/turn-1/after",
+      startedAt: 1,
+      endedAt: 3,
+      files: [{ path: "note.txt", name: "note.txt", directory: "", status: "added" as const, added: 1, removed: 0 }],
+      fileCount: 1,
+      added: 1,
+      removed: 0,
+      branch: "main",
+    };
+    const messages = [
+      { id: "prompt", role: "user" as const, text: "Write note.txt", timestamp: 1 },
+      { id: "answer", sourceEntryId: "answer-entry", role: "assistant" as const, text: "Done", timestamp: 2 },
+    ];
+    // The host refuses to verify a checkpoint while its own thread still runs.
+    let running = true;
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages, isStreaming: true, activeTools: [] },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project", branch: "main" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        checkpoints: async () => ({ restoreSupported: true, checkpoints: [] }),
+        canRestoreCheckpoint: async () => !running,
+      }),
+    });
+
+    renderApp(client, { extensions: [workspaceExtension] });
+    // The kit subscribes to the event when it activates; wait for its own surface first.
+    await screen.findByRole("button", { name: "Files" });
+    act(() => client.emit({
+      type: "extension-event",
+      extensionId: "tau.workspace",
+      name: "checkpoint",
+      payload: { type: "turn-checkpoint", sessionId: "session", checkpoint },
+    }));
+    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
+    expect(screen.queryByText("Restore")).toBeNull();
+
+    act(() => client.emit({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "thread-detail",
+        detail: { sessionId: "session", messages, isStreaming: false, activeTools: [] },
+      },
+    }));
+    expect(screen.queryByText("Restore")).toBeNull();
+
+    // Its capture lets go only after that: the host says so on the same channel.
+    running = false;
+    act(() => client.emit({
+      type: "extension-event",
+      extensionId: "tau.workspace",
+      name: "checkpoint",
+      payload: { type: "turn-checkpoint-status", sessionId: "session", turnId: "turn-1", status: "released" },
+    }));
+
+    expect(await screen.findByText("Restore")).toBeTruthy();
+  });
+
   it("keeps a new thread anchored on its prompt while the first answer streams", async () => {
     const shell = {
       id: "created",
