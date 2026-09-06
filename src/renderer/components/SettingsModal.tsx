@@ -342,7 +342,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   return (
     <div className="settings-page inspector-page">
       <h3>Inspector</h3>
-      <p className="lede">Every extension both halves know, and the package folders on disk. Edit a package, then run /reload.</p>
+      <p className="lede">Every extension both halves know, and the package folders on disk. Edit a package's files, then run /update or /reload.</p>
 
       <div className="settings-label">VERSIONS</div>
       <div className="inspector-versions">
