@@ -13,7 +13,7 @@ import type {
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
-import type { ThreadRuntimeBackend } from "./runtime-types.js";
+import type { ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { isExpectedCommandError } from "./host-extension-errors.js";
@@ -48,6 +48,8 @@ export interface HostBackendOpenContext {
   permissionLevel(): RuntimePermissionLevel;
   /** Delivers a message the backend produced (user echo or assistant result) to the transcript. */
   onMessage(message: UiMessage): void;
+  /** A streamed backend reports its turn through here; see `ThreadRuntimeEvent`. */
+  onEvent(event: ThreadRuntimeEvent): void;
 }
 
 /**

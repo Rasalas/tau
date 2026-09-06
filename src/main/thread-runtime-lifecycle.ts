@@ -20,6 +20,7 @@ import type {
   HostUiPresenter,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
+import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { mapMessage } from "./host-messages.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
@@ -68,6 +69,8 @@ export interface ThreadRuntimeLifecyclePort {
   releaseTool(toolCallId: string): void;
   /** A message an external backend produced, on its way to the transcript. */
   emitMessage(threadId: string, message: UiMessage): void;
+  /** A streamed external backend's report about its turn. */
+  emitRuntimeEvent(threadId: string, event: ThreadRuntimeEvent): void;
   logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string): void;
   log(label: string, detail?: string): void;
   errorMessage(error: unknown): string;
@@ -170,6 +173,7 @@ export class ThreadRuntimeLifecycle {
           this.port.emitMessage(threadId, message);
         }
       },
+      onEvent: (event) => this.port.emitRuntimeEvent(threadId, event),
     });
     const thread = new ThreadRuntime(backend);
     thread.adapterMessages = await backend.transcript();

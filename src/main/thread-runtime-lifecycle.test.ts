@@ -30,7 +30,7 @@ function externalBackend(threadId: string, options: { streaming?: boolean } = {}
 
 function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, backends: Record<string, unknown> = {}) {
   const adopted: ThreadRuntime[] = [];
-  const emitted: Array<{ threadId: string }> = [];
+  const emitted: Array<{ threadId: string; event?: string }> = [];
   const released: string[] = [];
   const port: ThreadRuntimeLifecyclePort = {
     safeMode: false,
@@ -62,6 +62,7 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     presentUi: () => true,
     releaseTool: (id) => { released.push(id); },
     emitMessage: (threadId) => { emitted.push({ threadId }); },
+    emitRuntimeEvent: (threadId, event) => { emitted.push({ threadId, event: event.type }); },
     logRuntimePhase: () => undefined,
     log: () => undefined,
     errorMessage: (error) => error instanceof Error ? error.message : String(error),
@@ -106,6 +107,20 @@ describe("ThreadRuntimeLifecycle", () => {
     deliver({ role: "assistant", text: "done" });
     expect(live.adapterMessages).toHaveLength(1);
     expect(emitted).toEqual([{ threadId: "thread" }]);
+  });
+
+  it("routes a streamed backend's runtime events to the host under the thread's id", async () => {
+    let report!: (event: { type: string }) => void;
+    const provider = {
+      open: async (_id: string, _cwd: string, _options: unknown, context: { onEvent: (event: unknown) => void }) => {
+        report = context.onEvent as never;
+        return externalBackend("thread");
+      },
+    };
+    const { lifecycle, emitted } = makeLifecycle({}, { test: provider });
+    await lifecycle.openExternal("test", "thread", "/repo");
+    report({ type: "turn-started" });
+    expect(emitted).toEqual([{ threadId: "thread", event: "turn-started" }]);
   });
 
   it("hands a live thread back instead of opening its session file twice", async () => {

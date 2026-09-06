@@ -11,6 +11,7 @@ import type {
   UiThreadTree,
   UiThreadUsage,
   UiToolOutputReadResult,
+  UiToolRun,
   ThreadBackendKind,
 } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
@@ -89,6 +90,28 @@ export interface CompletionRequest {
 
 /** A raw runtime event; `handleRuntimeSessionEvent` owns its dialect. */
 export type RuntimeEventListener = (event: unknown, threadId: string) => void;
+
+/**
+ * What a streamed backend without a host-owned journal reports about its
+ * thread, in Tau's vocabulary. The host turns these into workbench events and
+ * keeps the live turn state; the backend converts from its runtime at its edge.
+ * Every event belongs to the thread the backend was opened for.
+ */
+export type ThreadRuntimeEvent =
+  | { type: "turn-started" }
+  | { type: "turn-settled"; status: "completed" | "interrupted" | "error" }
+  | { type: "assistant-start"; id: string; timestamp: number }
+  | { type: "assistant-delta"; id: string; delta: string }
+  | { type: "assistant-thinking"; id: string; delta: string }
+  | { type: "assistant-end"; message: UiMessage }
+  | { type: "user-message"; message: UiMessage }
+  | { type: "tool-start"; tool: UiToolRun }
+  | { type: "tool-update"; id: string; output: string }
+  | { type: "tool-end"; tool: UiToolRun }
+  | { type: "queue"; steering: string[]; followUp: string[] }
+  | { type: "notice"; message: string; level: "info" | "warning" | "error" }
+  /** `catalogView().usage` changed; the host republishes the thread's shell. */
+  | { type: "usage" };
 
 /** What the host binds into a runtime that hosts extensions of its own. */
 export interface RuntimeExtensionBindings {

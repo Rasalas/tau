@@ -86,6 +86,8 @@ import { requireCapability } from "./runtime-types.js";
 import { localTranscriptCursorPolicy, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
 import { PersistedThreadTranscript } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
+import { handleBackendRuntimeEvent } from "./backend-events.js";
+import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import { ClientMessageTracker } from "./client-message-tracker.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
@@ -341,6 +343,7 @@ export class PiHost {
       emitMessage: (threadId, message) => this.emit(message.role === "user"
         ? { type: "user-message", sessionId: threadId, message }
         : { type: "assistant-end", sessionId: threadId, message }),
+      emitRuntimeEvent: (threadId, event) => this.handleBackendEvent(threadId, event),
       logRuntimePhase: (phase, startedAt, reason, phaseCwd) => this.logRuntimePhase(phase, startedAt, reason, phaseCwd),
       log: (label, detail) => this.log(label, detail),
       errorMessage: (error) => this.errorMessage(error),
@@ -1898,6 +1901,27 @@ export class PiHost {
       pushToolOutput: (id, output) => this.toolOutputBatcher.push(id, output),
       flushToolOutput: (id) => this.toolOutputBatcher.flushId(id),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
+    });
+  }
+
+  /** A streamed external backend reports in Tau's dialect; the same bookkeeping applies. */
+  private handleBackendEvent(threadId: string, event: ThreadRuntimeEvent): void {
+    const thread = this.threads.get(threadId)?.runtime;
+    if (!thread) return;
+    handleBackendRuntimeEvent(event, thread, {
+      clientTurns: this.clientTurns,
+      emit: (next) => this.emit(next),
+      emitUpdate: (update) => this.emitUpdate(update),
+      log: (label, detail) => this.log(label, detail),
+      fail: (error, owner) => this.fail(error, owner),
+      settledSnapshot: () => this.snapshot(),
+      detailForSnapshot: (snapshot) => this.detailForSnapshot(snapshot),
+      ownTool: (id, owner) => this.toolOwners.set(id, owner),
+      releaseTool: (id) => { this.toolOwners.delete(id); },
+      pushToolOutput: (id, output) => this.toolOutputBatcher.push(id, output),
+      flushToolOutput: (id) => this.toolOutputBatcher.flushId(id),
+      toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
+      refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
     });
   }
 
