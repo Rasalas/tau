@@ -68,12 +68,12 @@ function hostWithHeldStarts() {
   const host = new PiHost("/repo", () => undefined, history as never, false, false);
   const internals = host as unknown as Record<string, any>;
   internals.rememberProject = async () => {};
-  internals.refreshThreadShell = async () => {};
-  internals.refreshThreadIndex = async () => {};
-  internals.startIndexRecovery = () => {};
+  internals.index.refreshShell = async () => {};
+  internals.index.refresh = async () => {};
+  internals.index.startRecovery = () => {};
   internals.scheduleRuntimePrewarm = () => {};
   internals.scheduleSpareThread = () => {};
-  internals.labelFor = () => undefined;
+  internals.projects.label = () => undefined;
 
   const active = fakeThread("active", delivered);
   internals.threads.adopt({ threadId: "active", cwd: "/repo", runtime: active, isolation: "in-process" });

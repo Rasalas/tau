@@ -68,12 +68,12 @@ function coldHost(delivered: string[]) {
   internals.rememberProject = async () => {};
   internals.attached.session.attach = async () => false;
   internals.openInitialThread = async () => { await opening; return thread; };
-  internals.refreshThreadShell = async () => {};
-  internals.refreshThreadIndex = async () => {};
-  internals.startIndexRecovery = () => {};
+  internals.index.refreshShell = async () => {};
+  internals.index.refresh = async () => {};
+  internals.index.startRecovery = () => {};
   internals.scheduleRuntimePrewarm = () => {};
   internals.scheduleSpareThread = () => {};
-  internals.labelFor = () => undefined;
+  internals.projects.label = () => undefined;
   internals.bootstrap = async () => ({ version: 1 });
   return { host, internals, thread, release: () => release() };
 }
@@ -113,7 +113,7 @@ describe("PiHost cold start", () => {
     const started = host.start();
     release();
     await started;
-    internals.sessions = [{
+    internals.index.sessions = [{
       id: "archived-thread",
       path: "/archived-thread.jsonl",
       title: "Archived",
