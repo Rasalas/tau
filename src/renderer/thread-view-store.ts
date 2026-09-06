@@ -352,7 +352,7 @@ export class ThreadViewStore {
    * selector re-renders when the summary changes, not when the rows do.
    */
   selectConversation = (activeDraftKey: string | undefined, pendingNewThread: boolean): ConversationSummary => {
-    const key = `${pendingNewThread ? "draft" : "session"} ${activeDraftKey ?? ""}`;
+    const key = `${pendingNewThread ? "draft" : "session"}\0${activeDraftKey ?? ""}`;
     const summary = conversationSummary(this.state, activeDraftKey, pendingNewThread);
     const cached = this.conversationCache;
     if (cached?.key === key
