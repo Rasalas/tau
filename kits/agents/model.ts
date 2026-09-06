@@ -3,6 +3,7 @@ import {
   isOpenStatus,
   type AgentThreadLink,
   type AgentThreadStatus,
+  type AgentWorkspace,
   type AgentsState,
 } from "./protocol.js";
 
@@ -22,6 +23,8 @@ export interface AgentRow {
   result?: string;
   error?: string;
   costUsd?: number;
+  /** The checkout this agent worked in, when it had one of its own. */
+  workspace?: AgentWorkspace;
 }
 
 export interface AgentGroup {
@@ -72,6 +75,7 @@ function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>):
     ...(link.result ? { result: link.result } : {}),
     ...(link.error ? { error: link.error } : {}),
     ...(cost === undefined ? {} : { costUsd: cost }),
+    ...(link.workspace ? { workspace: link.workspace } : {}),
   };
 }
 
@@ -204,6 +208,27 @@ export function formatCost(costUsd: number | undefined): string {
 }
 
 /** The one line under a row's title: what it is doing, or what it said. */
+/**
+ * The branch of an agent that worked in its own worktree, with what it changed
+ * there. Empty for one that shared the parent's checkout.
+ */
+export function worktreeLine(row: AgentRow): string {
+  const workspace = row.workspace;
+  if (!workspace || workspace.mode !== "worktree" || !workspace.branch) return "";
+  if (workspace.settled) return `${workspace.branch} · ${workspace.settled}`;
+  const changes = workspace.changes;
+  if (!changes) return workspace.branch;
+  if (changes.files === 0) return `${workspace.branch} · no changes`;
+  return `${workspace.branch} · ${changes.files} file${changes.files === 1 ? "" : "s"} +${changes.added} −${changes.removed}`;
+}
+
+/** Whether the parent can still take or drop what this agent did. */
+export function canSettleWorktree(row: AgentRow): boolean {
+  const workspace = row.workspace;
+  return Boolean(workspace?.mode === "worktree" && workspace.branch && !workspace.settled)
+    && row.status !== "running" && row.status !== "waiting" && row.status !== "pending";
+}
+
 export function activityLine(row: AgentRow): string {
   if (row.status === "failed") return row.error ?? "Failed";
   if (row.status === "pending") return "Queued for a free slot";

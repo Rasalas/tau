@@ -3,7 +3,7 @@
   "name": "Agents",
   "version": "1.0.0",
   "engines": { "api": "^1.3.0" },
-  "permissions": ["sessions", "runtime:extend"],
+  "permissions": ["sessions", "runtime:extend", "process"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
   "styles": "./styles.css",

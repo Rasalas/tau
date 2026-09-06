@@ -18,8 +18,22 @@ import {
   AGENTS_STATE_EVENT,
   AGENT_CHILD_ENTRY,
   MAX_AGENT_DEPTH,
+  isBusyStatus,
   type AgentThreadLink,
+  type AgentWorkspace,
+  type AgentWorkspaceMode,
 } from "./protocol.js";
+// Worktrees are Workspace Kit's, in every kit that needs one: this is the one
+// leaf module it lends, and nothing else of that kit is reachable from here.
+import {
+  applyAgentWorktree,
+  createAgentWorktree,
+  latestCheckpointSnapshotRef,
+  readAgentWorktreeChanges,
+  removeAgentWorktree,
+  runAgentGit,
+  type AgentGitRunner,
+} from "../workspace/agent-worktrees.js";
 import {
   AgentThreadBook,
   decodeSpawnRequest,
@@ -39,6 +53,13 @@ const PANEL_RESULT_LIMIT = 240;
 
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+
+/** IPC input is untrusted, here as everywhere else. */
+const requireThreadId = (input: unknown): string => {
+  const value = record(input).threadId;
+  if (typeof value !== "string" || !value.trim()) throw new Error('This command needs "threadId".');
+  return value.trim();
+};
 
 /**
  * How many children of one thread may run at a time is the user's setting, so
@@ -176,11 +197,13 @@ export function createAgentsHostExtension(options: {
   settingsPath?: string;
   /** The links file; `services.stateDir` names it otherwise. */
   linksPath?: string;
+  /** The Git runner the child worktrees use; tests replace it. */
+  runGit?: AgentGitRunner;
 } = {}): HostExtension {
   return {
     id: AGENTS_HOST_EXTENSION_ID,
     name: "Agents",
-    permissions: ["sessions", "runtime:extend"],
+    permissions: ["sessions", "runtime:extend", "process"],
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const linksPath = options.linksPath ?? agentsLinksPath(services.stateDir);
@@ -241,8 +264,20 @@ export function createAgentsHostExtension(options: {
         const facts = book.factsFor(id);
         const link = book.linkFor(id);
         const message = await lastAssistantMessage(link?.threadId) ?? link?.result;
+        const workspace = link ? await readChanges(link) : undefined;
+        if (link && workspace && JSON.stringify(workspace) !== JSON.stringify(link.workspace)) {
+          changed(link.id, book.noteWorkspace(link.id, workspace));
+        }
         return {
           threadId: link?.threadId ?? id,
+          ...(workspace?.mode === "worktree" ? {
+            workspace: {
+              branch: workspace.branch,
+              path: workspace.path,
+              ...(workspace.changes ? { changes: workspace.changes } : {}),
+              ...(workspace.settled ? { settled: workspace.settled } : {}),
+            },
+          } : {}),
           ...(link?.title ? { title: link.title } : {}),
           status: link?.status ?? "idle",
           turns: facts.turns,
@@ -290,6 +325,45 @@ export function createAgentsHostExtension(options: {
       };
 
       const prompts = new Map<string, string>();
+      /** What each queued agent asked for, until its thread is built. */
+      const wanted = new Map<string, AgentWorkspaceMode>();
+      const runGit: AgentGitRunner = (cwd, args, gitOptions) => {
+        services.noteSubprocess();
+        return (options.runGit ?? runAgentGit)(cwd, args, gitOptions);
+      };
+
+      /** A project is a repository when Git answers for it; anything else shares. */
+      const isRepository = async (project: string): Promise<boolean> =>
+        runGit(project, ["rev-parse", "--is-inside-work-tree"]).then((out) => out.trim() === "true").catch(() => false);
+
+      /**
+       * The checkout a child works in. It starts from the parent's last
+       * checkpoint tree — its working copy as that turn left it — so the child
+       * continues the work the parent is doing rather than the last commit.
+       */
+      const openWorktree = async (agent: AgentThreadLink): Promise<AgentWorkspace> => {
+        const snapshotRef = latestCheckpointSnapshotRef(services.thread(agent.parentThreadId)?.entries() ?? []);
+        const worktree = await createAgentWorktree({
+          parentCwd: agent.projectPath,
+          agentId: agent.id,
+          ...(snapshotRef ? { snapshotRef } : {}),
+          runGit,
+        });
+        services.log("agents.worktree", `${worktree.branch} · ${worktree.fromCheckpoint ? "from the parent's checkpoint" : "from HEAD"}`);
+        return { mode: "worktree", path: worktree.path, branch: worktree.branch };
+      };
+
+      /** What a child changed in its own checkout; absent for one that shares. */
+      const readChanges = async (link: AgentThreadLink): Promise<AgentWorkspace | undefined> => {
+        const workspace = link.workspace;
+        if (!workspace || workspace.mode !== "worktree" || !workspace.branch || workspace.settled) return workspace;
+        try {
+          const changes = await readAgentWorktreeChanges({ path: workspace.path, branch: workspace.branch }, runGit);
+          return { ...workspace, changes: { files: changes.files, added: changes.added, removed: changes.removed, commits: changes.commits, uncommitted: changes.uncommitted } };
+        } catch {
+          return workspace;
+        }
+      };
 
       /**
        * Takes one of the parent's slots for a queued agent, or reports that the
@@ -307,9 +381,16 @@ export function createAgentsHostExtension(options: {
 
       /** Builds one agent's thread. Its slot is already claimed. */
       const startAgent = async (agent: AgentThreadLink): Promise<void> => {
+        let workspace: AgentWorkspace | undefined;
         try {
+          // The worktree comes first: a thread that started in the parent's
+          // checkout cannot be moved into one afterwards.
+          if (wanted.get(agent.id) === "worktree") {
+            workspace = await openWorktree(agent);
+            changed(agent.id, book.noteWorkspace(agent.id, workspace));
+          }
           const started = await services.sessions.start({
-            cwd: agent.projectPath,
+            cwd: workspace?.path ?? agent.projectPath,
             prompt: prompts.get(agent.id) ?? agent.title,
             title: agent.title,
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
@@ -327,8 +408,15 @@ export function createAgentsHostExtension(options: {
           guard.unref?.();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          // A thread that never started leaves no worktree behind.
+          if (workspace?.branch) {
+            await removeAgentWorktree({ parentCwd: agent.projectPath, worktree: { path: workspace.path, branch: workspace.branch }, runGit }).catch(() => undefined);
+            changed(agent.id, book.noteWorkspace(agent.id, undefined));
+          }
           changed(agent.id, book.noteError(agent.id, message));
           services.log("agents.start-failed", message);
+        } finally {
+          wanted.delete(agent.id);
         }
       };
 
@@ -361,6 +449,12 @@ export function createAgentsHostExtension(options: {
         if (model) parseModel(model);
         const id = randomUUID();
         prompts.set(id, request.prompt);
+        // A child writes by default, and two writers in one checkout collide;
+        // a project that is not a repository has nowhere else to go.
+        const mode: AgentWorkspaceMode = request.workspace === "shared" || !(await isRepository(projectPath))
+          ? "shared"
+          : request.workspace ?? "worktree";
+        wanted.set(id, mode);
         book.add({
           id,
           parentThreadId: parent.sessionId,
@@ -376,7 +470,39 @@ export function createAgentsHostExtension(options: {
         // real thread id; a spawn beyond the budget queues and returns at once.
         if (claimSlot(id)) await startAgent(book.linkFor(id)!);
         const link = book.linkFor(id)!;
-        return { threadId: link.threadId ?? id, title: link.title, status: link.status };
+        return {
+          threadId: link.threadId ?? id,
+          title: link.title,
+          status: link.status,
+          workspace: link.workspace?.mode ?? mode,
+          ...(link.workspace?.branch ? { branch: link.workspace.branch } : {}),
+        };
+      };
+
+      /**
+       * The parent's decision about a child's worktree: take the work or throw
+       * it away. Either way the worktree goes, because the child is done with
+       * it; a failed apply keeps both, so nothing is lost to a collision.
+       */
+      const settleWorkspace = async (id: string, outcome: "applied" | "discarded"): Promise<{ detail: string; branch?: string }> => {
+        const link = book.linkFor(id);
+        const workspace = link?.workspace;
+        if (!link || !workspace || workspace.mode !== "worktree" || !workspace.branch) {
+          throw new Error("This thread works in your own checkout; there is nothing to apply or discard.");
+        }
+        if (workspace.settled) throw new Error(`Its changes were already ${workspace.settled}.`);
+        if (isBusyStatus(link.status)) throw new Error("This thread is still working; wait for it before taking its changes.");
+        const worktree = { path: workspace.path, branch: workspace.branch };
+        let detail = `Discarded ${workspace.branch}.`;
+        if (outcome === "applied") {
+          const applied = await applyAgentWorktree({ parentCwd: link.projectPath, worktree, runGit });
+          detail = applied.detail;
+        }
+        await removeAgentWorktree({ parentCwd: link.projectPath, worktree, runGit });
+        changed(id, book.noteWorkspace(id, { ...workspace, settled: outcome }));
+        save();
+        services.log(`agents.${outcome}`, `${workspace.branch} · ${detail}`);
+        return { detail, branch: workspace.branch };
       };
 
       /** Resolves when the agent's turn ended, it asked the user something, or it failed. */
@@ -420,6 +546,7 @@ export function createAgentsHostExtension(options: {
           description: [
             "Start a new Tau thread in this project that works on a task on its own.",
             "It appears in the Agents panel beside this conversation, has its own agent and its own transcript, and runs in the background.",
+            "By default it gets its own Git worktree, branched from this thread's current state, so it can write without colliding with this checkout; take its work back with tau_apply_thread_changes.",
             `Returns immediately. Spawns beyond the running budget are queued with status "pending" and start as slots free; sub-agents may nest ${MAX_AGENT_DEPTH} levels deep.`,
             "Read an answer with tau_wait_for_thread or tau_get_thread_status.",
           ].join(" "),
@@ -429,6 +556,9 @@ export function createAgentsHostExtension(options: {
             title: Type.Optional(Type.String({ description: "Title for the Agents panel; derived from the prompt when left out." })),
             model: Type.Optional(Type.String({ description: "Model as provider/model-id; this thread's model when left out." })),
             projectPath: Type.Optional(Type.String({ description: "A project this host already has open; this thread's project when left out." })),
+            workspace: Type.Optional(Type.String({
+              description: 'Where it works: "worktree" for its own checkout branched from this thread\'s state (the default in a Git repository), or "shared" to write in this very checkout — only safe for a thread that reads.',
+            })),
           }),
           execute: async (_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) => {
             const inherited = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
@@ -456,6 +586,7 @@ export function createAgentsHostExtension(options: {
             "Wait until a thread spawned from here finishes its current turn, then report its status and final answer.",
             "A queued thread is waited for as well: the wait covers the time it spends pending.",
             "It also returns early when that thread asks the user a question, which only the user can answer in that thread.",
+            "For a thread with its own worktree the answer also carries its branch and what it changed there.",
           ].join(" "),
           parameters: Type.Object({
             threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
@@ -467,6 +598,25 @@ export function createAgentsHostExtension(options: {
             const timeoutMs = decodeTimeout(params);
             const outcome = await waitFor(link.id, timeoutMs, signal);
             return toolResult({ ...await statusOf(link.id), ...(outcome === "timeout" ? { timedOut: true } : {}) });
+          },
+        });
+
+        pi.registerTool({
+          name: "tau_apply_thread_changes",
+          label: "Apply thread changes",
+          description: [
+            "Take the work of a thread spawned from here into this checkout, and remove its worktree.",
+            "A thread that committed everything is merged; anything else is applied as one patch of its whole working copy.",
+            "Nothing is applied when it would collide: the error names the branch, which stays for you to merge by hand.",
+          ].join(" "),
+          parameters: Type.Object({
+            threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
+            discard: Type.Optional(Type.Boolean({ description: "Throw the work away instead of applying it; the worktree and its branch go too." })),
+          }),
+          execute: async (_toolCallId, params) => {
+            const link = requireChild(threadId, decodeThreadId(params));
+            const discard = (params as { discard?: unknown }).discard === true;
+            return toolResult(await settleWorkspace(link.id, discard ? "discarded" : "applied"));
           },
         });
 
@@ -541,6 +691,9 @@ export function createAgentsHostExtension(options: {
           },
         }),
         context.registerCommand("state", () => book.state()),
+        // The panel's two row actions; the tools do the same from a turn.
+        context.registerCommand("apply-changes", (input) => settleWorkspace(requireThreadId(input), "applied"), { long: true }),
+        context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true }),
       ];
 
       // Both reads finish before the extension is active, so the first thing

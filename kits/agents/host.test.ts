@@ -33,6 +33,7 @@ import {
   titleFromPrompt,
   writeAgentLinks,
 } from "./host.js";
+import type { AgentGitRunner } from "../workspace/agent-worktrees.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./threads.js";
 
 interface FakeTool {
@@ -146,7 +147,7 @@ function harness() {
   };
 
   let invoke: (command: string, input?: unknown) => Promise<unknown> = () => Promise.reject(new Error("the kit is not activated"));
-  const activate = async (options: { settingsPath?: string; linksPath?: string; stateDir?: string }) => {
+  const activate = async (options: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner }) => {
     const { stateDir, ...kitOptions } = options;
     const registry = await activateHostKit(
       createAgentsHostExtension(kitOptions),
@@ -189,13 +190,14 @@ function harness() {
   return { activate, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts };
 }
 
-async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string } = {}) {
+async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
   const bench = harness();
   bench.open("parent");
   await bench.activate({
     ...(paths.stateDir ? { stateDir: paths.stateDir } : { linksPath: paths.linksPath ?? join(tmpdir(), `tau-agents-none-${randomUUID()}.json`) }),
     ...(paths.linksPath && paths.stateDir ? { linksPath: paths.linksPath } : {}),
     ...(paths.settingsPath ? { settingsPath: paths.settingsPath } : {}),
+    ...(paths.runGit ? { runGit: paths.runGit } : {}),
   });
   return bench;
 }
@@ -282,12 +284,13 @@ describe("Agents Kit status", () => {
 });
 
 describe("Agents Kit", () => {
-  it("registers its four tools on every runtime", async () => {
+  it("registers its five tools on every runtime", async () => {
     const bench = await activated();
     expect(bench.runtime("parent").names()).toEqual([
       "tau_spawn_thread",
       "tau_get_thread_status",
       "tau_wait_for_thread",
+      "tau_apply_thread_changes",
       "tau_list_threads",
     ]);
   });
@@ -297,7 +300,8 @@ describe("Agents Kit", () => {
     const parent = bench.runtime("parent");
     const spawned = await parent.call("tau_spawn_thread", { prompt: "Reply with ALPHA" }) as { threadId: string; title: string; status: string };
 
-    expect(spawned).toEqual({ threadId: "child-1", title: "Reply with ALPHA", status: "running" });
+    // The project of this bench is no repository, so the child shares its checkout.
+    expect(spawned).toEqual({ threadId: "child-1", title: "Reply with ALPHA", status: "running", workspace: "shared" });
     expect(bench.started).toEqual([{
       cwd: "/project",
       prompt: "Reply with ALPHA",
@@ -314,6 +318,74 @@ describe("Agents Kit", () => {
     const state = await bench.state();
     expect(state.maxRunning).toBe(DEFAULT_MAX_RUNNING_AGENTS);
     expect(state.links).toEqual([expect.objectContaining({ threadId: "child-1", parentThreadId: "parent", status: "running" })]);
+  });
+
+  it("gives a child its own worktree, reports what it changed, and applies it back", async () => {
+    // A real folder, because creating a worktree really does make its parent.
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-host-"));
+    const project = join(root, "project");
+    const calls: string[][] = [];
+    const runGit: AgentGitRunner = async (cwd, args) => {
+      calls.push([cwd, ...args]);
+      const command = args.join(" ");
+      if (command.startsWith("rev-parse --is-inside-work-tree")) return "true\n";
+      if (command.startsWith("rev-parse --verify HEAD")) return "headcommit\n";
+      if (command.startsWith("rev-parse --path-format=absolute")) return `${project}/.git\n`;
+      if (command.startsWith("rev-parse --verify --quiet refs/tau/checkpoints")) return "treeid\n";
+      if (command.startsWith("commit-tree")) return "snapshotcommit\n";
+      if (command.startsWith("config --get")) return "snapshotcommit\n";
+      if (command.startsWith("write-tree")) return "childtree\n";
+      if (command.startsWith("diff --numstat")) return "3\t1\tanswer.md\n";
+      if (command.startsWith("diff --binary")) return "patch bytes";
+      if (command.startsWith("rev-list")) return "0\n";
+      if (command.startsWith("status --porcelain")) return " M answer.md\n";
+      return "";
+    };
+    const bench = await activated({ runGit });
+    // The parent recorded a checkpoint, so the child starts from that tree.
+    bench.threads.get("parent")!.entries.push({
+      type: "custom",
+      customType: "tau.turn-checkpoint.v1",
+      data: { afterSnapshotId: "refs/tau/checkpoints/parent/turn-1/after" },
+    });
+    const parent = bench.runtime("parent", project);
+
+    const spawned = await parent.call("tau_spawn_thread", { prompt: "Write the answer" }) as { threadId: string; branch: string; workspace: string };
+    expect(spawned.workspace).toBe("worktree");
+    expect(spawned.branch).toMatch(/^tau\/agent-/u);
+    // The thread runs in the worktree, not in the parent's checkout.
+    expect(bench.started[0]?.cwd).toBe(join(root, "project-worktrees", spawned.branch.replace("/", "-")));
+    expect(calls.some(([, ...args]) => args[0] === "commit-tree")).toBe(true);
+    expect(calls.some(([, ...args]) => args.join(" ").startsWith(`worktree add -b ${spawned.branch}`))).toBe(true);
+
+    bench.threads.get(spawned.threadId)!.streaming = false;
+    await bench.notify("ended", spawned.threadId);
+    const status = await parent.call("tau_get_thread_status", { threadId: spawned.threadId }) as {
+      workspace?: { branch: string; changes?: { files: number; added: number } };
+    };
+    expect(status.workspace?.branch).toBe(spawned.branch);
+    expect(status.workspace?.changes).toMatchObject({ files: 1, added: 3, removed: 1, uncommitted: 1 });
+
+    const applied = await parent.call("tau_apply_thread_changes", { threadId: spawned.threadId }) as { detail: string };
+    expect(applied.detail).toContain("Applied 1 file");
+    expect(calls.some(([cwd, ...args]) => cwd === project && args.join(" ").startsWith("apply --binary"))).toBe(true);
+    expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${spawned.branch}`)).toBe(true);
+    // Its worktree is gone, so there is nothing left to take.
+    await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId })).rejects.toThrow(/already applied/u);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("shares the parent's checkout when asked, and always outside a repository", async () => {
+    const runGit: AgentGitRunner = async (_cwd, args) =>
+      args[0] === "rev-parse" && args[1] === "--is-inside-work-tree" ? "true\n" : "";
+    const bench = await activated({ runGit });
+    const parent = bench.runtime("parent");
+
+    const shared = await parent.call("tau_spawn_thread", { prompt: "Read the code", workspace: "shared" }) as { threadId: string; workspace: string };
+    expect(shared.workspace).toBe("shared");
+    expect(bench.started[0]?.cwd).toBe("/project");
+    await expect(parent.call("tau_apply_thread_changes", { threadId: shared.threadId }))
+      .rejects.toThrow(/works in your own checkout/u);
   });
 
   it("takes the model the caller names and refuses a project the host does not have", async () => {

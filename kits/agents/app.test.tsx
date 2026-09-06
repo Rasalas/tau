@@ -77,7 +77,13 @@ const state: AgentsState = {
   ],
 };
 
-function appWith(agents: AgentsState, sessions: UiSession[], activeThreadId: string, messages: UiMessage[] = []) {
+function appWith(
+  agents: AgentsState,
+  sessions: UiSession[],
+  activeThreadId: string,
+  messages: UiMessage[] = [],
+  onAgentsCommand?: (command: string, input?: unknown) => unknown,
+) {
   return createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
@@ -87,7 +93,7 @@ function appWith(agents: AgentsState, sessions: UiSession[], activeThreadId: str
       project: { cwd: "/project" },
     }),
     invokeHostExtension: workspaceHostStub({}, {
-      [AGENTS_HOST_EXTENSION_ID]: async (command) => command === "state" ? agents : undefined,
+      [AGENTS_HOST_EXTENSION_ID]: async (command, input) => command === "state" ? agents : onAgentsCommand?.(command, input),
     }),
   });
 }
@@ -122,6 +128,36 @@ describe("the Agents panel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
     fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/alpha.jsonl"));
+  });
+});
+
+describe("a spawned thread's worktree", () => {
+  it("shows the branch it worked in and takes its changes back", async () => {
+    const worktree = {
+      mode: "worktree" as const,
+      path: "/project-worktrees/tau-agent-alpha",
+      branch: "tau/agent-alpha",
+      changes: { files: 2, added: 7, removed: 1, commits: 0, uncommitted: 2 },
+    };
+    const agents: AgentsState = {
+      maxRunning: 8,
+      links: [link("alpha", "parent", "completed", 1, { result: "done", workspace: worktree })],
+    };
+    const commands: Array<{ command: string; input?: unknown }> = [];
+    renderApp(
+      appWith(agents, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2)], "parent", [], (command, input) => {
+        commands.push({ command, input });
+        return { detail: "Applied 2 files, +7 −1 from tau/agent-alpha." };
+      }),
+      { extensions: [workspaceExtension, agentsExtension] },
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    expect(await screen.findByText(/tau\/agent-alpha · 2 files \+7 −1/u)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes of Alpha reply" }));
+    await waitFor(() => expect(commands).toEqual([{ command: "apply-changes", input: { threadId: "alpha" } }]));
+    expect(await screen.findByText("Applied 2 files, +7 −1 from tau/agent-alpha.")).toBeTruthy();
   });
 });
 

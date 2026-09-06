@@ -33,6 +33,13 @@ export function createAgentsStore(): AgentsStore {
 /** The store the bundled kit and its panel share; a package would own its own. */
 export const agentsStore = createAgentsStore();
 
+/**
+ * How the panel reaches the kit's host half. A panel contribution is given the
+ * workbench's actions, not its own extension's channel, so the desktop entry
+ * lends it this one while the kit is active.
+ */
+export const agentsHost: { invoke?(command: string, input?: unknown): Promise<unknown> } = {};
+
 export function lineageOf(state: AgentsState | undefined): ThreadLineage {
   const parents: Record<string, string> = {};
   const workingChildren: Record<string, number> = {};

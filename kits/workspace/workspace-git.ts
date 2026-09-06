@@ -33,6 +33,7 @@ import {
 } from "./turn-checkpoint-codec.js";
 import type { TurnRestoreTransaction } from "./turn-checkpoint-types.js";
 import { normalizeDiffLoadOptions } from "./turn-checkpoint-diff.js";
+import { branchBaseConfigKey, readBranchBase } from "./agent-worktrees.js";
 import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js";
 
 const execFileAsync = promisify(execFile);
@@ -2586,15 +2587,9 @@ export async function resolveWorktreeBase(
  * The base a branch was created from, kept in the repository's own config so a
  * later diff, review or pull request has the same answer this worktree started
  * with. `getBranchChanges` resolves a base of its own when nothing is recorded.
+ * The key itself lives in `agent-worktrees.ts`, the leaf both sides share.
  */
-export function branchBaseConfigKey(branch: string): string {
-  return `branch.${branch}.tau-base`;
-}
-
-export async function readBranchBase(cwd: string, branch: string, runGit: GitRunner = git): Promise<string | undefined> {
-  const value = (await runGit(cwd, ["config", "--get", branchBaseConfigKey(branch)]).catch(() => "")).trim();
-  return value || undefined;
-}
+export { branchBaseConfigKey, readBranchBase } from "./agent-worktrees.js";
 
 /**
  * Whether `cwd` is a linked worktree rather than a repository's main checkout.

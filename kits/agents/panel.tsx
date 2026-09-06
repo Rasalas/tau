@@ -3,12 +3,14 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Bot } from "lucide-react";
 import { useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
 import type { AgentThreadStatus } from "./protocol.js";
-import { agentsStore } from "./store.js";
+import { agentsHost, agentsStore } from "./store.js";
 import {
   activityLine,
   agentsPanelModel,
+  canSettleWorktree,
   formatCost,
   formatElapsed,
+  worktreeLine,
   type AgentGroup,
   type AgentRow,
   type AgentsPanelModel,
@@ -49,8 +51,14 @@ function Elapsed({ row }: { row: AgentRow }) {
   return <time ref={ref} />;
 }
 
-const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen }: { row: AgentRow; onOpen(row: AgentRow): void }) {
+const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
+  row: AgentRow;
+  onOpen(row: AgentRow): void;
+  /** Takes the agent's work into this checkout, or throws it away with its worktree. */
+  onSettle(row: AgentRow, outcome: "apply" | "discard"): void;
+}) {
   const disabled = !row.path;
+  const worktree = worktreeLine(row);
   return (
     <button
       type="button"
@@ -66,7 +74,17 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen }: { row: AgentR
       </span>
       <span className="agent-row-activity">{activityLine(row)}</span>
       <span className="agent-row-meta">
-        {[row.model, formatCost(row.costUsd)].filter(Boolean).join(" · ")}
+        {[row.model, formatCost(row.costUsd), worktree].filter(Boolean).join(" · ")}
+        {canSettleWorktree(row) ? (
+          <span className="agent-row-actions">
+            <span role="button" tabIndex={-1} aria-label={`Apply changes of ${row.title}`}
+              onClick={(event) => { event.stopPropagation(); onSettle(row, "apply"); }}
+            >Apply changes</span>
+            <span role="button" tabIndex={-1} aria-label={`Discard changes of ${row.title}`}
+              onClick={(event) => { event.stopPropagation(); onSettle(row, "discard"); }}
+            >Discard</span>
+          </span>
+        ) : null}
       </span>
     </button>
   );
@@ -123,6 +141,14 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
     if (row.path) void actions.switchSession(row.path);
   }, [actions]);
 
+  // The same two moves tau_apply_thread_changes makes, for the user.
+  const settle = useCallback((row: AgentRow, outcome: "apply" | "discard") => {
+    if (!row.threadId) return;
+    void agentsHost.invoke?.(outcome === "apply" ? "apply-changes" : "discard-changes", { threadId: row.threadId })
+      .then((result) => actions.notify((result as { detail?: string } | undefined)?.detail ?? "Done."))
+      .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+  }, [actions]);
+
   return (
     <section className="panel-body agents-panel">
       <PanelHeader model={model} extensionName={extensionName} />
@@ -145,7 +171,7 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
                 >
                   {row.kind === "group"
                     ? <div className="agent-group-label">{row.group.active ? "This thread" : row.group.parentTitle}</div>
-                    : <AgentPanelRow row={row.row} onOpen={open} />}
+                    : <AgentPanelRow row={row.row} onOpen={open} onSettle={settle} />}
                 </div>
               );
             })}
