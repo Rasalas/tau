@@ -11,7 +11,7 @@
 
 .chrome-group { display: flex; align-items: stretch; }
 .chrome-group .split-main { border-radius: 9px 0 0 9px; }
-.chrome-group .split-trigger { width: 31px; justify-content: center; padding: 0; border-left-color: #ffffff0a; border-radius: 0 9px 9px 0; }
+.chrome-group .split-trigger { width: 31px; justify-content: center; padding: 0; border-left-color: var(--edge-highlight); border-radius: 0 9px 9px 0; }
 .editor-icon { width: 16px; height: 16px; flex: none; }
 .menu-editor-icon { width: 16px; height: 16px; flex: none; }
 .project-actions-control { -webkit-app-region: no-drag; }
@@ -48,7 +48,7 @@
   height: 38px; padding: 0 10px; border-radius: 8px;
   background: transparent; color: var(--muted);
 }
-.thread-search:hover { background: #1a1a17; }
+.thread-search:hover { background: var(--hover); }
 .thread-search:focus-within { background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-field); }
 .thread-search > svg { color: var(--muted); }
 .thread-search input {
@@ -67,7 +67,7 @@
   height: 38px; border: 0; border-radius: 8px; background: transparent;
   color: var(--muted); padding: 0 10px; text-align: left; cursor: pointer;
 }
-.project-scope:hover { background: #1a1a17; color: var(--ink-2); }
+.project-scope:hover { background: var(--hover); color: var(--ink-2); }
 .project-scope > i.all-projects-icon { display: grid; place-items: center; color: inherit; font-style: normal; }
 .project-scope > span {
   flex: 1; min-width: 0; font: 500 13.5px var(--sans);
@@ -85,13 +85,13 @@
 .project-switcher-popover {
   position: fixed; z-index: 55; top: 132px; left: 12px; width: min(272px, calc(100vw - 24px));
   padding: 8px; border: 1px solid var(--line-float); border-radius: 11px;
-  background: var(--overlay); box-shadow: 0 24px 70px #000c; animation: fade-up .12s ease;
+  background: var(--overlay); box-shadow: 0 24px 70px var(--shadow-strong); animation: fade-up .12s ease;
 }
 .project-switcher-popover > label {
   height: 40px; display: flex; align-items: center; gap: 8px; margin: 0 6px 5px;
   border-bottom: 1px solid var(--line-field); color: var(--muted);
 }
-.project-switcher-popover > label:focus-within { color: var(--ink-2); border-bottom-color: #4d7cff; }
+.project-switcher-popover > label:focus-within { color: var(--ink-2); border-bottom-color: var(--info); }
 .project-switcher-popover input {
   flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
   color: var(--ink); font-size: 13px;
@@ -106,12 +106,12 @@
 
 .project-switcher-results > button > i {
   width: 22px; height: 22px; display: grid; place-items: center; flex: none;
-  border-radius: 6px; background: #272720; color: var(--ink-3); font: 600 10px var(--sans); font-style: normal;
+  border-radius: 6px; background: var(--chip); color: var(--ink-3); font: 600 10px var(--sans); font-style: normal;
 }
 
 .project-switcher-results > button > i > img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .project-switcher-results > button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
-.project-switcher-results > button > small { color: var(--acid); font: 9px var(--mono); }
+.project-switcher-results > button > small { color: var(--acid-text); font: 9px var(--mono); }
 .project-switcher-results > button > svg { color: var(--faint); }
 .project-switcher-results > p { margin: 12px 8px; color: var(--faint); font-size: 11px; }
 
@@ -191,7 +191,7 @@
 .changed-file-pill {
   min-width: 0; max-width: 180px; flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--line-control); border-radius: 999px; padding: 3px 8px 3px 6px;
-  background: #ffffff05; color: var(--ink-3); font: 10.5px var(--mono);
+  background: var(--wash); color: var(--ink-3); font: 10.5px var(--mono);
 }
 .changed-file-pill svg { flex: none; color: var(--faint); }
 .changed-file-pill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -202,11 +202,11 @@
 }
 
 .changed-file-row {
-  width: 100%; border: 0; border-top: 1px solid #1f1f1a; background: transparent;
+  width: 100%; border: 0; border-top: 1px solid var(--line-inset); background: transparent;
   display: flex; align-items: center; gap: 10px;
   padding: 8px 13px 8px 34px; cursor: pointer; text-align: left;
 }
-.changed-file-row:hover { background: #1a1a18; }
+.changed-file-row:hover { background: var(--hover); }
 .changed-file-row > svg { flex: none; color: var(--faint); }
 .changed-file-row > span.path {
   flex: 1; min-width: 0; font: 12px var(--mono); color: var(--ink-2);
@@ -247,7 +247,7 @@
 .worktree-list > button > svg { flex: none; }
 
 .worktree-list > p { padding: 14px 10px; color: var(--faint); font-size: 12px; }
-.worktree-list .cleanup-candidate { color: var(--acid); }
+.worktree-list .cleanup-candidate { color: var(--acid-text); }
 
 /* Where the thread of a pending draft runs; gone once it has one. */
 .workspace-mode {
@@ -261,7 +261,7 @@
   color: var(--faint); opacity: 0; transition: opacity 90ms ease;
 }
 .worktree-list > button:hover .worktree-remove-action { opacity: 1; }
-.worktree-remove-action:hover { color: var(--danger, var(--acid)); }
+.worktree-remove-action:hover { color: var(--danger); }
 .worktree-remove {
   display: flex; align-items: center; gap: 8px; min-height: 49px; padding: 6px 10px;
 }
@@ -299,15 +299,15 @@
 .file-row {
   width: 100%; display: flex; align-items: center; gap: 8px;
   border: 0; border-radius: 6px; background: transparent;
-  color: #b5b3a6; font: 12px var(--mono); padding: 5px 8px;
+  color: var(--ink-code); font: 12px var(--mono); padding: 5px 8px;
   cursor: pointer; text-align: left;
 }
-.file-row:hover { background: #1c1c19; }
+.file-row:hover { background: var(--hover-strong); }
 .file-row.directory { color: var(--ink-prose); }
 
 .file-row .file-disclosure { color: var(--faint); width: 11px; flex: none; display: grid; place-items: center; }
-.file-row .file-kind-icon { width: 15px; flex: none; display: grid; place-items: center; color: #77796f; }
-.file-row.directory .file-kind-icon { color: #a59d68; }
+.file-row .file-kind-icon { width: 15px; flex: none; display: grid; place-items: center; color: var(--muted-2); }
+.file-row.directory .file-kind-icon { color: var(--folder); }
 
 .file-row > em { color: var(--working); font-size: 10px; font-style: normal; }
 
@@ -316,7 +316,7 @@
   width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px);
   display: flex; flex-direction: column;
   border: 1px solid var(--line-float); border-radius: 12px;
-  background: var(--overlay); box-shadow: 0 40px 100px #000d;
+  background: var(--overlay); box-shadow: var(--elevation-3);
   overflow: hidden; color: var(--ink); animation: fade-up .14s ease;
 }
 .restore-dialog > header {
@@ -328,7 +328,7 @@
 .restore-dialog > header small { font: 10px var(--mono); color: var(--faint); }
 .restore-dialog-mark {
   width: 25px; height: 25px; flex: none; display: grid; place-items: center;
-  border-radius: 7px; background: #33241d; color: var(--working);
+  border-radius: 7px; background: var(--warn-chip); color: var(--working);
 }
 .restore-dialog-body { padding: 15px 16px 13px; overflow: auto; }
 .restore-dialog-body p { margin: 0 0 13px; color: var(--ink-2); font-size: 12px; line-height: 1.55; }
@@ -364,7 +364,7 @@
 }
 .commit-selection { display: flex; align-items: center; min-height: 22px; }
 .commit-selection > small { flex: 1; color: var(--faint); font: 9.5px var(--mono); }
-.commit-selection > span { color: var(--acid); font: 9.5px var(--mono); }
+.commit-selection > span { color: var(--acid-text); font: 9.5px var(--mono); }
 
 .commit-box textarea {
   width: 100%; resize: vertical; min-height: 60px;

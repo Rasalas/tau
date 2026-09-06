@@ -481,6 +481,8 @@ export interface ExtensionPackageSummary {
   directory: string;
   desktop: boolean;
   host: boolean;
+  /** Only a stylesheet: a theme, which runs no code and needs no grant. */
+  theme?: boolean;
 }
 
 export interface ExtensionInspection {
@@ -515,6 +517,8 @@ export interface DesktopExtensionBundle {
   stylesUrl?: string;
   permissions: readonly string[];
   granted?: boolean;
+  /** A theme: only a stylesheet, and loaded after everything else so its tokens win. */
+  theme?: boolean;
   source?: { url: string; commit?: string };
 }
 

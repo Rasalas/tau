@@ -1,0 +1,29 @@
+/*
+ * A theme package: a manifest with a `styles` entry and nothing else. It runs
+ * no code, so it needs no grant — `/install ./examples/theme-terracotta`
+ * applies it there and then, and `/remove` takes it back off.
+ *
+ * Its stylesheet is linked after core's tokens and after every kit, so setting
+ * a token again here is all it takes. The table in docs/EXTENSIONS.md is the
+ * list of names; this one changes the accent and the code face and leaves the
+ * other hundred alone.
+ *
+ * `light-dark(light, dark)` gives both schemes in one declaration, the way
+ * tokens.css does. A theme for one scheme only can write a single colour.
+ */
+
+:root {
+  --acid: light-dark(#d2603a, #ff9d6b);
+  --acid-text: light-dark(#9a3d18, #ff9d6b);
+  --acid-ink: light-dark(#2a1206, #23110a);
+  --acid-strong: light-dark(#bf5330, #ffb389);
+  --acid-bg: light-dark(#fbeae2, #241410);
+  --acid-line: light-dark(#e8c0ad, #4a2a1c);
+  --acid-chip: light-dark(#f6dccf, #381e14);
+  --acid-track: light-dark(#e0ab90, #55301f);
+  --acid-glow: light-dark(#d2603abb, #ff9d6bbb);
+  --focus: light-dark(#9a3d18, #ff9d6b);
+
+  /* The code face, everywhere code is set: transcript, diffs, chips, labels. */
+  --mono: "IBM Plex Mono", "JetBrains Mono", "Courier New", ui-monospace, monospace;
+}

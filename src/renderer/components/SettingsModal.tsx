@@ -4,6 +4,7 @@ import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel }
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
 import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
+import { THEME_PREFERENCES } from "../theme";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
@@ -21,7 +22,7 @@ function DefaultsPage({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, transcriptDetail, theme } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
 
   return (
     <div className="settings-page">
@@ -74,6 +75,23 @@ function DefaultsPage({
       <p className="settings-note">
         Focused reads a settled turn as one line; detailed opens every group and shows thinking;
         everything adds full tool output and timestamps. ⇧⌘T cycles them for the thread on screen.
+      </p>
+
+      <div className="settings-label">APPEARANCE</div>
+      <div className="segmented">
+        {THEME_PREFERENCES.map((preference) => (
+          <button
+            key={preference}
+            className={preference === theme ? "active" : ""}
+            onClick={() => preferences.setTheme(preference)}
+          >
+            {preference}
+          </button>
+        ))}
+      </div>
+      <p className="settings-note">
+        System follows this machine's light or dark setting. A theme package installed with
+        <code> /install </code> recolours whichever of the two is showing.
       </p>
 
       <div className="settings-label">COSTS</div>

@@ -14,7 +14,7 @@
 .packages-scope { margin-top: 8px; }
 .packages-log {
   margin-top: 10px; max-width: 560px; padding: 9px 12px;
-  border-left: 2px solid var(--line-strong); background: #191916;
+  border-left: 2px solid var(--line-strong); background: var(--inset);
   font: 10.5px var(--mono); color: var(--muted); line-height: 1.7;
 }
 .packages-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -24,3 +24,11 @@
 }
 .packages-actions > button:disabled { opacity: .5; cursor: default; }
 .packages-actions > small { font: 10px var(--mono); color: var(--faint); }
+
+/* What a package is, beside its name: a theme brings only a stylesheet. */
+.package-kind {
+  display: inline-block; white-space: nowrap;
+  margin-left: 7px; padding: 1px 6px; border-radius: var(--radius-xs);
+  background: var(--acid-chip); color: var(--acid-text);
+  font: 600 9px var(--mono); font-style: normal; letter-spacing: .06em; text-transform: uppercase;
+}

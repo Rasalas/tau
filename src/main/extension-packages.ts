@@ -44,7 +44,7 @@ export interface ExtensionManifest {
   desktop?: string;
   /** Relative path of the host entry (a module default-exporting a HostExtension or `activate`). */
   host?: string;
-  /** Relative path of a stylesheet loaded while the desktop half is active. */
+  /** Relative path of a stylesheet loaded while the package is active; on its own it makes a theme. */
   styles?: string;
   /** Relative path of the Pi entry: the package's half inside a Pi runtime Tau does not own. */
   pi?: string;
@@ -130,8 +130,13 @@ export function parseExtensionManifest(directory: string, source: string): { man
   const hostEntry = relativeEntry(directory, host, "host");
   const stylesEntry = relativeEntry(directory, styles, "styles");
   const piEntry = relativeEntry(directory, pi, "pi");
-  if (!desktopEntry && !hostEntry) throw new Error(`${MANIFEST_FILE} names neither a "desktop" nor a "host" entry`);
-  if (stylesEntry && !desktopEntry) throw new Error(`"styles" needs a "desktop" entry: a stylesheet lives as long as the desktop half`);
+  if (!desktopEntry && !hostEntry && !stylesEntry) throw new Error(`${MANIFEST_FILE} names none of a "desktop", a "host" and a "styles" entry`);
+  // A package that is only a stylesheet is a theme: it runs no code, so it asks
+  // for nothing and there is no host process for it to be isolated from.
+  if (!desktopEntry && !hostEntry) {
+    if (parsedPermissions.length > 0) throw new Error(`a theme is only a stylesheet and cannot hold permissions; drop "permissions" or add a "desktop" or "host" entry`);
+    if (parsedIsolation) throw new Error(`a theme runs no code, so "isolation" says nothing; drop it or add a "host" entry`);
+  }
   return {
     manifest: {
       id,
@@ -164,6 +169,15 @@ function parseEngines(value: unknown): ExtensionEngines | undefined {
   }
   try { assertEngineRanges(engines); } catch (error) { throw new Error(`"engines": ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
   return engines;
+}
+
+/**
+ * A package that brings a stylesheet and no code. It needs no grant — there is
+ * nothing to approve — and it loads after everything else, so its tokens win
+ * (see `docs/EXTENSIONS.md`, "Theme packages").
+ */
+export function isThemeManifest(manifest: { desktop?: string; host?: string; styles?: string }): boolean {
+  return Boolean(manifest.styles) && !manifest.desktop && !manifest.host;
 }
 
 /** Where a package's host half runs; a package that declares nothing is isolated. */
@@ -203,7 +217,7 @@ async function readPackageFolder(
   const parsed = parseExtensionManifest(packageDir, await readFile(join(packageDir, MANIFEST_FILE), "utf8"));
   const incompatible = manifestIncompatibility(parsed.manifest, options.versions);
   if (incompatible) throw new Error(incompatible);
-  for (const entry of [parsed.desktopEntry, parsed.hostEntry, parsed.piEntry]) {
+  for (const entry of [parsed.desktopEntry, parsed.hostEntry, parsed.piEntry, parsed.stylesEntry]) {
     if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new Error(`entry ${entry} does not exist`);
   }
   const signature = await verifyExtensionSignature(packageDir, parsed.manifest, publishers);
@@ -311,7 +325,8 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
       permissions: pkg.manifest.permissions ?? [],
       isolation: packageIsolation(pkg.manifest),
-      granted: isPackageGranted(pkg.manifest, grantsFile.grants),
+      // A theme runs no code and asks for nothing: there is no grant to wait for.
+      granted: isThemeManifest(pkg.manifest) || isPackageGranted(pkg.manifest, grantsFile.grants),
       ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
       ...(pkg.installedFrom ? { installedFrom: pkg.installedFrom } : {}),
       ...(pkg.signature ? { signature: { state: pkg.signature.state, label: describeSignature(pkg.signature) } } : {}),
@@ -319,6 +334,7 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       directory: pkg.directory,
       desktop: Boolean(pkg.desktopEntry),
       host: Boolean(pkg.hostEntry),
+      ...(isThemeManifest(pkg.manifest) ? { theme: true } : {}),
     })),
     errors: scan.errors,
     skipped: scan.skipped,

@@ -1,0 +1,7 @@
+{
+  "id": "example.theme-terracotta",
+  "name": "Terracotta",
+  "version": "1.0.0",
+  "engines": { "api": "^1.3.0" },
+  "styles": "./theme.css"
+}

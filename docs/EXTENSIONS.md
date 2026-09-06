@@ -138,8 +138,8 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 | `permissions` | The permission vocabulary this package asks for (§ below); missing means none. |
 | `isolation` | `"worker"` (default) or `"in-process"` (§6). |
 | `source` | `{ url, commit? }`, shown in Settings → Inspector. Provenance only — it proves nothing by itself (§4). |
-| `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, not both. |
-| `styles` | Relative path of a stylesheet loaded while the desktop half is active; it needs a `desktop` entry. |
+| `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, and both may be when `styles` is there instead. |
+| `styles` | Relative path of a stylesheet loaded while the package is active. On its own — no `desktop`, no `host` — it makes the package a **theme** (§8). |
 | `pi` | Relative entry path of the package's half inside a Pi runtime Tau does not own (see above); optional. |
 
 `desktop` and `host` entries are compiled with esbuild at load time (Node
@@ -234,6 +234,10 @@ of your own (Tau's own kits use their id: `.preview-*`, `.agent-*`); they land
 after the workbench's own stylesheet. Core's own class vocabulary — the panel
 frame, the menu, the chips, the prompt frame, the thread row — stays in core
 and is documented in [CORE.md](CORE.md): use it, do not restyle it.
+
+Write no colour of your own: name a token, or mix one
+(`color-mix(in srgb, var(--acid) 25%, transparent)`). §8 is the table, and a
+package that brings a stylesheet and nothing else is a theme.
 
 ### The three modules a package imports from Tau
 
@@ -741,3 +745,232 @@ UI) a package goes through.
 To test interactively in the running app, `/install <path to your package>`
 (`-l` for project scope), approve it in Settings, `/reload`, and use it. This
 is exactly how `examples/hello-package` was verified for this document.
+
+
+## 8. Themes: the tokens a theme may set
+
+A package whose manifest names `styles` and neither `desktop` nor `host` is a
+**theme**. It brings CSS and no code, so it declares no `permissions` and no
+`isolation` — the manifest refuses both — and there is nothing for the user to
+approve: `/install` applies it there and then, `/remove` takes it back off, and
+neither needs a reload. Settings → Packages marks the row "Theme"; the switch
+beside it turns the stylesheet off and on like any other extension's.
+
+```json
+{
+  "id": "acme.midnight",
+  "name": "Midnight",
+  "version": "1.0.0",
+  "engines": { "api": "^1.3.0" },
+  "styles": "./theme.css"
+}
+```
+
+Its stylesheet is served over `tau-ext://` and linked **last**: after core's
+`tokens.css`, which `index.html` links before anything else, and after every
+kit's own stylesheet. Order is the whole of the precedence — a theme sets a
+name again at the same specificity and wins because it comes later, so no theme
+ever needs `!important` or a deeper selector.
+
+### The two token sets, and how one is chosen
+
+`src/renderer/tokens.css` declares each token once, as
+`light-dark(light, dark)`; the used `color-scheme` picks the side. `data-theme`
+on `<html>` sets that: `system` (the default, and what the document ships with,
+so the OS decides the first paint), `dark` or `light`. The preference lives in
+Settings → Defaults → Appearance and in the palette ("Theme: …", "Cycle the
+theme"); the client writes it onto `<html>` and nothing else in the client ever
+reads a colour.
+
+A theme writes `light-dark()` too if it means both schemes, or a single colour
+if it means one:
+
+```css
+:root {
+  --acid: light-dark(#d2603a, #ff9d6b);   /* the accent as a fill */
+  --acid-text: light-dark(#9a3d18, #ff9d6b); /* the accent as ink on a surface */
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+```
+
+`examples/theme-terracotta/` is that example in full: a manifest, one
+stylesheet, a new accent and a new code face.
+
+### The table
+
+These names are the contract, and the only one: no layout class is API. A theme
+that restyles `.thread-row` or `.panel-body` is reaching past the seam and will
+break — core's class vocabulary is documented in [CORE.md](CORE.md) to be used,
+not overridden.
+
+Two rules keep the table honest, both checked by `src/renderer/tokens.test.ts`:
+no colour may be written anywhere but `tokens.css` (kit stylesheets included),
+and every token that carries text must reach WCAG AA — 4.5:1 on the five
+surfaces text is read on, in **both** schemes; marks, fills and small print
+reach 3:1. A theme is not held to that automatically, so check your own values.
+
+**Surfaces**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--well` | deepest: an inset control | `#e6e4da` | `#11110f` |
+| `--shell` | the window | `#f2f0e8` | `#131311` |
+| `--rail` | the sidebar | `#eeece2` | `#151513` |
+| `--chrome` | title bar, panel chrome | `#f0eee5` | `#161614` |
+| `--stage` | the document area and panel bodies | `#faf9f4` | `#191917` |
+| `--sunken` | a well inside a surface | `#edebe0` | `#1c1c18` |
+| `--field` | an input | `#fdfcf8` | `#1d1d19` |
+| `--thread-active` | the selected thread row | `#e9e7db` | `#1e1e1a` |
+| `--raised` | a chip or inline code | `#e7e5d9` | `#22221d` |
+| `--raised-strong` | a raised surface that is hovered or floating | `#dedcce` | `#272722` |
+| `--raised-hover` | the hover of a raised control | `#d4d2c3` | `#343431` |
+| `--overlay` | a modal panel | `#fbfaf5` | `#1a1a17` |
+| `--float` | a menu, a toast, a popover card | `#fdfcf8` | `#1f1f1b` |
+| `--hover` | the wash under a hovered row | `#eae8dc` | `#1a1a17` |
+| `--hover-strong` | the same, in a list that needs to read | `#e5e3d6` | `#1c1c19` |
+| `--code-bg` | code blocks, tool output, diffs | `#f6f4ec` | `#101010` |
+| `--inset` | a block inside a settings page | `#f0eee3` | `#191916` |
+| `--chip` | a small label's background | `#e4e2d5` | `#26261f` |
+| `--chip-hover` | a small label, hovered | `#dbd9ca` | `#2a2a23` |
+| `--track` | an empty progress track | `#d8d6c8` | `#393932` |
+| `--scrim` | the dim behind a modal | `#2a2a24a3` | `#0a0a09e8` |
+| `--scrim-deep` | the dim behind a full-screen image | `#1a1a16e0` | `#050505ed` |
+| `--drop-card` | the card in a drag-and-drop overlay | `#fbfaf3ee` | `#20221cee` |
+
+**Hairlines**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--line` | the ordinary hairline | `#dedac9` | `#26261f` |
+| `--line-soft` | a hairline that should barely show | `#e6e2d3` | `#23231e` |
+| `--line-inset` | between rows of one list | `#e8e4d6` | `#1f1f1a` |
+| `--line-card` | the edge of a card | `#d8d4c2` | `#2a2a23` |
+| `--line-control` | the edge of a button or chip | `#d4d0bd` | `#2b2b24` |
+| `--line-strong` | an edge that has to be read as one | `#c9c5b1` | `#2f2f28` |
+| `--line-field` | the edge of an input | `#c2bda7` | `#34342c` |
+| `--line-focus` | a field with focus inside it | `#a9a48c` | `#404036` |
+| `--line-float` | a menu or popover edge | `#bcb7a0` | `#3a3a31` |
+| `--line-hover` | a control's edge while hovered | `#a9a48c` | `#4a4a40` |
+| `--edge-highlight` | the inner top edge of a raised surface | `#ffffffcc` | `#ffffff08` |
+| `--edge-highlight-strong` | the same, on a round control | `#ffffff` | `#ffffff26` |
+| `--edge-line` | the edge of a selected row | `#00000014` | `#ffffff0f` |
+| `--wash` | a fill barely above its surface | `#00000008` | `#ffffff04` |
+| `--wash-2` | the same, one step up | `#0000000f` | `#ffffff0a` |
+
+**Ink**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--ink` | headings and emphasis | `#1c1b15` | `#e7e4d9` |
+| `--ink-prose` | assistant prose | `#27261e` | `#ddd9cd` |
+| `--ink-2` | body text of the chrome | `#38372d` | `#c9c6ba` |
+| `--ink-3` | secondary text | `#56544a` | `#a09e92` |
+| `--ink-code` | code and diff bodies | `#45443a` | `#b5b3a6` |
+| `--muted` | labels | `#636257` | `#8b8a7f` |
+| `--muted-2` | small print | `#75746a` | `#7c7b70` |
+| `--faint` | glyphs and disabled text | `#85857a` | `#6b6a5f` |
+| `--fainter` | a mark that is only a hint of one | `#adac9f` | `#4f4e45` |
+| `--scrollbar` | the scrollbar thumb | `#cbc8b6` | `#33332b` |
+| `--scrollbar-hover` | the same, hovered | `#b3b09c` | `#45453b` |
+
+**Accent**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--acid` | the accent as a fill | `#b7e229` | `#c7ff3d` |
+| `--acid-text` | the accent as text or an icon on a surface | `#4a6410` | `#c7ff3d` |
+| `--acid-ink` | text on the accent fill | `#16190c` | `#141512` |
+| `--acid-strong` | the accent fill, hovered | `#a6cf1c` | `#d4ff63` |
+| `--acid-bg` | the accent as a surface | `#eef6d5` | `#1b2010` |
+| `--acid-line` | the accent as an edge | `#c6db8d` | `#3a4423` |
+| `--acid-chip` | the accent as a chip behind accent text | `#e4f0bb` | `#2c3915` |
+| `--acid-track` | the accent as a filled track | `#cde596` | `#3d4d18` |
+| `--acid-glow` | the accent as a glow around a mark | `#a5cf2bbb` | `#c7ff3dbb` |
+| `--focus` | the focus ring | `#4a6410` | `#c7ff3d` |
+
+**Status**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--working` | a run in flight | `#a34a08` | `#ff8a4d` |
+| `--ready` | a run that finished | `#1c7440` | `#7ade9f` |
+| `--removed` | something taken away | `#b03a28` | `#f07a6a` |
+| `--stop` | the abort control | `#c2282d` | `#e5484d` |
+| `--stop-ink` | the square on the stop button | `#ffffff` | `#ffffff` |
+| `--cyan` | numbers and types | `#06706c` | `#6fd3cf` |
+| `--danger` | destructive text | `#a83f30` | `#d88c83` |
+| `--danger-line` | the edge of a destructive control | `#e2b4ab` | `#6f3838` |
+| `--danger-bg` | that control, hovered | `#faeae6` | `#251917` |
+| `--warn` | a caution | `#8a5a09` | `#e0a34d` |
+| `--warn-chip` | a caution as a chip | `#f7ecd8` | `#33241d` |
+| `--fail` | a failed run's mark | `#c2452f` | `#d05a4a` |
+| `--fail-ink` | what that run says | `#a83b28` | `#d98a7c` |
+| `--info` | a step in progress | `#3457d5` | `#4d7cff` |
+| `--info-deep` | a step already done, in a dense bar | `#2745ad` | `#426fe1` |
+| `--info-ink` | the same, as text | `#2b4bbf` | `#79acf0` |
+| `--done` | a step that finished | `#0d7f5f` | `#13c99a` |
+| `--stale` | how long ago something ran | `#8a5a3f` | `#c9a18b` |
+| `--folder` | a directory | `#6f6118` | `#a59d68` |
+
+**Diff**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--diff-add-bg` | an added line | `#e6f3da` | `#1e2a17` |
+| `--diff-add-ink` | its text | `#2c5418` | `#c6e6a8` |
+| `--diff-add-mark` | the changed run inside an added line | `#a8dc86` | `#527a3c` |
+| `--diff-add-mark-ink` | the run's text | `#1c3f0d` | `#e1ffc8` |
+| `--diff-add-mark-line` | the run's edge | `#6fa552` | `#76a957` |
+| `--diff-del-bg` | a removed line | `#fbe7e1` | `#2b1a17` |
+| `--diff-del-ink` | its text | `#8c2f1f` | `#e0a89e` |
+| `--diff-del-mark` | the changed run inside a removed line | `#f2b4a7` | `#8b433b` |
+| `--diff-del-mark-ink` | the run's text | `#66200f` | `#ffd1c8` |
+| `--diff-del-mark-line` | the run's edge | `#c8695c` | `#b95b50` |
+| `--syntax-fn` | highlight.js function and class names | `#5c6b13` | `#d9e88f` |
+
+**Project**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--project-tint` | a project's mark | `hsl(var(--project-hue) 46% 88%)` | `hsl(var(--project-hue) 34% 15%)` |
+| `--project-ink` | its letters | `hsl(var(--project-hue) 55% 27%)` | `hsl(var(--project-hue) 70% 66%)` |
+| `--provider-bg` | the tile behind a provider glyph | `#2a2924` | `#f3f1e9` |
+| `--provider-ink` | the glyph itself | `#f3f1e9` | `#171713` |
+| `--provider-google` | brand tint, the same in both schemes | `#f8faff` | `#f8faff` |
+| `--provider-claude` | brand tint, the same in both schemes | `#f3e8df` | `#f3e8df` |
+| `--reload-core` | the centre of the reload curtain | `#e5f0c8` | `#25320f` |
+| `--reload-halo` | its falloff | `#f3f5e6` | `#171a10` |
+| `--reload-panel` | the panel inside it | `#f4f7e6` | `#171a11` |
+
+**Shadows**
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--shadow-soft` | a small float | `#3c38281f` | `#00000066` |
+| `--shadow` | a menu or a toast | `#3c382833` | `#00000099` |
+| `--shadow-strong` | a modal | `#2d2a1e40` | `#000000cc` |
+
+**Type, size, motion**
+
+| Token | Role | Value |
+|---|---|---|
+| `--mono` | code, labels and numbers | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` |
+| `--sans` | everything else | `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` |
+| `--radius-xs` | a tag | `4px` |
+| `--radius-sm` | a button | `6px` |
+| `--radius-md` | a card | `9px` |
+| `--radius-lg` | a panel | `12px` |
+| `--radius-xl` | a modal | `16px` |
+| `--radius-pill` | a pill or a knob | `999px` |
+| `--motion-fast` | a hover or a chevron | `120ms` |
+| `--motion` | a row or a card arriving | `180ms` |
+| `--motion-slow` | a curtain | `320ms` |
+| `--ease` | the curve all three use | `cubic-bezier(.4, 0, .2, 1)` |
+| `--elevation-1` | a small float | `0 5px 18px var(--shadow-soft)` |
+| `--elevation-2` | a menu, a toast, a popover | `0 16px 40px var(--shadow)` |
+| `--elevation-3` | a modal | `0 40px 100px var(--shadow-strong)` |
+
+`--project-hue` is not a token: the thread row sets it per project, and
+`--project-tint` and `--project-ink` say how deep that hue reads. The same goes
+for the handful of layout variables a component sets on itself
+(`--stage-left`, `--keep-clear-x`, `--composer-inset`, `--used`).

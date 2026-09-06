@@ -76,9 +76,9 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
   };
 
   const bundled = (inspection?.packages ?? []).filter((entry) => entry.scope === "bundled");
-  const grantState = (id: string | undefined) => id
-    ? inspection?.packages.find((entry) => entry.id === id)?.granted
-    : undefined;
+  const summaryOf = (id: string | undefined) => id ? inspection?.packages.find((entry) => entry.id === id) : undefined;
+  // What the package is, in one word: a theme brings only a stylesheet.
+  const kindOf = (id: string | undefined) => summaryOf(id)?.theme ? "Theme" : undefined;
 
   return (
     <div className="settings-page">
@@ -127,7 +127,7 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
             {bundled.map((kit) => (
               <tr key={kit.id} data-extension-id={kit.id}>
                 <td>
-                  <strong>{kit.name}</strong>
+                  <strong>{kit.name}{kit.theme ? <em className="package-kind">Theme</em> : null}</strong>
                   <small>{kit.id}{kit.version ? ` · ${kit.version}` : ""}</small>
                 </td>
                 <td>{kit.permissions?.length ? kit.permissions.join(", ") : "none"}</td>
@@ -150,11 +150,12 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
           <thead><tr><th>Package</th><th>Scope</th><th>Signature</th><th>Source</th><th /></tr></thead>
           <tbody>
             {packages.map((entry) => {
-              const granted = grantState(entry.id);
+              const granted = summaryOf(entry.id)?.granted;
+              const kind = kindOf(entry.id);
               return (
                 <tr key={`${entry.scope}:${entry.source}`} data-extension-id={entry.id}>
                   <td>
-                    <strong>{entry.name ?? entry.id ?? "unreadable package"}</strong>
+                    <strong>{entry.name ?? entry.id ?? "unreadable package"}{kind ? <em className="package-kind">{kind}</em> : null}</strong>
                     <small>{entry.id ?? entry.directory}{entry.version ? ` · ${entry.version}` : ""}</small>
                   </td>
                   <td>{entry.scope === "global" ? "every project" : "this project"}</td>

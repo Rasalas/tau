@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
-import { bundleHostExtension, importHostExtension, inspectExtensionPackages, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest } from "./extension-packages.js";
+import { bundleHostExtension, importHostExtension, inspectExtensionPackages, isThemeManifest, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest } from "./extension-packages.js";
 import { grantPackage } from "./extension-grants.js";
 
 const dirs: string[] = [];
@@ -34,7 +34,7 @@ describe("extension packages", () => {
   it("validates manifests", () => {
     expect(() => parseExtensionManifest("/p", "{")).toThrow("not valid JSON");
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "Bad Id", name: "x", host: "./h.ts" }))).toThrow('"id"');
-    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x" }))).toThrow("neither");
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x" }))).toThrow("names none of");
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", host: "../h.ts" }))).toThrow("inside the package folder");
     expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: " Hello ", desktop: "./d.tsx" }))).toEqual({
       manifest: { id: "a.b", name: "Hello", permissions: [], desktop: "./d.tsx" },
@@ -42,16 +42,47 @@ describe("extension packages", () => {
     });
   });
 
-  it("resolves the stylesheet a package names, and refuses one without a desktop half", () => {
+  it("resolves the stylesheet a package names, and keeps it inside the folder", () => {
     expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", desktop: "./d.tsx", styles: "./styles.css" }))).toEqual({
       manifest: { id: "a.b", name: "x", permissions: [], desktop: "./d.tsx", styles: "./styles.css" },
       desktopEntry: "/p/d.tsx",
       stylesEntry: "/p/styles.css",
     });
-    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", host: "./h.ts", styles: "./styles.css" })))
-      .toThrow('"styles" needs a "desktop" entry');
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", desktop: "./d.tsx", styles: "../elsewhere.css" })))
       .toThrow("inside the package folder");
+  });
+
+  it("reads a package that is only a stylesheet as a theme", () => {
+    const parsed = parseExtensionManifest("/p", JSON.stringify({ id: "a.theme", name: "Theme", styles: "./theme.css" }));
+    expect(parsed).toEqual({
+      manifest: { id: "a.theme", name: "Theme", permissions: [], styles: "./theme.css" },
+      stylesEntry: "/p/theme.css",
+    });
+    expect(isThemeManifest(parsed.manifest)).toBe(true);
+    expect(isThemeManifest({ id: "a.b", desktop: "./d.tsx", styles: "./s.css" } as never)).toBe(false);
+  });
+
+  it("reports a theme as granted: there is nothing to approve", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    await writePackage(project, "terracotta", { id: "acme.theme", name: "Terracotta", styles: "./theme.css" }, { "theme.css": ":root {}" });
+    const inspection = await inspectExtensionPackages(project, join(home, "agent"), {
+      home,
+      trusted: () => true,
+      versions: { tau: "0.1.1", pi: "0.84.4", api: "1.3.0" },
+      grantsFilePath: join(home, "grants.json"),
+    });
+    const theme = inspection.packages.find((entry) => entry.id === "acme.theme");
+    expect(theme).toMatchObject({ theme: true, granted: true, desktop: false, host: false });
+  });
+
+  it("refuses a theme that asks for anything, and a manifest that names no entry at all", () => {
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.theme", name: "T", styles: "./t.css", permissions: ["process"] })))
+      .toThrow("a theme is only a stylesheet and cannot hold permissions");
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.theme", name: "T", styles: "./t.css", isolation: "in-process" })))
+      .toThrow('a theme runs no code, so "isolation" says nothing');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x" })))
+      .toThrow('names none of a "desktop", a "host" and a "styles" entry');
   });
 
   it("parses permissions and refuses unknown ones", () => {

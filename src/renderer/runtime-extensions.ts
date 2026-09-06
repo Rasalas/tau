@@ -134,7 +134,10 @@ export class RuntimeExtensions {
       try { this.registry.deactivate(record.extension.id); } catch (error) { this.host.log("desktop-extension.deactivate.failed", String(error)); }
     }
     const next: RuntimeExtensionRecord[] = [];
-    for (const bundle of result.bundles) {
+    // A theme is only a stylesheet, and a stylesheet's rules are ordered by
+    // where its <link> lands: last, so a theme's tokens beat core's and every
+    // kit's without any of them raising their specificity.
+    for (const bundle of [...result.bundles].sort((left, right) => Number(left.theme ?? false) - Number(right.theme ?? false))) {
       try {
         const module = await (this.host.importModule ?? importBundle)(bundle);
         const extension = (module as { default?: unknown } | null)?.default;
