@@ -11,133 +11,140 @@
  * stylesheet, so the first paint is already themed and no runtime import can
  * delay it. `src/renderer/tokens.test.ts` fails on a raw colour outside this
  * file and on a text token that misses WCAG AA.
+ *
+ * Two token sets, one declaration each: `light-dark(light, dark)` picks by the
+ * used `color-scheme`, which `data-theme` on <html> sets. `system` — the
+ * default, and what `index.html` ships — leaves the choice to
+ * `prefers-color-scheme`, so the OS is followed before any script runs.
  */
 
 :root {
+  color-scheme: light dark;
+
   /* ------------------------------------------------------------ surfaces */
-  --well: #11110f;              /* deepest: an inset control */
-  --shell: #131311;             /* the window */
-  --rail: #151513;              /* the sidebar */
-  --chrome: #161614;            /* title bar, panel chrome */
-  --stage: #191917;             /* the document area and panel bodies */
-  --sunken: #1c1c18;            /* a well inside a surface */
-  --field: #1d1d19;             /* an input */
-  --thread-active: #1e1e1a;     /* the selected thread row */
-  --raised: #22221d;            /* a chip or inline code */
-  --raised-strong: #272722;     /* a raised surface that is hovered or floating */
-  --raised-hover: #343431;      /* the hover of a raised control */
-  --overlay: #1a1a17;           /* a modal panel */
-  --float: #1f1f1b;             /* a menu, a toast, a popover card */
-  --hover: #1a1a17;             /* the wash under a hovered row */
-  --hover-strong: #1c1c19;      /* the same, in a list that needs to read */
-  --code-bg: #101010;           /* code blocks, tool output, diffs */
-  --inset: #191916;             /* a block inside a settings page */
-  --chip: #26261f;              /* a small label's background */
-  --chip-hover: #2a2a23;
-  --track: #393932;             /* an empty progress track */
-  --scrim: #0a0a09e8;           /* the dim behind a modal */
-  --scrim-deep: #050505ed;      /* the dim behind a full-screen image */
-  --drop-card: #20221cee;       /* the card in a drag-and-drop overlay */
+  --well: light-dark(#e6e4da, #11110f);              /* deepest: an inset control */
+  --shell: light-dark(#f2f0e8, #131311);             /* the window */
+  --rail: light-dark(#eeece2, #151513);              /* the sidebar */
+  --chrome: light-dark(#f0eee5, #161614);            /* title bar, panel chrome */
+  --stage: light-dark(#faf9f4, #191917);             /* the document area and panel bodies */
+  --sunken: light-dark(#edebe0, #1c1c18);            /* a well inside a surface */
+  --field: light-dark(#fdfcf8, #1d1d19);             /* an input */
+  --thread-active: light-dark(#e9e7db, #1e1e1a);     /* the selected thread row */
+  --raised: light-dark(#e7e5d9, #22221d);            /* a chip or inline code */
+  --raised-strong: light-dark(#dedcce, #272722);     /* a raised surface that is hovered or floating */
+  --raised-hover: light-dark(#d4d2c3, #343431);      /* the hover of a raised control */
+  --overlay: light-dark(#fbfaf5, #1a1a17);           /* a modal panel */
+  --float: light-dark(#fdfcf8, #1f1f1b);             /* a menu, a toast, a popover card */
+  --hover: light-dark(#eae8dc, #1a1a17);             /* the wash under a hovered row */
+  --hover-strong: light-dark(#e5e3d6, #1c1c19);      /* the same, in a list that needs to read */
+  --code-bg: light-dark(#f6f4ec, #101010);           /* code blocks, tool output, diffs */
+  --inset: light-dark(#f0eee3, #191916);             /* a block inside a settings page */
+  --chip: light-dark(#e4e2d5, #26261f);              /* a small label's background */
+  --chip-hover: light-dark(#dbd9ca, #2a2a23);
+  --track: light-dark(#d8d6c8, #393932);             /* an empty progress track */
+  --scrim: light-dark(#2a2a24a3, #0a0a09e8);         /* the dim behind a modal */
+  --scrim-deep: light-dark(#1a1a16e0, #050505ed);    /* the dim behind a full-screen image */
+  --drop-card: light-dark(#fbfaf3ee, #20221cee);     /* the card in a drag-and-drop overlay */
 
   /* ----------------------------------------------------------- hairlines */
-  --line: #26261f;
-  --line-soft: #23231e;
-  --line-inset: #1f1f1a;        /* between rows of one list */
-  --line-card: #2a2a23;
-  --line-control: #2b2b24;
-  --line-strong: #2f2f28;
-  --line-field: #34342c;
-  --line-focus: #404036;        /* a field with focus inside it */
-  --line-float: #3a3a31;        /* a menu or popover edge */
-  --line-hover: #4a4a40;        /* a control's edge while hovered */
-  --edge-highlight: #ffffff08;  /* the inner top edge of a raised surface */
-  --edge-highlight-strong: #ffffff26;
-  --edge-line: #ffffff0f;       /* the edge of a selected row */
-  --wash: #ffffff04;            /* a fill barely above its surface */
-  --wash-2: #ffffff0a;
+  --line: light-dark(#dedac9, #26261f);
+  --line-soft: light-dark(#e6e2d3, #23231e);
+  --line-inset: light-dark(#e8e4d6, #1f1f1a);        /* between rows of one list */
+  --line-card: light-dark(#d8d4c2, #2a2a23);
+  --line-control: light-dark(#d4d0bd, #2b2b24);
+  --line-strong: light-dark(#c9c5b1, #2f2f28);
+  --line-field: light-dark(#c2bda7, #34342c);
+  --line-focus: light-dark(#a9a48c, #404036);        /* a field with focus inside it */
+  --line-float: light-dark(#bcb7a0, #3a3a31);        /* a menu or popover edge */
+  --line-hover: light-dark(#a9a48c, #4a4a40);        /* a control's edge while hovered */
+  --edge-highlight: light-dark(#ffffffcc, #ffffff08); /* the inner top edge of a raised surface */
+  --edge-highlight-strong: light-dark(#ffffff, #ffffff26);
+  --edge-line: light-dark(#00000014, #ffffff0f);     /* the edge of a selected row */
+  --wash: light-dark(#00000008, #ffffff04);          /* a fill barely above its surface */
+  --wash-2: light-dark(#0000000f, #ffffff0a);
 
   /* ----------------------------------------------------------------- ink */
-  --ink: #e7e4d9;               /* headings and emphasis */
-  --ink-prose: #ddd9cd;         /* assistant prose */
-  --ink-2: #c9c6ba;             /* body text of the chrome */
-  --ink-3: #a09e92;             /* secondary text */
-  --ink-code: #b5b3a6;          /* code and diff bodies */
-  --muted: #8b8a7f;             /* labels */
-  --muted-2: #7c7b70;           /* small print */
-  --faint: #6b6a5f;             /* glyphs and disabled text */
-  --fainter: #4f4e45;           /* a mark that is only a hint of one */
-  --scrollbar: #33332b;
-  --scrollbar-hover: #45453b;
+  --ink: light-dark(#1c1b15, #e7e4d9);               /* headings and emphasis */
+  --ink-prose: light-dark(#27261e, #ddd9cd);         /* assistant prose */
+  --ink-2: light-dark(#38372d, #c9c6ba);             /* body text of the chrome */
+  --ink-3: light-dark(#56544a, #a09e92);             /* secondary text */
+  --ink-code: light-dark(#45443a, #b5b3a6);          /* code and diff bodies */
+  --muted: light-dark(#636257, #8b8a7f);             /* labels */
+  --muted-2: light-dark(#75746a, #7c7b70);           /* small print */
+  --faint: light-dark(#85857a, #6b6a5f);             /* glyphs and disabled text */
+  --fainter: light-dark(#adac9f, #4f4e45);           /* a mark that is only a hint of one */
+  --scrollbar: light-dark(#cbc8b6, #33332b);
+  --scrollbar-hover: light-dark(#b3b09c, #45453b);
 
   /* -------------------------------------------------------------- accent */
-  --acid: #c7ff3d;              /* the accent as a fill */
-  --acid-text: #c7ff3d;         /* the accent as text or an icon on a surface */
-  --acid-ink: #141512;          /* text on the accent fill */
-  --acid-strong: #d4ff63;       /* the accent fill, hovered */
-  --acid-bg: #1b2010;
-  --acid-line: #3a4423;
-  --acid-chip: #2c3915;
-  --acid-track: #3d4d18;
-  --acid-glow: #c7ff3dbb;
-  --focus: #c7ff3d;             /* the focus ring */
+  --acid: light-dark(#b7e229, #c7ff3d);              /* the accent as a fill */
+  --acid-text: light-dark(#4a6410, #c7ff3d);         /* the accent as text or an icon on a surface */
+  --acid-ink: light-dark(#16190c, #141512);          /* text on the accent fill */
+  --acid-strong: light-dark(#a6cf1c, #d4ff63);       /* the accent fill, hovered */
+  --acid-bg: light-dark(#eef6d5, #1b2010);
+  --acid-line: light-dark(#c6db8d, #3a4423);
+  --acid-chip: light-dark(#e4f0bb, #2c3915);
+  --acid-track: light-dark(#cde596, #3d4d18);
+  --acid-glow: light-dark(#a5cf2bbb, #c7ff3dbb);
+  --focus: light-dark(#4a6410, #c7ff3d);             /* the focus ring */
 
   /* -------------------------------------------------------------- status */
-  --working: #ff8a4d;
-  --ready: #7ade9f;
-  --removed: #f07a6a;
-  --stop: #e5484d;
-  --stop-ink: #ffffff;          /* the square on the stop button */
-  --cyan: #6fd3cf;
-  --danger: #d88c83;            /* destructive text */
-  --danger-line: #6f3838;
-  --danger-bg: #251917;
-  --warn: #e0a34d;
-  --warn-chip: #33241d;
-  --fail: #d05a4a;              /* a failed run's mark */
-  --fail-ink: #d98a7c;          /* what that run says */
-  --info: #4d7cff;              /* a step in progress */
-  --info-deep: #426fe1;
-  --info-ink: #79acf0;          /* the same, as text */
-  --done: #13c99a;              /* a step that finished */
-  --stale: #c9a18b;             /* how long ago something ran */
-  --folder: #a59d68;
+  --working: light-dark(#a34a08, #ff8a4d);
+  --ready: light-dark(#1c7440, #7ade9f);
+  --removed: light-dark(#b03a28, #f07a6a);
+  --stop: light-dark(#c2282d, #e5484d);
+  --stop-ink: #ffffff;                               /* the square on the stop button */
+  --cyan: light-dark(#06706c, #6fd3cf);
+  --danger: light-dark(#a83f30, #d88c83);            /* destructive text */
+  --danger-line: light-dark(#e2b4ab, #6f3838);
+  --danger-bg: light-dark(#faeae6, #251917);
+  --warn: light-dark(#8a5a09, #e0a34d);
+  --warn-chip: light-dark(#f7ecd8, #33241d);
+  --fail: light-dark(#c2452f, #d05a4a);              /* a failed run's mark */
+  --fail-ink: light-dark(#a83b28, #d98a7c);          /* what that run says */
+  --info: light-dark(#3457d5, #4d7cff);              /* a step in progress */
+  --info-deep: light-dark(#2745ad, #426fe1);
+  --info-ink: light-dark(#2b4bbf, #79acf0);          /* the same, as text */
+  --done: light-dark(#0d7f5f, #13c99a);              /* a step that finished */
+  --stale: light-dark(#8a5a3f, #c9a18b);             /* how long ago something ran */
+  --folder: light-dark(#6f6118, #a59d68);
 
   /* ---------------------------------------------------------------- diff */
-  --diff-add-bg: #1e2a17;
-  --diff-add-ink: #c6e6a8;
-  --diff-add-mark: #527a3c;     /* the changed run inside an added line */
-  --diff-add-mark-ink: #e1ffc8;
-  --diff-add-mark-line: #76a957;
-  --diff-del-bg: #2b1a17;
-  --diff-del-ink: #e0a89e;
-  --diff-del-mark: #8b433b;
-  --diff-del-mark-ink: #ffd1c8;
-  --diff-del-mark-line: #b95b50;
-  --syntax-fn: #d9e88f;         /* highlight.js function and class names */
+  --diff-add-bg: light-dark(#e6f3da, #1e2a17);
+  --diff-add-ink: light-dark(#2c5418, #c6e6a8);
+  --diff-add-mark: light-dark(#a8dc86, #527a3c);     /* the changed run inside an added line */
+  --diff-add-mark-ink: light-dark(#1c3f0d, #e1ffc8);
+  --diff-add-mark-line: light-dark(#6fa552, #76a957);
+  --diff-del-bg: light-dark(#fbe7e1, #2b1a17);
+  --diff-del-ink: light-dark(#8c2f1f, #e0a89e);
+  --diff-del-mark: light-dark(#f2b4a7, #8b433b);
+  --diff-del-mark-ink: light-dark(#66200f, #ffd1c8);
+  --diff-del-mark-line: light-dark(#c8695c, #b95b50);
+  --syntax-fn: light-dark(#5c6b13, #d9e88f);         /* highlight.js function and class names */
 
   /* ------------------------------------------------------------- project */
-  /* A project's colour is its own hue; the theme owns how deep it reads. */
-  --project-tint-s: 34%;
-  --project-tint-l: 15%;
-  --project-ink-s: 70%;
-  --project-ink-l: 66%;
+  /* A project's colour is its own hue, set on the element; the theme says how
+     deep that hue reads. Both are substituted where they are used, so
+     `--project-hue` resolves on the icon and not here. */
+  --project-tint: light-dark(hsl(var(--project-hue) 46% 88%), hsl(var(--project-hue) 34% 15%));
+  --project-ink: light-dark(hsl(var(--project-hue) 55% 27%), hsl(var(--project-hue) 70% 66%));
 
   /* Provider marks are brand chips: the tile flips with the theme, the two
      family tints do not. */
-  --provider-bg: #f3f1e9;
-  --provider-ink: #171713;
+  --provider-bg: light-dark(#2a2924, #f3f1e9);
+  --provider-ink: light-dark(#f3f1e9, #171713);
   --provider-google: #f8faff;
   --provider-claude: #f3e8df;
 
   /* The reload curtain: a full-screen boundary of its own. */
-  --reload-core: #25320f;
-  --reload-halo: #171a10;
-  --reload-panel: #171a11;
+  --reload-core: light-dark(#e5f0c8, #25320f);
+  --reload-halo: light-dark(#f3f5e6, #171a10);
+  --reload-panel: light-dark(#f4f7e6, #171a11);
 
   /* ------------------------------------------------------------- shadows */
-  --shadow-soft: #00000066;
-  --shadow: #00000099;
-  --shadow-strong: #000000cc;
+  --shadow-soft: light-dark(#3c38281f, #00000066);
+  --shadow: light-dark(#3c382833, #00000099);
+  --shadow-strong: light-dark(#2d2a1e40, #000000cc);
   --elevation-1: 0 5px 18px var(--shadow-soft);
   --elevation-2: 0 16px 40px var(--shadow);
   --elevation-3: 0 40px 100px var(--shadow-strong);
@@ -159,3 +166,8 @@
   --motion-slow: 320ms;
   --ease: cubic-bezier(.4, 0, .2, 1);
 }
+
+/* The preference, as the client writes it onto <html>. `system` is the base
+   above; these two take the choice away from the OS. */
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }

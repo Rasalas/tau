@@ -13,6 +13,54 @@ const RAW_COLOUR = /#[0-9a-fA-F]{3,8}\b|(?<!\/\* )\brgba?\(|\bhsla?\((?!var\()/g
 /** Custom properties the client sets on an element at runtime, not tokens a theme owns. */
 const RUNTIME_PROPERTIES = ["--project-hue", "--used", "--keep-clear-x", "--stage-left", "--stage-right", "--composer-inset"];
 
+/** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */
+const TEXT_SURFACES = ["shell", "stage", "chrome", "field", "overlay"];
+/** Tokens that carry running text: WCAG AA, 4.5:1. */
+const AA_TEXT = ["ink", "ink-prose", "ink-2", "ink-3", "ink-code", "muted"];
+/** Accent and status tokens used as text or as an icon beside it. */
+const AA_ACCENT = [
+  "acid-text", "working", "ready", "removed", "cyan", "info-ink", "danger", "warn", "fail-ink",
+  "syntax-fn", "diff-add-ink", "diff-del-ink",
+];
+/** Marks, fills and small print: AA for large text and non-text contrast, 3:1. */
+const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "stale", "folder"];
+/** Ink that sits on a fill rather than on a surface. */
+const ON_FILL: ReadonlyArray<[string, string]> = [
+  ["acid-ink", "acid"], ["acid-ink", "acid-strong"], ["provider-ink", "provider-bg"],
+  ["diff-add-mark-ink", "diff-add-mark"], ["diff-del-mark-ink", "diff-del-mark"],
+  ["diff-add-ink", "diff-add-bg"], ["diff-del-ink", "diff-del-bg"], ["acid-text", "acid-chip"],
+];
+
+/** A shape rather than a glyph: non-text contrast, 3:1. */
+const MARK_ON_FILL: ReadonlyArray<[string, string]> = [["stop-ink", "stop"]];
+
+/** `--name: value;` for every token, with `light-dark()` left whole. */
+async function readTokens(): Promise<Map<string, string>> {
+  const css = await readFile(TOKENS, "utf8");
+  return new Map([...css.matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gmu)].map(([, name, value]) => [name, value.trim()]));
+}
+
+function colour(tokens: Map<string, string>, name: string, scheme: "light" | "dark"): string {
+  const value = tokens.get(`--${name}`);
+  if (value === undefined) throw new Error(`no token --${name}`);
+  const pair = /^light-dark\((.+),\s*(.+)\)$/u.exec(value);
+  return (pair ? (scheme === "light" ? pair[1] : pair[2]) : value).trim();
+}
+
+/** WCAG relative luminance; an alpha channel is ignored, as these tokens are opaque. */
+function luminance(value: string): number {
+  const digits = value.replace("#", "");
+  const full = digits.length < 6 ? [...digits.slice(0, 3)].map((c) => c + c).join("") : digits.slice(0, 6);
+  const channels = [0, 2, 4].map((index) => Number.parseInt(full.slice(index, index + 2), 16) / 255);
+  const [r, g, b] = channels.map((c) => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function ratio(foreground: string, background: string): number {
+  const [a, b] = [luminance(foreground), luminance(background)];
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
 async function stylesheets(): Promise<Array<{ name: string; css: string }>> {
   const files = [STYLES];
   for await (const path of glob(`${KITS}/*/styles.css`)) files.push(new URL(`file://${path}`));
@@ -30,6 +78,35 @@ describe("the token contract", () => {
     const tokens = await readFile(TOKENS, "utf8");
     expect(tokens).not.toMatch(/@import\s+url\(/u);
     expect(tokens).not.toMatch(/backdrop-filter\s*:/u);
+  });
+
+  it("holds text tokens to WCAG AA in both schemes", async () => {
+    const tokens = await readTokens();
+    for (const scheme of ["light", "dark"] as const) {
+      const pick = (name: string) => colour(tokens, name, scheme);
+      for (const [group, minimum] of [[AA_TEXT, 4.5], [AA_ACCENT, 4.5], [AA_LARGE, 3]] as const) {
+        for (const name of group) {
+          for (const surface of TEXT_SURFACES) {
+            const contrast = ratio(pick(name), pick(surface));
+            expect(contrast, `${scheme}: --${name} on --${surface} is ${contrast.toFixed(2)}:1`).toBeGreaterThanOrEqual(minimum);
+          }
+        }
+      }
+      for (const [pairs, minimum] of [[ON_FILL, 4.5], [MARK_ON_FILL, 3]] as const) {
+        for (const [ink, fill] of pairs) {
+          const contrast = ratio(pick(ink), pick(fill));
+          expect(contrast, `${scheme}: --${ink} on --${fill} is ${contrast.toFixed(2)}:1`).toBeGreaterThanOrEqual(minimum);
+        }
+      }
+    }
+  });
+
+  it("gives every colour token a value in both schemes", async () => {
+    const tokens = await readTokens();
+    const single = [...tokens].filter(([, value]) => /^#|^hsl\(/u.test(value) && !value.startsWith("light-dark("));
+    // A brand tint and the mark on the stop button are the same in both schemes
+    // on purpose; anything else with one value is a token that was not themed.
+    expect(single.map(([name]) => name).sort()).toEqual(["--provider-claude", "--provider-google", "--stop-ink"]);
   });
 
   it("defines every token the stylesheets ask for", async () => {
