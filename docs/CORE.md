@@ -77,7 +77,7 @@ window that cannot install is still `npm run start` or an edit to
 
 ## How to check
 
-- Settings → Packages lists the two sets apart: the kits Tau ships (`scope: "bundled"` from `inspectBundledKits`, granted by construction) above the packages a source installed. A rescan after an install never touches the first set — the activator only ever loads what it scanned from the package folders, and refuses a package claiming a kit's id.
+- Settings → Packages lists the two sets apart: the kits Tau ships (`scope: "bundled"` from `inspectBundledKits`, granted by construction), headed by the distribution they came in (`@tau/kits` and its version, from `dist-kits/manifest.json`), above the packages a source installed. A rescan after an install never touches the first set — the activator only ever loads what it scanned from the package folders, and refuses a package claiming a kit's id.
 - The kits Tau ships live under `kits/<name>/` with a `tau-extension.json` and load through the package loaders, from `dist-kits/` when the app was built and from the sources otherwise. `src/shared/kits-boundary.test.ts` fails when a kit reaches into `src/**` outside `tau`, `tau/host-extension` and `tau/host`, or when `src/**` reaches into a kit. `src/main/extensions/index.ts` and `src/renderer/extensions/index.tsx` hold what has not moved yet.
 - `start:safe` shows the core list and nothing more. That includes no access gate: safe mode runs tools the way Pi does.
 - Removing a bundled kit removes its behavior on both sides without editing core.

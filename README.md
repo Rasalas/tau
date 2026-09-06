@@ -19,6 +19,43 @@ Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. T
 - [ADR 0012](docs/adr/0012-preview-browser.md) records why the preview is a host-owned browser view drawn over the panel.
 - [docs/RELEASE.md](docs/RELEASE.md) explains how a release is cut, how updates reach users, and how signing is enabled.
 
+## Core and kits
+
+Tau is two artifacts built from one repository.
+
+**Core** (`src/`) is Pi in a window plus threads: the transcript, the composer,
+the thread index and one runtime per open thread, the command palette and the
+two layout slots, the extension lifecycle on both sides, and one versioned
+protocol between the window and the host. [docs/CORE.md](docs/CORE.md) is the
+full list, and `npm run start:safe` runs exactly it — a usable window with no
+sidebar, no Git, no diff review and no package manager.
+
+**`@tau/kits`** (`kits/`) is the distribution on top: Workspace Kit (the thread
+rail, projects, Files, Changes, worktrees, checkpoints), Review Kit, Agents,
+Preview, Claude Code, Computer Use, Signals, Access, Keybindings, Packages,
+Pi UI, Questionnaires, Service Tier, Thread Titles and Worktree Names. Each is
+a package with its own `tau-extension.json`, permissions and build; `npm run
+build` compiles them into `dist-kits/`, which is what an installer ships and
+what Settings → Packages lists as bundled, headed by the version in
+`kits/package.json`.
+
+Neither half reaches into the other. A kit sees core through `tau`,
+`tau/host-extension` and `tau/host` — the three modules any package gets — and
+core never imports a kit; it loads them from disk the way it loads what you
+installed yourself. Shipping a kit is the only thing that sets it apart: no
+permission prompt, and `in-process` isolation without being asked for
+([ADR 0014](docs/adr/0014-bundled-kits-are-packages.md)).
+
+**Ship your own.** Nothing about `@tau/kits` is privileged. Assemble the
+packages you want, publish them to npm or Git, and a user installs them with
+`/install` and approves their permissions once
+([docs/EXTENSIONS.md](docs/EXTENSIONS.md)); they run beside Tau's kits, or
+instead of the ones switched off in Settings. A build of your own is the other
+road: `dist-kits/` is a plain folder of built packages, so a fork that replaces
+it ships a different product on the same core. Safe mode is neither — it is
+recovery, and loads no extension at all. The kits are Tau's opinion about what
+a coding workbench should have, not a floor you build on.
+
 ## Install
 
 Download the newest build for your platform from the
