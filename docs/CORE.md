@@ -35,6 +35,7 @@ Threads
 Workbench
 
 - the window, the two layout slots (left sidebar, right dock) and shared modals
+- **which token set the window paints with**: `system`, `dark` or `light`, applied as `data-theme` on `<html>`; a theme package may replace the values, never the mechanism
 - the **client profile** the window draws for (`desktop`, `web`, `compact`): a contribution declares which clients render it, and the workbench leaves out what this one cannot draw ([ADR 0016](adr/0016-client-profiles.md))
 - the stage: the document area beside the conversation, whose tabs hold files and threads
 - command palette and keybinding dispatch; the chords themselves are extension contributions — `kits/keybindings/` binds Tau's own, replaces them from `~/.pi/agent/keybindings.json` and adds one command per Pi extension shortcut
@@ -122,10 +123,26 @@ window that cannot install is still `npm run start` or an edit to
 
 ## The stylesheet
 
+`src/renderer/tokens.css` is the palette, and it is a contract: every colour,
+font, radius, elevation and motion value Tau draws with is named there and
+nowhere else, in two sets — `light-dark(light, dark)`, chosen by the
+`color-scheme` that `data-theme` on `<html>` sets. The theme preference
+(`system`, `dark`, `light`; `system` is the default and follows
+`prefers-color-scheme`) is core's, in Settings → Defaults and in the palette,
+and the client writes it onto `<html>`: no component in the workbench knows a
+colour. `index.html` links the file rather than importing it, so the first
+paint is already themed.
+
+The table of those names is in [EXTENSIONS.md](EXTENSIONS.md) §8, because it is
+what a **theme package** — a manifest with `styles` and no code — may set. A
+theme's stylesheet is linked after core's tokens and after every kit, so its
+names win on order alone. Nothing about a layout class is API.
+
 A kit that draws a surface of its own carries the rules for it: a `styles`
 entry in its manifest, `kits/<name>/styles.css`, linked while the kit is active
 and gone with it (see [EXTENSIONS.md](EXTENSIONS.md)). Seven kits have one —
-Workspace, Agents, Preview, Signals, Packages, Questionnaires and Pi UI.
+Workspace, Agents, Preview, Signals, Packages, Questionnaires and Pi UI. They
+name tokens like everything else and define no colour of their own.
 
 `src/renderer/styles.css` keeps the classes **core itself draws**, which is the
 whole of the test: a rule stays if a core component renders the element, even
@@ -142,7 +159,7 @@ when only a kit ever mounts that component.
 | The Settings modal: `.settings-modal`, `.settings-nav`, `.settings-field`, `.settings-note`, `.settings-page`, `.install-extension`, `.extension-grant-box`, `.inspector-*`, `.keybinding-row` | Core keeps the modal and the three pages safe mode needs. Only `.packages-*` — the install form, its log and its actions — moved to Packages Kit. |
 | The status line and the regions: `.status-line`, `.status-item`, `.status-side`, `.workbench-region`, `.region-*` | Placements core publishes. Only what Pi extensions draw inside them (`.pi-ui-*`) moved. |
 | Transcript, composer, palette and modals: `.transcript*`, `.message*`, `.markdown`, `.hljs-*`, `.tool-*`, `.work-fold*`, `.work-live*`, `.task-progress*`, `.composer-*`, `.command-palette`, `.model-picker`, `.approval`, `.toast`, `.reload-*`, `.project-picker`, `.project-modal`, `.thread-tree*` | Core's own surfaces, on the list above. |
-| `:root` tokens, `.spinner` and the keyframes | The palette and the animations every kit's own rules refer to (`var(--ink-2)`, `blink`, `spin`). A kit stylesheet uses them and defines none. |
+| The tokens (now `tokens.css`), `.spinner` and the keyframes | The palette and the animations every kit's own rules refer to (`var(--ink-2)`, `blink`, `spin`). A kit stylesheet uses them and defines none. |
 
 The rules for classes nothing renders any more are gone (`.approval-mark`,
 `.image-placeholder`, `.palette-group`, `.reasoning-toggle`, `.reasoning-body`,
@@ -153,6 +170,7 @@ The rules for classes nothing renders any more are gone (`.approval-mark`,
 
 ## How to check
 
+- Every colour is a token: `src/renderer/tokens.test.ts` fails on one written outside `tokens.css`, on a `var()` naming a token nothing defines, and on a text token that misses WCAG AA in either scheme. A package that brings only a stylesheet is a theme — no grant, loaded last, marked "Theme" in Settings → Packages.
 - Settings → Packages lists the two sets apart: the kits Tau ships (`scope: "bundled"` from `inspectBundledKits`, granted by construction), headed by the distribution they came in (`@tau/kits` and its version, from `dist-kits/manifest.json`), above the packages a source installed. A rescan after an install never touches the first set — the activator only ever loads what it scanned from the package folders, and refuses a package claiming a kit's id.
 - The kits Tau ships live under `kits/<name>/` with a `tau-extension.json` and load through the package loaders, from `dist-kits/` when the app was built and from the sources otherwise. There is no other door in either direction: a kit reaches core through `tau` (`src/renderer/extension-api.ts`), `tau/host-extension` (`src/main/host-extension-api.ts`) and `tau/host` (`src/main/host-extension-worker-protocol.ts`), plus the two test harnesses its own tests may use; core reaches a kit through the contributions the kit registers, never by path. `src/shared/kits-boundary.test.ts` fails on any other reach, and `src/shared/core-boundary.test.ts` fails if an `extensions/` directory reappears under `src/`. A kit that also runs inside a Pi runtime Tau does not own ships a `pi` entry, prebuilt to `dist-kits/<id>/pi.cjs`, which `.pi/extensions/tau-session-bridge.ts` loads through `PiKitBridge` — the bridge itself names no kit.
 - `start:safe` shows the core list and nothing more. That includes no access gate: safe mode runs tools the way Pi does.

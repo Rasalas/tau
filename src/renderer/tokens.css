@@ -40,28 +40,28 @@
   --code-bg: light-dark(#f6f4ec, #101010);           /* code blocks, tool output, diffs */
   --inset: light-dark(#f0eee3, #191916);             /* a block inside a settings page */
   --chip: light-dark(#e4e2d5, #26261f);              /* a small label's background */
-  --chip-hover: light-dark(#dbd9ca, #2a2a23);
+  --chip-hover: light-dark(#dbd9ca, #2a2a23);        /* a small label, hovered */
   --track: light-dark(#d8d6c8, #393932);             /* an empty progress track */
   --scrim: light-dark(#2a2a24a3, #0a0a09e8);         /* the dim behind a modal */
   --scrim-deep: light-dark(#1a1a16e0, #050505ed);    /* the dim behind a full-screen image */
   --drop-card: light-dark(#fbfaf3ee, #20221cee);     /* the card in a drag-and-drop overlay */
 
   /* ----------------------------------------------------------- hairlines */
-  --line: light-dark(#dedac9, #26261f);
-  --line-soft: light-dark(#e6e2d3, #23231e);
+  --line: light-dark(#dedac9, #26261f);              /* the ordinary hairline */
+  --line-soft: light-dark(#e6e2d3, #23231e);         /* a hairline that should barely show */
   --line-inset: light-dark(#e8e4d6, #1f1f1a);        /* between rows of one list */
-  --line-card: light-dark(#d8d4c2, #2a2a23);
-  --line-control: light-dark(#d4d0bd, #2b2b24);
-  --line-strong: light-dark(#c9c5b1, #2f2f28);
-  --line-field: light-dark(#c2bda7, #34342c);
+  --line-card: light-dark(#d8d4c2, #2a2a23);         /* the edge of a card */
+  --line-control: light-dark(#d4d0bd, #2b2b24);      /* the edge of a button or chip */
+  --line-strong: light-dark(#c9c5b1, #2f2f28);       /* an edge that has to be read as one */
+  --line-field: light-dark(#c2bda7, #34342c);        /* the edge of an input */
   --line-focus: light-dark(#a9a48c, #404036);        /* a field with focus inside it */
   --line-float: light-dark(#bcb7a0, #3a3a31);        /* a menu or popover edge */
   --line-hover: light-dark(#a9a48c, #4a4a40);        /* a control's edge while hovered */
   --edge-highlight: light-dark(#ffffffcc, #ffffff08); /* the inner top edge of a raised surface */
-  --edge-highlight-strong: light-dark(#ffffff, #ffffff26);
+  --edge-highlight-strong: light-dark(#ffffff, #ffffff26); /* the same, on a round control */
   --edge-line: light-dark(#00000014, #ffffff0f);     /* the edge of a selected row */
   --wash: light-dark(#00000008, #ffffff04);          /* a fill barely above its surface */
-  --wash-2: light-dark(#0000000f, #ffffff0a);
+  --wash-2: light-dark(#0000000f, #ffffff0a);        /* the same, one step up */
 
   /* ----------------------------------------------------------------- ink */
   --ink: light-dark(#1c1b15, #e7e4d9);               /* headings and emphasis */
@@ -73,98 +73,98 @@
   --muted-2: light-dark(#75746a, #7c7b70);           /* small print */
   --faint: light-dark(#85857a, #6b6a5f);             /* glyphs and disabled text */
   --fainter: light-dark(#adac9f, #4f4e45);           /* a mark that is only a hint of one */
-  --scrollbar: light-dark(#cbc8b6, #33332b);
-  --scrollbar-hover: light-dark(#b3b09c, #45453b);
+  --scrollbar: light-dark(#cbc8b6, #33332b);         /* the scrollbar thumb */
+  --scrollbar-hover: light-dark(#b3b09c, #45453b);   /* the same, hovered */
 
   /* -------------------------------------------------------------- accent */
   --acid: light-dark(#b7e229, #c7ff3d);              /* the accent as a fill */
   --acid-text: light-dark(#4a6410, #c7ff3d);         /* the accent as text or an icon on a surface */
   --acid-ink: light-dark(#16190c, #141512);          /* text on the accent fill */
   --acid-strong: light-dark(#a6cf1c, #d4ff63);       /* the accent fill, hovered */
-  --acid-bg: light-dark(#eef6d5, #1b2010);
-  --acid-line: light-dark(#c6db8d, #3a4423);
-  --acid-chip: light-dark(#e4f0bb, #2c3915);
-  --acid-track: light-dark(#cde596, #3d4d18);
-  --acid-glow: light-dark(#a5cf2bbb, #c7ff3dbb);
+  --acid-bg: light-dark(#eef6d5, #1b2010);           /* the accent as a surface */
+  --acid-line: light-dark(#c6db8d, #3a4423);         /* the accent as an edge */
+  --acid-chip: light-dark(#e4f0bb, #2c3915);         /* the accent as a chip behind accent text */
+  --acid-track: light-dark(#cde596, #3d4d18);        /* the accent as a filled track */
+  --acid-glow: light-dark(#a5cf2bbb, #c7ff3dbb);     /* the accent as a glow around a mark */
   --focus: light-dark(#4a6410, #c7ff3d);             /* the focus ring */
 
   /* -------------------------------------------------------------- status */
-  --working: light-dark(#a34a08, #ff8a4d);
-  --ready: light-dark(#1c7440, #7ade9f);
-  --removed: light-dark(#b03a28, #f07a6a);
-  --stop: light-dark(#c2282d, #e5484d);
+  --working: light-dark(#a34a08, #ff8a4d);           /* a run in flight */
+  --ready: light-dark(#1c7440, #7ade9f);             /* a run that finished */
+  --removed: light-dark(#b03a28, #f07a6a);           /* something taken away */
+  --stop: light-dark(#c2282d, #e5484d);              /* the abort control */
   --stop-ink: #ffffff;                               /* the square on the stop button */
-  --cyan: light-dark(#06706c, #6fd3cf);
+  --cyan: light-dark(#06706c, #6fd3cf);              /* numbers and types */
   --danger: light-dark(#a83f30, #d88c83);            /* destructive text */
-  --danger-line: light-dark(#e2b4ab, #6f3838);
-  --danger-bg: light-dark(#faeae6, #251917);
-  --warn: light-dark(#8a5a09, #e0a34d);
-  --warn-chip: light-dark(#f7ecd8, #33241d);
+  --danger-line: light-dark(#e2b4ab, #6f3838);       /* the edge of a destructive control */
+  --danger-bg: light-dark(#faeae6, #251917);         /* that control, hovered */
+  --warn: light-dark(#8a5a09, #e0a34d);              /* a caution */
+  --warn-chip: light-dark(#f7ecd8, #33241d);         /* a caution as a chip */
   --fail: light-dark(#c2452f, #d05a4a);              /* a failed run's mark */
   --fail-ink: light-dark(#a83b28, #d98a7c);          /* what that run says */
   --info: light-dark(#3457d5, #4d7cff);              /* a step in progress */
-  --info-deep: light-dark(#2745ad, #426fe1);
+  --info-deep: light-dark(#2745ad, #426fe1);         /* a step already done, in a dense bar */
   --info-ink: light-dark(#2b4bbf, #79acf0);          /* the same, as text */
   --done: light-dark(#0d7f5f, #13c99a);              /* a step that finished */
   --stale: light-dark(#8a5a3f, #c9a18b);             /* how long ago something ran */
-  --folder: light-dark(#6f6118, #a59d68);
+  --folder: light-dark(#6f6118, #a59d68);            /* a directory */
 
   /* ---------------------------------------------------------------- diff */
-  --diff-add-bg: light-dark(#e6f3da, #1e2a17);
-  --diff-add-ink: light-dark(#2c5418, #c6e6a8);
+  --diff-add-bg: light-dark(#e6f3da, #1e2a17);       /* an added line */
+  --diff-add-ink: light-dark(#2c5418, #c6e6a8);      /* its text */
   --diff-add-mark: light-dark(#a8dc86, #527a3c);     /* the changed run inside an added line */
-  --diff-add-mark-ink: light-dark(#1c3f0d, #e1ffc8);
-  --diff-add-mark-line: light-dark(#6fa552, #76a957);
-  --diff-del-bg: light-dark(#fbe7e1, #2b1a17);
-  --diff-del-ink: light-dark(#8c2f1f, #e0a89e);
-  --diff-del-mark: light-dark(#f2b4a7, #8b433b);
-  --diff-del-mark-ink: light-dark(#66200f, #ffd1c8);
-  --diff-del-mark-line: light-dark(#c8695c, #b95b50);
+  --diff-add-mark-ink: light-dark(#1c3f0d, #e1ffc8); /* the run's text */
+  --diff-add-mark-line: light-dark(#6fa552, #76a957); /* the run's edge */
+  --diff-del-bg: light-dark(#fbe7e1, #2b1a17);       /* a removed line */
+  --diff-del-ink: light-dark(#8c2f1f, #e0a89e);      /* its text */
+  --diff-del-mark: light-dark(#f2b4a7, #8b433b);     /* the changed run inside a removed line */
+  --diff-del-mark-ink: light-dark(#66200f, #ffd1c8); /* the run's text */
+  --diff-del-mark-line: light-dark(#c8695c, #b95b50); /* the run's edge */
   --syntax-fn: light-dark(#5c6b13, #d9e88f);         /* highlight.js function and class names */
 
   /* ------------------------------------------------------------- project */
   /* A project's colour is its own hue, set on the element; the theme says how
      deep that hue reads. Both are substituted where they are used, so
      `--project-hue` resolves on the icon and not here. */
-  --project-tint: light-dark(hsl(var(--project-hue) 46% 88%), hsl(var(--project-hue) 34% 15%));
-  --project-ink: light-dark(hsl(var(--project-hue) 55% 27%), hsl(var(--project-hue) 70% 66%));
+  --project-tint: light-dark(hsl(var(--project-hue) 46% 88%), hsl(var(--project-hue) 34% 15%)); /* a project's mark */
+  --project-ink: light-dark(hsl(var(--project-hue) 55% 27%), hsl(var(--project-hue) 70% 66%)); /* its letters */
 
   /* Provider marks are brand chips: the tile flips with the theme, the two
      family tints do not. */
-  --provider-bg: light-dark(#2a2924, #f3f1e9);
-  --provider-ink: light-dark(#f3f1e9, #171713);
-  --provider-google: #f8faff;
-  --provider-claude: #f3e8df;
+  --provider-bg: light-dark(#2a2924, #f3f1e9);       /* the tile behind a provider glyph */
+  --provider-ink: light-dark(#f3f1e9, #171713);      /* the glyph itself */
+  --provider-google: #f8faff;                        /* brand tint, the same in both schemes */
+  --provider-claude: #f3e8df;                        /* brand tint, the same in both schemes */
 
   /* The reload curtain: a full-screen boundary of its own. */
-  --reload-core: light-dark(#e5f0c8, #25320f);
-  --reload-halo: light-dark(#f3f5e6, #171a10);
-  --reload-panel: light-dark(#f4f7e6, #171a11);
+  --reload-core: light-dark(#e5f0c8, #25320f);       /* the centre of the reload curtain */
+  --reload-halo: light-dark(#f3f5e6, #171a10);       /* its falloff */
+  --reload-panel: light-dark(#f4f7e6, #171a11);      /* the panel inside it */
 
   /* ------------------------------------------------------------- shadows */
-  --shadow-soft: light-dark(#3c38281f, #00000066);
-  --shadow: light-dark(#3c382833, #00000099);
-  --shadow-strong: light-dark(#2d2a1e40, #000000cc);
-  --elevation-1: 0 5px 18px var(--shadow-soft);
-  --elevation-2: 0 16px 40px var(--shadow);
-  --elevation-3: 0 40px 100px var(--shadow-strong);
+  --shadow-soft: light-dark(#3c38281f, #00000066);   /* a small float */
+  --shadow: light-dark(#3c382833, #00000099);        /* a menu or a toast */
+  --shadow-strong: light-dark(#2d2a1e40, #000000cc); /* a modal */
+  --elevation-1: 0 5px 18px var(--shadow-soft);      /* a small float */
+  --elevation-2: 0 16px 40px var(--shadow);          /* a menu, a toast, a popover */
+  --elevation-3: 0 40px 100px var(--shadow-strong);  /* a modal */
 
   /* --------------------------------------------------- type, size, motion */
   /* System stacks keep first paint offline and use stable, locally available metrics. */
-  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; /* code, labels and numbers */
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* everything else */
 
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 9px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-pill: 999px;
+  --radius-xs: 4px;                                  /* a tag */
+  --radius-sm: 6px;                                  /* a button */
+  --radius-md: 9px;                                  /* a card */
+  --radius-lg: 12px;                                 /* a panel */
+  --radius-xl: 16px;                                 /* a modal */
+  --radius-pill: 999px;                              /* a pill or a knob */
 
-  --motion-fast: 120ms;
-  --motion: 180ms;
-  --motion-slow: 320ms;
-  --ease: cubic-bezier(.4, 0, .2, 1);
+  --motion-fast: 120ms;                              /* a hover or a chevron */
+  --motion: 180ms;                                   /* a row or a card arriving */
+  --motion-slow: 320ms;                              /* a curtain */
+  --ease: cubic-bezier(.4, 0, .2, 1);                /* the curve all three use */
 }
 
 /* The preference, as the client writes it onto <html>. `system` is the base
