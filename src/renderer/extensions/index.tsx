@@ -25,6 +25,7 @@ import type { WorkspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
 import { serviceTierKitExtension } from "./service-tier-kit";
 import { titleGeneratorExtension } from "./title-generator";
+import { agentsExtension } from "./agents-kit";
 import { worktreeNamesExtension } from "./worktree-names";
 import { piUiExtension } from "./pi-ui";
 import { PREVIEW_PANEL, PreviewFollower, isPreviewState, previewKit, previewStore } from "./preview-store";
@@ -309,6 +310,7 @@ export const bundledExtensions = [
   computerUsePresentationExtension,
   titleGeneratorExtension,
   worktreeNamesExtension,
+  agentsExtension,
   piUiExtension,
   previewExtension,
   questionnaireExtension,

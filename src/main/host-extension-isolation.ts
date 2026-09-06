@@ -15,6 +15,7 @@ import type {
   HostProjectFacts,
   HostThread,
   HostThreadLifecycle,
+  HostThreadStartOptions,
   HostTurnObserver,
 } from "./host-extensions.js";
 import {
@@ -270,6 +271,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "refreshExtensionPackages": return services.refreshExtensionPackages();
       case "sessions.list": return services.sessions.list();
       case "sessions.read": return readSession(String(args[0]));
+      case "sessions.start": return services.sessions.start(args[0] as HostThreadStartOptions);
       case "describeProjects": {
         const handle = nextHandle++;
         const dispose = services.describeProjects(factsFor(handle, args[0] as string[]));

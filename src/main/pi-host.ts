@@ -68,7 +68,9 @@ import {
   type HostPreparedThread,
   type HostRuntimeBackendProvider,
   type HostSessionFile,
+  type HostStartedThread,
   type HostThread,
+  type HostThreadStartOptions,
   type HostUiPresenter,
   type RuntimeSessionInfo,
 } from "./host-extensions.js";
@@ -393,6 +395,7 @@ export class PiHost {
       noteSubprocess: () => this.lifecycleMetrics.countSubprocess(),
       refreshExtensionPackages: () => this.packages?.refresh() ?? Promise.resolve(),
       prepareThread: (session, manager, options) => this.prepareThread(session, manager, options),
+      startThread: (options) => this.startThread(options),
       exclusive: (work) => this.lifecycle.run("extension.exclusive", work),
       refreshThreadIndex: () => this.refreshThreadIndex("none").catch(() => this.threadIndexSnapshot()),
       registerThreadLifecycle: (lifecycle) => this.threadLifecycle.add(lifecycle),
@@ -485,6 +488,44 @@ export class PiHost {
         else await this.disposeThread(runtime);
       },
     };
+  }
+
+  /**
+   * A thread an extension runs for its own work. It is created, indexed and
+   * prompted like any other, but never competes for the screen, so the user
+   * keeps the thread they are reading.
+   */
+  private async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
+    this.workbenchReload.assertAvailable();
+    const cwd = options.cwd || this.cwd;
+    const thread = await this.lifecycle.run("start-thread", async () => {
+      const runtime = await this.openThread(
+        SessionManager.create(cwd),
+        { type: "session_start", reason: "new" },
+        { adopt: false, prepared: true },
+      );
+      try {
+        await this.adoptThread(runtime);
+        if (options.model) await requireCapability(runtime.backend, "catalogWrite").setModel(options.model.provider, options.model.id);
+        // The shell has to exist before a title can be published against it.
+        await this.refreshThreadShell(runtime, true);
+        if (options.title) await this.applyThreadTitle(runtime, options.title, "renamed");
+      } catch (error) {
+        if (this.threads.has(runtime.threadId)) await this.threads.release(runtime.threadId);
+        else await this.disposeThread(runtime);
+        throw error;
+      }
+      runtime.releaseEventBarrier((event, owner, sessionId, eventCwd, error) => {
+        if (error) this.fail(error, sessionId);
+        else this.handleSessionEvent(event, owner, sessionId, eventCwd);
+      }, (event) => this.emit(event), () => undefined);
+      return runtime;
+    });
+    // Delivery is detached on purpose: the caller gets its thread id at once
+    // and reads the answer through the thread, the way the client does.
+    void this.prompt(options.prompt, [], thread.threadId)
+      .catch((error) => this.log("thread.start-prompt-failed", this.errorMessage(error)));
+    return { sessionId: thread.threadId, cwd: thread.cwd, ...(thread.state.title ? { title: thread.state.title } : {}) };
   }
 
   private runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): Array<{ name: string; factory: import("@earendil-works/pi-coding-agent").ExtensionFactory }> {

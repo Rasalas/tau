@@ -93,7 +93,9 @@ interface SessionFeature {
 
 export function createWorkspaceKitLifecycle(services: HostExtensionServices, options: WorkspaceKitLifecycleOptions): WorkspaceKitLifecycle {
   const leaseManager = options.leaseManager ?? new WorkspaceCheckpointLeaseManager();
-  const maintenance = options.maintenance ?? createWorkspaceKitCheckpointMaintenance(leaseManager);
+  const maintenance = options.maintenance ?? createWorkspaceKitCheckpointMaintenance(leaseManager, {
+    onSkipped: (cwd) => services.log("turn.checkpoint.maintenance-skipped", `${cwd}: workspace busy`),
+  });
   const features = new Map<string, SessionFeature>();
   const git = options.git ?? { invalidate: () => undefined };
   const branchOf = (cwd: string) => options.branch?.(cwd);

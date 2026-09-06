@@ -4,6 +4,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+import { createWorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 
 async function repository(prefix: string): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), prefix));
@@ -256,6 +257,30 @@ describe("workspace checkpoint leases", { timeout: 60_000 }, () => {
       await first.release();
       const thirdLease = await third;
       await thirdLease.release();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("checkpoint ref housekeeping", { timeout: 60_000 }, () => {
+  it("skips a checkout a turn is holding instead of waiting for it", async () => {
+    const cwd = await repository("tau-lease-maintenance-");
+    try {
+      const manager = new WorkspaceCheckpointLeaseManager({ pollMs: 5, staleAfterMs: 5_000 });
+      const skipped: string[] = [];
+      const maintenance = createWorkspaceKitCheckpointMaintenance(manager, {
+        maintenanceLeaseTimeoutMs: 100,
+        onSkipped: (path) => skipped.push(path),
+      });
+      // A turn owns the checkout, exactly as it does while its agent runs.
+      const turn = await manager.acquire(cwd, { sessionId: "session-a", turnId: "turn-a" });
+      await maintenance.cleanupOrphanRefs(cwd, "session-b", []);
+      expect(skipped).toEqual([cwd]);
+      await turn.release();
+      // Once the turn lets go, the same call takes the lease and runs.
+      await maintenance.cleanupOrphanRefs(cwd, "session-b", []);
+      expect(skipped).toEqual([cwd]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

@@ -6,6 +6,7 @@ import type {
   ThreadBackendKind,
   UiComposerCommand,
   UiMessage,
+  UiThreadUsage,
   UiToolRun,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
@@ -114,6 +115,23 @@ export interface HostSessionSummary {
   cwd: string;
 }
 
+/** A thread an extension asks the host to run for it, off screen. */
+export interface HostThreadStartOptions {
+  /** Project the thread runs in. */
+  cwd: string;
+  /** First prompt, delivered as soon as the thread exists. */
+  prompt: string;
+  title?: string;
+  /** Model the thread starts with; the host's own default otherwise. */
+  model?: { provider: string; id: string };
+}
+
+export interface HostStartedThread {
+  sessionId: string;
+  cwd: string;
+  title?: string;
+}
+
 /** Session files the host can reach for an extension that keeps state beside them. */
 export interface HostSessionServices {
   /** Every persisted session the host knows, across projects. */
@@ -121,6 +139,12 @@ export interface HostSessionServices {
   open(path: string): HostSessionFile;
   /** Opens a runtime for a session file the extension created; `previousSessionFile` names what it continues. */
   prepare(session: HostSessionFile, options?: { previousSessionFile?: string }): Promise<HostPreparedThread>;
+  /**
+   * Creates a thread in a project, indexes it and delivers its first prompt.
+   * The thread never competes for the screen, so the user keeps the thread
+   * they are reading; it resolves once the thread exists, not when it answers.
+   */
+  start(options: HostThreadStartOptions): Promise<HostStartedThread>;
   /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   /** Rescans persisted sessions and returns the index update. The sweep runs inside, so release any lease first. */
@@ -220,6 +244,8 @@ export interface HostThread {
   readonly backendKind: ThreadBackendKind;
   /** The session file behind the thread, once it has one. */
   readonly sessionFile: string | undefined;
+  /** What the thread has spent; absent when the host has not counted it. */
+  readonly usage?: UiThreadUsage;
   isStreaming(): boolean;
   /** Nothing running, queued or asked: the thread can be replaced safely. */
   isIdle(): boolean;

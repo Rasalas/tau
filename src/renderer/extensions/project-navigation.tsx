@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import type { UiProject, UiSession } from "../../shared/contracts";
 import type { UiDirectoryListing } from "../../shared/workspace-kit-protocol";
 import { workspaceKit } from "./workspace-kit-client";
@@ -17,6 +17,20 @@ const ROW_STRIDE = 94;
 type NavigationRow =
   | { kind: "group"; id: string; label: string; count: number }
   | { kind: "thread"; id: string; session: UiSession };
+
+/**
+ * Threads an agent spawned stay out of the rail: fifty of them would bury the
+ * threads the user started. They come back for a search, for the thread on
+ * screen, and whenever the user asks for them.
+ */
+export function visibleThreads(
+  sessions: readonly UiSession[],
+  parents: Readonly<Record<string, string>>,
+  options: { showAgents: boolean; searching: boolean; activeThreadId?: string },
+): UiSession[] {
+  if (options.showAgents || options.searching) return [...sessions];
+  return sessions.filter((session) => !parents[session.id] || session.id === options.activeThreadId);
+}
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
   return rows[index]?.id ?? index;
@@ -270,6 +284,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity,
   activityLabel,
   compact,
+  workingChildren,
   modelProvider,
   startedAt,
   onSelect,
@@ -279,6 +294,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity: ThreadActivity;
   activityLabel?: string;
   compact: boolean;
+  workingChildren: number;
   modelProvider?: string;
   startedAt?: number;
   onSelect(path: string): Promise<boolean>;
@@ -300,6 +316,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       compact={compact}
+      workingChildren={workingChildren}
       modelProvider={modelProvider}
       startedAt={startedAt}
       onSelect={onSelect}
@@ -309,7 +326,9 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
 });
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
-  const { snapshot } = useWorkbenchShell();
+  const { snapshot, registry } = useWorkbenchShell();
+  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const lineage = registry.getThreadLineage();
   const threadStore = useThreadStore();
   const [threadQuery, setThreadQuery] = useState("");
   const navigationSnapshot = useSyncExternalStore(
@@ -321,6 +340,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [settledOpen, setSettledOpen] = useState(true);
+  const [showAgents, setShowAgents] = useState(false);
   const [settledLimit, setSettledLimit] = useState(40);
   const [navigationIndex, setNavigationIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -347,7 +367,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   }, []);
 
   const needle = threadQuery.trim().toLocaleLowerCase();
-  const matching = threads
+  const listed = visibleThreads(threads, lineage.parents, {
+    showAgents,
+    searching: needle.length > 0,
+    ...(activityState.activeThreadId ? { activeThreadId: activityState.activeThreadId } : {}),
+  });
+  const hiddenAgents = threads.length - listed.length;
+  const matching = listed
     .filter(
       (session) =>
         !needle ||
@@ -405,6 +431,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={activity}
       activityLabel={label}
       compact={compactRows && activity !== "settled"}
+      workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}
@@ -430,6 +457,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
               <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
             ) : <kbd>/</kbd>}
           </label>
+          {hiddenAgents > 0 || showAgents ? (
+            <button
+              className="sidebar-action"
+              title="Show agent threads"
+              aria-label="Show agent threads"
+              aria-pressed={showAgents}
+              onClick={() => setShowAgents((shown) => !shown)}
+            >
+              <Bot size={16} />
+            </button>
+          ) : null}
           <button
             className="sidebar-action"
             title="New thread (⌘N)"
@@ -448,7 +486,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         aria-label="Threads"
         tabIndex={0}
         onKeyDown={(event) => {
-          const choices = [...activeThreads, ...(settledOpen ? visibleSettled : [])];
+          const choices = [...navigationRows.flatMap((row) => row.kind === "thread" ? [row.session] : []), ...(settledOpen ? visibleSettled : [])];
           if (!choices.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
           event.preventDefault();
           if (event.key === "Enter") { void actions.switchSession(choices[navigationIndex % choices.length].path); return; }

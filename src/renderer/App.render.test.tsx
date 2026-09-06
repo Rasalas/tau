@@ -27,6 +27,9 @@ import type { HostActionResult, NewThreadResult, TranscriptPage } from "../share
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
+/** The panel under test never calls one; the prop only has to exist. */
+const noActions = {} as never;
+
 describe("App render isolation", () => {
   beforeEach(() => {
     messageRenders.count = 0;
@@ -217,12 +220,12 @@ describe("App render isolation", () => {
       renders += 1;
       return <button onClick={() => setValue((current) => current + 1)}>panel {value}</button>;
     }
-    const view = render(<MountedPanel Component={Probe} active label="Probe" extensionName="Fixture" />);
+    const view = render(<MountedPanel Component={Probe} active label="Probe" extensionName="Fixture" actions={noActions} />);
     fireEvent.click(screen.getByText("panel 0"));
-    view.rerender(<MountedPanel Component={Probe} active={false} label="Probe" extensionName="Fixture" />);
+    view.rerender(<MountedPanel Component={Probe} active={false} label="Probe" extensionName="Fixture" actions={noActions} />);
     expect(screen.getByText("panel 1")).toBeTruthy();
     const before = renders;
-    view.rerender(<MountedPanel Component={Probe} active={false} label="Probe" extensionName="Fixture" />);
+    view.rerender(<MountedPanel Component={Probe} active={false} label="Probe" extensionName="Fixture" actions={noActions} />);
     expect(renders).toBe(before);
   });
 

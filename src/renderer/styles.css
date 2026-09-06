@@ -418,6 +418,75 @@ button > svg { pointer-events: none; }
   flex: 1; min-width: 0; font: 11px var(--mono); color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Threads an agent spawned live in the Agents panel; the rail only counts them. */
+.thread-agent-count {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  color: var(--working); font: 500 10px var(--mono);
+}
+.thread-agent-count > i {
+  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  background: var(--working); font-style: normal; animation: blink 1.4s ease-in-out infinite;
+}
+
+/* Agents panel: one fixed-height row per agent so the list virtualizes. */
+.agents-panel { display: flex; flex-direction: column; min-height: 0; }
+.agent-counts { display: flex; align-items: center; gap: 10px; font: 500 10px var(--mono); color: var(--faint); }
+.agent-count { display: inline-flex; align-items: center; gap: 4px; }
+.agent-count > i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.agent-count.status-running > i, .agent-count.status-waiting > i { background: var(--working); }
+.agent-count.status-completed > i { background: var(--ready); }
+.agent-count.status-failed > i { background: #d05a4a; }
+.agent-total-cost { color: var(--muted-2); font: 500 10px var(--mono); }
+.agent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px; }
+.agent-group-label {
+  height: 24px; display: flex; align-items: center;
+  font: 500 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+}
+.agent-row {
+  display: grid; width: 100%; height: 54px; align-content: center; gap: 2px;
+  padding: 6px 8px; border: 1px solid transparent; border-radius: 6px;
+  background: none; text-align: left; cursor: pointer;
+}
+.agent-row:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line); }
+.agent-row:disabled { cursor: default; opacity: .7; }
+.agent-row-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.agent-row-head > strong {
+  flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agent-row-head > time { flex: none; font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint); }
+.agent-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); font-style: normal; }
+.agent-dot.status-running, .agent-dot.status-waiting { background: var(--working); }
+.agent-dot.status-pending { background: transparent; border: 1px solid var(--faint); }
+.agent-dot.status-completed { background: var(--ready); }
+.agent-dot.status-failed { background: #d05a4a; }
+.agent-row-activity {
+  font-size: 11.5px; color: var(--muted-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agent-row.status-failed .agent-row-activity { color: #d98a7c; }
+.agent-row-meta {
+  font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agents-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 24px; text-align: center; color: var(--faint);
+}
+.agents-empty > p { margin: 0; font-size: 12.5px; color: var(--muted-2); }
+.agents-empty > small { max-width: 30ch; font-size: 11px; line-height: 1.5; }
+.agents-elsewhere {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 10px; border-top: 1px solid var(--line); font: 10px var(--mono); color: var(--faint);
+}
+.agents-elsewhere > button { background: none; border: none; color: var(--ink-3); cursor: pointer; font: inherit; }
+.agent-parent-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: 10px var(--mono); color: var(--faint);
+}
+.agent-parent-link:hover:not(:disabled) { color: var(--ink-3); }
+
 .thread-activity { display: flex; align-items: center; gap: 7px; font: 500 11px var(--mono); color: var(--faint); }
 .thread-activity > i {
   width: 7px; height: 7px; flex: none; border-radius: 50%;

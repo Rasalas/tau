@@ -22,7 +22,9 @@ import type {
   HostProjectFacts,
   HostRuntimeBackendProvider,
   HostSessionFile,
+  HostStartedThread,
   HostThread,
+  HostThreadStartOptions,
   HostThreadLifecycle,
   HostTurnObserver,
   HostUiPresenter,
@@ -82,6 +84,8 @@ export interface ExtensionServicesPort {
   refreshExtensionPackages(): Promise<void>;
   /** Opens a runtime for a session file an extension created; it stays off screen. */
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
+  /** Creates a thread for a project, indexes it and delivers its first prompt, all off screen. */
+  startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   refreshThreadIndex(): Promise<ThreadIndexSnapshot>;
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
@@ -204,6 +208,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         sessionFileManagers.get(session) ?? SessionManager.open(session.path),
         options,
       ),
+      start: (options) => port.startThread(options),
       exclusive: (work) => port.exclusive(work),
       refreshIndex: async () => ({
         version: HOST_PROTOCOL_VERSION,

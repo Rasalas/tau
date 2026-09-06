@@ -11,6 +11,8 @@ interface ThreadRowProps {
   active: boolean;
   age: string;
   compact?: boolean;
+  /** Threads spawned from this one that are working right now. */
+  workingChildren?: number;
   projectIcon?: string;
   modelProvider?: string;
   session: UiSession;
@@ -60,6 +62,7 @@ export const ThreadRow = memo(function ThreadRow({
   active,
   age,
   compact,
+  workingChildren = 0,
   projectIcon,
   modelProvider,
   session,
@@ -77,6 +80,13 @@ export const ThreadRow = memo(function ThreadRow({
   );
   const working = activity === "working" || activity === "tool";
   const showStatus = working || activity === "waiting" || activity === "ready";
+  const childCount = workingChildren > 0
+    ? (
+      <span className="thread-agent-count" aria-label={`${workingChildren} agent${workingChildren === 1 ? "" : "s"} running`}>
+        <i />{workingChildren} running
+      </span>
+    )
+    : null;
 
   if (settled || compact) {
     return (
@@ -84,6 +94,7 @@ export const ThreadRow = memo(function ThreadRow({
         <button className="thread-main" onClick={() => onSelect(session.path)}>
           <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
           <span className="thread-title">{session.title}</span>
+          {childCount}
           <time>{age}</time>
         </button>
         <button
@@ -110,6 +121,7 @@ export const ThreadRow = memo(function ThreadRow({
         </span>
         <span className="thread-title">{session.title}</span>
         <span className="thread-meta-line">
+          {childCount}
           {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
           <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
         </span>

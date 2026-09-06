@@ -30,6 +30,7 @@ function harness() {
       list: async () => [],
       open: () => { throw new Error("no sessions in this test"); },
       prepare: async () => { throw new Error("no sessions in this test"); },
+      start: async () => { throw new Error("no threads in this test"); },
       exclusive: (work) => work(),
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
