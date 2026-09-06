@@ -26,7 +26,7 @@ describe("PiHost safe mode", () => {
     const summaries = host.listHostExtensions();
     expect(summaries.map((summary) => summary.id).sort()).toEqual(bundledHostExtensions().map((extension) => extension.id).sort());
     expect(summaries.filter((summary) => !summary.active)).toEqual([]);
-    expect(internals.runtimeExtensionsFor(settings).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-computer-use", "tau-questionnaire", "tau-service-tier", "tau-turn-checkpoints"]);
+    expect(internals.runtimeExtensionsFor(settings).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-computer-use", "tau-preview", "tau-questionnaire", "tau-service-tier", "tau-turn-checkpoints"]);
   });
 });
 
