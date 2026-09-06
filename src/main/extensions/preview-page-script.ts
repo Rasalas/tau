@@ -87,14 +87,14 @@ export function previewSnapshot(maxChars: number): string {
     if (type === "hidden") return "";
     return "textbox";
   };
+  // The accessible name in the order a screen reader would take it.
   const nameOf = (element: Element): string => {
-    const labelled = element.getAttribute("aria-label")
-      ?? element.getAttribute("alt")
-      ?? element.getAttribute("placeholder")
-      ?? element.getAttribute("title");
+    const labelled = element.getAttribute("aria-label") ?? element.getAttribute("alt");
     if (labelled) return clip(labelled, 60);
     const labels = (element as HTMLInputElement).labels;
-    if (labels && labels.length > 0) return clip(labels[0]?.textContent ?? "", 60);
+    if (labels && labels.length > 0 && labels[0]?.textContent?.trim()) return clip(labels[0].textContent, 60);
+    const fallback = element.getAttribute("placeholder") ?? element.getAttribute("title");
+    if (fallback) return clip(fallback, 60);
     return clip(element.textContent ?? "", 60);
   };
   const ownText = (element: Element): string => clip(

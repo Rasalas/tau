@@ -18,7 +18,7 @@ const FIXTURE = `
   <span id="out">before</span>
   <form id="form">
     <label for="name">Your name</label>
-    <input id="name" name="name" value="" />
+    <input id="name" name="name" value="" placeholder="type a name" />
     <input type="checkbox" id="agree" checked />
     <button type="submit">Send</button>
   </form>
@@ -42,7 +42,9 @@ describe("preview snapshot", () => {
     expect(tree).toContain('heading "Preview fixture"');
     expect(tree).toContain('text "A paragraph the agent should read."');
     expect(tree).toContain('button "Toggle text" [ref=e');
+    // The label wins over the placeholder, the way an accessible name is resolved.
     expect(tree).toContain('textbox "Your name" [ref=e');
+    expect(tree).not.toContain('textbox "type a name"');
     expect(tree).toContain("checkbox");
     expect(tree).toContain("checked");
     expect(tree).toContain('link "Docs" [ref=e');
