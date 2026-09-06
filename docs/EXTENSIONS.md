@@ -230,6 +230,13 @@ for what the ask tool folds into a dialog's title and options —
 `freeTextOption` and `optionForLabel`, with their `OptionParts` and
 `OptionPreview` types.
 
+`actions.openFile(path, options?)` puts a document in the stage; `actions.openThread(sessionId, options?)`
+puts a thread there instead — its transcript, read-only, with the title, status
+and cost the thread index carries and a "Take over" button, while the composer
+goes on addressing the thread it was already addressing. Both take
+`{ pin: true }` for a tab the next preview must not replace. Agents Kit opens a
+spawned thread that way rather than switching to it.
+
 It also lends two document surfaces core owns: `ReviewMode`, the full-workbench
 review of a set of changes (file tree, diffs, line notes, commit box), and
 `ChangesTree`, the changed files of a workspace with stage, unstage and revert.
