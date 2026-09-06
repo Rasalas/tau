@@ -1,8 +1,10 @@
 import { useMemo, type KeyboardEvent } from "react";
+import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageState, type StageView } from "../stage";
 import { FileViewer } from "./FileViewer";
 import { StageTabs, type ChatTab } from "./StageTabs";
+import { ThreadDocument } from "./ThreadDocument";
 
 function relativeTo(cwd: string | undefined, path: string): string {
   return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
@@ -14,8 +16,8 @@ function isEditable(target: EventTarget | null): boolean {
 
 export function Stage({
   stage, cwd, changes, editor, chatTab,
-  loadFile, loadDiff,
-  onActivate, onClose, onPin, onChangeView, onOpenInEditor,
+  loadFile, loadDiff, loadThread,
+  onActivate, onClose, onPin, onChangeView, onOpenInEditor, onTakeOverThread,
 }: {
   stage: StageState;
   cwd?: string;
@@ -25,11 +27,15 @@ export function Stage({
   chatTab?: ChatTab;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** The transcript of a thread the composer is not addressing. */
+  loadThread(sessionId: string): Promise<UiMessage[]>;
   onActivate(id: string): void;
   onClose(id: string): void;
   onPin(id: string): void;
   onChangeView(id: string, view: StageView): void;
   onOpenInEditor(path: string): void;
+  /** Makes a thread tab the thread the composer talks to. */
+  onTakeOverThread(sessionId: string): void;
 }) {
   const current = activeTab(stage);
   const changedRelative = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
@@ -57,7 +63,14 @@ export function Stage({
       onClose={onClose}
       onPin={onPin}
     />
-    {current && !chatTab?.active ? (
+    {!current || chatTab?.active ? null : current.kind === "thread" ? (
+      <ThreadDocument
+        key={current.id}
+        sessionId={current.sessionId}
+        loadThread={loadThread}
+        onTakeOver={onTakeOverThread}
+      />
+    ) : (
       <FileViewer
         key={current.id}
         tab={current}
@@ -69,6 +82,6 @@ export function Stage({
         onChangeView={(view) => onChangeView(current.id, view)}
         onOpenInEditor={onOpenInEditor}
       />
-    ) : null}
+    )}
   </section>;
 }

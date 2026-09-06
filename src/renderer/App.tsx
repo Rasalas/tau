@@ -24,7 +24,7 @@ import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, pinTab as pinStageTab, setFileView, type StageState, type StageView } from "./stage";
+import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, openThreadTab, pinTab as pinStageTab, setFileView, stageTabPath, type StageState, type StageView } from "./stage";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
@@ -561,6 +561,14 @@ export default function App() {
     setStage((current) => openFileTab(current, path, options));
     setChatFocused(false);
   }, []);
+  const openThread = useCallback((sessionId: string, options?: { pin?: boolean }) => {
+    setStage((current) => openThreadTab(current, sessionId, options));
+    setChatFocused(false);
+  }, []);
+  const loadThread = useCallback(async (sessionId: string) => {
+    if (!client) throw new Error("Reading another thread requires the Electron host");
+    return (await client.loadTranscript(sessionId)).messages;
+  }, [client]);
   /**
    * Applies a host action result. A project change clears the stage. Most
    * thread changes keep unsent composer text; explicit project switches do not.
@@ -679,6 +687,12 @@ export default function App() {
       return false;
     }
   }, [addEvent, applyActionResult, applySnapshot, invalidateNewThread, requireHost, snapshot, submission, threadStore]);
+
+  /** The one way out of a read-only thread tab: make it the thread on screen. */
+  const takeOverThread = useCallback((sessionId: string) => {
+    const path = threadStore.getThread(sessionId)?.path;
+    if (path) void switchSession(path);
+  }, [switchSession, threadStore]);
 
   const renameThread = useCallback(async (title: string): Promise<boolean> => {
     if (!requireHost("Thread rename")) return false;
@@ -911,11 +925,12 @@ export default function App() {
       draftPending: newThreadDeliveryPending,
     }),
     openFile,
+    openThread,
     runShellAction,
     holdComposer: () => { setComposerHolds((count) => count + 1); return () => setComposerHolds((count) => Math.max(0, count - 1)); },
     composerDraft: () => activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey).draft : "",
   }), [
-    applyHostResult, client, openPanel,
+    applyHostResult, client, openPanel, openThread,
     activeDraftKey, openWorkspace, reloadWorkbench, settleActiveThread, snapshot, switchSession,
     openThreadTree, duplicateThread,
   ]);
@@ -959,7 +974,7 @@ export default function App() {
     [snapshot, visibleStreaming],
   );
   const stageTab = activeStageTab(stage);
-  const stageFilePath = stageTab?.path;
+  const stageFilePath = stageTabPath(stageTab);
   const contextValue = useMemo(
     () => ({ snapshot: liveSnapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
     [liveSnapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
@@ -1041,7 +1056,7 @@ export default function App() {
     registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
-    pinStageTab: pinStage, setStageFileView: setStageView, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
+    pinStageTab: pinStage, setStageFileView: setStageView, loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
     commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
     notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId, closeOverlay,
@@ -1049,9 +1064,9 @@ export default function App() {
     activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker,
     closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
     documentSource, documentState, dockOpen, newThreadOpen, notice, openNewThreadPicker, openPanel,
-    openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
+    loadThread, openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
     removeProject, setNotice, setStageView, settings, settingsPage,
-    sidebarContributions, stage, threadStore, visibleStreaming, workspaceCwd,
+    sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({

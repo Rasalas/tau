@@ -130,6 +130,8 @@ export interface WorkbenchLayout {
   closeStageTab(id: string): void;
   pinStageTab(id: string): void;
   setStageFileView(id: string, view: "source" | "diff"): void;
+  loadThread(sessionId: string): Promise<UiMessage[]>;
+  takeOverThread(sessionId: string): void;
   documentState: { changes: UiWorkspaceChanges; editor?: UiEditor };
   documentSource: ReturnType<ExtensionRegistry["getDocumentSource"]>;
   visibleStreaming: boolean;
@@ -228,6 +230,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab, closeStageTab, pinStageTab, setStageFileView,
+    loadThread, takeOverThread,
     documentState, documentSource, visibleStreaming, paletteOpen, closePalette, commands,
     projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
     projects, removeProject, createThreadInProject, settingsPage, setSettingsPage, notice, noticeLevel,
@@ -466,11 +469,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}
               loadFile={documentSource?.loadFile ?? loadFileUnavailable}
               loadDiff={documentSource?.loadDiff ?? loadDiffUnavailable}
+              loadThread={loadThread}
               onActivate={activateStageTab}
               onClose={closeStageTab}
               onPin={pinStageTab}
               onChangeView={setStageFileView}
               onOpenInEditor={(path) => documentSource?.openInEditor(path)}
+              onTakeOverThread={takeOverThread}
             />
           </Suspense>
         </LazyFeatureBoundary> : null}
