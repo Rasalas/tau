@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError, HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
@@ -9,6 +11,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     cwd: () => "/project",
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
+    stateDir: "/state",
     safeMode: false,
     log: (label, detail) => { logs.push(detail ? `${label} ${detail}` : label); },
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
@@ -121,6 +124,21 @@ describe("HostExtensionRegistry", () => {
     await r.dispose();
     expect(order).toEqual(["b", "a"]);
     expect(r.summaries().every((entry) => !entry.active)).toBe(true);
+  });
+
+  it("gives every extension its own state folder under the root, without creating it", async () => {
+    const { registry: r } = registry();
+    const seen: string[] = [];
+    const kit = (id: string): HostExtension => ({
+      id,
+      name: id,
+      permissions: [],
+      activate: (ctx) => { seen.push(ctx.services.stateDir); },
+    });
+    await r.activate(kit("one.kit"));
+    await r.activate(kit("two.kit"));
+    expect(seen).toEqual([join("/state", "one.kit"), join("/state", "two.kit")]);
+    expect(existsSync(join("/state", "one.kit"))).toBe(false);
   });
 
   it("enforces permissions on HostExtensionServices methods", async () => {

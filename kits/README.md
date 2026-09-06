@@ -18,6 +18,7 @@ kits/<name>/
   protocol.ts          ids and command shapes both halves share; no imports
   host.ts              default-exports a HostExtension (or a factory)
   desktop.tsx          default-exports a DesktopExtension
+  styles.css           optional: the kit's own rules, linked while it is active
   host.test.ts         through src/main/test-support/host-kit-harness
   desktop.test.ts      through src/renderer/test-support/kit-harness
   app.test.tsx         optional: the kit in front of the real App
@@ -64,7 +65,8 @@ some kit files under NodeNext, where the extension is required.
 ## Building
 
 `npm run build:kits` writes `dist-kits/`; `npm run build` runs it, `npm run dev`
-watches it. The loader prefers `dist-kits/` over `kits/`, so an edit needs the
+watches it. A `styles` entry is copied there beside the two bundles and served
+over `tau-ext://`. The loader prefers `dist-kits/` over `kits/`, so an edit needs the
 watcher (or `npm run build:kits`) before the app sees it.
 
 Beside the kit folders the build writes `dist-kits/manifest.json`: the name,

@@ -30,6 +30,11 @@ export interface PiHostOptions {
   sessionUsageCachePath?: string;
   /** Where the index keeps which thread spawned which; defaults to memory only. */
   sessionLineageCachePath?: string;
+  /**
+   * Root of the per-extension state folders (`<userData>/kit-state`). Without
+   * one, kit state lands in the system temp dir rather than in anyone's home.
+   */
+  kitStateDir?: string;
   /** Mints the ids clients address workspaces by; without one they are per-run. */
   workspaceIdentity?: WorkspaceIdentity;
 }

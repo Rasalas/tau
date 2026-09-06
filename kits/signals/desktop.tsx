@@ -1,3 +1,4 @@
+import { Activity } from "lucide-react";
 import { useObservatory, type DesktopExtension, type PanelProps } from "tau";
 import { SIGNALS_EXTENSION_ID, SIGNALS_PANEL } from "./protocol.js";
 
@@ -37,7 +38,7 @@ export const observatoryExtension: DesktopExtension = {
   id: SIGNALS_EXTENSION_ID,
   name: "Signals",
   activate(plugin) {
-    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", glyph: "signals", order: 30, Component: ObservatoryPanel });
+    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", Icon: Activity, order: 30, Component: ObservatoryPanel });
     plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel(SIGNALS_PANEL) });
     plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "observatory.open" });
     // A shell command is the one tool run whose own text says what happened.

@@ -89,7 +89,8 @@ either. Computer Use (`kits/computer-use/`) is the example: it loads
   "isolation": "worker",
   "source": { "url": "https://github.com/acme/hello", "commit": "0123456789abcdef" },
   "desktop": "./desktop.tsx",
-  "host": "./host.ts"
+  "host": "./host.ts",
+  "styles": "./styles.css"
 }
 ```
 
@@ -103,13 +104,44 @@ either. Computer Use (`kits/computer-use/`) is the example: it loads
 | `isolation` | `"worker"` (default) or `"in-process"` (§6). |
 | `source` | `{ url, commit? }`, shown in Settings → Inspector. Provenance only — it proves nothing by itself (§4). |
 | `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, not both. |
+| `styles` | Relative path of a stylesheet loaded while the desktop half is active; it needs a `desktop` entry. |
 
 `desktop` and `host` entries are compiled with esbuild at load time (Node
 builtins and `electron` stay external for the host half, `react`, `react-dom`
 and `lucide-react` stay external — bound to the renderer's own copies — for the
 desktop half, because a second copy of React or of react-dom holds its own
 internals and quietly stops working), so a package brings its own dependencies
-from its own `node_modules` and needs no build step of its own.
+from its own `node_modules` and needs no build step of its own. The shared list
+is one list: `src/shared/shared-modules.ts` names the specifiers, the renderer
+publishes exactly those and the kit prebuild takes its externals from the same
+file, so a prebuilt kit binds what a compiled-on-the-fly one binds.
+
+`registerKeybinding({ keys, commandId })` adds a chord; the first binding of a
+chord wins and a later one is recorded as a conflict. Pass `replaces:
+<commandId>` when the chord is meant to *be* that command's key rather than
+another one beside it — every other binding of that command is hidden while
+yours lives and comes back when it is disposed, and if the chord you ask for is
+the very one that command already had, you take it over instead of colliding
+with it. Keybindings Kit uses it for the actions the user rebound in
+`~/.pi/agent/keybindings.json`: someone who wrote `app.session.new` there meant
+that key, not that key and Tau's default too. Without `replaces`, a binding is
+additive, which is what a package adding a chord of its own wants.
+
+`registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
+`lucide-react` is a shared module, so a package draws its glyph from the set
+the workbench itself uses, and core no longer keeps a table of names it would
+have to know a kit by. A panel without one gets core's fallback glyph.
+`registerSettingsPage` takes the same `Icon`.
+
+`styles` is not compiled: the loader reads the file, the host publishes it
+beside the desktop bundle over `tau-ext://bundles/<id>/<hash>.css`, and the
+renderer links it in `document.head` when the extension activates and removes
+it when the extension stops — switching a package off in Settings takes its
+rules with it. The rules are ordinary global CSS, so prefix them with something
+of your own (Tau's own kits use their id: `.preview-*`, `.agent-*`); they land
+after the workbench's own stylesheet. Core's own class vocabulary — the panel
+frame, the menu, the chips, the prompt frame, the thread row — stays in core
+and is documented in [CORE.md](CORE.md): use it, do not restyle it.
 
 ### The three modules a package imports from Tau
 
@@ -126,8 +158,8 @@ is an esbuild alias onto Tau's own compiled module, which is why
 
 `DesktopExtensionContext` additionally offers `registerSettingsPage` — a page
 of the Settings modal with its own nav entry, typed `SettingsPageContribution`
-(`id`, `label`, an optional `glyph` spelled the way panels spell theirs, an
-optional `order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
+(`id`, `label`, an optional `Icon` the way panels pass theirs, an optional
+`order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
 `onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
 package folders and the shipped kits (`ExtensionInspection`) without loading
 any code — including `distribution`, the name and version of the set the
@@ -280,13 +312,22 @@ A package's `permissions` array draws from a fixed list
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
-directory (`~/.pi/agent`, or what `PI_AGENT_DIR` names), and reading inside it
+directory (`~/.pi/agent`, or what `PI_CODING_AGENT_DIR` names), and reading inside it
 is ordinary file work that no permission gates either. A worker gets it in its
 bootstrap, so it costs no round trip. `services.sessionsDir` is its sibling:
 the Pi session directory Tau actually uses (`PI_CODING_AGENT_SESSION_DIR` when
 set, else `<agentDir>/sessions`). A package that persists thread-like state of
 its own keeps it beside that directory, so an isolated test instance never
 writes into the user's real store.
+
+`services.stateDir` is the third of them and the one to reach for first: the
+package's own folder under Tau's user data, `<userData>/kit-state/<id>/`. It is
+ungated like the other two, it is never shared with another package, and
+nothing creates it until the package writes there. `TAU_USER_DATA` moves it
+with everything else, so a dev instance's state is its own — Agents Kit keeps
+its link index there. What belongs in the *user's* `~/.tau` instead is
+configuration the user edits: Agents Kit reads its running budget from
+`~/.tau/agents.json` and never writes it.
 
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like

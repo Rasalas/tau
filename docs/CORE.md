@@ -52,7 +52,7 @@ These exist today, some still inside core files. They are extension work, and Ph
 | Preview browser: the panel, the `WebContentsView` over it and the `preview_*` tools the agent drives it with | Preview Kit: `kits/preview/`, a package Tau ships (ADR 0014) — `host.ts` with `view.ts` and `page-script.ts`, `desktop.tsx` with `panel.tsx`, `store.ts` and `overlay-watch.ts`. Core lends the panel slot, one composer region, and `src/renderer/reserved-region.ts` — the rectangle a native view owns, which core's own floats keep clear of; the kit publishes it through `reserveRegion` on `tau` ([ADR 0012](adr/0012-preview-browser.md)) | Preview Kit |
 | Service tier, questionnaire | Service Tier is `kits/service-tier/` and Questionnaires is `kits/questionnaire/`, packages Tau ships (ADR 0014); the questionnaire pages through its questions with its own prompt renderer over core's prompt frame | separate packages |
 | Computer use: the desktop-automation tools and how a run of them reads in the transcript | Computer Use: `kits/computer-use/`, a package Tau ships (ADR 0014). The host loads the `@amaster.ai/pi-computer-use` npm package through `loadRuntimeExtension` — its driver binaries have to stay where npm put them — and the kit contributes it to every runtime unless the user configured the Pi package themselves | Computer Use |
-| Spawning sub-agents | Agents Kit: `kits/agents/`, a package Tau ships (ADR 0014). Its host half contributes `tau_spawn_thread`, `tau_get_thread_status`, `tau_wait_for_thread` and `tau_list_threads` to every runtime; a sub-agent is an ordinary thread in the same project (ADR 0013). Its desktop half owns the Agents dock panel and publishes the lineage the navigator folds away and counts; the kit keeps its running budget in `~/.tau/agents.json` and its own link index in `~/.tau/agents-links.json` so the rail hides agent threads from the first paint. Core keeps the record the index reads: `sessions.start({ parent })` writes the link entry and `src/main/session-lineage.ts` turns it into `UiSession.parentThreadId` | Agents Kit |
+| Spawning sub-agents | Agents Kit: `kits/agents/`, a package Tau ships (ADR 0014). Its host half contributes `tau_spawn_thread`, `tau_get_thread_status`, `tau_wait_for_thread` and `tau_list_threads` to every runtime; a sub-agent is an ordinary thread in the same project (ADR 0013). Its desktop half owns the Agents dock panel and publishes the lineage the navigator folds away and counts; the kit reads its running budget from the user's `~/.tau/agents.json` and keeps its own link index in `<userData>/kit-state/tau.agents/agents-links.json` (`services.stateDir`) so the rail hides agent threads from the first paint. Core keeps the record the index reads: `sessions.start({ parent })` writes the link entry and `src/main/session-lineage.ts` turns it into `UiSession.parentThreadId` | Agents Kit |
 | What Pi extensions draw through `ctx.ui`: statuses, the working message and text widgets around the composer | Pi UI: `kits/pi-ui/`, a package Tau ships (ADR 0014); core lends the `presentUi` seam, the status line and the two composer regions | Pi UI |
 | Claude Code backend | Claude Code: `kits/claude-code/`, a package Tau ships (ADR 0014), registering a runtime backend through `registerRuntimeBackend`; core knows only Pi (ADR 0005 amendment) | Claude Code kit, shipped by default |
 | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry (`kits/workspace/host.ts`) and its two sources in `kits/workspace/navigation.tsx`; core keeps the sources modal as the placement for `registerProjectSource`, and `assertAllowedCloneSource` stays core's because the package installer clones too | Workspace Kit |
@@ -74,6 +74,34 @@ The one thing safe mode loses with the kits is `/install` and the Packages
 page — the package manager is a kit like any other now. Recovering from a
 window that cannot install is still `npm run start` or an edit to
 `~/.tau/packages.json`.
+
+## The stylesheet
+
+A kit that draws a surface of its own carries the rules for it: a `styles`
+entry in its manifest, `kits/<name>/styles.css`, linked while the kit is active
+and gone with it (see [EXTENSIONS.md](EXTENSIONS.md)). Seven kits have one —
+Workspace, Agents, Preview, Signals, Packages, Questionnaires and Pi UI.
+
+`src/renderer/styles.css` keeps the classes **core itself draws**, which is the
+whole of the test: a rule stays if a core component renders the element, even
+when only a kit ever mounts that component.
+
+| Stayed in core | Why |
+|---|---|
+| The window and its slots: `.app-shell`, `.workbench-center`, `.instrument-dock`, `.panel-rail`, `.panel-stage`, `.panel-header`, `.panel-body`, `.dock-resizer`, `.stage*` | Core's layout and the frame a panel contribution is drawn into. Four kits fill it; none of them owns it. |
+| The thread row: `.thread-row`, `.thread-main`, `.thread-title`, `.thread-branch`, `.thread-project-icon`, `.thread-activity`, `.activity-*`, `.thread-cost*`, `.thread-agent-count`, `.thread-settle`, `.provider-icon*` | `ThreadRow` is core's component, published on `tau` (ADR 0014): a thread is core's and its row is how core draws one. The rail around it is Workspace Kit's and moved. |
+| The menu: `.menu`, `.menu-anchor`, `.menu-label`, `.menu-heading`, `.menu-scrim`, `.menu-hint`, `.chev` | `Menu` on `tau`; Workspace Kit, Access Kit and Service Tier all open core's menu. |
+| Buttons and chips: `.chrome-button`, `.chrome-ghost`, `.icon-button`, `.text-button`, `.mini-button`, `.chip`, `.runtime-chip`, `.switch`, `.segmented`, `.primary`, `.danger`, `.accent` | The shared vocabulary of the workbench. Access Kit and Service Tier draw their composer chips entirely with it, so those two kits have no stylesheet at all. |
+| The prompt frame: `.extension-prompt*`, `.extension-option*`, `.option-row` | `ExtensionPromptFrame` and `OptionRow` on `tau`. Only Questionnaires' own pager (`.extension-pager`) moved. |
+| Review and diff: `.review-*`, `.diff-*`, `.changes-tree-*`, `.commit-proposal*`, `.source-*` | `ReviewMode`, `ChangesTree` and `DiffView` are core components published on `tau`; Review Kit mounts core's overlay rather than drawing one. Workspace Kit's own dock around them (`.changed-file*`, `.commit-box`) moved. |
+| The Settings modal: `.settings-modal`, `.settings-nav`, `.settings-field`, `.settings-note`, `.settings-page`, `.install-extension`, `.extension-grant-box`, `.inspector-*`, `.keybinding-row` | Core keeps the modal and the three pages safe mode needs. Only `.packages-*` — the install form, its log and its actions — moved to Packages Kit. |
+| The status line and the regions: `.status-line`, `.status-item`, `.status-side`, `.workbench-region`, `.region-*` | Placements core publishes. Only what Pi extensions draw inside them (`.pi-ui-*`) moved. |
+| Transcript, composer, palette and modals: `.transcript*`, `.message*`, `.markdown`, `.hljs-*`, `.tool-*`, `.task-progress*`, `.composer-*`, `.command-palette`, `.model-picker`, `.approval`, `.toast`, `.reload-*`, `.project-picker`, `.project-modal`, `.thread-tree*` | Core's own surfaces, on the list above. |
+| `:root` tokens, `.spinner` and the keyframes | The palette and the animations every kit's own rules refer to (`var(--ink-2)`, `blink`, `spin`). A kit stylesheet uses them and defines none. |
+
+A handful of rules name classes nothing renders any more (`.tier-mark`,
+`.title-generator-actions`, `.review-file-select`). They stayed where they were:
+finding them was a by-product of the move, not its subject.
 
 ## How to check
 

@@ -42,6 +42,18 @@ describe("extension packages", () => {
     });
   });
 
+  it("resolves the stylesheet a package names, and refuses one without a desktop half", () => {
+    expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", desktop: "./d.tsx", styles: "./styles.css" }))).toEqual({
+      manifest: { id: "a.b", name: "x", permissions: [], desktop: "./d.tsx", styles: "./styles.css" },
+      desktopEntry: "/p/d.tsx",
+      stylesEntry: "/p/styles.css",
+    });
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", host: "./h.ts", styles: "./styles.css" })))
+      .toThrow('"styles" needs a "desktop" entry');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", desktop: "./d.tsx", styles: "../elsewhere.css" })))
+      .toThrow("inside the package folder");
+  });
+
   it("parses permissions and refuses unknown ones", () => {
     expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", host: "./h.ts" })).manifest.permissions).toEqual([]);
     const withPerms = parseExtensionManifest("/p", JSON.stringify({

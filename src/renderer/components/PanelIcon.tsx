@@ -1,9 +1,16 @@
-import { Activity, Bot, Files, GitCompare, Globe, Package, PanelRight } from "lucide-react";
+import { PanelRight } from "lucide-react";
+import type { ComponentType } from "react";
 
-/** Panels name an icon; unknown names fall back rather than rendering a stray glyph. */
-const ICONS = { files: Files, changes: GitCompare, signals: Activity, preview: Globe, agents: Bot, packages: Package } as const;
+/** What a contribution passes as its icon: any component taking a pixel size. */
+export type PanelIconComponent = ComponentType<{ size?: number }>;
 
-export function PanelIcon({ name, size = 15 }: { name: string; size?: number }) {
-  const Component = ICONS[name as keyof typeof ICONS] ?? PanelRight;
+/**
+ * The glyph of a panel or a settings page. The contribution brings its own
+ * component — `lucide-react` is a shared module, so a package draws from the
+ * same set the workbench does — and core only decides the size and what an
+ * icon-less contribution gets.
+ */
+export function PanelIcon({ Icon, size = 15 }: { Icon?: PanelIconComponent; size?: number }) {
+  const Component = Icon ?? PanelRight;
   return <Component size={size} />;
 }

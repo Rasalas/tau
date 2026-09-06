@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -39,16 +40,27 @@ const PANEL_RESULT_LIMIT = 240;
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 
+/**
+ * How many children of one thread may run at a time is the user's setting, so
+ * it stays in their own `~/.tau`. The kit only ever reads it; no instance,
+ * least of all a dev one, writes here.
+ */
 export function agentsSettingsPath(home = homedir()): string {
   return join(home, ".tau", "agents.json");
 }
 
 /**
- * The kit's own index of who spawned what. The session files stay the durable
- * record; this file is what lets the navigator hide fifty agent threads on the
- * first paint after a restart, without opening a single session to find out.
+ * The kit's own index of who spawned what, in the state folder the host gives
+ * it (`services.stateDir`). The session files stay the durable record; this
+ * file is what lets the navigator hide fifty agent threads on the first paint
+ * after a restart, without opening a single session to find out.
  */
-export function agentsLinksPath(home = homedir()): string {
+export function agentsLinksPath(stateDir: string): string {
+  return join(stateDir, "agents-links.json");
+}
+
+/** Where the links lived before they were a kit's own state; read once, then left alone. */
+export function legacyAgentsLinksPath(home = homedir()): string {
   return join(home, ".tau", "agents-links.json");
 }
 
@@ -82,7 +94,7 @@ export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
   });
 }
 
-export async function readAgentLinks(path = agentsLinksPath()): Promise<StoredAgentLink[]> {
+export async function readAgentLinks(path: string): Promise<StoredAgentLink[]> {
   const read = await readPersistedJson(path, {
     expectedVersion: LINKS_VERSION,
     decode: (value) => decodeStoredLinks(value),
@@ -90,8 +102,21 @@ export async function readAgentLinks(path = agentsLinksPath()): Promise<StoredAg
   return read?.data ?? [];
 }
 
-export function writeAgentLinks(links: readonly StoredAgentLink[], path = agentsLinksPath()): Promise<void> {
+export function writeAgentLinks(links: readonly StoredAgentLink[], path: string): Promise<void> {
   return writePersistedJson(path, LINKS_VERSION, { links: [...links] });
+}
+
+/**
+ * The links of the run before this file moved into the kit's state folder.
+ * Read once, when the new file does not exist yet; the old one stays where it
+ * is, so an older Tau beside this one still finds it.
+ */
+export async function readAgentLinksWithMigration(path: string, legacy = legacyAgentsLinksPath()): Promise<StoredAgentLink[]> {
+  const links = await readAgentLinks(path);
+  if (links.length > 0 || existsSync(path) || !existsSync(legacy)) return links;
+  const inherited = await readAgentLinks(legacy);
+  if (inherited.length > 0) await writeAgentLinks(inherited, path).catch(() => undefined);
+  return inherited;
 }
 
 /** How many children of one thread may run at a time; a bad file is not an error. */
@@ -146,13 +171,19 @@ function truncate(text: string, limit: number): string {
  * project with its own runtime and session file (ADR 0013); this kit only
  * gives every runtime the tools to start one, watch it and read its answer.
  */
-export function createAgentsHostExtension(options: { settingsPath?: string; linksPath?: string } = {}): HostExtension {
+export function createAgentsHostExtension(options: {
+  /** The user's `~/.tau/agents.json`; tests point this elsewhere. */
+  settingsPath?: string;
+  /** The links file; `services.stateDir` names it otherwise. */
+  linksPath?: string;
+} = {}): HostExtension {
   return {
     id: AGENTS_HOST_EXTENSION_ID,
     name: "Agents",
     permissions: ["sessions", "runtime:extend"],
     async activate(context: HostExtensionContext) {
       const { services } = context;
+      const linksPath = options.linksPath ?? agentsLinksPath(services.stateDir);
       const book = new AgentThreadBook((threadId) => {
         const thread = services.thread(threadId);
         return thread ? { streaming: thread.isStreaming(), idle: thread.isIdle() } : undefined;
@@ -183,7 +214,7 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
             ...(link.startedAt ? { startedAt: link.startedAt } : {}),
             ...(link.endedAt ? { endedAt: link.endedAt } : {}),
           }] : []);
-          void writeAgentLinks(links, options.linksPath)
+          void writeAgentLinks(links, linksPath)
             .catch((error: unknown) => services.log("agents.links-write-failed", error instanceof Error ? error.message : String(error)));
         }, 50);
         saving.unref?.();
@@ -515,7 +546,7 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
       // Both reads finish before the extension is active, so the first thing
       // the desktop half asks for already holds every link from the last run.
       book.setMaxRunning(await readAgentsSettings(options.settingsPath));
-      for (const link of await readAgentLinks(options.linksPath)) {
+      for (const link of await readAgentLinksWithMigration(linksPath)) {
         if (!book.has(link.threadId)) book.add({ ...link, id: link.threadId });
       }
       publish();

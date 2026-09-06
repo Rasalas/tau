@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiPrompt,
@@ -313,7 +314,7 @@ export interface HostExtensionServices {
   /** The workspace the host currently has open. */
   cwd(): string;
   /**
-   * Pi's own configuration directory (`~/.pi/agent`, or what `PI_AGENT_DIR`
+   * Pi's own configuration directory (`~/.pi/agent`, or what `PI_CODING_AGENT_DIR`
    * names). The path only: reading inside it is ordinary file work, which no
    * permission gates, so this one is ungated too.
    */
@@ -325,6 +326,14 @@ export interface HostExtensionServices {
    * directory, so a test instance never writes into the user's real store.
    */
   readonly sessionsDir: string;
+  /**
+   * This extension's own folder for state it keeps, `<userData>/kit-state/<id>/`.
+   * Nothing creates it until something writes there, and a dev instance's
+   * `TAU_USER_DATA` moves it, so a test run never touches the user's own state.
+   * The facade the registry starts from carries the root; `activate` binds each
+   * extension's folder under it.
+   */
+  readonly stateDir: string;
   readonly safeMode: boolean;
   log(label: string, detail?: string): void;
   /** Opens a project the way a project switch does; the same path re-activates it. */
@@ -465,6 +474,16 @@ export function guardedServices(
   });
 }
 
+/** What one extension sees: the permission guard, with `stateDir` bound to its own folder. */
+export function extensionServices(services: HostExtensionServices, extension: Pick<HostExtension, "id" | "permissions">): HostExtensionServices {
+  const guarded = guardedServices(services, extension.permissions, extension.id);
+  if (!services.stateDir) return guarded;
+  const stateDir = join(services.stateDir, extension.id);
+  return new Proxy(guarded, {
+    get: (target, prop, receiver) => prop === "stateDir" ? stateDir : Reflect.get(target, prop, receiver) as unknown,
+  });
+}
+
 const COMMAND_NAME = /^[a-z][a-z0-9-]*$/u;
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 
@@ -508,10 +527,9 @@ export class HostExtensionRegistry {
     this.failures.delete(extension.id);
     this.consecutiveFailures.set(extension.id, 0);
     const record: ActiveHostExtension = { extension, commands: new Map(), longCommands: new Set(), disposers: [] };
-    const guarded = guardedServices(this.services, extension.permissions, extension.id);
     const context: HostExtensionContext = {
       id: extension.id,
-      services: guarded,
+      services: extensionServices(this.services, extension),
       registerCommand: (name, handler, options) => {
         if (!COMMAND_NAME.test(name)) throw new Error(`Host extension ${extension.id}: invalid command name "${name}"`);
         if (record.commands.has(name)) throw new Error(`Host extension ${extension.id}: command "${name}" registered twice`);

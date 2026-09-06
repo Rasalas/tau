@@ -15,7 +15,7 @@ describe("Keybindings desktop extension", () => {
     expect(registry.getKeybindings()).toEqual([]);
   });
 
-  it("adds keybindings.json chords beside core's and binds Pi extension shortcuts", async () => {
+  it("replaces core's chord for a rebound Pi action and binds Pi extension shortcuts", async () => {
     const invoke = vi.fn(async (_extensionId: string, command: string, input?: unknown) => {
       if (command === "pi-keybindings") return { bindings: { "app.session.new": ["ctrl+n"], "app.model.select": ["ctrl+l"] } };
       if (command === "shortcuts") return { sessionId: "s1", shortcuts: [{ keys: "ctrl+shift+p", description: "Pick a persona", source: "persona.ts" }] };
@@ -23,14 +23,33 @@ describe("Keybindings desktop extension", () => {
       throw new Error(`unexpected ${command}`);
     });
     const { registry } = createKitHarness(invoke);
+    // Core's own chords for the same commands, as `runtimeControls` binds them.
+    registry.activateCore({ id: "tau.runtime-settings", name: "Runtime Controls", activate(context) {
+      context.registerKeybinding({ keys: "ctrl+shift+n", commandId: "runtime.new-session" });
+      context.registerKeybinding({ keys: "ctrl+shift+m", commandId: "runtime.model" });
+      context.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
+    } });
     registry.activate(keybindingsExtension);
     await flush();
     const keys = Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]));
     expect(keys).toEqual({
+      // The two the user rebound answer to their key alone; the one they did
+      // not mention keeps Tau's default.
       "runtime.new-session": "ctrl+n",
       "runtime.model": "ctrl+l",
+      "runtime.abort": "escape",
       "pi.shortcut.ctrl+shift+p": "ctrl+shift+p",
     });
+
+    // Removing the kit gives the defaults back.
+    registry.deactivate("tau.keybindings");
+    expect(Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]))).toEqual({
+      "runtime.new-session": "ctrl+shift+n",
+      "runtime.model": "ctrl+shift+m",
+      "runtime.abort": "escape",
+    });
+    registry.activate(keybindingsExtension);
+    await flush();
     const shortcut = registry.getCommands().find((command) => command.id === "pi.shortcut.ctrl+shift+p");
     expect(shortcut?.label).toBe("Pick a persona");
     const notify = vi.fn();

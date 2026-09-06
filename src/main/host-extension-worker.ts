@@ -138,6 +138,7 @@ async function registerHooks(path: string, hooks: Record<string, unknown>, names
 const services: WorkerHostServices = {
   agentDir: boot.agentDir,
   sessionsDir: boot.sessionsDir,
+  stateDir: boot.stateDir,
   safeMode: boot.safeMode,
   cwd: () => rpc("cwd") as Promise<string>,
   log: (label, detail) => { send({ t: "log", label, ...(detail === undefined ? {} : { detail }) }); },

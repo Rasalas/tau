@@ -25,6 +25,21 @@ describe("tau-ext bundle scheme", () => {
     expect(store.respond("not a url").status).toBe(404);
   });
 
+  it("serves a published stylesheet as CSS, beside the bundle of the same extension", async () => {
+    const store = new DesktopBundleStore();
+    const url = store.publishStyles("acme.pkg", ".acme { color: red; }");
+    expect(url).toMatch(/^tau-ext:\/\/bundles\/acme\.pkg\/[0-9a-f]{32}\.css$/u);
+
+    const served = store.respond(url);
+    expect(served.headers.get("Content-Type")).toBe("text/css");
+    await expect(served.text()).resolves.toBe(".acme { color: red; }");
+
+    // Same bytes, different kind: neither URL serves the other's content.
+    const script = store.publish("acme.pkg", ".acme { color: red; }");
+    expect(script).not.toBe(url);
+    expect(store.respond(script).headers.get("Content-Type")).toBe("text/javascript");
+  });
+
   it("gives the same content one URL and forgets everything on a reload", () => {
     const store = new DesktopBundleStore();
     expect(store.publish("acme.pkg", "a")).toBe(store.publish("acme.pkg", "a"));
@@ -44,6 +59,8 @@ describe("tau-ext bundle scheme", () => {
     const html = readFileSync(fileURLToPath(new URL("../../index.html", import.meta.url)), "utf8");
     const csp = /content="([^"]+)"/u.exec(html.split("Content-Security-Policy")[1] ?? "")?.[1] ?? "";
     expect(csp).toContain("script-src 'self' tau-ext:");
+    // Kits link their stylesheets from the same scheme.
+    expect(csp).toContain("style-src 'self' 'unsafe-inline' tau-ext:");
     expect(csp).not.toContain("blob:");
   });
 });

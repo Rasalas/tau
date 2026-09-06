@@ -96,6 +96,9 @@ const hostOptions = {
   }),
   logger: hostLog,
   workspaceIdentity,
+  // A kit's own state lives under this instance's userData, so TAU_USER_DATA
+  // isolates a dev instance's kit state the way it isolates everything else.
+  kitStateDir: join(app.getPath("userData"), "kit-state"),
   sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
   platform: {
@@ -311,7 +314,11 @@ function createLocalHostMethods(): HostMethodTable {
         // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
         desktopBundles.clear();
         return {
-          bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({ ...bundle, url: desktopBundles.publish(bundle.id, bundle.code) })),
+          bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({
+            ...bundle,
+            url: desktopBundles.publish(bundle.id, bundle.code),
+            ...(bundle.styles ? { stylesUrl: desktopBundles.publishStyles(bundle.id, bundle.styles) } : {}),
+          })),
           errors: [...kits.errors, ...result.errors],
           skipped: result.skipped,
         };

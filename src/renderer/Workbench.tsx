@@ -513,7 +513,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             className={dockOpen && activePanel === panel.id ? "active" : ""}
             aria-pressed={dockOpen && activePanel === panel.id}
             onClick={() => dockOpen && activePanel === panel.id ? setDockOpen(false) : openPanel(panel.id)}
-          ><PanelIcon name={panel.glyph} /></button>)}
+          ><PanelIcon Icon={panel.Icon} /></button>)}
           <span className="spacer" />
           <button title={dockOpen ? "Collapse panel" : "Expand panel"} aria-label={dockOpen ? "Collapse panel" : "Expand panel"} onClick={() => setDockOpen(!dockOpen)}>
             {dockOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}

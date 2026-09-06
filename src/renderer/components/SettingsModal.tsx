@@ -501,7 +501,7 @@ export function SettingsModal({
             </button>
             {pages.map((entry) => (
               <button key={entry.id} className={page === entry.id ? "active" : ""} onClick={() => onSetPage(entry.id)}>
-                <PanelIcon name={entry.glyph ?? entry.id} size={14} /><span>{entry.label}</span>
+                <PanelIcon Icon={entry.Icon} size={14} /><span>{entry.label}</span>
               </button>
             ))}
             <button className={page === "inspector" ? "active" : ""} onClick={() => onSetPage("inspector")}>

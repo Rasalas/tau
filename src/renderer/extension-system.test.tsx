@@ -1,25 +1,102 @@
+// @vitest-environment jsdom
+import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { PanelIcon } from "./components/PanelIcon";
 import { ExtensionRegistry } from "./extension-system";
 
 describe("ExtensionRegistry contribution selectors", () => {
   it("keeps sorted contribution references stable between reads", () => {
     const registry = new ExtensionRegistry();
     registry.addKnown({ id: "test", name: "Test", activate(context) {
-      context.registerPanel({ id: "panel", label: "Panel", glyph: "p", Component: () => null });
+      context.registerPanel({ id: "panel", label: "Panel", Component: () => null });
     } });
     registry.activate({ id: "test", name: "Test", activate(context) {
-      context.registerPanel({ id: "panel", label: "Panel", glyph: "p", Component: () => null });
+      context.registerPanel({ id: "panel", label: "Panel", Component: () => null });
     } });
     expect(registry.getPanels()).toBe(registry.getPanels());
+  });
+
+  it("draws a panel's own icon, and core's fallback for a panel without one", () => {
+    const Marker = ({ size = 15 }: { size?: number }) => <i data-size={size} />;
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "with", name: "With", activate(context) {
+      context.registerPanel({ id: "with", label: "With", Icon: Marker, Component: () => null });
+    } });
+    registry.activate({ id: "without", name: "Without", activate(context) {
+      context.registerPanel({ id: "without", label: "Without", Component: () => null });
+    } });
+    const [withIcon, withoutIcon] = registry.getPanels();
+    expect(render(<PanelIcon Icon={withIcon!.Icon} />).container.querySelector("i")?.dataset.size).toBe("15");
+    // Core knows no kit by name: the fallback is what an icon-less panel gets.
+    expect(withoutIcon!.Icon).toBeUndefined();
+    expect(render(<PanelIcon Icon={withoutIcon!.Icon} size={14} />).container.querySelector("svg")).not.toBeNull();
+  });
+
+  it("lets a binding replace a command's default chord, and gives it back on dispose", () => {
+    const registry = new ExtensionRegistry();
+    const run = vi.fn();
+    registry.activateCore({ id: "core", name: "Core", activate(context) {
+      context.registerCommand({ id: "runtime.new-session", label: "New thread", group: "Runtime", run });
+      context.registerKeybinding({ keys: "ctrl+shift+k", commandId: "runtime.new-session" });
+    } });
+    const event = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
+    expect(registry.matchKeybinding(event({ key: "K", ctrlKey: true, shiftKey: true }))?.command.id).toBe("runtime.new-session");
+
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerKeybinding({ keys: "alt+k", commandId: "runtime.new-session", replaces: "runtime.new-session" });
+    } });
+    // The user's own chord is the chord: Tau's default is no longer live.
+    expect(registry.matchKeybinding(event({ key: "K", ctrlKey: true, shiftKey: true }))).toBeUndefined();
+    expect(registry.matchKeybinding(event({ key: "k", altKey: true }))?.command.id).toBe("runtime.new-session");
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["alt+k"]);
+    expect(registry.keybindingLabel("runtime.new-session")).toBe(registry.getKeybindings()[0]!.label);
+
+    registry.deactivate("kit");
+    expect(registry.matchKeybinding(event({ key: "K", ctrlKey: true, shiftKey: true }))?.command.id).toBe("runtime.new-session");
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["ctrl+shift+k"]);
+  });
+
+  it("stops shadowing when the single binding is disposed, not only on deactivation", () => {
+    const registry = new ExtensionRegistry();
+    let dispose = () => undefined as void;
+    registry.activateCore({ id: "core", name: "Core", activate(context) {
+      context.registerCommand({ id: "runtime.model", label: "Model", group: "Runtime", run: () => undefined });
+      context.registerKeybinding({ keys: "ctrl+shift+l", commandId: "runtime.model" });
+    } });
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      dispose = context.registerKeybinding({ keys: "alt+l", commandId: "runtime.model", replaces: "runtime.model" });
+    } });
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["alt+l"]);
+    dispose();
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["ctrl+shift+l"]);
+  });
+
+  it("takes over the chord it replaces instead of reporting a conflict", () => {
+    const registry = new ExtensionRegistry();
+    registry.activateCore({ id: "core", name: "Core", activate(context) {
+      context.registerCommand({ id: "runtime.abort", label: "Abort", group: "Runtime", run: () => undefined });
+      context.registerKeybinding({ keys: "ctrl+shift+j", commandId: "runtime.abort" });
+    } });
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerKeybinding({ keys: "ctrl+shift+j", commandId: "runtime.abort", replaces: "runtime.abort" });
+    } });
+    expect(registry.getKeybindingConflicts()).toEqual([]);
+    expect(registry.getKeybindings().map((binding) => [binding.keys, binding.extensionId])).toEqual([["ctrl+shift+j", "kit"]]);
+    const event = new KeyboardEvent("keydown", { key: "J", ctrlKey: true, shiftKey: true });
+    expect(registry.matchKeybinding(event)?.command.id).toBe("runtime.abort");
+
+    registry.deactivate("kit");
+    expect(registry.getKeybindings().map((binding) => [binding.keys, binding.extensionId])).toEqual([["ctrl+shift+j", "core"]]);
+    expect(registry.matchKeybinding(event)?.command.id).toBe("runtime.abort");
   });
 
   it("rejects cross-extension contribution collisions without removing the owner", () => {
     const registry = new ExtensionRegistry();
     registry.activate({ id: "first", name: "First", activate(context) {
-      context.registerPanel({ id: "shared", label: "First panel", glyph: "1", Component: () => null });
+      context.registerPanel({ id: "shared", label: "First panel", Component: () => null });
     } });
     expect(() => registry.activate({ id: "second", name: "Second", activate(context) {
-      context.registerPanel({ id: "shared", label: "Second panel", glyph: "2", Component: () => null });
+      context.registerPanel({ id: "shared", label: "Second panel", Component: () => null });
     } })).toThrow("collides with first");
     expect(registry.getPanels().map((panel) => panel.extensionId)).toEqual(["first"]);
   });

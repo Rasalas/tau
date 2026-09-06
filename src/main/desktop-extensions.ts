@@ -10,6 +10,7 @@ import { MANIFEST_FILE, manifestIncompatibility, parseExtensionManifest, type Ex
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources } from "./extension-sources.js";
 import type { ExtensionHostVersions } from "../shared/extension-compat.js";
+import { DEFERRED_SHARED_MODULES } from "../shared/shared-modules.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 
@@ -29,6 +30,8 @@ export function desktopExtensionDirectories(cwd: string, home = homedir()): Arra
 export interface DesktopEntryDetailed {
   path: string;
   manifest?: ExtensionManifest;
+  /** Absolute path of the stylesheet the manifest names, if it names one. */
+  styles?: string;
 }
 
 /** A desktop entry that came from a source in `packages.json` rather than from a folder scan. */
@@ -62,7 +65,7 @@ export async function listDesktopExtensionEntriesDetailed(directory: string, opt
       try {
         const parsed = parseExtensionManifest(path, manifest);
         if (parsed.desktopEntry && !manifestIncompatibility(parsed.manifest, options.versions)) {
-          entries.push({ path: parsed.desktopEntry, manifest: parsed.manifest });
+          entries.push({ path: parsed.desktopEntry, manifest: parsed.manifest, ...(parsed.stylesEntry ? { styles: parsed.stylesEntry } : {}) });
         }
       } catch {
         // The host reports manifest errors when it loads packages; the desktop side stays quiet.
@@ -129,7 +132,7 @@ export interface BundleOptions {
  * empty export list, and the host reads the names from its own copy so the
  * shim still binds every named import.
  */
-const HOST_RESOLVED_SHARED = new Set(["lucide-react"]);
+const HOST_RESOLVED_SHARED = new Set<string>(DEFERRED_SHARED_MODULES);
 const hostExportNames = new Map<string, Promise<string[]>>();
 
 function sharedExportNamesFor(specifier: string, reported: readonly string[] | undefined): Promise<string[]> {
@@ -223,7 +226,7 @@ export async function loadDesktopExtensions(
     try {
       const parsed = parseExtensionManifest(installed.directory, manifest);
       if (!parsed.desktopEntry || manifestIncompatibility(parsed.manifest, options.versions)) return [];
-      return [{ scope: installed.scope, entry: { path: parsed.desktopEntry, manifest: parsed.manifest } }];
+      return [{ scope: installed.scope, entry: { path: parsed.desktopEntry, manifest: parsed.manifest, ...(parsed.stylesEntry ? { styles: parsed.stylesEntry } : {}) } }];
     } catch {
       // The host reports manifest errors when it loads packages; the desktop side stays quiet.
       return [];
@@ -243,6 +246,7 @@ export async function loadDesktopExtensions(
     for (const entry of entries) {
       try {
         const code = await bundleDesktopExtension(entry.path, options);
+        const styles = entry.styles ? await readFile(entry.styles, "utf8") : undefined;
         const permissions = entry.manifest?.permissions ?? [];
         const granted = entry.manifest ? isPackageGranted(entry.manifest, grantsFile.grants) : true;
         bundles.push({
@@ -251,6 +255,7 @@ export async function loadDesktopExtensions(
           scope,
           projectPath: scope === "project" ? cwd : undefined,
           code,
+          ...(styles ? { styles } : {}),
           permissions,
           granted,
           ...(entry.manifest?.source ? { source: entry.manifest.source } : {}),

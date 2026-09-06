@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { CornerUpLeft } from "lucide-react";
+import { Bot, CornerUpLeft } from "lucide-react";
 import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
 import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
@@ -48,7 +48,7 @@ export const agentsExtension: DesktopExtension = {
     void context.host.invoke("state").then(apply).catch((error: unknown) => {
       if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the spawned threads", error);
     });
-    context.registerPanel({ id: "agents", label: "Agents", glyph: "agents", order: 40, Component: AgentsPanel });
+    context.registerPanel({ id: "agents", label: "Agents", Icon: Bot, order: 40, Component: AgentsPanel });
     context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, Component: SpawnedBy });
     context.registerCommand({
       id: "agents.open",

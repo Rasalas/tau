@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry } from "./extension-system";
-import { RuntimeExtensions, isDesktopExtension, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
+import { DEFERRED_SHARED_MODULES, SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules";
+import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
 
 function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<RuntimeExtensionHost> = {}) {
   const log = vi.fn();
@@ -131,6 +132,48 @@ describe("runtime desktop extensions", () => {
     await new RuntimeExtensions(registry, h).sync("/project");
     expect(seen).toEqual(["tau-ext://bundles/x.served/abc123.js"]);
     expect(registry.getExtensionSummaries()[0]?.active).toBe(true);
+  });
+
+  it("links a bundle's stylesheet while the extension is active and takes it away with it", async () => {
+    const registry = new ExtensionRegistry();
+    const h = {
+      load: async () => ({
+        bundles: [{
+          id: "x.styled",
+          path: "/x/styled.tsx",
+          scope: "global" as const,
+          code: "",
+          url: "tau-ext://bundles/x.styled/abc123.js",
+          styles: ".styled { color: red; }",
+          stylesUrl: "tau-ext://bundles/x.styled/def456.css",
+          permissions: [],
+          granted: true,
+        }],
+        errors: [],
+        skipped: [],
+      }),
+      importModule: async () => ({ default: { id: "x.styled", name: "Styled", activate() {} } }),
+      isEnabled: () => true,
+      notify: vi.fn(),
+      log: vi.fn(),
+    };
+    await new RuntimeExtensions(registry, h).sync("/project");
+    const link = () => document.head.querySelector<HTMLLinkElement>('link[data-tau-extension="x.styled"]');
+    expect(link()?.href).toBe("tau-ext://bundles/x.styled/def456.css");
+
+    registry.setActive("x.styled", false);
+    expect(link()).toBeNull();
+    registry.setActive("x.styled", true);
+    expect(link()?.href).toBe("tau-ext://bundles/x.styled/def456.css");
+    registry.deactivate("x.styled");
+    expect(link()).toBeNull();
+  });
+
+  it("publishes exactly the specifiers both bundlers are built from", () => {
+    const published = new Set([...Object.keys(SHARED_MODULES), ...DEFERRED_SHARED_MODULES]);
+    expect([...published].sort()).toEqual([...SHARED_MODULE_SPECIFIERS].sort());
+    // Every one of them is reported to the host, deferred ones with no names yet.
+    expect(Object.keys(sharedExportNames()).sort()).toEqual([...SHARED_MODULE_SPECIFIERS].sort());
   });
 
   it("validates the extension shape and lists shared exports", () => {

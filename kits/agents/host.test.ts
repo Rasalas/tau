@@ -28,6 +28,7 @@ import {
   decodeStoredLinks,
   linksFromEntries,
   readAgentLinks,
+  readAgentLinksWithMigration,
   readAgentsSettings,
   titleFromPrompt,
   writeAgentLinks,
@@ -84,6 +85,7 @@ function harness() {
     cwd: () => "/project",
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
+    stateDir: "/state",
     safeMode: false,
     log: vi.fn(),
     refreshExtensionPackages: async () => undefined,
@@ -144,8 +146,13 @@ function harness() {
   };
 
   let invoke: (command: string, input?: unknown) => Promise<unknown> = () => Promise.reject(new Error("the kit is not activated"));
-  const activate = async (options: { settingsPath?: string; linksPath?: string }) => {
-    const registry = await activateHostKit(createAgentsHostExtension(options), services, (event) => events.push(event));
+  const activate = async (options: { settingsPath?: string; linksPath?: string; stateDir?: string }) => {
+    const { stateDir, ...kitOptions } = options;
+    const registry = await activateHostKit(
+      createAgentsHostExtension(kitOptions),
+      stateDir ? { ...services, stateDir } : services,
+      (event) => events.push(event),
+    );
     invoke = (command, input) => registry.invoke(AGENTS_HOST_EXTENSION_ID, command, input);
   };
 
@@ -182,11 +189,12 @@ function harness() {
   return { activate, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts };
 }
 
-async function activated(paths: { settingsPath?: string; linksPath?: string } = {}) {
+async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string } = {}) {
   const bench = harness();
   bench.open("parent");
   await bench.activate({
-    linksPath: paths.linksPath ?? join(tmpdir(), `tau-agents-none-${randomUUID()}.json`),
+    ...(paths.stateDir ? { stateDir: paths.stateDir } : { linksPath: paths.linksPath ?? join(tmpdir(), `tau-agents-none-${randomUUID()}.json`) }),
+    ...(paths.linksPath && paths.stateDir ? { linksPath: paths.linksPath } : {}),
     ...(paths.settingsPath ? { settingsPath: paths.settingsPath } : {}),
   });
   return bench;
@@ -577,6 +585,48 @@ describe("Agents Kit", () => {
       ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps its links in the state folder the host gave it", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tau-agents-state-"));
+    try {
+      const bench = await activated({ stateDir });
+      const parent = bench.runtime("parent");
+      await parent.call("tau_spawn_thread", { prompt: "go", title: "Index 1" });
+      await settle();
+      // The registry gives every extension its own folder under the root.
+      await expect(readAgentLinks(join(stateDir, AGENTS_HOST_EXTENSION_ID, "agents-links.json"))).resolves.toEqual([
+        expect.objectContaining({ parentThreadId: "parent", title: "Index 1" }),
+      ]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("takes the links of the run before the file moved into the state folder", async () => {
+    const home = await mkdtemp(join(tmpdir(), "tau-agents-home-"));
+    const stateDir = await mkdtemp(join(tmpdir(), "tau-agents-state-"));
+    const legacy = join(home, ".tau", "agents-links.json");
+    try {
+      await writeAgentLinks([
+        { threadId: "child-a", parentThreadId: "parent", depth: 1, spawnedAt: 1, projectPath: "/project", title: "A", spawnedBy: "tau_spawn_thread" },
+      ], legacy);
+      await expect(readAgentLinksWithMigration(join(stateDir, "agents-links.json"), legacy)).resolves.toEqual([
+        expect.objectContaining({ threadId: "child-a" }),
+      ]);
+      // Copied once: the old file stays where an older Tau still looks for it.
+      await expect(readAgentLinks(join(stateDir, "agents-links.json"))).resolves.toEqual([
+        expect.objectContaining({ threadId: "child-a" }),
+      ]);
+      await expect(readAgentLinks(legacy)).resolves.toEqual([expect.objectContaining({ threadId: "child-a" })]);
+
+      // A second run reads its own file; the old one is not consulted again.
+      await writeAgentLinks([], join(stateDir, "agents-links.json"));
+      await expect(readAgentLinksWithMigration(join(stateDir, "agents-links.json"), legacy)).resolves.toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(stateDir, { recursive: true, force: true });
     }
   });
 

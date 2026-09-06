@@ -509,6 +509,10 @@ export interface DesktopExtensionBundle {
   code: string;
   /** `tau-ext://bundles/<id>/<hash>.js` once the host serves it; absent in the browser preview. */
   url?: string;
+  /** The stylesheet the manifest names, as its source; the renderer loads it while the extension is active. */
+  styles?: string;
+  /** `tau-ext://bundles/<id>/<hash>.css` once the host serves it. */
+  stylesUrl?: string;
   permissions: readonly string[];
   granted?: boolean;
   source?: { url: string; commit?: string };

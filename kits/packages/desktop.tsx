@@ -1,3 +1,4 @@
+import { Package } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   errorMessage,
@@ -213,7 +214,7 @@ export const packagesExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
-      glyph: "packages",
+      Icon: Package,
       order: 30,
       Component: (props: SettingsPageProps) => (
         <PackagesPage {...props} host={plugin.host} inspect={(cwd) => plugin.inspectPackages(cwd)} />

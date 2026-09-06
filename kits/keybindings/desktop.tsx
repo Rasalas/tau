@@ -3,9 +3,11 @@ import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcut
 
 /**
  * The Pi actions in `~/.pi/agent/keybindings.json` and the workbench command
- * each one reaches. Core binds Tau's own chords for these commands; this kit
- * adds the user's Pi chords beside them. The commands belong to whoever
- * registered them; this kit only decides which extra keys reach them.
+ * each one reaches. Core binds Tau's own chords for these commands; a chord
+ * the user wrote for one of them replaces Tau's, because someone who rebound
+ * `app.session.new` meant that key and not that key as well (`replaces` on
+ * `registerKeybinding`). The commands belong to whoever registered them; this
+ * kit only decides which keys reach them.
  */
 const PI_KEYBINDINGS: ReadonlyArray<{ commandId: string; piAction: string }> = [
   { commandId: "runtime.new-session", piAction: "app.session.new" },
@@ -28,7 +30,7 @@ function bindPiKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean):
       const keys = bindings[entry.piAction];
       if (!keys?.length) continue;
       for (const chord of keys) {
-        try { plugin.registerKeybinding({ keys: chord, commandId: entry.commandId }); } catch (error) { console.warn(`keybindings.json: ${entry.piAction} = ${chord} is not a chord Tau understands`, error); }
+        try { plugin.registerKeybinding({ keys: chord, commandId: entry.commandId, replaces: entry.commandId }); } catch (error) { console.warn(`keybindings.json: ${entry.piAction} = ${chord} is not a chord Tau understands`, error); }
       }
     }
   }).catch(ignoreHostUnavailable);
