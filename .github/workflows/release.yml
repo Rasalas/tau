@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a GitHub release from the build (otherwise just build and upload artifacts)
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -54,6 +60,9 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Makes electron-builder write release/builder-debug.yml, which is
+          # otherwise silent; a failing platform is diagnosed from it.
+          DEBUG: electron-builder
         run: |
           for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             [ -n "${!name-}" ] || unset "$name"
@@ -73,8 +82,28 @@ jobs:
             release/*.blockmap
             release/latest*.yml
 
+      # electron-builder's debug log and npm's own log live outside `release/`
+      # and are only worth keeping when something went wrong.
+      - name: Collect diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          cp release/builder-debug.yml diagnostics/ 2>/dev/null || true
+          npm_cache="$(npm config get cache)"
+          find "$npm_cache/_logs" -type f -name '*.log' -exec cp {} diagnostics/ \; 2>/dev/null || true
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tau-${{ matrix.artifact }}-diagnostics
+          if-no-files-found: ignore
+          path: diagnostics
+
   release:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
