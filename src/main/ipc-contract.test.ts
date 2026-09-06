@@ -5,7 +5,7 @@ import { HostJobRunner } from "./host-jobs.js";
 import { createHostMethods, createUnsupportedHostMethods, invokeHostMethod } from "./host-methods.js";
 
 /**
- * The renderer and the host agree only by string. A method added to one and
+ * The client and the host agree only by string. A method added to one and
  * forgotten in the other fails at runtime with "Unknown method", and only when
  * the user happens to hit that button. The two channel names of the Electron
  * transport are checked the same way.
@@ -38,9 +38,9 @@ function tableMethods(): Set<string> {
   return new Set(Object.keys(methods));
 }
 
-/** Every protocol method name the renderer's host client sends. */
+/** Every protocol method name the client sends. */
 function clientMethods(): Set<string> {
-  const source = read("renderer/host-client.ts");
+  const source = read("workbench/host-client.ts");
   return new Set([...source.matchAll(/(?:call|runJob|isJobMethod)(?:<[^>]*>)?\("([a-z-]+)"/gu)].map((match) => match[1]!));
 }
 
