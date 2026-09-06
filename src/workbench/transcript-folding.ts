@@ -189,7 +189,16 @@ export type WorkRow =
   | { kind: "fold"; id: string; label: string; rows: readonly WorkRow[] }
   /** The one self-replacing line of a turn in flight. */
   | { kind: "live"; id: string; label: string; startedAt: number; tools: readonly UiToolRun[] }
-  | { kind: "group"; id: string; summary: string; tools: readonly UiToolRun[]; failed: boolean; open: boolean };
+  | {
+      kind: "group";
+      id: string;
+      summary: string;
+      tools: readonly UiToolRun[];
+      failed: boolean;
+      open: boolean;
+      /** How the turn as a whole ended, marked once on the row that leads it. */
+      note?: "error" | "interrupted";
+    };
 
 export interface WorkGroupInput {
   /** Stable id of the turn's activity entry; every row key derives from it. */
@@ -225,7 +234,7 @@ function groupRow(id: string, tools: readonly UiToolRun[], input: WorkGroupInput
     id,
     summary: summarizeToolFacts(facts),
     tools,
-    failed: facts.some((fact) => fact.failed),
+    failed: facts.some((fact) => fact.failed) || input.status === "error",
     open,
   };
 }
@@ -308,12 +317,21 @@ export function deriveWorkRows(input: WorkGroupInput): WorkRow[] {
   return rows;
 }
 
+/** A turn that failed or was stopped says so once, on the row that leads it. */
+function noteTerminalStatus(rows: WorkRow[], input: WorkGroupInput): WorkRow[] {
+  if (input.status !== "error" && input.status !== "interrupted") return rows;
+  const first = rows.findIndex((row) => row.kind === "group");
+  if (first < 0) return rows;
+  rows[first] = { ...rows[first] as Extract<WorkRow, { kind: "group" }>, note: input.status };
+  return rows;
+}
+
 function workRowsFor(tools: readonly UiToolRun[], input: WorkGroupInput, key: string): WorkRow[] {
   const live = input.streaming && input.status === "running" ? liveRow(tools, input) : undefined;
   if (live) return [...groupedRows(live.rest, input, key), live.row];
 
   const failed = input.status === "error" || tools.some((tool) => tool.status === "error");
-  if (input.detail !== "focused" || failed || input.status === "running") return groupedRows(tools, input, key);
+  if (input.detail !== "focused" || failed || input.status === "running") return noteTerminalStatus(groupedRows(tools, input, key), input);
 
   // A single non-failing tool after the answer belongs to the turn; a larger
   // trailing run is new work and stays where the reader can see it.

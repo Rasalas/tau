@@ -614,7 +614,8 @@ export default function App() {
   const { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread: Boolean(pendingNewThread), activityTools, turnActivityHistory, conversationSnapshot,
     toolAnchorId, visibleToolAnchorId, threadPrompts, registry, registryVersion,
-    viewStore, recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, abortSessionId: snapshot?.sessionId,
+    viewStore, actions, detail: preferences.transcriptDetailFor(conversationSnapshot?.sessionId),
+    recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, abortSessionId: snapshot?.sessionId,
     abort: abortThread,
   });
   const showStartScreen = conversation.isEmpty

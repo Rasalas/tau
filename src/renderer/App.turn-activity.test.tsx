@@ -133,7 +133,7 @@ describe("last-turn activity", () => {
       client.emit({ type: "agent-status", sessionId: "session", running: false });
     });
 
-    expect(await screen.findByText("1 tool call interrupted")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Stopped after/u }));
     expect(screen.getByText("interrupted")).toBeTruthy();
     expect(view.storage.get(STORAGE_KEYS.bootstrapCache) ?? "").not.toContain('"status":"interrupted"');
   });
@@ -178,7 +178,7 @@ describe("last-turn activity", () => {
     };
 
     renderApp(client, { storage });
-    expect(await screen.findByText("Used 1 tool")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Worked for/u })).toBeTruthy();
     expect(screen.queryByText(/1 running/)).toBeNull();
   });
 
@@ -226,7 +226,7 @@ describe("last-turn activity", () => {
     expect(rows).toEqual([
       expect.stringContaining("Start"),
       expect.stringContaining("First result"),
-      expect.stringMatching(/fahre bitte fort.*Working/u),
+      expect.stringMatching(/fahre bitte fort.*Reading one\.ts/u),
     ]);
   });
 
@@ -260,7 +260,7 @@ describe("last-turn activity", () => {
     await screen.findByText("Finished");
     const rows = Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent);
     expect(rows).toEqual([
-      expect.stringMatching(/Do the work.*Used 1 tool/u),
+      expect.stringMatching(/Do the work.*Worked for/u),
       expect.stringContaining("Finished"),
     ]);
 
@@ -289,7 +289,7 @@ describe("last-turn activity", () => {
       });
       client.emit({ type: "agent-status", sessionId: "session", running: true });
     });
-    expect(await screen.findByText("Used 1 tool")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Worked for/u })).toBeTruthy();
     expect(screen.queryByText("Completed")).toBeNull();
   });
 
@@ -445,8 +445,8 @@ describe("last-turn activity", () => {
     // here); wait for the transcript's own paragraph, not the textarea echo.
     const newPrompt = await screen.findByText("new request", { selector: "p" });
     expect(newPrompt).toBeDefined();
-    expect(newPrompt?.closest(".virtual-transcript-row")?.textContent).not.toContain("Ran 1 command");
-    expect(screen.getByText("old request").closest(".virtual-transcript-row")?.textContent).toContain("Ran 1 command");
+    expect(newPrompt?.closest(".virtual-transcript-row")?.textContent).not.toContain("Worked for");
+    expect(screen.getByText("old request").closest(".virtual-transcript-row")?.textContent).toContain("Worked for");
   });
 
   it("aggregates steering into the current run and resets on the next run", async () => {
@@ -460,14 +460,14 @@ describe("last-turn activity", () => {
       client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("two"), status: "running", endedAt: undefined } });
       client.emit({ type: "tool-end", sessionId: "session", tool: tool("two") });
     });
-    expect(await screen.findByText(/Working · Used 2 tools/u)).toBeTruthy();
+    expect(await screen.findByText("Read two.ts")).toBeTruthy();
 
     act(() => {
       client.emit({ type: "queue", sessionId: "session", steering: ["keep going"], followUp: [] });
       client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("three"), status: "running", endedAt: undefined } });
       client.emit({ type: "tool-end", sessionId: "session", tool: tool("three") });
     });
-    expect(await screen.findByText(/Working · Used 3 tools/u)).toBeTruthy();
+    expect(await screen.findByText("Read three.ts")).toBeTruthy();
 
     act(() => {
       client.emit({ type: "agent-status", sessionId: "session", running: false });
@@ -475,8 +475,8 @@ describe("last-turn activity", () => {
       client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("four"), status: "running", endedAt: undefined } });
       client.emit({ type: "tool-end", sessionId: "session", tool: tool("four") });
     });
-    await waitFor(() => expect(screen.queryByText(/Used 3 tools/u)).toBeNull());
-    expect(screen.getByText(/Working · Used 1 tool/u)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Read three.ts")).toBeNull());
+    expect(screen.getByText("Read four.ts")).toBeTruthy();
   });
 
   it("renders completed activity at each persisted turn anchor", async () => {
@@ -507,8 +507,10 @@ describe("last-turn activity", () => {
     expect(activityRows).toHaveLength(2);
     expect(activityRows[0]?.textContent).not.toContain("Completed");
     expect(activityRows[1]?.textContent).not.toContain("1 failed");
-    expect(activityRows[0]?.textContent).toContain("Used 1 tool");
-    expect(activityRows[1]?.textContent).toContain("Used 1 tool");
+    expect(activityRows[0]?.textContent).toContain("Worked for");
+    // A turn that failed never folds; it names what it did and says it failed.
+    expect(activityRows[1]?.textContent).toContain("Read 1 file");
+    expect(activityRows[1]?.querySelector('[aria-label="Activity failed"]')).toBeTruthy();
   });
 
   it("does not duplicate the live group when its anchor is an assistant message", async () => {

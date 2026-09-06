@@ -353,6 +353,30 @@ export interface ToolPresentation {
   detail: string;
   /** Structured tools can keep their machine payload out of the transcript. */
   output?: "default" | "hidden";
+  /**
+   * What this tool reaches — a browser, a machine, an MCP server. A group
+   * summary hoists a named source to the front of its sentence instead of
+   * counting the calls as anonymous tools.
+   */
+  source?: string;
+}
+
+export interface ToolCardProps {
+  /** Every consecutive call of this card's tools, in the order they ran. */
+  tools: readonly UiToolRun[];
+  actions: WorkbenchActions;
+}
+
+/**
+ * A whole batch of consecutive calls drawn as one card instead of a row per
+ * call. Core never folds, groups or hides a card: it owns its own status, so a
+ * spawn that outlives its turn stays readable. A tool a card claims is not
+ * offered to `registerToolRenderer`.
+ */
+export interface ToolCardContribution extends ProfileScoped {
+  id: string;
+  match(tool: UiToolRun): boolean;
+  Component: ComponentType<ToolCardProps>;
 }
 
 /** Options an extension declares at activation; Tau renders the settings page from these. */
@@ -455,6 +479,8 @@ export interface DesktopExtensionContext {
     render: (tool: UiToolRun) => ToolPresentation,
     options?: ProfileScoped,
   ): () => void;
+  /** Draws a batch of one tool's consecutive calls as a single card. */
+  registerToolCard(card: ToolCardContribution): () => void;
 }
 
 export interface DesktopExtension {
@@ -590,6 +616,7 @@ export class ExtensionRegistry {
   private extensionServices = new Map<string, ContributionOwner & { value: unknown }>();
   private serviceUsers = new Map<string, Set<ServiceUser>>();
   private renderers = new Map<string, Owned<ToolRenderer>>();
+  private toolCards = new Map<string, Owned<ToolCardContribution>>();
   private options = new Map<string, ExtensionOption[]>();
   private contributionKinds = new Map<string, string[]>();
   /** Every renderable contribution an active extension offered, with the clients it claims. */
@@ -867,6 +894,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "tool renderer", id, undefined, options)) return noContribution;
         note("tool renderers");
         return this.register(this.renderers, id, { id, match, render, ...owner }, disposers);
+      },
+      registerToolCard: (card) => {
+        if (!this.scopeToProfile(owner, "tool card", card.id, undefined, card)) return noContribution;
+        note("tool cards");
+        return this.register(this.toolCards, card.id, { ...card, ...owner }, disposers);
       },
       registerOptions: (options) => {
         if (this.options.has(extension.id)) throw new Error(`Extension ${extension.id} registered options more than once`);
@@ -1192,6 +1224,18 @@ export class ExtensionRegistry {
 
   getExtensionNames(): string[] {
     return [...this.activeExtensions.values()].map(({ extension }) => extension.name);
+  }
+
+  /** The card that draws this tool, when one claimed it. */
+  toolCardFor(tool: UiToolRun): Owned<ToolCardContribution> | undefined {
+    for (const card of this.toolCards.values()) {
+      if (card.match(tool)) return card;
+    }
+    return undefined;
+  }
+
+  toolCard(id: string): Owned<ToolCardContribution> | undefined {
+    return this.toolCards.get(id);
   }
 
   presentTool(tool: UiToolRun): ToolPresentation {

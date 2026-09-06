@@ -808,6 +808,50 @@ button > svg { pointer-events: none; }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
 
+/* ------------------------------------------------ folded and live work */
+
+/* A settled turn reads as one muted line; the log is one click behind it. */
+.work-fold { color: var(--faint); animation: fade-up 180ms ease-out; }
+.work-fold-summary {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 6px 2px; background: none; border: 0; cursor: pointer;
+  color: inherit; font: inherit; font-size: 12px; text-align: left;
+}
+.work-fold-summary > span { flex: 1; }
+.work-fold-summary:hover { color: var(--ink-2); }
+.work-fold-summary > .activity-chevron { flex: none; opacity: .6; transition: transform 120ms ease; }
+.work-fold.expanded > .work-fold-summary > .activity-chevron { transform: rotate(90deg); }
+.work-fold-body { margin-left: 20px; padding-left: 8px; border-left: 1px solid var(--line-card); }
+
+/* The one line a running turn shows; its key never changes, so it morphs. */
+.work-live { color: var(--muted); }
+.work-live-line {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 2px; background: none; border: 0; cursor: pointer;
+  color: inherit; font: inherit; text-align: left;
+}
+.work-live-line:hover { color: var(--ink-2); }
+.work-live-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-live.running .work-live-label {
+  background: linear-gradient(90deg, var(--muted) 30%, var(--ink-2) 50%, var(--muted) 70%) 0 0 / 300% 100%;
+  background-clip: text; -webkit-background-clip: text; color: transparent;
+  animation: work-live-shine 2.4s linear infinite;
+}
+@keyframes work-live-shine {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.work-live-clock { flex: none; font: 11px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+.work-live-line > .activity-chevron { flex: none; opacity: .6; transition: transform 120ms ease; }
+.work-live.expanded > .work-live-line > .activity-chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) {
+  /* No shimmer, and the label goes back to a plain colour rather than the
+     transparent text the gradient paints through. */
+  .work-live.running .work-live-label {
+    background: none; color: var(--ink-2); animation: none; -webkit-background-clip: border-box; background-clip: border-box;
+  }
+}
+
 /* ------------------------------------------------------------ tool card */
 
 .tool-activity { color: var(--muted); animation: fade-up 180ms ease-out; }
@@ -846,6 +890,7 @@ button > svg { pointer-events: none; }
   flex: 1; min-width: 0; font: 12px var(--mono); color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.tool-run-stamp { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
 .tool-run-state { font: 11px var(--mono); color: var(--ready); flex: none; }
 .tool-run-state.error { color: var(--removed); }
 .tool-run-state.waiting { color: var(--acid); }
@@ -2246,6 +2291,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .project-picker, .project-modal, .toast, .reload-conflict, .tool-activity, .tool-activity-detail, .tool-run,
+  .work-fold,
   .task-progress-spinner, .task-progress.dock .task-progress-list, .reload-curtain::before,
   .reload-orbit-outer, .reload-orbit-inner, .reload-pulse, .reload-ellipsis { animation: none; }
 }

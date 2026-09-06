@@ -1,0 +1,130 @@
+import { Square } from "lucide-react";
+import { memo, useEffect, useState } from "react";
+import type { UiToolRun } from "../../shared/contracts";
+import type { TranscriptDetail } from "../../workbench/transcript-folding";
+import type { ExtensionRegistry } from "../extension-system";
+import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
+import { compactTimestamp, fullTimestamp } from "./message-timestamp";
+
+function seconds(from: number, to: number): string {
+  return `${Math.max(1, Math.round((to - from) / 1000))}s`;
+}
+
+/** One tool call: what it was, how long it took, and — on request — what it said. */
+export const ToolRun = memo(function ToolRun({
+  tool,
+  registry,
+  detail = "focused",
+  waiting,
+  stalled,
+  onStop,
+  onCopyOutput,
+}: {
+  tool: UiToolRun;
+  registry: ExtensionRegistry;
+  /** `everything` prints the whole result and stamps the call with its time. */
+  detail?: TranscriptDetail;
+  /** This tool is what the open question belongs to. */
+  waiting?: boolean;
+  /** Marked running, but no run is in flight — the turn that issued it is gone. */
+  stalled?: boolean;
+  /** Stops a live tool's run, or closes a stalled call so the thread works again. */
+  onStop?(): void;
+  /** Reads the unbounded result through the host when a preview is clipped. */
+  onCopyOutput?(tool: UiToolRun): Promise<void> | void;
+}) {
+  const running = tool.status === "running" && !stalled;
+  // A running tool shows its live tail without needing a click. Settled output
+  // is deliberately hidden until the row itself is opened.
+  const [outputOpen, setOutputOpen] = useState(running);
+  useEffect(() => {
+    setOutputOpen(running);
+  }, [running]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  const view = registry.presentTool(tool);
+  const complete = detail === "everything";
+  const bounded = complete
+    ? { text: tool.output ?? "", truncated: false }
+    : boundToolOutput(tool.output, running ? ACTIVE_TOOL_OUTPUT_LIMIT : SETTLED_TOOL_OUTPUT_LIMIT);
+  const liveLines = running && !complete ? bounded.text.split("\n") : [];
+  const liveOutputClipped = running && liveLines.length > 5;
+  const visibleOutput = liveOutputClipped ? liveLines.slice(-5).join("\n") : bounded.text;
+  const outputNeedsFullRead = tool.fullOutputAvailable === true
+    || tool.outputTruncated === true
+    || bounded.truncated
+    || liveOutputClipped;
+  const showOutput = view.output !== "hidden" && Boolean(visibleOutput) && outputOpen;
+  const [copying, setCopying] = useState(false);
+  const copyFullOutput = async () => {
+    if (copying) return;
+    setCopying(true);
+    try {
+      // A preview is never a safe fallback: only the host seam can retrieve
+      // the persisted result behind this deliberate action.
+      if (onCopyOutput) await onCopyOutput(tool);
+    } finally {
+      setCopying(false);
+    }
+  };
+  // A call that is still open — live, waiting on you, or left behind by a dead
+  // turn — offers one way out, on hover, right where it sits.
+  const stoppable = tool.status === "running" && Boolean(onStop);
+  const stopTitle = stalled ? "Close the interrupted call" : waiting ? "Stop waiting and end the run" : "Stop the run";
+
+  return (
+    <div className={`tool-run tone-${view.tone}${running ? " running" : ""}${stoppable ? " stoppable" : ""}`}>
+      <button
+        type="button"
+        className="tool-run-line"
+        aria-expanded={showOutput}
+        onClick={() => setOutputOpen((value) => !value)}
+      >
+        <span className="tool-run-glyph">{view.glyph}</span>
+        <span className="tool-run-name">{view.title}</span>
+        <span className="tool-run-detail" title={view.detail}>{view.detail}</span>
+        {complete ? (
+          <time className="tool-run-stamp" dateTime={new Date(tool.startedAt).toISOString()} title={fullTimestamp(tool.startedAt)}>
+            {compactTimestamp(tool.startedAt)}
+          </time>
+        ) : null}
+        <span className={`tool-run-state ${stalled ? "stalled" : tool.status}${waiting ? " waiting" : ""}`}>
+          {waiting
+            ? "waiting for you"
+            : stalled
+              ? "interrupted"
+              : running
+                ? seconds(tool.startedAt, now)
+                : tool.status === "error"
+                  ? "!"
+                  : tool.endedAt ? seconds(tool.startedAt, tool.endedAt) : "✓"}
+        </span>
+      </button>
+      {stoppable ? (
+        <button
+          type="button"
+          className="tool-run-stop"
+          title={stopTitle}
+          aria-label={stopTitle}
+          onClick={(event) => { event.stopPropagation(); onStop?.(); }}
+        >
+          <Square size={10} strokeWidth={2.4} />
+        </button>
+      ) : null}
+      {showOutput ? (
+        <pre className="tool-output">
+          {outputNeedsFullRead ? (
+            <button type="button" className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); void copyFullOutput(); }}>
+              {copying ? "… loading full output" : "… earlier output hidden · copy full output"}
+            </button>
+          ) : null}
+          {visibleOutput}
+        </pre>
+      ) : null}
+    </div>
+  );
+});

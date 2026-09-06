@@ -3,7 +3,7 @@ import type { UiMessage, UiToolRun } from "../shared/contracts";
 import type { UiFileDiff } from "../shared/workspace-kit-types";
 import { DiffView } from "./components/DiffView";
 import { Message } from "./components/Message";
-import { ToolGroup } from "./components/ToolGroup";
+import { ToolRun } from "./components/ToolRun";
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualTranscript } from "./components/VirtualTranscript";
@@ -399,7 +399,7 @@ export default function RendererBenchmark() {
     const message: UiMessage = { id: "benchmark-message", role: "assistant", text, timestamp: 0 };
     content = <Message message={message} streaming />;
   } else if (scenario === "tool-output-1mb") {
-    content = <ToolGroup tools={[tool]} registry={registry} />;
+    content = <ToolRun tool={tool} registry={registry} />;
   } else if (scenario === "transcript-1000-turns") {
     content = <div className="transcript benchmark-transcript" ref={scrollRef}><div className="transcript-inner">
       <VirtualTranscript messages={transcript} scrollRef={scrollRef} isStreaming={false} />

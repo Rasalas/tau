@@ -85,6 +85,8 @@ export type {
   PromptSubmittedEvent,
   DocumentSourceContribution,
   ToolPresentation,
+  ToolCardContribution,
+  ToolCardProps,
   ExtensionOption,
 } from "./extension-system";
 export type {
