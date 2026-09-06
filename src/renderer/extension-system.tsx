@@ -301,9 +301,34 @@ export interface PromptSubmittedEvent {
   snapshot?: HostSnapshot;
 }
 
+/** A new thread's first prompt, while the draft still has no thread. */
+export interface NewThreadPromptEvent {
+  prompt: string;
+  /** How the host names the draft's project. */
+  workspaceId?: string;
+  projectPath: string;
+  /** A line the transcript shows while this gate works; it goes when the gate returns. */
+  preparing(message: string): void;
+}
+
+/**
+ * What a gate decides about a thread that is about to be created. Naming a
+ * workspace moves the draft there before the prompt is sent, which is how
+ * Workspace Kit fuses a new worktree into the first turn.
+ */
+export interface NewThreadPromptGate {
+  workspace?: { workspaceId: string; displayPath: string; name?: string };
+}
+
 export interface PromptHookContribution {
   id: string;
-  afterPrompt(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
+  /**
+   * Runs before a pending draft's first prompt leaves the composer. It may move
+   * the thread to another project; a failure is reported and the draft stays
+   * where it was, so the prompt is never lost to it.
+   */
+  beforeNewThread?(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | void>;
+  afterPrompt?(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
 }
 
 /** Who loads the stage's documents and knows which are changed. One at a time. */
@@ -1060,10 +1085,28 @@ export class ExtensionRegistry {
     }));
   }
 
+  /**
+   * Asks every gate about a thread that is about to be created, in registration
+   * order; the first workspace named wins. A gate that throws is reported and
+   * skipped: the prompt still goes to the project the draft already has.
+   */
+  async prepareNewThread(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | undefined> {
+    for (const hook of this.promptHooks.values()) {
+      if (!hook.beforeNewThread) continue;
+      try {
+        const result = await hook.beforeNewThread(event, actions);
+        if (result?.workspace) return result;
+      } catch (error) {
+        actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return undefined;
+  }
+
   async notifyPromptSubmitted(event: PromptSubmittedEvent, actions: WorkbenchActions): Promise<void> {
     for (const hook of this.promptHooks.values()) {
       try {
-        await hook.afterPrompt(event, actions);
+        await hook.afterPrompt?.(event, actions);
       } catch (error) {
         actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
       }

@@ -34,8 +34,8 @@ function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
   };
 }
 
-function setup(info: WorkspaceInfo) {
-  render(<WorkspaceBar info={info} busy={false} {...handlers} />);
+function setup(info: WorkspaceInfo, props: Partial<Parameters<typeof WorkspaceBar>[0]> = {}) {
+  render(<WorkspaceBar info={info} busy={false} {...handlers} {...props} />);
 }
 
 afterEach(() => {
@@ -122,14 +122,16 @@ describe("WorkspaceBar", () => {
 
   it("offers the typed name as a new worktree above the matches, and not when a worktree carries it", async () => {
     const linked = { path: "/Users/dev/code/tau-worktrees/feat-new-thing", name: "feat-new-thing", branch: "feat/new-thing", isMain: false, isCurrent: false };
-    setup(workspace({ hasRemote: true, worktrees: [workspace().worktrees[0], linked] }));
+    setup(workspace({ hasRemote: true, worktrees: [workspace().worktrees[0], linked] }), {
+      base: { ref: "origin/main", commit: "a".repeat(40), shortCommit: "aaaaaaa", fromOrigin: true },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
     const search = await screen.findByRole("searchbox", { name: "Search worktrees" });
 
     fireEvent.change(search, { target: { value: "feat/new" } });
     const options = screen.getAllByRole("option");
     expect(options[0].textContent).toContain("Create worktree “feat/new”");
-    expect(options[0].textContent).toContain("with exactly this name · from origin/main · ../tau-worktrees/feat-new");
+    expect(options[0].textContent).toContain("with exactly this name · from origin/main @ aaaaaaa · ../tau-worktrees/feat-new");
     expect(options[1].textContent).toContain("feat/new-thing");
     // Enter still opens the best match; the new-worktree row is one ArrowUp away.
     expect(options[1].classList.contains("selected")).toBe(true);
@@ -180,6 +182,46 @@ describe("WorkspaceBar", () => {
     expect(screen.getByRole("option", { name: /Create worktree “fix\/steer-queue-messages”/u }).classList.contains("selected")).toBe(true);
     fireEvent.keyDown(search, { key: "Enter" });
     expect(handlers.onCreateWorktree).toHaveBeenCalledWith("fix/steer-queue-messages", "main");
+  });
+
+  it("offers the two workspace modes while the draft has no thread", async () => {
+    const onModeChange = vi.fn();
+    setup(workspace({ hasRemote: true }), {
+      mode: "current",
+      onModeChange,
+      base: { ref: "origin/main", commit: "b".repeat(40), shortCommit: "bbbbbbb", fromOrigin: true },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    const worktreeMode = await screen.findByRole("button", { name: "New worktree" });
+    fireEvent.click(worktreeMode);
+    expect(onModeChange).toHaveBeenCalledWith("worktree");
+    cleanup();
+
+    setup(workspace(), { mode: "worktree", onModeChange, base: { ref: "origin/main", commit: "b".repeat(40), shortCommit: "bbbbbbb", fromOrigin: true } });
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    expect((await screen.findByText(/created from origin\/main @ bbbbbbb when you send/u))).toBeTruthy();
+    cleanup();
+
+    // A thread that exists has no choice left; the picker shows no modes.
+    setup(workspace());
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+    await screen.findByRole("searchbox", { name: "Search worktrees" });
+    expect(screen.queryByRole("group", { name: "Where this thread runs" })).toBeNull();
+  });
+
+  it("names what a worktree holds before removing it", async () => {
+    const linked = { path: "/Users/dev/code/tau-worktrees/feat-old", name: "feat-old", branch: "feat/old", isMain: false, isCurrent: false };
+    const onRemoveWorktree = vi.fn(async () => true);
+    const onPreviewRemoval = vi.fn(async () => ({ path: linked.path, branch: "feat/old", dirtyFiles: 2, ahead: 1 }));
+    setup(workspace({ worktrees: [workspace().worktrees[0], linked] }), { onRemoveWorktree, onPreviewRemoval });
+    fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove feat/old" }));
+    expect(await screen.findByText("2 uncommitted files · 1 commit beyond its base")).toBeTruthy();
+    expect(onRemoveWorktree).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(onRemoveWorktree).toHaveBeenCalledWith(linked);
   });
 
   it("closes the picker on a click outside of the bar", async () => {

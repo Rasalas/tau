@@ -101,6 +101,44 @@ export class SubmissionController {
   constructor(private readonly ports: SubmissionControllerPorts) {}
 
   /**
+   * Runs the extensions' new-thread gates and moves the draft to the workspace
+   * one of them names. A gate that fails or that the user left behind changes
+   * nothing: the prompt goes to the project the draft already had.
+   */
+  private prepareNewThreadWorkspace = async (pending: NewThreadDraft, prompt: string): Promise<NewThreadDraft> => {
+    const { registry, newThread, view } = this.ports;
+    const actions = this.ports.actions();
+    const scope = draftKey(undefined, pending);
+    if (!actions || !scope) return pending;
+    const noticeId = `local-preparing-${pending.draftId}`;
+    const preparing = (message: string) => {
+      view.setOptimisticMessages((current) => [
+        ...current.filter((entry) => entry.message.id !== noticeId),
+        { scope, message: { id: noticeId, role: "notice", text: message, timestamp: Date.now() } },
+      ]);
+    };
+    try {
+      const gate = await registry.prepareNewThread(
+        { prompt, projectPath: pending.projectPath, ...(pending.workspaceId ? { workspaceId: pending.workspaceId } : {}), preparing },
+        actions,
+      );
+      const moved = gate?.workspace;
+      // The user may have left this draft while the gate worked.
+      if (!moved || newThread.current()?.draftId !== pending.draftId) return pending;
+      const next: NewThreadDraft = {
+        ...pending,
+        workspaceId: moved.workspaceId,
+        projectPath: moved.displayPath,
+        ...(moved.name ? { projectName: moved.name } : {}),
+      };
+      newThread.set(next);
+      return next;
+    } finally {
+      view.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== noticeId));
+    }
+  };
+
+  /**
    * The host has published a thread for this run. Until it does, the rendered
    * snapshot may still be the bootstrap cache's, whose session id names a
    * thread this host has never opened.
@@ -127,7 +165,7 @@ export class SubmissionController {
       }
     }
     const client = getClient();
-    const pendingNewThread = newThread.current();
+    let pendingNewThread = newThread.current();
     const snapshot = view.getSnapshot();
     const visibleStreaming = threads.getActivity().isStreaming;
     // Enter during a run parks the message above the composer. It is prepared
@@ -151,6 +189,11 @@ export class SubmissionController {
         this.ports.notify(String(error));
         return { accepted: false, message: errorMessage(error) };
       }
+    }
+    // A draft may move to another project before its thread exists: this is
+    // where Workspace Kit creates the worktree a new thread runs in (ADR 0017).
+    if (pendingNewThread && !pendingNewThread.sessionId) {
+      pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text);
     }
     const optimisticText = prepared?.visibleText
       ?? skillDraft?.visibleText

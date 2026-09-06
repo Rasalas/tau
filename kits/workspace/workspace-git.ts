@@ -2225,9 +2225,13 @@ export async function getFileDiff(cwd: string, path: string, options: DiffLoadOp
 async function resolveBranchBase(cwd: string, requested?: string, runGit: GitRunner = git): Promise<{ ref: string; mergeBase: string }> {
   const remoteDefault = requested ? "" : (await runGit(cwd, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).catch(() => "")).trim();
   const upstream = requested ? "" : (await runGit(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).catch(() => "")).trim();
+  // A worktree Tau created recorded the base it started from; it beats guessing.
+  const branch = requested ? "" : (await runGit(cwd, ["branch", "--show-current"]).catch(() => "")).trim();
+  const recorded = branch ? await readBranchBase(cwd, branch, runGit) : undefined;
   const candidates = requested
     ? [requested]
     : [
+        recorded ?? "",
         remoteDefault,
         "origin/main",
         "main",
@@ -2445,6 +2449,10 @@ export async function readWorktreeStatuses(
   runGit: GitRunner = git,
   now = Date.now(),
 ): Promise<UiWorktreeStatus[]> {
+  // The picker is the one place worth pruning: a worktree whose folder went
+  // away is a row the user is about to act on.
+  const main = worktrees.find((tree) => tree.isMain) ?? worktrees[0];
+  if (main) await runGit(main.path, ["worktree", "prune"]).catch(() => "");
   return Promise.all(worktrees.map(async (tree) => {
     const ref = refs.find((candidate) => candidate.name === tree.branch);
     const base = {
@@ -2505,20 +2513,87 @@ async function assertValidBranchName(cwd: string, name: string, runGit: GitRunne
   }
 }
 
-async function prepareWorktreeBase(cwd: string, baseRef: string, runGit: GitRunner): Promise<string> {
-  const base = baseRef.trim() || "HEAD";
+/**
+ * The branch a new worktree starts from when nobody named one: what
+ * `origin/HEAD` points at, then the usual main lines, then this checkout's own
+ * branch. A repository without any of them still answers, with `HEAD`.
+ */
+export async function resolveDefaultBaseRef(cwd: string, runGit: GitRunner = git): Promise<string> {
+  const originHead = (await runGit(cwd, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).catch(() => "")).trim();
+  if (originHead) return originHead;
+  const known = await firstExistingRef(cwd, ["origin/main", "origin/master", "main", "master"], runGit);
+  if (known) return known;
+  const branch = (await runGit(cwd, ["branch", "--show-current"]).catch(() => "")).trim();
+  return branch || "HEAD";
+}
+
+/** Where a new worktree starts: the ref the user sees, and the commit it resolved to. */
+export interface WorktreeBase {
+  /** `origin/main`, `main`, a tag — whatever names the base for a human. */
+  ref: string;
+  /** The commit the worktree is created at; empty in a repository without commits. */
+  commit: string;
+  /** The commit came from a freshly fetched remote-tracking ref. */
+  fromOrigin: boolean;
+  /** Why the resolved base is not the one that was asked for. */
+  note?: string;
+}
+
+const REMOTE_PREFIX = /^([^/]+)\//u;
+
+/**
+ * Resolves the base of a new worktree the way T3 Code does: with "start from
+ * origin" the remote is fetched and the worktree is created at that SHA, so a
+ * stale local branch never becomes the starting point. A repository without the
+ * remote branch falls back to the local base rather than failing.
+ */
+export async function resolveWorktreeBase(
+  cwd: string,
+  options: { requested?: string; startFromOrigin?: boolean } = {},
+  runGit: GitRunner = git,
+): Promise<WorktreeBase> {
+  const requested = options.requested?.trim();
+  const base = requested || await resolveDefaultBaseRef(cwd, runGit);
   const remotes = (await runGit(cwd, ["remote"]).catch(() => ""))
     .split("\n")
     .map((remote) => remote.trim())
     .filter(Boolean);
-  const remote = remotes.find((candidate) => base.startsWith(`${candidate}/`));
-  if (remote) await runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
-  try {
-    await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`]);
-  } catch {
-    throw new Error(`The worktree base "${base}" does not exist.`);
+  const named = REMOTE_PREFIX.exec(base)?.[1];
+  const remote = named && remotes.includes(named) ? named : undefined;
+  // Only a base that names a remote is fetched unasked; "start from origin"
+  // additionally looks for the local base's remote-tracking ref.
+  const tracking = !remote && options.startFromOrigin !== false && remotes.includes("origin")
+    ? `origin/${base}`
+    : undefined;
+  const fetched = remote ?? (tracking ? "origin" : undefined);
+  if (fetched) await runGit(cwd, ["fetch", "--prune", fetched], 8 * 1024 * 1024);
+  const commitOf = async (ref: string) => (await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).catch(() => "")).trim();
+  if (tracking) {
+    const remoteCommit = await commitOf(tracking);
+    if (remoteCommit) return { ref: tracking, commit: remoteCommit, fromOrigin: true };
   }
-  return base;
+  const resolved = await commitOf(base);
+  if (!resolved) throw new Error(`The worktree base "${base}" does not exist.`);
+  return {
+    ref: base,
+    commit: resolved,
+    fromOrigin: Boolean(remote),
+    ...(tracking ? { note: `${tracking} does not exist; started from ${base}.` } : {}),
+  };
+}
+
+/**
+ * The base a branch was created from, kept in the repository's own config so a
+ * later diff, review or pull request has the same answer this worktree started
+ * with. `getBranchChanges` resolves a base of its own when nothing is recorded.
+ */
+export function branchBaseConfigKey(branch: string): string {
+  return `branch.${branch}.tau-base`;
+}
+
+export async function readBranchBase(cwd: string, branch: string, runGit: GitRunner = git): Promise<string | undefined> {
+  const value = (await runGit(cwd, ["config", "--get", branchBaseConfigKey(branch)]).catch(() => "")).trim();
+  return value || undefined;
 }
 
 /**
@@ -2545,11 +2620,18 @@ export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git
   }
 }
 
+export interface CreateWorktreeOptions {
+  /** The base the user picked; the repository's default branch when absent. */
+  baseRef?: string;
+  /** Fetch and start from the remote-tracking commit; on by default, as in T3 Code. */
+  startFromOrigin?: boolean;
+}
+
 /** Creates a branch and a worktree for it, and returns the new worktree path. */
 export async function createWorktree(
   cwd: string,
   branch: string,
-  baseRef?: string,
+  options: CreateWorktreeOptions = {},
   readWorkspace: (cwd: string) => Promise<WorkspaceInfo> = async (path) => (await readProjectGitState(path)).workspace,
   runGit: GitRunner = git,
 ): Promise<string> {
@@ -2566,11 +2648,77 @@ export async function createWorktree(
   await mkdir(info.worktreeParent, { recursive: true });
   if (existing) {
     await runGit(cwd, ["worktree", "add", destination, name]);
-  } else {
-    const base = await prepareWorktreeBase(cwd, baseRef || info.branch || "HEAD", runGit);
-    await runGit(cwd, ["worktree", "add", "-b", name, destination, base]);
+    return destination;
   }
+  const base = await resolveWorktreeBase(cwd, {
+    ...(options.baseRef || info.branch ? { requested: options.baseRef || info.branch } : {}),
+    ...(options.startFromOrigin === undefined ? {} : { startFromOrigin: options.startFromOrigin }),
+  }, runGit);
+  // The commit, not the ref: a worktree started at `origin/main` would follow
+  // that ref's next move, and the base recorded below would stop describing it.
+  await runGit(cwd, ["worktree", "add", "-b", name, destination, base.commit || base.ref]);
+  await runGit(cwd, ["config", branchBaseConfigKey(name), base.ref]).catch(() => "");
   return destination;
+}
+
+/** Uncommitted work in a worktree, as the removal confirm names it. */
+export interface WorktreeRemovalPreview {
+  path: string;
+  branch?: string;
+  dirtyFiles: number;
+  /** Commits the branch carries beyond the base it started from. */
+  ahead: number;
+}
+
+export async function previewWorktreeRemoval(
+  cwd: string,
+  worktreePath: string,
+  branch: string | undefined,
+  runGit: GitRunner = git,
+): Promise<WorktreeRemovalPreview> {
+  const status = await runGit(worktreePath, ["status", "--porcelain", "-z"]).catch(() => "");
+  const dirtyFiles = status.split("\0").filter((line) => line.trim().length > 0).length;
+  const base = branch ? await readBranchBase(worktreePath, branch, runGit) : undefined;
+  const revList = base ? await runGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]).catch(() => "") : "";
+  return { path: worktreePath, ...(branch ? { branch } : {}), dirtyFiles, ahead: Number(revList.trim()) || 0 };
+}
+
+/**
+ * Removes a linked worktree and, when asked, the branch it held. `--force`
+ * because the caller already showed what would be lost; git's own refusal to
+ * remove a dirty worktree would only turn that decision into an error.
+ */
+export async function removeWorktree(
+  cwd: string,
+  worktreePath: string,
+  options: { branch?: string } = {},
+  runGit: GitRunner = git,
+): Promise<void> {
+  await runGit(cwd, ["worktree", "remove", "--force", worktreePath]).catch(async (error: unknown) => {
+    // A worktree whose directory is already gone is removed by pruning it.
+    await runGit(cwd, ["worktree", "prune"]);
+    const still = await runGit(cwd, ["worktree", "list", "--porcelain"]).catch(() => "");
+    if (still.includes(`worktree ${worktreePath}\n`)) throw error;
+  });
+  if (options.branch) await runGit(cwd, ["branch", "-D", options.branch]).catch(() => "");
+}
+
+/**
+ * The worktree a thread expects, recreated when its directory vanished. T3 Code
+ * does the same silently: a missing folder is an accident, not a decision.
+ */
+export async function ensureWorktree(
+  cwd: string,
+  worktreePath: string,
+  branch: string | undefined,
+  runGit: GitRunner = git,
+): Promise<boolean> {
+  if (await stat(worktreePath).then((entry) => entry.isDirectory()).catch(() => false)) return false;
+  if (!branch) throw new Error(`${worktreePath} is gone and no branch names what it held.`);
+  await runGit(cwd, ["worktree", "prune"]);
+  await mkdir(dirname(worktreePath), { recursive: true });
+  await runGit(cwd, ["worktree", "add", worktreePath, branch]);
+  return true;
 }
 
 /**

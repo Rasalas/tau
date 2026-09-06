@@ -33,7 +33,7 @@ describe("Workspace Kit client encoding", () => {
     const { calls, client } = recorder();
     await client.getWorkspaceInfo("ws1_project");
     await client.getWorktreeStatuses("ws1_project");
-    await client.createWorktree("fix/queue", "main", "ws1_project");
+    await client.createWorktree("fix/queue", { baseRef: "main" }, "ws1_project");
     await client.getWorkspaceInfo();
     expect(calls[0]?.input).toEqual({ workspace: "ws1_project" });
     expect(calls[1]?.input).toEqual({ workspace: "ws1_project" });
