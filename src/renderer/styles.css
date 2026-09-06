@@ -1481,22 +1481,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 
 /* --------------------------------------------------------------- preview */
 
-.preview-toolbar { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-.preview-toolbar form { flex: 1; min-width: 0; }
-.preview-toolbar input {
-  width: 100%; height: 26px; padding: 0 8px;
-  border: 1px solid var(--line-control); border-radius: 7px;
-  background: var(--sunken); color: var(--ink); font: 11px var(--mono);
-}
-.preview-toolbar input:focus { outline: none; border-color: var(--line-float); }
-.preview-status {
-  flex: none; padding: 4px 10px; border-bottom: 1px solid var(--line);
-  color: var(--faint); font: 10px var(--mono);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 .preview-status.error { color: #d47b73; }
-/* The page itself is a WebContentsView the host draws over this rectangle. */
-.preview-surface { flex: 1; min-height: 0; background: var(--sunken); }
 
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding: 10px 8px; }
 .file-row {
