@@ -1,6 +1,6 @@
-import { SERVICE_TIER_EVENT, SERVICE_TIER_HOST_EXTENSION_ID, isServiceTier, type ServiceTier, type ServiceTierState } from "../../shared/service-tier-protocol.js";
-import type { HostExtension, HostExtensionContext } from "../host-extensions.js";
-import { createServiceTierExtension, SERVICE_TIER_APIS } from "../service-tier-extension.js";
+import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { SERVICE_TIER_EVENT, SERVICE_TIER_HOST_EXTENSION_ID, isServiceTier, type ServiceTier, type ServiceTierState } from "./protocol.js";
+import { createServiceTierExtension, SERVICE_TIER_APIS } from "./tier.js";
 
 /**
  * Service Tier Kit's host entry. It owns the chosen tier, contributes the Pi
@@ -11,7 +11,6 @@ export function createServiceTierHostExtension(): HostExtension {
   return {
     id: SERVICE_TIER_HOST_EXTENSION_ID,
     name: "Service Tier",
-    permissions: ["runtime:extend", "sessions"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       let tier: ServiceTier = "standard";
@@ -47,3 +46,5 @@ export function createServiceTierHostExtension(): HostExtension {
     },
   };
 }
+
+export default createServiceTierHostExtension;

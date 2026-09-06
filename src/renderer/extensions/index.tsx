@@ -22,7 +22,6 @@ import { WorkspaceTitleActions } from "./workspace-title";
 import { ReviewOverlay, REVIEW_OVERLAY } from "./review-overlay";
 import type { WorkspaceStore } from "./workspace-store";
 import { computerUsePresentationExtension } from "./computer-use";
-import { serviceTierKitExtension } from "./service-tier-kit";
 import { agentsExtension } from "./agents-kit";
 import { piUiExtension } from "./pi-ui";
 import { PREVIEW_PANEL, PreviewFollower, isPreviewState, previewKit, previewStore } from "./preview-store";
@@ -299,7 +298,6 @@ export const settingsExtension: DesktopExtension = {
 };
 
 export const bundledExtensions = [
-  serviceTierKitExtension,
   workspaceExtension,
   reviewExtension,
   observatoryExtension,

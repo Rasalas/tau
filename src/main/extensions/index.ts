@@ -9,7 +9,6 @@ import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
 import { createPreviewHostExtension } from "./preview-host-extension.js";
 import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
 import { createReviewHostExtension } from "./review-host-extension.js";
-import { createServiceTierHostExtension } from "./service-tier-host-extension.js";
 import { createWorkspaceHostExtension } from "./workspace-host-extension.js";
 
 /**
@@ -33,7 +32,6 @@ export function bundledHostExtensions(): HostExtension[] {
   return [
     createWorkspaceHostExtension(),
     createReviewHostExtension(),
-    createServiceTierHostExtension(),
     createQuestionnaireHostExtension(),
     createComputerUseHostExtension(),
     createPreviewHostExtension(),

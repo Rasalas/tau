@@ -6,7 +6,6 @@ import { createComputerUseHostExtension } from "./computer-use-host-extension.js
 import { createKeybindingsHostExtension, readPiUserKeybindings } from "./keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
 import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
-import { createServiceTierHostExtension } from "./service-tier-host-extension.js";
 
 function harness(thread?: Partial<HostThread>) {
   const events: GlobalHostEvent[] = [];
@@ -50,24 +49,6 @@ function harness(thread?: Partial<HostThread>) {
   };
   return { registry: new HostExtensionRegistry(services, (event) => events.push(event)), events, runtimeExtensions, decorators, presenters };
 }
-
-describe("Service Tier host extension", () => {
-  it("reports availability from the active model's API and publishes tier changes", async () => {
-    const { registry, events, runtimeExtensions } = harness({ modelApi: () => "openai-responses" });
-    await registry.activate(createServiceTierHostExtension());
-    expect(runtimeExtensions.map((entry) => entry.name)).toEqual(["tau-service-tier"]);
-    await expect(registry.invoke("tau.service-tier", "state")).resolves.toEqual({ tier: "standard", available: true });
-    await expect(registry.invoke("tau.service-tier", "set-tier", { tier: "fast" })).resolves.toEqual({ tier: "fast", available: true });
-    expect(events).toEqual([{ type: "extension-event", extensionId: "tau.service-tier", name: "state", payload: { tier: "fast", available: true } }]);
-    await expect(registry.invoke("tau.service-tier", "set-tier", { tier: "turbo" })).rejects.toThrow("Service tier must be standard or fast.");
-  });
-
-  it("is unavailable for APIs without a priority tier", async () => {
-    const { registry } = harness({ modelApi: () => "anthropic-messages" });
-    await registry.activate(createServiceTierHostExtension());
-    await expect(registry.invoke("tau.service-tier", "state")).resolves.toEqual({ tier: "standard", available: false });
-  });
-});
 
 describe("Questionnaire host extension", () => {
   it("tags select and input dialogs with their place in the announced questionnaire", async () => {

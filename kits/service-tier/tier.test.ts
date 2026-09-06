@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createServiceTierExtension } from "./service-tier-extension.js";
+import { createServiceTierExtension } from "./tier.js";
 
 describe("service tier extension", () => {
   it("sets the priority tier on every request and reports the thread and model", () => {

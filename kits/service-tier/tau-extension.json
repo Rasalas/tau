@@ -1,0 +1,10 @@
+{
+  "id": "tau.service-tier",
+  "name": "Service Tier",
+  "version": "1.0.0",
+  "engines": { "api": "^1.2.0" },
+  "permissions": ["runtime:extend", "sessions"],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts"
+}

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "../../shared/contracts";
-import { ExtensionRegistry } from "../extension-system";
-import { serviceTierKitExtension } from "./service-tier-kit";
+import type { HostSnapshot } from "tau";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { serviceTierKitExtension } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -12,7 +12,7 @@ function activate(state: { tier: "standard" | "fast"; available: boolean }) {
     if (command === "set-tier") state = { ...state, tier: (input as { tier: "standard" | "fast" }).tier };
     return state;
   });
-  const registry = new ExtensionRegistry({ invoke });
+  const { registry } = createKitHarness(invoke);
   registry.activate(serviceTierKitExtension);
   return { registry, invoke };
 }
