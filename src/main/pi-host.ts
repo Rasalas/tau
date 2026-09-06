@@ -517,7 +517,10 @@ export class PiHost {
     this.workbenchReload.assertAvailable();
     const cwd = options.cwd || this.cwd;
     const requestedAt = performance.now();
-    const thread = await this.lifecycle.run("start-thread", async () => {
+    // Background starts share the queue's background lane: they build their own
+    // thread and touch nothing the thread on screen depends on, so serialising
+    // them behind each other only made fifty sub-agents start one per second.
+    const thread = await this.lifecycle.runBackground("start-thread", async () => {
       const marks = new PhaseTimer(requestedAt);
       marks.mark("queue");
       const runtime = await this.openThread(
@@ -2053,8 +2056,12 @@ export class PiHost {
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
     const marks = new PhaseTimer();
-    // Extensions repair what they keep beside a session before its runtime can start a turn.
-    if (manager.getSessionFile()) await this.threadLifecycle.beforeOpen(this.seam.sessionFile(manager));
+    // Extensions repair what they keep beside a session before its runtime can
+    // start a turn. A session this call is creating has nothing beside it yet,
+    // and asking anyway cost every new thread the checkpoint kit's two-second
+    // lease timeout, since the turn that spawned it holds that lease.
+    const created = sessionStartEvent?.reason === "new";
+    if (manager.getSessionFile() && !created) await this.threadLifecycle.beforeOpen(this.seam.sessionFile(manager));
     marks.mark("before-open");
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
