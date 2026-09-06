@@ -71,8 +71,8 @@ function coldHost(delivered: string[]) {
   internals.index.refreshShell = async () => {};
   internals.index.refresh = async () => {};
   internals.index.startRecovery = () => {};
-  internals.scheduleRuntimePrewarm = () => {};
-  internals.scheduleSpareThread = () => {};
+  internals.prewarm.scheduleThreads = () => {};
+  internals.prewarm.scheduleSpare = () => {};
   internals.projects.label = () => undefined;
   internals.bootstrap = async () => ({ version: 1 });
   return { host, internals, thread, release: () => release() };

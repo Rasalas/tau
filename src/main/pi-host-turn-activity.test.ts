@@ -445,8 +445,7 @@ describe("PiHost.generateThreadTitle", () => {
       threads: { adopt(record: unknown): Promise<void>; active?: { runtime: unknown; threadId: string }; setActive(threadId: string): void };
       rememberProject(cwd: string): Promise<void>;
       index: { refreshShell(thread: unknown, touch: boolean): Promise<void> };
-      scheduleRuntimePrewarm(): void;
-      scheduleSpareThread(cwd: string): void;
+      prewarm: { scheduleThreads(): void; scheduleSpare(cwd: string): void };
     };
     const makeThread = (threadId: string) => makeActivationThread(threadId);
     const staleThread = makeThread("new-thread");
@@ -465,8 +464,8 @@ describe("PiHost.generateThreadTitle", () => {
       }
     };
     internals.index.refreshShell = async () => {};
-    internals.scheduleRuntimePrewarm = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleThreads = () => {};
+    internals.prewarm.scheduleSpare = () => {};
 
     const staleEpoch = internals.beginActivation();
     const staleActivation = internals.activateThread(staleThread, true, staleEpoch);
@@ -502,7 +501,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takeSpareThread = async () => undefined;
     internals.runtimes.open = async () => staleThread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     const released: string[] = [];
     internals.threads.release = async (threadId: string) => { released.push(threadId); };
@@ -544,7 +543,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takeSpareThread = async () => undefined;
     internals.runtimes.open = async () => staleThread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     internals.threads.release = async () => {};
     const prompts: string[] = [];
@@ -574,7 +573,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takePreparedThread = async () => undefined;
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     let acceptPrompt!: () => void;
     const preflight = new Promise<void>((resolve) => { acceptPrompt = resolve; });
@@ -611,7 +610,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takePreparedThread = async () => undefined;
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     let releaseCatalog!: () => void;
     const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
     internals.ensureModels = async () => {
@@ -656,7 +655,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takePreparedThread = async () => undefined;
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.snapshotSync = () => ({
       cwd: "/repo",
       threadId: "new-thread",
@@ -706,7 +705,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takePreparedThread = async () => undefined;
     internals.runtimes.open = async () => newThread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     let acceptPrompt!: () => void;
     const preflight = new Promise<void>((resolve) => { acceptPrompt = resolve; });
@@ -751,7 +750,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takePreparedThread = async () => undefined;
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     const rejection = new Error("prompt preflight rejected");
     internals.prompt = vi.fn(async () => { throw rejection; });
@@ -780,7 +779,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takePreparedThread = async () => undefined;
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     let acceptPrompt!: () => void;
     const delivery = new Promise<void>((resolve) => { acceptPrompt = resolve; });
@@ -814,7 +813,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.takePreparedThread = async () => undefined;
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
-    internals.scheduleSpareThread = () => {};
+    internals.prewarm.scheduleSpare = () => {};
     internals.activeUpdates = async () => ({ version: 1, updates: [] });
     // The real prompt() runs here so the marker bookkeeping is exercised.
     thread.backend.prompt = async (input: { onAdmitted?: (accepted: boolean) => void }) => {

@@ -18,7 +18,6 @@ import type {
   UiPromptAttachment,
   SubmissionResult,
   UiSkillDraft,
-  UiSession,
   NewThreadRequestId,
   ThreadBackendKind,
   PreparedPrompt,
@@ -66,6 +65,7 @@ import { ProjectFactsCache } from "./project-facts-cache.js";
 import { ThreadIndex } from "./thread-index.js";
 import { ThreadBinding } from "./thread-binding.js";
 import { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
+import { RuntimePrewarm } from "./runtime-prewarm.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
@@ -178,12 +178,8 @@ export class PiHost {
       && (record.runtime.state.hasMessages || (record.runtime.adapterMessages?.length ?? 0) > 0),
     dispose: (record) => this.runtimes.dispose(record.runtime),
   });
-  /** A blank runtime for the current project, so a new thread is ready before it is asked for. */
-  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined>; cancel: () => void };
   private preparedThreadCapabilityGeneration = 0;
   private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
-  private prewarmTimer?: ReturnType<typeof setTimeout>;
-  private sessions: UiSession[] = [];
   /** Serialises thread lifecycle work; reentrant, so a hook of one operation cannot wait for it. */
   private readonly lifecycle = new LifecycleQueue({
     onSlow: (operation, elapsedMs) => this.log("lifecycle.slow", `${operation} · ${Math.round(elapsedMs / 100) / 10}s`),
@@ -212,6 +208,8 @@ export class PiHost {
   private readonly binding: ThreadBinding;
   /** A thread's runtime from build to teardown. */
   private readonly runtimes: ThreadRuntimeLifecycle;
+  /** Runtimes built before anyone asks for them: the spare, and the neighbours of the thread on screen. */
+  private readonly prewarm: RuntimePrewarm;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -341,6 +339,23 @@ export class PiHost {
         : { type: "assistant-end", sessionId: threadId, message }),
       logRuntimePhase: (phase, startedAt, reason, phaseCwd) => this.logRuntimePhase(phase, startedAt, reason, phaseCwd),
       log: (label, detail) => this.log(label, detail),
+      errorMessage: (error) => this.errorMessage(error),
+    });
+    this.prewarm = new RuntimePrewarm({
+      automatic: this.automaticPrewarm,
+      safeMode: this.safeMode,
+      maxLiveThreads: MAX_LIVE_THREADS,
+      cwd: () => this.cwd,
+      sessionsDir: this.sessionsDirOverride,
+      runtimes: this.runtimes,
+      extensionUi: this.extensionUi,
+      liveThreadIds: () => this.liveThreadIds(),
+      hasLocalActive: () => Boolean(this.localActive),
+      indexedSessions: () => this.index.list(),
+      prewarmSession: (path) => this.prewarmSession(path),
+      recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
+      log: (label, detail) => this.log(label, detail),
+      fail: (error) => this.fail(error),
       errorMessage: (error) => this.errorMessage(error),
     });
     markTauHostRuntime();
@@ -761,7 +776,7 @@ export class PiHost {
           this.recordBackgroundLifecycle("session-index", indexStartedAt);
           this.log("bootstrap.full-ready");
           this.index.startRecovery();
-          this.scheduleRuntimePrewarm();
+          this.prewarm.scheduleThreads();
         }).catch((error) => this.fail(error));
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
@@ -1120,7 +1135,7 @@ export class PiHost {
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       if (this.isCurrentActivation(activationEpoch)) this.attached.session.detach();
-      const spare = backendKind === "pi" ? await this.takePreparedThread(targetCwd) : undefined;
+      const spare = backendKind === "pi" ? await this.prewarm.takeSpare(targetCwd) : undefined;
       const thread = spare
         ?? (backendKind !== "pi"
           ? await this.runtimes.openExternal(backendKind, randomUUID(), targetCwd, { resume: false })
@@ -1163,13 +1178,13 @@ export class PiHost {
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
         if (lifecycle === "prepared") {
-          if (isLocalPiRuntime(thread)) this.retainPreparedThread(thread);
+          if (isLocalPiRuntime(thread)) this.prewarm.retainSpare(thread);
           else await this.runtimes.dispose(thread);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
         } else if (lifecycle !== "promoted") {
           if (this.threads.has(thread.threadId)) await this.threads.release(thread.threadId);
           else await this.runtimes.dispose(thread);
-          this.scheduleSpareThread(targetCwd, true);
+          this.prewarm.scheduleSpare(targetCwd, true);
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
         }
         thread.cancelEventBarrier();
@@ -1178,7 +1193,7 @@ export class PiHost {
         return { ...active, submission: { accepted: false, message: this.errorMessage(error) }, ...(requestId ? { requestId } : {}) };
       }
       this.logReplacement(spare ? "new-spare" : "new", startedAt);
-      if (backendKind === "pi") this.scheduleSpareThread(targetCwd);
+      if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd);
       if (visible) void this.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
         // Delivery is intentionally detached from acceptance. AgentSession may
@@ -1241,9 +1256,7 @@ export class PiHost {
       if (owner?.backend.capabilities.newThread) {
         return { cwd: targetCwd, generation, supportsImageInput: owner.state.supportsImageInput };
       }
-      if (!this.spare || this.spare.cwd !== targetCwd) this.scheduleSpareThread(targetCwd, true);
-      const spare = this.spare?.cwd === targetCwd ? this.spare : undefined;
-      const prepared = spare ? await spare.pending : undefined;
+      const prepared = await this.prewarm.awaitSpare(targetCwd);
       return { cwd: targetCwd, generation, supportsImageInput: prepared?.state.supportsImageInput ?? false };
     });
   }
@@ -1900,7 +1913,7 @@ export class PiHost {
       this.runtimes.invalidateResources();
       // Other idle runtimes still hold the old resources; they are cheap to
       // rebuild on demand, so drop them rather than reload each one.
-      this.discardSpare();
+      this.prewarm.discardSpare();
       for (const record of this.threads.list()) {
         if (record.runtime !== thread && isLocalPiRuntime(record.runtime)
           && record.runtime.state.idle
@@ -1915,8 +1928,8 @@ export class PiHost {
       this.log("runtime.reloaded");
       const snapshot = await this.snapshot();
       for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
-      this.scheduleRuntimePrewarm();
-      this.scheduleSpareThread(this.cwd);
+      this.prewarm.scheduleThreads();
+      this.prewarm.scheduleSpare(this.cwd);
     });
   }
 
@@ -1948,12 +1961,11 @@ export class PiHost {
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
       this.toolOutputBatcher.dispose();
-      if (this.prewarmTimer) clearTimeout(this.prewarmTimer);
-      this.prewarmTimer = undefined;
+      this.prewarm.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
       try { await this.hostExtensions.dispose(); } catch (error) { teardownErrors.push(error); }
-      try { await this.discardSpare(); } catch (error) { teardownErrors.push(error); }
+      try { await this.prewarm.discardSpare(); } catch (error) { teardownErrors.push(error); }
       await this.runtimes.settleOpening();
       const results = await Promise.allSettled(this.threads.list().map((record) => this.threads.release(record.threadId)));
       for (const result of results) if (result.status === "rejected") teardownErrors.push(result.reason);
@@ -2019,8 +2031,8 @@ export class PiHost {
       }
       this.log("session.opened", thread.threadId.slice(0, 8));
       this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(thread.cwd) });
-      this.scheduleRuntimePrewarm();
-      if (this.defaultBackendKind === "pi") this.scheduleSpareThread(thread.cwd);
+      this.prewarm.scheduleThreads();
+      if (this.defaultBackendKind === "pi") this.prewarm.scheduleSpare(thread.cwd);
       await restore?.commit();
       activationCommitted = true;
       return true;
@@ -2041,50 +2053,6 @@ export class PiHost {
     this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
   }
 
-  private scheduleSpareThread(cwd: string, force = false): void {
-    if ((!this.automaticPrewarm && !force) || this.safeMode || this.spare?.cwd === cwd) return;
-    void this.discardSpare().catch((error) => this.fail(error));
-    const startedAt = performance.now();
-    const cancellation = new AbortController();
-    const pending = this.runtimes.open(
-      SessionManager.create(cwd, this.sessionsDirOverride),
-      { type: "session_start", reason: "new", previousSessionFile: undefined },
-      { background: true, adopt: false, prepared: true, abortSignal: cancellation.signal },
-    ).then((thread) => {
-      this.log("runtime.spare.ready", basename(cwd));
-      return thread;
-    }).catch((error) => {
-      this.log("runtime.spare.failed", this.errorMessage(error));
-      return undefined;
-    }).finally(() => this.recordBackgroundLifecycle("spare", startedAt));
-    this.spare = { cwd, pending, cancel: () => cancellation.abort() };
-  }
-
-  private async takePreparedThread(cwd: string): Promise<ThreadRuntime | undefined> {
-    const spare = this.spare;
-    if (!spare || spare.cwd !== cwd) return undefined;
-    this.spare = undefined;
-    const thread = await spare.pending;
-    if (!thread) return undefined;
-    return thread;
-  }
-
-  private retainPreparedThread(thread: ThreadRuntime): void {
-    this.spare = { cwd: thread.cwd, pending: Promise.resolve(thread), cancel: () => {
-      this.extensionUi.cancelFor(thread.sessionId);
-      void thread.backend.abort().catch((error) => this.log("runtime.prepared.abort", this.errorMessage(error)));
-    } };
-  }
-
-  private async discardSpare(): Promise<void> {
-    const spare = this.spare;
-    this.spare = undefined;
-    if (!spare) return;
-    spare.cancel();
-    const thread = await spare.pending;
-    if (thread) await this.runtimes.dispose(thread);
-  }
-
   private async rememberProject(cwd: string): Promise<void> {
     await this.workspaces.learn(cwd);
     await this.projectHistory.remember(cwd, await this.projects.loadName(cwd));
@@ -2101,20 +2069,6 @@ export class PiHost {
   private recordBackgroundLifecycle(name: string, startedAt: number): void {
     this.backgroundLifecycle.push({ name, durationMs: Math.round((performance.now() - startedAt) * 10) / 10 });
     if (this.backgroundLifecycle.length > 100) this.backgroundLifecycle.shift();
-  }
-
-  private scheduleRuntimePrewarm(): void {
-    if (!this.automaticPrewarm || this.safeMode || this.prewarmTimer) return;
-    this.prewarmTimer = setTimeout(() => {
-      this.prewarmTimer = undefined;
-      if (!this.localActive) return;
-      const live = this.liveThreadIds();
-      const candidates = this.index.list()
-        .filter((session) => session.projectPath === this.cwd && !live.has(session.id) && !this.runtimes.isOpening(session.path))
-        .slice(0, Math.max(0, MAX_LIVE_THREADS - 2 - live.size));
-      for (const session of candidates) void this.prewarmSession(session.path);
-    }, 1_000);
-    this.prewarmTimer.unref?.();
   }
 
   // ---------------------------------------------------------------------------
