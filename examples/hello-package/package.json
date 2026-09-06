@@ -1,0 +1,12 @@
+{
+  "name": "example-hello-package",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal Tau package: one host command, one Pi tool and one status item. See docs/EXTENSIONS.md.",
+  "dependencies": {
+    "typebox": "^1.3.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.4"
+  }
+}
