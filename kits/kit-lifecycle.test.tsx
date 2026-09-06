@@ -4,13 +4,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { expectKitActivatesCleanly } from "../src/renderer/test-support/kit-harness.js";
 import agents from "./agents/desktop.js";
 import preview from "./preview/desktop.js";
+import packages from "./packages/desktop.js";
 import titleGenerator from "./thread-titles/desktop.js";
 import worktreeNames from "./worktree-names/desktop.js";
 
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [agents, preview, titleGenerator, worktreeNames];
+const kits = [agents, packages, preview, titleGenerator, worktreeNames];
 
 afterEach(cleanup);
 

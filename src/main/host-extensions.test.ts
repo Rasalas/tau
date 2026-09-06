@@ -23,6 +23,10 @@ function services(): HostExtensionServices & { logs: string[] } {
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
     refreshExtensionPackages: async () => undefined,
+    listPackages: async () => [],
+    installPackage: async () => { throw new Error("no installer in this test"); },
+    removePackage: async () => { throw new Error("no installer in this test"); },
+    updatePackages: async () => [],
     sessions: {
       list: async () => [],
       open: () => { throw new Error("no sessions in this test"); },

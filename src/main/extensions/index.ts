@@ -3,8 +3,7 @@ import { loadBundledKitHostHalves, type BundledKitsOptions } from "../bundled-ki
 import { createAccessHostExtension } from "./access-host-extension.js";
 import { createClaudeCodeHostExtension } from "./claude-code/host-extension.js";
 import { createComputerUseHostExtension } from "./computer-use-host-extension.js";
-import { createKeybindingsHostExtension } from "./keybindings-host-extension.js";
-import { createPackagesHostExtension } from "./packages-host-extension.js";
+import { createKeybindingsHostExtension } from "../keybindings-host-extension.js";
 import { createPiUiHostExtension } from "./pi-ui-host-extension.js";
 import { createQuestionnaireHostExtension } from "./questionnaire-host-extension.js";
 import { createReviewHostExtension } from "./review-host-extension.js";
@@ -38,7 +37,6 @@ export function bundledHostExtensions(): HostExtension[] {
     createComputerUseHostExtension(),
     createKeybindingsHostExtension(),
     createPiUiHostExtension(),
-    createPackagesHostExtension(),
     createClaudeCodeHostExtension(),
   ];
 }

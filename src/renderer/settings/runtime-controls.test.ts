@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "../extension-system";
 import { ExtensionRegistry } from "../extension-system";
-import { settingsExtension } from "./index";
+import { runtimeControls } from "./runtime-controls";
 
-describe("runtime settings extension", () => {
+describe("runtime controls extension", () => {
   it("contributes one command that applies every kind of change", async () => {
     const registry = new ExtensionRegistry();
-    registry.activate(settingsExtension);
+    registry.activate(runtimeControls);
     const reloadWorkbench = vi.fn(async () => true);
     const actions = { reloadWorkbench } as unknown as WorkbenchActions;
     const command = registry.getCommands().find((item) => item.id === "runtime.reload");
@@ -17,10 +17,10 @@ describe("runtime settings extension", () => {
   });
 });
 
-describe("runtime settings slash commands", () => {
+describe("runtime controls slash commands", () => {
   it("offers one reload command and reports a failure", async () => {
     const registry = new ExtensionRegistry();
-    registry.activate(settingsExtension);
+    registry.activate(runtimeControls);
     expect(registry.getSlashCommands().map((command) => command.name)).toEqual(["reload", "tree", "fork", "clone"]);
     const reloadWorkbench = vi.fn(async () => false);
     const actions = { reloadWorkbench } as unknown as WorkbenchActions;
@@ -28,12 +28,12 @@ describe("runtime settings slash commands", () => {
   });
 });
 
-describe("runtime settings keybindings", () => {
+describe("runtime controls keybindings", () => {
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   it("binds Tau's chords and keeps them when the host is unavailable", async () => {
     const registry = new ExtensionRegistry();
-    registry.activate(settingsExtension);
+    registry.activate(runtimeControls);
     await flush();
     const keys = Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]));
     expect(keys).toEqual({ "runtime.command-palette": "mod+k", "runtime.new-session": "mod+n", "runtime.abort": "escape" });
@@ -47,7 +47,7 @@ describe("runtime settings keybindings", () => {
       throw new Error(`unexpected ${command}`);
     });
     const registry = new ExtensionRegistry({ invoke });
-    registry.activate(settingsExtension);
+    registry.activate(runtimeControls);
     await flush();
     const keys = Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]));
     expect(keys).toEqual({

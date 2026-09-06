@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiPrompt,
@@ -13,6 +14,13 @@ import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
 import { assertRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
 import { findExecutable } from "./shell-environment.js";
+import {
+  installExtensionSource,
+  listExtensionSources,
+  removeExtensionSource,
+  updateExtensionSources,
+  type InstallerOptions,
+} from "./extension-installer.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
@@ -177,6 +185,15 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     return file;
   };
 
+  // The installer spawns npm and git and writes ~/.tau; the host owns it, and a
+  // package reaches it only through the `packages` permission.
+  const installer = (progress?: (message: string) => void): InstallerOptions => ({
+    cwd: port.cwd(),
+    home: homedir(),
+    findCommand: (name) => findExecutable(name),
+    ...(progress ? { progress } : {}),
+  });
+
   const services: HostExtensionServices = {
     cwd: () => port.cwd(),
     safeMode: port.safeMode,
@@ -197,6 +214,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     noteSubprocess: () => port.noteSubprocess(),
     findCommand: (name) => findExecutable(name),
     refreshExtensionPackages: () => port.refreshExtensionPackages(),
+    listPackages: () => listExtensionSources(installer()),
+    installPackage: (source, scope, progress) => { port.noteSubprocess(); return installExtensionSource(source, scope, installer(progress)); },
+    removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
+    updatePackages: (source, progress) => { port.noteSubprocess(); return updateExtensionSources(source, installer(progress)); },
     sessions: {
       list: async () => (await SessionManager.listAll(resolvePiSessionsDirOverride())).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
       open: (path) => {

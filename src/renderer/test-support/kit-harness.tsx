@@ -28,10 +28,13 @@ export interface KitHarness {
  * Kits live outside `src/`, so this, `workspaceHostStub` and
  * `createFakeHostClient` are the only renderer modules their tests reach for.
  */
-export function createKitHarness(invoke?: HostExtensionBridge["invoke"]): KitHarness {
+export function createKitHarness(bridge?: HostExtensionBridge["invoke"] | HostExtensionBridge): KitHarness {
   const preferences = new PreferencesStore();
   const workspaceStore = new WorkspaceStore(preferences);
-  const registry = new ExtensionRegistry({ invoke: invoke ?? workspaceHostStub() }, { preferences, workspaceStore });
+  const resolved: HostExtensionBridge = typeof bridge === "function"
+    ? { invoke: bridge }
+    : bridge ?? { invoke: workspaceHostStub() };
+  const registry = new ExtensionRegistry(resolved, { preferences, workspaceStore });
   return { registry, preferences, workspaceStore };
 }
 
@@ -67,6 +70,7 @@ export async function expectKitActivatesCleanly(extension: DesktopExtension): Pr
   const leftovers = [
     ...registry.getPanels(), ...registry.getSidebarContributions(), ...registry.getProjectSources(), ...registry.getCommands(),
     ...registry.getSlashCommands(), ...registry.getKeybindings(), ...registry.getComposerControls(), ...registry.getStatusItems(),
+    ...registry.getSettingsPages(),
     ...KIT_REGION_PLACEMENTS.flatMap((placement) => registry.getRegions(placement)),
   ];
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);

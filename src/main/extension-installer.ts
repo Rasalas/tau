@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { MANIFEST_FILE, parseExtensionManifest } from "./extension-packages.js";
-import { HostCommandError } from "./host-extensions.js";
+import { HostCommandError } from "./host-extension-errors.js";
 import {
   addPackageSource,
   gitStoreDirectory,
@@ -24,6 +24,7 @@ import { findExecutable, gitExecutable } from "./shell-environment.js";
 const execFileAsync = promisify(execFile);
 const COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BUFFER = 8 * 1024 * 1024;
+const UNSIGNED: SignatureState = { state: "unsigned" };
 
 export interface InstallerOptions {
   cwd: string;
@@ -45,6 +46,8 @@ export interface InstalledExtension {
   name?: string;
   version?: string;
   signature: SignatureState;
+  /** The signature in one line, so a reader needs no signature vocabulary. */
+  signatureLabel: string;
   /** Why the package could not be read, if it could not. */
   error?: string;
 }
@@ -115,7 +118,7 @@ async function describe(source: string, scope: PackageScope, directory: string, 
   try {
     raw = await readFile(manifestPath, "utf8");
   } catch {
-    return { source, scope, directory, signature: { state: "unsigned" }, error: `${manifestPath} does not exist; this folder is not a Tau extension package.` };
+    return { source, scope, directory, signature: UNSIGNED, signatureLabel: describeSignature(UNSIGNED), error: `${manifestPath} does not exist; this folder is not a Tau extension package.` };
   }
   try {
     const { manifest } = parseExtensionManifest(directory, raw);
@@ -129,10 +132,11 @@ async function describe(source: string, scope: PackageScope, directory: string, 
       name: manifest.name,
       ...(manifest.version ? { version: manifest.version } : {}),
       signature,
+      signatureLabel: describeSignature(signature),
       ...(signature.state === "tampered" ? { error: describeSignature(signature) } : {}),
     };
   } catch (error) {
-    return { source, scope, directory, signature: { state: "unsigned" }, error: error instanceof Error ? error.message : String(error) };
+    return { source, scope, directory, signature: UNSIGNED, signatureLabel: describeSignature(UNSIGNED), error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -213,7 +217,8 @@ export async function updateExtensionSources(raw: string | undefined, options: I
         source: entry.source.raw,
         scope: entry.scope,
         directory: entry.directory,
-        signature: { state: "unsigned" },
+        signature: UNSIGNED,
+        signatureLabel: describeSignature(UNSIGNED),
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -226,6 +231,6 @@ export async function listExtensionSources(options: InstallerOptions): Promise<I
   const home = options.home ?? homedir();
   const installed = await listInstalledSources(options.cwd, home);
   return Promise.all(installed.map(async (entry) => entry.error
-    ? { source: entry.source.raw, scope: entry.scope, directory: entry.directory, signature: { state: "unsigned" } as SignatureState, error: entry.error }
+    ? { source: entry.source.raw, scope: entry.scope, directory: entry.directory, signature: UNSIGNED, signatureLabel: describeSignature(UNSIGNED), error: entry.error }
     : describe(entry.source.raw, entry.scope, entry.directory, options)));
 }
