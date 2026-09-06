@@ -102,7 +102,7 @@ them. `kit-lifecycle.test.tsx` asserts exactly that.
 
 ## Consequences
 
-- `App.tsx` is 684 lines, from 1,114. `src/workbench/` is 27 modules with no
+- `App.tsx` is 689 lines, from 1,114. `src/workbench/` is 27 modules with no
   view library in any of them.
 - `?profile=web` on the Electron window shows what a smaller client would leave
   out, before a smaller client exists. That is how this was checked.
