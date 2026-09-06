@@ -821,7 +821,7 @@ describe("PiHost.generateThreadTitle", () => {
       return {};
     };
     thread.backend.preparePrompt = async (text: string) => ({ runtimeText: text, visibleText: text });
-    internals.assertPreparedPrompt = () => {};
+    internals.prompts.assertBound = () => {};
 
     await host.newSession("/extension-command", [], "/repo", { clientTurnId: "turn", clientMessageId: "message" });
     // prompt() owns this decision: it is the only place that knows the text the

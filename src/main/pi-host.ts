@@ -66,8 +66,8 @@ import { ThreadIndex } from "./thread-index.js";
 import { ThreadBinding } from "./thread-binding.js";
 import { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
 import { RuntimePrewarm } from "./runtime-prewarm.js";
+import { PromptPreparation } from "./prompt-preparation.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
-import { promptImages } from "./prompt-attachments.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
 import {
   createAttachedSessionHost,
@@ -95,14 +95,9 @@ import { markTauHostRuntime } from "./tau-runtime-owner.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 import { randomBytes } from "node:crypto";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
-import {
-  prepareSkillPrompt,
-  skillMessagePresentation,
-} from "./skill-invocation.js";
+import { skillMessagePresentation } from "./skill-invocation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
-import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { HostLogger } from "./host-log.js";
@@ -210,6 +205,11 @@ export class PiHost {
   private readonly runtimes: ThreadRuntimeLifecycle;
   /** Runtimes built before anyone asks for them: the spare, and the neighbours of the thread on screen. */
   private readonly prewarm: RuntimePrewarm;
+  /** The runtime spelling of a prompt, and the proof that a caller may execute it. */
+  private readonly prompts = new PromptPreparation({
+    requireBackend: (kind) => this.requireBackend(kind),
+    permissionLevel: () => this.seam.permissionLevel(),
+  });
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -1087,14 +1087,14 @@ export class PiHost {
       if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
       const ownedRequestId = requestId ?? createNewThreadRequestId(randomUUID());
       try {
-        this.assertImageInput(owner, attachments);
+        this.prompts.assertImageInput(owner, attachments);
       } catch (error) {
         return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, ownedRequestId);
       }
       try {
         const rebind = promptRebindForThread(prepared, owner.threadId);
         const ownedPrepared = rebind ? await owner.backend.preparePrompt(initialPrompt ?? "", rebind.skill) : prepared;
-        if (ownedPrepared) this.assertPreparedPrompt(owner, initialPrompt ?? "", ownedPrepared, this.projection.composerCommands(owner));
+        if (ownedPrepared) this.prompts.assertBound(owner, initialPrompt ?? "", ownedPrepared, this.projection.composerCommands(owner));
         if (identity) this.clientTurns.enqueueAny(identity);
         const outcome = await runtimeThreads.create({
           requestId: ownedRequestId,
@@ -1115,19 +1115,8 @@ export class PiHost {
         return this.newThreadResult([], { accepted: false, message: reason }, ownedRequestId);
       }
     }
-    // A prepared prompt from the currently visible thread may be carried into
-    // a new-thread request. It is deliberately re-prepared after the new
-    // backend is created; only an owner-less preflight can be validated here.
     if (prepared && prepared.tauThreadId === undefined && prepared.sessionId === undefined) {
-      const adapter = this.adapterFor(backendKind);
-      const commands = backendKind !== "pi"
-        ? this.externalComposerCommands(backendKind, cwd ?? this.cwd)
-        : this.runtimeCommands;
-      validatePreparedPrompt(initialPrompt ?? "", prepared, {
-        backendKind,
-        runtimeCapabilities: adapter.capabilities,
-        commands,
-      });
+      this.prompts.assertUnbound(initialPrompt ?? "", prepared, this.adapterFor(backendKind), this.composerCommandsFor(backendKind, cwd ?? this.cwd), backendKind);
     }
     return this.lifecycle.run("new-thread", async () => {
       // A superseded request still creates its thread and delivers its prompt
@@ -1149,7 +1138,7 @@ export class PiHost {
       try {
         // Decode and validate attachment data before promoting a prepared
         // runtime, so malformed input cannot leave an adopted blank thread.
-        this.assertImageInput(thread, attachments);
+        this.prompts.assertImageInput(thread, attachments);
         lifecycle = "adopting";
         await this.adoptThread(thread);
         lifecycle = "adopted";
@@ -1402,7 +1391,7 @@ export class PiHost {
   ): Promise<void> {
     const clientMessageId = identity?.clientMessageId;
     const commands = this.projection.composerCommands(thread);
-    if (prepared) this.assertPreparedPrompt(thread, text, prepared, commands);
+    if (prepared) this.prompts.assertBound(thread, text, prepared, commands);
     const abortController = new AbortController();
     thread.adapterAbortControllers ??= new Set<AbortController>();
     thread.adapterAbortControllers.add(abortController);
@@ -1431,97 +1420,19 @@ export class PiHost {
     }
   }
 
-  /**
-   * Prepared prompt data is an opaque host result, but IPC callers can still
-   * replay or forge it. Bind it to the exact visible input and runtime owner
-   * before allowing the backend to execute the runtime spelling.
-   */
-  private assertPreparedPrompt(
-    thread: ThreadRuntime,
-    text: string,
-    prepared: PreparedPrompt,
-    commands: readonly UiComposerCommand[],
-  ): void {
-    this.assertPreparedPromptData(
-      text,
-      prepared,
-      threadBackendKind(thread),
-      thread.threadId,
-      thread.backend.providerSessionId,
-      thread.runtimeAdapter,
-      commands,
-    );
-  }
-
-  private assertPreparedPromptData(
-    text: string,
-    prepared: PreparedPrompt,
-    backendKind: ThreadBackendKind,
-    threadId: string | undefined,
-    providerSessionId: string | undefined,
-    adapter: AgentRuntimeAdapter,
-    commands: readonly UiComposerCommand[],
-  ): void {
-    validatePreparedPrompt(text, prepared, {
-      backendKind,
-      threadId,
-      providerSessionId,
-      runtimeCapabilities: adapter.capabilities,
-      commands,
-    });
-  }
-
   /** Resolves a prompt before the renderer creates its optimistic message. */
   async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     const target = sessionId
       ? await this.awaitThread(sessionId)
       : (this.active && threadBackendKind(this.active) === this.defaultBackendKind ? this.active : undefined);
     if (target) return target.backend.preparePrompt(text, skill);
-    const adapter = this.adapterFor(this.defaultBackendKind);
-    const commands = this.defaultBackendKind !== "pi"
-      ? this.externalComposerCommands(this.defaultBackendKind, this.cwd)
-      : this.runtimeCommands;
-    return this.preparePromptForAdapter(text, skill, adapter, commands, undefined, this.defaultBackendKind);
+    const kind = this.defaultBackendKind;
+    return this.prompts.prepare(text, skill, this.adapterFor(kind), this.composerCommandsFor(kind, this.cwd), undefined, kind);
   }
 
-  private preparePromptForAdapter(
-    text: string,
-    skill: UiSkillDraft | undefined,
-    adapter: AgentRuntimeAdapter,
-    commands: readonly UiComposerCommand[],
-    threadId: string | undefined,
-    backendKind: ThreadBackendKind,
-  ): PreparedPrompt {
-    if (adapter.id !== "pi") this.requireBackend(adapter.id).assertPromptAllowed?.(this.seam.permissionLevel());
-    const effectiveCommands = commands;
-    const prepared = prepareSkillPrompt(text, adapter, effectiveCommands, skill);
-    const skillNames = [...knownSkillNames(effectiveCommands)];
-    const result: PreparedPrompt = {
-      ...(threadId ? { tauThreadId: threadId } : {}),
-      ...(threadId && adapter.id === "pi" ? { providerSessionId: threadId } : {}),
-      ...(threadId ? { sessionId: threadId } : {}),
-      backendKind,
-      runtimeCapabilities: adapter.capabilities,
-      visibleText: prepared.text,
-      runtimeText: prepared.runtimeText,
-      ...(prepared.skill ? { skill: prepared.skill } : {}),
-      sourceFingerprint: clientMessageFingerprint(text, skillNames),
-    };
-    validatePreparedPrompt(text, result, {
-      backendKind,
-      threadId,
-      providerSessionId: threadId && adapter.id === "pi" ? threadId : undefined,
-      runtimeCapabilities: adapter.capabilities,
-      commands: effectiveCommands,
-    });
-    return result;
-  }
-
-  /** Images travel to a runtime only when it says its model takes them. */
-  private assertImageInput(thread: ThreadRuntime, attachments: readonly UiPromptAttachment[]): void {
-    if (attachments.length === 0) return;
-    if (!thread.state.supportsImageInput) throw new Error("The active model does not support image input.");
-    promptImages(attachments);
+  /** The commands a backend's composer offers, before any thread of it exists. */
+  private composerCommandsFor(kind: ThreadBackendKind, cwd: string): readonly UiComposerCommand[] {
+    return kind !== "pi" ? this.externalComposerCommands(kind, cwd) : this.runtimeCommands;
   }
 
   async switchSession(path: string): Promise<HostActionResult> {
@@ -1598,8 +1509,8 @@ export class PiHost {
       await this.sendThroughRuntimeAdapter(thread, text, attachments, delivery, identity, prepared);
       return;
     }
-    this.assertImageInput(thread, attachments);
-    if (prepared) this.assertPreparedPrompt(thread, text, prepared, this.projection.composerCommands(thread));
+    this.prompts.assertImageInput(thread, attachments);
+    if (prepared) this.prompts.assertBound(thread, text, prepared, this.projection.composerCommands(thread));
     try {
       if (identity) this.clientTurns.enqueue(thread.threadId, identity);
       await thread.backend.prompt({
@@ -1642,13 +1553,13 @@ export class PiHost {
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
-    this.assertImageInput(thread, attachments);
+    this.prompts.assertImageInput(thread, attachments);
     // Resolve the runtime spelling once at the backend boundary. The same
     // prepared object is then used for marker correlation and delivery, so a
     // resource-registry change cannot cause host and backend to normalize
     // different dialects for one turn.
     const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
-    this.assertPreparedPrompt(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
+    this.prompts.assertBound(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
     const prompt = resolvedPrepared.runtimeText;
     const isExtensionCommand = this.projection.isExtensionCommand(thread, prompt);
     const preparedTurnId = isExtensionCommand ? undefined : randomUUID();
@@ -1804,9 +1715,9 @@ export class PiHost {
         return;
       }
       if (identity) this.clientTurns.enqueue(thread.threadId, identity);
-      this.assertImageInput(thread, attachments);
+      this.prompts.assertImageInput(thread, attachments);
       const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
-      this.assertPreparedPrompt(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
+      this.prompts.assertBound(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
       if (!this.projection.isExtensionCommand(thread, resolvedPrepared.runtimeText)) {
         preparedTurnId = randomUUID();
         this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: true, expectsInput: false });
