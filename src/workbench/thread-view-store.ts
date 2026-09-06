@@ -8,7 +8,6 @@ import type {
 } from "../shared/contracts";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
 import { conversationMessagesFor, isSameUserMessage, reconcileOptimisticMessages, type OptimisticUserMessage } from "./app-state";
-import type { TimelineEvent } from "./workbench-context";
 import {
   appendMessage,
   appendMessageDelta,
@@ -20,6 +19,14 @@ import {
   updateMessage,
   type TranscriptState,
 } from "./transcript-state";
+
+/** One line of the workbench's own log: what happened, when, and a detail. */
+export interface TimelineEvent {
+  id: string;
+  label: string;
+  detail?: string;
+  timestamp: number;
+}
 
 export type NoticeLevel = "info" | "warning" | "error";
 

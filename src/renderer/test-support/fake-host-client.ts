@@ -1,5 +1,5 @@
 import type { HostEvent } from "../../shared/contracts";
-import type { HostClient } from "../host-client";
+import type { HostClient } from "../../workbench/host-client";
 
 /** One entry per call, in call order, across every method — default or overridden. */
 export interface FakeHostClientCall {

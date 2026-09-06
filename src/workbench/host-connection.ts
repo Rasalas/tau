@@ -1,4 +1,4 @@
-import type { HostBootstrap, HostEvent, TauDesktopApi } from "../shared/contracts";
+import type { HostBootstrap, HostEvent } from "../shared/contracts";
 import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol";
 import {
   HOST_CAPABILITY,
@@ -233,13 +233,4 @@ export class HostConnection {
     this.state = state;
     for (const listener of this.stateListeners) listener(state);
   }
-}
-
-/** The Electron preload bridge as a transport; it is in-process and never drops. */
-export function createElectronHostTransport(api: TauDesktopApi): HostTransport {
-  return {
-    platform: api.platform,
-    request: (method, params) => api.request(method, params),
-    onPush: (listener) => api.onHostEvent(listener),
-  };
 }

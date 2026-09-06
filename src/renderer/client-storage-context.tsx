@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { ClientStorage } from "./client-storage";
+import type { ClientStorage } from "../workbench/client-storage";
 
 const ClientStorageReactContext = createContext<ClientStorage | undefined>(undefined);
 

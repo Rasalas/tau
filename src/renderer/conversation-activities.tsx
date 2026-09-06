@@ -4,7 +4,7 @@ import { TaskProgress } from "./components/TaskProgress";
 import { ToolGroup } from "./components/ToolGroup";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import type { ExtensionRegistry } from "./extension-system";
-import type { ThreadViewStore } from "./thread-view-store";
+import type { ThreadViewStore } from "../workbench/thread-view-store";
 
 export interface ConversationActivityInput {
   pendingNewThread: boolean;

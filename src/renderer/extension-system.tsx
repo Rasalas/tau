@@ -1,7 +1,7 @@
 import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, type KeyChord } from "./keybindings";
 import type { ComponentType, ReactNode } from "react";
 import type { PanelIconComponent } from "./components/PanelIcon";
-import type { HostClient } from "./host-client";
+import type { HostClient } from "../workbench/host-client";
 import type { HostActionResult } from "../shared/host-protocol";
 import type {
   ExtensionInspection,
@@ -57,8 +57,10 @@ export interface WorkbenchActions {
   composerDraft(): string;
   /** Applies a host action result the way core actions do, refreshing what it touched. */
   applyHostResult(result: HostActionResult): void;
-  /** Puts text on the host's clipboard. */
+  /** Puts text on the user's clipboard. */
   copyText(text: string): Promise<void>;
+  /** Opens a URL outside the workbench, in whatever the client calls a browser. */
+  openExternal(url: string): void;
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
   openOverlay(id: string): void;
   closeOverlay(): void;

@@ -2,16 +2,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiPromptAttachment, UiSkillDraft } from "../shared/contracts";
 import { createNewThreadRequestId } from "../shared/contracts";
-import type { HostClient } from "./host-client";
-import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
-import type { TranscriptTurnStart } from "./components/transcript-navigation";
-import { createMemoryStorage } from "./client-storage";
-import { draftKey, type NewThreadDraft } from "./draft-store";
+import type { HostClient } from "../workbench/host-client";
+import { ComposerScopeStore, createDraftKey } from "../workbench/composer-scope-store";
+import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
+import { createMemoryStorage } from "../workbench/client-storage";
+import { draftKey, type NewThreadDraft } from "../workbench/draft-store";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { PreferencesStore } from "./preferences";
 import { createFakeHostClient } from "./test-support/fake-host-client";
-import { ThreadStore } from "./thread-store";
-import { ThreadViewStore } from "./thread-view-store";
+import { ThreadStore } from "../workbench/thread-store";
+import { ThreadViewStore } from "../workbench/thread-view-store";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 
 const SESSION_SNAPSHOT: HostSnapshot = {

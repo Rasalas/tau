@@ -7,7 +7,7 @@ import {
   restoreTranscriptScrollAnchor,
   type TranscriptHistoryController,
   type TranscriptHistoryRequest,
-} from "../transcript-history";
+} from "../../workbench/transcript-history";
 import { TranscriptHistoryControl } from "./TranscriptHistoryControl";
 
 export interface TranscriptHistoryBoundaryProps {

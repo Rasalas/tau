@@ -11,8 +11,8 @@ import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import type { HostExtensionContext } from "./host-extensions.js";
 import { loadBundledKitHostHalves } from "./bundled-kits.js";
-import { readBootstrapCache, writeBootstrapCache } from "../renderer/bootstrap-cache.js";
-import { applyTranscriptBundleMerge } from "../renderer/transcript-history-page-state.js";
+import { readBootstrapCache, writeBootstrapCache } from "../workbench/bootstrap-cache.js";
+import { applyTranscriptBundleMerge } from "../workbench/transcript-history-page-state.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
 
 describe("cleanThreadTitle", () => {

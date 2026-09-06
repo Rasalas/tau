@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import type { ExtensionRegistry } from "./extension-system";
+import type { ExtensionRegistry } from "../renderer/extension-system";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
-import { PreferencesStore } from "./preferences";
+import { PreferencesStore } from "../renderer/preferences";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
 

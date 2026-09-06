@@ -1,8 +1,8 @@
 /**
- * The renderer's key-value store. `localStorage` is one implementation; a web
- * or mobile client supplies its own. Everything reaches storage through this
- * interface, never through `localStorage` directly (enforced by
- * `client-storage-boundary.test.ts`).
+ * The workbench's key-value store. The browser's own store is one
+ * implementation, built by the platform (`src/renderer/platform-electron.ts`);
+ * a web or mobile client supplies its own. Nothing here may touch a browser
+ * global (`client-storage-boundary.test.ts`).
  */
 export interface ClientStorage {
   get(key: string): string | null;
@@ -12,23 +12,7 @@ export interface ClientStorage {
   keys(prefix?: string): string[];
 }
 
-export function createLocalStorageAdapter(): ClientStorage {
-  return {
-    get: (key) => localStorage.getItem(key),
-    set: (key, value) => localStorage.setItem(key, value),
-    remove: (key) => localStorage.removeItem(key),
-    keys: (prefix) => {
-      const result: string[] = [];
-      for (let index = 0; index < localStorage.length; index += 1) {
-        const key = localStorage.key(index);
-        if (key && (!prefix || key.startsWith(prefix))) result.push(key);
-      }
-      return result;
-    },
-  };
-}
-
-/** For tests and the browser preview, where `localStorage` is unavailable or must not leak between cases. */
+/** For tests and the browser preview, where no browser store exists or one must not leak between cases. */
 export function createMemoryStorage(): ClientStorage {
   const store = new Map<string, string>();
   return {

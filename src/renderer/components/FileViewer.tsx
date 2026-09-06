@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
-import type { StageFileTab, StageView } from "../stage";
+import type { StageFileTab, StageView } from "../../workbench/stage";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
 import { DiffPane } from "./DiffPane";
 

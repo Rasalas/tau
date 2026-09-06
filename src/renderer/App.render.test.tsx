@@ -4,7 +4,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
-import { getClientStorage, setClientStorage } from "./client-storage";
+import { getClientStorage, setClientStorage } from "../workbench/client-storage";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
@@ -18,10 +18,10 @@ vi.mock("./components/Message", () => ({
   },
 }));
 
-import { isCurrentTranscriptSubmission, latestActivityAnchor, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, optimisticThreadSnapshot, reconcileOptimisticMessages } from "./app-state";
+import { isCurrentTranscriptSubmission, latestActivityAnchor, mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, optimisticThreadSnapshot, reconcileOptimisticMessages } from "../workbench/app-state";
 import { ComposerHost, measureComposerGeometry } from "./components/ComposerHost";
 import { MountedPanel } from "./Workbench";
-import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "./transcript-history";
+import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "../workbench/transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 import type { NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 

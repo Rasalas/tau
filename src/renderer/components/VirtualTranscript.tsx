@@ -1,7 +1,7 @@
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import type { UiMessage } from "../../shared/contracts";
-import type { TranscriptScrollAnchor } from "../transcript-history";
+import type { TranscriptScrollAnchor } from "../../workbench/transcript-history";
 import { Message } from "./Message";
 import {
   groupTranscriptActivitiesForMessageIds,

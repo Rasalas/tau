@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { ClientTurnIdentity, UiPromptAttachment, UiSkillDraft } from "../shared/contracts";
-import { createClientMessageId } from "./app-state";
+import { createClientMessageId } from "../workbench/app-state";
 import type { SubmitResult } from "./components/Composer";
-import { errorMessage } from "./error-message";
-import { FollowUpQueueStore, type QueuedFollowUp } from "./follow-up-queue";
-import type { HostClient } from "./host-client";
+import { errorMessage } from "../workbench/error-message";
+import { FollowUpQueueStore, type QueuedFollowUp } from "../workbench/follow-up-queue";
+import type { HostClient } from "../workbench/host-client";
 import type { PreferencesStore } from "./preferences";
 import { usePreferences } from "./renderer-services-context";
 

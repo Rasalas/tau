@@ -32,10 +32,10 @@ import {
   type ComposerScope,
   type ComposerScopeReference,
   type PendingAttachment,
-} from "../composer-scope-store";
-import { errorMessage } from "../error-message";
-import type { QueuedFollowUp } from "../follow-up-queue";
-import { readComposerDraft, writeComposerDraft } from "../draft-store";
+} from "../../workbench/composer-scope-store";
+import { errorMessage } from "../../workbench/error-message";
+import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
+import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-store";
 import { useClientStorage } from "../client-storage-context";
 
 type OpenMenu = "thinking" | undefined;

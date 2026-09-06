@@ -1,8 +1,8 @@
-import type { TranscriptHistoryStatus } from "../transcript-history";
+import type { TranscriptHistoryStatus } from "../../workbench/transcript-history";
 import type { TranscriptHistoryCompleteness } from "../../shared/transcript-completeness";
 import type { HostTranscriptCursor } from "../../shared/transcript-cursor";
 
-export type { TranscriptHistoryStatus } from "../transcript-history";
+export type { TranscriptHistoryStatus } from "../../workbench/transcript-history";
 
 export interface TranscriptHistoryControlProps {
   olderCursor?: HostTranscriptCursor;

@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { ReloadConflictDialog } from "./components/ReloadConflictDialog";
 import { ReloadCurtain, type ReloadPhase } from "./components/ReloadCurtain";
-import { errorMessage } from "./error-message";
-import type { HostClient } from "./host-client";
+import { errorMessage } from "../workbench/error-message";
+import type { HostClient } from "../workbench/host-client";
 
 export function useWorkbenchReload(options: {
   client: HostClient | undefined;

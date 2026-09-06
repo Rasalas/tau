@@ -9,7 +9,7 @@ import {
   type TranscriptMessageLookup,
   type TranscriptNavigationOptions,
   type TranscriptNavigationState,
-} from "./transcript-navigation";
+} from "../../workbench/transcript-navigation";
 import { TranscriptScrollController } from "./transcript-scroll-controller";
 
 export interface TranscriptNavigation {

@@ -3,7 +3,7 @@ import { hostSnapshotFromThreadDetail, type HostActionResult, type ThreadDetail 
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import type { ComposerScopeReference, DraftKey, PendingAttachment } from "./composer-scope-store";
 import type { NewThreadDraft } from "./draft-store";
-import { transcriptNavigationScopesEqual, type TranscriptNavigationScope, type TranscriptTurnStart } from "./components/transcript-navigation";
+import { transcriptNavigationScopesEqual, type TranscriptNavigationScope, type TranscriptTurnStart } from "./transcript-navigation";
 
 export function transcriptNavigationScopeKey(
   snapshot: Pick<HostSnapshot, "cwd" | "sessionId"> | undefined,

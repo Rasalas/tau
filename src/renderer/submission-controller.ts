@@ -21,18 +21,18 @@ import {
   type NewThreadSubmissionCompletion,
   type NewThreadSubmissionRecovery,
   type TranscriptSubmissionIdentity,
-} from "./app-state";
-import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "./composer-scope-store";
-import type { ClientStorage } from "./client-storage";
+} from "../workbench/app-state";
+import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
+import type { ClientStorage } from "../workbench/client-storage";
 import type { SubmitResult } from "./components/Composer";
-import type { TranscriptTurnStart } from "./components/transcript-navigation";
-import { draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
-import { errorMessage } from "./error-message";
+import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
+import { draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
+import { errorMessage } from "../workbench/error-message";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
-import type { HostClient } from "./host-client";
+import type { HostClient } from "../workbench/host-client";
 import type { PreferencesStore } from "./preferences";
-import type { ThreadStore } from "./thread-store";
-import type { ThreadViewStore } from "./thread-view-store";
+import type { ThreadStore } from "../workbench/thread-store";
+import type { ThreadViewStore } from "../workbench/thread-view-store";
 
 /** One message leaving the composer, whatever it turns into. */
 export interface SubmissionInput {

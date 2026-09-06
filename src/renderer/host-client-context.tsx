@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { HostClient } from "./host-client";
+import type { HostClient } from "../workbench/host-client";
 
 const HostClientReactContext = createContext<HostClient | undefined>(undefined);
 

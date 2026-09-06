@@ -1,35 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { ExtensionUiAnswer, HostEvent, HostSnapshot, ShellActionResult, ThreadIndexSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
+import type { ExtensionUiAnswer, HostEvent, ShellActionResult, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import { namesWorkspace } from "../shared/workspace-identity";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import { hostSnapshotFromThreadDetail, hostSnapshotWithCatalog, threadDetailFromHostSnapshot, type HostActionResult, type HostUpdate, type TranscriptPage } from "../shared/host-protocol";
-import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
-import { mockSnapshot, mockThreadIndex, optimisticThreadSnapshot, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "./app-state";
-import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
+import type { HostActionResult } from "../shared/host-protocol";
+import { mockSnapshot, mockThreadIndex, optimisticThreadSnapshot, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
+import { WorkbenchStore } from "../workbench/workbench-store";
+import { readBootstrapCache } from "../workbench/bootstrap-cache";
 import { type ComposerAttachmentHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
 import { type ThreadTreeMode } from "./components/ThreadTreeModal";
 import { UpdateToast } from "./components/UpdateToast";
-import type { TranscriptTurnStart } from "./components/transcript-navigation";
-import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
+import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
+import { ComposerScopeStore, createDraftKey } from "../workbench/composer-scope-store";
 import { useConversationActivities } from "./conversation-activities";
-import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
-import { errorMessage } from "./error-message";
+import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
+import { errorMessage } from "../workbench/error-message";
 import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
 import { runtimeControls } from "./settings/runtime-controls";
-import { FollowUpQueueStore } from "./follow-up-queue";
+import { FollowUpQueueStore } from "../workbench/follow-up-queue";
 import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
-import { applyHostEvent, type HostEventTargets } from "./host-events";
+import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
+import { PlatformProvider, setPlatform } from "./platform-context";
+import { createElectronPlatform } from "./platform-electron";
+import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, openThreadTab, pinTab as pinStageTab, setFileView, stageTabPath, type StageState, type StageView } from "./stage";
+import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, EMPTY_STAGE, openFileTab, openThreadTab, pinTab as pinStageTab, setFileView, stageTabPath, type StageState, type StageView } from "../workbench/stage";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
-import { ThreadStore } from "./thread-store";
-import { ThreadViewStore } from "./thread-view-store";
-import { TranscriptHistoryController, type TranscriptBootstrapRequest, type TranscriptHistoryRequest, type TransitionToken } from "./transcript-history";
-import { clearCachedTurnActivity, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
+import { ThreadStore } from "../workbench/thread-store";
+import { ThreadViewStore } from "../workbench/thread-view-store";
+import { TranscriptHistoryController } from "../workbench/transcript-history";
+import { clearCachedTurnActivity, writeCachedTurnActivity } from "../workbench/turn-activity";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { useNewThreadController } from "./use-new-thread-controller";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
@@ -61,6 +64,19 @@ export default function App() {
     return value;
   });
   const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
+  // What this client can do with the machine it runs on. Everything in the
+  // renderer that needs the clipboard, an editor or a module evaluation asks
+  // this, never Electron; `src/workbench/` never asks at all.
+  const [platform] = useState(() => {
+    const value = createElectronPlatform({
+      ...(client ? { client } : {}),
+      storage: clientStorage,
+      openInEditor: (path) => registry.getDocumentSource()?.openInEditor(path),
+      hasLocalFiles: () => client?.hasCapability(HOST_CAPABILITY.localFiles) ?? false,
+    });
+    setPlatform(value);
+    return value;
+  });
   // One store owns everything about the thread on screen: its snapshot, the
   // ordered transcript, tools, prompts and the optimistic rows waiting on it.
   const [viewStore] = useState(() => new ThreadViewStore(cachedBootstrap?.snapshot));
@@ -105,8 +121,6 @@ export default function App() {
   const events = useSyncExternalStore(viewStore.subscribeToEvents, viewStore.getEvents);
   const setNotice = viewStore.setNotice;
   const addEvent = viewStore.addEvent;
-  const cachedSnapshotRef = useRef<HostSnapshot | undefined>(cachedBootstrap?.snapshot);
-  const cachedIndexRef = useRef<ThreadIndexSnapshot | undefined>(cachedBootstrap?.threadIndex);
   // Run state lives in the thread store, fed by the host's per-thread status
   // events. Every other reading of "is this thread working" is this selector,
   // so the composer, the live row and the rail cannot disagree.
@@ -260,179 +274,25 @@ export default function App() {
     viewStore.setOptimisticMessages(reconciled);
   }, [activeDraftKey, optimisticMessages, pendingNewThread, transcriptUserRevision]);
 
-  const applySnapshot = useCallback((next: HostSnapshot, request?: TranscriptBootstrapRequest): boolean => {
-    if (request && !transcriptHistory.isCurrentBootstrap(request)) return false;
-    // The bootstrap cache paints before the host answers; from here on the
-    // session id on screen is one this host really has open.
-    submission.notifyHostSnapshot();
-    viewStore.beginThread(next.sessionId);
-    const detail = threadDetailFromHostSnapshot(next);
-    if (!transcriptHistory.syncSnapshot(next, detail, request)) return false;
-    // applyHostSnapshot and setActiveThread both report the thread's run state
-    // to the one writer, so nothing else has to repeat it.
-    threadStore.applyHostSnapshot(next);
-    if (next.model?.provider) threadStore.setThreadModelProvider(next.sessionId, next.model.provider);
-    const cachedActivity = readCachedTurnActivity(clientStorage, next.sessionId);
-    viewStore.setSnapshot(next);
-    viewStore.setMessages(next.messages);
-    const restoredActivity = next.turnActivity ?? cachedActivity;
-    viewStore.setTools(restoredActivity?.tools ?? []);
-    viewStore.setToolAnchorId(restoredActivity?.anchorMessageId);
-    viewStore.setTurnActivity(next.turnActivityHistory ?? [], restoredActivity ? next.sessionId : undefined);
-    cachedSnapshotRef.current = next;
-    writeBootstrapCache(next, cachedIndexRef.current);
-    return true;
-  }, [submission, threadStore, transcriptHistory, viewStore]);
-
-  const applyThreadIndex = useCallback((threadIndex: ThreadIndexSnapshot) => {
-    threadStore.applyThreadIndex(threadIndex);
-    transcriptHistory.setThreadIndex(threadIndex);
-    cachedIndexRef.current = threadIndex;
-    writeBootstrapCache(cachedSnapshotRef.current, threadIndex);
-  }, [threadStore, transcriptHistory]);
-
-  const applyTranscriptPage = useCallback((page: TranscriptPage, request?: TranscriptHistoryRequest) => {
-    const application = transcriptHistory.applyPage(page, viewStore.getTranscript().messages, request);
-    if (!application) return false;
-    viewStore.setMessages(application.messages);
-    const nextActivityHistory = application.snapshot?.turnActivityHistory ?? application.detail?.turnActivityHistory ?? [];
-    viewStore.setTurnActivityHistory(nextActivityHistory);
-    if (application.snapshot) viewStore.setSnapshot(application.snapshot);
-    return true;
-  }, [transcriptHistory, viewStore]);
-
-  const applyHostUpdate = useCallback((update: HostUpdate): void => {
-    if (update.version !== 1) return;
-    if (update.type === "thread-index") {
-      applyThreadIndex(update.index);
-      return;
-    }
-    if (update.type === "thread-shell") {
-      const shell = update.update.shell;
-      threadStore.applyThreadShell(update.update.sessionId, shell, update.update.removed);
-      if (shell) viewStore.setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, projectLabel: shell.projectLabel } : current);
-      return;
-    }
-    if (update.type === "thread-detail") {
-      submission.notifyHostSnapshot();
-      const detail = update.detail;
-      const currentSnapshot = transcriptHistory.getCurrentSnapshot();
-      const shell = threadStore.getThread(detail.sessionId);
-      const prompt = detail.messages.find((message) => message.role === "user")?.text;
-      const pending = currentPendingNewThread();
-      const isCorrelatedCandidate = Boolean(shell) || detail.sessionId !== currentSnapshot?.sessionId;
-      // A bridge-created session can arrive after the new-session call has
-      // returned with no updates. Prepare the history coordinator for that
-      // one explicitly correlated transition before applying its detail; an
-      // unrelated late detail must remain subject to the normal race guard.
-      if (pending && prompt !== undefined && isCorrelatedCandidate
-        && detail.requestId !== undefined && detail.requestId === newThreadRequestRef.current) {
-        transcriptHistory.prepareActionDetail(detail.sessionId);
-      }
-      const snapshotForDetail = currentSnapshot ? {
-        ...currentSnapshot,
-        sessionId: detail.sessionId,
-        sessionTitle: shell?.title ?? currentSnapshot.sessionTitle,
-        ...(currentSnapshot.sessionId === detail.sessionId ? {} : {
-          supportsImageInput: false,
-            }),
-      } : undefined;
-      const application = transcriptHistory.applyDetail(detail, snapshotForDetail);
-      if (!application) return;
-      const detailForRender = application.detail;
-      const currentTurnStart = transcriptTurnStartRef.current;
-      const pendingDraft = currentPendingNewThread();
-      if (currentTurnStart?.scope?.kind === "draft"
-        && pendingDraft
-        && currentTurnStart.scope.draftId === pendingDraft.draftId) {
-        const matchedPrompt = detailForRender.messages.find((message) => matchesTranscriptTurnMessage(message, currentTurnStart));
-        if (matchedPrompt) {
-          setTranscriptTurnStart({
-            ...currentTurnStart,
-            sessionId: detailForRender.sessionId,
-            scope: { kind: "session", projectPath: pendingDraft.projectPath, sessionId: detailForRender.sessionId },
-            messageId: matchedPrompt.id,
-            scopeKey: transcriptNavigationScopeKey({ cwd: pendingDraft.projectPath, sessionId: detailForRender.sessionId }),
-          }, currentTurnStart.turnId);
-        }
-      }
-      viewStore.details.set(detailForRender);
-      const reportedMessage = detailForRender.messages.find((message) => message.role === "user");
-      const pendingForReport = currentPendingNewThread();
-      if (isCorrelatedCandidate && reportedMessage && pendingForReport) {
-        const promotedByReport = submission.promoteReportedThread(detail.sessionId, reportedMessage, detail.requestId)
-          || promoteFromHostReport(detail.sessionId, shell?.projectPath ?? pendingForReport.projectPath, detail.requestId);
-        if (promotedByReport) {
-          composerScopeStore.moveScope(
-            createDraftKey(draftKey(undefined, pendingForReport)),
-            createDraftKey(draftKey(detail.sessionId)),
-          );
-        }
-      }
-      threadStore.setActiveThread(detail.sessionId, detail.isStreaming);
-      if (detailForRender.sessionId !== viewStore.getState().activeThreadId) viewStore.beginThread(detailForRender.sessionId);
-      viewStore.setMessages(detailForRender.messages);
-      const cachedActivity = readCachedTurnActivity(clientStorage, detailForRender.sessionId);
-      const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
-      viewStore.setTools(restoredActivity?.tools ?? []);
-      viewStore.setToolAnchorId(restoredActivity?.anchorMessageId);
-      viewStore.setTurnActivity(detailForRender.turnActivityHistory ?? [], restoredActivity ? detailForRender.sessionId : undefined);
-      viewStore.setSnapshot((current) => {
-        const next = application.snapshot ?? current;
-        if (!next) return current;
-        const enriched = {
-          ...next,
-          ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
-          ...(detail.threadId ? { threadId: detail.threadId } : {}),
-          ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
-          turnActivityHistory: detailForRender.turnActivityHistory,
-        };
-        cachedSnapshotRef.current = enriched;
-        writeBootstrapCache(enriched, cachedIndexRef.current);
-        return enriched;
-      });
-      return;
-    }
-    if (update.type === "transcript-page") {
-      const page = update.page;
-      applyTranscriptPage(page);
-      return;
-    }
-    if (update.type === "catalog") {
-      if (update.catalog.model?.provider) threadStore.setThreadModelProvider(threadStore.getSnapshot().activeThreadId, update.catalog.model.provider);
-      // The history cache is the base a later thread detail merges onto, so it
-      // has to take the catalog too; otherwise the next detail restores the
-      // model the thread had before this change.
-      transcriptHistory.applyCatalog(update.catalog);
-      viewStore.setSnapshot((current) => {
-        if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
-        const next = hostSnapshotWithCatalog(current, update.catalog);
-        cachedSnapshotRef.current = next;
-        writeBootstrapCache(next, cachedIndexRef.current);
-        return next;
-      });
-      return;
-    }
-    if (update.type === "project") {
-      viewStore.setSnapshot((current) => current ? { ...current, ...update.project } : current);
-      return;
-    }
-    if (update.type === "run") threadStore.setThreadRunning(update.sessionId, update.event === "started");
-    if (update.type === "error") setNotice(update.message);
-  }, [applyThreadIndex, applyTranscriptPage, composerScopeStore, currentPendingNewThread, promoteFromHostReport, setTranscriptTurnStart, submission, threadStore, transcriptHistory, viewStore]);
-
-  const applyActionResult = useCallback((result: import("../shared/host-protocol").HostActionResult, expectedTransition?: TransitionToken): boolean => {
-    if (expectedTransition !== undefined && !transcriptHistory.isCurrentThreadTransition(expectedTransition)) return false;
-    const detail = result.updates.find((update) => update.type === "thread-detail");
-    if (detail?.type === "thread-detail") {
-      const prepared = expectedTransition === undefined
-        ? transcriptHistory.prepareActionDetail(detail.detail.sessionId)
-        : transcriptHistory.confirmThreadTransition(expectedTransition, detail.detail.sessionId);
-      if (!prepared) return false;
-    }
-    result.updates.forEach((update) => applyHostUpdate(update));
-    return true;
-  }, [applyHostUpdate, transcriptHistory]);
+  const [workbenchStore] = useState(() => new WorkbenchStore({
+    view: viewStore,
+    threads: threadStore,
+    history: transcriptHistory,
+    scopes: composerScopeStore,
+    storage: clientStorage,
+    submission: {
+      notifyHostSnapshot: () => submission.notifyHostSnapshot(),
+      promoteReportedThread: (sessionId, message, requestId) => submission.promoteReportedThread(sessionId, message, requestId),
+    },
+    newThread: {
+      current: currentPendingNewThread,
+      requestId: () => newThreadRequestRef.current,
+      promoteFromHostReport,
+    },
+    turn: { current: () => transcriptTurnStartRef.current, set: setTranscriptTurnStart },
+    notify: (message) => viewStore.setNotice(message),
+  }, cachedBootstrap));
+  const { applySnapshot, applyThreadIndex, applyTranscriptPage, applyHostUpdate, applyActionResult } = workbenchStore;
 
   // A prepared thread is not a runtime session yet, so its project is the
   // only trustworthy workspace identity while it is on screen. In
@@ -453,6 +313,7 @@ export default function App() {
     view: viewStore,
     submission,
     preferences,
+    viewerHidden: () => document.hidden,
     currentDraftKey,
     transcriptTurnStart: () => transcriptTurnStartRef.current,
     setTranscriptTurnStart,
@@ -472,28 +333,7 @@ export default function App() {
       void client.syncExtensionUi().catch(() => undefined);
       const bootstrapRequest = transcriptHistory.beginBootstrap();
       client.bootstrap().then((bootstrap) => {
-        if (!transcriptHistory.isCurrentBootstrap(bootstrapRequest)) return;
-        applyThreadIndex(bootstrap.threadIndex);
-        const current = hostSnapshotFromThreadDetail({
-          cwd: bootstrap.project.cwd,
-          projectLabel: bootstrap.project.label,
-          sessionId: bootstrap.detail.sessionId,
-          sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
-          backendKind: bootstrap.detail.backendKind ?? bootstrap.catalog.backendKind,
-          models: bootstrap.catalog.models,
-          model: bootstrap.catalog.model,
-          runtimeCapabilities: bootstrap.catalog.runtimeCapabilities,
-          thinkingLevel: bootstrap.catalog.thinkingLevel,
-          thinkingLevels: bootstrap.catalog.thinkingLevels,
-          allTools: bootstrap.catalog.allTools,
-          composerCommands: bootstrap.catalog.composerCommands ?? [],
-          extensionCount: bootstrap.catalog.extensionCount,
-          supportsImageInput: bootstrap.catalog.supportsImageInput ?? false,
-          messages: [],
-          isStreaming: false,
-          activeTools: [],
-        }, bootstrap.detail);
-        if (!applySnapshot(current, bootstrapRequest)) return;
+        workbenchStore.applyBootstrap(bootstrap, bootstrapRequest);
       }).catch((error) => {
         if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
       });
@@ -503,7 +343,7 @@ export default function App() {
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
     return unsubscribe;
-  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, transcriptHistory]);
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, transcriptHistory, workbenchStore]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {
@@ -802,7 +642,7 @@ export default function App() {
       return;
     }
     try {
-      await client?.copyText(value);
+      await platform.clipboard.writeText(value);
       setNotice(`${kind === "path" ? "Path" : "Thread ID"} copied.`);
     } catch (error) {
       setNotice(errorMessage(error));
@@ -814,7 +654,7 @@ export default function App() {
       const copyText = message.role === "user"
         ? message.skill?.copyText ?? visibleUserMessageText(message.text)
         : message.text;
-      await client?.copyText(copyText);
+      await platform.clipboard.writeText(copyText);
       setNotice("Message copied.");
     } catch (error) {
       setNotice(errorMessage(error));
@@ -829,7 +669,7 @@ export default function App() {
     try {
       const result = await client.readToolOutput(snapshot.sessionId, tool.id);
       if (!result) throw new Error("The complete tool output is no longer available.");
-      await client.copyText(result.output);
+      await platform.clipboard.writeText(result.output);
       setNotice(result.truncated
         ? "Tool output exceeded the read limit; the bounded result was copied."
         : "Full tool output copied.");
@@ -913,7 +753,8 @@ export default function App() {
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
     applyHostResult,
-    copyText: async (text: string) => { await client?.copyText(text); },
+    copyText: async (text: string) => { await platform.clipboard.writeText(text); },
+    openExternal: (url: string) => platform.openExternal(url),
     openOverlay: (id) => setActiveOverlayId(id),
     closeOverlay: () => setActiveOverlayId(undefined),
     openWorkspace,
@@ -1102,7 +943,7 @@ export default function App() {
     observatoryContext: observatoryContextValue, layout, thread, composer,
   }), [actions, composer, contextValue, layout, observatoryContextValue, shellContextValue, thread, viewStore]);
 
-  return <>
+  return <PlatformProvider platform={platform}>
     <Workbench model={workbenchModel} />
     {updateReady ? <UpdateToast
       version={updateReady}
@@ -1110,5 +951,5 @@ export default function App() {
       onDismiss={() => setUpdateReady(undefined)}
     /> : null}
     {reloadUi}
-  </>;
+  </PlatformProvider>;
 }

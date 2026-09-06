@@ -1,9 +1,9 @@
 import { render, type RenderResult } from "@testing-library/react";
 import App from "../App";
 import { HostClientProvider, setHostClient } from "../host-client-context";
-import type { HostClient } from "../host-client";
+import type { HostClient } from "../../workbench/host-client";
 import type { DesktopExtension } from "../extension-system";
-import { createMemoryStorage, setClientStorage, type ClientStorage } from "../client-storage";
+import { createMemoryStorage, setClientStorage, type ClientStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { createRendererServices, type RendererServices } from "../renderer-services";
 import { RendererServicesProvider } from "../renderer-services-context";

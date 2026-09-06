@@ -6,7 +6,6 @@ import type {
   PreparedPrompt,
   PreparedThreadCapability,
   ShellActionResult,
-  TauDesktopApi,
   ThreadTreeNavigationResult,
   UiImagePreview,
   UiPromptAttachment,
@@ -22,13 +21,13 @@ import type {
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import { HostConnection, createElectronHostTransport, type HostConnectionState } from "./host-connection";
+import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
  * Transport-neutral view of the desktop host. Every method is one call of the
  * versioned host protocol on a `HostConnection`; Electron IPC and the local
- * socket are two transports under it. No renderer module outside this file and
- * `main.tsx` may reach `window.tau`.
+ * socket are two transports under it. Only the platform module builds the
+ * Electron one, and only `main.tsx` may reach the preload bridge.
  */
 export interface HostClient {
   // Thread lifecycle and navigation: create, resume, switch, and manage projects.
@@ -173,10 +172,4 @@ export function createHostClient(connection: HostConnection): HostClient {
     getConnectionState: connection.getState,
     onConnectionState: (listener) => connection.onState(listener),
   };
-}
-
-/** Electron IPC as one transport of the protocol; `main.tsx` builds this one. */
-export function createElectronHostClient(api: TauDesktopApi): { client: HostClient; connection: HostConnection } {
-  const connection = new HostConnection(createElectronHostTransport(api));
-  return { client: createHostClient(connection), connection };
 }

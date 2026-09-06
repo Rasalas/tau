@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
-import type { TranscriptNavigationState } from "./transcript-navigation";
+import type { TranscriptNavigationState } from "../../workbench/transcript-navigation";
 import {
   FrameLoop,
   ScrollIntentTracker,

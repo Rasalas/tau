@@ -3,11 +3,11 @@ import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
-import type { StageState } from "./stage";
+import type { StageState } from "../workbench/stage";
 import type { ComposerAttachmentHandle, SubmitResult } from "./components/Composer";
 import { Composer } from "./components/Composer";
-import type { ComposerScopeStore } from "./composer-scope-store";
-import type { QueuedFollowUp } from "./follow-up-queue";
+import type { ComposerScopeStore } from "../workbench/composer-scope-store";
+import type { QueuedFollowUp } from "../workbench/follow-up-queue";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { PanelIcon } from "./components/PanelIcon";
@@ -21,19 +21,20 @@ import { TitleBar } from "./components/TitleBar";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import type { TranscriptActivity } from "./components/transcript-activity";
-import type { TranscriptTurnStart } from "./components/transcript-navigation";
+import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, PanelProps, WorkbenchActions } from "./extension-system";
 import { useClientStorage } from "./client-storage-context";
-import type { ClientStorage } from "./client-storage";
-import { STORAGE_KEYS } from "./storage-keys";
+import type { ClientStorage } from "../workbench/client-storage";
+import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { publishStageBand } from "./reserved-region";
 import { useHostCapabilities } from "./use-host-capabilities";
+import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
-import type { ThreadStore } from "./thread-store";
-import type { ThreadViewStore } from "./thread-view-store";
-import { contextBreakdownFor, conversationMessagesFor } from "./app-state";
-import type { TranscriptHistoryController } from "./transcript-history";
+import type { ThreadStore } from "../workbench/thread-store";
+import type { ThreadViewStore } from "../workbench/thread-view-store";
+import { contextBreakdownFor, conversationMessagesFor } from "../workbench/app-state";
+import type { TranscriptHistoryController } from "../workbench/transcript-history";
 import type { useThreadDropController } from "./use-thread-drop-controller";
 import {
   ObservatoryContext,
@@ -168,9 +169,9 @@ export interface WorkbenchThread {
   transcriptHistory: TranscriptHistoryController;
   transcriptRef: RefObject<HTMLDivElement | null>;
   loadTranscriptPage(sessionId: string, cursor: HostTranscriptCursor): Promise<import("../shared/host-protocol").TranscriptPage>;
-  applyTranscriptPage(page: import("../shared/host-protocol").TranscriptPage, request: import("./transcript-history").TranscriptHistoryRequest): boolean;
+  applyTranscriptPage(page: import("../shared/host-protocol").TranscriptPage, request: import("../workbench/transcript-history").TranscriptHistoryRequest): boolean;
   transcriptScopeKey: string;
-  transcriptScope: import("./components/transcript-navigation").TranscriptNavigationScope;
+  transcriptScope: import("../workbench/transcript-navigation").TranscriptNavigationScope;
   transcriptTurnStart?: TranscriptTurnStart;
   visibleTranscriptTurnStart?: TranscriptTurnStart;
   transcriptActivities: readonly TranscriptActivity[];
@@ -247,6 +248,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();
+  const platform = usePlatform();
   const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
   const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
 
@@ -474,7 +476,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               onClose={closeStageTab}
               onPin={pinStageTab}
               onChangeView={setStageFileView}
-              onOpenInEditor={(path) => documentSource?.openInEditor(path)}
+              onOpenInEditor={(path) => platform.files?.openInEditor(path)}
               onTakeOverThread={takeOverThread}
             />
           </Suspense>

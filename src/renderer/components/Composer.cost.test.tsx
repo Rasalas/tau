@@ -4,7 +4,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiThreadUsage } from "../../shared/contracts";
 import { Composer } from "./Composer";
-import { ComposerScopeStore } from "../composer-scope-store";
+import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { TestProviders } from "../test-support/test-providers";
 
 const snapshot: HostSnapshot = {

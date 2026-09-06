@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { createMemoryStorage } from "../client-storage";
+import { createMemoryStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { createRendererServices } from "../renderer-services";
 import { RendererServicesProvider } from "../renderer-services-context";

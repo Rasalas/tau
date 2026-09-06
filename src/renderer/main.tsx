@@ -1,11 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { createElectronHostClient, type HostClient } from "./host-client";
-import { createSocketHostClient } from "./host-connection-socket";
-import type { HostConnection } from "./host-connection";
+import type { HostClient } from "../workbench/host-client";
+import { createElectronHostClient, createLocalStorageAdapter } from "./platform-electron";
+import { createSocketHostClient } from "../workbench/host-connection-socket";
+import type { HostConnection } from "../workbench/host-connection";
 import { HostClientProvider, setHostClient } from "./host-client-context";
-import { createLocalStorageAdapter, setClientStorage } from "./client-storage";
+import { setClientStorage } from "../workbench/client-storage";
 import { ClientStorageProvider } from "./client-storage-context";
 import { createRendererServices } from "./renderer-services";
 import { RendererServicesProvider } from "./renderer-services-context";

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
-import { createMemoryStorage, setClientStorage, type ClientStorage } from "../client-storage";
+import { createMemoryStorage, setClientStorage, type ClientStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { ReviewMode } from "./ReviewMode";
 

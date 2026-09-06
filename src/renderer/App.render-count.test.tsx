@@ -2,7 +2,7 @@
 import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setHostClient } from "./host-client-context";
-import { setClientStorage } from "./client-storage";
+import { setClientStorage } from "../workbench/client-storage";
 import { createFakeHostClient, type FakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";

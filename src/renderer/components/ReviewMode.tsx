@@ -26,8 +26,8 @@ import type {
 } from "../../shared/workspace-kit-types";
 import { readReviewState, writeReviewState, type PersistedReviewState } from "../review-state";
 import { useClientStorage } from "../client-storage-context";
-import type { ClientStorage } from "../client-storage";
-import { STORAGE_KEYS } from "../storage-keys";
+import type { ClientStorage } from "../../workbench/client-storage";
+import { STORAGE_KEYS } from "../../workbench/storage-keys";
 import { DiffStream, diffLanguage, fileDiffRows, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
 import { ReviewFileTree } from "./ReviewFileTree";

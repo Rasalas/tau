@@ -7,7 +7,7 @@ import type { ThreadDetail, TranscriptPage } from "../../shared/host-protocol";
 import { asHostTranscriptCursor, type HostTranscriptCursor } from "../../shared/transcript-cursor";
 import { TranscriptHistoryBoundary } from "./TranscriptHistoryBoundary";
 import { VirtualTranscript } from "./VirtualTranscript";
-import { TranscriptHistoryController } from "../transcript-history";
+import { TranscriptHistoryController } from "../../workbench/transcript-history";
 
 type Rect = { x: number; y: number; top: number; left: number; right: number; bottom: number; width: number; height: number; toJSON(): object };
 

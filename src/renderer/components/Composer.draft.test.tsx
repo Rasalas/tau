@@ -4,13 +4,13 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, SubmissionResult } from "../../shared/contracts";
 import { Composer } from "./Composer";
-import { ComposerScopeStore } from "../composer-scope-store";
-import { createMemoryStorage, type ClientStorage } from "../client-storage";
+import { ComposerScopeStore } from "../../workbench/composer-scope-store";
+import { createMemoryStorage, type ClientStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { createRendererServices } from "../renderer-services";
 import { RendererServicesProvider } from "../renderer-services-context";
-import { readComposerDraft } from "../draft-store";
-import { createDraftKey } from "../composer-scope-store";
+import { readComposerDraft } from "../../workbench/draft-store";
+import { createDraftKey } from "../../workbench/composer-scope-store";
 
 const snapshot: HostSnapshot = {
   cwd: "/project",

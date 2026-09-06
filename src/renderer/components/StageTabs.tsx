@@ -1,6 +1,6 @@
 import { Bot, MessageSquare, X } from "lucide-react";
 import type { ReactNode } from "react";
-import type { StageTab } from "../stage";
+import type { StageTab } from "../../workbench/stage";
 import { useThreadShell } from "../use-thread-shell";
 import { FileKindIcon } from "./FileKindIcon";
 

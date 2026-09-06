@@ -1,12 +1,30 @@
-import type { HostEvent, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
+import type { ExtensionUiAnswer, HostEvent, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { HostUpdate } from "../shared/host-protocol";
 import type { HostClient } from "./host-client";
-import type { TranscriptTurnStart } from "./components/transcript-navigation";
-import type { ExtensionRegistry } from "./extension-system";
+import type { TranscriptTurnStart } from "./transcript-navigation";
 import { isSameUserMessage } from "./app-state";
-import type { PreferencesStore } from "./preferences";
 import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
+
+/**
+ * What a host event needs of the contribution registry. `ExtensionRegistry`
+ * satisfies it; naming only these three keeps React out of the workbench.
+ */
+export interface RegistryPort {
+  dispatchWorkbenchEvent(event: WorkbenchEventCandidate): void;
+  dispatchExtensionEvent(event: Extract<HostEvent, { type: "extension-event" }>): void;
+  interceptPrompt(prompt: Extract<HostEvent, { type: "extension-ui-prompt" }>["prompt"]): ExtensionUiAnswer | undefined;
+}
+
+/** The host events the registry forwards to extensions; the rest stays workbench state. */
+export type WorkbenchEventCandidate =
+  | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" }>
+  | { type: "active-thread-changed"; sessionId?: string };
+
+/** What a host event needs of the user's preferences. */
+export interface SettledThreadsPort {
+  unsettle(sessionId: string): void;
+}
 
 /** What a delivery in flight needs to hear from the host. */
 export interface SubmissionPort {
@@ -20,11 +38,13 @@ export interface SubmissionPort {
 /** What a host event reaches besides the view store it is reduced into. */
 export interface HostEventTargets {
   client?: HostClient;
-  registry: ExtensionRegistry;
+  registry: RegistryPort;
   threadStore: ThreadStore;
   view: ThreadViewStore;
   submission: SubmissionPort;
-  preferences: PreferencesStore;
+  preferences: SettledThreadsPort;
+  /** Whether the user is looking at something else; a run that ends unseen marks its thread unread. */
+  viewerHidden(): boolean;
   currentDraftKey(): string | undefined;
   transcriptTurnStart(): TranscriptTurnStart | undefined;
   setTranscriptTurnStart(value: TranscriptTurnStart | undefined, expectedTurnId?: string): void;
@@ -36,10 +56,8 @@ export interface HostEventTargets {
   setUpdateReady(version: string): void;
 }
 
-type WorkbenchEvent = Parameters<ExtensionRegistry["dispatchWorkbenchEvent"]>[0];
-
 /** Events an extension may observe through the workbench event bus. */
-function isWorkbenchEvent(event: HostEvent): event is HostEvent & WorkbenchEvent {
+function isWorkbenchEvent(event: HostEvent): event is HostEvent & WorkbenchEventCandidate {
   return event.type === "tool-start" || event.type === "tool-end" || event.type === "agent-status"
     || event.type === "user-message" || event.type === "assistant-end" || event.type === "thread-index"
     || event.type === "notice";
@@ -140,5 +158,5 @@ function applyAgentStatus(event: Extract<HostEvent, { type: "agent-status" }>, t
   if (event.running || event.sessionId !== threadStore.getSnapshot().activeThreadId) return;
   const finished = view.getState().runningThreadId;
   const viewed = threadStore.getSnapshot().activeThreadId;
-  if (finished && (finished !== viewed || document.hidden)) threadStore.markUnread(finished);
+  if (finished && (finished !== viewed || targets.viewerHidden())) threadStore.markUnread(finished);
 }

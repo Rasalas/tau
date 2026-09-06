@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Bot } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import { formatCost } from "../cost-format";
-import { errorMessage } from "../error-message";
+import { errorMessage } from "../../workbench/error-message";
 import { useThreadShell } from "../use-thread-shell";
 import { useThreadStore } from "../workbench-context";
 import { VirtualTranscript } from "./VirtualTranscript";

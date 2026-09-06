@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, type SubmitResult } from "./Composer";
 import type { ComposerAttachmentHandle } from "./Composer";
-import { ComposerScopeStore, createDraftKey } from "../composer-scope-store";
+import { ComposerScopeStore, createDraftKey } from "../../workbench/composer-scope-store";
 import { TestProviders } from "../test-support/test-providers";
 
 function renderComposer(

@@ -3,11 +3,11 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
-import { createMemoryStorage, setClientStorage } from "./client-storage";
-import { STORAGE_KEYS } from "./storage-keys";
+import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
+import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { createFakeHostClient, type FakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
-import { writeCachedTurnActivity } from "./turn-activity";
+import { writeCachedTurnActivity } from "../workbench/turn-activity";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });

@@ -1,14 +1,9 @@
 import { createContext, useContext } from "react";
 import type { HostEvent, HostSnapshot, UiToolRun } from "../shared/contracts";
 import type { ExtensionRegistry } from "./extension-system";
-import type { ThreadStore } from "./thread-store";
-
-export interface TimelineEvent {
-  id: string;
-  label: string;
-  detail?: string;
-  timestamp: number;
-}
+import type { ThreadStore } from "../workbench/thread-store";
+export type { TimelineEvent } from "../workbench/thread-view-store";
+import type { TimelineEvent } from "../workbench/thread-view-store";
 
 export interface WorkbenchContextValue {
   snapshot?: HostSnapshot;

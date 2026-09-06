@@ -1,6 +1,6 @@
 // Review Kit only mounts core's overlay; `ReviewMode` and this state are core's.
-import { getClientStorage } from "./client-storage";
-import { reviewStateKey } from "./storage-keys";
+import { getClientStorage } from "../workbench/client-storage";
+import { reviewStateKey } from "../workbench/storage-keys";
 
 export interface ReviewComment {
   id: string;

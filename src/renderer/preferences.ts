@@ -1,5 +1,5 @@
-import { getClientStorage } from "./client-storage";
-import { STORAGE_KEYS } from "./storage-keys";
+import { getClientStorage } from "../workbench/client-storage";
+import { STORAGE_KEYS } from "../workbench/storage-keys";
 
 export interface PreferencesState {
   /** Whether assistant thinking blocks start expanded, like Ctrl+T in Pi's terminal. */

@@ -5,7 +5,7 @@ import {
   type ScrollIntent,
   type TranscriptMessageLookup,
   type TranscriptNavigationState,
-} from "./transcript-navigation";
+} from "../../workbench/transcript-navigation";
 
 /**
  * Framework-free owner of every transcript scroll write. One controller per

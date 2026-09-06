@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HostConnectionState } from "./host-connection";
+import type { HostConnectionState } from "../workbench/host-connection";
 import { HostClientProvider } from "./host-client-context";
 import { HostConnectionStatus } from "./host-connection-status";
 import { createFakeHostClient } from "./test-support/fake-host-client";

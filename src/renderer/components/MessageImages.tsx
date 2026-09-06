@@ -1,8 +1,9 @@
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { UiImagePreview, UiMessageImage } from "../../shared/contracts";
-import type { HostClient } from "../host-client";
+import type { HostClient } from "../../workbench/host-client";
 import { useHostClient } from "../host-client-context";
+import { usePlatform } from "../platform-context";
 import { keepClearShift, reservedRegion } from "../reserved-region";
 import { AttachmentImageDialog, type AttachmentImage } from "./AttachmentImageDialog";
 import { localImagePaths } from "./MessageText";
@@ -21,7 +22,8 @@ function cachedImagePreview(client: HostClient, path: string): Promise<UiImagePr
   return request;
 }
 
-function MessageImageGallery({ images, client }: { images: readonly AttachmentImage[]; client: HostClient | undefined }) {
+function MessageImageGallery({ images }: { images: readonly AttachmentImage[] }) {
+  const platform = usePlatform();
   const [contextMenu, setContextMenu] = useState<{ image: AttachmentImage; x: number; y: number }>();
   const contextTriggerRef = useRef<HTMLButtonElement>(null);
   if (images.length === 0) return null;
@@ -67,7 +69,7 @@ function MessageImageGallery({ images, client }: { images: readonly AttachmentIm
         onClose={closeContextMenu}
         onCopy={async () => {
           try {
-            await client?.copyImage(contextMenu.image.src);
+            await platform.clipboard.writeImage?.(contextMenu.image.src);
           } finally {
             closeContextMenu();
           }
@@ -155,8 +157,7 @@ function ImageContextMenu({
 }
 
 export function PersistedMessageImages({ images }: { images: readonly UiMessageImage[] }) {
-  const client = useHostClient();
-  return <MessageImageGallery client={client} images={images.map((image, index) => ({
+  return <MessageImageGallery images={images.map((image, index) => ({
     key: `${index}-${image.mimeType}-${image.data.slice(0, 16)}`,
     src: `data:${image.mimeType};base64,${image.data}`,
     alt: "Attached image",
@@ -179,5 +180,5 @@ export function MessageImages({ text }: { text: string }) {
     return () => { active = false; };
   }, [client, text]);
   if (previews.length === 0) return null;
-  return <MessageImageGallery client={client} images={previews.map((image) => ({ key: image.name, src: image.dataUrl, alt: image.name }))} />;
+  return <MessageImageGallery images={previews.map((image) => ({ key: image.name, src: image.dataUrl, alt: image.name }))} />;
 }

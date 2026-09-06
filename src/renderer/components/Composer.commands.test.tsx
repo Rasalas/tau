@@ -4,8 +4,8 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer } from "./Composer";
-import { ComposerScopeStore } from "../composer-scope-store";
-import type { QueuedFollowUp } from "../follow-up-queue";
+import { ComposerScopeStore } from "../../workbench/composer-scope-store";
+import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
 import { TestProviders } from "../test-support/test-providers";
 
 const queued = (id: string, text: string): QueuedFollowUp => ({ id, text, attachments: [] });

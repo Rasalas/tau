@@ -8,7 +8,7 @@ import {
   resolveTurnMessage,
   type TranscriptNavigationScope,
   type TranscriptTurnStart,
-} from "./transcript-navigation";
+} from "../../workbench/transcript-navigation";
 import { useTranscriptNavigation } from "./transcript-navigation-dom";
 import { contentTop, FrameLoop } from "./transcript-scroll-controller";
 import {
@@ -18,7 +18,7 @@ import {
 } from "./transcript-turn-navigation";
 import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscript";
 
-export type { TranscriptNavigationScope, TranscriptTurnStart } from "./transcript-navigation";
+export type { TranscriptNavigationScope, TranscriptTurnStart } from "../../workbench/transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
 
 const TRANSCRIPT_ID = "thread-transcript";

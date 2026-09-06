@@ -10,7 +10,7 @@ export {
   useThreadStore,
 } from "./workbench-context";
 export { HostUnavailableError } from "./extension-system";
-export { errorMessage } from "./error-message";
+export { errorMessage } from "../workbench/error-message";
 // The placement seam of ADR 0012: a kit that has the host draw a native view
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
 export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
@@ -29,11 +29,11 @@ export { ReviewMode } from "./extension-components";
 export { ChangesTree } from "./components/ChangesTree";
 export { usePreferences } from "./renderer-services-context";
 export { useClientStorage } from "./client-storage-context";
-export { getClientStorage } from "./client-storage";
+export { getClientStorage } from "../workbench/client-storage";
 export { useHostCapabilities, hostHasLocalFiles } from "./use-host-capabilities";
 export { hostAvailable } from "./host-client-context";
 export { useKeepClear } from "./reserved-region";
-export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "./turn-activity";
+export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../workbench/turn-activity";
 export { formatCost } from "./cost-format";
 // Presentation core owns and an extension may reuse: the list primitives, the
 // menu, the file glyphs, the thread row (it draws provider icons from core's
@@ -91,9 +91,9 @@ export type {
   ObservatoryContextValue,
   TimelineEvent,
 } from "./workbench-context";
-export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "./thread-store";
+export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "../workbench/thread-store";
 export type { PreferencesStore } from "./preferences";
-export type { ClientStorage } from "./client-storage";
+export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity } from "./components/ThreadRow";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
 export type { WorkspaceRef } from "../shared/workspace-identity";

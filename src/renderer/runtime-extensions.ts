@@ -5,6 +5,8 @@ import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shar
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
 import * as tauApi from "./extension-api";
 import { DEFERRED_SHARED_MODULES, type SharedModuleSpecifier } from "../shared/shared-modules";
+import type { Platform } from "../workbench/platform";
+import { getPlatform } from "./platform-context";
 
 /**
  * The renderer's own copies of the modules an extension may import by bare
@@ -72,13 +74,14 @@ export interface RuntimeExtensionHost {
 /**
  * The desktop host serves every bundle under `tau-ext:`, which is what the CSP
  * allows. The browser preview has no host, so it falls back to a blob URL — the
- * one place a bundle is turned into a script inside the renderer.
+ * one place a bundle is turned into a script inside the renderer. Evaluating
+ * the URL is the platform's call, because the page's policy is the client's.
  */
-export async function importBundle(bundle: DesktopExtensionBundle): Promise<unknown> {
-  if (bundle.url) return import(/* @vite-ignore */ bundle.url);
+export async function importBundle(bundle: DesktopExtensionBundle, platform: Platform = getPlatform()): Promise<unknown> {
+  if (bundle.url) return platform.importModule(bundle.url);
   const url = URL.createObjectURL(new Blob([bundle.code], { type: "text/javascript" }));
   try {
-    return await import(/* @vite-ignore */ url);
+    return await platform.importModule(url);
   } finally {
     URL.revokeObjectURL(url);
   }

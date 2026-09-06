@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState, type SetStateAction } from "react";
 import { createNewThreadRequestId, type NewThreadRequestId } from "../shared/contracts";
-import type { ClientStorage } from "./client-storage";
-import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
-import { createDraftKey, type DraftKey } from "./composer-scope-store";
+import type { ClientStorage } from "../workbench/client-storage";
+import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
+import { createDraftKey, type DraftKey } from "../workbench/composer-scope-store";
 
 let draftIdentityCounter = 0;
 let requestIdentityCounter = 0;

@@ -1,5 +1,5 @@
-import type { UiMessage } from "../../shared/contracts";
-import { matchesTranscriptTurnMessage } from "../../shared/transcript-turn";
+import type { UiMessage } from "../shared/contracts";
+import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 
 export type TranscriptNavigationScope =
   | { kind: "session"; projectPath?: string; sessionId: string }
