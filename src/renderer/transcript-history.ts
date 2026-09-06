@@ -1,5 +1,5 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
-import { hostSnapshotFromThreadDetail, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
+import { hostSnapshotFromThreadDetail, hostSnapshotWithCatalog, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type HostCatalog, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { ThreadDetailStore } from "../shared/thread-detail-store";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
@@ -142,6 +142,22 @@ export class TranscriptHistoryController {
     });
     this.persistCache();
     return true;
+  }
+
+  /**
+   * Moves the merge base with the catalog. A thread detail carries no catalog,
+   * so `applyDetail` re-projects whatever model, thinking level and tool list
+   * the cached snapshot still holds — a base left behind undoes the user's
+   * model change on the next detail the host pushes.
+   */
+  applyCatalog(catalog: HostCatalog): HostSnapshot | undefined {
+    const current = this.cache.getSnapshot();
+    if (!current) return undefined;
+    if (catalog.sessionId !== undefined && current.sessionId !== catalog.sessionId) return undefined;
+    const next = hostSnapshotWithCatalog(current, catalog);
+    this.cache.setSnapshot(next);
+    this.persistCache();
+    return next;
   }
 
   applyDetail(detail: ThreadDetail, snapshot?: HostSnapshot): TranscriptDetailApplication | undefined {

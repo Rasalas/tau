@@ -227,6 +227,51 @@ describe("TranscriptHistoryController", () => {
     expect(controller.completeSuccess(request!, 1)).toBe(true);
   });
 
+  it("carries a catalog into the merge base so a later detail keeps the thread's model", () => {
+    const controller = new TranscriptHistoryController();
+    const sol = { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
+    const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    controller.syncSnapshot({ ...snapshot("thread-a", ["ask"]), model: sol, models: [sol, luna] });
+
+    const applied = controller.applyCatalog({
+      sessionId: "thread-a",
+      models: [sol, luna],
+      model: luna,
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      allTools: [],
+      extensionCount: 0,
+    });
+    expect(applied?.model).toEqual(luna);
+
+    // What the host pushes when a turn settles: a detail, and no catalog.
+    const settled = controller.applyDetail(
+      { ...detail("thread-a", ["ask", "reply"]), isStreaming: false },
+      controller.getCurrentSnapshot(),
+    );
+
+    expect(settled?.snapshot?.model).toEqual(luna);
+    expect(controller.getCurrentSnapshot()?.model).toEqual(luna);
+  });
+
+  it("ignores a catalog addressed to another thread", () => {
+    const controller = new TranscriptHistoryController();
+    const sol = { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
+    const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    controller.syncSnapshot({ ...snapshot("thread-a", ["ask"]), model: sol, models: [sol, luna] });
+
+    expect(controller.applyCatalog({
+      sessionId: "thread-b",
+      models: [sol, luna],
+      model: luna,
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      allTools: [],
+      extensionCount: 0,
+    })).toBeUndefined();
+    expect(controller.getCurrentSnapshot()?.model).toEqual(sol);
+  });
+
   it.each([
     ["equal", ["tail-0", "tail-1", "tail-2", "tail-3"]],
     ["longer", ["tail-0", "tail-1", "tail-2", "tail-3", "tail-4"]],

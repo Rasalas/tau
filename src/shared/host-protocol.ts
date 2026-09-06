@@ -275,6 +275,21 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
   };
 }
 
+/**
+ * Fold a catalog back onto a snapshot. The inverse of `catalogFromSnapshot`,
+ * so every holder of a snapshot applies a catalog the same way.
+ */
+export function hostSnapshotWithCatalog(snapshot: HostSnapshot, catalog: HostCatalog): HostSnapshot {
+  const { sessionId: _sessionId, supportsImageInput, ...catalogFields } = catalog;
+  return {
+    ...snapshot,
+    ...catalogFields,
+    // A legacy v1 catalog carries no sessionId and no capability flag; leave
+    // the snapshot's own value alone rather than reading absence as "no".
+    ...(catalog.sessionId === undefined ? {} : { supportsImageInput: supportsImageInput ?? false }),
+  };
+}
+
 /** Project focused detail back onto the host snapshot shape without duplicating fields at call sites. */
 export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: ThreadDetail): HostSnapshot {
   const cursorBoundaries = normalizeTranscriptCursorBoundaries(

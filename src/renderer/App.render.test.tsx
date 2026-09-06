@@ -857,6 +857,84 @@ describe("App render isolation", () => {
     expect(screen.getByText("The active runtime does not accept image input.")).toBeTruthy();
   });
 
+  it("keeps the chosen model on the composer chip after a turn settles", async () => {
+    const sol = { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
+    const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: {
+          sessionId: "session",
+          messages: [{ id: "ask", role: "user" as const, text: "say ok", timestamp: 1 }],
+          isStreaming: false,
+          activeTools: [],
+        },
+        catalog: {
+          sessionId: "session",
+          models: [sol, luna],
+          model: sol,
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+          allTools: [],
+          extensionCount: 0,
+          supportsImageInput: true,
+        },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+    });
+
+    renderApp(client);
+    await screen.findByRole("button", { name: "Select model: GPT-5.6 Sol" });
+
+    client.emit({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "catalog",
+        catalog: {
+          sessionId: "session",
+          models: [sol, luna],
+          model: luna,
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+          allTools: [],
+          extensionCount: 0,
+          supportsImageInput: true,
+        },
+      },
+    });
+    await screen.findByRole("button", { name: "Select model: GPT-5.6 Luna" });
+
+    // A settled turn pushes a detail and no catalog; the chip must still name
+    // the model the next prompt will run on.
+    client.emit({
+      type: "host-update",
+      update: {
+        version: 1,
+        type: "thread-detail",
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "ask", role: "user" as const, text: "say ok", timestamp: 1 },
+            { id: "reply", role: "assistant" as const, text: "ok", timestamp: 2 },
+          ],
+          isStreaming: false,
+          activeTools: [],
+        },
+      },
+    });
+
+    await screen.findByText("ok");
+    expect(screen.getByRole("button", { name: "Select model: GPT-5.6 Luna" })).toBeTruthy();
+  });
+
   it("keeps a new thread draft in memory without persisting image-capable composer data", async () => {
     const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
     const capabilityResolvers = new Map<string, Array<(capability: { cwd: string; generation: number; supportsImageInput: boolean }) => void>>();
