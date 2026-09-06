@@ -1,0 +1,92 @@
+/*
+ * The compact profile: one screen wide, one thread at a time (ADR 0016).
+ * Everything here is layout, keyed on `body[data-profile="compact"]`, which
+ * `useLayoutProfile` sets from the viewport width. No colour is decided here —
+ * this file inherits whatever the theme in styles.css defines. Loaded last, by
+ * the client entry, so it wins over the desktop rules it narrows.
+ */
+
+body[data-profile="compact"] .app-shell {
+  --sidebar-width: 0px;
+  --dock-width: 0px;
+  grid-template: 46px minmax(0, 1fr) / 0 minmax(0, 1fr) 0;
+}
+
+body[data-profile="compact"] .title-bar { gap: 8px; padding: 0 8px; }
+body[data-profile="compact"] .window-controls-inset { display: none; }
+body[data-profile="compact"] .title-identity > span { display: none; }
+
+/* The chat is the whole centre: no stage column, no split. */
+body[data-profile="compact"] .workbench-center,
+body[data-profile="compact"] .workbench-center.stage-open { display: flex; flex-direction: column; }
+body[data-profile="compact"] .workbench-center .stage { display: none; }
+
+/* The composer is pinned to the bottom edge and the transcript scrolls under it. */
+body[data-profile="compact"] .conversation-composer-host {
+  position: sticky; bottom: 0; z-index: 15;
+  background: var(--stage);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+body[data-profile="compact"] .conversation-column.conversation-start .conversation-composer-host {
+  position: static; border-top: 0;
+}
+body[data-profile="compact"] .conversation-start-screen { padding: 20px 12px 24px; align-items: flex-start; }
+body[data-profile="compact"] .conversation-start-content > h1 { font-size: 21px; }
+
+/* Tool work stays folded: a phone shows that something ran, not its output. */
+body[data-profile="compact"] .tool-output,
+body[data-profile="compact"] .work-row-output { max-height: 180px; overflow: auto; }
+
+/* No diff splits below this width; whatever draws one draws it unified. */
+body[data-profile="compact"] .diff-view.split,
+body[data-profile="compact"] .diff-pane.split { display: block; }
+body[data-profile="compact"] .diff-view.split > * + *,
+body[data-profile="compact"] .diff-pane.split > * + * { border-left: 0; }
+
+/* --------------------------------------------------- supervision + sheet */
+
+.supervision-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.supervision-empty { color: var(--muted); font-size: 12px; padding: 8px 2px; }
+.supervision-row { display: flex; align-items: stretch; gap: 4px; }
+.supervision-row > button:first-child {
+  flex: 1; min-width: 0; display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: 8px;
+  padding: 9px 10px; border: 1px solid transparent; border-radius: 9px;
+  background: none; color: inherit; text-align: left; cursor: pointer;
+}
+.supervision-row > button:first-child:hover,
+.supervision-row > button:first-child:focus-visible { border-color: var(--line-control); background: var(--raised); }
+.supervision-row[data-active] > button:first-child { border-color: var(--line-strong); }
+.supervision-row span { display: flex; flex-direction: column; min-width: 0; }
+.supervision-row strong { font: 550 13px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.supervision-row small { font: 11px var(--mono); color: var(--faint); }
+.supervision-row em { font: 11px var(--sans); font-style: normal; color: var(--muted); white-space: nowrap; }
+.supervision-row time { font: 11px var(--mono); color: var(--faint); }
+.supervision-row i { display: inline-flex; color: var(--muted); }
+.supervision-row[data-status="waiting"] i,
+.supervision-row[data-status="waiting"] em { color: var(--acid, currentColor); }
+.supervision-row[data-status="failed"] i,
+.supervision-row[data-status="failed"] em { color: #d88c83; }
+.supervision-stop {
+  flex: none; width: 34px; border: 1px solid var(--line-control); border-radius: 9px;
+  background: var(--raised); color: var(--ink-2); cursor: pointer;
+}
+.supervision-start { margin-top: 22px; display: flex; flex-direction: column; gap: 6px; }
+.supervision-start > h2 { font: 600 12px var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+.thread-sheet-scrim { position: fixed; inset: 0; z-index: 60; background: #080908b0; display: flex; align-items: flex-end; }
+.thread-sheet {
+  width: 100%; max-height: 82vh; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 10px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0;
+  background: var(--chrome); overflow: auto;
+}
+.thread-sheet > header { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 6px; }
+.thread-sheet > header strong { font: 600 13px var(--sans); }
+.thread-sheet > header button { border: 0; background: none; color: var(--muted); cursor: pointer; }
+.thread-sheet-new {
+  border: 1px solid var(--line-control); border-radius: 9px; padding: 9px;
+  background: var(--raised); color: var(--ink-2); font: 550 12px var(--sans); cursor: pointer;
+}

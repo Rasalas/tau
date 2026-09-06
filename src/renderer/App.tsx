@@ -23,6 +23,7 @@ import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
 import { PlatformProvider, setPlatform } from "./platform-context";
 import { useClientEnvironment } from "./client-environment";
+import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
@@ -52,6 +53,8 @@ export default function App() {
   // Which client this is, whether kits were left out, and how to reach this
   // machine: the entry point decided all three before the first render.
   const { profile, safeMode, createPlatform } = useClientEnvironment();
+  // What the client claims never moves; how wide it is does.
+  const layoutProfile = useLayoutProfile(profile);
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
   const [registry] = useState(() => {
     const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, profile });
@@ -625,7 +628,7 @@ export default function App() {
     ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
     ?? startProjectPath;
   const layout = useMemo<WorkbenchLayout>(() => ({
-    registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
+    registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
     pinStageTab: pinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
@@ -633,7 +636,7 @@ export default function App() {
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId, closeOverlay,
   }), [
-    activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker,
+    activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
     documentSource, documentState, dockOpen, newThreadOpen, notice, openNewThreadPicker, openPanel,
     threadCommands, openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,

@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
-import { ChevronDown, Folder, PanelRight, PanelRightClose } from "lucide-react";
+import { ChevronDown, Folder, PanelRight, PanelRightClose, X } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
@@ -15,6 +15,8 @@ import { ProjectPicker } from "./components/ProjectPicker";
 import { ProjectSourcesModal } from "./components/ProjectSources";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
+import { ThreadSupervisor } from "./components/ThreadSupervisor";
+import type { ClientProfile } from "../workbench/client-profile";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
@@ -68,6 +70,9 @@ const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
 
+/** One frozen empty list for both contribution kinds the compact layout leaves out. */
+const EMPTY_CONTRIBUTIONS: never[] = [];
+
 const loadFileUnavailable = async (path: string): Promise<UiFileContent> => ({ path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require a document source." });
 const loadDiffUnavailable = async (path: string): Promise<UiFileDiff> => ({ path, added: 0, removed: 0, hunks: [], note: "Diffs require a document source." });
 
@@ -113,6 +118,8 @@ export interface WorkbenchLayout {
   registry: ExtensionRegistry;
   threadStore: ThreadStore;
   settings: Settings;
+  /** How wide the client is now, not what it claims to draw (ADR 0016). */
+  layoutProfile: ClientProfile;
   workspaceCwd?: string;
   sidebarContributions: ReturnType<ExtensionRegistry["getSidebarContributions"]>;
   panels: ReturnType<ExtensionRegistry["getPanels"]>;
@@ -228,7 +235,7 @@ export interface WorkbenchModel {
 export const Workbench = memo(function Workbench({ model }: { model: WorkbenchModel }) {
   const { actions, layout, thread, composer, view } = model;
   const {
-    registry, threadStore, settings, workspaceCwd, sidebarContributions, panels, activePanel,
+    registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab, closeStageTab, pinStageTab, setStageFileView,
     loadThread, takeOverThread,
@@ -251,6 +258,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const platform = usePlatform();
   const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
   const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
+  // One screen wide: the thread list is a sheet and the dock has nowhere to go.
+  // The registry still holds those contributions; only this layout leaves them out.
+  const compact = layoutProfile === "compact";
+  const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
+  const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
+  useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);
 
   const setDockWidth = (width: number) => {
     const bounded = clampDockWidth(width);
@@ -307,6 +321,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
 
+  const openSupervisedThread = (row: { path: string }) => {
+    setThreadSheetOpen(false);
+    void actions.switchSession(row.path);
+  };
+  const threadSupervisor = <ThreadSupervisor
+    onOpen={openSupervisedThread}
+    onStop={(row) => composer.abort(row.id)}
+  />;
+
   const conversationComposer = <ConversationComposer
     view={view}
     composer={composer}
@@ -317,6 +340,23 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   />;
 
   const overlays = <>
+    {compact && threadSheetOpen ? <div className="thread-sheet-scrim" onClick={() => setThreadSheetOpen(false)}>
+      <section
+        className="thread-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Threads"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setThreadSheetOpen(false); } }}
+      >
+        <header>
+          <strong>Threads</strong>
+          <button type="button" aria-label="Close threads" onClick={() => setThreadSheetOpen(false)}><X size={14} /></button>
+        </header>
+        {threadSupervisor}
+        <button type="button" className="thread-sheet-new" onClick={() => { setThreadSheetOpen(false); openNewThreadPicker(); }}>New thread</button>
+      </section>
+    </div> : null}
     {threadTreeModal ? <ThreadTreeModal
       tree={threadTreeModal.tree}
       mode={threadTreeModal.mode}
@@ -391,7 +431,16 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   return providers(<>
     <div className={shellClassName} style={{ "--dock-width": panels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px` } as CSSProperties}>
-      <TitleBar cwd={workspaceCwd} dockOpen={dockOpen} hasDock={panels.length > 0} registry={registry} snapshot={snapshot} actions={actions} onToggleDock={() => setDockOpen(!dockOpen)} />
+      <TitleBar
+        cwd={workspaceCwd}
+        dockOpen={dockOpen}
+        hasDock={panels.length > 0}
+        registry={registry}
+        snapshot={snapshot}
+        actions={actions}
+        onToggleDock={() => setDockOpen(!dockOpen)}
+        {...(compact ? { onOpenThreads: () => setThreadSheetOpen(true) } : {})}
+      />
       {sidebarContributions.map((contribution) => <LazyFeatureBoundary
         key={contribution.id}
         label="sidebar"
@@ -429,6 +478,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
+              {compact && showStartScreen ? <section className="supervision-start" aria-label="Agent supervision">
+                <h2>Threads</h2>
+                {threadSupervisor}
+              </section> : null}
             </div>
           </section>
           <div className="conversation-thread">

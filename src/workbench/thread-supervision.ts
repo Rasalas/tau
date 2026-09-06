@@ -10,6 +10,8 @@ export type ThreadSupervisionStatus = "waiting" | "running" | "failed" | "done";
 
 export interface ThreadSupervisionRow {
   id: string;
+  /** How `switchSession` addresses the thread. */
+  path: string;
   title: string;
   projectName: string;
   status: ThreadSupervisionStatus;
@@ -44,6 +46,7 @@ export function threadSupervisionRows(
     const startedAt = activity.runningStartedAt[thread.id];
     return {
       id: thread.id,
+      path: thread.path,
       title: thread.title || "Untitled thread",
       projectName: thread.projectName,
       status,

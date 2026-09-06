@@ -1,4 +1,4 @@
-import { PanelRight, PanelRightClose } from "lucide-react";
+import { ListTree, PanelRight, PanelRightClose } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { shortenPath } from "../path-display";
@@ -23,6 +23,7 @@ export function TitleBar({
   snapshot,
   actions,
   onToggleDock,
+  onOpenThreads,
   hasDock = true,
 }: {
   cwd?: string;
@@ -31,12 +32,20 @@ export function TitleBar({
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   onToggleDock(): void;
+  /** Set only where the thread list is a sheet rather than a column. */
+  onOpenThreads?(): void;
   /** False when no extension registered a panel: there is no dock to show or hide. */
   hasDock?: boolean;
 }) {
   return (
     <header className="title-bar">
       <WindowControlsInset />
+      {onOpenThreads ? <button
+        className="chrome-ghost glyph"
+        title="Threads"
+        aria-label="Threads"
+        onClick={onOpenThreads}
+      ><ListTree size={15} /></button> : null}
       <div className="title-identity">
         <strong>{workspaceName(cwd)}</strong>
         <span title={cwd}>{parentPath(cwd)}</span>

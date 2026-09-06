@@ -12,6 +12,8 @@ import { ClientStorageProvider } from "./client-storage-context";
 import { createRendererServices } from "./renderer-services";
 import { RendererServicesProvider } from "./renderer-services-context";
 import "./styles.css";
+// Loaded after the desktop rules so the narrow client can narrow them.
+import "./profile-compact.css";
 
 const search = new URLSearchParams(window.location.search);
 const remoteHost = search.get("host");
