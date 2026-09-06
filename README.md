@@ -10,6 +10,7 @@ Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. T
 - [CONTEXT.md](CONTEXT.md) defines the product language used in code and discussions.
 - [PLAN.md](PLAN.md) records the phased roadmap and open decisions.
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) records performance budgets and the optimization plan adapted from T3 Code.
+- [docs/EXTENSIONS.md](docs/EXTENSIONS.md) is the entry document for writing a Tau package: manifest, permissions, isolation, signing, and the install/approve/reload workflow.
 - [ADR 0001](docs/adr/0001-embed-pi-behind-a-desktop-host.md) records why Pi runs behind a desktop host.
 - [ADR 0002](docs/adr/0002-core-owns-placement-extensions-own-features.md) records why core owns placement while extensions own features.
 - [ADR 0003](docs/adr/0003-core-owns-threads-extensions-own-navigation.md) records why thread semantics stay in core while navigation remains replaceable.
