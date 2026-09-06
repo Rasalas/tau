@@ -870,7 +870,7 @@ describe("PiHost project index", () => {
 
     // Nothing is offered before the checkouts have been classified.
     expect(internals.threadIndexSnapshot().projects).toEqual([]);
-    await Promise.all([...internals.nestedClassifications.values()]);
+    await internals.projects.settleClassifications();
 
     expect(internals.threadIndexSnapshot().projects.map((project: { path: string }) => project.path))
       .toEqual(["/repos/alpha", "/repos/beta"]);

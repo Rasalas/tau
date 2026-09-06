@@ -63,7 +63,6 @@ import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import {
   HostExtensionRegistry,
-  HostProjectFactsSet,
   HostThreadLifecycleSet,
   HostTurnObserverSet,
   type HostExtension,
@@ -78,6 +77,7 @@ import {
   type RuntimeSessionInfo,
 } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
+import { ProjectFactsCache } from "./project-facts-cache.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { promptImages } from "./prompt-attachments.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
@@ -240,16 +240,14 @@ export class PiHost {
   private readonly coalescedPublishes = new Map<"shells" | "index", ReturnType<typeof setTimeout>>();
   private indexRecoveryTimer?: ReturnType<typeof setInterval>;
   private projectLabel?: string;
-  /** Last known label per project; the provider is never awaited on an interactive path. */
-  private readonly knownLabels = new Map<string, string | undefined>();
-  private readonly labelRefreshes = new Map<string, Promise<void>>();
-  /** What extensions know about projects: name, label, nesting. */
-  private readonly projectFacts = new HostProjectFactsSet();
-  /** A linked worktree keeps the repository's project name instead of becoming a new project. */
-  private readonly knownProjectNames = new Map<string, string>();
-  /** Which known project paths are nested in another project. Unclassified paths stay absent. */
-  private readonly knownNestedProjects = new Map<string, boolean>();
-  private readonly nestedClassifications = new Map<string, Promise<void>>();
+  /** What extensions know about projects: name, label, nesting, all cached. */
+  private readonly projects = new ProjectFactsCache({
+    onLabel: (cwd, label) => this.publishLabel(cwd, label),
+    onNesting: () => this.publishThreadIndexSoon(),
+    recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
+    log: (label, detail) => this.log(label, detail),
+    errorMessage: (error) => this.errorMessage(error),
+  });
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   /** What each thread has cost, cached by session file so a scan never reads one. */
   private readonly threadUsage: SessionUsageIndex;
@@ -422,13 +420,13 @@ export class PiHost {
       openWorkspace: (path) => this.setWorkspace(path),
       knownWorkspacePath: (path) => this.knownWorkspacePath(path),
       workspaceRef: (path) => this.workspaces.ref(path),
-      projectName: (cwd) => this.loadProjectName(cwd),
-      rememberProjectName: (cwd, name) => { this.knownProjectNames.set(cwd, name); },
+      projectName: (cwd) => this.projects.loadName(cwd),
+      rememberProjectName: (cwd, name) => { this.projects.rememberName(cwd, name); },
       runtimeOwner: () => this.ownedByPi(this.active) ? "pi" : "tau",
       thread: (sessionId) => this.hostThread(sessionId),
       setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
       attachedRuntime: (sessionId) => this.ownedByPi(this.threadFor(sessionId)) ? this.attached.hostRuntime : undefined,
-      describeProjects: (facts) => this.projectFacts.add(facts),
+      describeProjects: (facts) => this.projects.add(facts),
       noteSubprocess: () => this.lifecycleMetrics.countSubprocess(),
       refreshExtensionPackages: () => this.packages?.refresh() ?? Promise.resolve(),
       prepareThread: (session, manager, options) => this.prepareThread(session, manager, options),
@@ -784,7 +782,7 @@ export class PiHost {
         await this.rememberProject(this.cwd);
         // Classify saved projects while the runtime opens. Each answer is a
         // single git call, so it is ready long before bootstrap reads the list.
-        for (const project of this.projectHistory.list()) this.classifyNestedInBackground(project.path);
+        for (const project of this.projectHistory.list()) this.projects.classify(project.path);
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         const safeModeOwner = this.safeMode ? await findPiBridge(this.cwd) : undefined;
         if (safeModeOwner && processIsAlive(safeModeOwner.pid)) {
@@ -800,7 +798,7 @@ export class PiHost {
           if (!await this.activateThread(thread, false, activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
         }
         if (!this.isCurrentActivation(activationEpoch)) throw new Error("The initial runtime was superseded before it became active.");
-        this.labelFor(this.cwd);
+        this.projects.label(this.cwd);
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
         // The global index is independent of the active detail. Publish it when
@@ -824,7 +822,7 @@ export class PiHost {
   async bootstrap(): Promise<HostBootstrap> {
     // The project list is withheld while a checkout is unclassified. Bootstrap
     // is the one publication the client cannot miss, so settle it here.
-    await Promise.allSettled([...this.nestedClassifications.values()]);
+    await this.projects.settleClassifications();
     const host = { ...this.snapshotSync(await this.ensureModels()), projectLabel: this.projectLabel };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
@@ -1997,7 +1995,7 @@ export class PiHost {
 
   async snapshot(): Promise<HostSnapshot> {
     const models = await this.ensureModels();
-    return { ...this.snapshotSync(models), projectLabel: this.labelFor(this.cwd) };
+    return { ...this.snapshotSync(models), projectLabel: this.projects.label(this.cwd) };
   }
 
   /** Workspace metadata is only exposed for projects already admitted by the host. */
@@ -2065,8 +2063,8 @@ export class PiHost {
     if (this.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
     const provider = this.requireBackend(kind);
     const backend = await provider.open(threadId, cwd, { resume: options.resume !== false }, {
-      projectName: this.projectNameFor(cwd),
-      projectLabel: this.knownLabels.get(cwd),
+      projectName: this.projects.name(cwd),
+      projectLabel: this.projects.knownLabel(cwd),
       permissionLevel: () => this.seam.permissionLevel(),
       onMessage: (message) => {
         const thread = this.threads.get(threadId)?.runtime;
@@ -2478,47 +2476,9 @@ export class PiHost {
     if (thread) await this.disposeThread(thread);
   }
 
-  private projectNameFor(cwd: string): string {
-    return this.knownProjectNames.get(cwd) ?? (basename(cwd) || cwd);
-  }
-
-  private async loadProjectName(cwd: string): Promise<string> {
-    const known = this.knownProjectNames.get(cwd);
-    if (known) return known;
-    const name = await this.projectFacts.name(cwd).catch(() => undefined) ?? (basename(cwd) || cwd);
-    this.knownProjectNames.set(cwd, name);
-    return name;
-  }
-
   private async rememberProject(cwd: string): Promise<void> {
     await this.workspaces.learn(cwd);
-    await this.projectHistory.remember(cwd, await this.loadProjectName(cwd));
-  }
-
-  /**
-   * The label a project carries, as last seen. A refresh always runs in the
-   * background and publishes when the answer changes, so opening or switching a
-   * thread never waits on the provider — a busy repository used to hold
-   * switches for seconds behind its own status scan.
-   */
-  private labelFor(cwd: string): string | undefined {
-    this.refreshLabelInBackground(cwd);
-    return this.knownLabels.get(cwd);
-  }
-
-  private refreshLabelInBackground(cwd: string): void {
-    if (this.labelRefreshes.has(cwd)) return;
-    const startedAt = performance.now();
-    const pending = this.projectFacts.label(cwd).then((label) => {
-      const known = this.knownLabels.has(cwd);
-      const previous = this.knownLabels.get(cwd);
-      this.knownLabels.set(cwd, label);
-      if (!known || previous !== label) this.publishLabel(cwd, label);
-    }).catch((error) => this.log("project-label.failed", `${basename(cwd)}: ${this.errorMessage(error)}`)).finally(() => {
-      this.recordBackgroundLifecycle("project-label", startedAt);
-      this.labelRefreshes.delete(cwd);
-    });
-    this.labelRefreshes.set(cwd, pending);
+    await this.projectHistory.remember(cwd, await this.projects.loadName(cwd));
   }
 
   private publishLabel(cwd: string, label: string | undefined): void {
@@ -2614,7 +2574,7 @@ export class PiHost {
   private externalSessionShells(): Promise<UiSession[]> {
     return loadExternalSessionShells({
       safeMode: this.safeMode, providers: this.seam.backends.values(),
-      projectName: (cwd) => this.projectNameFor(cwd), projectLabel: (cwd) => this.labelFor(cwd),
+      projectName: (cwd) => this.projects.name(cwd), projectLabel: (cwd) => this.projects.label(cwd),
       onError: (provider, error) => this.log("runtime-backend.list.failed", `${provider.kind}: ${this.errorMessage(error)}`),
     });
   }
@@ -2656,8 +2616,8 @@ export class PiHost {
     const scanned = await mapSessions(
       sessionInfos,
       this.cwd,
-      async (cwd) => this.labelFor(cwd),
-      (cwd) => this.projectNameFor(cwd),
+      async (cwd) => this.projects.label(cwd),
+      (cwd) => this.projects.name(cwd),
       new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
       (info) => this.liveThreadUsage(info.id) ?? usageOrUndefined(this.threadUsage.lookup(info.path, stamps.get(info.path))),
       (info) => parents.get(info.path) ?? this.threadParents.get(info.id),
@@ -2727,8 +2687,8 @@ export class PiHost {
       derivedTitle: firstSentence(visibleTitleText(visibleMessages.find((message) => message.role === "user")?.text ?? "")),
       now: Date.now(),
       projectPath,
-      projectName: this.projectNameFor(projectPath),
-      projectLabel: this.labelFor(projectPath),
+      projectName: this.projects.name(projectPath),
+      projectLabel: this.projects.label(projectPath),
       messageCount: visibleMessages.length,
       backendKind: threadBackendKind(thread),
       modelProvider: thread.backend.catalogView().model?.provider ?? this.seam.backends.get(threadBackendKind(thread))?.modelProvider,
@@ -2823,43 +2783,9 @@ export class PiHost {
     }
     projects.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
     return {
-      projects: projects.filter((project) => this.isProjectRoot(project.path)).map((project) => ({ ...project, ...this.workspaces.ref(project.path) })),
+      projects: projects.filter((project) => this.projects.isRoot(project.path)).map((project) => ({ ...project, ...this.workspaces.ref(project.path) })),
       sessions: this.sessions.map((session) => this.sessionWithIdentity(session)),
     };
-  }
-
-  /**
-   * A project nested in another (Workspace Kit: a linked worktree) is not a
-   * root of its own; the workspace bar moves inside the parent instead. The
-   * provider is never awaited here; an unclassified path is withheld until its
-   * background answer arrives.
-   */
-  private isProjectRoot(cwd: string): boolean {
-    const nested = this.knownNestedProjects.get(cwd);
-    if (nested === undefined) {
-      this.classifyNestedInBackground(cwd);
-      return false;
-    }
-    return !nested;
-  }
-
-  private classifyNestedInBackground(cwd: string): void {
-    if (this.nestedClassifications.has(cwd)) return;
-    const startedAt = performance.now();
-    const pending = this.projectFacts.nested(cwd).then((nested) => {
-      if (this.knownNestedProjects.get(cwd) === nested) return;
-      this.knownNestedProjects.set(cwd, nested);
-      this.publishThreadIndexSoon();
-    }).catch(() => {
-      // A path no provider can classify is simply a root.
-      if (this.knownNestedProjects.has(cwd)) return;
-      this.knownNestedProjects.set(cwd, false);
-      this.publishThreadIndexSoon();
-    }).finally(() => {
-      this.recordBackgroundLifecycle("project-classification", startedAt);
-      this.nestedClassifications.delete(cwd);
-    });
-    this.nestedClassifications.set(cwd, pending);
   }
 
   private publishThreadIndexSoon(): void {
