@@ -6,7 +6,6 @@ import type {
   UiMessage,
   UiMessageImage,
   UiModel,
-  UiPromptAttachment,
   UiSession,
   UiThreadUsage,
   UiToolRun,
@@ -32,7 +31,6 @@ import {
 import { hostCursorAtBridgeValue, providerCursorValue } from "./transcript-cursor.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
-import { promptImages } from "./prompt-attachments.js";
 import { readSessionModelProvider } from "./session-model-provider.js";
 import { cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText } from "./host-text.js";
 
@@ -451,18 +449,6 @@ export function mapModel(model: { provider: string; id: string; name?: string })
 
 export function modelSupportsImageInput(model: { input?: readonly string[] } | undefined): boolean {
   return model?.input?.includes("image") === true;
-}
-
-export function assertImageInputCapability(session: AgentSession, attachments: readonly UiPromptAttachment[]): void {
-  if (attachments.length > 0 && !modelSupportsImageInput(session.model)) {
-    throw new Error("The active model does not support image input.");
-  }
-}
-
-export function assertBridgeImageInputCapability(snapshot: PiBridgeSnapshot | undefined, attachments: readonly UiPromptAttachment[]): void {
-  if (attachments.length === 0) return;
-  if (snapshot?.supportsImageInput !== true) throw new Error("The active model does not support image input.");
-  promptImages(attachments);
 }
 
 export async function mapSessions(

@@ -24,9 +24,3 @@ export interface PiShortcutsState {
   sessionId?: string;
   shortcuts: PiShortcut[];
 }
-
-export interface KeybindingsHostCommands {
-  "pi-keybindings": { input: undefined; output: PiKeybindingsState };
-  "shortcuts": { input: { sessionId?: string } | undefined; output: PiShortcutsState };
-  "run-shortcut": { input: { keys: string; sessionId?: string }; output: undefined };
-}

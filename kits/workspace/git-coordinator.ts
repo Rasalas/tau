@@ -277,6 +277,3 @@ export class GitCoordinator {
     });
   }
 }
-
-/** Explicit name for consumers that treat each coordinator as project-scoped. */
-export const ProjectGitCoordinator = GitCoordinator;

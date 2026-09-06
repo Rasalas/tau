@@ -26,7 +26,7 @@ export const EMPTY_TRANSCRIPT: TranscriptState = {
 };
 
 /** Keep this deliberately aligned with the context-meter heuristic in App. */
-export function estimateMessageTokens(message: Pick<UiMessage, "text" | "thinking">): number {
+function estimateMessageTokens(message: Pick<UiMessage, "text" | "thinking">): number {
   return Math.ceil(message.text.length / 4) + Math.ceil((message.thinking ?? "").length / 4);
 }
 
@@ -45,7 +45,7 @@ function lookupFieldsChanged(current: UiMessage, next: UiMessage): boolean {
 }
 
 /** Live rows sit at the end, so scanning backwards makes streaming lookups O(1). */
-export function findMessageIndex(transcript: TranscriptState, id: string): number {
+function findMessageIndex(transcript: TranscriptState, id: string): number {
   const { messages } = transcript;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index].id === id) return index;
@@ -55,11 +55,6 @@ export function findMessageIndex(transcript: TranscriptState, id: string): numbe
 
 export function hasMessage(transcript: TranscriptState, id: string): boolean {
   return findMessageIndex(transcript, id) >= 0;
-}
-
-export function getMessage(transcript: TranscriptState, id: string): UiMessage | undefined {
-  const index = findMessageIndex(transcript, id);
-  return index < 0 ? undefined : transcript.messages[index];
 }
 
 export function replaceTranscript(previous: TranscriptState, messages: readonly UiMessage[]): TranscriptState {
@@ -80,18 +75,6 @@ export function appendMessage(previous: TranscriptState, message: UiMessage): Tr
     tokenEstimate: previous.tokenEstimate + estimateMessageTokens(message),
     revision: previous.revision + 1,
     userRevision: previous.userRevision + (message.role === "user" ? 1 : 0),
-    lookupRevision: previous.lookupRevision + 1,
-  };
-}
-
-export function prependMessages(previous: TranscriptState, messages: readonly UiMessage[]): TranscriptState {
-  if (messages.length === 0) return previous;
-  const next = [...messages, ...previous.messages];
-  return {
-    messages: next,
-    tokenEstimate: estimateAll(next),
-    revision: previous.revision + 1,
-    userRevision: previous.userRevision + (messages.some((message) => message.role === "user") ? 1 : 0),
     lookupRevision: previous.lookupRevision + 1,
   };
 }

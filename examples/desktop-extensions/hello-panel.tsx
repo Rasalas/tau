@@ -23,7 +23,7 @@ const extension: DesktopExtension = {
   id: "example.hello",
   name: "Hello Panel",
   activate(plugin) {
-    plugin.registerPanel({ id: "hello", label: "Hello", glyph: "signals", order: 90, Component: HelloPanel });
+    plugin.registerPanel({ id: "hello", label: "Hello", Icon: Sparkles, order: 90, Component: HelloPanel });
     plugin.registerCommand({ id: "hello.open", label: "Open Hello panel", group: "Extensions", run: (app) => app.openPanel("hello") });
   },
 };

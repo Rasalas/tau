@@ -33,7 +33,7 @@
     "dev:instance": "node scripts/dev-instance.mjs",
     "cdp": "node scripts/tau-cdp.mjs",
     "lint": "oxlint .",
-    "typecheck": "npm run typecheck:extension && npm run typecheck:kits && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "typecheck": "npm run typecheck:extension && npm run typecheck:kits && npm run typecheck:examples && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "typecheck:extension": "tsc -p tsconfig.extension.json --noEmit",
     "typecheck:extensions": "tsc -p tsconfig.pi-extensions.json --noEmit",
     "test": "vitest run",
@@ -47,6 +47,7 @@
     "benchmark:git": "npm run build && node scripts/git-benchmark.mjs",
     "benchmark:git:check": "node scripts/git-benchmark.mjs --check",
     "typecheck:kits": "tsc -p tsconfig.kits.json --noEmit",
+    "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
     "build:kits": "node scripts/build-kits.mjs"
   },
   "dependencies": {

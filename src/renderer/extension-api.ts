@@ -34,7 +34,7 @@ export { useHostCapabilities, hostHasLocalFiles } from "./use-host-capabilities"
 export { hostAvailable } from "./host-client-context";
 export { useKeepClear } from "./reserved-region";
 export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "./turn-activity";
-export { formatCost, threadCostLabel, threadUsageDetail } from "./cost-format";
+export { formatCost } from "./cost-format";
 // Presentation core owns and an extension may reuse: the list primitives, the
 // menu, the file glyphs, the thread row (it draws provider icons from core's
 // asset pipeline, which an esbuild-bundled package has no loader for) and the

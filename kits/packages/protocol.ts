@@ -21,13 +21,6 @@ export interface PackageRow {
   error?: string;
 }
 
-export interface PackagesHostCommands {
-  "list": { input: undefined; output: { packages: PackageRow[] } };
-  "install": { input: { source: string; scope?: "global" | "project" }; output: { installed: PackageRow; message: string } };
-  "remove": { input: { source: string; scope?: "global" | "project" }; output: { removed: boolean; deleted: boolean; message: string } };
-  "update": { input: { source?: string }; output: { packages: PackageRow[]; message: string } };
-}
-
 /** `<source> [--local]`, the flag Pi spells `-l`. */
 export function parseInstallArguments(args: string): { source: string; scope: "global" | "project" } {
   const words = args.trim().split(/\s+/u).filter(Boolean);

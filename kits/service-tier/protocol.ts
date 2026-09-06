@@ -13,11 +13,6 @@ export interface ServiceTierState {
   available: boolean;
 }
 
-export interface ServiceTierHostCommands {
-  "state": { input: undefined; output: ServiceTierState };
-  "set-tier": { input: { tier: ServiceTier }; output: ServiceTierState };
-}
-
 /** Published by the host entry whenever the tier changes. */
 export const SERVICE_TIER_EVENT = "state";
 

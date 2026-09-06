@@ -17,17 +17,3 @@ export {
 } from "../workspace/protocol.js";
 
 export type CommitMessageStyle = "conventional" | "gitmoji" | "plain";
-
-export interface ReviewHostCommands {
-  "suggest-commit-message": {
-    input: {
-      provider: string;
-      modelId: string;
-      style: CommitMessageStyle;
-      branch?: string;
-      files: Array<{ path: string; added: number; removed: number }>;
-      diffs: Array<{ path: string; patch: string }>;
-    };
-    output: { message: string };
-  };
-}

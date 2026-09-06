@@ -79,7 +79,7 @@ describe("kits boundary", () => {
     const offenders: string[] = [];
     for (const path of sourceFiles("src")) {
       for (const specifier of specifiers(path)) {
-        if (specifier.includes("kits/") && !specifier.includes("/kits/test")) offenders.push(`${path}: ${specifier}`);
+        if (specifier.includes("kits/")) offenders.push(`${path}: ${specifier}`);
       }
     }
     expect(offenders).toEqual([]);

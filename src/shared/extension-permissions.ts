@@ -25,10 +25,10 @@ export const PERMISSION_PROCESS = "process" as const;
  */
 export const PERMISSION_NETWORK = "network" as const;
 
-/** The one line Settings shows a package that runs in-process without `network`. */
 /** Install, update and remove other extension packages. Tau's own Packages kit holds it. */
 export const PERMISSION_PACKAGES = "packages" as const;
 
+/** The one line Settings shows a package that runs in-process without `network`. */
 export const NETWORK_ADVISORY_NOTE = "network access is enforced only for isolated packages";
 
 /**
@@ -44,13 +44,6 @@ export const DEFAULT_PACKAGE_ISOLATION: ExtensionIsolation = "worker";
 
 export function isExtensionIsolation(value: unknown): value is ExtensionIsolation {
   return typeof value === "string" && (EXTENSION_ISOLATIONS as readonly string[]).includes(value);
-}
-
-/** One line for the grant UI, beside the permission names. */
-export function describeIsolation(isolation: ExtensionIsolation): string {
-  return isolation === "in-process"
-    ? "runs inside the host process (no worker isolation)"
-    : "runs isolated in a worker thread";
 }
 
 export function isExtensionPermission(value: unknown): value is ExtensionPermission {

@@ -411,8 +411,6 @@ export type HostExtensionCommandHandler = (input: unknown) => unknown;
 
 // A kit reaches these through `tau/host-extension`; they live in a leaf module
 // so importing one does not pull the registry into a kit's bundle.
-export { HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
-
 // The package manager's vocabulary. A kit that manages packages needs the row
 // shape and the scope name; both are plain data, so they travel as types only.
 export type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";

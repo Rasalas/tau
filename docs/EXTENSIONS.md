@@ -249,7 +249,7 @@ It also exports the renderer's shared state and presentation:
 | `useHostCapabilities`, `hostHasLocalFiles` | what the connected host announced; `hostHasLocalFiles` reads the ambient client when given none. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
-| `formatCost`, `threadCostLabel`, `threadUsageDetail` | core's money and token formatting. |
+| `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
 | `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
@@ -268,12 +268,12 @@ protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
 own tests read off the host harness — …) and of a runtime backend
 (`ThreadRuntimeBackend`, `ThreadBackendPromptInput`, `AgentRuntimeAdapter`,
 `RuntimeTransport`, `RuntimePermissionLevel`, … — types only, so nothing of
-core is bundled), plus `HostCommandError`, `isExpectedCommandError`, the
+core is bundled), plus `HostCommandError`, the
 permission and isolation vocabularies, the `PiShortcut` and `PiUserKeybindings`
 types that `HostThread.shortcuts` and `runShortcut` speak, the workspace
 vocabulary core renders itself (`src/shared/workspace-kit-types.ts`:
 changed files, diffs, worktrees, editors), `HostActionResult`, `WorkspaceRef`,
-`isWorkspaceRelativePath`/`namesWorkspace`, `gitExecutable`/`findExecutable`,
+`isWorkspaceRelativePath`, `gitExecutable`/`findExecutable`,
 `assertAllowedCloneSource`, `readBoundedImagePreview`,
 `assistantAnchorForBranch` (the persisted entry id of an assistant message)
 and the `PiKit*` types above. The Git and checkpoint engine that 1.3.0 briefly
@@ -281,13 +281,16 @@ re-exported — the `workspaceGit` namespace, `GitCoordinator`, the checkpoint
 lease, the checkpoint feature, `assistantAnchorForMessage` and the
 turn-checkpoint codec and types — is **gone from this API**: it never shipped in
 a release, and it belongs to Workspace Kit, which now owns those modules
-(`kits/workspace/`). It also re-exports the
+(`kits/workspace/`). Gone with it, on the same never-released grounds, are the
+exports no kit or example ever imported: `firstSentence`, `safeSessionTitle`,
+`visibleTitleText`, `isSkillName`, `isExpectedCommandError` and `namesWorkspace`
+here, `threadCostLabel` and `threadUsageDetail` on `tau`. They stay internal to
+core; ask for them again with a case. It also re-exports the
 text projections a package that reads transcripts needs: `textFromContent`
-(content blocks to plain text), `visibleTitleText` (a raw skill wrapper reduced
-to a safe label), `firstSentence`, `cleanThreadTitle` (a model's answer as a
-thread title), `safeSessionTitle`, `buildTitleConversation` (a thread's first
-exchanges as the prompt a title model reads) and `parseSkillEnvelope` /
-`isSkillName` (Pi's skill envelope grammar). It also exports the contracts types
+(content blocks to plain text), `cleanThreadTitle` (a model's answer as a
+thread title), `buildTitleConversation` (a thread's first
+exchanges as the prompt a title model reads) and `parseSkillEnvelope`
+(Pi's skill envelope grammar). It also exports the contracts types
 the seam's own signatures speak (`UiMessage`, `UiToolRun`, `UiThreadUsage`,
 `UiComposerCommand`, `ExtensionUiPrompt`, `GlobalHostEvent`,
 `HostExtensionSummary`, `ThreadBackendKind`), `readPersistedJson` /

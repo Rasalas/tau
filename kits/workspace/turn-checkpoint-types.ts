@@ -1,4 +1,4 @@
-import type { UiChangedFile, UiWorkspaceChanges } from "tau/host-extension";
+import type { UiWorkspaceChanges } from "tau/host-extension";
 
 /**
  * Immutable workspace summary captured when one accepted user turn reaches its
@@ -167,5 +167,3 @@ export interface TurnCheckpointBatch {
   checkpointIds: string[];
   state: "committed";
 }
-
-export type CheckpointPreviewFile = UiChangedFile;

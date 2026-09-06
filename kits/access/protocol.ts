@@ -22,11 +22,5 @@ export function isAccessLevel(value: unknown): value is AccessLevel {
   return ACCESS_LEVELS.some((level) => level.id === value);
 }
 
-export interface AccessHostCommands {
-  /** The level the gate currently enforces. */
-  "level": { input: undefined; output: AccessLevel };
-  "set-level": { input: { level: AccessLevel }; output: AccessLevel };
-}
-
 /** Published by the host entry whenever the level changes. */
 export const ACCESS_LEVEL_EVENT = "level";
