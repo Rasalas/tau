@@ -108,6 +108,17 @@ desktop half, because a second copy of React or of react-dom holds its own
 internals and quietly stops working), so a package brings its own dependencies
 from its own `node_modules` and needs no build step of its own.
 
+`registerKeybinding({ keys, commandId })` adds a chord; the first binding of a
+chord wins and a later one is recorded as a conflict. Pass `replaces:
+<commandId>` when the chord is meant to *be* that command's key rather than
+another one beside it — every other binding of that command is hidden while
+yours lives and comes back when it is disposed, and if the chord you ask for is
+the very one that command already had, you take it over instead of colliding
+with it. Keybindings Kit uses it for the actions the user rebound in
+`~/.pi/agent/keybindings.json`: someone who wrote `app.session.new` there meant
+that key, not that key and Tau's default too. Without `replaces`, a binding is
+additive, which is what a package adding a chord of its own wants.
+
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
 the workbench itself uses, and core no longer keeps a table of names it would

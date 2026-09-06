@@ -240,6 +240,14 @@ export interface CommandContribution {
 export interface KeybindingContribution {
   keys: string;
   commandId: string;
+  /**
+   * A command whose other chords this binding takes the place of, rather than
+   * joining. The user who rebound an action in `keybindings.json` means *that*
+   * key, not that one and Tau's default too; a kit passes the command id here
+   * and core hides the default while the binding lives (Keybindings Kit is the
+   * caller). Usually the same id as `commandId`.
+   */
+  replaces?: string;
 }
 
 export interface KeybindingConflict {
@@ -526,6 +534,8 @@ export class ExtensionRegistry {
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
   private keybindings = new Map<string, ResolvedKeybinding>();
   private keybindingConflicts: KeybindingConflict[] = [];
+  /** Commands whose default chords are shadowed, and by how many live bindings. */
+  private shadowedCommands = new Map<string, number>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
@@ -709,7 +719,21 @@ export class ExtensionRegistry {
         const id = normalizeKeyChord(binding.keys);
         if (!chord || !id) throw new Error(`Keybinding "${binding.keys}" from ${extension.id} is not a key chord`);
         note("keybindings");
+        const resolved: ResolvedKeybinding = { ...binding, keys: id, chord, label: formatKeyChord(chord), ...owner };
+        if (binding.replaces) disposers.push(this.shadowCommand(binding.replaces));
         const existing = this.keybindings.get(id);
+        // The chord this binding shadows is already on the command it shadows:
+        // take it over rather than call it a conflict, and give it back on dispose.
+        if (existing && binding.replaces && existing.commandId === binding.replaces) {
+          this.keybindings.set(id, resolved);
+          const restore = () => {
+            if (this.keybindings.get(id) === resolved) this.keybindings.set(id, existing);
+            this.changed();
+          };
+          disposers.push(restore);
+          this.changed();
+          return restore;
+        }
         if (existing) {
           const conflict: KeybindingConflict = { keys: id, commandId: binding.commandId, extensionId: extension.id, boundTo: { commandId: existing.commandId, extensionId: existing.extensionId } };
           this.keybindingConflicts.push(conflict);
@@ -722,7 +746,7 @@ export class ExtensionRegistry {
           this.changed();
           return dispose;
         }
-        return this.register(this.keybindings, id, { ...binding, keys: id, chord, label: formatKeyChord(chord), ...owner }, disposers);
+        return this.register(this.keybindings, id, resolved, disposers);
       },
       registerSlashCommand: (command) => {
         if (!/^[a-z][a-z0-9:-]*$/u.test(command.name)) throw new Error(`Slash command name "${command.name}" from ${extension.id} must be lowercase letters, digits, ":" or "-"`);
@@ -925,8 +949,33 @@ export class ExtensionRegistry {
     return value;
   }
 
+  /** Counts one shadow of a command's default chords; the returned function drops it again. */
+  private shadowCommand(commandId: string): () => void {
+    this.shadowedCommands.set(commandId, (this.shadowedCommands.get(commandId) ?? 0) + 1);
+    this.changed();
+    let dropped = false;
+    return () => {
+      if (dropped) return;
+      dropped = true;
+      const left = (this.shadowedCommands.get(commandId) ?? 1) - 1;
+      if (left > 0) this.shadowedCommands.set(commandId, left);
+      else this.shadowedCommands.delete(commandId);
+      this.changed();
+    };
+  }
+
+  /** A default chord of a command someone replaced: still registered, no longer live. */
+  private isShadowed(binding: ResolvedKeybinding): boolean {
+    return !binding.replaces && this.shadowedCommands.has(binding.commandId);
+  }
+
+  /** The chords that are live: a replaced default is not one of them. */
   getKeybindings(): ResolvedKeybinding[] {
-    return this.sorted("keybindings", this.keybindings, false);
+    const cached = this.sortedCache.get("keybindings");
+    if (cached?.version === this.version) return cached.value as ResolvedKeybinding[];
+    const value = [...this.keybindings.values()].filter((binding) => !this.isShadowed(binding));
+    this.sortedCache.set("keybindings", { version: this.version, value });
+    return value;
   }
 
   getKeybindingConflicts(): readonly KeybindingConflict[] {
@@ -935,13 +984,13 @@ export class ExtensionRegistry {
 
   /** The display label of the chord bound to a command, if any. */
   keybindingLabel(commandId: string): string | undefined {
-    for (const binding of this.keybindings.values()) if (binding.commandId === commandId) return binding.label;
+    for (const binding of this.getKeybindings()) if (binding.commandId === commandId) return binding.label;
     return undefined;
   }
 
   /** The command a keydown event should run; `modified` tells bare keys from chords with modifiers. */
   matchKeybinding(event: KeyboardEvent): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean } | undefined {
-    for (const binding of this.keybindings.values()) {
+    for (const binding of this.getKeybindings()) {
       if (!chordMatchesEvent(binding.chord, event)) continue;
       const command = this.commands.get(binding.commandId);
       return command ? { command, binding, modified: isModified(binding.chord) } : undefined;

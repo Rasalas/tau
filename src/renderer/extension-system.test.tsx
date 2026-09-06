@@ -32,6 +32,49 @@ describe("ExtensionRegistry contribution selectors", () => {
     expect(render(<PanelIcon Icon={withoutIcon!.Icon} size={14} />).container.querySelector("svg")).not.toBeNull();
   });
 
+  it("lets a binding replace a command's default chord, and gives it back on dispose", () => {
+    const registry = new ExtensionRegistry();
+    const run = vi.fn();
+    registry.activateCore({ id: "core", name: "Core", activate(context) {
+      context.registerCommand({ id: "runtime.new-session", label: "New thread", group: "Runtime", run });
+      context.registerKeybinding({ keys: "ctrl+shift+k", commandId: "runtime.new-session" });
+    } });
+    const event = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
+    expect(registry.matchKeybinding(event({ key: "K", ctrlKey: true, shiftKey: true }))?.command.id).toBe("runtime.new-session");
+
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerKeybinding({ keys: "alt+k", commandId: "runtime.new-session", replaces: "runtime.new-session" });
+    } });
+    // The user's own chord is the chord: Tau's default is no longer live.
+    expect(registry.matchKeybinding(event({ key: "K", ctrlKey: true, shiftKey: true }))).toBeUndefined();
+    expect(registry.matchKeybinding(event({ key: "k", altKey: true }))?.command.id).toBe("runtime.new-session");
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["alt+k"]);
+    expect(registry.keybindingLabel("runtime.new-session")).toBe(registry.getKeybindings()[0]!.label);
+
+    registry.deactivate("kit");
+    expect(registry.matchKeybinding(event({ key: "K", ctrlKey: true, shiftKey: true }))?.command.id).toBe("runtime.new-session");
+    expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(["ctrl+shift+k"]);
+  });
+
+  it("takes over the chord it replaces instead of reporting a conflict", () => {
+    const registry = new ExtensionRegistry();
+    registry.activateCore({ id: "core", name: "Core", activate(context) {
+      context.registerCommand({ id: "runtime.abort", label: "Abort", group: "Runtime", run: () => undefined });
+      context.registerKeybinding({ keys: "ctrl+shift+j", commandId: "runtime.abort" });
+    } });
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerKeybinding({ keys: "ctrl+shift+j", commandId: "runtime.abort", replaces: "runtime.abort" });
+    } });
+    expect(registry.getKeybindingConflicts()).toEqual([]);
+    expect(registry.getKeybindings().map((binding) => [binding.keys, binding.extensionId])).toEqual([["ctrl+shift+j", "kit"]]);
+    const event = new KeyboardEvent("keydown", { key: "J", ctrlKey: true, shiftKey: true });
+    expect(registry.matchKeybinding(event)?.command.id).toBe("runtime.abort");
+
+    registry.deactivate("kit");
+    expect(registry.getKeybindings().map((binding) => [binding.keys, binding.extensionId])).toEqual([["ctrl+shift+j", "core"]]);
+    expect(registry.matchKeybinding(event)?.command.id).toBe("runtime.abort");
+  });
+
   it("rejects cross-extension contribution collisions without removing the owner", () => {
     const registry = new ExtensionRegistry();
     registry.activate({ id: "first", name: "First", activate(context) {
