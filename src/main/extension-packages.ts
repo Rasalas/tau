@@ -338,10 +338,14 @@ function isHostExtension(value: unknown): value is HostExtension {
  * a factory returning one, or just `activate`; id and name fall back to the
  * manifest and must match it when given.
  */
+/** Identity of the code a package's host half will run; the cache file is named after it. */
+export function hostBundleHash(code: string): string {
+  return createHash("sha256").update(code).digest("hex").slice(0, 16);
+}
+
 export async function writeHostExtensionBundle(code: string, manifest: ExtensionManifest, cacheDir = join(tmpdir(), "tau-host-extensions")): Promise<string> {
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
-  const hash = createHash("sha256").update(code).digest("hex").slice(0, 16);
-  const file = join(cacheDir, `${manifest.id}-${hash}.cjs`);
+  const file = join(cacheDir, `${manifest.id}-${hostBundleHash(code)}.cjs`);
   // The content hash in the file name keys Node's module cache and lets an
   // unchanged package reuse its compiled file instead of rewriting it.
   if (!await stat(file).then((info) => info.isFile()).catch(() => false)) {
@@ -370,8 +374,18 @@ export async function importHostExtension(code: string, manifest: ExtensionManif
   };
 }
 
+/** One package's host half, with the identity of the code behind it. */
+export interface LoadedHostPackage {
+  extension: HostExtension;
+  package: ExtensionPackage;
+  /** Content hash of the compiled entry: the same code compiles to the same hash. */
+  bundleHash: string;
+  /** The cache file the hash names; a worker is started from it. */
+  bundlePath: string;
+}
+
 export interface HostPackageLoadResult {
-  extensions: Array<{ extension: HostExtension; package: ExtensionPackage }>;
+  extensions: LoadedHostPackage[];
   /** Packages the user has not approved; their code was never compiled or imported. */
   ungranted: ExtensionPackage[];
   errors: Array<{ path: string; message: string }>;
@@ -406,6 +420,7 @@ export async function loadHostExtensionPackages(
     }
     try {
       const code = await bundleHostExtension(pkg.hostEntry);
+      const bundlePath = await writeHostExtensionBundle(code, pkg.manifest, options.cacheDir);
       // A package runs in a worker unless it declared, and was granted, the
       // privilege of running inside the host process.
       const extension = packageIsolation(pkg.manifest) === "in-process"
@@ -414,10 +429,10 @@ export async function loadHostExtensionPackages(
           id: pkg.manifest.id,
           name: pkg.manifest.name,
           permissions: pkg.manifest.permissions ?? [],
-          file: await writeHostExtensionBundle(code, pkg.manifest, options.cacheDir),
+          file: bundlePath,
           ...(options.worker ?? {}),
         });
-      result.extensions.push({ extension, package: pkg });
+      result.extensions.push({ extension, package: pkg, bundleHash: hostBundleHash(code), bundlePath });
     } catch (error) {
       result.errors.push({ path: pkg.hostEntry, message: error instanceof Error ? error.message : String(error) });
     }

@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { ExtensionPackageActivator } from "./extension-package-activation.js";
-import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
-import type { ExtensionManifest, HostPackageLoadResult } from "./extension-packages.js";
+import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
+import type { HostPackageLoadResult } from "./extension-packages.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
 
 const dirs: string[] = [];
@@ -16,41 +16,57 @@ async function scratch(): Promise<string> {
 }
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 
-const manifest: ExtensionManifest = { id: "acme.hello", name: "Hello", permissions: ["workspace:read"], host: "./host.ts" };
-const pkg = { scope: "global" as const, directory: "/home/.tau/extensions/hello", manifest };
-
-/** A loader that imports only when the grant allows it, like the real scan. */
-function loader(grantsFilePath: string, counters: { imported: number }) {
-  return async (): Promise<HostPackageLoadResult> => {
-    const granted = isPackageGranted(manifest, (await readExtensionGrants(grantsFilePath)).grants);
-    if (!granted) return { extensions: [], ungranted: [pkg], errors: [], skipped: [] };
-    counters.imported += 1;
-    return {
-      extensions: [{
-        extension: {
-          id: manifest.id,
-          name: manifest.name,
-          permissions: manifest.permissions,
-          activate: (context) => { context.registerCommand("ping", () => "pong"); },
-        },
-        package: pkg,
-      }],
-      ungranted: [],
-      errors: [],
-      skipped: [],
-    };
-  };
+/** One package folder as the scan would report it, with the hash of its compiled entry. */
+interface Installed {
+  id: string;
+  name: string;
+  permissions: string[];
+  hash: string;
 }
 
 async function harness() {
   const grantsFilePath = join(await scratch(), "grants.json");
-  const counters = { imported: 0 };
+  const disk = new Map<string, Installed>();
+  /** How often each package's `activate` ran; a restart is what this counts. */
+  const activations = new Map<string, number>();
+  let instances = 0;
   const events: GlobalHostEvent[] = [];
   const services = { cwd: () => "/project", safeMode: false, log: () => undefined } as unknown as HostExtensionServices;
   const registry = new HostExtensionRegistry(services, (event) => events.push(event));
+
+  const load = async (): Promise<HostPackageLoadResult> => {
+    const grants = (await readExtensionGrants(grantsFilePath)).grants;
+    const result: HostPackageLoadResult = { extensions: [], ungranted: [], errors: [], skipped: [] };
+    for (const entry of disk.values()) {
+      const manifest = { id: entry.id, name: entry.name, permissions: entry.permissions, host: "./host.ts" };
+      const pkg = { scope: "global" as const, directory: `/home/.tau/extensions/${entry.id}`, manifest };
+      if (!isPackageGranted(manifest, grants)) {
+        result.ungranted.push(pkg);
+        continue;
+      }
+      // A fresh object per scan, exactly as compiling and importing would produce.
+      const instance = ++instances;
+      result.extensions.push({
+        extension: {
+          id: entry.id,
+          name: entry.name,
+          permissions: entry.permissions,
+          activate: (context) => {
+            activations.set(entry.id, (activations.get(entry.id) ?? 0) + 1);
+            context.registerCommand("which", () => instance);
+          },
+        },
+        package: pkg,
+        bundleHash: entry.hash,
+        bundlePath: `/cache/${entry.id}-${entry.hash}.cjs`,
+      });
+    }
+    return result;
+  };
+
   const activator = new ExtensionPackageActivator({
     registry,
-    load: loader(grantsFilePath, counters),
+    load,
     cwd: () => "/project",
     agentDir: "/agent",
     bundled: () => false,
@@ -58,16 +74,23 @@ async function harness() {
     publish: (event) => events.push(event),
     grantsFilePath,
   });
-  return { activator, registry, events, counters, grantsFilePath };
+
+  const install = (entry: Installed) => { disk.set(entry.id, entry); };
+  const approve = (id: string) => grantPackage({ id, permissions: disk.get(id)?.permissions ?? [] }, true, grantsFilePath);
+  return { activator, registry, events, activations, disk, install, approve, grantsFilePath };
 }
+
+const hello: Installed = { id: "acme.hello", name: "Hello", permissions: ["workspace:read"], hash: "1111111111111111" };
+const other: Installed = { id: "acme.other", name: "Other", permissions: [], hash: "2222222222222222" };
 
 describe("ExtensionPackageActivator", () => {
   it("starts a package the moment its grant is written, and tells the client to follow", async () => {
-    const { activator, registry, events, counters } = await harness();
+    const { activator, registry, events, activations, install } = await harness();
+    install(hello);
     await activator.start();
 
     // Nothing of the package ran, and the client heard nothing about it yet.
-    expect(counters.imported).toBe(0);
+    expect(activations.get("acme.hello")).toBeUndefined();
     expect(registry.isActive("acme.hello")).toBe(false);
     expect(activator.waitingSummaries(new Set())).toEqual([
       { id: "acme.hello", name: "Hello", active: false, commands: [], isolation: "worker" },
@@ -76,16 +99,72 @@ describe("ExtensionPackageActivator", () => {
 
     await activator.grant("acme.hello", true);
 
-    expect(counters.imported).toBe(1);
+    expect(activations.get("acme.hello")).toBe(1);
     expect(registry.isActive("acme.hello")).toBe(true);
-    await expect(registry.invoke("acme.hello", "ping")).resolves.toBe("pong");
+    await expect(registry.invoke("acme.hello", "which")).resolves.toBe(1);
     expect(activator.waitingSummaries(new Set())).toEqual([]);
     // The desktop half is built and served by the client, so it has to re-read the set.
     expect(events).toContainEqual({ type: "extension-packages-changed" });
   });
 
+  it("leaves a running package alone when another one is installed or approved", async () => {
+    const { activator, registry, events, activations, install, approve } = await harness();
+    install(hello);
+    await approve("acme.hello");
+    await activator.start();
+    expect(activations.get("acme.hello")).toBe(1);
+    const running = await registry.invoke("acme.hello", "which");
+
+    // A second package arrives; the first one's worker and its state must survive it.
+    install(other);
+    await activator.refresh();
+
+    expect(activations.get("acme.hello")).toBe(1);
+    await expect(registry.invoke("acme.hello", "which")).resolves.toBe(running);
+    expect(registry.isActive("acme.other")).toBe(false);
+
+    await activator.grant("acme.other", true);
+
+    expect(activations.get("acme.hello")).toBe(1);
+    expect(activations.get("acme.other")).toBe(1);
+    await expect(registry.invoke("acme.hello", "which")).resolves.toBe(running);
+    expect(events.filter((event) => event.type === "extension-packages-changed")).toHaveLength(2);
+  });
+
+  it("re-activates only the package an update changed", async () => {
+    const { activator, registry, activations, install, approve } = await harness();
+    install(hello);
+    install(other);
+    await approve("acme.hello");
+    await approve("acme.other");
+    await activator.start();
+    const untouched = await registry.invoke("acme.other", "which");
+
+    // A new compiled entry for one package: same id, different code.
+    install({ ...hello, hash: "3333333333333333" });
+    await activator.refresh();
+
+    expect(activations.get("acme.hello")).toBe(2);
+    expect(activations.get("acme.other")).toBe(1);
+    await expect(registry.invoke("acme.other", "which")).resolves.toBe(untouched);
+  });
+
+  it("restarts every package when the manual reload forces it", async () => {
+    const { activator, registry, activations, install, approve } = await harness();
+    install(hello);
+    await approve("acme.hello");
+    await activator.start();
+    const first = await registry.invoke("acme.hello", "which");
+
+    await activator.refresh({ force: true });
+
+    expect(activations.get("acme.hello")).toBe(2);
+    expect(await registry.invoke("acme.hello", "which")).not.toBe(first);
+  });
+
   it("stops both halves again when the grant is taken back", async () => {
-    const { activator, registry, events } = await harness();
+    const { activator, registry, events, install } = await harness();
+    install(hello);
     await activator.start();
     await activator.grant("acme.hello", true);
     events.length = 0;
@@ -98,16 +177,17 @@ describe("ExtensionPackageActivator", () => {
     expect(events).toContainEqual({ type: "extension-packages-changed" });
   });
 
-  it("re-reads the packages on refresh and announces one change per scan", async () => {
-    const { activator, events, counters } = await harness();
+  it("shares one scan between refreshes that arrive together", async () => {
+    const { activator, events, activations, install, approve } = await harness();
+    install(hello);
+    await approve("acme.hello");
     await activator.start();
-    await activator.grant("acme.hello", true);
     events.length = 0;
 
     await Promise.all([activator.refresh(), activator.refresh()]);
 
-    // Two callers arriving together share one scan rather than queueing two.
-    expect(counters.imported).toBe(2);
+    // One announcement, and the unchanged package was never restarted for it.
     expect(events.filter((event) => event.type === "extension-packages-changed")).toHaveLength(1);
+    expect(activations.get("acme.hello")).toBe(1);
   });
 });

@@ -1,6 +1,6 @@
 import type { GlobalHostEvent, HostExtensionSummary } from "../shared/contracts.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
-import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult } from "./extension-packages.js";
+import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
 
 export interface ExtensionPackageActivatorOptions {
@@ -25,6 +25,8 @@ export interface ExtensionPackageActivatorOptions {
 export class ExtensionPackageActivator {
   private activeIds = new Set<string>();
   private entries = new Map<string, { extension: HostExtension; package: ExtensionPackage }>();
+  /** What is running per package, so an unrelated scan leaves it alone. */
+  private activeKeys = new Map<string, string>();
   /** Packages found on disk but never imported, because the user has not approved them. */
   private ungranted = new Map<string, ExtensionPackage>();
   private running?: Promise<void>;
@@ -34,22 +36,28 @@ export class ExtensionPackageActivator {
 
   /** The first scan of a workspace. Nothing is announced: the client is still bootstrapping. */
   start(): Promise<void> {
-    return this.enqueue(false);
+    return this.enqueue(false, false);
   }
 
-  /** Re-reads the packages and tells the client to re-read its desktop halves. */
-  refresh(): Promise<void> {
-    return this.queued ?? this.enqueue(true);
+  /**
+   * Re-reads the packages and tells the client to re-read its desktop halves.
+   * `force` restarts every package the way `/reload` always has; without it a
+   * package whose code, permissions, isolation and folder are unchanged keeps
+   * running, so installing one package never resets another one's worker.
+   */
+  refresh(options: { force?: boolean } = {}): Promise<void> {
+    if (options.force) return this.enqueue(true, true);
+    return this.queued ?? this.enqueue(true, false);
   }
 
   /** One scan at a time; refreshes arriving during one share the next instead of queueing up. */
-  private enqueue(announce: boolean): Promise<void> {
+  private enqueue(announce: boolean, force: boolean): Promise<void> {
     const next = (this.running ?? Promise.resolve()).then(async () => {
       if (this.queued === next) this.queued = undefined;
-      await this.sync();
+      await this.sync(force);
       if (announce) this.options.publish({ type: "extension-packages-changed" });
     });
-    if (announce) this.queued = next;
+    if (announce && !force) this.queued = next;
     this.running = next.catch(() => undefined);
     return next;
   }
@@ -82,7 +90,7 @@ export class ExtensionPackageActivator {
   }
 
   /** Replaces the host halves of extension packages with what the workspace's folders hold now. */
-  private async sync(): Promise<void> {
+  private async sync(force: boolean): Promise<void> {
     let loaded: HostPackageLoadResult;
     try {
       loaded = await this.options.load(this.options.cwd());
@@ -102,26 +110,53 @@ export class ExtensionPackageActivator {
     for (const id of this.activeIds) {
       if (next.has(id)) continue;
       this.entries.delete(id);
+      this.activeKeys.delete(id);
       await this.options.registry.remove(id).catch((error: unknown) => this.options.log("host-extension.remove.failed", `${id}: ${message(error)}`));
     }
     const grantsFile = await readExtensionGrants(this.options.grantsFilePath).catch(() => ({ grants: [] }));
+    const keys = new Map<string, string>();
     for (const entry of loaded.extensions) {
       const { extension, package: pkg } = entry;
-      this.entries.set(extension.id, entry);
       if (this.options.bundled(extension.id)) {
         this.options.log("host-extension.package.failed", `${pkg.directory}: id ${extension.id} belongs to a bundled kit`);
         continue;
       }
+      const key = packageIdentity(entry);
+      if (!force && this.activeKeys.get(extension.id) === key && this.options.registry.isActive(extension.id)) {
+        // Same code, same grant, same folder: the half already running is the
+        // one this scan would build, so its worker and its state stay.
+        keys.set(extension.id, key);
+        continue;
+      }
+      this.entries.set(extension.id, entry);
       this.options.registry.addKnown(extension);
       if (!isPackageGranted(pkg.manifest, grantsFile.grants)) {
         this.options.log("host-extension.package.ungranted", `${extension.name} · awaiting permission grant`);
         continue;
       }
-      await this.options.registry.activate(extension);
+      if (await this.options.registry.activate(extension)) keys.set(extension.id, key);
       this.options.log("host-extension.package.loaded", `${extension.name} · ${pkg.scope} · ${pkg.directory}`);
     }
     this.activeIds = next;
+    this.activeKeys = keys;
   }
+}
+
+/**
+ * Everything that decides what a package's host half is: the compiled code, the
+ * grant it runs under, and where it came from. Two scans agreeing on this key
+ * would build the same extension, so the older one may keep running.
+ */
+function packageIdentity(entry: LoadedHostPackage): string {
+  const { manifest } = entry.package;
+  return [
+    entry.extension.id,
+    entry.bundleHash,
+    packageIsolation(manifest),
+    [...(manifest.permissions ?? [])].sort().join(","),
+    entry.package.scope,
+    entry.package.directory,
+  ].join("|");
 }
 
 function message(error: unknown): string {

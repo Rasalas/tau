@@ -32,7 +32,12 @@ describe("PiHost safe mode", () => {
 
 describe("PiHost extension packages", () => {
   const loader = async () => ({
-    extensions: [{ extension: { id: "acme.pkg", name: "Package", activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } }, package: { scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest: { id: "acme.pkg", name: "Package", host: "./host.ts" } } }],
+    extensions: [{
+      extension: { id: "acme.pkg", name: "Package", activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } },
+      package: { scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest: { id: "acme.pkg", name: "Package", host: "./host.ts" } },
+      bundleHash: "aaaabbbbccccdddd",
+      bundlePath: "/cache/acme.pkg-aaaabbbbccccdddd.cjs",
+    }],
     ungranted: [],
     errors: [],
     skipped: [],
@@ -80,7 +85,12 @@ describe("PiHost extension packages", () => {
         if (!granted) return { extensions: [], ungranted: [pkg], errors: [], skipped: [] };
         imported += 1;
         return {
-          extensions: [{ extension: { id: "acme.pkg", name: "Package", permissions: manifest.permissions, activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } }, package: pkg }],
+          extensions: [{
+            extension: { id: "acme.pkg", name: "Package", permissions: manifest.permissions, activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } },
+            package: pkg,
+            bundleHash: "aaaabbbbccccdddd",
+            bundlePath: "/cache/acme.pkg-aaaabbbbccccdddd.cjs",
+          }],
           ungranted: [],
           errors: [],
           skipped: [],

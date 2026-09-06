@@ -1859,7 +1859,8 @@ export class PiHost {
         }
       }
       this.extensionCount = thread.state.extensionCount;
-      await this.packages?.refresh();
+      // The manual fallback restarts every package, however unchanged it looks.
+      await this.packages?.refresh({ force: true });
       this.log("runtime.reloaded");
       const snapshot = await this.snapshot();
       for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
