@@ -11,7 +11,9 @@ state; it must not reinterpret it as a `HostSnapshot`.
   a text-empty assistant message stays in the detail only when an extension
   pinned its entry.
 - `transcript-page` contains a bounded page plus a cursor for older records and
-  an optional `historyCompleteness` value.
+  an optional `historyCompleteness` value. It answers for any thread the host
+  knows, not only one it currently holds a runtime for: a released thread's page
+  is projected from its session file, with the same cursors.
 - `catalog` contains models, thinking levels, tools, and extension count.
   Legacy v1 catalogs may omit `sessionId` and the image-input capability. The
   decoder accepts both omissions; omitted capability is treated as `false`,

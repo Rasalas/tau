@@ -235,7 +235,16 @@ puts a thread there instead — its transcript, read-only, with the title, statu
 and cost the thread index carries and a "Take over" button, while the composer
 goes on addressing the thread it was already addressing. Both take
 `{ pin: true }` for a tab the next preview must not replace. Agents Kit opens a
-spawned thread that way rather than switching to it.
+spawned thread that way rather than switching to it. A thread reads whether or
+not the host still holds a runtime for it: runtimes are capped and idle ones are
+released oldest first, so a released thread's transcript is projected from its
+session file, with the same paging, cursors and client-message correlation.
+
+One consequence for `pinTranscriptEntries`: your provider is now also called
+with a thread the host has only a file for. `sessionId`, `cwd`, `sessionFile`,
+`parentThreadId`, `sessionName()`, `entries()` and `transcript()` answer as
+usual; the members that need a live runtime (`complete`, `appendEntry`) throw,
+and a provider that throws simply contributes no pins for that thread.
 
 It also lends two document surfaces core owns: `ReviewMode`, the full-workbench
 review of a set of changes (file tree, diffs, line notes, commit box), and
