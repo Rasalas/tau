@@ -15,8 +15,10 @@ The prototype already proves several basic facts:
 - Workspace Kit contributes the complete left sidebar, which aggregates recent Pi threads across projects and shows project, title, branch, live activity, and settled state.
 - Thread Title Generator uses an independently selected model and supports automatic and manual naming without adding conversation messages.
 - Safe mode starts the minimal workbench with both Pi and desktop extensions disabled and empty layout slots collapsed.
+- A third-party package can be installed from npm, Git or a folder, waits for a permission grant before either half runs, and its host half runs isolated in a worker thread unless it was granted `in-process` (Phase 3, Phase 2; ADR 0009, ADR 0011; see `docs/EXTENSIONS.md`).
+- A window can run as a pure client of a host on another machine over an authenticated socket, with reconnect and event replay (Phase 4; ADR 0010; `TAU_HOST_URL`, `TAU_HOST_LISTEN`).
 
-This is enough to evaluate the architecture in use. It is not enough to install untrusted third-party extensions or connect a remote client.
+This is enough to evaluate the architecture in use. What is not yet proven: a week of real, everyday use (Phase 1's own completion check, still open), a remote host reached without an SSH tunnel (TLS is follow-up work), and Tau running on Windows at all — every verification so far, including this plan's own git history, is macOS and Linux.
 
 ## Phase 1: validate the workbench model
 
@@ -50,7 +52,7 @@ Planned work, in order:
 
 Host tools come from the user's machine, the way the terminal has them: at startup the main process reads the login shell's environment (`src/main/shell-environment.ts`) so `git`, `claude`, editors and Pi's own tools resolve after a Dock launch, and the seam offers `findCommand(name)`. Claude Code is the installed CLI with its own `~/.claude` login and settings; Tau sets neither `HOME` nor `CLAUDE_CONFIG_DIR`. The Review's branch scope takes the base of the current branch's pull or merge request from `gh` or `glab` when one is installed and logged in (`src/main/workspace-review-request.ts`, found through `findCommand`, origin URL decides which is asked first) and falls back to the Git heuristics otherwise.
 
-Completion check: `start:safe` shows exactly the core listed in `docs/CORE.md`; every bundled kit can be removed on both the host and the desktop side without editing core; no feature name appears in `src/shared/contracts.ts` or `src/main/index.ts`. Checked by `src/shared/core-boundary.test.ts` (names), `src/main/pi-host-safe-mode.test.ts` and `src/renderer/extensions/kit-lifecycle.test.tsx`, all part of `npm test`.
+Completion check: `start:safe` shows exactly the core listed in `docs/CORE.md`; every bundled kit can be removed on both the host and the desktop side without editing core; no feature name appears in `src/shared/contracts.ts` or `src/main/index.ts`. Checked by `src/shared/core-boundary.test.ts` (names), `src/main/pi-host-safe-mode.test.ts` and `src/renderer/extensions/kit-lifecycle.test.tsx`, all part of `npm test`. Since 2026-09-04, `npm test` and this check run on their own: `.github/workflows/ci.yml` runs lint (`oxlint`), typecheck, the full Vitest suite and a production build on every pull request and push to `main`, with `.github/workflows/performance.yml` as the separate, slower gate for build/startup/renderer budgets.
 
 ## Phase 2: load extension packages dynamically
 
@@ -84,6 +86,8 @@ Work completed:
 
 - close the renderer's own boundary (done: desktop bundles are served over the privileged `tau-ext` scheme instead of blob URLs so the CSP drops `blob:`; the window runs sandboxed and the default session denies every permission)
 
+- isolate a package's host half from the main process, not just from a grant on paper (done 2026-09-05: a package runs in a worker thread by default — no Electron, a 256 MB heap cap, a plain-data facade over the port — and `"isolation": "in-process"` is a privilege granted like a permission for the packages that need a live host object; `src/main/host-extension-isolation.ts`, `src/main/host-extension-worker-protocol.ts`, ADR 0009's "2026-09-05: isolated host packages" section, `npm run smoke:extension-install` activates a signed package in its own worker)
+
 Completion check: Tau can explain what an extension may access, enforce that decision, and recover when the extension fails. Satisfied by ticket 17.
 
 ## Phase 4: make the host transportable
@@ -94,16 +98,18 @@ Planned work:
 
 - define versioned commands, events, snapshots, and capability negotiation (done: `HOST_TRANSPORT_VERSION = 1` in `src/shared/host-transport.ts`, one method table in `src/main/host-methods.ts`, capabilities in the hello reply)
 - support reconnect, event replay, cancellation, and partial failure (done: pushes carry `seq`, the host buffers the last 500, `hello` with `lastSeq` replays or answers `resync`; `HostConnection` shows `connected / reconnecting / resyncing`)
-- distinguish local paths from remote workspace identities (open: `cwd` and file paths are still the host's absolute paths; the `local-files` capability exists but nothing reads it yet)
+- distinguish local paths from remote workspace identities (done 2026-09-05: every project the host publishes carries an opaque `workspaceId` — a truncated hash of the host's own persisted id and the workspace's canonical path — and a `displayPath`; files travel as a POSIX `relPath` the host validates before touching disk; `cwd`, `UiProject.path` and `UiSession.projectPath` stay on the wire one minor version longer as deprecated display data; recent projects and client caches key on the id, not the path; `src/shared/workspace-identity.ts`, ADR 0010's amendment, ticket 18)
 - move long-running project operations behind host jobs with progress events (done for the workbench rebuild and Workspace Kit's clone: `start-job`, `job-progress`, `job-done`, `cancel-job`; a host extension marks its own long commands)
-- add authentication and encrypted remote connections (done for authentication: a 32-byte token in `~/.tau/host-token` on the socket transport; encryption stays an SSH tunnel's job, TLS is follow-up)
-- test a desktop client against Pi running on another machine (done headless: `npm run smoke:remote-host` drives `src/main/headless.ts` over the socket, including a reconnect that replays what it missed)
+- add authentication and encrypted remote connections (done for authentication: a 32-byte token in `~/.tau/host-token` on the socket transport; a non-loopback bind is refused unless `TAU_HOST_INSECURE=1` says otherwise; encryption stays an SSH tunnel's job, TLS remains follow-up work)
+- test a desktop client against Pi running on another machine (done headless: `npm run smoke:remote-host` drives `src/main/headless.ts` over the socket, including a reconnect that replays what it missed; done with a real window too, 2026-09-05: `TAU_HOST_URL` makes the Electron main process open a window with no `PiHost` and no Pi of its own, speaking the same protocol over the socket transport — ADR 0010's "a window that is only a client" amendment, `README.md`'s "Run the host on another machine")
 
-Completion check: the desktop workbench can reconnect to a remote host and continue an existing thread without treating remote files as local paths.
+Completion check: the desktop workbench can reconnect to a remote host and continue an existing thread without treating remote files as local paths. Satisfied 2026-09-05 for a single trusted host reached over an SSH tunnel. Two things remain before this phase is closed out for a wider setup: TLS (or another transport-level encryption) for a host reached without a tunnel, and a verification pass on Windows — the host has only run on macOS and Linux so far, and the login-shell-environment read (`src/main/shell-environment.ts`) and the `findCommand`/`git`/`npm` lookups it feeds assume a POSIX shell.
 
 ## Phase 5: add other clients
 
 Build web or mobile clients only after the host protocol and extension capability model are stable.
+
+Settled 2026-09-05: a web or mobile client is explicitly out of scope for now (ADR 0010's "Out of scope" list, ticket 19). The protocol amendment that made a plain Electron window a pure client of a remote host (`TAU_HOST_URL`, above) deliberately stopped there: a browser client would additionally need the host to serve its own built assets and a way to enter a token without a native dialog, and nothing does either yet. The planned work below records what such a client would still need if this is revisited, not work in progress.
 
 Planned work:
 
@@ -118,13 +124,12 @@ Completion check: a second client can supervise the same host and clearly report
 
 These questions are intentionally unresolved:
 
-- Which extension code may run in-process, and which code must be isolated?
 - Does a thread always map to one Pi session, or can it coordinate several sessions and agents?
 - How are project identities preserved when the same repository exists locally, remotely, or in several worktrees?
 - Which workbench state belongs to the client, host, project, or extension?
-- How much of the desktop extension model should be portable to web and mobile clients?
+- How much of the desktop extension model should be portable to web and mobile clients, if one is ever built?
 
-Settled since: how packages are distributed. npm and Git are the index, the four verbs of `tau.packages` mirror Pi's CLI, and an optional Ed25519 signature says who built a folder (ADR 0011). A hosted registry, revocation and key rotation stay out.
+Settled since: how packages are distributed. npm and Git are the index, the four verbs of `tau.packages` mirror Pi's CLI, and an optional Ed25519 signature says who built a folder (ADR 0011). A hosted registry, revocation and key rotation stay out. — Which extension code may run in-process and which must be isolated: a package's host half runs in a worker by default (no Electron, a 256 MB heap cap, a plain-data facade); `"isolation": "in-process"` is granted like a permission for the few members — a live Pi runtime, `registerRuntimeExtension`, `registerRuntimeBackend`, `presentUi` and the like — that cannot cross a message port (ADR 0009, 2026-09-05 section). — Whether to build a web or mobile client now: no, see Phase 5.
 
 Record a new ADR when one of these decisions becomes expensive to reverse and has a real alternative.
 

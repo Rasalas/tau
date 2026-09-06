@@ -1,0 +1,10 @@
+{
+  "id": "example.hello-package",
+  "name": "Hello Package",
+  "version": "1.0.0",
+  "engines": { "api": "^1.0.0", "pi": ">=0.84" },
+  "permissions": ["runtime:extend"],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts"
+}
