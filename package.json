@@ -30,6 +30,7 @@
     "smoke:remote-host": "node scripts/remote-host-smoke.mjs",
     "smoke:extension-install": "node scripts/extension-install-smoke.mjs",
     "smoke:attached": "node scripts/attached-smoke.mjs",
+    "install:mac": "node scripts/install-mac.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
     "dev:instance": "node scripts/dev-instance.mjs",
     "cdp": "node scripts/tau-cdp.mjs",

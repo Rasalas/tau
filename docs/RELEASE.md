@@ -82,6 +82,21 @@ alongside it — `release/builder-debug.yml` (electron-builder's own verbose
 log, enabled for every Package step via `DEBUG=electron-builder`) plus
 whatever npm wrote under its cache's `_logs/`.
 
+## Install a release on this Mac
+
+```bash
+npm run install:mac                    # the latest release
+npm run install:mac -- --version v0.1.1
+npm run install:mac -- --open          # and launch it
+```
+
+`scripts/install-mac.mjs` downloads the `.dmg` for this machine's
+architecture with `gh` (the repository is private, so `gh auth status` must
+be logged in), quits a running Tau, replaces `/Applications/Tau.app`, and
+removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
+block an unsigned download, which is why an unsigned Tau otherwise needs
+right-click → Open on first launch.
+
 ## Build one locally
 
 ```bash
