@@ -60,3 +60,26 @@ export async function findKnownWorkspacePath(cwd: string, candidates: Iterable<s
 export function workspaceLabel(cwd: string): string {
   return basename(cwd) || cwd;
 }
+
+/** Elapsed time between named steps of one operation, for a single log line. */
+export class PhaseTimer {
+  private readonly phases: Array<{ name: string; ms: number }> = [];
+  private last: number;
+
+  constructor(private readonly startedAt: number = performance.now()) {
+    this.last = startedAt;
+  }
+
+  mark(name: string): void {
+    const now = performance.now();
+    this.phases.push({ name, ms: Math.round(now - this.last) });
+    this.last = now;
+  }
+
+  /** `total 3120ms · queue 1800 · open 1240 · …`, skipping steps that cost nothing. */
+  report(): string {
+    const total = Math.round(performance.now() - this.startedAt);
+    const parts = this.phases.filter((phase) => phase.ms > 0).map((phase) => `${phase.name} ${phase.ms}`);
+    return [`total ${total}ms`, ...parts].join(" · ");
+  }
+}

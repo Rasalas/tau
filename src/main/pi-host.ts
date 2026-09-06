@@ -98,7 +98,7 @@ import { ClientMessageTracker } from "./client-message-tracker.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
-import { promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import { markTauHostRuntime } from "./tau-runtime-owner.js";
@@ -516,18 +516,30 @@ export class PiHost {
   private async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
     this.workbenchReload.assertAvailable();
     const cwd = options.cwd || this.cwd;
-    const thread = await this.lifecycle.run("start-thread", async () => {
+    const requestedAt = performance.now();
+    // Background starts share the queue's background lane: they build their own
+    // thread and touch nothing the thread on screen depends on, so serialising
+    // them behind each other only made fifty sub-agents start one per second.
+    const thread = await this.lifecycle.runBackground("start-thread", async () => {
+      const marks = new PhaseTimer(requestedAt);
+      marks.mark("queue");
       const runtime = await this.openThread(
         SessionManager.create(cwd),
         { type: "session_start", reason: "new" },
         { adopt: false, prepared: true },
       );
+      marks.mark("open");
       try {
         await this.adoptThread(runtime);
+        marks.mark("adopt");
         if (options.model) await requireCapability(runtime.backend, "catalogWrite").setModel(options.model.provider, options.model.id);
+        marks.mark("model");
         // The shell has to exist before a title can be published against it.
         await this.refreshThreadShell(runtime, true);
+        marks.mark("shell");
         if (options.title) await this.applyThreadTitle(runtime, options.title, "renamed");
+        marks.mark("title");
+        this.log("thread.start.timing", `${runtime.threadId.slice(0, 8)} · ${marks.report()}`);
       } catch (error) {
         if (this.threads.has(runtime.threadId)) await this.threads.release(runtime.threadId);
         else await this.disposeThread(runtime);
@@ -2043,8 +2055,14 @@ export class PiHost {
     options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal } = {},
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.cwd;
-    // Extensions repair what they keep beside a session before its runtime can start a turn.
-    if (manager.getSessionFile()) await this.threadLifecycle.beforeOpen(this.seam.sessionFile(manager));
+    const marks = new PhaseTimer();
+    // Extensions repair what they keep beside a session before its runtime can
+    // start a turn. A session this call is creating has nothing beside it yet,
+    // and asking anyway cost every new thread the checkpoint kit's two-second
+    // lease timeout, since the turn that spawned it holds that lease.
+    const created = sessionStartEvent?.reason === "new";
+    if (manager.getSessionFile() && !created) await this.threadLifecycle.beforeOpen(this.seam.sessionFile(manager));
+    marks.mark("before-open");
     if (options.background) this.backgroundManagers.add(manager);
     let runtime: AgentSessionRuntime | undefined;
     let thread: ThreadRuntime | undefined;
@@ -2062,6 +2080,7 @@ export class PiHost {
           .map((message, index) => mapMessage(message, index, this.projection.mapping(thread!)))
           .filter((message): message is UiMessage => Boolean(message?.text || message?.skill)),
       });
+      marks.mark("create-runtime");
       thread = new ThreadRuntime(backend, createdRuntime);
       const preparedThread = thread;
       if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
@@ -2074,6 +2093,7 @@ export class PiHost {
         if (options.abortSignal.aborted) cancelPrepared();
       }
       await backend!.start(sessionStartEvent?.reason === "resume" ? "resume" : "create");
+      marks.mark("backend-start");
       // An interactive open shows the thread while it binds; a prewarmed or
       // spare runtime is off every critical path and is handed over bound.
       if (options.background) await this.bindThread(thread);
@@ -2081,6 +2101,8 @@ export class PiHost {
       if (options.abortSignal?.aborted) throw new Error("Prepared runtime creation was cancelled.");
       this.installThreadHooks(thread);
       if (options.adopt !== false) await this.adoptThread(thread);
+      marks.mark("hooks");
+      this.log("thread.open.timing", `${thread.threadId.slice(0, 8)} · ${marks.report()}`);
       return thread;
     } catch (error) {
       // A prepared runtime may have created extension questions while binding.

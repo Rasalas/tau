@@ -96,6 +96,48 @@ presentation only: search, the thread index and switching to a child all still
 see them, and the thread on screen is never hidden. `UiSession` gains no parent
 field — lineage is an extension's claim about threads, not a fact core keeps.
 
+## Amendment, 2026-09-06: spawning is parallel
+
+The first ten-child run started children 2.2 s apart and never had more than
+two running at once: they finished faster than the host started the next. Three
+things serialised the work, and the measurement named all three.
+
+`startThread` held the global lifecycle queue for the whole open, and the open
+cost 2.1 s. Almost none of that was the Pi runtime, which took 86-149 ms with a
+warm resource cache. It was `beforeOpen`: `openThread` ran the thread lifecycle
+hooks for a session it was creating in the same call, and the checkpoint kit
+tried to sweep orphan refs for it. The turn that called `tau_spawn_thread` holds
+the workspace checkpoint lease, so every child waited the full 2 s
+`MAINTENANCE_LEASE_TIMEOUT_MS` and then skipped the sweep anyway. A session
+with no entries has nothing beside it, so core no longer asks: `beforeOpen`
+runs for a session that already existed, not for one this call is creating.
+
+**The queue gained a bounded background lane** rather than losing its
+serialisation. `LifecycleQueue.runBackground` admits four operations at once;
+every exclusive operation - switching, forking, disposing, `sessions.exclusive`
+- still excludes all of them, and admission stays FIFO, so a switch waits for
+the batch in flight and no longer for a chain of twenty starts. This is what
+`start-thread` uses. The alternative, hoisting runtime construction out of the
+queue and re-entering it only to register the thread, would have had to prove
+that every extension's `beforeOpen` is safe to run concurrently with a switch;
+a lane proves nothing and needs nothing proved.
+
+**A spawn claims its own slot.** Twenty `tau_spawn_thread` calls arrive in one
+turn, before any of them has a thread. The pump handed slots out one at a time
+behind a single promise, so the second call waited for the first thread to
+exist. A spawn now takes a free slot synchronously and starts its own agent;
+the pump only drains what freed slots allow, and it starts that batch at once.
+A spawn beyond the budget still returns `pending` immediately.
+
+Measured on the same twenty-child prompt: the running count reaches the budget
+of eight within about three seconds of the first spawn, where before ten
+children took 22.5 s to start and one or two ran at a time.
+
+**The link index keeps when an agent ran.** `~/.tau/agents-links.json` is
+version 2 and carries `startedAt` and `endedAt`, so an agent restored after a
+restart still shows its duration instead of an em dash. A version 1 file reads
+as before, without the times.
+
 ## Consequences
 
 - The user watches sub-agents work, opens them, answers their questions and

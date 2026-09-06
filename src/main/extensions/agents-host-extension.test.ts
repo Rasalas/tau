@@ -74,6 +74,9 @@ function harness() {
     } as unknown as HostThread;
   };
 
+  /** Holds `sessions.start` open, so a test can watch how many run at once. */
+  let startGate: (() => Promise<void>) | undefined;
+
   const services: HostExtensionServices = {
     cwd: () => "/project",
     safeMode: false,
@@ -103,6 +106,7 @@ function harness() {
         started.push(startOptions);
         nextThread += 1;
         const sessionId = `child-${nextThread}`;
+        await startGate?.();
         open(sessionId).streaming = true;
         return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
       },
@@ -150,7 +154,9 @@ function harness() {
   const state = async (): Promise<AgentsState> =>
     await registry.invoke(AGENTS_HOST_EXTENSION_ID, "state") as AgentsState;
 
-  return { registry, services, threads, started, events, observers, lifecycles, runtime, open, notify, state };
+  const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
+
+  return { registry, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string } = {}) {
@@ -304,6 +310,56 @@ describe("Agents Kit", () => {
     expect(listed.threads).toHaveLength(20);
     expect(listed.threads.filter((entry) => entry.status === "pending")).toHaveLength(10);
     expect(listed.threads.filter((entry) => entry.status === "completed")).toHaveLength(2);
+  });
+
+  it("starts twenty simultaneous spawns concurrently, up to the running budget", async () => {
+    const bench = await activated();
+    let inFlight = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    bench.holdStarts(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+      inFlight -= 1;
+    });
+    const parent = bench.runtime("parent");
+    // One turn's worth of tool calls: every spawn is issued before any of them
+    // has a thread, which is the case the serial pump used to turn into a queue.
+    const spawns = Array.from({ length: 20 }, (_, index) =>
+      parent.call("tau_spawn_thread", { prompt: `task ${index}`, title: `T${index}` }) as Promise<{ status: string }>);
+    await vi.waitFor(() => { expect(inFlight).toBe(DEFAULT_MAX_RUNNING_AGENTS); });
+    // The overlap is the point: the budget's worth of threads is being built at
+    // the same moment, not one after another.
+    expect(peak).toBe(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(bench.started).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS);
+    for (const release of releases) release();
+    const results = await Promise.all(spawns);
+    expect(results.filter((entry) => entry.status === "running")).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(results.filter((entry) => entry.status === "pending")).toHaveLength(20 - DEFAULT_MAX_RUNNING_AGENTS);
+  });
+
+  it("never runs more than the budget while a batch is still being built", async () => {
+    const bench = await activated();
+    let inFlight = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    bench.holdStarts(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+      inFlight -= 1;
+    });
+    const parent = bench.runtime("parent");
+    const spawns = Array.from({ length: 12 }, (_, index) =>
+      parent.call("tau_spawn_thread", { prompt: `task ${index}` }) as Promise<{ status: string }>);
+    await vi.waitFor(() => { expect(releases).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS); });
+    for (const release of releases.splice(0)) release();
+    await Promise.all(spawns);
+    // Four agents are still queued; nothing started them behind the budget's back.
+    expect(peak).toBe(DEFAULT_MAX_RUNNING_AGENTS);
+    expect(bench.started).toHaveLength(DEFAULT_MAX_RUNNING_AGENTS);
+    await expect(bench.state()).resolves.toMatchObject({ maxRunning: DEFAULT_MAX_RUNNING_AGENTS });
   });
 
   it("honours the running budget the user configured", async () => {
@@ -461,8 +517,52 @@ describe("Agents Kit", () => {
       await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" });
       await settle();
       await expect(readAgentLinks(linksPath)).resolves.toEqual([
-        { threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread" },
+        { threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number) },
       ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps when an agent ran in the index, and reads a v1 file without those times", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-links-"));
+    const linksPath = join(directory, "agents-links.json");
+    try {
+      const bench = await activated({ linksPath });
+      const parent = bench.runtime("parent");
+      const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "Reply with ALPHA" }));
+      bench.threads.get(handle)!.streaming = false;
+      await bench.notify("ended", handle, "completed");
+      await settle();
+      const [stored] = await readAgentLinks(linksPath);
+      expect(stored?.startedAt).toEqual(expect.any(Number));
+      expect(stored?.endedAt).toBeGreaterThanOrEqual(stored!.startedAt!);
+
+      // A file the previous build wrote has no times; every other field reads on.
+      await writeFile(linksPath, JSON.stringify({
+        version: 1,
+        links: [{ threadId: "old-child", parentThreadId: "parent", depth: 1, spawnedAt: 7, projectPath: "/project", title: "Old", spawnedBy: "tau_spawn_thread" }],
+      }), "utf8");
+      await expect(readAgentLinks(linksPath)).resolves.toEqual([
+        { threadId: "old-child", parentThreadId: "parent", depth: 1, spawnedAt: 7, projectPath: "/project", title: "Old", spawnedBy: "tau_spawn_thread" },
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("shows a restored agent's duration after a restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-links-"));
+    const linksPath = join(directory, "agents-links.json");
+    try {
+      await writeAgentLinks([{
+        threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: 1_000,
+        projectPath: "/project", title: "Index 1", spawnedBy: "tau_spawn_thread",
+        startedAt: 1_100, endedAt: 4_600,
+      }], linksPath);
+      const bench = await activated({ linksPath });
+      const [restored] = (await bench.state()).links;
+      expect(restored).toMatchObject({ threadId: "child-1", startedAt: 1_100, endedAt: 4_600 });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

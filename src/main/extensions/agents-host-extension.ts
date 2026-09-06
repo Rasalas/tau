@@ -47,13 +47,15 @@ export function agentsLinksPath(home = homedir()): string {
   return join(home, ".tau", "agents-links.json");
 }
 
-const LINKS_VERSION = 1;
+/** v2 added `startedAt`/`endedAt`, so a restored agent still shows how long it ran. */
+const LINKS_VERSION = 2;
 
 /** A started agent, as the index file keeps it; a queued one has no thread to key on. */
 export type StoredAgentLink =
-  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy">
+  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt">
   & { threadId: string };
 
+/** A v1 file simply has no times; every other field reads the same. */
 export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
   const links = record(value).links;
   if (!Array.isArray(links)) return [];
@@ -69,6 +71,8 @@ export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
       projectPath: typeof item.projectPath === "string" ? item.projectPath : "",
       title: typeof item.title === "string" ? item.title : "Sub-agent",
       spawnedBy: typeof item.spawnedBy === "string" ? item.spawnedBy : "tau_spawn_thread",
+      ...(typeof item.startedAt === "number" ? { startedAt: item.startedAt } : {}),
+      ...(typeof item.endedAt === "number" ? { endedAt: item.endedAt } : {}),
     }];
   });
 }
@@ -171,6 +175,8 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
             projectPath: link.projectPath,
             title: link.title,
             spawnedBy: link.spawnedBy,
+            ...(link.startedAt ? { startedAt: link.startedAt } : {}),
+            ...(link.endedAt ? { endedAt: link.endedAt } : {}),
           }] : []);
           void writeAgentLinks(links, options.linksPath)
             .catch((error: unknown) => services.log("agents.links-write-failed", error instanceof Error ? error.message : String(error)));
@@ -245,38 +251,63 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
         save();
       };
 
-      /** Starts what a parent has room for, oldest first; one pump per parent at a time. */
-      const pumps = new Map<string, Promise<void>>();
       const prompts = new Map<string, string>();
+
+      /**
+       * Takes one of the parent's slots for a queued agent, or reports that the
+       * budget is full. It is deliberately synchronous: twenty `tau_spawn_thread`
+       * calls arriving in one turn each claim their own slot before any of them
+       * awaits, which is what lets the whole batch start together.
+       */
+      const claimSlot = (agentId: string): boolean => {
+        const link = book.linkFor(agentId);
+        if (!link || link.status !== "pending") return false;
+        if (book.busyChildren(link.parentThreadId) >= book.runningBudget) return false;
+        changed(agentId, book.noteStarting(agentId, Date.now()));
+        return true;
+      };
+
+      /** Builds one agent's thread. Its slot is already claimed. */
+      const startAgent = async (agent: AgentThreadLink): Promise<void> => {
+        try {
+          const started = await services.sessions.start({
+            cwd: agent.projectPath,
+            prompt: prompts.get(agent.id) ?? agent.title,
+            title: agent.title,
+            ...(agent.model ? { model: parseModel(agent.model) } : {}),
+          });
+          prompts.delete(agent.id);
+          changed(agent.id, book.noteStarted(agent.id, started.sessionId, Date.now()));
+          remember(book.linkFor(agent.id)!);
+          services.log("agents.started", `${started.sessionId.slice(0, 8)} · ${agent.title}`);
+          const guard = setTimeout(() => {
+            if (book.factsFor(agent.id).spawning) {
+              changed(agent.id, book.noteError(agent.id, "The first prompt never reached this thread."));
+            }
+          }, SPAWN_ACCEPT_GRACE_MS);
+          guard.unref?.();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          changed(agent.id, book.noteError(agent.id, message));
+          services.log("agents.start-failed", message);
+        }
+      };
+
+      /**
+       * Starts what freed slots allow, oldest first, and starts that whole batch
+       * at once: a thread takes a moment to build, and waiting for one before
+       * building the next is what kept agents trickling in one at a time. The
+       * host bounds the real concurrency; the budget bounds how many run.
+       */
+      const pumps = new Map<string, Promise<void>>();
       const pump = (parentThreadId: string): Promise<void> => {
         const running = pumps.get(parentThreadId);
         if (running) return running;
         const work = (async () => {
           for (;;) {
-            const next = book.startable(parentThreadId)[0];
-            if (!next) return;
-            try {
-              const started = await services.sessions.start({
-                cwd: next.projectPath,
-                prompt: prompts.get(next.id) ?? next.title,
-                title: next.title,
-                ...(next.model ? { model: parseModel(next.model) } : {}),
-              });
-              prompts.delete(next.id);
-              changed(next.id, book.noteStarted(next.id, started.sessionId, Date.now()));
-              remember(book.linkFor(next.id)!);
-              services.log("agents.started", `${started.sessionId.slice(0, 8)} · ${next.title}`);
-              const guard = setTimeout(() => {
-                if (book.factsFor(next.id).spawning) {
-                  changed(next.id, book.noteError(next.id, "The first prompt never reached this thread."));
-                }
-              }, SPAWN_ACCEPT_GRACE_MS);
-              guard.unref?.();
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              changed(next.id, book.noteError(next.id, message));
-              services.log("agents.start-failed", message);
-            }
+            const batch = book.startable(parentThreadId).filter((agent) => claimSlot(agent.id));
+            if (batch.length === 0) return;
+            await Promise.all(batch.map((agent) => startAgent(agent)));
           }
         })().finally(() => { pumps.delete(parentThreadId); });
         pumps.set(parentThreadId, work);
@@ -302,9 +333,9 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
           ...(model ? { model } : {}),
         }, { queued: true });
         publish();
-        // The caller's own agent starts inside this pump when the parent has a
-        // slot, so a spawn that is not queued comes back with its thread id.
-        await pump(parent.sessionId);
+        // A slot free right now belongs to this call, so it comes back with a
+        // real thread id; a spawn beyond the budget queues and returns at once.
+        if (claimSlot(id)) await startAgent(book.linkFor(id)!);
         const link = book.linkFor(id)!;
         return { threadId: link.threadId ?? id, title: link.title, status: link.status };
       };
@@ -425,6 +456,9 @@ export function createAgentsHostExtension(options: { settingsPath?: string; link
             const link = book.linkFor(sessionId);
             if (!link) return;
             changed(sessionId, book.noteEnded(sessionId, outcome, Date.now()));
+            // The index now carries when the agent ran, so a restart can still
+            // show its duration; that is only known once the turn is over.
+            save();
             const answer = await lastAssistantMessage(link.threadId);
             if (answer) changed(sessionId, book.noteResult(sessionId, truncate(answer, PANEL_RESULT_LIMIT)));
             // A finished agent frees one of its parent's slots.
