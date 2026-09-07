@@ -126,6 +126,12 @@ export interface UiModel {
   name: string;
 }
 
+/** A runtime backend a new thread can be created on; Pi is always one of them. */
+export interface UiRuntimeBackend {
+  kind: ThreadBackendKind;
+  label: string;
+}
+
 export interface UiComposerCommand {
   /** Invocation without the leading slash, for example `review` or `skill:tdd`. */
   name: string;
@@ -312,6 +318,10 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   /** Dialect supplied by the selected runtime adapter, never by model.provider. */
   runtimeCapabilities?: RuntimeCapabilities;
   backendKind?: ThreadBackendKind;
+  /** Backends a new thread can run on, Pi first; absent for older peers. */
+  runtimeBackends?: UiRuntimeBackend[];
+  /** The backend a new thread gets when the client names none. */
+  defaultBackendKind?: ThreadBackendKind;
   models: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
@@ -371,6 +381,8 @@ export interface HostBootstrap {
     sessionId?: string;
     /** Lifecycle owner for the active thread; old bootstrap payloads omit it. */
     backendKind?: ThreadBackendKind;
+    runtimeBackends?: UiRuntimeBackend[];
+    defaultBackendKind?: ThreadBackendKind;
     models: UiModel[];
     model?: UiModel;
     runtimeCapabilities?: RuntimeCapabilities;

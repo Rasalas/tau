@@ -75,3 +75,13 @@ describe("transcript detail", () => {
     expect(preferences.transcriptDetailFor("thread-a")).toBe("detailed");
   });
 });
+
+describe("new thread runtime", () => {
+  it("is unset until chosen and survives a reload", () => {
+    expect(preferences.getSnapshot().newThreadRuntime).toBeUndefined();
+    preferences.setNewThreadRuntime("acme");
+    expect(new PreferencesStore().getSnapshot().newThreadRuntime).toBe("acme");
+    preferences.setNewThreadRuntime(undefined);
+    expect(new PreferencesStore().getSnapshot().newThreadRuntime).toBeUndefined();
+  });
+});

@@ -17,6 +17,8 @@ export interface PreferencesState {
   pinnedThreadIds: readonly string[];
   /** Favourite models, keyed `provider/id`. */
   favouriteModels: readonly string[];
+  /** The runtime backend a new thread is created on; unset means the host's default. */
+  newThreadRuntime?: string;
   /** Keyed `extensionId.optionId`. */
   extensionOptions: Readonly<Record<string, boolean>>;
   /** Small per-extension values, keyed `extensionId.key`; extensions own their meaning. */
@@ -65,6 +67,7 @@ function load(): PreferencesState {
       settledThreadIds: stringList(raw.settledThreadIds),
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
+      newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
       extensionValues: values,
       disabledExtensions: stringList(raw.disabledExtensions),
@@ -141,6 +144,10 @@ export class PreferencesStore {
   setExtensionEnabled(extensionId: string, enabled: boolean): void {
     const disabled = this.state.disabledExtensions.filter((id) => id !== extensionId);
     this.update({ disabledExtensions: enabled ? disabled : [...disabled, extensionId] });
+  }
+
+  setNewThreadRuntime(newThreadRuntime: string | undefined): void {
+    this.update({ newThreadRuntime });
   }
 
   toggleFavouriteModel(key: string): void {

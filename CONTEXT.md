@@ -8,7 +8,7 @@ The system that executes an agent loop, selects models, invokes tools, and persi
 
 ## Runtime backend
 
-The owner of one thread's runtime for that thread's whole life (ADR 0005). Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. A thread never changes its backend.
+The owner of one thread's runtime for that thread's whole life (ADR 0005). Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. A thread never changes its backend; the workbench chooses it before the first message, from the list the host publishes (`runtimeBackends`), and `TAU_RUNTIME_ADAPTER` only sets the default.
 
 ## Workbench
 

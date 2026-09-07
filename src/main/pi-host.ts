@@ -16,6 +16,7 @@ import type {
   UiComposerCommand,
   UiModel,
   UiPromptAttachment,
+  UiRuntimeBackend,
   SubmissionResult,
   UiSkillDraft,
   NewThreadRequestId,
@@ -588,7 +589,7 @@ export class PiHost {
   /** The provider behind a non-Pi backend kind. */
   private requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider {
     const provider = this.seam.backends.get(kind);
-    if (!provider) throw new Error(`Runtime backend "${kind}" is not installed; enable its extension or unset TAU_RUNTIME_ADAPTER.`);
+    if (!provider) throw new Error(`Runtime backend "${kind}" is not installed; enable its extension, pick another runtime for new threads, or unset TAU_RUNTIME_ADAPTER.`);
     return provider;
   }
 
@@ -1395,14 +1396,25 @@ export class PiHost {
     });
   }
 
-  /** Resolves a prompt before the renderer creates its optimistic message. */
-  async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
+  /**
+   * Resolves a prompt before the renderer creates its optimistic message. A
+   * prompt for a thread that does not exist yet names the backend it wants;
+   * without one, the host's default applies.
+   */
+  async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind): Promise<PreparedPrompt> {
+    const kind = backendKind ?? this.defaultBackendKind;
+    if (!sessionId && kind !== "pi") this.requireBackend(kind);
     const target = sessionId
       ? await this.awaitThread(sessionId)
-      : (this.active && threadBackendKind(this.active) === this.defaultBackendKind ? this.active : undefined);
+      : (this.active && threadBackendKind(this.active) === kind ? this.active : undefined);
     if (target) return target.backend.preparePrompt(text, skill);
-    const kind = this.defaultBackendKind;
     return this.prompts.prepare(text, skill, this.adapterFor(kind), this.composerCommandsFor(kind, this.cwd), undefined, kind);
+  }
+
+  /** The backends a new thread can run on: Pi, then what host extensions registered. */
+  private runtimeBackends(): UiRuntimeBackend[] {
+    const registered = [...this.seam.backends.values()].map((provider) => ({ kind: provider.kind, label: provider.label ?? provider.kind }));
+    return [{ kind: "pi", label: "Pi" }, ...registered];
   }
 
   /** The commands a backend's composer offers, before any thread of it exists. */
@@ -1971,6 +1983,8 @@ export class PiHost {
     return {
       ...this.projection.hostSnapshot(this.active, models, this.cwd, this.extensionCount),
       ...this.workspaces.ref(this.cwd),
+      runtimeBackends: this.runtimeBackends(),
+      defaultBackendKind: this.defaultBackendKind,
     };
   }
 

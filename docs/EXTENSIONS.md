@@ -415,6 +415,12 @@ answers. `ask(prompt)` puts a blocking question on the workbench's dialog
 surface (the one Pi's extension dialogs use); aborting the thread answers it as
 cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005).
 
+A registered backend's `label` is what the workbench calls it where a new
+thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
+it defaults to the kind. The host publishes every installed backend, Pi first,
+as `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
+naming the one a client gets when it names none.
+
 ### `engines` and `engines.api`
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked

@@ -32,7 +32,7 @@ function makeServices() {
     emitUpdate: (update) => { updates.push(update); },
     log: (label) => { logs.push(label); },
     fail: vi.fn(),
-    settledSnapshot: async () => ({ sessionId: "thread-1", isStreaming: snapshotStreaming }) as never,
+    settledSnapshot: async () => ({ sessionId: "thread-1", isStreaming: snapshotStreaming, models: [], thinkingLevel: "default", thinkingLevels: ["default"], allTools: [], extensionCount: 0 }) as never,
     detailForSnapshot: (snapshot) => ({ detailOf: snapshot.sessionId }) as never,
     ownTool: vi.fn(),
     releaseTool: vi.fn(),
@@ -98,7 +98,7 @@ describe("handleBackendRuntimeEvent", () => {
     ]);
     expect(events.find((event) => event.type === "tool-end")).toEqual({ type: "tool-end", sessionId: "thread-1", tool: ended });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(updates.map((update) => update.type === "run" ? `run:${update.event}` : update.type)).toEqual(["run:started", "run:settled", "thread-detail"]);
+    expect(updates.map((update) => update.type === "run" ? `run:${update.event}` : update.type)).toEqual(["run:started", "run:settled", "thread-detail", "catalog"]);
   });
 
   it("closes the cards of tools still running when a turn is interrupted, and replaces a re-sent row", () => {

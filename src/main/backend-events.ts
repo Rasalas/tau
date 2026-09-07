@@ -1,5 +1,5 @@
 import type { HostEvent, HostSnapshot, UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
+import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { ThreadRuntime } from "./thread-runtime.js";
@@ -163,6 +163,8 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
   void services.settledSnapshot().then((snapshot) => {
     if (snapshot.sessionId !== sessionId || snapshot.isStreaming) return;
     services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: services.detailForSnapshot(snapshot) });
+    // The turn may have taught the backend its model and levels; the detail does not carry them.
+    services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
   }).catch((error) => services.fail(error, sessionId));
   services.log("agent.settled", `${sessionId.slice(0, 8)} ${status}`);
 }

@@ -1,13 +1,15 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, X } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, Cpu, GripVertical, Paperclip, Sparkles, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
   SubmissionResult,
+  ThreadBackendKind,
   UiComposerCommand,
   UiContextUsage,
   UiPromptAttachment,
+  UiRuntimeBackend,
   UiSkillDraft,
   UiThreadUsage,
 } from "../../shared/contracts";
@@ -38,7 +40,15 @@ import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
 import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-store";
 import { useClientStorage } from "../client-storage-context";
 
-type OpenMenu = "thinking" | undefined;
+type OpenMenu = "thinking" | "runtime" | undefined;
+const RUNTIME_ITEM = "runtime:";
+
+/** The runtime pick for a thread that does not exist yet. */
+export interface ComposerRuntimeChoice {
+  kind: ThreadBackendKind;
+  backends: readonly UiRuntimeBackend[];
+  onSelect(kind: ThreadBackendKind): void;
+}
 
 const noSubscribe = () => () => {};
 const noVersion = () => 0;
@@ -158,6 +168,7 @@ export function Composer({
   onReorderQueue,
   onSetModel,
   onSetThinking,
+  runtimeChoice,
   prompt,
   promptsPending = 0,
   onAnswerPrompt,
@@ -187,6 +198,8 @@ export function Composer({
   onReorderQueue(id: string, toIndex: number): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
+  /** Offered while the composer targets a thread that does not exist yet. */
+  runtimeChoice?: ComposerRuntimeChoice;
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
@@ -294,6 +307,7 @@ export function Composer({
   const modelSelectionAvailable = !runtimeOwnsModel && (snapshot?.models.length ?? 0) > 0;
   const thinkingSelectionAvailable = !runtimeOwnsModel && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
+  const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
   const preview = attachments.find((attachment) => attachment.id === previewId);
 
   useEffect(() => {
@@ -651,6 +665,37 @@ export function Composer({
 
         <div className="composer-toolbar">
           <div className="composer-chips">
+          {runtimeChoice ? (
+            <span className="menu-anchor composer-runtime-menu-anchor">
+              <button
+                className="runtime-chip"
+                title="The runtime this new thread will run on"
+                aria-label={`Runtime: ${runtimeLabel}`}
+                onClick={() => setMenu(menu === "runtime" ? undefined : "runtime")}
+              >
+                <Cpu size={13} />
+                {runtimeLabel}
+                <ChevronDown size={12} className="chev" />
+              </button>
+              {menu === "runtime" ? (
+                <Menu
+                  placement="above"
+                  sections={[{
+                    heading: "RUNTIME",
+                    items: runtimeChoice.backends.map((backend) => ({
+                      id: `${RUNTIME_ITEM}${backend.kind}`,
+                      label: backend.label,
+                      selected: backend.kind === runtimeChoice.kind,
+                    })),
+                  }]}
+                  onSelect={(id) => {
+                    if (id.startsWith(RUNTIME_ITEM)) runtimeChoice.onSelect(id.slice(RUNTIME_ITEM.length));
+                  }}
+                  onClose={() => setMenu(undefined)}
+                />
+              ) : null}
+            </span>
+          ) : null}
           <button
             className="runtime-chip"
             disabled={!modelSelectionAvailable}

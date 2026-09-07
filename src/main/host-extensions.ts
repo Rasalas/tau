@@ -68,6 +68,8 @@ export type BackendPrompt = Omit<ExtensionUiPrompt, "id" | "sessionId">;
  */
 export interface HostRuntimeBackendProvider {
   readonly kind: ThreadBackendKind;
+  /** What the workbench calls this backend where a new thread's runtime is chosen; defaults to the kind. */
+  readonly label?: string;
   readonly adapter: AgentRuntimeAdapter;
   /** Provider identity used for the thread index when the backend has no selectable model. */
   readonly modelProvider?: string;

@@ -33,6 +33,7 @@ describe("Claude Code host half", () => {
     expect(provider?.kind).toBe("claude-code");
     expect(provider?.adapter.id).toBe("claude-code");
     expect(provider?.modelProvider).toBe("anthropic");
+    expect(provider?.label).toBe("Claude Code");
     // Only names Claude can be asked to run; the dialect is the adapter's.
     expect(provider?.composerCommands("/repo")).toEqual([
       { name: "skill:tdd", description: "Test first", source: "skill", skillCommand: "/tdd" },

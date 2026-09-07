@@ -214,4 +214,13 @@ describe("host protocol", () => {
   it("preserves the runtime image capability in the catalog", () => {
     expect(catalogFromSnapshot(snapshot).supportsImageInput).toBe(true);
   });
+
+  it("carries the runtime backends a new thread can pick in the catalog", () => {
+    const backends = [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme" }];
+    const catalog = catalogFromSnapshot({ ...snapshot, runtimeBackends: backends, defaultBackendKind: "acme" });
+    expect(catalog.runtimeBackends).toEqual(backends);
+    expect(catalog.runtimeBackends).not.toBe(backends);
+    expect(catalog.defaultBackendKind).toBe("acme");
+    expect(catalogFromSnapshot(snapshot)).not.toHaveProperty("runtimeBackends");
+  });
 });

@@ -323,6 +323,22 @@ describe("PiHost skill delivery", () => {
     expect(internals.externalComposerCommands("claude-code", "/repo")).toEqual([{ ...commands[0], skillCommand: "/tdd" }]);
   });
 
+  it("prepares a new thread's prompt for the backend the client names", async () => {
+    const adapter: AgentRuntimeAdapter = {
+      id: "claude-code",
+      capabilities: { skillInvocationDialect: "claude-code" },
+      transport: { sendPrompt: vi.fn(async () => ({})) },
+    };
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [backendKit(adapter)] });
+    const internals = host as unknown as { activateHostExtensions(): Promise<void>; runtimeBackends(): unknown };
+    await internals.activateHostExtensions();
+
+    expect(internals.runtimeBackends()).toEqual([{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "claude-code" }]);
+    await expect(host.preparePrompt("hello", undefined, undefined, "claude-code")).resolves.toMatchObject({ backendKind: "claude-code" });
+    await expect(host.preparePrompt("hello")).resolves.toMatchObject({ backendKind: "pi" });
+    await expect(host.preparePrompt("hello", undefined, undefined, "acme")).rejects.toThrow(/not installed/u);
+  });
+
   it("routes abort through the selected adapter and never calls Pi abort", async () => {
     let rejectPrompt!: (error: Error) => void;
     const transport = {

@@ -6,6 +6,7 @@ import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extensio
 import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
 import { THEME_PREFERENCES } from "../theme";
 import { usePreferences } from "../renderer-services-context";
+import { effectiveNewThreadRuntime } from "../new-thread-runtime";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { PackageProvenance } from "./PackageProvenance";
@@ -22,7 +23,8 @@ function DefaultsPage({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
     <div className="settings-page">
@@ -59,6 +61,25 @@ function DefaultsPage({
           </button>
         ))}
       </div>
+
+      {(snapshot?.runtimeBackends?.length ?? 0) > 1 ? (
+        <>
+          <div className="settings-label">RUNTIME</div>
+          <div className="segmented" role="group" aria-label="Runtime for new threads">
+            {(snapshot?.runtimeBackends ?? []).map((backend) => (
+              <button
+                key={backend.kind}
+                className={backend.kind === newThreadRuntime ? "active" : ""}
+                aria-pressed={backend.kind === newThreadRuntime}
+                onClick={() => preferences.setNewThreadRuntime(backend.kind)}
+              >
+                {backend.label}
+              </button>
+            ))}
+          </div>
+          <p className="settings-note">Which program runs a new thread. Threads that already exist keep theirs, and the composer offers the same choice before the first message.</p>
+        </>
+      ) : null}
 
       <div className="settings-label">TRANSCRIPT DETAIL</div>
       <div className="segmented">

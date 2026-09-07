@@ -17,6 +17,7 @@ import type {
   WorkbenchReloadPreparation,
   HostEvent,
   ClientTurnIdentity,
+  ThreadBackendKind,
 } from "../shared/contracts";
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostBootstrap } from "../shared/contracts";
@@ -45,7 +46,8 @@ export interface HostClient {
   recoverThread(): Promise<HostActionResult>;
 
   // Sending and controlling one turn of a running thread.
-  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt | undefined>;
+  /** `backendKind` names the runtime of a thread that does not exist yet; ignored with a `sessionId`. */
+  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind): Promise<PreparedPrompt | undefined>;
   sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
@@ -122,7 +124,7 @@ export function createHostClient(connection: HostConnection): HostClient {
     renameThread: (title, expectedSessionId) => call<HostActionResult>("rename-thread", [title, expectedSessionId]),
     recoverThread: () => call<HostActionResult>("recover-thread"),
 
-    preparePrompt: (text, sessionId, skill) => call<PreparedPrompt | undefined>("prepare-prompt", [text, sessionId, skill]),
+    preparePrompt: (text, sessionId, skill, backendKind) => call<PreparedPrompt | undefined>("prepare-prompt", [text, sessionId, skill, backendKind]),
     sendPrompt: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
       call<void>("prompt", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     steer: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>

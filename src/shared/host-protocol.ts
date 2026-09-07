@@ -5,6 +5,7 @@ import type {
   UiContextUsage,
   UiMessage,
   UiModel,
+  UiRuntimeBackend,
   UiTaskProgress,
   UiTaskProgressEntry,
   UiThreadUsage,
@@ -63,6 +64,9 @@ export interface HostCatalog {
   sessionId?: string;
   /** Runtime lifecycle owner for the active thread; absent for old clients. */
   backendKind?: ThreadBackendKind;
+  /** Backends a new thread can run on; absent for old hosts. */
+  runtimeBackends?: UiRuntimeBackend[];
+  defaultBackendKind?: ThreadBackendKind;
   models: UiModel[];
   model?: UiModel;
   runtimeCapabilities?: import("./contracts.js").RuntimeCapabilities;
@@ -377,6 +381,8 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
   return {
     sessionId: snapshot.sessionId,
     ...(snapshot.backendKind ? { backendKind: snapshot.backendKind } : {}),
+    ...(snapshot.runtimeBackends ? { runtimeBackends: snapshot.runtimeBackends.map((backend) => ({ ...backend })) } : {}),
+    ...(snapshot.defaultBackendKind ? { defaultBackendKind: snapshot.defaultBackendKind } : {}),
     models: [...snapshot.models],
     model: snapshot.model,
     runtimeCapabilities: snapshot.runtimeCapabilities,

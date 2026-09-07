@@ -70,6 +70,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         : claudeComposerCommands(services.skills(cwd), adapter);
       const provider: HostRuntimeBackendProvider = {
         kind: CLAUDE_CODE_BACKEND_KIND,
+        label: "Claude Code",
         adapter,
         modelProvider: "anthropic",
         listThreads: async () => (await store.list()).map(record),
