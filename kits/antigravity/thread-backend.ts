@@ -39,6 +39,8 @@ export interface AntigravitySessionLike {
   readonly stderr: string;
   newSession(): Promise<AcpSessionSetup>;
   resumeSession(sessionId: string): Promise<AcpSessionSetup>;
+  /** Clears the agent's own Google credentials; only the sign-out path uses it. */
+  logout?(): Promise<void>;
   modelOptions(): AcpSelectOption[];
   modeOptions(): AcpSelectOption[];
   currentModel(): string | undefined;
@@ -52,6 +54,8 @@ export interface AntigravitySessionLike {
 export interface AntigravitySessionInput {
   threadId: string;
   cwd: string;
+  /** False shakes hands without signing in, for a sign-out. */
+  authenticate?: boolean;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
   onSignIn(link: AuthorizationLink): void;
@@ -70,6 +74,8 @@ export interface AntigravityThreadBackendOptions {
   onSignIn?(link: AuthorizationLink, threadId: string): void;
   /** Models to list before a session exists. */
   cachedModels?(): Promise<AcpSelectOption[]>;
+  /** What the agent offers this account, reported once a session exists so the next start knows it. */
+  onModels?(models: readonly AcpSelectOption[]): void;
   projectName: string;
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
@@ -128,7 +134,11 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
   private contextUsage?: UiContextUsage;
   private sessionCostUsd?: number;
   private chosenModel?: string;
+  /** The model the thread last ran on, for the picker before a session exists. */
+  private observedModel?: string;
   private commands: AcpCommand[] = [];
+  /** The account's models by id, so a thread can name its model without a live session. */
+  private modelNames = new Map<string, string>();
   private appliedLevel?: RuntimePermissionLevel;
   /** Transcript writes in flight; a turn waits for them before it reports back. */
   private persisting: Promise<void> = Promise.resolve();
@@ -164,6 +174,12 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.titleSource = this.record.titleSource;
     if (this.record.usage) this.usage = { ...this.record.usage };
     this.chosenModel = this.record.model;
+    this.observedModel = this.record.observedModel;
+    this.rememberModels(await this.options.cachedModels?.() ?? []);
+  }
+
+  private rememberModels(models: readonly AcpSelectOption[]): void {
+    for (const model of models) this.modelNames.set(model.value, model.name.trim() || model.value);
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message })); }
@@ -189,8 +205,8 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   catalogView(): ThreadCatalogView {
     const live = this.live && !this.live.closed ? this.live : undefined;
-    const current = live?.currentModel() ?? this.chosenModel;
-    const named = live?.modelOptions().find((option) => option.value === current);
+    const current = live?.currentModel() ?? this.chosenModel ?? this.observedModel;
+    const named = live?.modelOptions().find((option) => option.value === current) ?? (current ? { name: this.modelNames.get(current) } : undefined);
     const usage = this.usage.turns > 0 ? { ...this.usage, ...(this.sessionCostUsd !== undefined ? { costUsd: this.sessionCostUsd } : {}) } : undefined;
     return {
       ...(current ? { model: { provider: MODEL_PROVIDER, id: current, name: named?.name ?? current } } : {}),
@@ -379,6 +395,16 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
         await session.newSession();
       }
       if (session.sessionId) await this.store.setAcpSession(this.threadId, this.cwd, session.sessionId);
+      const models = session.modelOptions();
+      if (models.length > 0) {
+        this.rememberModels(models);
+        this.options.onModels?.(models);
+      }
+      const running = session.currentModel();
+      if (running && running !== this.observedModel) {
+        this.observedModel = running;
+        await this.store.setObservedModel(this.threadId, this.cwd, running);
+      }
       this.record = await this.store.get(this.threadId);
       if (this.chosenModel && session.modelOptions().some((option) => option.value === this.chosenModel)) await session.setModel(this.chosenModel);
       this.appliedLevel = undefined;

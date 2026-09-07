@@ -28,8 +28,17 @@ export interface AntigravitySessionRecord {
   title?: string;
   titleSource?: ThreadTitleSource;
   usage?: UiThreadUsage;
+  /** What the user picked for this thread; it is applied to every later session. */
   model?: string;
+  /** What the thread last actually ran on; shown before a session exists, never applied. */
+  observedModel?: string;
   updatedAt: number;
+}
+
+/** A model the agent offered, kept so the picker is not empty before a session exists. */
+export interface AntigravityStoredModel {
+  value: string;
+  name: string;
 }
 
 export interface AntigravitySessionStoreOptions {
@@ -79,6 +88,7 @@ function storedRecord(value: unknown): AntigravitySessionRecord | undefined {
   const titleSource = item.titleSource === "derived" || item.titleSource === "generated" || item.titleSource === "renamed" ? item.titleSource : undefined;
   const usage = storedUsage(item.usage);
   const model = boundedString(item.model, MAX_ID_LENGTH);
+  const observedModel = boundedString(item.observedModel, MAX_ID_LENGTH);
   return {
     backendKind: "antigravity",
     tauThreadId,
@@ -89,6 +99,7 @@ function storedRecord(value: unknown): AntigravitySessionRecord | undefined {
     ...(titleSource ? { titleSource } : {}),
     ...(usage ? { usage } : {}),
     ...(model ? { model } : {}),
+    ...(observedModel ? { observedModel } : {}),
     updatedAt,
   };
 }
@@ -97,14 +108,33 @@ function cloneRecord(record: AntigravitySessionRecord): AntigravitySessionRecord
   return { ...record, messages: record.messages.map((message) => ({ ...message })), ...(record.usage ? { usage: { ...record.usage } } : {}) };
 }
 
-function decodeSessions(value: unknown): AntigravitySessionRecord[] | undefined {
-  const values = value && typeof value === "object" && Array.isArray((value as { sessions?: unknown }).sessions) ? (value as { sessions: unknown[] }).sessions : undefined;
-  return values?.flatMap((item) => { const record = storedRecord(item); return record ? [record] : []; });
+function storedModel(value: unknown): AntigravityStoredModel | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  const id = boundedString(item.value, MAX_ID_LENGTH);
+  const name = boundedString(item.name, MAX_TITLE_LENGTH);
+  return id ? { value: id, name: name ?? id } : undefined;
+}
+
+interface StoredFile {
+  sessions: AntigravitySessionRecord[];
+  models: AntigravityStoredModel[];
+}
+
+function decodeFile(value: unknown): StoredFile | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as { sessions?: unknown; models?: unknown };
+  if (!Array.isArray(item.sessions)) return undefined;
+  return {
+    sessions: item.sessions.flatMap((entry) => { const record = storedRecord(entry); return record ? [record] : []; }),
+    models: Array.isArray(item.models) ? item.models.flatMap((entry) => { const model = storedModel(entry); return model ? [model] : []; }) : [],
+  };
 }
 
 export class AntigravitySessionStore {
   private readonly now: () => number;
   private readonly records = new Map<string, AntigravitySessionRecord>();
+  private models: AntigravityStoredModel[] = [];
   private loaded = false;
   private loading?: Promise<void>;
 
@@ -125,13 +155,15 @@ export class AntigravitySessionStore {
 
   private async readFromDisk(): Promise<void> {
     try {
-      const result = await readPersistedJson(this.options.filePath, { expectedVersion: CURRENT_VERSION, decode: decodeSessions, logger: this.options.logger });
+      const result = await readPersistedJson(this.options.filePath, { expectedVersion: CURRENT_VERSION, decode: decodeFile, logger: this.options.logger });
       if (result) {
-        for (const record of result.data) this.records.set(record.tauThreadId, record);
+        for (const record of result.data.sessions) this.records.set(record.tauThreadId, record);
+        this.models = result.data.models;
         await chmod(this.options.filePath, 0o600).catch(() => undefined);
       }
     } catch {
       this.records.clear();
+      this.models = [];
     } finally {
       this.loaded = true;
     }
@@ -180,6 +212,10 @@ export class AntigravitySessionStore {
     return this.update(tauThreadId, cwd, (record) => { if (model) record.model = model; else delete record.model; });
   }
 
+  setObservedModel(tauThreadId: string, cwd: string, model: string): Promise<void> {
+    return this.update(tauThreadId, cwd, (record) => { record.observedModel = model; });
+  }
+
   recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => { record.usage = { ...usage }; });
   }
@@ -211,7 +247,21 @@ export class AntigravitySessionStore {
     });
   }
 
+  /** The models the agent last offered this account; the picker reads them before a session exists. */
+  async listModels(): Promise<AntigravityStoredModel[]> {
+    await this.load();
+    return this.models.map((model) => ({ ...model }));
+  }
+
+  async setModels(models: readonly AntigravityStoredModel[]): Promise<void> {
+    await this.load();
+    const next = models.flatMap((model) => { const parsed = storedModel(model); return parsed ? [parsed] : []; });
+    if (next.length === 0 || JSON.stringify(next) === JSON.stringify(this.models)) return;
+    this.models = next;
+    await this.persist();
+  }
+
   private persist(): Promise<void> {
-    return writePersistedJson(this.options.filePath, CURRENT_VERSION, { sessions: [...this.records.values()] }, { logger: this.options.logger });
+    return writePersistedJson(this.options.filePath, CURRENT_VERSION, { sessions: [...this.records.values()], models: this.models }, { logger: this.options.logger });
   }
 }

@@ -55,20 +55,23 @@ class FakeSession implements AntigravitySessionLike {
   async close(): Promise<void> { this.closed = true; this.input.onExit(undefined); }
 }
 
-function harness(store: AntigravitySessionStore, script: Script, options: { ask?: AntigravityThreadRuntimeBackend extends never ? never : (prompt: unknown) => Promise<{ value?: string; confirmed?: boolean; cancelled?: true }>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean } = {}) {
+function harness(store: AntigravitySessionStore, script: Script, options: { ask?: AntigravityThreadRuntimeBackend extends never ? never : (prompt: unknown) => Promise<{ value?: string; confirmed?: boolean; cancelled?: true }>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean; cachedModels?: AcpSelectOption[] } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const sessions: FakeSession[] = [];
+  const reportedModels: AcpSelectOption[][] = [];
   const backend = new AntigravityThreadRuntimeBackend("thread", "/repo", {
     adapter: createAntigravityRuntimeAdapter(),
     store,
     openSession: async (input) => { const session = new FakeSession(input, script, options.resumeFails); sessions.push(session); return session; },
     onEvent: (event) => events.push(event),
+    ...(options.cachedModels ? { cachedModels: async () => options.cachedModels! } : {}),
+    onModels: (models) => reportedModels.push([...models]),
     ask: options.ask as never,
     projectName: "repo",
     permissionLevel: () => options.level ?? "full",
     now: (() => { let clock = 1_000; return () => clock++; })(),
   });
-  return { backend, events, sessions };
+  return { backend, events, sessions, reportedModels };
 }
 
 const reply = (text: string): Script => async (_blocks, session) => {
@@ -90,9 +93,11 @@ describe("AntigravityThreadRuntimeBackend", () => {
     expect(backend.state()).toMatchObject({ idle: true, title: "hi" });
     await backend.dispose();
 
-    const again = harness(store, reply("again"));
+    const again = harness(store, reply("again"), { cachedModels: [{ value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }] });
     await again.backend.start("resume");
     expect((await again.backend.transcript()).map((message) => message.text)).toEqual(["hi", "hello there"]);
+    // No session yet, and the user never picked a model: the thread still names the one it ran on.
+    expect(again.backend.catalogView().model).toEqual({ provider: "google", id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" });
     await again.backend.prompt({ text: "more", delivery: "prompt" });
     expect(again.sessions[0]!.calls).toEqual(["resume:acp-1", "mode:yolo", "prompt:more"]);
     expect(again.backend.catalogView().usage?.turns).toBe(2);
@@ -162,6 +167,19 @@ describe("AntigravityThreadRuntimeBackend", () => {
     const settled = events.filter((event) => event.type === "turn-settled").map((event) => event.status);
     expect(settled).toEqual(["interrupted", "completed", "completed"]);
     release();
+  });
+
+  it("lists the models a past session reported before a new one exists, and reports them once it does", async () => {
+    const store = await scratchStore();
+    const cached = [{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }];
+    const { backend, reportedModels } = harness(store, reply("ok"), { cachedModels: cached });
+    await backend.start("create");
+    // No session yet: the picker still has the account's models.
+    expect((await backend.models()).map((model) => model.id)).toEqual(["gemini-3.8-flash-low"]);
+    expect(reportedModels).toEqual([]);
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    expect(reportedModels).toEqual([[{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }, { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }]]);
+    expect((await backend.models()).map((model) => model.id)).toEqual(["gemini-3.8-flash-low", "gemini-3.8-flash-high"]);
   });
 
   it("puts text before images in the prompt and reports a stopped agent as an error notice", async () => {

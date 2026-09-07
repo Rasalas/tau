@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AUTH_URL_PREFIX, BROWSER_MARKER, agentEnvironment, browserCommand, parseAuthorizationLink, prepareProfile } from "./profile.js";
+import { lstat, mkdir, readlink, writeFile } from "node:fs/promises";
+import { AUTH_URL_PREFIX, BROWSER_MARKER, agentEnvironment, browserCommand, linkUserSkills, parseAuthorizationLink, prepareProfile } from "./profile.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -25,6 +26,25 @@ describe("Antigravity profile", () => {
     const profile = await prepareProfile(stateDir);
     const env = agentEnvironment({ PATH: "/bin", GEMINI_API_KEY: "secret", gemini_home: "/elsewhere", BROWSER: "firefox", HOME: "/Users/x" }, profile, "/opt/harness", "helper %s");
     expect(env).toEqual({ PATH: "/bin", HOME: "/Users/x", GEMINI_HOME: profile.geminiHome, AGY_ACP_FORCE_FILE_STORAGE: "1", BROWSER: "helper %s", PYTHONUNBUFFERED: "1", ELECTRON_RUN_AS_NODE: "1", ANTIGRAVITY_HARNESS_PATH: "/opt/harness" });
+  });
+
+  it("links the user's own skill folders into the private home, and leaves anything real in place alone", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tau-agy-profile-"));
+    const geminiDir = await mkdtemp(join(tmpdir(), "tau-agy-gemini-"));
+    directories.push(stateDir, geminiDir);
+    await mkdir(join(geminiDir, "config", "skills"), { recursive: true });
+    const profile = await prepareProfile(stateDir);
+
+    expect(await linkUserSkills(profile, geminiDir)).toEqual(["config/skills"]);
+    expect(await readlink(join(profile.geminiHome, "config", "skills"))).toBe(join(geminiDir, "config", "skills"));
+    // Running twice keeps the one link.
+    expect(await linkUserSkills(profile, geminiDir)).toEqual(["config/skills"]);
+
+    await mkdir(join(geminiDir, "antigravity-cli", "skills"), { recursive: true });
+    await mkdir(join(profile.geminiHome, "antigravity-cli", "skills"), { recursive: true });
+    await writeFile(join(profile.geminiHome, "antigravity-cli", "skills", "own.md"), "the agent's own");
+    expect(await linkUserSkills(profile, geminiDir)).toEqual(["config/skills"]);
+    expect((await lstat(join(profile.geminiHome, "antigravity-cli", "skills"))).isSymbolicLink()).toBe(false);
   });
 
   it("builds a browser command free of colons and semicolons, quoted for the agent's shell", () => {

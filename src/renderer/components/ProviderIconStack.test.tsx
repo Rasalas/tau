@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ProviderIconStack } from "./ProviderIconStack";
+import { ProviderIconStack, hasProviderMark } from "./ProviderIconStack";
 
 afterEach(cleanup);
 
@@ -36,5 +36,12 @@ describe("ProviderIconStack", () => {
     const stack = getByLabelText("Claude via Claude Code");
     expect(stack.querySelectorAll("img")).toHaveLength(2);
     expect(stack.classList).toContain("stacked");
+  });
+
+  it("knows which providers have a mark of their own", () => {
+    expect(hasProviderMark("antigravity")).toBe(true);
+    expect(hasProviderMark("claude-code")).toBe(true);
+    expect(hasProviderMark("pi")).toBe(false);
+    expect(hasProviderMark(undefined)).toBe(false);
   });
 });

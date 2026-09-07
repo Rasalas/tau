@@ -1,5 +1,6 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { geminiConfigDirectory } from "./mcp.js";
 
 /**
  * A private Google home for the ACP server, under Tau's own state folder.
@@ -19,6 +20,44 @@ export type AntigravityAuthMethod = "oauth-personal" | "oauth-business" | "gemin
 
 export const AUTH_URL_PREFIX = "Open the following link to authenticate the ACP server: ";
 export const BROWSER_MARKER = "__TAU_ANTIGRAVITY_AUTH_URL__";
+
+/** The skill folders Antigravity reads, relative to a Gemini home. */
+const SKILL_DIRECTORIES = ["config/skills", "antigravity-cli/skills"] as const;
+
+/**
+ * Points the private home's skill folders at the user's real ones. The agent
+ * runs with a `GEMINI_HOME` of Tau's own, so without these links the skills
+ * the user wrote would exist everywhere but here. Best effort: a missing
+ * source or a filesystem without symlinks simply means no link.
+ */
+export async function linkUserSkills(profile: AntigravityProfile, geminiDir: string = geminiConfigDirectory()): Promise<string[]> {
+  const linked: string[] = [];
+  for (const relative of SKILL_DIRECTORIES) {
+    const target = join(geminiDir, relative);
+    const link = join(profile.geminiHome, relative);
+    try {
+      if ((await lstat(target)).isDirectory() !== true) continue;
+    } catch {
+      continue;
+    }
+    try {
+      const existing = await lstat(link).catch(() => undefined);
+      if (existing?.isSymbolicLink()) {
+        if (await readlink(link) === target) { linked.push(relative); continue; }
+        await rm(link);
+      } else if (existing) {
+        // Something real is in the way; never replace a directory the agent may own.
+        continue;
+      }
+      await mkdir(join(link, ".."), { recursive: true, mode: 0o700 });
+      await symlink(target, link, process.platform === "win32" ? "junction" : "dir");
+      linked.push(relative);
+    } catch {
+      // A link Tau cannot make is not worth failing a thread over.
+    }
+  }
+  return linked;
+}
 
 export async function prepareProfile(stateDir: string, authMethod: AntigravityAuthMethod = "oauth-personal"): Promise<AntigravityProfile> {
   const geminiHome = join(stateDir, "profile");

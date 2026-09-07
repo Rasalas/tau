@@ -4,8 +4,9 @@ import type { HostSnapshot, PreferencesStore } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { automaticTitleModel } from "./desktop.js";
 
-function snapshot(messages: HostSnapshot["messages"]): HostSnapshot {
+function snapshot(messages: HostSnapshot["messages"], backendKind?: string): HostSnapshot {
   return {
+    ...(backendKind ? { backendKind } : {}),
     cwd: "/repo",
     sessionId: "session",
     sessionTitle: "Untitled thread",
@@ -39,5 +40,10 @@ describe("automatic title generation", () => {
       prompt: "later",
       snapshot: snapshot([{ id: "user", role: "user", text: "first", timestamp: 1 }]),
     }, preferences)).toBeUndefined();
+  });
+
+  it("stays out of a thread another runtime owns, instead of failing on every first prompt", () => {
+    expect(automaticTitleModel({ prompt: "first", snapshot: snapshot([], "antigravity") }, preferences)).toBeUndefined();
+    expect(automaticTitleModel({ prompt: "first", snapshot: snapshot([], "pi") }, preferences)).toMatchObject({ id: "model" });
   });
 });

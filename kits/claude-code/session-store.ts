@@ -46,6 +46,8 @@ export interface ClaudeRuntimeSessionRecord {
   /** The model and effort the user chose for this thread; the CLI's defaults otherwise. */
   model?: string;
   effort?: string;
+  /** What the thread last actually ran on; shown before a session exists, never applied. */
+  observedModel?: string;
   updatedAt: number;
 }
 
@@ -258,6 +260,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
     ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
     ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
+    ...(boundedString(item.observedModel, MAX_ID_LENGTH) ? { observedModel: boundedString(item.observedModel, MAX_ID_LENGTH) } : {}),
     updatedAt,
   };
 }
@@ -439,6 +442,16 @@ export class ClaudeRuntimeSessionStore {
       if (selection.effort) record.effort = selection.effort;
       else delete record.effort;
     }
+    record.updatedAt = this.now();
+    await this.persist();
+  }
+
+  /** What the CLI reported running, so a resumed thread can name its model before the next turn. */
+  async setObservedModel(tauThreadId: string, cwd: string, model: string): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
+    if (!record || record.observedModel === model) return;
+    record.observedModel = model;
     record.updatedAt = this.now();
     await this.persist();
   }

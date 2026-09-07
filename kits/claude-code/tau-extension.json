@@ -2,9 +2,16 @@
   "id": "tau.claude-code",
   "name": "Claude Code",
   "version": "1.0.0",
-  "engines": { "api": "^1.4.0" },
-  "permissions": ["process", "sessions", "runtime:extend"],
+  "engines": {
+    "api": "^1.4.0"
+  },
+  "permissions": [
+    "process",
+    "sessions",
+    "runtime:extend"
+  ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
   "host": "./host.ts"
 }

@@ -71,6 +71,10 @@ export interface AntigravitySessionOptions {
   onStderrLine?(line: string): void;
   /** Roots the agent may read and write through Tau; the workspace itself is always one. */
   fileRoots?: readonly string[];
+  /** The user's own MCP servers, forwarded when a session is created or resumed. */
+  mcpServers?: readonly unknown[];
+  /** False runs `initialize` only, so a sign-out never starts an interactive sign-in. */
+  authenticate?: boolean;
   timeouts?: { handshakeMs?: number; sessionMs?: number; cancelMs?: number; signInMs?: number };
 }
 
@@ -153,6 +157,7 @@ export class AntigravitySession {
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
         clientInfo: { name: ANTIGRAVITY_CLIENT_NAME, version: options.clientVersion },
       }, { timeoutMs: session.timeouts.handshakeMs }));
+      if (options.authenticate === false) return session;
       const methodId = options.authMethod ?? "oauth-personal";
       if (session.initialized.authMethods && !session.initialized.authMethods.some((method) => method.id === methodId)) {
         throw new Error(`Antigravity offers no "${methodId}" sign-in.`);
@@ -172,15 +177,19 @@ export class AntigravitySession {
   get sessionId(): string | undefined { return this.setup?.sessionId; }
   get signInLink(): AuthorizationLink | undefined { return this.link; }
 
-  async newSession(mcpServers: unknown[] = []): Promise<AcpSessionSetup> {
-    const setup = await this.guarded(this.client.request<AcpSessionSetup>("session/new", { cwd: this.options.cwd, mcpServers }, { timeoutMs: this.timeouts.sessionMs }));
+  private mcpServers(): unknown[] {
+    return [...this.options.mcpServers ?? []];
+  }
+
+  async newSession(): Promise<AcpSessionSetup> {
+    const setup = await this.guarded(this.client.request<AcpSessionSetup>("session/new", { cwd: this.options.cwd, mcpServers: this.mcpServers() }, { timeoutMs: this.timeouts.sessionMs }));
     this.adopt(setup);
     return setup;
   }
 
-  async resumeSession(sessionId: string, mcpServers: unknown[] = []): Promise<AcpSessionSetup> {
+  async resumeSession(sessionId: string): Promise<AcpSessionSetup> {
     if (!this.initialized?.agentCapabilities?.sessionCapabilities?.resume) throw new Error("Antigravity does not support resuming a session.");
-    const setup = await this.guarded(this.client.request<Omit<AcpSessionSetup, "sessionId">>("session/resume", { sessionId, cwd: this.options.cwd, mcpServers }, { timeoutMs: this.timeouts.sessionMs }));
+    const setup = await this.guarded(this.client.request<Omit<AcpSessionSetup, "sessionId">>("session/resume", { sessionId, cwd: this.options.cwd, mcpServers: this.mcpServers() }, { timeoutMs: this.timeouts.sessionMs }));
     this.adopt({ ...setup, sessionId });
     return this.setup!;
   }
