@@ -8,6 +8,7 @@ import type {
   ThreadBackendKind,
   UiComposerCommand,
   UiContextUsage,
+  UiModel,
   UiPromptAttachment,
   UiRuntimeBackend,
   UiSkillDraft,
@@ -18,6 +19,8 @@ import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
+import { SubscriptionLoginPrompt } from "./SubscriptionLoginPrompt";
+import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
@@ -297,6 +300,15 @@ export function Composer({
     setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const preferences = usePreferences();
+  // A model behind a subscription login is used only after its warning was read once (per provider).
+  const [subscriptionAsk, setSubscriptionAsk] = useState<{ model?: UiModel; resubmit?: "followUp" | "steer" | "prompt" }>();
+  const needsSubscriptionAck = (model: UiModel | undefined): boolean =>
+    model?.login === "subscription" && !preferences.hasAcknowledgedSubscriptionLogin(model.provider);
+  const chooseModel = (model: UiModel) => {
+    if (needsSubscriptionAck(model)) setSubscriptionAsk({ model });
+    else onSetModel(model.provider, model.id);
+  };
   // Only a drag that starts on the grip reorders; text drags inside a row do not.
   const queueDragArmRef = useRef<string | undefined>(undefined);
   const [draggingQueuedId, setDraggingQueuedId] = useState<string>();
@@ -373,6 +385,10 @@ export function Composer({
   const submitCurrent = (delivery?: "followUp" | "steer") => {
     if (held) return;
     if (activeScopeSnapshot.submissionPending) return;
+    if (needsSubscriptionAck(snapshot?.model)) {
+      setSubscriptionAsk({ resubmit: delivery ?? "prompt" });
+      return;
+    }
     if (answerable && prompt) {
       if (!text.trim()) return;
       onAnswerPrompt?.(text, true);
@@ -820,8 +836,26 @@ export function Composer({
         <ModelPicker
           models={snapshot?.models ?? []}
           activeKey={snapshot?.model ? modelKey(snapshot.model) : undefined}
-          onSelect={(model) => onSetModel(model.provider, model.id)}
+          onSelect={chooseModel}
           onClose={() => setModelPickerOpen(false)}
+        />
+      ) : null}
+      {subscriptionAsk ? (
+        <SubscriptionLoginPrompt
+          provider={(subscriptionAsk.model ?? snapshot?.model)?.provider ?? ""}
+          onAccept={() => {
+            const provider = (subscriptionAsk.model ?? snapshot?.model)?.provider;
+            if (provider) preferences.acknowledgeSubscriptionLogin(provider);
+            const { model, resubmit } = subscriptionAsk;
+            setSubscriptionAsk(undefined);
+            if (model) onSetModel(model.provider, model.id);
+            if (resubmit) submitCurrent(resubmit === "prompt" ? undefined : resubmit);
+          }}
+          onDecline={() => {
+            const { model } = subscriptionAsk;
+            setSubscriptionAsk(undefined);
+            if (model) setModelPickerOpen(true);
+          }}
         />
       ) : null}
 

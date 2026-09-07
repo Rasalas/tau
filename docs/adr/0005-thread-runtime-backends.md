@@ -120,5 +120,20 @@ answers it as cancelled. Turn observers bracket an external streamed backend's
 turn too (checkpoints, the Agents kit's status); an attached Pi stays out, its
 terminal owns turn and journal alike. Extension API 1.4.0.
 
-Still open: one SDK session per thread with steering and queued follow-ups,
-model and effort selection, and the kit's status page.
+Since then: one SDK session per thread, model and effort selection, and the
+runtime of a new thread chosen in the workbench (`runtimeBackends` on the
+snapshot, `preparePrompt(..., backendKind)`); `TAU_RUNTIME_ADAPTER` sets only
+the default.
+
+Pi's subscription logins: Pi reaches some providers through a consumer
+subscription's OAuth and, for Anthropic, presents itself as Claude Code, which
+that vendor's terms forbid outside its own apps. Tau does not hide those
+models, because they are core Pi and Tau runs on the user's `~/.pi/agent`.
+The Pi backend marks them (`UiModel.login: "subscription"`, from
+`ModelRuntime.isUsingSubscription`), the workbench asks once per provider
+before the first use, with the vendor's statement, and keeps a status item
+while such a model is active. Sending is never blocked; `auth.json` is never
+written. The Claude Code kit never sets the flag: the Agent SDK is the
+sanctioned door for the same subscription.
+
+Still open: the kit's status page.

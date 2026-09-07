@@ -85,3 +85,12 @@ describe("new thread runtime", () => {
     expect(new PreferencesStore().getSnapshot().newThreadRuntime).toBeUndefined();
   });
 });
+
+describe("subscription login acknowledgements", () => {
+  it("remember each provider once, across reloads", () => {
+    expect(preferences.hasAcknowledgedSubscriptionLogin("anthropic")).toBe(false);
+    preferences.acknowledgeSubscriptionLogin("anthropic");
+    preferences.acknowledgeSubscriptionLogin("anthropic");
+    expect(new PreferencesStore().getSnapshot().acknowledgedSubscriptionLogins).toEqual(["anthropic"]);
+  });
+});

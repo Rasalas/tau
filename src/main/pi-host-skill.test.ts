@@ -616,3 +616,17 @@ describe("PiHost skill delivery", () => {
     expect(markdown).toContain("location=\"/private/removed/SKILL.md\"");
   });
 });
+
+describe("errored Pi turns", () => {
+  it("surfaces the provider's error as a notice when the assistant message carries no text", async () => {
+    const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
+    await adopt(fixture);
+    const hostInternals = fixture.host as unknown as {
+      handleSessionEvent(event: unknown, thread: unknown, sessionId: string, cwd: string): void;
+    };
+    const assistant = { role: "assistant", content: [], timestamp: 9, stopReason: "error", errorMessage: "400 You're out of extra usage." };
+    hostInternals.handleSessionEvent({ type: "message_start", message: assistant }, fixture.thread, "session", "/repo");
+    hostInternals.handleSessionEvent({ type: "message_end", message: assistant }, fixture.thread, "session", "/repo");
+    expect(fixture.emitted).toContainEqual({ type: "notice", sessionId: "session", level: "error", message: "400 You're out of extra usage." });
+  });
+});

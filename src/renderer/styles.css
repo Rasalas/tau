@@ -1501,6 +1501,37 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 }
 .model-star:hover { background: var(--chip-hover); color: var(--ink-2); }
 .model-star.on { color: var(--acid-text); }
+.model-badge {
+  margin-left: 8px; vertical-align: 1px;
+  font: 500 9.5px var(--mono); letter-spacing: .02em; color: var(--muted);
+  border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px;
+}
+.model-picker-note {
+  flex: none; margin: 0; padding: 8px 14px;
+  border-top: 1px solid var(--line); background: var(--inset);
+  color: var(--muted); font-size: 11px; line-height: 1.5;
+}
+
+.subscription-login-prompt {
+  width: 480px; max-width: calc(100vw - 48px);
+  display: flex; flex-direction: column; gap: 12px;
+  border: 1px solid var(--line-float); border-radius: 12px; padding: 18px 20px;
+  background: var(--overlay); box-shadow: var(--elevation-3);
+  color: var(--ink); animation: fade-up .14s ease;
+}
+.subscription-login-prompt > header { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.subscription-login-prompt > header > svg { color: var(--removed); }
+.subscription-login-prompt > p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
+.subscription-login-prompt > a { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--acid-text); }
+.subscription-login-prompt > footer { display: flex; justify-content: flex-end; gap: 8px; }
+.subscription-login-prompt > footer > button {
+  border: 1px solid var(--line-strong); background: transparent; color: var(--ink-3);
+  font: 500 12px var(--sans); padding: 6px 12px; border-radius: 7px; cursor: pointer;
+}
+.subscription-login-prompt > footer > button:hover { background: var(--raised); color: var(--ink-2); }
+.subscription-login-prompt > footer > button.primary { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); }
+.subscription-login-prompt > footer > button.primary:hover { background: var(--acid-chip); }
+.status-item-warning { display: inline-flex; align-items: center; gap: 4px; color: var(--removed); }
 
 /* ------------------------------------------------------------- settings */
 

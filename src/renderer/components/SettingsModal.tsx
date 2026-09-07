@@ -36,7 +36,7 @@ function DefaultsPage({
         <Sparkles size={14} className="accent" />
         <span>
           <strong>{snapshot?.model?.name ?? "No model selected"}</strong>
-          <small>{snapshot?.model?.provider ?? "pi"} · via ~/.pi/agent</small>
+          <small>{snapshot?.model?.provider ?? "pi"} · via ~/.pi/agent{snapshot?.model?.login === "subscription" ? " · subscription login" : ""}</small>
         </span>
         <b><ChevronDown size={13} /></b>
       </button>

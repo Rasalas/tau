@@ -443,8 +443,8 @@ export function lastTurnActivityFromMessages(messages: unknown[]): UiTurnActivit
   return latest ? { tools: latest.tools, ...(latest.anchorMessageId ? { anchorMessageId: latest.anchorMessageId } : {}) } : undefined;
 }
 
-export function mapModel(model: { provider: string; id: string; name?: string }): UiModel {
-  return { provider: model.provider, id: model.id, name: model.name ?? model.id };
+export function mapModel(model: { provider: string; id: string; name?: string; login?: unknown }): UiModel {
+  return { provider: model.provider, id: model.id, name: model.name ?? model.id, ...(model.login === "subscription" ? { login: "subscription" as const } : {}) };
 }
 
 export function modelSupportsImageInput(model: { input?: readonly string[] } | undefined): boolean {

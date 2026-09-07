@@ -124,6 +124,8 @@ export interface UiModel {
   provider: string;
   id: string;
   name: string;
+  /** Reached through a consumer-subscription login the runtime performs, not an API key. */
+  login?: "subscription";
 }
 
 /** A runtime backend a new thread can be created on; Pi is always one of them. */

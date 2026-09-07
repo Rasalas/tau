@@ -19,6 +19,8 @@ export interface PreferencesState {
   favouriteModels: readonly string[];
   /** The runtime backend a new thread is created on; unset means the host's default. */
   newThreadRuntime?: string;
+  /** Providers whose subscription-login warning the user has read, by provider id. */
+  acknowledgedSubscriptionLogins: readonly string[];
   /** Keyed `extensionId.optionId`. */
   extensionOptions: Readonly<Record<string, boolean>>;
   /** Small per-extension values, keyed `extensionId.key`; extensions own their meaning. */
@@ -33,6 +35,7 @@ const DEFAULTS: PreferencesState = {
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
+  acknowledgedSubscriptionLogins: [],
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
@@ -68,6 +71,7 @@ function load(): PreferencesState {
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
+      acknowledgedSubscriptionLogins: stringList(raw.acknowledgedSubscriptionLogins),
       extensionOptions: options,
       extensionValues: values,
       disabledExtensions: stringList(raw.disabledExtensions),
@@ -148,6 +152,15 @@ export class PreferencesStore {
 
   setNewThreadRuntime(newThreadRuntime: string | undefined): void {
     this.update({ newThreadRuntime });
+  }
+
+  hasAcknowledgedSubscriptionLogin(provider: string): boolean {
+    return this.state.acknowledgedSubscriptionLogins.includes(provider);
+  }
+
+  acknowledgeSubscriptionLogin(provider: string): void {
+    if (this.hasAcknowledgedSubscriptionLogin(provider)) return;
+    this.update({ acknowledgedSubscriptionLogins: [...this.state.acknowledgedSubscriptionLogins, provider] });
   }
 
   toggleFavouriteModel(key: string): void {

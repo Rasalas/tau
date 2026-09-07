@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { Search, Star } from "lucide-react";
 import type { UiModel } from "../../shared/contracts";
 import { usePreferences } from "../renderer-services-context";
+import { SUBSCRIPTION_LOGIN_NOTE } from "../../shared/subscription-login";
 import { VirtualList } from "./VirtualList";
 
 /** Sentinel for the pinned tab; never rendered verbatim. */
@@ -160,13 +161,15 @@ export function ModelPicker({
               onMouseMove={() => setCursor(index)}
             >
               <button className="model-choose" onClick={() => { onSelect(entry.model); onClose(); }}>
-                <strong>{entry.model.name}</strong><small>{entry.model.id}</small>
+                <strong>{entry.model.name}{entry.model.login === "subscription" ? <span className="model-badge">subscription login</span> : null}</strong><small>{entry.model.id}</small>
               </button>
               {entry.key === activeKey ? <em>in use</em> : null}
               <button className={`model-star ${entry.favourite ? "on" : ""}`} aria-label={entry.favourite ? `Unfavourite ${entry.model.name}` : `Favourite ${entry.model.name}`} aria-pressed={entry.favourite} onClick={() => preferences.toggleFavouriteModel(entry.key)}><Star size={14} fill={entry.favourite ? "currentColor" : "none"} /></button>
             </div>}
           />
         </div>
+
+        {visible.some((entry) => entry.model.login === "subscription") ? <p className="model-picker-note">{SUBSCRIPTION_LOGIN_NOTE}</p> : null}
 
         <footer>
           <span>↑↓ navigate</span>
