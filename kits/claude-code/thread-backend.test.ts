@@ -141,7 +141,9 @@ describe("thread runtime backends", () => {
     expect(admitted).toHaveBeenCalledWith(true);
     expect(first).toEqual({ assistantText: "Claude: /tdd \n    preserve this" });
     expect(streamingWhileLive).toBe(true);
-    expect(backend.state()).toMatchObject({ streaming: false, idle: true, hasMessages: true, activeTools: [], title: "preserve this", supportsImageInput: true });
+    // The kit stores no name of its own; the index names an unnamed thread and the title generator may still name it.
+    expect(backend.state()).toMatchObject({ streaming: false, idle: true, hasMessages: true, activeTools: [], supportsImageInput: true });
+    expect(backend.state().title).toBeUndefined();
 
     expect(events.map((event) => event.type)).toEqual([
       "turn-started", "queue", "user-message", "assistant-start", "assistant-delta", "assistant-end", "tool-start", "tool-end", "usage", "turn-settled", "queue",
@@ -175,7 +177,10 @@ describe("thread runtime backends", () => {
     await restored.start("resume");
     expect((await restored.transcript()).map((message) => message.text)).toEqual(["\n    preserve this", "Claude: /tdd \n    preserve this", "again", "Claude: again"]);
     expect(restored.catalogView().usage).toMatchObject({ totalTokens: 220, costUsd: 0.2, turns: 2 });
-    expect(restored.state().title).toBe("preserve this");
+    // A name the user or the title generator gave survives a restart; a thread that was never named stays unnamed.
+    expect(restored.state().title).toBeUndefined();
+    await restored.setTitle("Preserved name", "generated");
+    expect(restored.state()).toMatchObject({ title: "Preserved name", titleSource: "generated" });
     // A resumed thread opens its session with `started` so the CLI resumes the Claude session.
     await restored.prompt({ text: "third", delivery: "prompt" });
     expect(opened[1]).toMatchObject({ started: true, claudeSessionId: opened[0]!.claudeSessionId });

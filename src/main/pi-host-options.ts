@@ -1,3 +1,4 @@
+import type { HostCompletionOptions } from "./host-completion.js";
 import type { ThreadBackendKind, UiComposerCommand } from "../shared/contracts.js";
 import type { HostPackageLoadResult } from "./extension-packages.js";
 import type { HostExtension, HostPlatform } from "./host-extensions.js";
@@ -10,6 +11,8 @@ export interface PiHostOptions {
   logger?: HostLogger;
   /** The Pi adapter; tests substitute one. Other backends register through the seam. */
   runtimeAdapter?: AgentRuntimeAdapter;
+  /** The model runtime a kit's small jobs complete on; the user's Pi configuration otherwise. */
+  createModelRuntime?: HostCompletionOptions["createRuntime"];
   /** Backend for new threads when no existing session metadata applies. */
   defaultBackendKind?: ThreadBackendKind;
   /** Commands available to non-Pi backends. Pi discovers its own resources. */

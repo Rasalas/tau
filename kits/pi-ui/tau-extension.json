@@ -2,8 +2,13 @@
   "id": "tau.pi-ui",
   "name": "Pi UI",
   "version": "1.0.0",
-  "engines": { "api": "^1.4.0" },
-  "permissions": ["runtime:extend", "sessions"],
+  "engines": {
+    "api": "^1.5.0"
+  },
+  "permissions": [
+    "runtime:extend",
+    "sessions"
+  ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
   "styles": "./styles.css",

@@ -5,15 +5,16 @@ import { buildCommitPrompt, cleanCommitMessage, createReviewHostExtension } from
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 
 describe("Review Kit host extension", () => {
-  const thread = (answer: string) => ({ backendKind: "pi", complete: vi.fn(async () => answer) }) as unknown as HostThread;
-  const registryWith = (active: HostThread) => activateHostKit(createReviewHostExtension(), {
+  const thread = (backendKind = "pi") => ({ backendKind }) as unknown as HostThread;
+  const registryWith = (active: HostThread, complete = vi.fn(async () => "")) => activateHostKit(createReviewHostExtension(), {
     runtimeOwner: () => "tau",
     thread: () => active,
+    complete,
   });
 
   it("asks the selected model for the selected message format", async () => {
-    const active = thread("```text\nfeat(review): show every changed file\n```");
-    const registry = await registryWith(active);
+    const complete = vi.fn(async () => "```text\nfeat(review): show every changed file\n```");
+    const registry = await registryWith(thread(), complete);
     await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", {
       provider: "openai",
       modelId: "gpt-luna",
@@ -22,7 +23,7 @@ describe("Review Kit host extension", () => {
       files: [{ path: "src/review.tsx", added: 20, removed: 4 }],
       diffs: [{ path: "src/review.tsx", patch: "-old\n+new" }],
     })).resolves.toEqual({ message: "feat(review): show every changed file" });
-    expect((active.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.slice(0, 2)).toEqual(["openai", "gpt-luna"]);
+    expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai", id: "gpt-luna" });
   });
 
   it("builds a bounded diff prompt and cleans fenced answers", () => {

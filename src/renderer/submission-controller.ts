@@ -713,6 +713,10 @@ export class SubmissionController {
         sessionId,
         sessionName: undefined,
         sessionTitle: "Untitled thread",
+        // The thread is new: the model and the runtime on screen belong to
+        // whichever thread was open before, and are nobody's business here.
+        model: undefined,
+        backendKind: undefined,
         messages: [],
         isStreaming: false,
         activeTools: [],

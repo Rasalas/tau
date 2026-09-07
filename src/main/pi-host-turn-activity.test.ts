@@ -318,8 +318,11 @@ const appPath = fileURLToPath(new URL("../..", import.meta.url));
 const threadTitlesKit = async () => (await loadBundledKitHostHalves({ appPath })).extensions
   .filter((extension) => extension.id === "tau.thread-titles");
 
-async function titleHost(emit: (event: unknown) => void = () => undefined) {
-  const host = new PiHost("/repo", emit as never, {} as never, false, false, { hostExtensions: threadTitlesKit });
+async function titleHost(emit: (event: unknown) => void = () => undefined, createModelRuntime?: () => Promise<never>) {
+  const host = new PiHost("/repo", emit as never, {} as never, false, false, {
+    hostExtensions: threadTitlesKit,
+    ...(createModelRuntime ? { createModelRuntime } : {}),
+  });
   await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
   return host;
 }
@@ -360,9 +363,10 @@ describe("PiHost.generateThreadTitle", () => {
       },
       modelRuntime: {
         getModel: () => ({ provider: "provider", id: "model" }),
-        completeSimple: async (request: { system: string; prompt: string }) => {
+        getModels: () => [{ provider: "provider", id: "model" }],
+        completeSimple: async (_model: unknown, context: { systemPrompt: string; messages: Array<{ content: Array<{ text: string }> }> }) => {
           callOrder.push("complete");
-          requests.push(request);
+          requests.push({ system: context.systemPrompt, prompt: context.messages[0]?.content[0]?.text ?? "" });
           return { stopReason: "stop", content: [{ type: "text", text: "Automatic Thread Titles" }] };
         },
       },
@@ -379,9 +383,7 @@ describe("PiHost.generateThreadTitle", () => {
       capabilities: {
         journal: { entries: () => [], appendCustomEntry: () => undefined, appendMessage: () => undefined },
         completions: {
-          // The kit words the request; core only carries it to the model.
-          complete: async (_provider: string, _modelId: string, request: { system: string; prompt: string }) =>
-            session.modelRuntime.completeSimple(request).then((result) => result.content[0].text),
+          complete: async () => { throw new Error("A title never completes through the thread's own runtime."); },
           modelApi: () => undefined,
         },
       },
@@ -410,7 +412,8 @@ describe("PiHost.generateThreadTitle", () => {
     };
     const thread = new ThreadRuntime(backend as never, { session } as never);
     const published: unknown[] = [];
-    const host = await titleHost((event) => published.push(event));
+    // Titles complete on the host's model runtime, whatever runtime owns the thread.
+    const host = await titleHost((event) => published.push(event), async () => session.modelRuntime as never);
     const internals = host as unknown as {
       threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
       index: { sessions: Array<Record<string, unknown>> };

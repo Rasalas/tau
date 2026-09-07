@@ -112,6 +112,7 @@ export class WorkbenchStore {
       sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
       backendKind: bootstrap.detail.backendKind ?? bootstrap.catalog.backendKind,
       ...(bootstrap.catalog.runtimeBackends ? { runtimeBackends: bootstrap.catalog.runtimeBackends } : {}),
+      ...(bootstrap.catalog.completionModels ? { completionModels: bootstrap.catalog.completionModels } : {}),
       ...(bootstrap.catalog.defaultBackendKind ? { defaultBackendKind: bootstrap.catalog.defaultBackendKind } : {}),
       models: bootstrap.catalog.models,
       model: bootstrap.catalog.model,

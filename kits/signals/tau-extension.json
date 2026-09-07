@@ -2,7 +2,9 @@
   "id": "tau.observatory",
   "name": "Signals",
   "version": "1.0.0",
-  "engines": { "api": "^1.4.0" },
+  "engines": {
+    "api": "^1.5.0"
+  },
   "permissions": [],
   "isolation": "worker",
   "desktop": "./desktop.tsx",

@@ -415,6 +415,17 @@ answers. `ask(prompt)` puts a blocking question on the workbench's dialog
 surface (the one Pi's extension dialogs use); aborting the thread answers it as
 cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005).
 
+`complete(request, model?)` asks a model for one short answer — a thread
+title, a branch name, a commit message. It runs on the user's own model
+configuration in `~/.pi/agent` and takes the model the extension names, or
+the default from that configuration; it is deliberately apart from the thread
+the job is about, because which program answers a conversation says nothing
+about which model should name it, and a thread whose runtime cannot complete
+would otherwise go unnamed. It needs the `sessions` permission. The models it accepts are the snapshot's
+`completionModels`, which a `kind: "model"` option offers the user; they are the
+same list whatever runtime owns the visible thread, while `models` stays that
+thread's own.
+
 A registered backend's `label` is what the workbench calls it where a new
 thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
 it defaults to the kind. The host publishes every installed backend, Pi first,
@@ -425,7 +436,7 @@ naming the one a client gets when it names none.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.4.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.5.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only

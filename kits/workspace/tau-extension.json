@@ -2,7 +2,9 @@
   "id": "tau.workspace",
   "name": "Workspace Kit",
   "version": "1.0.0",
-  "engines": { "api": "^1.4.0" },
+  "engines": {
+    "api": "^1.5.0"
+  },
   "permissions": [
     "workspace:read",
     "workspace:write",

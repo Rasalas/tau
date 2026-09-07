@@ -81,6 +81,7 @@ function sessionFile(overrides: Partial<HostSessionFile> = {}): HostSessionFile 
 function services(overrides: Partial<HostExtensionServices> = {}): HostExtensionServices {
   return {
     cwd: () => "/project",
+    complete: async () => "",
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
     stateDir: "/state",

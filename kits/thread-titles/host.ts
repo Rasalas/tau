@@ -17,23 +17,23 @@ export function createThreadTitlesHostExtension(): HostExtension {
       const { services } = context;
       context.registerCommand("generate", async (input) => {
         const fields = record(input);
+        // A model is optional: without one the host completes on the user's default.
         const provider = typeof fields.provider === "string" ? fields.provider : "";
         const modelId = typeof fields.modelId === "string" ? fields.modelId : "";
+        const model = provider && modelId ? { provider, id: modelId } : undefined;
         const force = fields.force === true;
         const sessionId = typeof fields.sessionId === "string" ? fields.sessionId : undefined;
         const prompt = typeof fields.prompt === "string" ? fields.prompt : "";
-        if (!provider || !modelId) throw new Error("Title generation needs a provider and a model.");
-
         if (services.runtimeOwner() === "pi") {
           const attached = services.attachedRuntime(sessionId);
           if (!attached) throw new Error("The attached Pi runtime is not ready.");
+          if (!model) throw new Error("Title generation needs a model while Pi is attached to the runtime.");
           return attached.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider, modelId, force });
         }
         const thread = services.thread(sessionId);
         if (!thread) {
           throw new Error(sessionId ? "That thread is not open any more. Open it again to continue." : "Pi runtime is not ready");
         }
-        if (thread.backendKind !== "pi") throw new Error("Only a Pi thread can be titled with Pi's model runtime; other runtimes name their threads themselves.");
         if (force && thread.isStreaming()) throw new Error("Wait for the active agent run before generating a title.");
         if (thread.sessionName() && !force) return undefined;
         // An automatic title must not wait for the run: agentic first turns take
@@ -48,12 +48,13 @@ export function createThreadTitlesHostExtension(): HostExtension {
           throw new Error("The thread has no conversation to title yet.");
         }
 
-        services.log("title.started", `${provider}/${modelId}`);
-        const title = cleanThreadTitle(await thread.complete(provider, modelId, {
+        services.log("title.started", model ? `${model.provider}/${model.id}` : "default model");
+        // Titling runs on the user's own model configuration, whichever runtime owns the thread.
+        const title = cleanThreadTitle(await services.complete({
           system: TITLE_SYSTEM_PROMPT,
           prompt: TITLE_USER_PROMPT(conversation),
           maxTokens: 48,
-        }));
+        }, model));
         if (!thread.isCurrent()) return undefined;
         await services.setThreadTitle(thread.sessionId, title, "generated");
         services.log("title.generated", title);

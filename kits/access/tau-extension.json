@@ -2,8 +2,12 @@
   "id": "tau.access",
   "name": "Access Kit",
   "version": "1.0.0",
-  "engines": { "api": "^1.4.0" },
-  "permissions": ["runtime:extend"],
+  "engines": {
+    "api": "^1.5.0"
+  },
+  "permissions": [
+    "runtime:extend"
+  ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
   "host": "./host.ts"

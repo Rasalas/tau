@@ -11,6 +11,7 @@ import type {
   ThreadIndexSnapshot,
 } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
+import type { CompletionRequest } from "./runtime-types.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
 import { assertRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
@@ -104,6 +105,7 @@ export interface ExtensionServicesPort {
   /** Whether Tau or an attached Pi terminal owns the visible runtime. */
   runtimeOwner(): "tau" | "pi";
   thread(sessionId?: string): HostThread | undefined;
+  complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
   describeProjects(facts: HostProjectFacts): () => void;
@@ -230,6 +232,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       : Promise.reject(new Error("This host has no folder picker.")),
     runtimeOwner: () => port.runtimeOwner(),
     thread: (sessionId) => port.thread(sessionId),
+    complete: (request, model) => port.complete(request, model),
     setThreadTitle: (sessionId, title, source) => port.setThreadTitle(sessionId, title, source),
     attachedRuntime: (sessionId) => port.attachedRuntime(sessionId),
     describeProjects: (facts) => port.describeProjects(facts),

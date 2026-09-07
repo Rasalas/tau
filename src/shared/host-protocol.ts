@@ -68,6 +68,8 @@ export interface HostCatalog {
   runtimeBackends?: UiRuntimeBackend[];
   defaultBackendKind?: ThreadBackendKind;
   models: UiModel[];
+  /** Models an extension's small jobs may name; the same list whatever runtime owns the thread. */
+  completionModels?: UiModel[];
   model?: UiModel;
   runtimeCapabilities?: import("./contracts.js").RuntimeCapabilities;
   thinkingLevel: string;
@@ -384,6 +386,7 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     ...(snapshot.runtimeBackends ? { runtimeBackends: snapshot.runtimeBackends.map((backend) => ({ ...backend })) } : {}),
     ...(snapshot.defaultBackendKind ? { defaultBackendKind: snapshot.defaultBackendKind } : {}),
     models: [...snapshot.models],
+    ...(snapshot.completionModels ? { completionModels: [...snapshot.completionModels] } : {}),
     model: snapshot.model,
     runtimeCapabilities: snapshot.runtimeCapabilities,
     thinkingLevel: snapshot.thinkingLevel,

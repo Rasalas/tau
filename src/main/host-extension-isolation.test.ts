@@ -92,6 +92,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
   const recorder: Recorder = { logs: [], lifecycles: [], pins: [], pending: [], names: [], started: [], exclusiveDepth: 0 };
   const facade: HostExtensionServices = {
     cwd: () => "/project",
+    complete: async () => "",
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
     stateDir: "/state",

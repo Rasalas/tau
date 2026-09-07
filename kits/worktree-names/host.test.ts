@@ -26,31 +26,35 @@ describe("branch names from model answers", () => {
 });
 
 describe("Worktree Names host extension", () => {
-  const registryWith = (thread: HostThread | undefined, owner: "tau" | "pi" = "tau") =>
-    activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread });
+  const registryWith = (thread: HostThread | undefined, complete = vi.fn(async () => "x"), owner: "tau" | "pi" = "tau") =>
+    activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread, complete });
 
-  const piThread = (answer: string) => ({
-    backendKind: "pi",
-    complete: vi.fn(async () => answer),
-  }) as unknown as HostThread;
+  const anyThread = (backendKind = "pi") => ({ backendKind }) as unknown as HostThread;
 
   it("asks the chosen model and answers with a usable branch", async () => {
-    const thread = piThread("Fix/Steer Queue Messages\n");
-    const registry = await registryWith(thread);
+    const complete = vi.fn(async () => "Fix/Steer Queue Messages\n");
+    const registry = await registryWith(anyThread(), complete);
     const result = await registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", {
       provider: "openai", modelId: "gpt-5.6", description: "Steer queued messages into the running turn", hint: "fix", taken: ["main"],
     });
     expect(result).toEqual({ branch: "fix/steer-queue-messages" });
-    const [provider, modelId, request] = (thread.complete as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string, { prompt: string }];
-    expect([provider, modelId]).toEqual(["openai", "gpt-5.6"]);
+    const [request, model] = complete.mock.calls[0] as unknown as [{ prompt: string }, { provider: string; id: string }];
+    expect(model).toEqual({ provider: "openai", id: "gpt-5.6" });
     expect(request.prompt).toContain("Steer queued messages");
   });
 
-  it("refuses without a task, a model, or a Pi thread", async () => {
-    const registry = await registryWith(piThread("x"));
+  it("names a worktree from a thread of any runtime, on the user's default model when none was chosen", async () => {
+    const complete = vi.fn(async () => "add-gemini-notes");
+    const registry = await registryWith(anyThread("antigravity"), complete);
+    await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { description: "Add Gemini notes" }))
+      .resolves.toEqual({ branch: "add-gemini-notes" });
+    expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toBeUndefined();
+  });
+
+  it("refuses without a task or a thread", async () => {
+    const registry = await registryWith(anyThread());
     const suggest = (input: unknown) => registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", input);
     await expect(suggest({ provider: "openai", modelId: "gpt-5.6", description: "  " })).rejects.toThrow(/Describe the task/u);
-    await expect(suggest({ provider: "", modelId: "", description: "task" })).rejects.toThrow(/needs a model/u);
 
     const noThread = await registryWith(undefined);
     await expect(noThread.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { provider: "p", modelId: "m", description: "task" })).rejects.toThrow(/not ready/u);

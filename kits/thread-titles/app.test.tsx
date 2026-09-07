@@ -89,7 +89,8 @@ describe("Thread Title Generator in the workbench", () => {
     fireEvent.change(composer, { target: { value: "Name this thread" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: "provider", modelId: "model", force: false, sessionId: "created", prompt: "Name this thread" }));
+    // A new thread has no model of its own yet, so the host completes on the user's default.
+    await waitFor(() => expect(generateTitle).toHaveBeenCalledWith("generate", { provider: undefined, modelId: undefined, force: false, sessionId: "created", prompt: "Name this thread" }));
     expect(await screen.findByText("Created thread title")).toBeTruthy();
     expect(screen.getAllByText("Name this thread").some((element) => element.closest(".transcript-current-row"))).toBe(true);
   });

@@ -12,16 +12,17 @@ describe("Thread Title Generator host extension", () => {
     isCurrent: () => true,
     sessionName: () => undefined,
     transcript: async () => [{ role: "user", text: "Reply with the single word pong." }],
-    complete: vi.fn(async () => "## **Thread title: `Pong reply`**"),
     ...overrides,
   }) as unknown as HostThread;
 
   it("titles the thread with the model the desktop side chose, wording the request itself", async () => {
     const thread = piThread();
     const setThreadTitle = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => "## **Thread title: `Pong reply`**");
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {
       runtimeOwner: () => "tau",
       thread: () => thread,
+      complete,
       setThreadTitle,
     });
     const result = await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {
@@ -30,21 +31,35 @@ describe("Thread Title Generator host extension", () => {
     expect(result).toEqual({ title: "Pong reply" });
     expect(setThreadTitle).toHaveBeenCalledWith("s1", "Pong reply", "generated");
     // Core has no title prompt of its own; the kit hands the whole request over.
-    expect(thread.complete).toHaveBeenCalledWith("openai", "gpt-5.6", {
+    expect(complete).toHaveBeenCalledWith({
       system: TITLE_SYSTEM_PROMPT,
       prompt: TITLE_USER_PROMPT("user: Reply with the single word pong."),
       maxTokens: 48,
-    });
+    }, { provider: "openai", id: "gpt-5.6" });
   });
 
-  it("stays silent for a thread that already has a name, and refuses without a model", async () => {
+  it("titles a thread of any runtime, on the user's default model when none was chosen", async () => {
+    const complete = vi.fn(async () => "Gemini thread");
+    const setThreadTitle = vi.fn(async () => undefined);
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau",
+      thread: () => piThread({ backendKind: "antigravity" }),
+      complete,
+      setThreadTitle,
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { prompt: "Reply with the single word pong." }))
+      .resolves.toEqual({ title: "Gemini thread" });
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: 48 }), undefined);
+    expect(setThreadTitle).toHaveBeenCalledWith("s1", "Gemini thread", "generated");
+  });
+
+  it("stays silent for a thread that already has a name", async () => {
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {
       runtimeOwner: () => "tau",
       thread: () => piThread({ sessionName: () => "Named already" }),
+      complete: async () => "Another title",
     });
-    const generate = (input: unknown) => registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", input);
-    await expect(generate({ provider: "openai", modelId: "gpt-5.6" })).resolves.toBeUndefined();
-    await expect(generate({ provider: "", modelId: "" })).rejects.toThrow(/needs a provider and a model/u);
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider: "openai", modelId: "gpt-5.6" })).resolves.toBeUndefined();
   });
 
   it("forwards to the attached Pi terminal when it owns the runtime", async () => {

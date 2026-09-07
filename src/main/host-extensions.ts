@@ -14,7 +14,7 @@ import type {
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
-import type { ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
+import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { isExpectedCommandError } from "./host-extension-errors.js";
@@ -361,6 +361,13 @@ export interface HostExtensionServices {
   runtimeOwner(): "tau" | "pi";
   /** An open thread by id, or the active one; `undefined` when it is not open. */
   thread(sessionId?: string): HostThread | undefined;
+  /**
+   * One short answer for a small job of the extension's own — a title, a
+   * branch name, a commit message. It runs on the user's Pi model
+   * configuration, so it does not depend on which runtime owns the visible
+   * thread; without a model it uses the default from `~/.pi/agent`.
+   */
+  complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */

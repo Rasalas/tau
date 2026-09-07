@@ -655,7 +655,7 @@ export function SettingsModal({
           ) : page === "inspector" ? (
             <InspectorPage registry={registry} cwd={snapshot?.cwd} />
           ) : active ? (
-            <ExtensionPage summary={active} registry={registry} models={snapshot?.models ?? []} cwd={snapshot?.cwd} onChanged={() => { setAnswered((count) => count + 1); onSetPage(active.id); }} onNotify={onNotify} />
+            <ExtensionPage summary={active} registry={registry} models={snapshot?.completionModels ?? snapshot?.models ?? []} cwd={snapshot?.cwd} onChanged={() => { setAnswered((count) => count + 1); onSetPage(active.id); }} onNotify={onNotify} />
           ) : (
             <div className="settings-page"><p className="lede">Select a page.</p></div>
           )}
