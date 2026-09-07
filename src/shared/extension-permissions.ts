@@ -63,6 +63,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   openWorkspace: "workspace:switch",
   pickDirectory: "workspace:switch",
   thread: "sessions",
+  complete: "sessions",
   setThreadTitle: "sessions",
   attachedRuntime: "sessions",
   sessions: "sessions",

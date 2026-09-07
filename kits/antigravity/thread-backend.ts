@@ -272,14 +272,8 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
     };
     this.messages.push(user);
     await this.store.appendMessages(this.threadId, this.cwd, [user]);
-    if (!this.title) {
-      const title = derivedTitle(prepared.visibleText);
-      if (title) {
-        this.title = title;
-        this.titleSource = "derived";
-        await this.store.setTitle(this.threadId, this.cwd, title, "derived");
-      }
-    }
+    // No title is stored here: the thread index names an unnamed thread after
+    // its first message, and a stored name would stop the title generator.
     this.deliver(user);
     input.onAdmitted?.(true);
     const blocks = promptBlocks(prepared.runtimeText, input.attachments);

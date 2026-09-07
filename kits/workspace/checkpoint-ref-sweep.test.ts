@@ -121,6 +121,7 @@ function liveThread(fixture: SessionFixture): HostThread {
 function services(cwd: string, sessionsDir: string, threads: readonly HostThread[] = []): HostExtensionServices {
   return {
     cwd: () => cwd,
+    complete: async () => "",
     agentDir: sessionsDir,
     sessionsDir,
     stateDir: sessionsDir,

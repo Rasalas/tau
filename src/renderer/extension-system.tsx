@@ -42,10 +42,11 @@ export interface WorkbenchActions {
   /** Opens a project like the sidebar does, named by its workspace id; `inheritDraft` carries the unsent composer text into the thread that opens there. */
   openWorkspace(workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean>;
   /**
-   * The thread on screen: its id and model, the project it runs in (a pending
-   * draft's project while the thread does not exist yet), and whether that draft is still pending.
+   * The thread on screen: its id, model and runtime owner, the project it runs
+   * in (a pending draft's project while the thread does not exist yet), and
+   * whether that draft is still pending.
    */
-  activeThread(): { sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; draftPending: boolean } | undefined;
+  activeThread(): { sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; backendKind?: string; draftPending: boolean } | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff. */
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
   /** Opens a thread in the stage as a read-only tab, leaving the active thread alone. */

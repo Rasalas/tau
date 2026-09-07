@@ -325,6 +325,8 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   /** The backend a new thread gets when the client names none. */
   defaultBackendKind?: ThreadBackendKind;
   models: UiModel[];
+  /** Models an extension's own small jobs can use; they run on the user's Pi configuration, not on this thread's runtime. */
+  completionModels?: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
   /** Cursor for the next page when this snapshot already contains a bounded window. */
@@ -386,6 +388,7 @@ export interface HostBootstrap {
     runtimeBackends?: UiRuntimeBackend[];
     defaultBackendKind?: ThreadBackendKind;
     models: UiModel[];
+    completionModels?: UiModel[];
     model?: UiModel;
     runtimeCapabilities?: RuntimeCapabilities;
     thinkingLevel: string;

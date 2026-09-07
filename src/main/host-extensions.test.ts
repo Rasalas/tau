@@ -23,6 +23,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     pickDirectory: async () => undefined,
     runtimeOwner: () => "tau" as const,
     thread: () => undefined,
+    complete: async () => "",
     setThreadTitle: async () => undefined,
     attachedRuntime: () => undefined,
     describeProjects: () => () => undefined,

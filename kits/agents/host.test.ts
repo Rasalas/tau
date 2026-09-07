@@ -85,6 +85,7 @@ function harness() {
   const services: HostExtensionServices = {
     cwd: () => "/project",
     agentDir: "/agent",
+  complete: async () => "",
     sessionsDir: "/agent/sessions",
     stateDir: "/state",
     safeMode: false,

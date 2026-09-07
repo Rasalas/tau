@@ -216,6 +216,11 @@ describe("SubmissionController", () => {
     expect(state.pending).toBeUndefined();
     expect(scopes.getSnapshot(createDraftKey(draftKey("created"))).draft).toBe("first message");
     expect(promptHooks).toHaveBeenCalledTimes(1);
+    // The new thread has no model or runtime of its own yet; the one on screen belongs to the thread that was open.
+    const [event] = promptHooks.mock.calls[0] as unknown as [{ snapshot?: { sessionId?: string; model?: unknown; backendKind?: unknown; messages: unknown[] } }];
+    expect(event.snapshot).toMatchObject({ sessionId: "created", messages: [] });
+    expect(event.snapshot?.model).toBeUndefined();
+    expect(event.snapshot?.backendKind).toBeUndefined();
   });
 
   it("sends a new thread's first prompt to the workspace a gate named, and stays put when none does", async () => {

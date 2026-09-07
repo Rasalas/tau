@@ -60,19 +60,16 @@ export function createWorktreeNamesHostExtension(): HostExtension {
         const description = text(fields.description);
         const hint = text(fields.hint);
         const taken = Array.isArray(fields.taken) ? fields.taken.filter((entry): entry is string => typeof entry === "string") : [];
-        if (!provider || !modelId) throw new Error("Naming a worktree needs a model. Pick one in the extension's settings.");
         if (!description.trim() && !hint.trim()) throw new Error("Describe the task in the composer first, or type the start of a name.");
         if (services.runtimeOwner() === "pi") throw new Error("Name the worktree yourself while Pi is attached to the runtime.");
         const thread = services.thread();
         if (!thread) throw new Error("Pi runtime is not ready");
-        if (thread.backendKind !== "pi") throw new Error("Worktree names need a Pi thread's model runtime.");
-
-        services.log("worktree-name.started", `${provider}/${modelId}`);
-        const answer = await thread.complete(provider, modelId, {
+        services.log("worktree-name.started", provider && modelId ? `${provider}/${modelId}` : "default model");
+        const answer = await services.complete({
           system: SYSTEM_PROMPT,
           prompt: buildNamingPrompt(description, hint, taken),
           maxTokens: 32,
-        });
+        }, provider && modelId ? { provider, id: modelId } : undefined);
         const branch = branchNameFromSuggestion(answer, taken);
         if (!branch) throw new Error("The model did not answer with a usable branch name.");
         services.log("worktree-name.suggested", branch);

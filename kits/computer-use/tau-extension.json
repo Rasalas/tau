@@ -2,8 +2,12 @@
   "id": "tau.computer-use",
   "name": "Computer Use",
   "version": "1.0.0",
-  "engines": { "api": "^1.4.0" },
-  "permissions": ["runtime:extend"],
+  "engines": {
+    "api": "^1.5.0"
+  },
+  "permissions": [
+    "runtime:extend"
+  ],
   "isolation": "in-process",
   "desktop": "./desktop.ts",
   "host": "./host.ts"

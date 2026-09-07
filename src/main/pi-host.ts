@@ -26,6 +26,7 @@ import type {
   UiThreadTree,
 } from "../shared/contracts.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
+import { HostCompletions } from "./host-completion.js";
 import {
   HOST_PROTOCOL_VERSION,
   catalogFromSnapshot,
@@ -147,6 +148,9 @@ export class PiHost {
   /** PI_CODING_AGENT_SESSION_DIR, resolved once; undefined keeps Pi's own default sessions layout. */
   private readonly sessionsDirOverride = resolvePiSessionsDirOverride();
   private extensionCount = 0;
+  private readonly completions: HostCompletions;
+  private completionModels?: UiModel[];
+  private completionModelsPending = false;
   private readonly lifecycleMetrics = new HostLifecycleInstrumentation();
   /** Everything host extensions contribute; only the seam writes those registries. */
   private readonly seam: HostExtensionSeam;
@@ -233,6 +237,7 @@ export class PiHost {
     options: PiHostOptions = {},
   ) {
     this.cwd = cwd;
+    this.completions = new HostCompletions({ agentDir: this.agentDir, cwd: () => this.cwd, ...(options.createModelRuntime ? { createRuntime: options.createModelRuntime } : {}) });
     this.piAdapter = assertRuntimeAdapter(this.safeMode ? PI_AGENT_RUNTIME_ADAPTER : options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER);
     if (this.piAdapter.id !== "pi") throw new Error("The host's own runtime adapter must be Pi; other backends come from host extensions.");
     this.defaultBackendKind = this.safeMode ? "pi" : options.defaultBackendKind ?? "pi";
@@ -424,6 +429,7 @@ export class PiHost {
       rememberProjectName: (cwd, name) => { this.projects.rememberName(cwd, name); },
       runtimeOwner: () => this.ownedByPi(this.active) ? "pi" : "tau",
       thread: (sessionId) => this.hostThread(sessionId),
+      complete: (request, model) => this.completions.complete(request, model),
       setThreadTitle: async (sessionId, title, source) => { await this.applyThreadTitle(this.requireThread(sessionId), title, source); },
       attachedRuntime: (sessionId) => this.ownedByPi(this.threadFor(sessionId)) ? this.attached.hostRuntime : undefined,
       describeProjects: (facts) => this.projects.add(facts),
@@ -1769,6 +1775,7 @@ export class PiHost {
   }
 
   async snapshot(): Promise<HostSnapshot> {
+    this.ensureCompletionModels();
     const models = await this.ensureModels();
     return { ...this.snapshotSync(models), projectLabel: this.projects.label(this.cwd) };
   }
@@ -1951,6 +1958,22 @@ export class PiHost {
     });
   }
 
+  /**
+   * The catalog a kit's small jobs may name. Building it opens the user's model
+   * runtime, which is too slow to hold up a snapshot, so the first snapshot
+   * goes without and a catalog update carries it a moment later.
+   */
+  private ensureCompletionModels(): void {
+    if (this.completionModels || this.completionModelsPending) return;
+    this.completionModelsPending = true;
+    void this.completions.models()
+      .then((models) => {
+        this.completionModels = models;
+        return this.publishActiveCatalog();
+      })
+      .catch(() => { this.completionModels = []; });
+  }
+
   private async ensureModels(): Promise<UiModel[]> {
     const active = this.active;
     if (!active) return [];
@@ -1982,6 +2005,7 @@ export class PiHost {
   private snapshotSync(models: UiModel[]): HostSnapshot {
     return {
       ...this.projection.hostSnapshot(this.active, models, this.cwd, this.extensionCount),
+      ...(this.completionModels ? { completionModels: this.completionModels } : {}),
       ...this.workspaces.ref(this.cwd),
       runtimeBackends: this.runtimeBackends(),
       defaultBackendKind: this.defaultBackendKind,

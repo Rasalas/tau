@@ -322,14 +322,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     };
     this.messages.push(user);
     await this.persist([user]);
-    if (!this.title) {
-      const title = derivedClaudeTitle(prepared.visibleText);
-      if (title) {
-        this.title = title;
-        this.titleSource = "derived";
-        await this.store.setTitle(this.threadId, this.cwd, title, "derived");
-      }
-    }
+    // No title is stored here: the thread index names an unnamed thread after
+    // its first message, and a stored name would stop the title generator.
     const content = promptContent(prepared.runtimeText, input.attachments);
     if (input.delivery === "steer" && this.turns.length > 0) {
       // A steer joins the running turn and returns once it is on its way; the

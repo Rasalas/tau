@@ -2,8 +2,12 @@
   "id": "tau.packages",
   "name": "Packages",
   "version": "1.0.0",
-  "engines": { "api": "^1.4.0" },
-  "permissions": ["packages"],
+  "engines": {
+    "api": "^1.5.0"
+  },
+  "permissions": [
+    "packages"
+  ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
   "styles": "./styles.css",

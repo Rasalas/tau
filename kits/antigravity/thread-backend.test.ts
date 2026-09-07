@@ -90,7 +90,9 @@ describe("AntigravityThreadRuntimeBackend", () => {
     expect(sessions[0]!.calls).toEqual(["new", "mode:yolo", "prompt:hi"]);
     expect(backend.catalogView()).toMatchObject({ model: { provider: "google", id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, usage: { inputTokens: 5, outputTokens: 2, turns: 1 } });
     expect((await backend.transcript()).map((message) => message.text)).toEqual(["hi", "hello there"]);
-    expect(backend.state()).toMatchObject({ idle: true, title: "hi" });
+    // The kit stores no name of its own: the index names an unnamed thread, and the title generator may still name it.
+    expect(backend.state()).toMatchObject({ idle: true });
+    expect(backend.state().title).toBeUndefined();
     await backend.dispose();
 
     const again = harness(store, reply("again"), { cachedModels: [{ value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }] });

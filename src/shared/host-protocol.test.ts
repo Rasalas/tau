@@ -215,6 +215,14 @@ describe("host protocol", () => {
     expect(catalogFromSnapshot(snapshot).supportsImageInput).toBe(true);
   });
 
+  it("carries the models a kit's own jobs may name, apart from the thread's own", () => {
+    const completionModels = [{ provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }];
+    const catalog = catalogFromSnapshot({ ...snapshot, completionModels });
+    expect(catalog.completionModels).toEqual(completionModels);
+    expect(catalog.completionModels).not.toBe(completionModels);
+    expect(catalogFromSnapshot(snapshot)).not.toHaveProperty("completionModels");
+  });
+
   it("carries the runtime backends a new thread can pick in the catalog", () => {
     const backends = [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme" }];
     const catalog = catalogFromSnapshot({ ...snapshot, runtimeBackends: backends, defaultBackendKind: "acme" });

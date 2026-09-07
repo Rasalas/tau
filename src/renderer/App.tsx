@@ -496,6 +496,7 @@ export default function App() {
       cwd: workspaceCwd,
       workspaceId: pendingNewThread?.workspaceId ?? snapshot?.workspaceId,
       model: snapshot?.model,
+      ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
       draftPending: newThreadDeliveryPending,
     }),
     openFile,
