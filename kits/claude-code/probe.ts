@@ -28,7 +28,29 @@ export interface ProbeInput {
 }
 
 export function uiModel(info: ModelInfo): UiModel {
-  return { provider: "anthropic", id: info.value, name: info.displayName || info.value };
+  return { provider: "anthropic", id: info.value, name: versionedModelName(info) };
+}
+
+/**
+ * The CLI's display names drop the generation ("Sonnet", "Opus (1M context)");
+ * the wire id it resolves to carries it. A name without a version gets it back
+ * from that id: "Sonnet 5", "Opus 5 (1M context)", "Default (recommended) · Sonnet 5".
+ */
+export function versionedModelName(info: Pick<ModelInfo, "value" | "displayName" | "resolvedModel">): string {
+  const shown = (info.displayName || info.value).trim();
+  const parsed = parseClaudeModelId(info.resolvedModel ?? info.value);
+  if (!parsed || new RegExp(`\\b${parsed.version.replace(".", "\\.")}\\b`, "u").test(shown)) return shown;
+  const family = parsed.family.charAt(0).toUpperCase() + parsed.family.slice(1);
+  const pattern = new RegExp(`\\b${family}\\b`, "iu");
+  if (pattern.test(shown)) return shown.replace(pattern, `${family} ${parsed.version}`);
+  return `${shown} · ${family} ${parsed.version}`;
+}
+
+/** "claude-fable-5-1[1m]" → family "fable", version "5.1"; undefined for anything else. */
+export function parseClaudeModelId(id: string): { family: string; version: string } | undefined {
+  const match = /^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-\d{8})?(?:\[.*\])?$/u.exec(id.trim());
+  if (!match) return undefined;
+  return { family: match[1]!, version: match[3] ? `${match[2]}.${match[3]}` : match[2]! };
 }
 
 /** A plan label for the status page, from what the CLI knows about its login. */

@@ -73,6 +73,16 @@ the composer at the bottom edge, agent supervision as the start screen — throu
 `body[data-profile]` and `src/renderer/profile-compact.css`, not a second
 component tree.
 
+The model picker (`src/renderer/components/ModelPicker.tsx`) keys everything on
+what the catalog says: a rail of provider icons, each the `ProviderIconStack`
+the thread rows use (the runtime's logo behind the model provider's when they
+differ), a search across every provider, favourites reachable with ⌘1–9, and
+per provider one fold for legacy generations. What the catalog does not say —
+which generations are legacy, which model wears a "new" badge for a while —
+lives in `src/renderer/model-manifest.ts`, hand maintained and dated; an
+unmatched model is current. A model behind a subscription login the runtime
+performs (`UiModel.login`) is tagged there and asked about once.
+
 ### The stage
 
 The stage is the column beside the conversation, and its tabs are of two kinds.

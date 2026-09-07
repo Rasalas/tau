@@ -20,6 +20,7 @@ import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { SubscriptionLoginPrompt } from "./SubscriptionLoginPrompt";
+import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
@@ -721,7 +722,9 @@ export function Composer({
               : "Model selection unavailable"}
             onClick={() => { if (modelSelectionAvailable) setModelPickerOpen(true); }}
           >
-            <Sparkles size={13} className="accent" />
+            {snapshot?.model
+              ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
+              : <Sparkles size={13} className="accent" />}
             {snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}
             {modelSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
           </button>
@@ -838,6 +841,7 @@ export function Composer({
           activeKey={snapshot?.model ? modelKey(snapshot.model) : undefined}
           onSelect={chooseModel}
           onClose={() => setModelPickerOpen(false)}
+          runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
         />
       ) : null}
       {subscriptionAsk ? (

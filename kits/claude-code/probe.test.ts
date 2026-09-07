@@ -1,6 +1,6 @@
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { describeAccount, probeClaude } from "./probe.js";
+import { describeAccount, parseClaudeModelId, probeClaude, versionedModelName } from "./probe.js";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 const frame = <T extends object>(value: T): SDKMessage => ({ uuid: "u", session_id: "s", ...value }) as unknown as SDKMessage;
@@ -59,5 +59,21 @@ describe("probeClaude", () => {
     expect(describeAccount({ tokenSource: "apiKey" })).toBe("API key");
     expect(describeAccount(undefined, "ANTHROPIC_API_KEY")).toBe("API key (ANTHROPIC_API_KEY)");
     expect(describeAccount(undefined, "none")).toBe("signed in");
+  });
+});
+
+describe("versionedModelName", () => {
+  it("puts the generation back into a display name that dropped it", () => {
+    expect(versionedModelName({ value: "sonnet", displayName: "Sonnet", resolvedModel: "claude-sonnet-5" })).toBe("Sonnet 5");
+    expect(versionedModelName({ value: "opus[1m]", displayName: "Opus (1M context)", resolvedModel: "claude-opus-5[1m]" })).toBe("Opus 5 (1M context)");
+    expect(versionedModelName({ value: "claude-fable-5-1[1m]", displayName: "Fable" })).toBe("Fable 5.1");
+    expect(versionedModelName({ value: "default", displayName: "Default (recommended)", resolvedModel: "claude-sonnet-5" })).toBe("Default (recommended) · Sonnet 5");
+    expect(versionedModelName({ value: "haiku", displayName: "Haiku", resolvedModel: "claude-haiku-4-5-20251001" })).toBe("Haiku 4.5");
+  });
+
+  it("leaves names that carry a version, or ids it cannot read, alone", () => {
+    expect(versionedModelName({ value: "claude-sonnet-5", displayName: "Claude Sonnet 5" })).toBe("Claude Sonnet 5");
+    expect(versionedModelName({ value: "default", displayName: "Default (recommended)" })).toBe("Default (recommended)");
+    expect(parseClaudeModelId("gpt-5")).toBeUndefined();
   });
 });

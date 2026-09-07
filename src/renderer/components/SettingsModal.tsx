@@ -11,6 +11,7 @@ import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { PackageProvenance } from "./PackageProvenance";
 import { PanelIcon } from "./PanelIcon";
+import { ProviderIconStack } from "./ProviderIconStack";
 
 function DefaultsPage({
   snapshot,
@@ -33,7 +34,9 @@ function DefaultsPage({
 
       <div className="settings-label">MODEL</div>
       <button className="settings-field" onClick={() => setPickerOpen(true)}>
-        <Sparkles size={14} className="accent" />
+        {snapshot?.model
+          ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
+          : <Sparkles size={14} className="accent" />}
         <span>
           <strong>{snapshot?.model?.name ?? "No model selected"}</strong>
           <small>{snapshot?.model?.provider ?? "pi"} · via ~/.pi/agent{snapshot?.model?.login === "subscription" ? " · subscription login" : ""}</small>
@@ -46,6 +49,7 @@ function DefaultsPage({
           activeKey={snapshot?.model ? modelKey(snapshot.model) : undefined}
           onSelect={(model) => onSetModel(model.provider, model.id)}
           onClose={() => setPickerOpen(false)}
+          runtime={snapshot?.backendKind}
         />
       ) : null}
 

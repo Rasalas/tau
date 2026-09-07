@@ -404,3 +404,24 @@ describe("thread runtime backends", () => {
     expect(opened).toHaveLength(1);
   });
 });
+
+describe("the current model's name", () => {
+  it("names a thread after the model the default row resolves to, with its version", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter } = scriptedAdapter(filePath, () => turn("ok"));
+    const infos = [
+      { value: "default", displayName: "Default (recommended)", description: "", resolvedModel: "claude-opus-5" },
+      { value: "opus[1m]", displayName: "Opus (1M context)", description: "", resolvedModel: "claude-opus-5[1m]" },
+      { value: "haiku", displayName: "Haiku", description: "", resolvedModel: "claude-haiku-4-5-20251001" },
+    ];
+    adapter.probe = vi.fn(async () => ({ models: infos.map((info) => ({ provider: "anthropic", id: info.value, name: info.displayName })), modelInfos: infos, probedAt: 1 }));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+    await backend.start("create");
+    const internals = backend as unknown as { modelInfos?: typeof infos; model?: string };
+    internals.modelInfos = infos;
+    internals.model = "claude-opus-5";
+    expect(backend.catalogView().model).toEqual({ provider: "anthropic", id: "default", name: "Default (recommended) · Opus 5" });
+    internals.model = "haiku";
+    expect(backend.catalogView().model).toEqual({ provider: "anthropic", id: "haiku", name: "Haiku 4.5" });
+  });
+});

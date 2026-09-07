@@ -34,7 +34,7 @@ import {
   resumeDialogPrompt,
   resumeDialogResult,
 } from "./approvals.js";
-import { EFFORT_LEVELS, uiModel, type EffortLevel } from "./probe.js";
+import { EFFORT_LEVELS, uiModel, versionedModelName, type EffortLevel } from "./probe.js";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
@@ -221,8 +221,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   catalogView(): ThreadCatalogView {
     const current = this.model;
-    const info = current ? this.modelInfos?.find((candidate) => candidate.value === current || candidate.resolvedModel === current) : undefined;
-    const model: UiModel | undefined = this.model ? { provider: "anthropic", id: info?.value ?? this.model, name: info?.displayName ?? this.model } : undefined;
+    // The CLI's "default" row resolves to a real model; a thread that runs that model is named after the model, not the row.
+    const info = current
+      ? this.modelInfos?.find((candidate) => candidate.value === current)
+        ?? this.modelInfos?.find((candidate) => candidate.value !== "default" && candidate.resolvedModel === current)
+        ?? this.modelInfos?.find((candidate) => candidate.resolvedModel === current)
+      : undefined;
+    const model: UiModel | undefined = this.model ? { provider: "anthropic", id: info?.value ?? this.model, name: info ? versionedModelName(info) : this.model } : undefined;
     const levels = info?.supportedEffortLevels ?? EFFORT_LEVELS;
     return {
       ...(model ? { model } : {}),

@@ -12,6 +12,11 @@ interface ProviderIdentity {
   fallback: string;
 }
 
+/** The display name of a model provider or runtime, as the icons know it. */
+export function providerLabel(value: string): string {
+  return providerIdentity(value)?.label ?? value;
+}
+
 function providerIdentity(value: string | undefined, runtime = false): ProviderIdentity | undefined {
   if (!value) return undefined;
   const key = value.toLocaleLowerCase().replace(/[_.\s]/gu, "-");
@@ -33,16 +38,17 @@ function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: 
   );
 }
 
-export function ProviderIconStack({ modelProvider, runtimeProvider = "pi" }: { modelProvider?: string; runtimeProvider?: string }) {
+export function ProviderIconStack({ modelProvider, runtimeProvider = "pi", className }: { modelProvider?: string; runtimeProvider?: string; className?: string }) {
   const model = providerIdentity(modelProvider);
   const runtime = providerIdentity(runtimeProvider, true);
-  const distinctRuntime = runtime && runtime.family !== model?.family ? runtime : undefined;
+  // The runtime's logo sits behind the model's unless it is the same program (Pi shows none).
+  const distinctRuntime = runtime && (runtime.family !== model?.family || runtime.label !== model?.label) ? runtime : undefined;
   if (!model && !runtime) return null;
   const label = model && distinctRuntime
     ? `${model.label} via ${distinctRuntime.label}`
     : model?.label ?? runtime?.label ?? "Unknown provider";
   return (
-    <span className={`provider-icon-stack ${distinctRuntime ? "stacked" : "single"}`} role="img" aria-label={label} title={label}>
+    <span className={`provider-icon-stack ${distinctRuntime ? "stacked" : "single"}${className ? ` ${className}` : ""}`} role="img" aria-label={label} title={label}>
       {distinctRuntime ? <ProviderIcon identity={distinctRuntime} layer="runtime" /> : null}
       {model ? <ProviderIcon identity={model} layer="model" /> : runtime ? <ProviderIcon identity={runtime} layer="model" /> : null}
     </span>
