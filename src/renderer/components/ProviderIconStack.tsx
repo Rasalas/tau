@@ -1,5 +1,6 @@
 import claudeIcon from "@lobehub/icons-static-svg/icons/claude-color.svg?no-inline";
 import claudeCodeIcon from "@lobehub/icons-static-svg/icons/claudecode-color.svg?no-inline";
+import antigravityIcon from "@lobehub/icons-static-svg/icons/antigravity-color.svg?no-inline";
 import geminiIcon from "@lobehub/icons-static-svg/icons/gemini-color.svg?no-inline";
 import openAiIcon from "@lobehub/icons-static-svg/icons/openai.svg?no-inline";
 import openCodeIcon from "@lobehub/icons-static-svg/icons/opencode.svg?no-inline";
@@ -22,6 +23,7 @@ function providerIdentity(value: string | undefined, runtime = false): ProviderI
   const key = value.toLocaleLowerCase().replace(/[_.\s]/gu, "-");
   if (["anthropic", "claude"].includes(key)) return { family: "claude", label: "Claude", source: claudeIcon, fallback: "C" };
   if (key === "claude-code") return { family: "claude", label: "Claude Code", source: claudeCodeIcon, fallback: "C" };
+  if (key === "antigravity") return { family: "google", label: "Antigravity", source: antigravityIcon, fallback: "A" };
   if (["openai", "openai-codex", "gpt"].includes(key)) return { family: "openai", label: "OpenAI", source: openAiIcon, fallback: "O" };
   if (["google", "google-gemini", "gemini", "vertex-ai", "vertexai"].includes(key)) return { family: "google", label: "Google Gemini", source: geminiIcon, fallback: "G" };
   if (key === "opencode") return { family: "opencode", label: "OpenCode", source: openCodeIcon, fallback: "O" };
