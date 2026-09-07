@@ -89,6 +89,13 @@ describe("SdkTurnTranslator", () => {
     const failed = run([init(), frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["API error", "log in again"], total_cost_usd: 0, usage: {} })]);
     expect(failed.translator.outcome).toMatchObject({ error: "API error\nlog in again", usage: { turns: 1, costUsd: 0 } });
 
+    // A stopped turn comes back as an error result with an aborted reason or a diagnostic; that is an interruption, not a failure.
+    const stopped = run([init(), frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"], terminal_reason: "aborted_tools", total_cost_usd: 0.01, usage: {} })]);
+    expect(stopped.translator.outcome).toMatchObject({ interrupted: true, usage: { costUsd: 0.01 } });
+    expect(stopped.translator.outcome?.error).toBeUndefined();
+    const diagnosticOnly = run([frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["[ede_diagnostic] result_type=user"], total_cost_usd: 0, usage: {} })]);
+    expect(diagnosticOnly.translator.outcome).toMatchObject({ interrupted: true });
+
     const orphan = run([toolResult("ghost", "x")]);
     expect(orphan.events).toEqual([{ type: "tool-end", tool: { id: "ghost", name: "tool", args: {}, status: "done", output: "x", startedAt: 42, endedAt: 42 } }]);
   });

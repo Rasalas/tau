@@ -1,3 +1,4 @@
+import type { PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
   clientMessageFingerprint,
   knownSkillNames,
@@ -19,10 +20,10 @@ import {
   type UiContextUsage,
   type UiMessage,
   type UiModel,
+  type UiPromptAttachment,
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import type { PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
   askUserQuestionAnswer,
   askUserQuestionPrompts,
@@ -35,6 +36,7 @@ import {
 } from "./approvals.js";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
+import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 function derivedClaudeTitle(text: string): string | undefined {
@@ -47,6 +49,22 @@ function derivedClaudeTitle(text: string): string | undefined {
   const title = firstLine.replace(/(?:\*\*|__|~~|`)+/gu, "").replace(/[.!?:;]+$/u, "").trim();
   return title ? title.slice(0, 80) : undefined;
 }
+
+/** Images go before the text: the CLI reads a slash command only from a trailing text block. */
+export function promptContent(text: string, attachments: readonly UiPromptAttachment[] | undefined): UserContent {
+  if (!attachments?.length) return text;
+  return [
+    ...attachments.map((attachment) => ({
+      type: "image" as const,
+      source: { type: "base64" as const, media_type: attachment.mimeType as "image/png", data: attachment.data },
+    })),
+    { type: "text" as const, text },
+  ];
+}
+
+const MISSING_SESSION = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid)|(?:no|cannot|could not)\s+(?:find\s+)?(?:the\s+)?(?:session|conversation)/iu;
+const INTERRUPT_GRACE_MS = 3_000;
+const STDERR_TAIL_BYTES = 8 * 1024;
 
 export interface ClaudeThreadBackendOptions {
   adapter: ClaudeCodeAgentRuntimeAdapter;
@@ -62,16 +80,33 @@ export interface ClaudeThreadBackendOptions {
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
   now?(): number;
+  /** How long an interrupt may take before the session is closed instead. */
+  interruptGraceMs?: number;
 }
 
-interface LiveTurn {
+interface LiveSession {
+  session: ClaudeSdkSession;
+  mode: PermissionMode;
+  /** The session resumed an earlier one rather than creating it. */
+  resumed: boolean;
+  /** The first result of this session flips the store to "started". */
+  confirmed: boolean;
+  stderr: string;
+}
+
+interface Turn {
   translator: SdkTurnTranslator;
+  text: string;
+  /** Set once its result arrived and the turn was settled. */
+  status?: "completed" | "interrupted" | "error";
 }
 
 /**
  * Claude's complete thread owner. It never constructs an AgentSession or
  * consults Pi's SessionManager, model catalog, context window, or extensions.
- * One turn is one SDK query; its frames stream to the host as Tau events.
+ * One SDK session lives as long as the thread is live (ADR 0004); a turn is a
+ * user message and the result that consumed it. A steer joins the running
+ * turn; a follow-up waits behind it.
  */
 export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly kind = "claude-code" as const;
@@ -80,7 +115,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly capabilities: ThreadBackendCapabilities = {};
   private record?: Awaited<ReturnType<ClaudeRuntimeSessionStore["get"]>>;
   private messages: UiMessage[] = [];
-  private live?: LiveTurn;
+  private live?: LiveSession;
+  /** The running turn first, then the ones queued behind it. */
+  private readonly turns: Turn[] = [];
+  private steering: string[] = [];
   private title?: string;
   private titleSource?: ThreadTitleSource;
   private usage: UiThreadUsage = SdkTurnTranslator.emptyUsage();
@@ -146,14 +184,15 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   state(): ThreadBackendState {
+    const running = this.turns[0];
     return {
-      streaming: this.live !== undefined,
-      idle: this.live === undefined,
+      streaming: running !== undefined,
+      idle: running === undefined,
       hasMessages: this.messages.length > 0,
       ...(this.title ? { title: this.title } : {}),
       ...(this.titleSource ? { titleSource: this.titleSource } : {}),
-      activeTools: [...(this.live?.translator.running.values() ?? [])].map((tool) => tool.name),
-      supportsImageInput: false,
+      activeTools: [...(running?.translator.running.values() ?? [])].map((tool) => tool.name),
+      supportsImageInput: true,
       extensionCount: 0,
     };
   }
@@ -201,11 +240,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Claude delivery.");
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
-    assertClaudePermissionPolicySupported(runtimePermissionPolicy(permissionLevel), { canAsk: this.options.ask !== undefined });
+    const mode = runtimePermissionPolicy(permissionLevel).permissionMode;
+    assertClaudePermissionPolicySupported({ permissionMode: mode }, { canAsk: this.options.ask !== undefined });
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     this.assertPreparedPrompt(input.text, prepared, await this.skills());
     const clientMessageId = input.identity?.clientMessageId;
-    if (input.attachments?.length) throw new Error("Image attachments are not supported by the selected runtime adapter.");
     if (clientMessageId) {
       const existing = this.messages.find((message) => message.role === "user" && message.clientMessageId === clientMessageId);
       if (existing) {
@@ -214,7 +253,6 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         throw new Error(`Claude transcript already contains a conflicting message id '${clientMessageId}'.`);
       }
     }
-    if (this.live) throw new Error("Claude Code cannot steer or queue a live turn yet.");
     // Persist the visible message as soon as the runtime accepts it; the
     // transport separately records the attempt before creating a child.
     const user: UiMessage = {
@@ -224,6 +262,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       role: "user",
       text: prepared.visibleText,
       ...(prepared.skill ? { skill: prepared.skill } : {}),
+      ...(input.attachments?.length ? { images: input.attachments.map((attachment) => ({ mimeType: attachment.mimeType, data: attachment.data })) } : {}),
       timestamp: this.now(),
     };
     this.messages.push(user);
@@ -236,38 +275,157 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         await this.store.setTitle(this.threadId, this.cwd, title, "derived");
       }
     }
-    const translator = new SdkTurnTranslator(this.now);
-    this.live = { translator };
-    this.report({ type: "turn-started" });
-    this.deliverMessage(user);
-    input.onAdmitted?.(true);
-    try {
-      await this.runtimeAdapter.stream({
-        cwd: this.cwd,
-        tauThreadId: this.threadId,
-        sessionId: this.providerSessionId,
-        text: prepared.runtimeText,
-        delivery: input.delivery,
-        ...(clientMessageId ? { clientMessageId } : {}),
-        permissionLevel,
-        signal: input.signal,
-      }, (frame) => { for (const event of translator.push(frame)) this.handleEvent(event); }, this.turnHooks());
-      await this.finishTurn(translator);
-      this.report({ type: "turn-settled", status: "completed" });
-      return { assistantText: translator.outcome?.texts.join("\n\n") ?? "" };
-    } catch (error) {
-      await this.finishTurn(translator);
-      if (error instanceof Error && error.name === "AbortError") {
-        this.report({ type: "turn-settled", status: "interrupted" });
-        return {};
-      }
-      this.report({ type: "notice", message: error instanceof Error ? error.message : String(error), level: "error" });
-      this.report({ type: "turn-settled", status: "error" });
-      throw error;
-    } finally {
-      this.live = undefined;
-      this.record = await this.store.get(this.threadId);
+    const content = promptContent(prepared.runtimeText, input.attachments);
+    if (input.delivery === "steer" && this.turns.length > 0) {
+      // A steer joins the running turn and returns once it is on its way; the
+      // turn's own result clears it from the queue the composer shows.
+      const live = await this.ensureSession(permissionLevel, mode, false);
+      this.deliverMessage(user);
+      input.onAdmitted?.(true);
+      this.steering.push(prepared.visibleText);
+      this.reportQueue();
+      void live.session.send(content, "now").catch(() => undefined).finally(() => {
+        this.steering = this.steering.filter((text) => text !== prepared.visibleText);
+        this.reportQueue();
+      });
+      return {};
     }
+    let echoed = false;
+    for (let attempt = 0; ; attempt += 1) {
+      const live = await this.ensureSession(permissionLevel, mode, attempt > 0);
+      const running = this.turns.length > 0;
+      const turn: Turn = { translator: new SdkTurnTranslator(this.now), text: prepared.visibleText };
+      this.turns.push(turn);
+      if (!running) this.beginTurn(turn);
+      else this.reportQueue();
+      if (!echoed) {
+        echoed = true;
+        this.deliverMessage(user);
+        input.onAdmitted?.(true);
+      }
+      const priority: SendPriority = running || input.queued ? "later" : "next";
+      try {
+        await live.session.send(content, priority);
+      } catch (error) {
+        // The session ended: onExit already settled every turn it held.
+        if (error instanceof Error && error.name === "AbortError") return {};
+        throw error;
+      }
+      const outcome = turn.translator.outcome;
+      if (attempt === 0 && outcome?.error && MISSING_SESSION.test(outcome.error) && live.resumed && !this.record?.createFallbackUsed) {
+        // The id Claude was asked to resume is gone: one fresh start under the same id.
+        await this.store.markAttemptOutcome(this.threadId, this.cwd, "missing");
+        await this.store.markCreateFallbackUsed(this.threadId, this.cwd);
+        this.record = await this.store.get(this.threadId);
+        await live.session.close();
+        continue;
+      }
+      await this.persistUsage();
+      if (outcome?.interrupted) return {};
+      if (!live.confirmed && !outcome?.error) {
+        live.confirmed = true;
+        await this.store.markStarted(this.threadId, this.cwd);
+        await this.store.markAttemptOutcome(this.threadId, this.cwd, "started");
+        this.record = await this.store.get(this.threadId);
+      }
+      if (outcome?.error) {
+        await this.store.markAttemptOutcome(this.threadId, this.cwd, "failed");
+        throw new Error(`Claude Code reported an error: ${outcome.error}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`);
+      }
+      return { assistantText: outcome?.texts.join("\n\n") ?? "" };
+    }
+  }
+
+  /** The thread's live session, opened on the first turn and after a close; `create` forces a fresh session under the stored id. */
+  private async ensureSession(permissionLevel: RuntimePermissionLevel, mode: PermissionMode, create: boolean): Promise<LiveSession> {
+    if (this.live && !this.live.session.closed) {
+      if (this.live.mode !== mode) {
+        await this.live.session.setPermissionMode(mode);
+        this.live.mode = mode;
+      }
+      return this.live;
+    }
+    const record = await this.store.ensure(this.threadId, this.cwd);
+    // `attempted` is persisted before spawning. On the next request a
+    // previously attempted-but-unconfirmed id is resumed first; only a
+    // clear "missing session" response permits one create fallback.
+    const resumed = !create && (record.started || record.attempted);
+    await this.store.markAttempted(this.threadId, this.cwd);
+    this.record = await this.store.get(this.threadId);
+    const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, resumed, confirmed: false, stderr: "" };
+    live.session = this.runtimeAdapter.openSession({
+      cwd: this.cwd,
+      claudeSessionId: record.claudeSessionId,
+      started: resumed,
+      permissionLevel,
+      ...(this.turnHooks() ? { hooks: this.turnHooks() } : {}),
+      onMessage: (frame) => this.onFrame(frame),
+      onExit: (error) => this.onExit(live, error),
+      onStderr: (chunk) => { live.stderr = `${live.stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
+    });
+    this.live = live;
+    return live;
+  }
+
+  private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0]): void {
+    const turn = this.turns[0];
+    if (!turn) {
+      // Before any turn: remember what the session says about itself.
+      if (frame.type === "system") {
+        const probe = new SdkTurnTranslator(this.now);
+        probe.push(frame);
+        if (probe.facts.model) this.model = probe.facts.model;
+      }
+      return;
+    }
+    const events = turn.translator.push(frame);
+    for (const event of events) this.handleEvent(event);
+    if (frame.type !== "result" || !turn.translator.outcome) return;
+    // Bookkeeping right here, before the CLI's next frame: the queued turn
+    // behind this one starts the moment this result is in.
+    this.turns.shift();
+    const outcome = turn.translator.outcome;
+    this.settleTurn(turn, outcome.interrupted ? "interrupted" : outcome.error ? "error" : "completed");
+    const next = this.turns[0];
+    if (next) this.beginTurn(next);
+    else this.reportQueue();
+  }
+
+  private beginTurn(_turn: Turn): void {
+    this.report({ type: "turn-started" });
+    this.reportQueue();
+  }
+
+  private settleTurn(turn: Turn, status: NonNullable<Turn["status"]>): void {
+    if (turn.status) return;
+    turn.status = status;
+    const outcome = turn.translator.outcome;
+    if (turn.translator.facts.model) this.model = turn.translator.facts.model;
+    if (outcome) {
+      this.usage = addUsage(this.usage, outcome.usage);
+      if (outcome.contextUsage) this.contextUsage = outcome.contextUsage;
+      this.report({ type: "usage" });
+      if (outcome.error) this.report({ type: "notice", message: `Claude Code reported an error: ${outcome.error}`, level: "error" });
+    }
+    this.report({ type: "turn-settled", status });
+  }
+
+  private onExit(live: LiveSession, error: unknown): void {
+    if (this.live === live) this.live = undefined;
+    const status = error ? "error" : "interrupted";
+    if (error) this.report({ type: "notice", message: `Claude Code stopped: ${error instanceof Error ? error.message : String(error)}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`, level: "error" });
+    for (const turn of this.turns.splice(0)) this.settleTurn(turn, status);
+    this.steering = [];
+    this.reportQueue();
+  }
+
+  private reportQueue(): void {
+    this.report({ type: "queue", steering: [...this.steering], followUp: this.turns.slice(1).map((turn) => turn.text) });
+  }
+
+  private async persistUsage(): Promise<void> {
+    if (this.usage.turns === 0) return;
+    await this.store.recordUsage(this.threadId, this.cwd, this.usage);
   }
 
   /** Claude's questions during a turn go to the workbench; without a dialog surface the SDK gets none. */
@@ -319,17 +477,6 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return signal.aborted ? { behavior: "cancelled" } : resumeDialogResult(answer);
   }
 
-  /** What one turn leaves behind: its messages are already in; usage and facts follow. */
-  private async finishTurn(translator: SdkTurnTranslator): Promise<void> {
-    if (translator.facts.model) this.model = translator.facts.model;
-    const outcome = translator.outcome;
-    if (!outcome) return;
-    this.usage = addUsage(this.usage, outcome.usage);
-    if (outcome.contextUsage) this.contextUsage = outcome.contextUsage;
-    await this.store.recordUsage(this.threadId, this.cwd, this.usage);
-    this.report({ type: "usage" });
-  }
-
   private handleEvent(event: ThreadRuntimeEvent): void {
     if (event.type === "assistant-end") {
       this.messages.push(event.message);
@@ -353,7 +500,24 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.options.onEvent?.(event);
   }
 
-  async abort(): Promise<void> { await this.runtimeAdapter.transport.abort?.(this.threadId); }
+  /**
+   * Interrupt first; when the turn does not settle in time the session is
+   * closed instead (background tasks keep the CLI alive), and the next prompt
+   * resumes the same Claude session in a fresh process.
+   */
+  async abort(): Promise<void> {
+    const live = this.live;
+    if (!live || live.session.closed) return;
+    if (this.turns.length === 0) return;
+    await live.session.interrupt().catch(() => undefined);
+    const deadline = this.now() + (this.options.interruptGraceMs ?? INTERRUPT_GRACE_MS);
+    while (this.turns.length > 0 && this.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25).unref?.());
+    }
+    if (this.turns.length === 0) return;
+    await live.session.close();
+  }
+
   async persist(messages: readonly UiMessage[]): Promise<void> {
     const commands = await this.skills();
     await this.store.appendExchange(this.threadId, this.cwd, messages, {
@@ -367,13 +531,17 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.store.setTitle(this.threadId, this.cwd, safeTitle, source);
   }
   async waitForIdle(): Promise<void> {
-    if (!this.live) return;
+    if (this.turns.length === 0) return;
     await new Promise<void>((resolve) => {
-      const check = () => this.live ? setTimeout(check, 10).unref?.() : resolve();
+      const check = () => this.turns.length > 0 ? setTimeout(check, 10).unref?.() : resolve();
       check();
     });
   }
-  async dispose(): Promise<void> { if (this.live) await this.abort(); }
+  async dispose(): Promise<void> {
+    const live = this.live;
+    this.live = undefined;
+    if (live && !live.session.closed) await live.session.close();
+  }
 
   private assertPreparedPrompt(
     text: string,

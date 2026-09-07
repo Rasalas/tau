@@ -1,6 +1,7 @@
 import { query as sdkQuery, type CanUseTool, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
 import manifest from "./tau-extension.json";
+import { ClaudeSdkSession } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 /** The SDK entry the adapter drives; tests inject a scripted one. */
@@ -50,8 +51,23 @@ export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   readonly transport: RuntimeTransport;
   /** One turn with every SDK frame reported as it arrives; resolves when the turn's result is in. */
   stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult>;
+  /** A live session for a thread, started; the backend feeds it turns and closes it. */
+  openSession(input: ClaudeSessionInput): ClaudeSdkSession;
   /** Shared app-data store used to resume this adapter after eviction/restart. */
   readonly sessionStore?: ClaudeRuntimeSessionStore;
+}
+
+export interface ClaudeSessionInput {
+  cwd: string;
+  claudeSessionId: string;
+  /** Resume the session instead of creating it under `claudeSessionId`. */
+  started: boolean;
+  permissionLevel: RuntimePermissionLevel;
+  hooks?: ClaudeTurnHooks;
+  onMessage(message: SDKMessage): void;
+  onExit(error: unknown | undefined): void;
+  /** The CLI's stderr, for the message when the session fails. */
+  onStderr?(chunk: string): void;
 }
 
 export interface ClaudeCodeRuntimeOptions {
@@ -301,11 +317,31 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
         }
   }
 
+  function openSession(input: ClaudeSessionInput): ClaudeSdkSession {
+    const policy = runtimePermissionPolicy(input.permissionLevel);
+    const queryOptions = claudeQueryOptions({
+      cwd: input.cwd,
+      executable: options.resolveCommand?.(command) ?? command,
+      claudeSessionId: input.claudeSessionId,
+      started: input.started,
+      policy,
+      // The session owns the controller it actually aborts with.
+      abortController: new AbortController(),
+      env,
+      ...(input.onStderr ? { stderr: input.onStderr } : {}),
+      ...(input.hooks ? { hooks: input.hooks } : {}),
+    });
+    const session = new ClaudeSdkSession({ query, options: queryOptions, claudeSessionId: input.claudeSessionId, onMessage: input.onMessage, onExit: input.onExit });
+    session.start();
+    return session;
+  }
+
   return {
     id: "claude-code",
     capabilities,
     sessionStore,
     stream: (input, onMessage, hooks) => deliver(input, onMessage, hooks),
+    openSession,
     transport: {
       sendPrompt: (input) => deliver(input),
       async abort(tauThreadId) {

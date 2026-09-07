@@ -130,6 +130,26 @@ describe("Claude Code runtime adapter", () => {
     expect(seen).toEqual(["system", "assistant", "assistant", "result"]);
   });
 
+  it("opens a live session with the same options a turn gets, minus the prompt", async () => {
+    let params: { prompt: unknown; options?: Options } | undefined;
+    const query = ((received: { prompt: unknown; options?: Options }) => {
+      params = received;
+      async function* run(): AsyncGenerator<SDKMessage, void> { yield init(); }
+      return Object.assign(run(), { interrupt: vi.fn(), setPermissionMode: vi.fn(), setModel: vi.fn() }) as unknown as ReturnType<ClaudeQuery>;
+    }) as unknown as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", resolveCommand: () => "/opt/claude", storePath: store("session"), query, env: { PATH: "/bin" } });
+    const seen: string[] = [];
+    const exits: unknown[] = [];
+    const canUseTool = vi.fn();
+    const session = adapter.openSession({ cwd: "/repo", claudeSessionId: SESSION, started: true, permissionLevel: "ask", hooks: { canUseTool }, onMessage: (message) => { seen.push(message.type); }, onExit: (error) => { exits.push(error); } });
+    expect(typeof params?.prompt).toBe("object");
+    expect(params?.options).toMatchObject({ cwd: "/repo", pathToClaudeCodeExecutable: "/opt/claude", resume: SESSION, permissionMode: "default", canUseTool, includePartialMessages: true, env: { PATH: "/bin", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
+    expect(params?.options?.abortController).toBe(session.abortController);
+    await session.close();
+    expect(seen).toEqual(["system"]);
+    expect(exits).toEqual([undefined]);
+  });
+
   it("aborts a running turn and everything queued behind it without blocking the next turn", async () => {
     const { query } = scripted(async (call) => {
       if (call.prompt !== "hang") return [init(), assistant("ok"), success()];

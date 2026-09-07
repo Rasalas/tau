@@ -18,6 +18,17 @@ export interface TurnOutcome {
   usage: UiThreadUsage;
   contextUsage?: UiContextUsage;
   error?: string;
+  /** The turn was stopped, by the user or by the host; nothing went wrong. */
+  interrupted?: boolean;
+}
+
+/** The CLI reports a stopped turn as an error result; its diagnostics are not for the user. */
+function interruptedResult(message: ResultMessage): boolean {
+  const reason = (message as { terminal_reason?: string }).terminal_reason;
+  if (reason === "aborted_streaming" || reason === "aborted_tools") return true;
+  const errors = (message as { errors?: unknown }).errors;
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  return errors.every((error) => typeof error === "string" && (/^\[ede_diagnostic\]/u.test(error) || /interrupted|aborted/iu.test(error)));
 }
 
 export interface SdkSessionFacts {
@@ -213,7 +224,9 @@ export class SdkTurnTranslator {
 
   private result(message: ResultMessage): ThreadRuntimeEvent[] {
     if (message.subtype !== "success" || message.is_error) {
-      this.outcome = { texts: this.texts, usage: resultUsage(message), error: resultErrorText(message) };
+      this.outcome = interruptedResult(message)
+        ? { texts: this.texts, usage: resultUsage(message), interrupted: true }
+        : { texts: this.texts, usage: resultUsage(message), error: resultErrorText(message) };
       return [];
     }
     // A resumed session answers with an empty result before the turn.

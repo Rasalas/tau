@@ -98,6 +98,17 @@ describe("TurnDelivery", () => {
     expect(port.turnObservers.accepted).toHaveBeenCalledWith("session", expect.any(String), { deferBefore: false });
     await delivery.queued("steer", "wait", [], "session");
     expect(port.turnObservers.accepted).toHaveBeenLastCalledWith("session", expect.any(String), { deferBefore: false, expectsInput: false });
+    // A steer joins the observed turn: announced, never ended on its own.
+    expect(port.turnObservers.ended).toHaveBeenCalledTimes(1);
+    expect(port.turnObservers.prepare).toHaveBeenCalledTimes(1);
+    // Admission reaches the caller as soon as the backend reports it.
+    const admitted = vi.fn();
+    const early = makeThread({ kind: "external", journal: false, prompt: (async (input: { onAdmitted?: (accepted: boolean) => void }) => { input.onAdmitted?.(true); await new Promise((resolve) => setTimeout(resolve, 5)); return {}; }) as never });
+    const earlyDelivery = makeDelivery(early.thread);
+    const run = earlyDelivery.delivery.toRuntime(early.thread, "work", [], "prompt", undefined, undefined, admitted);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(admitted).toHaveBeenCalledWith(true);
+    await run;
     expect(port.turnObservers.prepare).toHaveBeenCalled();
     expect(port.turnObservers.ended).toHaveBeenCalledWith("session", expect.any(String), "completed");
     expect(port.turnObservers.cancelled).not.toHaveBeenCalled();

@@ -1485,13 +1485,27 @@ export class PiHost {
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
     if (!thread.backend.capabilities.journal) {
-      try {
-        await this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared);
-      } catch (error) {
-        onPreflightResult?.({ accepted: false, error });
-        throw error;
-      }
-      onPreflightResult?.({ accepted: true });
+      // The composer waits for admission, not for the whole turn: a streamed
+      // runtime reports it as soon as the message is on its way, and this call
+      // returns then. What breaks after admission is reported as a failure of
+      // the thread, as on the journal path.
+      const preflight: { state: PromptPreflightState; rejection?: unknown } = { state: "pending" };
+      let resolveAdmitted!: () => void;
+      const admitted = new Promise<void>((resolve) => { resolveAdmitted = resolve; });
+      const report = (result: PromptPreflightResult) => {
+        if (preflight.state !== "pending") return;
+        preflight.state = result.accepted ? "accepted" : "rejected";
+        if (!result.accepted) preflight.rejection = result.error ?? new Error("The prompt was rejected before it started.");
+        onPreflightResult?.(result);
+        resolveAdmitted();
+      };
+      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted) => { if (accepted) report({ accepted: true }); })
+        .then(() => report({ accepted: true }), (error) => {
+          if (preflight.state === "pending") report({ accepted: false, error });
+          else this.fail(error, thread.threadId);
+        });
+      await Promise.race([admitted, run]);
+      if (preflight.state === "rejected") throw preflight.rejection;
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
