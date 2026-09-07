@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { AccountInfo, ModelInfo, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { UiModel } from "tau/host-extension";
 import type { ClaudeQuery } from "./runtime-adapter.js";
@@ -54,11 +56,26 @@ export function parseClaudeModelId(id: string): { family: string; version: strin
 }
 
 /** A plan label for the status page, from what the CLI knows about its login. */
+/**
+ * The CLI's own version. The initialize response carries none and the init
+ * frame only arrives with a turn, so a page that wants the version asks the
+ * binary. Never throws: an unreadable version is simply unknown.
+ */
+export async function readClaudeVersion(command: string, run: typeof execFile = execFile): Promise<string | undefined> {
+  try {
+    const { stdout } = await promisify(run)(command, ["--version"], { timeout: 5_000 });
+    return /\d+\.\d+\.\d+[^\s]*/u.exec(String(stdout))?.[0];
+  } catch {
+    return undefined;
+  }
+}
+
 export function describeAccount(account: AccountInfo | undefined, apiKeySource?: string): string {
   if (!account) return apiKeySource && apiKeySource !== "none" ? `API key (${apiKeySource})` : "signed in";
   const provider = account.apiProvider;
   if (provider && provider !== "firstParty") return `via ${provider}`;
-  if (account.subscriptionType) return `Claude ${account.subscriptionType}`;
+  // The CLI names the plan either way round ("Max" or "Claude Max").
+  if (account.subscriptionType) return /^claude\b/iu.test(account.subscriptionType) ? account.subscriptionType : `Claude ${account.subscriptionType}`;
   if (account.tokenSource === "apiKey" || (account.apiKeySource && account.apiKeySource !== "none")) return "API key";
   return "signed in";
 }

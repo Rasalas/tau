@@ -29,6 +29,9 @@ async function generate(
 export function automaticTitleModel(event: PromptSubmittedEvent, preferences: PreferencesStore): { provider: string; id: string } | undefined {
   const snapshot = event.snapshot;
   if (!automatic(preferences) || !snapshot?.model) return undefined;
+  // Only Pi lends its model runtime for a title; another runtime names its own
+  // threads, and saying so on every first prompt would be noise.
+  if (snapshot.backendKind !== undefined && snapshot.backendKind !== "pi") return undefined;
   if (snapshot.messages.some((message) => message.role === "user")) return undefined;
   return snapshot.model;
 }

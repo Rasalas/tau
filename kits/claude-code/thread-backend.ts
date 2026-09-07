@@ -189,7 +189,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (record.usage) this.usage = { ...record.usage };
     this.chosenModel = record.model;
     this.chosenEffort = effortLevel(record.effort);
-    if (this.chosenModel) this.model = this.chosenModel;
+    this.model = this.chosenModel ?? record.observedModel;
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message, ...(message.skill ? { skill: { ...message.skill } } : {}) })); }
@@ -469,7 +469,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   /** What the session says about itself, once per init frame. */
   private noteFacts(facts: SdkTurnTranslator["facts"]): void {
-    if (facts.model) this.model = facts.model;
+    if (facts.model && facts.model !== this.model) {
+      this.model = facts.model;
+      void this.store.setObservedModel(this.threadId, this.cwd, facts.model).catch(() => undefined);
+    }
     if (facts.effort) this.observedEffort = facts.effort;
   }
 

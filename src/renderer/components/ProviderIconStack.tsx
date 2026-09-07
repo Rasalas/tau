@@ -18,6 +18,11 @@ export function providerLabel(value: string): string {
   return providerIdentity(value)?.label ?? value;
 }
 
+/** Whether this provider has a mark of its own; a letter beside its name would only repeat it. */
+export function hasProviderMark(value: string | undefined): boolean {
+  return providerIdentity(value)?.source !== undefined;
+}
+
 function providerIdentity(value: string | undefined, runtime = false): ProviderIdentity | undefined {
   if (!value) return undefined;
   const key = value.toLocaleLowerCase().replace(/[_.\s]/gu, "-");

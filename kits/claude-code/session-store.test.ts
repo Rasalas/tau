@@ -296,3 +296,16 @@ describe("ClaudeRuntimeSessionStore.defaultPath", () => {
     expect(ClaudeRuntimeSessionStore.defaultPath("/repo/.tau-dev/pi-sessions")).toBe("/repo/.tau-dev/tau/claude-runtime-sessions.json");
   });
 });
+
+describe("the model a thread ran on", () => {
+  it("survives a reload without pinning the thread to it", async () => {
+    const { filePath } = await temporaryStore();
+    const store = new ClaudeRuntimeSessionStore({ filePath });
+    await store.ensure("thread", "/repo");
+    await store.setObservedModel("thread", "/repo", "claude-haiku-4-5");
+    await store.setObservedModel("thread", "/repo", "claude-haiku-4-5");
+    const record = await new ClaudeRuntimeSessionStore({ filePath }).get("thread");
+    expect(record?.observedModel).toBe("claude-haiku-4-5");
+    expect(record?.model).toBeUndefined();
+  });
+});

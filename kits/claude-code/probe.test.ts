@@ -1,6 +1,6 @@
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { describeAccount, parseClaudeModelId, probeClaude, versionedModelName } from "./probe.js";
+import { describeAccount, parseClaudeModelId, probeClaude, readClaudeVersion, versionedModelName } from "./probe.js";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 const frame = <T extends object>(value: T): SDKMessage => ({ uuid: "u", session_id: "s", ...value }) as unknown as SDKMessage;
@@ -75,5 +75,26 @@ describe("versionedModelName", () => {
     expect(versionedModelName({ value: "claude-sonnet-5", displayName: "Claude Sonnet 5" })).toBe("Claude Sonnet 5");
     expect(versionedModelName({ value: "default", displayName: "Default (recommended)" })).toBe("Default (recommended)");
     expect(parseClaudeModelId("gpt-5")).toBeUndefined();
+  });
+});
+
+describe("readClaudeVersion", () => {
+  const run = (stdout: string): never => ((_command: string, _args: string[], _options: unknown, done: (error: Error | null, result: { stdout: string; stderr: string }) => void) => done(null, { stdout, stderr: "" })) as never;
+
+  it("reads the version out of what the binary prints", async () => {
+    expect(await readClaudeVersion("claude", run("2.1.263 (Claude Code)\n"))).toBe("2.1.263");
+    expect(await readClaudeVersion("claude", run("no version here"))).toBeUndefined();
+  });
+
+  it("stays quiet when the binary cannot be run", async () => {
+    const failing = ((_command: string, _args: string[], _options: unknown, done: (error: Error) => void) => done(new Error("ENOENT"))) as never;
+    expect(await readClaudeVersion("claude", failing)).toBeUndefined();
+  });
+});
+
+describe("describeAccount plans", () => {
+  it("never doubles the vendor's name when the plan already carries it", () => {
+    expect(describeAccount({ subscriptionType: "Claude Max" })).toBe("Claude Max");
+    expect(describeAccount({ subscriptionType: "Max" })).toBe("Claude Max");
   });
 });

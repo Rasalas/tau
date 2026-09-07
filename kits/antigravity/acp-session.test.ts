@@ -95,6 +95,29 @@ describe("AntigravitySession", () => {
     await session.close();
   });
 
+  it("forwards the user's MCP servers when a session is created or resumed", async () => {
+    const agent = fakeAgent();
+    scripted(agent);
+    const mcpServers = [{ name: "pencil", command: "/opt/pencil", args: [], env: [] }];
+    const session = await AntigravitySession.open(options(agent, await scratch(), { mcpServers }));
+    await session.newSession();
+    await session.resumeSession("acp-session");
+    const sent = agent.received.filter((message) => message.method === "session/new" || message.method === "session/resume");
+    expect(sent.map((message) => (message.params as { mcpServers: unknown }).mcpServers)).toEqual([mcpServers, mcpServers]);
+    await session.close();
+  });
+
+  it("shakes hands without signing in when asked to, so a sign-out never opens a browser", async () => {
+    const agent = fakeAgent();
+    scripted(agent);
+    agent.respond("logout", () => ({}));
+    const session = await AntigravitySession.open(options(agent, await scratch(), { authenticate: false }));
+    expect(agent.received.map((message) => message.method)).toEqual(["initialize"]);
+    await session.logout();
+    expect(agent.received.some((message) => message.method === "logout")).toBe(true);
+    await session.close();
+  });
+
   it("runs a prompt, serves permission and workspace file requests, and refuses paths outside the workspace", async () => {
     const agent = fakeAgent();
     scripted(agent);

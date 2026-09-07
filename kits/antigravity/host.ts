@@ -2,8 +2,10 @@ import { existsSync } from "node:fs";
 import type { HostBackendThreadRecord, HostExtension, HostExtensionServices, HostRuntimeBackendProvider } from "tau/host-extension";
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
-import { browserCommand, prepareProfile, type AntigravityProfile } from "./profile.js";
+import { geminiConfigDirectory, readMcpServers } from "./mcp.js";
+import { browserCommand, linkUserSkills, prepareProfile, type AntigravityProfile } from "./profile.js";
 import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, type AntigravitySignInEvent } from "./protocol.js";
+import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
 import { AntigravityThreadRuntimeBackend, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
@@ -18,6 +20,8 @@ export interface AntigravityHostExtensionOptions {
   platform?: string;
   arch?: string;
   env?: NodeJS.ProcessEnv;
+  /** The user's own Gemini configuration, read for MCP servers and skills; `~/.gemini` otherwise. */
+  geminiDir?: string;
 }
 
 const overrideCommand = (env: NodeJS.ProcessEnv) => env.TAU_ANTIGRAVITY_ACP_COMMAND;
@@ -38,17 +42,27 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const env = options.env ?? process.env;
       const platform = options.platform ?? process.platform;
       const arch = options.arch ?? process.arch;
+      const geminiDir = options.geminiDir ?? geminiConfigDirectory();
       const adapter = createAntigravityRuntimeAdapter();
       const store = new AntigravitySessionStore({ filePath: AntigravitySessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir) });
       const resolveExecutable = () => resolveAntigravity({ override: overrideCommand(env), stateDir: services.stateDir, platform, arch, findCommand: services.findCommand });
-      let modelCache: AcpSelectOption[] = [];
+
+      /** The private home the agent runs in, with the user's own skills linked into it. */
+      const prepare = async (): Promise<AntigravityProfile> => {
+        const profile = await prepareProfile(services.stateDir);
+        const linked = await linkUserSkills(profile, geminiDir);
+        if (linked.length > 0) services.log("antigravity.skills", linked.join(", "));
+        return profile;
+      };
 
       const openSession = async (input: AntigravitySessionInput): Promise<AntigravitySessionLike> => {
         const executable = await resolveExecutable();
-        const profile = await prepareProfile(services.stateDir);
+        const profile = await prepare();
         if (options.openSession) return options.openSession({ ...input, executable, profile });
+        const mcpServers = await readMcpServers(geminiDir);
+        if (mcpServers.length > 0) services.log("antigravity.mcp", mcpServers.map((server) => server.name).join(", "));
         services.noteSubprocess();
-        const session = await AntigravitySession.open({
+        return AntigravitySession.open({
           executable,
           profile,
           cwd: input.cwd,
@@ -56,13 +70,14 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           baseEnv: env,
           browser: browserCommand(),
           clientVersion: options.clientVersion ?? "0.0.0",
+          mcpServers,
+          ...(input.authenticate === false ? { authenticate: false } : {}),
           onUpdate: input.onUpdate,
           onPermission: input.onPermission,
           onSignIn: input.onSignIn,
           onExit: input.onExit,
           onStderrLine: (line) => services.log("antigravity.stderr", line.slice(0, 500)),
         });
-        return session;
       };
 
       const record = (entry: Awaited<ReturnType<AntigravitySessionStore["list"]>>[number]): HostBackendThreadRecord => ({
@@ -88,12 +103,9 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           const backend = new AntigravityThreadRuntimeBackend(threadId, cwd, {
             adapter,
             store,
-            openSession: async (input) => {
-              const session = await openSession(input);
-              modelCache = session.modelOptions();
-              return session;
-            },
-            cachedModels: async () => modelCache,
+            openSession,
+            cachedModels: async () => (await store.listModels()).map((model): AcpSelectOption => ({ value: model.value, name: model.name })),
+            onModels: (models) => void store.setModels(models.map((model) => ({ value: model.value, name: model.name }))).catch(() => undefined),
             projectName: thread.projectName,
             branch: thread.projectLabel,
             permissionLevel: thread.permissionLevel,
@@ -109,18 +121,50 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       };
 
       context.registerCommand("status", async () => {
+        const release = releaseAssetFor(platform, arch);
+        const available = release ? ANTIGRAVITY_RELEASE_VERSION : undefined;
         try {
           const executable = await resolveExecutable();
           const profile = await prepareProfile(services.stateDir);
-          return { kind: ANTIGRAVITY_BACKEND_KIND, installed: true, source: executable.source, version: executable.version, path: executable.executablePath, signedIn: existsSync(profile.tokenPath) };
+          return {
+            kind: ANTIGRAVITY_BACKEND_KIND,
+            installed: true,
+            source: executable.source,
+            version: executable.version,
+            path: executable.executablePath,
+            signedIn: existsSync(profile.tokenPath),
+            available,
+            mcpServers: (await readMcpServers(geminiDir)).map((server) => server.name),
+            models: (await store.listModels()).length,
+          };
         } catch (error) {
-          return { kind: ANTIGRAVITY_BACKEND_KIND, installed: false, message: error instanceof Error ? error.message : String(error) };
+          return { kind: ANTIGRAVITY_BACKEND_KIND, installed: false, available, message: error instanceof Error ? error.message : String(error) };
         }
       });
-      // A download of several hundred megabytes; the client runs it as a host job.
+      // Several hundred megabytes from Google; the client runs it as a host job.
       context.registerCommand("install", async () => {
         const installed = await installAntigravity({ stateDir: services.stateDir, platform, arch, onProgress: (event) => context.emit(ANTIGRAVITY_INSTALL_EVENT, event) });
         return { version: installed.version, path: installed.executablePath };
+      }, { long: true });
+      // Sign-out is the agent's own: it clears the credentials it stored in Tau's profile.
+      context.registerCommand("logout", async () => {
+        const session = await openSession({
+          threadId: "sign-out",
+          // No session is created, so the agent needs a directory to run in, not the workspace.
+          cwd: services.stateDir,
+          authenticate: false,
+          onUpdate: () => undefined,
+          onPermission: async () => ({ outcome: { outcome: "cancelled" } }),
+          onSignIn: () => undefined,
+          onExit: () => undefined,
+        });
+        try {
+          if (!session.logout) throw new Error("This Antigravity runtime cannot sign out.");
+          await session.logout();
+        } finally {
+          await session.close().catch(() => undefined);
+        }
+        return { signedOut: true };
       }, { long: true });
       return services.registerRuntimeBackend(provider);
     },

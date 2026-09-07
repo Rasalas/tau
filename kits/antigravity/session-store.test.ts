@@ -32,4 +32,16 @@ describe("AntigravitySessionStore", () => {
     expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(1);
     expect(AntigravitySessionStore.defaultPath("/x/sessions")).toBe("/x/tau/antigravity-runtime-sessions.json");
   });
+
+  it("keeps the model catalog beside the sessions, so a picker has something before a session exists", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agy-store-"));
+    directories.push(directory);
+    const filePath = join(directory, "sessions.json");
+    const store = new AntigravitySessionStore({ filePath });
+    expect(await store.listModels()).toEqual([]);
+    await store.setModels([{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }, { value: "", name: "nameless" }]);
+    // An empty report never wipes what the last session knew.
+    await store.setModels([]);
+    expect(await new AntigravitySessionStore({ filePath }).listModels()).toEqual([{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }]);
+  });
 });

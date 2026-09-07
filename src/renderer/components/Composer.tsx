@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, Brain, ChevronDown, Cpu, GripVertical, Paperclip, Sparkles, X } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -20,7 +20,7 @@ import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { SubscriptionLoginPrompt } from "./SubscriptionLoginPrompt";
-import { ProviderIconStack } from "./ProviderIconStack";
+import { ProviderIconStack, hasProviderMark } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
@@ -317,8 +317,11 @@ export function Composer({
   const streaming = Boolean(snapshot?.isStreaming);
   // An external runtime may pick model and reasoning itself; the pickers then only show what it reports.
   const runtimeOwnsModel = snapshot?.runtimeCapabilities?.ownsModelSelection === true;
-  const modelSelectionAvailable = !runtimeOwnsModel && (snapshot?.models.length ?? 0) > 0;
-  const thinkingSelectionAvailable = !runtimeOwnsModel && (snapshot?.thinkingLevels.length ?? 0) > 1;
+  // A draft bound for another runtime than the visible thread: that catalog is
+  // not this thread's, and the thread it will become does not exist yet.
+  const draftOnOtherRuntime = runtimeChoice !== undefined && snapshot?.backendKind !== undefined && runtimeChoice.kind !== snapshot.backendKind;
+  const modelSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.models.length ?? 0) > 0;
+  const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
   const preview = attachments.find((attachment) => attachment.id === previewId);
@@ -690,7 +693,7 @@ export function Composer({
                 aria-label={`Runtime: ${runtimeLabel}`}
                 onClick={() => setMenu(menu === "runtime" ? undefined : "runtime")}
               >
-                <Cpu size={13} />
+                {hasProviderMark(runtimeChoice.kind) ? <ProviderIconStack modelProvider={runtimeChoice.kind} className="chip-icon" /> : null}
                 {runtimeLabel}
                 <ChevronDown size={12} className="chev" />
               </button>
@@ -716,16 +719,21 @@ export function Composer({
           <button
             className="runtime-chip"
             disabled={!modelSelectionAvailable}
-            title={modelSelectionAvailable ? "Select model" : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime."}
+            title={modelSelectionAvailable
+              ? "Select model"
+              : draftOnOtherRuntime ? `This thread starts on ${runtimeLabel}'s own model; pick another once it exists.`
+                : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime."}
             aria-label={modelSelectionAvailable
               ? `Select model: ${snapshot?.model?.name ?? "current model"}`
               : "Model selection unavailable"}
             onClick={() => { if (modelSelectionAvailable) setModelPickerOpen(true); }}
           >
-            {snapshot?.model
+            {snapshot?.model && !draftOnOtherRuntime
               ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
               : <Sparkles size={13} className="accent" />}
-            {snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}
+            {draftOnOtherRuntime
+              ? "default model"
+              : snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}
             {modelSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
           </button>
 
@@ -733,14 +741,17 @@ export function Composer({
             <button
               className="runtime-chip"
               disabled={!thinkingSelectionAvailable}
-              title={thinkingSelectionAvailable ? "Reasoning" : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable."}
+              title={thinkingSelectionAvailable
+                ? "Reasoning"
+                : draftOnOtherRuntime ? `${runtimeLabel} sets reasoning once this thread exists.`
+                  : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable."}
               aria-label={thinkingSelectionAvailable ? "Reasoning" : "Reasoning controls unavailable"}
               onClick={() => {
                 if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
               }}
             >
               <Brain size={13} />
-              {snapshot?.thinkingLevel ?? "—"}
+              {draftOnOtherRuntime ? "—" : snapshot?.thinkingLevel ?? "—"}
               {thinkingSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
             </button>
             {menu === "thinking" ? (
