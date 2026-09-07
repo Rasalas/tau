@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ThreadRuntimeEvent, UiComposerCommand } from "tau/host-extension";
+import type { BackendPrompt, ExtensionUiAnswer, ThreadRuntimeEvent, UiComposerCommand } from "tau/host-extension";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
 import { createClaudeCodeRuntimeAdapter } from "./runtime-adapter.js";
@@ -126,12 +126,57 @@ describe("thread runtime backends", () => {
     expect(backend.state().streaming).toBe(false);
   });
 
-  it("rejects manual approvals during prompt preparation before transport use", async () => {
+  it("rejects manual approvals without a dialog surface, before transport use", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, streamed } = scriptedAdapter(filePath, turn);
     const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", permissionLevel: () => "ask" });
     await backend.start("create");
     await expect(backend.preparePrompt("$tdd inspect", { source: "skill", name: "tdd", command: "/tdd", visibleText: "inspect" })).rejects.toThrow("manual approvals are unsupported");
     expect(streamed).toEqual([]);
+  });
+
+  it("answers Claude's questions through the workbench: tool approvals, AskUserQuestion, plans and the resume dialog", async () => {
+    const { filePath, store } = await scratchStore();
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath });
+    const asked: BackendPrompt[] = [];
+    const answers: ExtensionUiAnswer[] = [
+      { value: "Allow for this session" },
+      { value: "luxon — zones" },
+      { confirmed: false },
+      { value: "Compact and continue" },
+      { cancelled: true },
+    ];
+    const ask = vi.fn(async (prompt: BackendPrompt): Promise<ExtensionUiAnswer> => { asked.push(prompt); return answers.shift() ?? { cancelled: true as const }; });
+    const results: unknown[] = [];
+    adapter.stream = vi.fn(async (input, onMessage, hooks) => {
+      expect(input.permissionLevel).toBe("ask");
+      const signal = new AbortController().signal;
+      results.push(await hooks!.canUseTool!("Bash", { command: "ls" }, { signal, toolUseID: "t1", requestId: "r1", suggestions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "ls:*" }], behavior: "allow", destination: "localSettings" }] }));
+      results.push(await hooks!.canUseTool!("AskUserQuestion", { questions: [{ question: "Which library?", header: "Library", options: [{ label: "date-fns", description: "small" }, { label: "luxon", description: "zones" }] }] }, { signal, toolUseID: "t2", requestId: "r2" }));
+      results.push(await hooks!.canUseTool!("ExitPlanMode", {}, { signal, toolUseID: "t3", requestId: "r3" }));
+      results.push(await hooks!.onUserDialog!({ dialogKind: "resume_return", payload: {} }, { signal, requestId: "r4" }));
+      results.push(await hooks!.onUserDialog!({ dialogKind: "something_new", payload: {} }, { signal, requestId: "r5" }));
+      results.push(await hooks!.canUseTool!("Write", { file_path: "a.ts" }, { signal, toolUseID: "t6", requestId: "r6" }));
+      for (const message of turn("ok")) onMessage(message);
+      return { assistantText: "ok" };
+    });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", permissionLevel: () => "ask", ask, onEvent: () => undefined });
+    await backend.start("create");
+    await backend.prompt({ text: "go", delivery: "prompt" });
+    expect(asked.map((prompt) => prompt.title)).toEqual([
+      "Claude wants to run Bash",
+      "Which library?",
+      "Approve Claude's plan?",
+      "This conversation is long. Compact it before continuing?",
+      "Claude wants to run Write",
+    ]);
+    expect(results).toEqual([
+      { behavior: "allow", decisionClassification: "user_permanent", updatedPermissions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "ls:*" }], behavior: "allow", destination: "session" }] },
+      { behavior: "allow", decisionClassification: "user_temporary", updatedInput: { questions: expect.any(Array), answers: { "Which library?": "luxon" } } },
+      { behavior: "deny", message: expect.stringContaining("did not approve the plan"), decisionClassification: "user_reject" },
+      { behavior: "completed", result: "compact" },
+      { behavior: "cancelled" },
+      { behavior: "deny", message: "The user cancelled the request.", decisionClassification: "user_reject" },
+    ]);
   });
 });

@@ -3,6 +3,8 @@ import {
   knownSkillNames,
   prepareSkillPrompt,
   validatePreparedPrompt,
+  type BackendPrompt,
+  type ExtensionUiAnswer,
   type PreparedPrompt,
   type RuntimePermissionLevel,
   type ThreadBackendCapabilities,
@@ -20,7 +22,18 @@ import {
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
+import type { PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
+import {
+  askUserQuestionAnswer,
+  askUserQuestionPrompts,
+  permissionPrompt,
+  permissionResultFor,
+  PLAN_DECLINED,
+  planPrompt,
+  resumeDialogPrompt,
+  resumeDialogResult,
+} from "./approvals.js";
+import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
@@ -43,6 +56,8 @@ export interface ClaudeThreadBackendOptions {
   onMessage?(message: UiMessage): void;
   /** The host's event route; with it the thread streams. */
   onEvent?(event: ThreadRuntimeEvent): void;
+  /** The workbench's dialog surface; with it Claude's questions reach the user and the `ask` level works. */
+  ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
   projectName: string;
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
@@ -158,7 +173,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   async models(): Promise<UiModel[]> { return []; }
 
   async preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
-    assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.options.permissionLevel?.() ?? "full"));
+    assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.options.permissionLevel?.() ?? "full"), { canAsk: this.options.ask !== undefined });
     const commands = await this.skills();
     const effectiveCommands = commands;
     const prepared = prepareSkillPrompt(text, this.runtimeAdapter, effectiveCommands, skill);
@@ -186,7 +201,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Claude delivery.");
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
-    assertClaudePermissionPolicySupported(runtimePermissionPolicy(permissionLevel));
+    assertClaudePermissionPolicySupported(runtimePermissionPolicy(permissionLevel), { canAsk: this.options.ask !== undefined });
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     this.assertPreparedPrompt(input.text, prepared, await this.skills());
     const clientMessageId = input.identity?.clientMessageId;
@@ -236,7 +251,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         ...(clientMessageId ? { clientMessageId } : {}),
         permissionLevel,
         signal: input.signal,
-      }, (frame) => { for (const event of translator.push(frame)) this.handleEvent(event); });
+      }, (frame) => { for (const event of translator.push(frame)) this.handleEvent(event); }, this.turnHooks());
       await this.finishTurn(translator);
       this.report({ type: "turn-settled", status: "completed" });
       return { assistantText: translator.outcome?.texts.join("\n\n") ?? "" };
@@ -253,6 +268,55 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.live = undefined;
       this.record = await this.store.get(this.threadId);
     }
+  }
+
+  /** Claude's questions during a turn go to the workbench; without a dialog surface the SDK gets none. */
+  private turnHooks(): ClaudeTurnHooks | undefined {
+    if (!this.options.ask) return undefined;
+    return {
+      canUseTool: (toolName, input, options) => this.canUseTool(toolName, input, options),
+      onUserDialog: (request, options) => this.onUserDialog(request, options.signal),
+    };
+  }
+
+  private async canUseTool(
+    toolName: string,
+    input: Record<string, unknown>,
+    options: { signal: AbortSignal; suggestions?: PermissionUpdate[]; title?: string; displayName?: string; description?: string; decisionReason?: string; blockedPath?: string },
+  ): Promise<PermissionResult> {
+    const ask = this.options.ask;
+    if (!ask) return { behavior: "deny", message: "Tau cannot ask the user on this host." };
+    const stopped = (): PermissionResult => ({ behavior: "deny", message: "The turn was stopped.", interrupt: true });
+    if (options.signal.aborted) return stopped();
+    if (toolName === "AskUserQuestion") {
+      const answers: Record<string, string> = {};
+      for (const question of askUserQuestionPrompts(input)) {
+        const answer = askUserQuestionAnswer(await ask(question.prompt), question);
+        if (options.signal.aborted) return stopped();
+        if (answer === undefined) return { behavior: "deny", message: "The user did not answer the question.", decisionClassification: "user_reject" };
+        answers[question.question] = answer;
+      }
+      // The CLI reads answers by the full question text.
+      return { behavior: "allow", updatedInput: { ...input, answers }, decisionClassification: "user_temporary" };
+    }
+    if (toolName === "ExitPlanMode") {
+      const answer = await ask(planPrompt());
+      if (options.signal.aborted) return stopped();
+      return "confirmed" in answer && answer.confirmed
+        ? { behavior: "allow", decisionClassification: "user_temporary" }
+        : { behavior: "deny", message: PLAN_DECLINED, decisionClassification: "user_reject" };
+    }
+    const request = { toolName, input, suggestions: options.suggestions, title: options.title, displayName: options.displayName, description: options.description, decisionReason: options.decisionReason, blockedPath: options.blockedPath };
+    const answer = await ask(permissionPrompt(request));
+    if (options.signal.aborted) return stopped();
+    return permissionResultFor(answer, request);
+  }
+
+  private async onUserDialog(request: UserDialogRequest, signal: AbortSignal): Promise<UserDialogResult> {
+    const ask = this.options.ask;
+    if (!ask || request.dialogKind !== "resume_return" || signal.aborted) return { behavior: "cancelled" };
+    const answer = await ask(resumeDialogPrompt());
+    return signal.aborted ? { behavior: "cancelled" } : resumeDialogResult(answer);
   }
 
   /** What one turn leaves behind: its messages are already in; usage and facts follow. */

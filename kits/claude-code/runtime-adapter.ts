@@ -1,4 +1,4 @@
-import { query as sdkQuery, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query as sdkQuery, type CanUseTool, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
 import manifest from "./tau-extension.json";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -21,17 +21,23 @@ const PERMISSION_MODES: Record<RuntimePermissionLevel, RuntimePermissionPolicy["
 export const CLIENT_APP = `${manifest.id}/${manifest.version}`;
 
 /**
- * Claude's `default` mode asks before a tool runs. Until the backend answers
- * those prompts through the workbench, accepting `ask` would leave a turn
- * waiting on a question nobody can see.
+ * Claude's `default` mode asks before a tool runs. Without a way to put that
+ * question to the user, accepting `ask` would leave a turn waiting on a
+ * question nobody can see.
  */
-export function assertClaudePermissionPolicySupported(policy: RuntimePermissionPolicy): void {
+export function assertClaudePermissionPolicySupported(policy: RuntimePermissionPolicy, options: { canAsk?: boolean } = {}): void {
   if (!policy || !["plan", "default", "auto"].includes(policy.permissionMode)) {
     throw new Error("Claude Code received an unsupported Tau permission policy.");
   }
-  if (policy.permissionMode === "default") {
-    throw new Error("Claude Code manual approvals are unsupported by this backend yet; choose read-only or full access before launching Claude.");
+  if (policy.permissionMode === "default" && options.canAsk === false) {
+    throw new Error("Claude Code manual approvals are unsupported on this host; choose read-only or full access before launching Claude.");
   }
+}
+
+/** What a turn hands the SDK for the questions Claude asks while it runs. */
+export interface ClaudeTurnHooks {
+  canUseTool?: CanUseTool;
+  onUserDialog?: OnUserDialog;
 }
 
 export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimePermissionPolicy {
@@ -40,10 +46,10 @@ export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimeP
 
 export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   readonly id: "claude-code";
-  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: true; readonly interactiveApprovals: false };
+  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: true; readonly interactiveApprovals: true };
   readonly transport: RuntimeTransport;
   /** One turn with every SDK frame reported as it arrives; resolves when the turn's result is in. */
-  stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void): Promise<RuntimePromptResult>;
+  stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult>;
   /** Shared app-data store used to resume this adapter after eviction/restart. */
   readonly sessionStore?: ClaudeRuntimeSessionStore;
 }
@@ -71,6 +77,7 @@ export interface ClaudeQueryPlan {
   abortController: AbortController;
   env: NodeJS.ProcessEnv;
   stderr?(chunk: string): void;
+  hooks?: ClaudeTurnHooks;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -81,9 +88,12 @@ const STDERR_TAIL_BYTES = 8 * 1024;
  * user's own settings; Tau adds only its client identity.
  */
 export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
-  assertClaudePermissionPolicySupported(plan.policy);
+  assertClaudePermissionPolicySupported(plan.policy, { canAsk: plan.hooks?.canUseTool !== undefined });
   if (!UUID.test(plan.claudeSessionId)) throw new Error("Claude session ids must be UUIDs.");
   return {
+    ...(plan.hooks?.canUseTool ? { canUseTool: plan.hooks.canUseTool } : {}),
+    // The resume-compaction question is the one dialog the workbench answers; others are declined.
+    ...(plan.hooks?.onUserDialog ? { onUserDialog: plan.hooks.onUserDialog, supportedDialogKinds: ["resume_return"] } : {}),
     cwd: plan.cwd,
     pathToClaudeCodeExecutable: plan.executable,
     systemPrompt: { type: "preset", preset: "claude_code" },
@@ -173,10 +183,10 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   const running = new Map<string, Set<RunningTurn>>();
   const requestQueues = new Map<string, Promise<void>>();
   const abortGenerations = new Map<string, number>();
-  // Claude picks its model; approvals wait for the workbench route.
-  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false } as const;
+  // Claude picks its model; its questions reach the workbench through the turn's hooks.
+  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: true } as const;
 
-  async function runTurn(input: RuntimePromptInput, claudeSessionId: string, started: boolean, policy: RuntimePermissionPolicy, onMessage?: (message: SDKMessage) => void): Promise<string> {
+  async function runTurn(input: RuntimePromptInput, claudeSessionId: string, started: boolean, policy: RuntimePermissionPolicy, onMessage?: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<string> {
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     input.signal?.addEventListener("abort", onAbort, { once: true });
@@ -191,6 +201,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       abortController: controller,
       env,
       stderr: (chunk) => { stderr = `${stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
+      ...(hooks ? { hooks } : {}),
     };
     const turn: RunningTurn = { controller, done: Promise.resolve() };
     const active = running.get(input.tauThreadId) ?? new Set<RunningTurn>();
@@ -215,11 +226,11 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     return done;
   }
 
-  async function deliver(input: RuntimePromptInput, onMessage?: (message: SDKMessage) => void): Promise<RuntimePromptResult> {
+  async function deliver(input: RuntimePromptInput, onMessage?: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult> {
         const policy = runtimePermissionPolicy(input.permissionLevel ?? "full");
         // Reject an unsupported Tau access mode before joining a queue or
         // spawning anything, so a queued request cannot turn into a hang.
-        assertClaudePermissionPolicySupported(policy);
+        assertClaudePermissionPolicySupported(policy, { canAsk: hooks?.canUseTool !== undefined });
         const generation = abortGenerations.get(input.tauThreadId) ?? 0;
         const stale = () => generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted === true;
         const previous = requestQueues.get(input.tauThreadId) ?? Promise.resolve();
@@ -234,7 +245,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
           const run = async (started: boolean): Promise<string> => {
             await sessionStore.markAttempted(input.tauThreadId, input.cwd);
             if (stale()) throw abortError("Claude Code request aborted.");
-            return runTurn(input, record.claudeSessionId, started, policy, onMessage);
+            return runTurn(input, record.claudeSessionId, started, policy, onMessage, hooks);
           };
           let assistantText: string;
           try {
@@ -294,7 +305,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     id: "claude-code",
     capabilities,
     sessionStore,
-    stream: (input, onMessage) => deliver(input, onMessage),
+    stream: (input, onMessage, hooks) => deliver(input, onMessage, hooks),
     transport: {
       sendPrompt: (input) => deliver(input),
       async abort(tauThreadId) {

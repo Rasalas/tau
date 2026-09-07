@@ -174,6 +174,10 @@ export class ThreadRuntimeLifecycle {
         }
       },
       onEvent: (event) => this.port.emitRuntimeEvent(threadId, event),
+      ask: (prompt) => this.port.extensionUi.ask(
+        { ...prompt, id: `backend-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, sessionId: threadId },
+        this.port.currentRuntime(threadId),
+      ),
     });
     const thread = new ThreadRuntime(backend);
     thread.adapterMessages = await backend.transcript();

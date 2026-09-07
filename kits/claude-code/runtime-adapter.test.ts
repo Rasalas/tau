@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, type ClaudeQuery } from "./runtime-adapter.js";
 
 interface Call { prompt: string; options: Options }
@@ -46,7 +46,7 @@ describe("Claude Code runtime adapter", () => {
   it("declares its kind, its capabilities and a transport core will accept", () => {
     const adapter = createClaudeCodeRuntimeAdapter({ command: "claude-test", storePath: store("selection") });
     expect(adapter.id).toBe("claude-code");
-    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false });
+    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: true });
     expect(adapter.transport.sendPrompt).toBeTypeOf("function");
   });
 
@@ -77,7 +77,17 @@ describe("Claude Code runtime adapter", () => {
     expect(resumed).toMatchObject({ resume: SESSION, permissionMode: "plan" });
     expect(resumed).not.toHaveProperty("sessionId");
     expect(() => claudeQueryOptions({ ...plan, claudeSessionId: "not-a-uuid" })).toThrow("must be UUIDs");
+    // The ask level needs someone to answer; with hooks the SDK gets the callbacks and the one dialog kind Tau renders.
     expect(() => claudeQueryOptions({ ...plan, policy: runtimePermissionPolicy("ask") })).toThrow("manual approvals are unsupported");
+    const canUseTool = vi.fn();
+    const onUserDialog = vi.fn();
+    expect(claudeQueryOptions({ ...plan, policy: runtimePermissionPolicy("ask"), hooks: { canUseTool, onUserDialog } })).toMatchObject({
+      permissionMode: "default",
+      canUseTool,
+      onUserDialog,
+      supportedDialogKinds: ["resume_return"],
+    });
+    expect(claudeQueryOptions({ ...plan, hooks: { canUseTool } })).not.toHaveProperty("onUserDialog");
   });
 
   it("collects the main loop's text, skips sub-agent frames and the resume handshake", async () => {
@@ -171,10 +181,12 @@ describe("Claude Code runtime adapter", () => {
     expect((await adapter.sessionStore?.get("error-session"))?.lastAttemptOutcome).toBe("failed");
   });
 
-  it("rejects the ask level before asking the SDK for anything", async () => {
+  it("rejects the ask level on the awaited path, which has nobody to answer, before asking the SDK for anything", async () => {
     const { query, calls } = scripted(() => [init(), assistant("must not run"), success()]);
     const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", storePath: store("policy"), query, env: {} });
     await expect(adapter.transport.sendPrompt(input("manual-session", "must reject", { permissionLevel: "ask" }))).rejects.toThrow("manual approvals are unsupported");
     expect(calls).toHaveLength(0);
+    await expect(adapter.stream(input("manual-session", "ask away", { permissionLevel: "ask" }), () => undefined, { canUseTool: vi.fn() })).resolves.toEqual({ assistantText: "must not run" });
+    expect(calls[0]?.options).toMatchObject({ permissionMode: "default" });
   });
 });

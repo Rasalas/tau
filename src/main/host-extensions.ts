@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type {
+  ExtensionUiAnswer,
   ExtensionUiPrompt,
   GlobalHostEvent,
   HostExtensionSummary,
@@ -50,7 +51,15 @@ export interface HostBackendOpenContext {
   onMessage(message: UiMessage): void;
   /** A streamed backend reports its turn through here; see `ThreadRuntimeEvent`. */
   onEvent(event: ThreadRuntimeEvent): void;
+  /**
+   * A blocking question to the user, on the workbench's own dialog surface;
+   * the thread waits for it. Aborting the thread answers it as cancelled.
+   */
+  ask(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
 }
+
+/** A backend's question; the host names the prompt and its thread. */
+export type BackendPrompt = Omit<ExtensionUiPrompt, "id" | "sessionId">;
 
 /**
  * A runtime backend an extension supplies for threads it owns (ADR 0005).

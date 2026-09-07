@@ -1,6 +1,6 @@
 import { skillInvocationCommand, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
 import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "./protocol.js";
-import { assertClaudePermissionPolicySupported, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
+import { createClaudeCodeRuntimeAdapter, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
 
@@ -88,12 +88,12 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             permissionLevel: thread.permissionLevel,
             onMessage: thread.onMessage,
             onEvent: thread.onEvent,
+            ask: thread.ask,
           });
           await backend.start(resume ? "resume" : "create");
           return backend;
         },
         composerCommands: commands,
-        assertPromptAllowed: (level) => assertClaudePermissionPolicySupported(runtimePermissionPolicy(level)),
       };
       context.registerCommand("status", () => {
         const command = claudeCommand();
