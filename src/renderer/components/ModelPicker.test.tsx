@@ -7,7 +7,7 @@ import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
 
 const models: UiModel[] = [
-  { provider: "anthropic", id: "claude-fable-5", name: "Claude Fable 5", login: "subscription" },
+  { provider: "anthropic", id: "claude-fable-5-1", name: "Claude Fable 5.1", login: "subscription" },
   { provider: "anthropic", id: "claude-opus-5", name: "Claude Opus 5" },
   { provider: "anthropic", id: "claude-opus-4-1", name: "Claude Opus 4.1" },
   { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },

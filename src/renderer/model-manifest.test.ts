@@ -3,7 +3,13 @@ import { modelPresentation } from "./model-manifest";
 
 describe("model manifest", () => {
   it("marks legacy generations and badges the newest, leaving the rest current", () => {
-    expect(modelPresentation({ provider: "anthropic", id: "claude-fable-5" })).toEqual({ legacy: false, badge: "new" });
+    expect(modelPresentation({ provider: "anthropic", id: "claude-fable-5-1" })).toEqual({ legacy: false, badge: "new" });
+    expect(modelPresentation({ provider: "anthropic", id: "claude-fable-5" })).toEqual({ legacy: false });
+    expect(modelPresentation({ provider: "openai-codex", id: "gpt-6-astra" })).toEqual({ legacy: false, badge: "new" });
+    expect(modelPresentation({ provider: "openai-codex", id: "gpt-5.5-pro" })).toEqual({ legacy: true });
+    expect(modelPresentation({ provider: "openai-codex", id: "gpt-5" })).toEqual({ legacy: true });
+    expect(modelPresentation({ provider: "openai-codex", id: "gpt-5.3-codex" })).toEqual({ legacy: true });
+    expect(modelPresentation({ provider: "openai-codex", id: "gpt-5.6-luna" })).toEqual({ legacy: false });
     expect(modelPresentation({ provider: "anthropic", id: "claude-opus-4-1" })).toEqual({ legacy: true });
     expect(modelPresentation({ provider: "anthropic", id: "claude-haiku-4-5-20251001" })).toEqual({ legacy: false });
     expect(modelPresentation({ provider: "openai-codex", id: "gpt-4.1" })).toEqual({ legacy: true });

@@ -17,10 +17,14 @@ export interface ModelPresentation {
 }
 
 export const MODEL_MANIFEST: readonly ModelManifestEntry[] = [
-  { provider: "anthropic", id: /fable-5/u, badge: "new" },
+  // Anthropic: Claude 5 and Haiku 4.5 are current; Fable 5.1 is the newest.
+  { provider: "anthropic", id: /^claude-fable-5-1/u, badge: "new" },
   { provider: "anthropic", id: /^claude-(?:2|3|opus-4|sonnet-4)/u, status: "legacy" },
   { provider: "anthropic", id: /^claude-haiku-4(?!-5)/u, status: "legacy" },
-  { provider: /openai/u, id: /^(?:gpt-3|gpt-4|o[134]|codex-mini|chatgpt-4o)/u, status: "legacy" },
+  // OpenAI: GPT-5.6 (Luna, Sol, Terra) and GPT-6 are current; GPT-6 Astra is the newest.
+  { provider: /openai/u, id: /^gpt-6-astra/u, badge: "new" },
+  { provider: /openai/u, id: /^(?:gpt-3|gpt-4|o[134]|codex-mini|chatgpt-4o|gpt-realtime)/u, status: "legacy" },
+  { provider: /openai/u, id: /^gpt-5(?:\.[1-5])?(?:-|$)/u, status: "legacy" },
   { provider: /google|gemini/u, id: /^gemini-(?:1|2)\./u, status: "legacy" },
 ];
 
