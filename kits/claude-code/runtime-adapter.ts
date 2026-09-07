@@ -1,6 +1,8 @@
-import { query as sdkQuery, type CanUseTool, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query as sdkQuery, type CanUseTool, type EffortLevel, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
+import { homedir } from "node:os";
 import manifest from "./tau-extension.json";
+import { probeClaude, type ClaudeProbe } from "./probe.js";
 import { ClaudeSdkSession } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
@@ -47,12 +49,14 @@ export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimeP
 
 export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   readonly id: "claude-code";
-  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: true; readonly interactiveApprovals: true };
+  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: false; readonly interactiveApprovals: true };
   readonly transport: RuntimeTransport;
   /** One turn with every SDK frame reported as it arrives; resolves when the turn's result is in. */
   stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult>;
   /** A live session for a thread, started; the backend feeds it turns and closes it. */
   openSession(input: ClaudeSessionInput): ClaudeSdkSession;
+  /** What the CLI says about its login and models; cached for a few minutes. */
+  probe(options?: { fresh?: boolean }): Promise<ClaudeProbe>;
   /** Shared app-data store used to resume this adapter after eviction/restart. */
   readonly sessionStore?: ClaudeRuntimeSessionStore;
 }
@@ -63,6 +67,9 @@ export interface ClaudeSessionInput {
   /** Resume the session instead of creating it under `claudeSessionId`. */
   started: boolean;
   permissionLevel: RuntimePermissionLevel;
+  /** The thread's chosen model and effort; the CLI's own defaults otherwise. */
+  model?: string;
+  effort?: EffortLevel;
   hooks?: ClaudeTurnHooks;
   onMessage(message: SDKMessage): void;
   onExit(error: unknown | undefined): void;
@@ -94,6 +101,8 @@ export interface ClaudeQueryPlan {
   env: NodeJS.ProcessEnv;
   stderr?(chunk: string): void;
   hooks?: ClaudeTurnHooks;
+  model?: string;
+  effort?: EffortLevel;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -115,6 +124,8 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     systemPrompt: { type: "preset", preset: "claude_code" },
     settingSources: ["user", "project", "local"],
     permissionMode: plan.policy.permissionMode,
+    ...(plan.model ? { model: plan.model } : {}),
+    ...(plan.effort ? { effort: plan.effort } : {}),
     // Token deltas arrive as stream events; the whole message still follows.
     includePartialMessages: true,
     ...(plan.started ? { resume: plan.claudeSessionId } : { sessionId: plan.claudeSessionId }),
@@ -199,8 +210,20 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   const running = new Map<string, Set<RunningTurn>>();
   const requestQueues = new Map<string, Promise<void>>();
   const abortGenerations = new Map<string, number>();
-  // Claude picks its model; its questions reach the workbench through the turn's hooks.
-  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: true } as const;
+  // The composer offers Claude's models and efforts; its questions reach the workbench through the turn's hooks.
+  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true } as const;
+  const PROBE_TTL_MS = 5 * 60_000;
+  let probeCache: { at: number; result: Promise<ClaudeProbe> } | undefined;
+
+  function probe(probeOptions: { fresh?: boolean } = {}): Promise<ClaudeProbe> {
+    const now = Date.now();
+    if (!probeOptions.fresh && probeCache && now - probeCache.at < PROBE_TTL_MS) return probeCache.result;
+    const result = probeClaude({ query, executable: options.resolveCommand?.(command) ?? command, cwd: homedir(), env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
+    probeCache = { at: now, result };
+    // A failed probe is not remembered; the next caller tries again.
+    result.catch(() => { if (probeCache?.result === result) probeCache = undefined; });
+    return result;
+  }
 
   async function runTurn(input: RuntimePromptInput, claudeSessionId: string, started: boolean, policy: RuntimePermissionPolicy, onMessage?: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<string> {
     const controller = new AbortController();
@@ -330,6 +353,8 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       env,
       ...(input.onStderr ? { stderr: input.onStderr } : {}),
       ...(input.hooks ? { hooks: input.hooks } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
     });
     const session = new ClaudeSdkSession({ query, options: queryOptions, claudeSessionId: input.claudeSessionId, onMessage: input.onMessage, onExit: input.onExit });
     session.start();
@@ -342,6 +367,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     sessionStore,
     stream: (input, onMessage, hooks) => deliver(input, onMessage, hooks),
     openSession,
+    probe,
     transport: {
       sendPrompt: (input) => deliver(input),
       async abort(tauThreadId) {

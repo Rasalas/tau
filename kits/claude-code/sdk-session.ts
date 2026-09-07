@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Options, PermissionMode, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { EffortLevel, ModelInfo, Options, PermissionMode, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 export type SendPriority = NonNullable<SDKUserMessage["priority"]>;
@@ -85,6 +85,15 @@ export class ClaudeSdkSession {
 
   setModel(model?: string): Promise<void> {
     return this.query?.setModel(model) ?? Promise.resolve();
+  }
+
+  /** `null` returns the session to the CLI's own default. */
+  setEffort(effort: EffortLevel | null): Promise<void> {
+    return this.query?.applyFlagSettings({ effortLevel: effort }) ?? Promise.resolve();
+  }
+
+  supportedModels(): Promise<ModelInfo[]> {
+    return this.query?.supportedModels() ?? Promise.resolve([]);
   }
 
   /** Ends the input, aborts the CLI, and waits for the loop; pending sends are rejected. */

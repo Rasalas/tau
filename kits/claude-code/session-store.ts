@@ -43,6 +43,9 @@ export interface ClaudeRuntimeSessionRecord {
   titleSource?: ClaudeTitleSource;
   /** Tokens and cost of every turn so far, so the index shows them after a restart. */
   usage?: UiThreadUsage;
+  /** The model and effort the user chose for this thread; the CLI's defaults otherwise. */
+  model?: string;
+  effort?: string;
   updatedAt: number;
 }
 
@@ -253,6 +256,8 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(title ? { title } : {}),
     ...(titleSource ? { titleSource } : {}),
     ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
+    ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
+    ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
     updatedAt,
   };
 }
@@ -417,6 +422,23 @@ export class ClaudeRuntimeSessionStore {
     if (!record) return;
     record.attempted = true;
     record.lastAttemptOutcome = outcome;
+    record.updatedAt = this.now();
+    await this.persist();
+  }
+
+  /** The user's model and effort for the thread; `undefined` returns a field to the CLI's default. */
+  async setSelection(tauThreadId: string, cwd: string, selection: { model?: string | undefined; effort?: string | undefined }): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
+    if (!record) return;
+    if ("model" in selection) {
+      if (selection.model) record.model = selection.model;
+      else delete record.model;
+    }
+    if ("effort" in selection) {
+      if (selection.effort) record.effort = selection.effort;
+      else delete record.effort;
+    }
     record.updatedAt = this.now();
     await this.persist();
   }

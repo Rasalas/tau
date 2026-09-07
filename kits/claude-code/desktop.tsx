@@ -5,7 +5,8 @@ import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "./proto
 /** Names the runtime behind a Claude thread; Pi threads show nothing. */
 export function ClaudeCodeStatus({ snapshot }: RegionProps) {
   if (snapshot?.backendKind !== CLAUDE_CODE_BACKEND_KIND) return null;
-  return <span className="status-item" title="This thread runs the installed Claude Code CLI through the Agent SDK."><Bot size={12} /> Claude Code</span>;
+  const model = snapshot?.model?.name;
+  return <span className="status-item" title={`This thread runs the installed Claude Code CLI through the Agent SDK${model ? ` on ${model}` : ""}.`}><Bot size={12} /> Claude Code</span>;
 }
 
 /**

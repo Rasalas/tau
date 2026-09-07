@@ -1,5 +1,6 @@
 import { skillInvocationCommand, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
 import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "./protocol.js";
+import { describeAccount } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
@@ -98,6 +99,17 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       context.registerCommand("status", () => {
         const command = claudeCommand();
         return { kind: CLAUDE_CODE_BACKEND_KIND, command, path: services.findCommand(command) };
+      });
+      // Asks the CLI itself (version, login, models); a process is spawned, so this is on demand.
+      context.registerCommand("probe", async (input) => {
+        const probe = await adapter.probe({ fresh: Boolean(input && typeof input === "object" && (input as { fresh?: unknown }).fresh) });
+        return {
+          version: probe.claudeCodeVersion,
+          account: describeAccount(probe.account),
+          defaultModel: probe.defaultModel,
+          effort: probe.effort,
+          models: probe.models,
+        };
       });
       return services.registerRuntimeBackend(provider);
     },

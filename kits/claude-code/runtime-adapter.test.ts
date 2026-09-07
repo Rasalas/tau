@@ -46,7 +46,7 @@ describe("Claude Code runtime adapter", () => {
   it("declares its kind, its capabilities and a transport core will accept", () => {
     const adapter = createClaudeCodeRuntimeAdapter({ command: "claude-test", storePath: store("selection") });
     expect(adapter.id).toBe("claude-code");
-    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: true });
+    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true });
     expect(adapter.transport.sendPrompt).toBeTypeOf("function");
   });
 
@@ -141,13 +141,33 @@ describe("Claude Code runtime adapter", () => {
     const seen: string[] = [];
     const exits: unknown[] = [];
     const canUseTool = vi.fn();
-    const session = adapter.openSession({ cwd: "/repo", claudeSessionId: SESSION, started: true, permissionLevel: "ask", hooks: { canUseTool }, onMessage: (message) => { seen.push(message.type); }, onExit: (error) => { exits.push(error); } });
+    const session = adapter.openSession({ cwd: "/repo", claudeSessionId: SESSION, started: true, permissionLevel: "ask", model: "sonnet", effort: "xhigh", hooks: { canUseTool }, onMessage: (message) => { seen.push(message.type); }, onExit: (error) => { exits.push(error); } });
     expect(typeof params?.prompt).toBe("object");
-    expect(params?.options).toMatchObject({ cwd: "/repo", pathToClaudeCodeExecutable: "/opt/claude", resume: SESSION, permissionMode: "default", canUseTool, includePartialMessages: true, env: { PATH: "/bin", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
+    expect(params?.options).toMatchObject({ cwd: "/repo", pathToClaudeCodeExecutable: "/opt/claude", resume: SESSION, permissionMode: "default", model: "sonnet", effort: "xhigh", canUseTool, includePartialMessages: true, env: { PATH: "/bin", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
     expect(params?.options?.abortController).toBe(session.abortController);
     await session.close();
     expect(seen).toEqual(["system"]);
     expect(exits).toEqual([undefined]);
+  });
+
+  it("probes the CLI once and shares the answer for a while", async () => {
+    let spawned = 0;
+    const query = ((params: { prompt: AsyncIterable<unknown>; options?: Options }) => {
+      spawned += 1;
+      async function* run(): AsyncGenerator<SDKMessage, void> {
+        yield init();
+        for await (const message of params.prompt) void message;
+      }
+      const initializationResult = async () => ({ commands: [], agents: [], output_style: "", available_output_styles: [], models: [{ value: "opus", displayName: "Opus", description: "" }], account: { subscriptionType: "max" } });
+      return Object.assign(run(), { initializationResult, interrupt: vi.fn(), setPermissionMode: vi.fn(), setModel: vi.fn() }) as unknown as ReturnType<ClaudeQuery>;
+    }) as unknown as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", resolveCommand: () => "/opt/claude", storePath: store("probe"), query, env: {} });
+    const [first, second] = await Promise.all([adapter.probe(), adapter.probe()]);
+    expect(first).toBe(second);
+    expect(first.models).toEqual([{ provider: "anthropic", id: "opus", name: "Opus" }]);
+    expect(spawned).toBe(1);
+    await adapter.probe({ fresh: true });
+    expect(spawned).toBe(2);
   });
 
   it("aborts a running turn and everything queued behind it without blocking the next turn", async () => {

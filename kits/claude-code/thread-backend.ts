@@ -1,4 +1,4 @@
-import type { PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
+import type { ModelInfo, PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
   clientMessageFingerprint,
   knownSkillNames,
@@ -34,6 +34,7 @@ import {
   resumeDialogPrompt,
   resumeDialogResult,
 } from "./approvals.js";
+import { EFFORT_LEVELS, uiModel, type EffortLevel } from "./probe.js";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
@@ -63,6 +64,12 @@ export function promptContent(text: string, attachments: readonly UiPromptAttach
 }
 
 const MISSING_SESSION = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid)|(?:no|cannot|could not)\s+(?:find\s+)?(?:the\s+)?(?:session|conversation)/iu;
+/** The thinking picker's first entry: the CLI's own effort. */
+const DEFAULT_EFFORT = "default";
+
+function effortLevel(value: string | undefined): EffortLevel | undefined {
+  return (EFFORT_LEVELS as readonly string[]).includes(value ?? "") ? value as EffortLevel : undefined;
+}
 const INTERRUPT_GRACE_MS = 3_000;
 const STDERR_TAIL_BYTES = 8 * 1024;
 
@@ -112,7 +119,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly kind = "claude-code" as const;
   readonly runtimeAdapter: ClaudeCodeAgentRuntimeAdapter;
   readonly turnReporting = "streamed" as const;
-  readonly capabilities: ThreadBackendCapabilities = {};
+  readonly capabilities: ThreadBackendCapabilities;
   private record?: Awaited<ReturnType<ClaudeRuntimeSessionStore["get"]>>;
   private messages: UiMessage[] = [];
   private live?: LiveSession;
@@ -123,7 +130,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private titleSource?: ThreadTitleSource;
   private usage: UiThreadUsage = SdkTurnTranslator.emptyUsage();
   private contextUsage?: UiContextUsage;
+  /** The model the session reports running. */
   private model?: string;
+  /** What the user chose for this thread; the CLI's defaults otherwise. */
+  private chosenModel?: string;
+  private chosenEffort?: EffortLevel;
+  private observedEffort?: string;
+  private modelInfos?: ModelInfo[];
   private readonly now: () => number;
 
   constructor(
@@ -135,6 +148,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.store = options.store;
     this.options = options;
     this.now = options.now ?? Date.now;
+    this.capabilities = {
+      catalogWrite: {
+        setModel: (_provider, id) => this.setModel(id),
+        setThinkingLevel: (level) => this.setEffort(level),
+      },
+    };
   }
 
   private readonly store: ClaudeRuntimeSessionStore;
@@ -168,6 +187,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
+    this.chosenModel = record.model;
+    this.chosenEffort = effortLevel(record.effort);
+    if (this.chosenModel) this.model = this.chosenModel;
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message, ...(message.skill ? { skill: { ...message.skill } } : {}) })); }
@@ -198,18 +220,46 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   catalogView(): ThreadCatalogView {
-    const model: UiModel | undefined = this.model ? { provider: "anthropic", id: this.model, name: this.model } : undefined;
+    const current = this.model;
+    const info = current ? this.modelInfos?.find((candidate) => candidate.value === current || candidate.resolvedModel === current) : undefined;
+    const model: UiModel | undefined = this.model ? { provider: "anthropic", id: info?.value ?? this.model, name: info?.displayName ?? this.model } : undefined;
+    const levels = info?.supportedEffortLevels ?? EFFORT_LEVELS;
     return {
       ...(model ? { model } : {}),
-      thinkingLevel: "off",
-      thinkingLevels: ["off"],
+      // "default" is the CLI's own effort; the observed one is shown while it applies.
+      thinkingLevel: this.chosenEffort ?? (this.observedEffort ? `${DEFAULT_EFFORT} (${this.observedEffort})` : DEFAULT_EFFORT),
+      thinkingLevels: [this.chosenEffort ? DEFAULT_EFFORT : (this.observedEffort ? `${DEFAULT_EFFORT} (${this.observedEffort})` : DEFAULT_EFFORT), ...levels],
       allTools: [],
       ...(this.usage.turns > 0 ? { usage: { ...this.usage } } : {}),
       ...(this.contextUsage ? { contextUsage: { ...this.contextUsage } } : {}),
     };
   }
 
-  async models(): Promise<UiModel[]> { return []; }
+  /** The plan's models: from the live session when there is one, from a shared probe otherwise. */
+  async models(): Promise<UiModel[]> {
+    if (!this.modelInfos) {
+      const live = this.live && !this.live.session.closed ? this.live.session : undefined;
+      this.modelInfos = live ? await live.supportedModels() : (await this.runtimeAdapter.probe()).modelInfos;
+    }
+    return this.modelInfos.map(uiModel);
+  }
+
+  private async setModel(id: string): Promise<void> {
+    this.chosenModel = id;
+    this.model = id;
+    await this.store.setSelection(this.threadId, this.cwd, { model: id });
+    const live = this.live && !this.live.session.closed ? this.live.session : undefined;
+    if (live) await live.setModel(id);
+  }
+
+  private async setEffort(level: string): Promise<void> {
+    const effort = effortLevel(level);
+    if (!effort && !level.startsWith(DEFAULT_EFFORT)) throw new Error(`Claude Code knows no effort "${level}".`);
+    this.chosenEffort = effort;
+    await this.store.setSelection(this.threadId, this.cwd, { effort });
+    const live = this.live && !this.live.session.closed ? this.live.session : undefined;
+    if (live) await live.setEffort(effort ?? null);
+  }
 
   async preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.options.permissionLevel?.() ?? "full"), { canAsk: this.options.ask !== undefined });
@@ -358,6 +408,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       claudeSessionId: record.claudeSessionId,
       started: resumed,
       permissionLevel,
+      ...(this.chosenModel ? { model: this.chosenModel } : {}),
+      ...(this.chosenEffort ? { effort: this.chosenEffort } : {}),
       ...(this.turnHooks() ? { hooks: this.turnHooks() } : {}),
       onMessage: (frame) => this.onFrame(frame),
       onExit: (error) => this.onExit(live, error),
@@ -374,7 +426,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (frame.type === "system") {
         const probe = new SdkTurnTranslator(this.now);
         probe.push(frame);
-        if (probe.facts.model) this.model = probe.facts.model;
+        this.noteFacts(probe.facts);
       }
       return;
     }
@@ -400,7 +452,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (turn.status) return;
     turn.status = status;
     const outcome = turn.translator.outcome;
-    if (turn.translator.facts.model) this.model = turn.translator.facts.model;
+    this.noteFacts(turn.translator.facts);
     if (outcome) {
       this.usage = addUsage(this.usage, outcome.usage);
       if (outcome.contextUsage) this.contextUsage = outcome.contextUsage;
@@ -408,6 +460,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (outcome.error) this.report({ type: "notice", message: `Claude Code reported an error: ${outcome.error}`, level: "error" });
     }
     this.report({ type: "turn-settled", status });
+  }
+
+  /** What the session says about itself, once per init frame. */
+  private noteFacts(facts: SdkTurnTranslator["facts"]): void {
+    if (facts.model) this.model = facts.model;
+    if (facts.effort) this.observedEffort = facts.effort;
   }
 
   private onExit(live: LiveSession, error: unknown): void {

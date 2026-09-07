@@ -36,6 +36,8 @@ export interface SdkSessionFacts {
   claudeCodeVersion?: string;
   /** How the CLI authenticated, as the SDK names it; "none" is the subscription login. */
   apiKeySource?: string;
+  /** The effort the session runs at, as the CLI reports it. */
+  effort?: string;
 }
 
 const EMPTY_USAGE: UiThreadUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, turns: 0 };
@@ -240,10 +242,11 @@ export class SdkTurnTranslator {
   private system(message: SDKMessage & { type: "system" }): ThreadRuntimeEvent[] {
     const subtype = (message as { subtype: string }).subtype;
     if (subtype === "init") {
-      const init = message as { model?: string; claude_code_version?: string; apiKeySource?: string };
+      const init = message as { model?: string; claude_code_version?: string; apiKeySource?: string; effort?: string | null };
       this.facts.model = init.model;
       this.facts.claudeCodeVersion = init.claude_code_version;
       this.facts.apiKeySource = init.apiKeySource;
+      if (init.effort) this.facts.effort = init.effort;
       return [];
     }
     if (subtype === "compact_boundary") {

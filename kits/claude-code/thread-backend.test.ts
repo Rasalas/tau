@@ -85,6 +85,8 @@ function fakeSession(input: ClaudeSessionInput, script: Script) {
     interrupt: vi.fn(async () => undefined),
     setPermissionMode: vi.fn(async () => undefined),
     setModel: vi.fn(async () => undefined),
+    setEffort: vi.fn(async () => undefined),
+    supportedModels: vi.fn(async () => []),
     close: vi.fn(async () => {
       if (closed) return;
       closed = true;
@@ -164,8 +166,8 @@ describe("thread runtime backends", () => {
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, costUsd: 0.2, turns: 2 },
       contextUsage: { tokens: 100, contextWindow: 200000 },
     });
-    // Claude offers no Pi-shaped capability at all; every such operation is refused in one place.
-    expect(backend.capabilities).toEqual({});
+    // Beside the model and effort pickers, Claude offers no Pi-shaped capability; every such operation is refused in one place.
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite"]);
 
     await backend.dispose();
     expect(sessions[0]?.close).toHaveBeenCalled();
@@ -307,6 +309,38 @@ describe("thread runtime backends", () => {
       { type: "text", text: "what is this?" },
     ]);
     expect(events.find((event) => event.type === "user-message")).toMatchObject({ message: { images: [{ mimeType: "image/png", data: "AAAA" }] } });
+  });
+
+  it("lists the plan's models, and keeps the chosen model and effort for the live session and the next one", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("ok"));
+    const infos = [{ value: "opus", displayName: "Opus", description: "", supportedEffortLevels: ["low", "high", "max"] as Array<"low" | "high" | "max"> }, { value: "sonnet", displayName: "Sonnet", description: "" }];
+    adapter.probe = vi.fn(async () => ({ models: infos.map((info) => ({ provider: "anthropic", id: info.value, name: info.displayName })), modelInfos: infos, probedAt: 1 }));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+    await backend.start("create");
+    // Idle: the shared probe answers; the picker starts at the CLI's default.
+    expect(await backend.models()).toEqual([{ provider: "anthropic", id: "opus", name: "Opus" }, { provider: "anthropic", id: "sonnet", name: "Sonnet" }]);
+    expect(backend.catalogView()).toMatchObject({ thinkingLevel: "default", thinkingLevels: ["default", "low", "medium", "high", "xhigh", "max"] });
+
+    await backend.prompt({ text: "hello", delivery: "prompt" });
+    expect(opened[0]).not.toHaveProperty("model");
+    await backend.capabilities.catalogWrite!.setModel("anthropic", "opus");
+    await backend.capabilities.catalogWrite!.setThinkingLevel("max");
+    expect(sessions[0]?.setModel).toHaveBeenCalledWith("opus");
+    expect(sessions[0]?.setEffort).toHaveBeenCalledWith("max");
+    expect(backend.catalogView()).toMatchObject({ model: { id: "opus", name: "Opus" }, thinkingLevel: "max", thinkingLevels: ["default", "low", "high", "max"] });
+    await expect(backend.capabilities.catalogWrite!.setThinkingLevel("enormous")).rejects.toThrow('knows no effort "enormous"');
+    await backend.capabilities.catalogWrite!.setThinkingLevel("default");
+    expect(sessions[0]?.setEffort).toHaveBeenLastCalledWith(null);
+    await backend.capabilities.catalogWrite!.setThinkingLevel("high");
+
+    // The choice is persisted and opens the next session.
+    await backend.dispose();
+    const restored = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo", onEvent: () => undefined });
+    await restored.start("resume");
+    expect(restored.catalogView()).toMatchObject({ model: { id: "opus" }, thinkingLevel: "high" });
+    await restored.prompt({ text: "again", delivery: "prompt" });
+    expect(opened[1]).toMatchObject({ model: "opus", effort: "high" });
   });
 
   it("rejects manual approvals without a dialog surface, before a session is opened", async () => {
