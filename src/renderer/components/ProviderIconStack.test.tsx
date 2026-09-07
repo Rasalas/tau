@@ -31,10 +31,10 @@ describe("ProviderIconStack", () => {
     expect(stack.classList).toContain("stacked");
   });
 
-  it("does not duplicate Claude for the Claude Code runtime", () => {
+  it("keeps the Claude Code logo behind Claude: same family, different program", () => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider="anthropic" runtimeProvider="claude-code" />);
-    const stack = getByLabelText("Claude");
-    expect(stack.querySelectorAll("img")).toHaveLength(1);
-    expect(stack.classList).toContain("single");
+    const stack = getByLabelText("Claude via Claude Code");
+    expect(stack.querySelectorAll("img")).toHaveLength(2);
+    expect(stack.classList).toContain("stacked");
   });
 });

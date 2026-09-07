@@ -75,3 +75,22 @@ describe("transcript detail", () => {
     expect(preferences.transcriptDetailFor("thread-a")).toBe("detailed");
   });
 });
+
+describe("new thread runtime", () => {
+  it("is unset until chosen and survives a reload", () => {
+    expect(preferences.getSnapshot().newThreadRuntime).toBeUndefined();
+    preferences.setNewThreadRuntime("acme");
+    expect(new PreferencesStore().getSnapshot().newThreadRuntime).toBe("acme");
+    preferences.setNewThreadRuntime(undefined);
+    expect(new PreferencesStore().getSnapshot().newThreadRuntime).toBeUndefined();
+  });
+});
+
+describe("subscription login acknowledgements", () => {
+  it("remember each provider once, across reloads", () => {
+    expect(preferences.hasAcknowledgedSubscriptionLogin("anthropic")).toBe(false);
+    preferences.acknowledgeSubscriptionLogin("anthropic");
+    preferences.acknowledgeSubscriptionLogin("anthropic");
+    expect(new PreferencesStore().getSnapshot().acknowledgedSubscriptionLogins).toEqual(["anthropic"]);
+  });
+});

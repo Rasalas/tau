@@ -8,7 +8,7 @@ import type { PromptPreparation } from "./prompt-preparation.js";
 import type { ThreadBinding } from "./thread-binding.js";
 import type { ThreadIndex } from "./thread-index.js";
 import type { ThreadProjection } from "./thread-projection.js";
-import type { ThreadRuntime } from "./thread-runtime.js";
+import { isPiBackend, type ThreadRuntime } from "./thread-runtime.js";
 
 export type TurnDeliveryKind = "prompt" | "steer" | "followUp";
 
@@ -101,6 +101,7 @@ export class TurnDelivery {
     delivery: TurnDeliveryKind,
     identity?: ClientTurnIdentity,
     prepared?: PreparedPrompt,
+    onAdmitted?: (accepted: boolean) => void,
   ): Promise<void> {
     if (thread.backend.turnReporting === "awaited") {
       await this.throughAdapter(thread, text, attachments, delivery, identity, prepared);
@@ -108,7 +109,19 @@ export class TurnDelivery {
     }
     this.port.prompts.assertImageInput(thread, attachments);
     if (prepared) this.port.prompts.assertBound(thread, text, prepared, this.port.projection.composerCommands(thread));
+    // An external runtime owns the turn, but the observers still bracket it: a
+    // checkpoint or a status watcher does not care which program answers. An
+    // attached Pi is the exception: its terminal owns turn and journal alike.
+    // A steer or follow-up joins a turn that is already observed, as on the
+    // journal path: it is announced, and cancelled if refused, but not ended.
+    const observed = !isPiBackend(thread);
+    const ownTurn = observed && delivery === "prompt";
+    const wasStreaming = observed && thread.state.streaming;
+    const turnId = randomUUID();
+    let admitted = false;
+    if (observed) this.port.turnObservers.accepted(thread.threadId, turnId, { deferBefore: wasStreaming, ...(delivery !== "prompt" ? { expectsInput: false } : {}) });
     try {
+      if (ownTurn && !wasStreaming) await this.port.turnObservers.prepare(thread.threadId, turnId);
       if (identity) this.port.clientTurns.enqueue(thread.threadId, identity);
       await thread.backend.prompt({
         text,
@@ -116,9 +129,21 @@ export class TurnDelivery {
         attachments,
         ...(identity ? { identity } : {}),
         ...(prepared ? { prepared } : {}),
+        onAdmitted: (accepted) => {
+          admitted ||= accepted;
+          onAdmitted?.(accepted);
+        },
       });
+      admitted = true;
+      if (ownTurn) {
+        await this.port.turnObservers.ended(thread.threadId, turnId, "completed");
+        await this.port.index.refreshShell(thread, true);
+      }
     } catch (error) {
       if (identity) this.port.clientTurns.cancel(thread.threadId, identity);
+      if (!observed) throw error;
+      if (admitted && ownTurn) await this.port.turnObservers.ended(thread.threadId, turnId, "failed");
+      else if (!admitted || !ownTurn) await this.port.turnObservers.cancelled(thread.threadId, turnId);
       throw error;
     }
   }

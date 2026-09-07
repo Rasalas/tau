@@ -16,6 +16,7 @@ import type {
   UiComposerCommand,
   UiModel,
   UiPromptAttachment,
+  UiRuntimeBackend,
   SubmissionResult,
   UiSkillDraft,
   NewThreadRequestId,
@@ -86,6 +87,8 @@ import { requireCapability } from "./runtime-types.js";
 import { localTranscriptCursorPolicy, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
 import { PersistedThreadTranscript } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
+import { handleBackendRuntimeEvent } from "./backend-events.js";
+import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import { ClientMessageTracker } from "./client-message-tracker.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
@@ -341,6 +344,7 @@ export class PiHost {
       emitMessage: (threadId, message) => this.emit(message.role === "user"
         ? { type: "user-message", sessionId: threadId, message }
         : { type: "assistant-end", sessionId: threadId, message }),
+      emitRuntimeEvent: (threadId, event) => this.handleBackendEvent(threadId, event),
       logRuntimePhase: (phase, startedAt, reason, phaseCwd) => this.logRuntimePhase(phase, startedAt, reason, phaseCwd),
       log: (label, detail) => this.log(label, detail),
       errorMessage: (error) => this.errorMessage(error),
@@ -585,7 +589,7 @@ export class PiHost {
   /** The provider behind a non-Pi backend kind. */
   private requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider {
     const provider = this.seam.backends.get(kind);
-    if (!provider) throw new Error(`Runtime backend "${kind}" is not installed; enable its extension or unset TAU_RUNTIME_ADAPTER.`);
+    if (!provider) throw new Error(`Runtime backend "${kind}" is not installed; enable its extension, pick another runtime for new threads, or unset TAU_RUNTIME_ADAPTER.`);
     return provider;
   }
 
@@ -1392,14 +1396,25 @@ export class PiHost {
     });
   }
 
-  /** Resolves a prompt before the renderer creates its optimistic message. */
-  async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
+  /**
+   * Resolves a prompt before the renderer creates its optimistic message. A
+   * prompt for a thread that does not exist yet names the backend it wants;
+   * without one, the host's default applies.
+   */
+  async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind): Promise<PreparedPrompt> {
+    const kind = backendKind ?? this.defaultBackendKind;
+    if (!sessionId && kind !== "pi") this.requireBackend(kind);
     const target = sessionId
       ? await this.awaitThread(sessionId)
-      : (this.active && threadBackendKind(this.active) === this.defaultBackendKind ? this.active : undefined);
+      : (this.active && threadBackendKind(this.active) === kind ? this.active : undefined);
     if (target) return target.backend.preparePrompt(text, skill);
-    const kind = this.defaultBackendKind;
     return this.prompts.prepare(text, skill, this.adapterFor(kind), this.composerCommandsFor(kind, this.cwd), undefined, kind);
+  }
+
+  /** The backends a new thread can run on: Pi, then what host extensions registered. */
+  private runtimeBackends(): UiRuntimeBackend[] {
+    const registered = [...this.seam.backends.values()].map((provider) => ({ kind: provider.kind, label: provider.label ?? provider.kind }));
+    return [{ kind: "pi", label: "Pi" }, ...registered];
   }
 
   /** The commands a backend's composer offers, before any thread of it exists. */
@@ -1482,13 +1497,27 @@ export class PiHost {
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
     if (!thread.backend.capabilities.journal) {
-      try {
-        await this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared);
-      } catch (error) {
-        onPreflightResult?.({ accepted: false, error });
-        throw error;
-      }
-      onPreflightResult?.({ accepted: true });
+      // The composer waits for admission, not for the whole turn: a streamed
+      // runtime reports it as soon as the message is on its way, and this call
+      // returns then. What breaks after admission is reported as a failure of
+      // the thread, as on the journal path.
+      const preflight: { state: PromptPreflightState; rejection?: unknown } = { state: "pending" };
+      let resolveAdmitted!: () => void;
+      const admitted = new Promise<void>((resolve) => { resolveAdmitted = resolve; });
+      const report = (result: PromptPreflightResult) => {
+        if (preflight.state !== "pending") return;
+        preflight.state = result.accepted ? "accepted" : "rejected";
+        if (!result.accepted) preflight.rejection = result.error ?? new Error("The prompt was rejected before it started.");
+        onPreflightResult?.(result);
+        resolveAdmitted();
+      };
+      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted) => { if (accepted) report({ accepted: true }); })
+        .then(() => report({ accepted: true }), (error) => {
+          if (preflight.state === "pending") report({ accepted: false, error });
+          else this.fail(error, thread.threadId);
+        });
+      await Promise.race([admitted, run]);
+      if (preflight.state === "rejected") throw preflight.rejection;
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
@@ -1901,6 +1930,27 @@ export class PiHost {
     });
   }
 
+  /** A streamed external backend reports in Tau's dialect; the same bookkeeping applies. */
+  private handleBackendEvent(threadId: string, event: ThreadRuntimeEvent): void {
+    const thread = this.threads.get(threadId)?.runtime;
+    if (!thread) return;
+    handleBackendRuntimeEvent(event, thread, {
+      clientTurns: this.clientTurns,
+      emit: (next) => this.emit(next),
+      emitUpdate: (update) => this.emitUpdate(update),
+      log: (label, detail) => this.log(label, detail),
+      fail: (error, owner) => this.fail(error, owner),
+      settledSnapshot: () => this.snapshot(),
+      detailForSnapshot: (snapshot) => this.detailForSnapshot(snapshot),
+      ownTool: (id, owner) => this.toolOwners.set(id, owner),
+      releaseTool: (id) => { this.toolOwners.delete(id); },
+      pushToolOutput: (id, output) => this.toolOutputBatcher.push(id, output),
+      flushToolOutput: (id) => this.toolOutputBatcher.flushId(id),
+      toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
+      refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
+    });
+  }
+
   private async ensureModels(): Promise<UiModel[]> {
     const active = this.active;
     if (!active) return [];
@@ -1933,6 +1983,8 @@ export class PiHost {
     return {
       ...this.projection.hostSnapshot(this.active, models, this.cwd, this.extensionCount),
       ...this.workspaces.ref(this.cwd),
+      runtimeBackends: this.runtimeBackends(),
+      defaultBackendKind: this.defaultBackendKind,
     };
   }
 

@@ -4,10 +4,10 @@ import { TurnDelivery, type TurnDeliveryPort } from "./turn-delivery.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 
-function makeThread(options: { journal?: boolean; turnReporting?: "streamed" | "awaited"; prompt?: (input: never) => Promise<unknown> } = {}) {
+function makeThread(options: { kind?: string; journal?: boolean; turnReporting?: "streamed" | "awaited"; prompt?: (input: never) => Promise<unknown> } = {}) {
   const sent: Array<{ text: string; delivery: string }> = [];
   const backend = {
-    kind: "pi" as const,
+    kind: options.kind ?? "pi",
     runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
     threadId: "session",
     providerSessionId: "session",
@@ -37,7 +37,7 @@ function makeDelivery(thread: ThreadRuntime, overrides: Partial<TurnDeliveryPort
   const port: TurnDeliveryPort = {
     clientTurns: { enqueue: vi.fn(), cancel: vi.fn() } as never,
     clientMessages: { appendMarker: vi.fn(() => true), failIfUnpersisted: vi.fn() } as never,
-    turnObservers: { accepted: vi.fn(), cancelled: vi.fn(async () => undefined) } as never,
+    turnObservers: { accepted: vi.fn(), prepare: vi.fn(async () => undefined), ended: vi.fn(async () => undefined), cancelled: vi.fn(async () => undefined) } as never,
     projection: { composerCommands: () => [], isExtensionCommand: () => false } as never,
     prompts: { assertBound: vi.fn(), assertImageInput: vi.fn() } as never,
     binding: { settle: vi.fn(async () => undefined) } as never,
@@ -85,9 +85,50 @@ describe("TurnDelivery", () => {
     const { delivery, port } = makeDelivery(thread);
     await delivery.queued("steer", "wait", [], "session");
     expect(sent).toEqual([{ text: "wait", delivery: "steer" }]);
-    // No marker, no observer: the runtime owns the turn.
+    // No marker, no observer: an attached Pi owns turn and journal alike.
     expect(port.clientMessages.appendMarker).not.toHaveBeenCalled();
     expect(port.turnObservers.accepted).not.toHaveBeenCalled();
+  });
+
+  it("brackets an external streamed backend's turn with the observers and refreshes its shell", async () => {
+    const { thread, sent } = makeThread({ kind: "external", journal: false });
+    const { delivery, port } = makeDelivery(thread);
+    await delivery.toRuntime(thread, "work", [], "prompt", { clientTurnId: "t", clientMessageId: "m" });
+    expect(sent).toEqual([{ text: "work", delivery: "prompt" }]);
+    expect(port.turnObservers.accepted).toHaveBeenCalledWith("session", expect.any(String), { deferBefore: false });
+    await delivery.queued("steer", "wait", [], "session");
+    expect(port.turnObservers.accepted).toHaveBeenLastCalledWith("session", expect.any(String), { deferBefore: false, expectsInput: false });
+    // A steer joins the observed turn: announced, never ended on its own.
+    expect(port.turnObservers.ended).toHaveBeenCalledTimes(1);
+    expect(port.turnObservers.prepare).toHaveBeenCalledTimes(1);
+    // Admission reaches the caller as soon as the backend reports it.
+    const admitted = vi.fn();
+    const early = makeThread({ kind: "external", journal: false, prompt: (async (input: { onAdmitted?: (accepted: boolean) => void }) => { input.onAdmitted?.(true); await new Promise((resolve) => setTimeout(resolve, 5)); return {}; }) as never });
+    const earlyDelivery = makeDelivery(early.thread);
+    const run = earlyDelivery.delivery.toRuntime(early.thread, "work", [], "prompt", undefined, undefined, admitted);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(admitted).toHaveBeenCalledWith(true);
+    await run;
+    expect(port.turnObservers.prepare).toHaveBeenCalled();
+    expect(port.turnObservers.ended).toHaveBeenCalledWith("session", expect.any(String), "completed");
+    expect(port.turnObservers.cancelled).not.toHaveBeenCalled();
+    expect(port.index.refreshShell).toHaveBeenCalledWith(thread, true);
+    expect(port.clientTurns.enqueue).toHaveBeenCalled();
+  });
+
+  it("cancels the observers' turn when a streamed backend refuses the prompt, and fails it when the run breaks", async () => {
+    const refused = makeThread({ kind: "external", journal: false, prompt: (async () => { throw new Error("refused"); }) as never });
+    const refusedDelivery = makeDelivery(refused.thread);
+    await expect(refusedDelivery.delivery.toRuntime(refused.thread, "work", [], "prompt", { clientTurnId: "t", clientMessageId: "m" })).rejects.toThrow("refused");
+    expect(refusedDelivery.port.turnObservers.cancelled).toHaveBeenCalled();
+    expect(refusedDelivery.port.turnObservers.ended).not.toHaveBeenCalled();
+    expect(refusedDelivery.port.clientTurns.cancel).toHaveBeenCalled();
+
+    const broken = makeThread({ kind: "external", journal: false, prompt: (async (input: { onAdmitted?: (accepted: boolean) => void }) => { input.onAdmitted?.(true); throw new Error("broke"); }) as never });
+    const brokenDelivery = makeDelivery(broken.thread);
+    await expect(brokenDelivery.delivery.toRuntime(broken.thread, "work", [], "prompt")).rejects.toThrow("broke");
+    expect(brokenDelivery.port.turnObservers.ended).toHaveBeenCalledWith("session", expect.any(String), "failed");
+    expect(brokenDelivery.port.turnObservers.cancelled).not.toHaveBeenCalled();
   });
 
   it("brackets an awaited backend's turn with a running status", async () => {

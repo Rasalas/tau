@@ -33,13 +33,14 @@ describe("Claude Code host half", () => {
     expect(provider?.kind).toBe("claude-code");
     expect(provider?.adapter.id).toBe("claude-code");
     expect(provider?.modelProvider).toBe("anthropic");
+    expect(provider?.label).toBe("Claude Code");
     // Only names Claude can be asked to run; the dialect is the adapter's.
     expect(provider?.composerCommands("/repo")).toEqual([
       { name: "skill:tdd", description: "Test first", source: "skill", skillCommand: "/tdd" },
     ]);
-    // Claude cannot stop for an approval in print mode, so `ask` is refused early.
-    expect(() => provider?.assertPromptAllowed?.("ask")).toThrow("manual approvals are unsupported");
-    expect(provider?.assertPromptAllowed?.("full")).toBeUndefined();
+    // Claude's questions reach the workbench through the open context's `ask`; no access level is refused up front.
+    expect(provider?.assertPromptAllowed).toBeUndefined();
+    expect(provider?.adapter.capabilities.interactiveApprovals).toBe(true);
   });
 
   it("reports where the CLI is, and refuses to open a thread when it is missing", async () => {

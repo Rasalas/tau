@@ -1,5 +1,7 @@
 import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
-import type { DesktopExtension, WorkbenchActions } from "../extension-system";
+import { ShieldAlert } from "lucide-react";
+import { subscriptionLoginWarning } from "../../shared/subscription-login";
+import type { DesktopExtension, RegionProps, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { THEME_PREFERENCES, nextTheme, type ThemePreference } from "../theme";
 
@@ -41,10 +43,19 @@ function applyTheme(preferences: PreferencesStore, app: WorkbenchActions, theme:
  * the Keybindings kit (`kits/keybindings/`) adds whatever `keybindings.json`
  * and Pi extension shortcuts put beside them. The id stays `tau.runtime-settings`.
  */
+/** Reminds, after the one-time warning, that the thread's model rides on a subscription login Pi performs. */
+export function SubscriptionLoginStatus({ snapshot }: RegionProps) {
+  const model = snapshot?.model;
+  if (model?.login !== "subscription") return null;
+  const warning = subscriptionLoginWarning(model.provider);
+  return <span className="status-item-warning" title={`${warning.title}. ${warning.message}`}><ShieldAlert size={12} /> Subscription login</span>;
+}
+
 export const runtimeControls: DesktopExtension = {
   id: "tau.runtime-settings",
   name: "Runtime Controls",
   activate(plugin) {
+    plugin.registerStatusItem({ id: "runtime.subscription-login", align: "left", order: 45, profiles: ["desktop", "web", "compact"], Component: SubscriptionLoginStatus });
     plugin.registerCommand({ id: "runtime.settings", label: "Open Settings panel", group: "Runtime", run: (app) => app.openSettings() });
     plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });

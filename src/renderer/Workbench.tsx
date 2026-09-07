@@ -29,6 +29,7 @@ import { useClientStorage } from "./client-storage-context";
 import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
+import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { publishStageBand } from "./reserved-region";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
@@ -245,7 +246,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     setNotice, activeOverlayId, closeOverlay,
   } = layout;
   const {
-    snapshot, conversationSnapshot, showStartScreen, startProjectPath, startProjectName,
+    snapshot, conversationSnapshot, pendingNewThread, showStartScreen, startProjectPath, startProjectName,
     dropController, activeDraftKey, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
     renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   } = thread;
@@ -347,6 +348,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     composer={composer}
     snapshot={snapshot}
     conversationSnapshot={conversationSnapshot}
+    pendingNewThread={pendingNewThread}
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
   />;
@@ -646,18 +648,24 @@ function ConversationTranscript({ view, thread }: { view: ThreadViewStore; threa
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, activeDraftKey, onNotify }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, activeDraftKey, onNotify }: {
   view: ThreadViewStore;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
   conversationSnapshot?: HostSnapshot;
+  pendingNewThread: boolean;
   activeDraftKey?: string;
   onNotify?(message: string): void;
 }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   const tools = useSyncExternalStore(view.subscribeToTools, view.getToolView).tools;
   const preferences = usePreferences();
-  const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
+  const { showCosts, newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  // The runtime is a property of the thread; it is chosen before the thread exists and never after.
+  const runtimeBackends = snapshot?.runtimeBackends ?? [];
+  const runtimeChoice = pendingNewThread && runtimeBackends.length > 1
+    ? { kind: effectiveNewThreadRuntime(newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => preferences.setNewThreadRuntime(kind) }
+    : undefined;
   const {
     scopeStore, seed, textareaRef, attachmentRef, queue, holds, prompts, submit, abort,
     cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
@@ -684,6 +692,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onReorderQueue={reorderQueue}
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
+    runtimeChoice={runtimeChoice}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
     onAnswerPrompt={(value, typed) => {

@@ -93,6 +93,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeText("prepare-prompt", "text", params[0]),
       decodeOptionalString("prepare-prompt", "sessionId", params[1]),
       decodeUiSkillDraft("prepare-prompt", "skill", params[2]),
+      decodeOptionalString("prepare-prompt", "backendKind", params[3]),
     ),
     "prompt": async (params) => {
       const args = decodePromptArgs("prompt", params);

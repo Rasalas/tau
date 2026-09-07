@@ -379,6 +379,10 @@ export function hostApiAliases(): Record<string, string> {
  * package brings its own dependencies. `tau/host-extension` and `tau/host`
  * resolve to Tau's own API modules, which is why they never have to be shipped
  * inside a package.
+ *
+ * A bundled ESM dependency may read `import.meta.url` (typically for
+ * `createRequire`); in CommonJS output that would be `undefined`, so it is
+ * bound to the compiled file's own URL.
  */
 export async function bundleHostExtension(entry: string): Promise<string> {
   const result = await build({
@@ -392,6 +396,8 @@ export async function bundleHostExtension(entry: string): Promise<string> {
     logLevel: "silent",
     external: ["electron", "node:*"],
     alias: hostApiAliases(),
+    define: { "import.meta.url": "__tauImportMetaUrl" },
+    banner: { js: 'const __tauImportMetaUrl = require("node:url").pathToFileURL(__filename).href;' },
   });
   return result.outputFiles.map((file) => file.text).join("\n");
 }

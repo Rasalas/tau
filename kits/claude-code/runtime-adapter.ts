@@ -1,67 +1,138 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import type { RuntimePermissionLevel, RuntimePromptInput, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
+import { query as sdkQuery, type CanUseTool, type EffortLevel, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
+import { homedir } from "node:os";
+import manifest from "./tau-extension.json";
+import { probeClaude, type ClaudeProbe } from "./probe.js";
+import { ClaudeSdkSession } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
+/** The SDK entry the adapter drives; tests inject a scripted one. */
+export type ClaudeQuery = typeof sdkQuery;
+
 export interface RuntimePermissionPolicy {
-  /** Claude's supported mode corresponding to Tau's access setting. */
-  permissionMode: "plan" | "manual" | "auto";
-  /** Explicit Claude tool allow-list; installation defaults are never used. */
-  tools: readonly string[];
+  /** Claude's permission mode corresponding to Tau's access level. */
+  permissionMode: "plan" | "default" | "auto";
 }
 
-const CLAUDE_POLICIES: Record<RuntimePermissionLevel, RuntimePermissionPolicy> = {
-  "read-only": { permissionMode: "plan", tools: ["Read", "Glob", "Grep"] },
-  // Keep the CLI's tool surface explicit. `default` would make the adapter's
-  // behavior depend on a user's Claude installation and can expose tools that
-  // Tau did not make available.
-  ask: { permissionMode: "manual", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
-  full: { permissionMode: "auto", tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"] },
+const PERMISSION_MODES: Record<RuntimePermissionLevel, RuntimePermissionPolicy["permissionMode"]> = {
+  "read-only": "plan",
+  ask: "default",
+  full: "auto",
 };
 
+/** Identifies Tau to the SDK; never Claude Code's own headers or prompt. */
+export const CLIENT_APP = `${manifest.id}/${manifest.version}`;
+
 /**
- * Claude's `manual` permission mode needs an interactive TTY approval prompt.
- * Tau invokes Claude through `--print`, so accepting that mode would leave a
- * child waiting forever with no way for the user to answer it.
+ * Claude's `default` mode asks before a tool runs. Without a way to put that
+ * question to the user, accepting `ask` would leave a turn waiting on a
+ * question nobody can see.
  */
-export function assertClaudePermissionPolicySupported(policy: RuntimePermissionPolicy): void {
-  if (!policy || !["plan", "manual", "auto"].includes(policy.permissionMode)) {
+export function assertClaudePermissionPolicySupported(policy: RuntimePermissionPolicy, options: { canAsk?: boolean } = {}): void {
+  if (!policy || !["plan", "default", "auto"].includes(policy.permissionMode)) {
     throw new Error("Claude Code received an unsupported Tau permission policy.");
   }
-  if (policy.permissionMode === "manual") {
-    throw new Error("Claude Code manual approvals are unsupported in non-interactive --print mode; choose read-only or full access before launching Claude.");
+  if (policy.permissionMode === "default" && options.canAsk === false) {
+    throw new Error("Claude Code manual approvals are unsupported on this host; choose read-only or full access before launching Claude.");
   }
-  if (!Array.isArray(policy.tools)) throw new Error("Claude Code received an unsupported Tau tool policy.");
-  const expected = CLAUDE_POLICIES[policy.permissionMode === "plan" ? "read-only" : "full"];
-  if (policy.tools.length !== expected.tools.length || policy.tools.some((tool, index) => tool !== expected.tools[index])) {
-    throw new Error("Claude Code received an unsupported Tau tool policy.");
-  }
+}
+
+/** What a turn hands the SDK for the questions Claude asks while it runs. */
+export interface ClaudeTurnHooks {
+  canUseTool?: CanUseTool;
+  onUserDialog?: OnUserDialog;
 }
 
 export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimePermissionPolicy {
-  const policy = CLAUDE_POLICIES[level];
-  return { permissionMode: policy.permissionMode, tools: [...policy.tools] };
+  return { permissionMode: PERMISSION_MODES[level] };
 }
 
 export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   readonly id: "claude-code";
-  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: true; readonly interactiveApprovals: false };
+  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: false; readonly interactiveApprovals: true };
   readonly transport: RuntimeTransport;
+  /** One turn with every SDK frame reported as it arrives; resolves when the turn's result is in. */
+  stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult>;
+  /** A live session for a thread, started; the backend feeds it turns and closes it. */
+  openSession(input: ClaudeSessionInput): ClaudeSdkSession;
+  /** What the CLI says about its login and models; cached for a few minutes. */
+  probe(options?: { fresh?: boolean }): Promise<ClaudeProbe>;
   /** Shared app-data store used to resume this adapter after eviction/restart. */
   readonly sessionStore?: ClaudeRuntimeSessionStore;
 }
 
-export interface ClaudeCodeRuntimeOptions {
-  command?: string;
-  maxBuffer?: number;
-  timeoutMs?: number;
-  killGraceMs?: number;
-  /** Where the adapter persists what it needs to resume; the host half derives it from `services.sessionsDir`. */
-  storePath: string;
+export interface ClaudeSessionInput {
+  cwd: string;
+  claudeSessionId: string;
+  /** Resume the session instead of creating it under `claudeSessionId`. */
+  started: boolean;
+  permissionLevel: RuntimePermissionLevel;
+  /** The thread's chosen model and effort; the CLI's own defaults otherwise. */
+  model?: string;
+  effort?: EffortLevel;
+  hooks?: ClaudeTurnHooks;
+  onMessage(message: SDKMessage): void;
+  onExit(error: unknown | undefined): void;
+  /** The CLI's stderr, for the message when the session fails. */
+  onStderr?(chunk: string): void;
 }
 
-interface RunningChild {
-  child: ChildProcess;
-  terminate(reason: Error): Promise<void>;
+export interface ClaudeCodeRuntimeOptions {
+  /** The CLI to run: a name on the login shell's PATH or a path. */
+  command?: string;
+  /** Resolves a bare command name to its path; the name is passed through otherwise. */
+  resolveCommand?(name: string): string | undefined;
+  /** The SDK's `query`; tests script it. */
+  query?: ClaudeQuery;
+  /** Where the adapter persists what it needs to resume; the host half derives it from `services.sessionsDir`. */
+  storePath: string;
+  /** Environment for the CLI; the host's own by default. */
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface ClaudeQueryPlan {
+  cwd: string;
+  executable: string;
+  claudeSessionId: string;
+  /** Resume the session instead of creating it under `claudeSessionId`. */
+  started: boolean;
+  policy: RuntimePermissionPolicy;
+  abortController: AbortController;
+  env: NodeJS.ProcessEnv;
+  stderr?(chunk: string): void;
+  hooks?: ClaudeTurnHooks;
+  model?: string;
+  effort?: EffortLevel;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const STDERR_TAIL_BYTES = 8 * 1024;
+
+/**
+ * Everything one `query()` call is told. The user's own `claude` runs with the
+ * user's own settings; Tau adds only its client identity.
+ */
+export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
+  assertClaudePermissionPolicySupported(plan.policy, { canAsk: plan.hooks?.canUseTool !== undefined });
+  if (!UUID.test(plan.claudeSessionId)) throw new Error("Claude session ids must be UUIDs.");
+  return {
+    ...(plan.hooks?.canUseTool ? { canUseTool: plan.hooks.canUseTool } : {}),
+    // The resume-compaction question is the one dialog the workbench answers; others are declined.
+    ...(plan.hooks?.onUserDialog ? { onUserDialog: plan.hooks.onUserDialog, supportedDialogKinds: ["resume_return"] } : {}),
+    cwd: plan.cwd,
+    pathToClaudeCodeExecutable: plan.executable,
+    systemPrompt: { type: "preset", preset: "claude_code" },
+    settingSources: ["user", "project", "local"],
+    permissionMode: plan.policy.permissionMode,
+    ...(plan.model ? { model: plan.model } : {}),
+    ...(plan.effort ? { effort: plan.effort } : {}),
+    // Token deltas arrive as stream events; the whole message still follows.
+    includePartialMessages: true,
+    ...(plan.started ? { resume: plan.claudeSessionId } : { sessionId: plan.claudeSessionId }),
+    env: { ...plan.env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP },
+    abortController: plan.abortController,
+    ...(plan.stderr ? { stderr: plan.stderr } : {}),
+  };
 }
 
 function abortError(message: string): Error {
@@ -70,25 +141,49 @@ function abortError(message: string): Error {
   return error;
 }
 
-function childClosed(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => child.once("close", () => resolve()));
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || /aborted/iu.test(error.message));
 }
 
-async function terminateChild(child: ChildProcess, graceMs: number): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  try { child.kill("SIGTERM"); } catch { /* the child exited between the check and kill */ }
-  await Promise.race([
-    childClosed(child),
-    new Promise<void>((resolve) => setTimeout(resolve, graceMs).unref?.()),
-  ]);
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  try { child.kill("SIGKILL"); } catch { /* the child exited between the check and kill */ }
-  await Promise.race([
-    childClosed(child),
-    new Promise<void>((resolve) => setTimeout(resolve, graceMs).unref?.()),
-  ]);
+function resultErrorText(message: SDKMessage & { type: "result" }): string {
+  const candidate = message as { subtype: string; result?: unknown; errors?: unknown };
+  const parts = [
+    ...(Array.isArray(candidate.errors) ? candidate.errors.map(String) : []),
+    typeof candidate.result === "string" ? candidate.result : "",
+  ].map((part) => part.trim()).filter(Boolean);
+  return parts.join("\n") || candidate.subtype;
 }
+
+/**
+ * Runs one turn to its `result` and returns the assistant text of the main
+ * loop: every text block Claude wrote between tool calls, not only the last.
+ * Sub-agent frames carry `parent_tool_use_id` and stay out of the reply.
+ * `onMessage` sees every frame first, in order.
+ */
+export async function consumeTurn(messages: AsyncIterable<SDKMessage>, onMessage?: (message: SDKMessage) => void): Promise<string> {
+  const texts: string[] = [];
+  let sawAssistant = false;
+  for await (const message of messages) {
+    onMessage?.(message);
+    if (message.type === "assistant") {
+      if (message.parent_tool_use_id) continue;
+      sawAssistant = true;
+      for (const block of message.message.content) {
+        if (block.type === "text" && block.text.trim()) texts.push(block.text);
+      }
+      continue;
+    }
+    if (message.type !== "result") continue;
+    if (message.subtype !== "success" || message.is_error) throw new Error(`Claude Code reported an error: ${resultErrorText(message)}`);
+    // A resumed session answers with an empty result before the turn; the
+    // real one follows.
+    if (message.num_turns === 0 && !sawAssistant) continue;
+    return texts.length > 0 ? texts.join("\n\n") : message.result;
+  }
+  throw new Error("Claude Code ended without a result.");
+}
+
+export const collectTurnText = (messages: AsyncIterable<SDKMessage>): Promise<string> => consumeTurn(messages);
 
 async function waitBounded(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
   await Promise.race([
@@ -97,222 +192,106 @@ async function waitBounded(promise: Promise<unknown>, timeoutMs: number): Promis
   ]);
 }
 
-/** Builds the complete Claude command line; the prompt is always after `--`. */
-export function claudeCodeArgs(
-  claudeSessionId: string,
-  started: boolean,
-  prompt: string,
-  policy: RuntimePermissionPolicy,
-): string[] {
-  assertClaudePermissionPolicySupported(policy);
-  return [
-    "--print",
-    "--output-format",
-    "text",
-    "--permission-mode",
-    policy.permissionMode,
-    "--tools",
-    policy.tools.join(","),
-    "--allowed-tools",
-    policy.tools.join(","),
-    ...(started ? ["--resume", claudeSessionId] : ["--session-id", claudeSessionId]),
-    "--",
-    prompt,
-  ];
-}
-
-function runClaudeProcess(
-  command: string,
-  args: readonly string[],
-  input: RuntimePromptInput,
-  maxBuffer: number,
-  timeoutMs: number,
-  killGraceMs: number,
-  tauThreadId: string,
-  activeProcesses: Map<string, Set<RunningChild>>,
-): Promise<string> {
-  let child: ChildProcess;
-  try {
-    child = spawn(command, [...args], {
-      cwd: input.cwd,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (error) {
-    return Promise.reject(error);
-  }
-
-  let settled = false;
-  let terminating: Error | undefined;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let stdout = "";
-  let stdoutTruncated = false;
-  let stderr = "";
-  let stderrTruncated = false;
-  let terminateProcess: (reason: Error) => Promise<void> = async () => undefined;
-  let resolveResult!: (value: string) => void;
-  let rejectResult!: (reason: unknown) => void;
-  const result = new Promise<string>((resolve, reject) => {
-    resolveResult = resolve;
-    rejectResult = reject;
-  });
-
-  const running: RunningChild = {
-    child,
-    terminate: async (reason) => {
-      if (settled || terminating) return;
-      terminating = reason;
-      await terminateChild(child, killGraceMs);
-      settle(reason);
-    },
-  };
-  terminateProcess = running.terminate;
-  const active = activeProcesses.get(tauThreadId) ?? new Set<RunningChild>();
-  active.add(running);
-  activeProcesses.set(tauThreadId, active);
-
-  const cleanup = () => {
-    if (timeout !== undefined) clearTimeout(timeout);
-    input.signal?.removeEventListener("abort", onAbort);
-    active.delete(running);
-    if (active.size === 0) activeProcesses.delete(tauThreadId);
-  };
-  const settle = (error?: Error) => {
-    if (settled) return;
-    settled = true;
-    cleanup();
-    if (error) rejectResult(error);
-    else resolveResult(stdout);
-  };
-  const onAbort = () => { void terminateProcess(abortError("Claude Code request aborted.")); };
-
-  const appendStderr = (chunk: string): void => {
-    if (stderrTruncated) return;
-    const next = `${stderr}${chunk}`;
-    if (Buffer.byteLength(next, "utf8") <= maxBuffer) {
-      stderr = next;
-      return;
-    }
-    const marker = "\n[Claude Code stderr truncated]\n";
-    stderr = boundedOutputWithMarker(next, marker, maxBuffer);
-    stderrTruncated = true;
-  };
-
-  const appendStdout = (chunk: string): void => {
-    if (stdoutTruncated) return;
-    const next = `${stdout}${chunk}`;
-    if (Buffer.byteLength(next, "utf8") <= maxBuffer) {
-      stdout = next;
-      return;
-    }
-    const marker = "\n[Claude Code stdout truncated]\n";
-    stdout = boundedOutputWithMarker(next, marker, maxBuffer);
-    stdoutTruncated = true;
-  };
-
-  child.stdout?.setEncoding("utf8");
-  child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (chunk: string) => {
-    if (settled || terminating) return;
-    appendStdout(chunk);
-    if (stdoutTruncated) {
-      void terminateProcess(new Error(`Claude Code stdout exceeded the ${maxBuffer}-byte limit.\n[Claude Code stdout truncated]`));
-    }
-  });
-  child.stderr?.on("data", (chunk: string) => {
-    if (settled || terminating) return;
-    appendStderr(chunk);
-    if (stderrTruncated) {
-      void terminateProcess(new Error(`Claude Code stderr exceeded the ${maxBuffer}-byte limit.\n[Claude Code stderr truncated]`));
-    }
-  });
-  child.once("error", (error) => {
-    if (terminating) settle(terminating);
-    else settle(error);
-  });
-  child.once("close", (code, signal) => {
-    if (terminating) {
-      settle(terminating);
-      return;
-    }
-    if (code === 0) {
-      settle();
-      return;
-    }
-    const detail = stderr.trim() || `exit code ${code ?? "unknown"}${signal ? ` (${signal})` : ""}`;
-    settle(new Error(`Claude Code exited unsuccessfully: ${detail}`));
-  });
-  timeout = setTimeout(() => {
-    void terminateProcess(abortError(`Claude Code request timed out after ${timeoutMs} ms.`));
-  }, timeoutMs);
-  timeout.unref?.();
-  input.signal?.addEventListener("abort", onAbort, { once: true });
-  if (input.signal?.aborted) onAbort();
-  return result;
+interface RunningTurn {
+  controller: AbortController;
+  done: Promise<unknown>;
 }
 
 /**
- * Production Claude Code transport. It owns every child process and never
- * hands Claude's slash dialect to the embedded Pi session.
+ * Production Claude Code transport: one `query()` per turn against the user's
+ * installed CLI. It never hands Claude's slash dialect to the embedded Pi
+ * session.
  */
 export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions): ClaudeCodeAgentRuntimeAdapter {
   const command = options.command ?? process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude";
-  const maxBuffer = options.maxBuffer ?? 8 * 1024 * 1024;
-  const timeoutMs = options.timeoutMs ?? 30_000;
-  const killGraceMs = options.killGraceMs ?? 500;
+  const query = options.query ?? sdkQuery;
+  const env = options.env ?? process.env;
   const sessionStore = new ClaudeRuntimeSessionStore({ filePath: options.storePath });
-  const activeProcesses = new Map<string, Set<RunningChild>>();
+  const running = new Map<string, Set<RunningTurn>>();
   const requestQueues = new Map<string, Promise<void>>();
   const abortGenerations = new Map<string, number>();
-  // Claude picks its model and cannot stop for an approval in print mode.
-  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: true, interactiveApprovals: false } as const;
-  return {
-    id: "claude-code",
-    capabilities,
-    sessionStore,
-    transport: {
-      async sendPrompt(input) {
+  // The composer offers Claude's models and efforts; its questions reach the workbench through the turn's hooks.
+  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true } as const;
+  const PROBE_TTL_MS = 5 * 60_000;
+  let probeCache: { at: number; result: Promise<ClaudeProbe> } | undefined;
+
+  function probe(probeOptions: { fresh?: boolean } = {}): Promise<ClaudeProbe> {
+    const now = Date.now();
+    if (!probeOptions.fresh && probeCache && now - probeCache.at < PROBE_TTL_MS) return probeCache.result;
+    const result = probeClaude({ query, executable: options.resolveCommand?.(command) ?? command, cwd: homedir(), env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
+    probeCache = { at: now, result };
+    // A failed probe is not remembered; the next caller tries again.
+    result.catch(() => { if (probeCache?.result === result) probeCache = undefined; });
+    return result;
+  }
+
+  async function runTurn(input: RuntimePromptInput, claudeSessionId: string, started: boolean, policy: RuntimePermissionPolicy, onMessage?: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<string> {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    if (input.signal?.aborted) controller.abort();
+    let stderr = "";
+    const plan: ClaudeQueryPlan = {
+      cwd: input.cwd,
+      executable: options.resolveCommand?.(command) ?? command,
+      claudeSessionId,
+      started,
+      policy,
+      abortController: controller,
+      env,
+      stderr: (chunk) => { stderr = `${stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
+      ...(hooks ? { hooks } : {}),
+    };
+    const turn: RunningTurn = { controller, done: Promise.resolve() };
+    const active = running.get(input.tauThreadId) ?? new Set<RunningTurn>();
+    active.add(turn);
+    running.set(input.tauThreadId, active);
+    const done = (async () => {
+      try {
+        if (controller.signal.aborted) throw abortError("Claude Code request aborted.");
+        return await consumeTurn(query({ prompt: input.text, options: claudeQueryOptions(plan) }), onMessage);
+      } catch (error) {
+        if (controller.signal.aborted || isAbortError(error)) throw abortError("Claude Code request aborted.");
+        const detail = stderr.trim();
+        if (error instanceof Error && detail && !error.message.includes(detail)) error.message = `${error.message}\n${detail}`;
+        throw error;
+      } finally {
+        input.signal?.removeEventListener("abort", onAbort);
+        active.delete(turn);
+        if (active.size === 0) running.delete(input.tauThreadId);
+      }
+    })();
+    turn.done = done.then(() => undefined, () => undefined);
+    return done;
+  }
+
+  async function deliver(input: RuntimePromptInput, onMessage?: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult> {
         const policy = runtimePermissionPolicy(input.permissionLevel ?? "full");
         // Reject an unsupported Tau access mode before joining a queue or
         // spawning anything, so a queued request cannot turn into a hang.
-        assertClaudePermissionPolicySupported(policy);
+        assertClaudePermissionPolicySupported(policy, { canAsk: hooks?.canUseTool !== undefined });
         const generation = abortGenerations.get(input.tauThreadId) ?? 0;
+        const stale = () => generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted === true;
         const previous = requestQueues.get(input.tauThreadId) ?? Promise.resolve();
         const operation = previous.then(async () => {
-          if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
-            throw abortError("Claude Code request aborted.");
-          }
+          if (stale()) throw abortError("Claude Code request aborted.");
           const record = await sessionStore.ensure(input.tauThreadId, input.cwd);
-          if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
-            throw abortError("Claude Code request aborted.");
-          }
+          if (stale()) throw abortError("Claude Code request aborted.");
           // `attempted` is persisted before spawning. On the next request a
           // previously attempted-but-unconfirmed id is resumed first; only a
           // clear "missing session" response permits one create fallback.
           const resumeFirst = record.started || record.attempted;
           const run = async (started: boolean): Promise<string> => {
             await sessionStore.markAttempted(input.tauThreadId, input.cwd);
-            if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
-              throw abortError("Claude Code request aborted.");
-            }
-            return runClaudeProcess(
-              command,
-              claudeCodeArgs(record.claudeSessionId, started, input.text, policy),
-              input,
-              maxBuffer,
-              timeoutMs,
-              killGraceMs,
-              input.tauThreadId,
-              activeProcesses,
-            );
+            if (stale()) throw abortError("Claude Code request aborted.");
+            return runTurn(input, record.claudeSessionId, started, policy, onMessage, hooks);
           };
           let assistantText: string;
           try {
             assistantText = await run(resumeFirst);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            const aborted = error instanceof Error && error.name === "AbortError";
-            if (aborted) {
+            if (isAbortError(error)) {
               await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "aborted");
               throw error;
             }
@@ -343,11 +322,13 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
               throw error;
             }
           }
-          if (generation !== (abortGenerations.get(input.tauThreadId) ?? 0) || input.signal?.aborted) {
+          if (stale()) {
             await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "aborted");
             throw abortError("Claude Code request aborted.");
           }
           await sessionStore.markStarted(input.tauThreadId, input.cwd);
+          // `markStarted` is a one-time flip; every later turn records its own outcome.
+          await sessionStore.markAttemptOutcome(input.tauThreadId, input.cwd, "started");
           return { assistantText };
         });
         const settled = operation.then(() => undefined, () => undefined);
@@ -357,37 +338,46 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
         } finally {
           if (requestQueues.get(input.tauThreadId) === settled) requestQueues.delete(input.tauThreadId);
         }
-      },
+  }
+
+  function openSession(input: ClaudeSessionInput): ClaudeSdkSession {
+    const policy = runtimePermissionPolicy(input.permissionLevel);
+    const queryOptions = claudeQueryOptions({
+      cwd: input.cwd,
+      executable: options.resolveCommand?.(command) ?? command,
+      claudeSessionId: input.claudeSessionId,
+      started: input.started,
+      policy,
+      // The session owns the controller it actually aborts with.
+      abortController: new AbortController(),
+      env,
+      ...(input.onStderr ? { stderr: input.onStderr } : {}),
+      ...(input.hooks ? { hooks: input.hooks } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
+    });
+    const session = new ClaudeSdkSession({ query, options: queryOptions, claudeSessionId: input.claudeSessionId, onMessage: input.onMessage, onExit: input.onExit });
+    session.start();
+    return session;
+  }
+
+  return {
+    id: "claude-code",
+    capabilities,
+    sessionStore,
+    stream: (input, onMessage, hooks) => deliver(input, onMessage, hooks),
+    openSession,
+    probe,
+    transport: {
+      sendPrompt: (input) => deliver(input),
       async abort(tauThreadId) {
         abortGenerations.set(tauThreadId, (abortGenerations.get(tauThreadId) ?? 0) + 1);
-        const children = [...(activeProcesses.get(tauThreadId) ?? [])];
-        await Promise.all(children.map((running) => running.terminate(abortError("Claude Code request aborted."))));
+        const turns = [...(running.get(tauThreadId) ?? [])];
+        for (const turn of turns) turn.controller.abort();
+        await Promise.all(turns.map((turn) => waitBounded(turn.done, 5_000)));
         const queued = requestQueues.get(tauThreadId);
-        if (queued) await waitBounded(queued, Math.max(killGraceMs * 2, 100));
+        if (queued) await waitBounded(queued, 1_000);
       },
     },
   };
-}
-
-/** Keep captured provider output bounded even when the configured limit is tiny. */
-function boundedOutputWithMarker(value: string, marker: string, maxBytes: number): string {
-  const limit = Math.max(0, maxBytes);
-  if (limit === 0) return "";
-  const markerBytes = Buffer.from(marker, "utf8");
-  if (markerBytes.length >= limit) return markerBytes.subarray(0, limit).toString("utf8");
-  const prefix = utf8Prefix(value, limit - markerBytes.length);
-  return prefix + marker;
-}
-
-/** Keep a truncated UTF-8 prefix valid as well as bounded in bytes. */
-function utf8Prefix(value: string, maxBytes: number): string {
-  const limit = Math.max(0, Math.floor(maxBytes));
-  if (limit === 0) return "";
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.length <= limit) return value;
-  let prefix = bytes.subarray(0, limit).toString("utf8");
-  // Buffer#toString replaces a cut-off code point with U+FFFD, which is
-  // three bytes and could exceed a one- or two-byte budget after re-encoding.
-  while (Buffer.byteLength(prefix, "utf8") > limit) prefix = prefix.slice(0, -1);
-  return prefix;
 }

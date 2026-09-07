@@ -7,6 +7,7 @@ import type {
   UiSkillDraft,
 } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
+import { chosenNewThreadRuntime } from "./new-thread-runtime";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   backgroundNewThreadDetail,
@@ -181,6 +182,7 @@ export class SubmissionController {
           text,
           pendingNewThread ? undefined : this.hostSessionId(snapshot?.sessionId),
           skillDraft,
+          pendingNewThread ? chosenNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot) : undefined,
         );
       } catch (error) {
         // ComposerScopeStore keeps the captured draft when a submission is

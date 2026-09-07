@@ -323,6 +323,22 @@ describe("PiHost skill delivery", () => {
     expect(internals.externalComposerCommands("claude-code", "/repo")).toEqual([{ ...commands[0], skillCommand: "/tdd" }]);
   });
 
+  it("prepares a new thread's prompt for the backend the client names", async () => {
+    const adapter: AgentRuntimeAdapter = {
+      id: "claude-code",
+      capabilities: { skillInvocationDialect: "claude-code" },
+      transport: { sendPrompt: vi.fn(async () => ({})) },
+    };
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [backendKit(adapter)] });
+    const internals = host as unknown as { activateHostExtensions(): Promise<void>; runtimeBackends(): unknown };
+    await internals.activateHostExtensions();
+
+    expect(internals.runtimeBackends()).toEqual([{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "claude-code" }]);
+    await expect(host.preparePrompt("hello", undefined, undefined, "claude-code")).resolves.toMatchObject({ backendKind: "claude-code" });
+    await expect(host.preparePrompt("hello")).resolves.toMatchObject({ backendKind: "pi" });
+    await expect(host.preparePrompt("hello", undefined, undefined, "acme")).rejects.toThrow(/not installed/u);
+  });
+
   it("routes abort through the selected adapter and never calls Pi abort", async () => {
     let rejectPrompt!: (error: Error) => void;
     const transport = {
@@ -598,5 +614,19 @@ describe("PiHost skill delivery", () => {
     expect(markdown).toContain("<skill name=\"removed\" location=\"/private/removed/SKILL.md\">");
     expect(markdown).toContain("SECRET BODY");
     expect(markdown).toContain("location=\"/private/removed/SKILL.md\"");
+  });
+});
+
+describe("errored Pi turns", () => {
+  it("surfaces the provider's error as a notice when the assistant message carries no text", async () => {
+    const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
+    await adopt(fixture);
+    const hostInternals = fixture.host as unknown as {
+      handleSessionEvent(event: unknown, thread: unknown, sessionId: string, cwd: string): void;
+    };
+    const assistant = { role: "assistant", content: [], timestamp: 9, stopReason: "error", errorMessage: "400 You're out of extra usage." };
+    hostInternals.handleSessionEvent({ type: "message_start", message: assistant }, fixture.thread, "session", "/repo");
+    hostInternals.handleSessionEvent({ type: "message_end", message: assistant }, fixture.thread, "session", "/repo");
+    expect(fixture.emitted).toContainEqual({ type: "notice", sessionId: "session", level: "error", message: "400 You're out of extra usage." });
   });
 });

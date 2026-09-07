@@ -1,6 +1,7 @@
 import { skillInvocationCommand, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
 import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "./protocol.js";
-import { assertClaudePermissionPolicySupported, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
+import { describeAccount } from "./probe.js";
+import { createClaudeCodeRuntimeAdapter, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
 
@@ -41,9 +42,9 @@ export function assertCommandInstalled(findCommand: (name: string) => string | u
 }
 
 /**
- * Claude Code as a runtime backend (ADR 0005): threads it owns run the Claude
- * CLI in print mode and persist in Tau's app data. Bundled by default; removing
- * the extension leaves Pi as the only backend.
+ * Claude Code as a runtime backend (ADR 0005): threads it owns drive the
+ * installed Claude CLI through the Agent SDK and persist in Tau's app data.
+ * Bundled by default; removing the extension leaves Pi as the only backend.
  */
 export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOptions = {}): HostExtension {
   return {
@@ -53,7 +54,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
     activate(context) {
       const services: HostExtensionServices = context.services;
       const storePath = ClaudeRuntimeSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
-      const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ storePath });
+      const adapter = options.adapter ?? createClaudeCodeRuntimeAdapter({ storePath, resolveCommand: services.findCommand });
       const store = adapter.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: storePath });
       const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
         threadId: entry.tauThreadId,
@@ -69,6 +70,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         : claudeComposerCommands(services.skills(cwd), adapter);
       const provider: HostRuntimeBackendProvider = {
         kind: CLAUDE_CODE_BACKEND_KIND,
+        label: "Claude Code",
         adapter,
         modelProvider: "anthropic",
         listThreads: async () => (await store.list()).map(record),
@@ -87,16 +89,28 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             branch: thread.projectLabel,
             permissionLevel: thread.permissionLevel,
             onMessage: thread.onMessage,
+            onEvent: thread.onEvent,
+            ask: thread.ask,
           });
           await backend.start(resume ? "resume" : "create");
           return backend;
         },
         composerCommands: commands,
-        assertPromptAllowed: (level) => assertClaudePermissionPolicySupported(runtimePermissionPolicy(level)),
       };
       context.registerCommand("status", () => {
         const command = claudeCommand();
         return { kind: CLAUDE_CODE_BACKEND_KIND, command, path: services.findCommand(command) };
+      });
+      // Asks the CLI itself (version, login, models); a process is spawned, so this is on demand.
+      context.registerCommand("probe", async (input) => {
+        const probe = await adapter.probe({ fresh: Boolean(input && typeof input === "object" && (input as { fresh?: unknown }).fresh) });
+        return {
+          version: probe.claudeCodeVersion,
+          account: describeAccount(probe.account),
+          defaultModel: probe.defaultModel,
+          effort: probe.effort,
+          models: probe.models,
+        };
       });
       return services.registerRuntimeBackend(provider);
     },

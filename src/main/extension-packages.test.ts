@@ -187,6 +187,25 @@ describe("extension packages", () => {
     expect(untrusted.skipped).toHaveLength(1);
   });
 
+  it("binds import.meta.url in a host bundle to the compiled file", async () => {
+    const home = await scratch();
+    const cache = await scratch();
+    const dir = await writePackage(home, "meta", { id: "acme.meta", name: "Meta", host: "./host.ts" }, {
+      "host.ts": `
+        import { here, requireFromHere } from "./lib.mjs";
+        export default { activate(context: any) { context.registerCommand("where", () => ({ here, join: typeof requireFromHere("node:path").join })); } };
+      `,
+      // The shape an ESM dependency takes: a require built from its own URL.
+      "lib.mjs": 'import { createRequire } from "node:module";\nexport const here = import.meta.url;\nexport const requireFromHere = createRequire(import.meta.url);\n',
+    });
+    const extension = await importHostExtension(await bundleHostExtension(join(dir, "host.ts")), { id: "acme.meta", name: "Meta", permissions: [] }, cache);
+    const registry = new HostExtensionRegistry(services, () => undefined);
+    expect(await registry.activate(extension)).toBe(true);
+    const where = await registry.invoke("acme.meta", "where") as { here: string; join: string };
+    expect(where.join).toBe("function");
+    expect(where.here).toMatch(/^file:\/\/.*acme\.meta-[0-9a-f]+\.cjs$/u);
+  });
+
   it("bundles and imports a host entry that then serves commands through the registry", async () => {
     const home = await scratch();
     const cache = await scratch();

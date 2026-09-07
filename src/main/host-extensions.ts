@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type {
+  ExtensionUiAnswer,
   ExtensionUiPrompt,
   GlobalHostEvent,
   HostExtensionSummary,
@@ -13,7 +14,7 @@ import type {
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
-import type { ThreadRuntimeBackend } from "./runtime-types.js";
+import type { ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { isExpectedCommandError } from "./host-extension-errors.js";
@@ -48,7 +49,17 @@ export interface HostBackendOpenContext {
   permissionLevel(): RuntimePermissionLevel;
   /** Delivers a message the backend produced (user echo or assistant result) to the transcript. */
   onMessage(message: UiMessage): void;
+  /** A streamed backend reports its turn through here; see `ThreadRuntimeEvent`. */
+  onEvent(event: ThreadRuntimeEvent): void;
+  /**
+   * A blocking question to the user, on the workbench's own dialog surface;
+   * the thread waits for it. Aborting the thread answers it as cancelled.
+   */
+  ask(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
 }
+
+/** A backend's question; the host names the prompt and its thread. */
+export type BackendPrompt = Omit<ExtensionUiPrompt, "id" | "sessionId">;
 
 /**
  * A runtime backend an extension supplies for threads it owns (ADR 0005).
@@ -57,6 +68,8 @@ export interface HostBackendOpenContext {
  */
 export interface HostRuntimeBackendProvider {
   readonly kind: ThreadBackendKind;
+  /** What the workbench calls this backend where a new thread's runtime is chosen; defaults to the kind. */
+  readonly label?: string;
   readonly adapter: AgentRuntimeAdapter;
   /** Provider identity used for the thread index when the backend has no selectable model. */
   readonly modelProvider?: string;

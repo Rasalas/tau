@@ -4,7 +4,11 @@ This glossary defines the product terms used in Tau discussions and documents.
 
 ## Agent runtime
 
-The system that executes an agent loop, selects models, invokes tools, and persists runtime state. Pi is Tau's agent runtime.
+The system that executes an agent loop, selects models, invokes tools, and persists runtime state. Pi is Tau's default agent runtime; Claude Code is the second one, driven through the Agent SDK by its kit.
+
+## Runtime backend
+
+The owner of one thread's runtime for that thread's whole life (ADR 0005). Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. A thread never changes its backend; the workbench chooses it before the first message, from the list the host publishes (`runtimeBackends`), and `TAU_RUNTIME_ADAPTER` only sets the default. A Pi model reached through a subscription login carries `login: "subscription"`; the workbench warns once per provider and never blocks it.
 
 ## Workbench
 
@@ -36,7 +40,7 @@ A user-facing stream of agent work within a project. A thread contains conversat
 
 ## Session
 
-The persisted runtime record that backs a thread. Pi currently provides Tau sessions. Thread and session are not synonyms: thread is the product concept, while session is the runtime record.
+The persisted runtime record that backs a thread. Pi provides the sessions of Pi threads; a Claude Code thread's session is Claude's own session file plus the kit's app-data record that maps the thread to it. Thread and session are not synonyms: thread is the product concept, while session is the runtime record.
 
 ## Stage
 

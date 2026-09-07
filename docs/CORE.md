@@ -73,6 +73,16 @@ the composer at the bottom edge, agent supervision as the start screen — throu
 `body[data-profile]` and `src/renderer/profile-compact.css`, not a second
 component tree.
 
+The model picker (`src/renderer/components/ModelPicker.tsx`) keys everything on
+what the catalog says: a rail of provider icons, each the `ProviderIconStack`
+the thread rows use (the runtime's logo behind the model provider's when they
+differ), a search across every provider, favourites reachable with ⌘1–9, and
+per provider one fold for legacy generations. What the catalog does not say —
+which generations are legacy, which model wears a "new" badge for a while —
+lives in `src/renderer/model-manifest.ts`, hand maintained and dated; an
+unmatched model is current. A model behind a subscription login the runtime
+performs (`UiModel.login`) is tagged there and asked about once.
+
 ### The stage
 
 The stage is the column beside the conversation, and its tabs are of two kinds.
@@ -110,7 +120,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Computer use: the desktop-automation tools and how a run of them reads in the transcript | Computer Use: `kits/computer-use/`, a package Tau ships (ADR 0014). The host loads the `@amaster.ai/pi-computer-use` npm package through `loadRuntimeExtension` — its driver binaries have to stay where npm put them — and the kit contributes it to every runtime unless the user configured the Pi package themselves | Computer Use |
 | Spawning sub-agents | Agents Kit: `kits/agents/`, a package Tau ships (ADR 0014). Its host half contributes `tau_spawn_thread`, `tau_get_thread_status`, `tau_wait_for_thread`, `tau_apply_thread_changes` and `tau_list_threads` to every runtime; a spawned thread works in a worktree of its own, branched from the parent's state, and the parent takes that work back with one apply (ADR 0017), through the one Workspace Kit module the kit imports; a sub-agent is an ordinary thread in the same project (ADR 0013). Its desktop half owns the Agents dock panel, the spawn card the transcript shows for a `tau_spawn_thread` batch (through `registerToolCard`), and publishes the lineage the navigator folds away and counts; the kit reads its running budget from the user's `~/.tau/agents.json` and keeps its own link index in `<userData>/kit-state/tau.agents/agents-links.json` (`services.stateDir`) so the rail hides agent threads from the first paint. Core keeps the record the index reads: `sessions.start({ parent })` writes the link entry and `src/main/session-lineage.ts` turns it into `UiSession.parentThreadId` | Agents Kit |
 | What Pi extensions draw through `ctx.ui`: statuses, the working message and text widgets around the composer | Pi UI: `kits/pi-ui/`, a package Tau ships (ADR 0014); core lends the `presentUi` seam, the status line and the two composer regions | Pi UI |
-| Claude Code backend | Claude Code: `kits/claude-code/`, a package Tau ships (ADR 0014), registering a runtime backend through `registerRuntimeBackend`; core knows only Pi (ADR 0005 amendment) | Claude Code kit, shipped by default |
+| Claude Code backend | Claude Code: `kits/claude-code/`, a package Tau ships (ADR 0014), registering a runtime backend through `registerRuntimeBackend` and driving the installed `claude` through the Agent SDK; core knows only Pi and offers the backend-neutral routes `onEvent` and `ask` (ADR 0005 amendments) | Claude Code kit, shipped by default |
 | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry (`kits/workspace/host.ts`) and its two sources in `kits/workspace/navigation.tsx`; core keeps the sources modal as the placement for `registerProjectSource`, and `assertAllowedCloneSource` stays core's because the package installer clones too | Workspace Kit |
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
 

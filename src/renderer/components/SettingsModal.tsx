@@ -6,10 +6,12 @@ import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extensio
 import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
 import { THEME_PREFERENCES } from "../theme";
 import { usePreferences } from "../renderer-services-context";
+import { effectiveNewThreadRuntime } from "../new-thread-runtime";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { PackageProvenance } from "./PackageProvenance";
 import { PanelIcon } from "./PanelIcon";
+import { ProviderIconStack } from "./ProviderIconStack";
 
 function DefaultsPage({
   snapshot,
@@ -22,7 +24,8 @@ function DefaultsPage({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
     <div className="settings-page">
@@ -31,10 +34,12 @@ function DefaultsPage({
 
       <div className="settings-label">MODEL</div>
       <button className="settings-field" onClick={() => setPickerOpen(true)}>
-        <Sparkles size={14} className="accent" />
+        {snapshot?.model
+          ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
+          : <Sparkles size={14} className="accent" />}
         <span>
           <strong>{snapshot?.model?.name ?? "No model selected"}</strong>
-          <small>{snapshot?.model?.provider ?? "pi"} · via ~/.pi/agent</small>
+          <small>{snapshot?.model?.provider ?? "pi"} · via ~/.pi/agent{snapshot?.model?.login === "subscription" ? " · subscription login" : ""}</small>
         </span>
         <b><ChevronDown size={13} /></b>
       </button>
@@ -44,6 +49,7 @@ function DefaultsPage({
           activeKey={snapshot?.model ? modelKey(snapshot.model) : undefined}
           onSelect={(model) => onSetModel(model.provider, model.id)}
           onClose={() => setPickerOpen(false)}
+          runtime={snapshot?.backendKind}
         />
       ) : null}
 
@@ -59,6 +65,25 @@ function DefaultsPage({
           </button>
         ))}
       </div>
+
+      {(snapshot?.runtimeBackends?.length ?? 0) > 1 ? (
+        <>
+          <div className="settings-label">RUNTIME</div>
+          <div className="segmented" role="group" aria-label="Runtime for new threads">
+            {(snapshot?.runtimeBackends ?? []).map((backend) => (
+              <button
+                key={backend.kind}
+                className={backend.kind === newThreadRuntime ? "active" : ""}
+                aria-pressed={backend.kind === newThreadRuntime}
+                onClick={() => preferences.setNewThreadRuntime(backend.kind)}
+              >
+                {backend.label}
+              </button>
+            ))}
+          </div>
+          <p className="settings-note">Which program runs a new thread. Threads that already exist keep theirs, and the composer offers the same choice before the first message.</p>
+        </>
+      ) : null}
 
       <div className="settings-label">TRANSCRIPT DETAIL</div>
       <div className="segmented">

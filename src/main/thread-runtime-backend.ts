@@ -70,8 +70,12 @@ function treeNodeOf(entry: SessionTreeEntry, label: string | undefined): Omit<Ui
   return undefined;
 }
 
-function modelOf(model: { provider: string; id: string; name?: string } | undefined): UiModel | undefined {
-  return model ? { provider: model.provider, id: model.id, name: model.name ?? model.id } : undefined;
+import { modelLogin, type ProviderLoginSource } from "./model-login.js";
+
+function modelOf(model: { provider: string; id: string; name?: string } | undefined, runtime?: ProviderLoginSource): UiModel | undefined {
+  if (!model) return undefined;
+  const login = modelLogin(runtime, model.provider);
+  return { provider: model.provider, id: model.id, name: model.name ?? model.id, ...(login ? { login } : {}) };
 }
 
 /** Deep adapter around the Pi SDK. It keeps Pi transcript/context state in Pi. */
@@ -162,7 +166,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     const contextUsage = this.contextUsage();
     const usage = this.threadUsage();
     return {
-      model: modelOf(this.session.model),
+      model: modelOf(this.session.model, this.session.modelRuntime),
       thinkingLevel: this.session.thinkingLevel,
       thinkingLevels: this.session.getAvailableThinkingLevels(),
       allTools: this.session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
@@ -172,7 +176,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   async models(): Promise<UiModel[]> {
-    return (await this.session.modelRuntime.getAvailable()).map((model) => modelOf(model)!);
+    return (await this.session.modelRuntime.getAvailable()).map((model) => modelOf(model, this.session.modelRuntime)!);
   }
 
   async transcript(): Promise<UiMessage[]> { return this.options.mapMessages(this.session.messages); }

@@ -145,6 +145,10 @@ function finishMessage(event: any, thread: LiveTurnState, sessionId: string, ser
       services.emit({ type: "assistant-end", sessionId, message });
       publishAssistantAnchor(event.message, message, thread, sessionId, services);
     }
+    // A provider error ends the message with no text; the transcript would show nothing.
+    if (event.message.stopReason === "error" && typeof event.message.errorMessage === "string" && event.message.errorMessage.trim()) {
+      services.emit({ type: "notice", sessionId, level: "error", message: event.message.errorMessage.trim().slice(0, 2_000) });
+    }
     thread.currentAssistantId = undefined;
     thread.liveAssistant = undefined;
     return;

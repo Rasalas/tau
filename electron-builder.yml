@@ -17,6 +17,9 @@ directories:
 # cover this case — a hidden top-level directory always contains a dot).
 files:
   - "!.github/**"
+  # The Agent SDK's optional platform packages carry a 200 MB copy of the
+  # Claude Code binary. Tau drives the user's installed `claude` instead.
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
   # Agent skills for developing Tau itself (e.g. driving an isolated instance
   # to verify a change) — not something the packaged app runs.
   - "!.agents/**"

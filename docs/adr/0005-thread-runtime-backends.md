@@ -84,3 +84,56 @@ things Tau used to refuse with a hand-written message. The host keeps that
 thread beside its runtime registry and resolves it like any other, so the only
 questions it still asks about ownership are which runtime is active, where a
 transcript snapshot comes from, and when to attach or detach.
+
+## Amendment, 2026-09-07: the Agent SDK replaces print mode
+
+The kit no longer runs `claude --print`. It drives the user's installed,
+unmodified `claude` through `@anthropic-ai/claude-agent-sdk` `query()`: the
+`claude_code` system prompt preset, the user's own setting sources (`user`,
+`project`, `local`), the store's UUID as `sessionId` on the first turn and as
+`resume` afterwards, and `CLAUDE_AGENT_SDK_CLIENT_APP` naming Tau. Tau sets
+neither Claude Code's headers nor its prompt itself; that is the one door
+Anthropic's terms leave open for a subscription
+(`docs/research/subscription-and-third-party-tools.md`). The hand-maintained
+`--tools` allow-lists are gone: Claude's permission modes and the user's own
+rules govern tools, the way Pi's own configuration governs Pi threads. This
+supersedes "installation defaults are never used" above.
+
+Tau's access levels map onto Claude's permission modes: `read-only` is `plan`,
+`ask` is `default`, `full` is `auto`. No dangerous bypass flag is ever passed.
+Manual approvals are supported: the SDK's `canUseTool` and `onUserDialog`
+callbacks are answered on the workbench's own dialog surface (allow, allow for
+this session, deny; `AskUserQuestion` as one select per question, keyed by the
+full question text; `ExitPlanMode` as a confirm; the resume-compaction question
+as a select). A session allowance is rescoped to `destination: "session"` so it
+never lands in a settings file. `interactiveApprovals` is therefore true.
+
+Two routes on the seam make this possible for any backend without a host-owned
+journal, not only Claude's. `HostBackendOpenContext.onEvent` carries
+`ThreadRuntimeEvent`s (turn, assistant, tool, queue, notice, usage) in Tau's
+vocabulary; `src/main/backend-events.ts` turns them into workbench events with
+the bookkeeping the Pi path does, and `ThreadRuntime.adapterActivity` keeps one
+activity entry per turn so the non-Pi snapshot carries tool folds, cost and
+context like a Pi thread's. `HostBackendOpenContext.ask` puts a backend's
+question on the same surface Pi's extension dialogs use; aborting the thread
+answers it as cancelled. Turn observers bracket an external streamed backend's
+turn too (checkpoints, the Agents kit's status); an attached Pi stays out, its
+terminal owns turn and journal alike. Extension API 1.4.0.
+
+Since then: one SDK session per thread, model and effort selection, and the
+runtime of a new thread chosen in the workbench (`runtimeBackends` on the
+snapshot, `preparePrompt(..., backendKind)`); `TAU_RUNTIME_ADAPTER` sets only
+the default.
+
+Pi's subscription logins: Pi reaches some providers through a consumer
+subscription's OAuth and, for Anthropic, presents itself as Claude Code, which
+that vendor's terms forbid outside its own apps. Tau does not hide those
+models, because they are core Pi and Tau runs on the user's `~/.pi/agent`.
+The Pi backend marks them (`UiModel.login: "subscription"`, from
+`ModelRuntime.isUsingSubscription`), the workbench asks once per provider
+before the first use, with the vendor's statement, and keeps a status item
+while such a model is active. Sending is never blocked; `auth.json` is never
+written. The Claude Code kit never sets the flag: the Agent SDK is the
+sanctioned door for the same subscription.
+
+Still open: the kit's status page.

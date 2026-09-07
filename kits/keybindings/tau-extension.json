@@ -2,7 +2,7 @@
   "id": "tau.keybindings",
   "name": "Keybindings",
   "version": "1.0.0",
-  "engines": { "api": "^1.3.0" },
+  "engines": { "api": "^1.4.0" },
   "permissions": ["sessions"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
