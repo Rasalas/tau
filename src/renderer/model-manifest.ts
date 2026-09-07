@@ -25,7 +25,9 @@ export const MODEL_MANIFEST: readonly ModelManifestEntry[] = [
   { provider: /openai/u, id: /^gpt-6-astra/u, badge: "new" },
   { provider: /openai/u, id: /^(?:gpt-3|gpt-4|o[134]|codex-mini|chatgpt-4o|gpt-realtime)/u, status: "legacy" },
   { provider: /openai/u, id: /^gpt-5(?:\.[1-5])?(?:-|$)/u, status: "legacy" },
-  { provider: /google|gemini/u, id: /^gemini-(?:1|2)\./u, status: "legacy" },
+  // Google: Gemini 3.5 and later are current; 3.8 Flash is the newest.
+  { provider: /google|gemini/u, id: /^gemini-3\.8/u, badge: "new" },
+  { provider: /google|gemini/u, id: /^gemini-(?:1|2)\.|^gemini-3(?:-|\.[0-4])/u, status: "legacy" },
 ];
 
 function providerMatches(rule: string | RegExp | undefined, provider: string): boolean {

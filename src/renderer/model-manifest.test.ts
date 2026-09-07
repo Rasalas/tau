@@ -15,6 +15,12 @@ describe("model manifest", () => {
     expect(modelPresentation({ provider: "openai-codex", id: "gpt-4.1" })).toEqual({ legacy: true });
     expect(modelPresentation({ provider: "openai-codex", id: "gpt-5.6-sol" })).toEqual({ legacy: false });
     expect(modelPresentation({ provider: "opencode-go", id: "kimi-k2" })).toEqual({ legacy: false });
+    expect(modelPresentation({ provider: "google", id: "gemini-3.8-flash" })).toEqual({ legacy: false, badge: "new" });
+    expect(modelPresentation({ provider: "google", id: "gemini-3.5-flash" })).toEqual({ legacy: false });
+    expect(modelPresentation({ provider: "google", id: "gemini-3.1-pro-preview" })).toEqual({ legacy: true });
+    expect(modelPresentation({ provider: "google", id: "gemini-3-flash-preview" })).toEqual({ legacy: true });
+    expect(modelPresentation({ provider: "google", id: "gemini-2.5-pro" })).toEqual({ legacy: true });
+    expect(modelPresentation({ provider: "google", id: "gemini-flash-latest" })).toEqual({ legacy: false });
   });
 
   it("takes a manifest of its own, matching providers by string or pattern", () => {
