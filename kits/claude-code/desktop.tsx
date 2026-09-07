@@ -53,6 +53,7 @@ export function ClaudeCodeSettingsPage({ host }: SettingsPageProps & { host: Hos
 
   useEffect(() => { void read(false); }, [read]);
 
+  const known = status !== undefined;
   const found = Boolean(status?.path);
   return (
     <div className="settings-page">
@@ -66,8 +67,8 @@ export function ClaudeCodeSettingsPage({ host }: SettingsPageProps & { host: Hos
       <div className="settings-field claude-code-field">
         {found ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
-          <strong>{found ? `Found${probe?.version ? ` · ${probe.version}` : ""}` : `${status?.command ?? "claude"} was not found`}</strong>
-          <small>{found ? status?.path : "Install it from claude.ai/code, or point TAU_CLAUDE_CODE_COMMAND at the executable."}</small>
+          <strong>{!known ? "Checking…" : found ? `Found${probe?.version ? ` · ${probe.version}` : ""}` : `${status.command} was not found`}</strong>
+          <small>{!known ? "" : found ? status.path : "Install it from claude.ai/code, or point TAU_CLAUDE_CODE_COMMAND at the executable."}</small>
         </span>
         <button className="claude-code-action" disabled={busy} onClick={() => void read(true)}>
           <RefreshCw size={13} /> {busy ? "Asking…" : "Check again"}
@@ -78,7 +79,7 @@ export function ClaudeCodeSettingsPage({ host }: SettingsPageProps & { host: Hos
       <div className="settings-field claude-code-field">
         {probe?.account ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
-          <strong>{probe?.account ?? "Not signed in"}</strong>
+          <strong>{!known ? "Checking…" : probe?.account ?? "Not signed in"}</strong>
           <small>{probe?.account ? "Sign in and out with the CLI itself; Tau uses whatever it is signed in as." : "Run the CLI once in a terminal to sign in."}</small>
         </span>
       </div>

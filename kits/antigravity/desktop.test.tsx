@@ -53,9 +53,10 @@ describe("Antigravity desktop extension", () => {
     const { host, emit } = hostStub(invoke);
     const onNotify = vi.fn();
     render(<AntigravitySettingsPage onNotify={onNotify} host={host} />);
-    await waitFor(() => expect(screen.getByText("Not installed")).toBeTruthy());
-
-    fireEvent.click(screen.getByRole("button", { name: /Install agy_acp_server_1\.1\.1/u }));
+    // The page says "Checking…" until the host answers, so this waits for a real state.
+    expect(screen.getAllByText("Checking…")).toHaveLength(2);
+    fireEvent.click(await screen.findByRole("button", { name: /Install agy_acp_server_1\.1\.1/u }));
+    expect(screen.getByText("Not installed")).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Installing…")).toBeTruthy());
     emit(ANTIGRAVITY_INSTALL_EVENT, { phase: "downloading", downloadedBytes: 150 * 1024 * 1024, totalBytes: 300 * 1024 * 1024 } satisfies AntigravityInstallEvent);
     expect(screen.getByRole("status").textContent).toBe("Downloading 50% (150 of 300 MB)");

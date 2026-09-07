@@ -115,6 +115,8 @@ export function AntigravitySettingsPage({ onNotify, host }: SettingsPageProps & 
     }
   };
 
+  // Until the host half has answered, the page knows nothing and says so.
+  const known = status !== undefined;
   const installed = status?.installed === true;
   const outdated = installed && status?.source === "managed" && status.available !== undefined && status.version !== status.available;
   const label = installLabel(progress);
@@ -132,8 +134,8 @@ export function AntigravitySettingsPage({ onNotify, host }: SettingsPageProps & 
       <div className="settings-field antigravity-field">
         {installed ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
-          <strong>{installed ? `Installed${status?.version ? ` · ${status.version}` : ""}` : "Not installed"}</strong>
-          <small>{installed ? `${SOURCE_LABELS[status?.source ?? ""] ?? status?.source}${status?.path ? ` · ${status.path}` : ""}` : status?.message ?? "Install it to open Antigravity threads."}</small>
+          <strong>{!known ? "Checking…" : installed ? `Installed${status.version ? ` · ${status.version}` : ""}` : "Not installed"}</strong>
+          <small>{!known ? "" : installed ? `${SOURCE_LABELS[status.source ?? ""] ?? status.source}${status.path ? ` · ${status.path}` : ""}` : status.message ?? "Install it to open Antigravity threads."}</small>
         </span>
         {status?.available && (!installed || outdated) ? (
           <button className="antigravity-action" disabled={busy !== undefined} onClick={() => void run("install", "Antigravity is installed.")}>
@@ -142,13 +144,13 @@ export function AntigravitySettingsPage({ onNotify, host }: SettingsPageProps & 
         ) : null}
       </div>
       {busy === "install" && label ? <p className="settings-note" role="status">{label}</p> : null}
-      {status?.available === undefined ? <p className="settings-note">Google publishes no Antigravity runtime for this platform.</p> : null}
+      {known && status.available === undefined ? <p className="settings-note">Google publishes no Antigravity runtime for this platform.</p> : null}
 
       <div className="settings-label">GOOGLE ACCOUNT</div>
       <div className="settings-field antigravity-field">
         {status?.signedIn ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
-          <strong>{status?.signedIn ? "Signed in" : "Not signed in"}</strong>
+          <strong>{!known ? "Checking…" : status.signedIn ? "Signed in" : "Not signed in"}</strong>
           <small>{status?.signedIn ? "The agent holds your Google credentials in Tau's own profile folder." : "The first turn of an Antigravity thread opens Google's sign-in in your browser."}</small>
         </span>
         {status?.signedIn ? (
