@@ -48,6 +48,7 @@ describe("Claude Code desktop extension", () => {
     render(<ClaudeCodeSettingsPage onNotify={vi.fn()} host={host(invoke)} />);
     await waitFor(() => expect(screen.getByText("claude was not found")).toBeTruthy());
     expect(screen.getByText(/claude.ai\/code/u)).toBeTruthy();
-    expect(screen.getByText(/was not found on the PATH/u)).toBeTruthy();
+    // The probe's rejection lands one turn after the status; wait for it rather than assume it.
+    expect(await screen.findByText(/was not found on the PATH/u)).toBeTruthy();
   });
 });
