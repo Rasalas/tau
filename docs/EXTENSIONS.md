@@ -400,11 +400,26 @@ sent message with the one the runtime echoes back), `knownSkillNames`, and
 `readPersistedJson` / `writePersistedJson` (atomic, mode-0600 JSON with the
 quarantine-and-restart behaviour Tau's own state files have).
 
+When core opens one of that package's threads it hands the backend a
+`HostBackendOpenContext`: the project's name and label, the user's access
+level (`permissionLevel()`), and three routes back into the workbench.
+`onMessage(message)` delivers a whole message (a runtime whose turn resolves
+only when it is over uses this). `onEvent(event)` is for a runtime that
+streams: it reports `ThreadRuntimeEvent`s in Tau's vocabulary — turn started
+and settled, assistant start, delta, thinking and end, tool start, update and
+end, the queue, notices, and `usage` when its `catalogView().usage` changed —
+and core turns them into the same workbench events a Pi thread produces, keeps
+the live turn state, closes the fold of a turn, and brackets the turn with the
+turn observers, so checkpoints and status watchers do not care which program
+answers. `ask(prompt)` puts a blocking question on the workbench's dialog
+surface (the one Pi's extension dialogs use); aborting the thread answers it as
+cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005).
+
 ### `engines` and `engines.api`
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.3.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.4.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only
