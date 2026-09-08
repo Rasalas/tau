@@ -55,6 +55,24 @@ describe("Workspace Kit worktree creation", () => {
   });
 });
 
+describe("Workspace Kit publishing", () => {
+  it("refreshes changes and branch status after pulling", async () => {
+    const pull = vi.fn(async () => ({ detail: "Pulled def456" }));
+    const changes = { files: [], added: 0, removed: 0 };
+    const workspace = { ...REPO, upstream: "origin/main", behind: 0 };
+    const workspaceStore = storeOver({ pull, getChanges: async () => changes, getWorkspaceInfo: async () => workspace });
+    const notify = vi.fn();
+    workspaceStore.bind({ notify } as unknown as WorkbenchActions);
+    workspaceStore.update({ cwd: "/project", draftPending: false, workspace: { ...REPO, upstream: "origin/main", behind: 2 } });
+
+    await workspaceStore.pull();
+
+    expect(pull).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith("Pulled def456");
+    expect(workspaceStore.getSnapshot()).toMatchObject({ changes, workspace, committing: false });
+  });
+});
+
 describe("Workspace Kit thread worktrees", () => {
   const actionsWith = (extra: Partial<WorkbenchActions> = {}) => ({
     holdComposer: () => () => undefined,

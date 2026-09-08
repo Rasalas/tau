@@ -1,5 +1,5 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, GitCommitHorizontal, Upload } from "lucide-react";
+import { ChevronDown, Download, GitCommitHorizontal, Upload } from "lucide-react";
 import { Menu, useHostCapabilities, usePreferences, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { ProjectActionsControl } from "./project-actions.js";
@@ -28,6 +28,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
   const runGitAction = (kind: GitQuickActionKind) => {
     if (kind === "commit") workspaceStore.openReview(undefined, false);
     if (kind === "commit-push") workspaceStore.openReview(undefined, true);
+    if (kind === "pull") void workspaceStore.pull();
     if (kind === "push") void workspaceStore.push();
   };
   void actions;
@@ -80,7 +81,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
             title={gitAction.hint}
             onClick={() => runGitAction(gitAction.kind)}
           >
-            {gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />}
+            {gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />}
             {gitAction.label}
           </button>
           <button

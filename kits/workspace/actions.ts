@@ -1,6 +1,6 @@
 import type { UiWorkspaceChanges, WorkspaceInfo } from "tau";
 
-export type GitQuickActionKind = "commit" | "commit-push" | "push" | "none";
+export type GitQuickActionKind = "commit" | "commit-push" | "pull" | "push" | "none";
 
 export interface GitQuickAction {
   label: string;
@@ -23,7 +23,7 @@ export function resolveGitQuickAction(
   if (ahead > 0 && behind > 0) {
     return { label: "Sync required", kind: "none", disabled: true, hint: "The branch has diverged from its upstream" };
   }
-  if (behind > 0) return { label: "Pull required", kind: "none", disabled: true, hint: "Pull upstream changes before publishing" };
+  if (behind > 0) return { label: "Pull", kind: "pull", disabled: false, hint: `Pull ${behind} upstream ${behind === 1 ? "commit" : "commits"}` };
 
   if (changes.files.length > 0) {
     return workspace.upstream

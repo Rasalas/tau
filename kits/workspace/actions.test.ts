@@ -46,6 +46,11 @@ describe("title-bar Git action", () => {
       label: "Sync required",
       disabled: true,
     });
+    expect(resolveGitQuickAction(clean, workspace({ upstream: "origin/main", behind: 2 }), false)).toMatchObject({
+      label: "Pull",
+      kind: "pull",
+      disabled: false,
+    });
     expect(resolveGitQuickAction(clean, workspace({ upstream: "origin/main" }), false)).toMatchObject({
       label: "Up to date",
       kind: "none",

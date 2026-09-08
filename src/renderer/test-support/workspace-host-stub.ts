@@ -18,6 +18,7 @@ interface WorkspaceHostClient {
   revertFile(relPath: string): Promise<unknown>;
   readFile(relPath: string): Promise<unknown>;
   commit(message: string, push: boolean): Promise<unknown>;
+  pull(): Promise<unknown>;
   push(): Promise<unknown>;
   getWorkspaceInfo(workspace?: string): Promise<unknown>;
   getWorktreeStatuses(workspace?: string): Promise<unknown>;
@@ -71,6 +72,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     revertFile: unsupported("revertFile"),
     readFile: unsupported("readFile"),
     commit: unsupported("commit"),
+    pull: unsupported("pull"),
     push: unsupported("push"),
     getWorktreeBase: async () => ({ ref: "origin/main", commit: "0".repeat(40), shortCommit: "0000000", fromOrigin: true }),
     createWorktree: unsupported("createWorktree"),
@@ -117,6 +119,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "revert-file": return client.revertFile(field(input, "relPath")!);
       case "read-file": return client.readFile(field(input, "relPath")!);
       case "commit": return client.commit(field(input, "message")!, field(input, "push")!);
+      case "pull": return client.pull();
       case "push": return client.push();
       case "workspace-info": return client.getWorkspaceInfo(...optional(field<string>(input, "workspace")));
       case "worktree-statuses": return client.getWorktreeStatuses(...optional(field<string>(input, "workspace")));

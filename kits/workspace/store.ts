@@ -342,6 +342,20 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     }
   }
 
+  async pull(): Promise<void> {
+    if (!this.allowed("Pulling") || !this.requireHost("Pulling")) return;
+    this.update({ committing: true });
+    try {
+      const result = await this.host.pull();
+      this.notify(result.detail);
+      await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
+    } catch (error) {
+      this.notify(errorMessage(error));
+    } finally {
+      this.update({ committing: false });
+    }
+  }
+
   async push(): Promise<void> {
     if (!this.allowed("Pushing") || !this.requireHost("Pushing")) return;
     this.update({ committing: true });

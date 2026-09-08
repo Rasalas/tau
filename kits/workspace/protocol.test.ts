@@ -41,6 +41,12 @@ describe("Workspace Kit client encoding", () => {
     expect(calls[3]?.input).toBeUndefined();
   });
 
+  it("sends pull as a workspace command without path input", async () => {
+    const { calls, client } = recorder();
+    await client.pull();
+    expect(calls).toEqual([{ command: "pull", input: undefined }]);
+  });
+
   it("keeps folder browsing on host paths", async () => {
     const { calls, client } = recorder();
     await client.listDirectories("/Users/me");

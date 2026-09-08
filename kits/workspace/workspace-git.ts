@@ -14,6 +14,7 @@ import type {
   UiDiffLine,
   UiEditor,
   UiFileDiff,
+  PullResult,
   PushResult,
   UiRef,
   UiWorktree,
@@ -2392,6 +2393,12 @@ export async function commit(
     detail = `Committed ${committed} and pushed`;
   }
   return { changes: await readChanges(cwd), pushed, detail };
+}
+
+export async function pull(cwd: string, runGit: GitRunner = git): Promise<PullResult> {
+  await runGit(cwd, ["pull", "--ff-only"], 8 * 1024 * 1024);
+  const committed = (await runGit(cwd, ["rev-parse", "--short", "HEAD"])).trim();
+  return { detail: `Pulled ${committed}` };
 }
 
 export async function push(cwd: string, runGit: GitRunner = git): Promise<PushResult> {

@@ -33,6 +33,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true) {
   workspaceStore.update({ cwd: "/project", draftPending, changes: dirty, workspace: info, committing: false, editors: [{ id: "code", name: "VS Code" }, { id: "zed", name: "Zed" }] });
   const openInEditor = vi.spyOn(workspaceStore, "openInEditor").mockResolvedValue(undefined);
   const openReview = vi.spyOn(workspaceStore, "openReview").mockImplementation(() => undefined);
+  const pull = vi.spyOn(workspaceStore, "pull").mockResolvedValue(undefined);
   const runShellAction = vi.spyOn(workspaceStore, "runShellAction").mockResolvedValue(undefined);
   const client = createFakeHostClient({ hasCapability: (capability) => capability !== HOST_CAPABILITY.localFiles || localFiles });
   render(
@@ -44,7 +45,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true) {
       </ClientStorageProvider>
     </HostClientProvider>,
   );
-  return { openInEditor, openReview, runShellAction };
+  return { openInEditor, openReview, pull, runShellAction };
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -83,6 +84,14 @@ describe("Workspace Kit title actions", () => {
     const withUpstream = setup(workspace({ upstream: "origin/main" }));
     fireEvent.click(screen.getByRole("button", { name: "Commit & push" }));
     expect(withUpstream.openReview).toHaveBeenCalledWith(undefined, true);
+  });
+
+  it("pulls a branch that is behind its upstream", () => {
+    const { pull } = setup(workspace({ upstream: "origin/main", behind: 2 }));
+    const button = screen.getByRole("button", { name: "Pull" });
+    expect(button.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(button);
+    expect(pull).toHaveBeenCalledOnce();
   });
 
   it("adds and runs a hidden Pi shell action", () => {

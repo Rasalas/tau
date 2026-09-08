@@ -23,6 +23,7 @@ import {
   MAX_DIFF_BYTES,
   MAX_DIFF_HUNKS,
   parseUnifiedDiff,
+  pull,
   push,
   previewWorkspaceRestore,
   ensureWorktree,
@@ -1111,6 +1112,16 @@ describe("worktree creation", () => {
 });
 
 describe("workspace publishing", () => {
+  it("pulls upstream changes with fast-forward-only semantics", async () => {
+    const calls: string[][] = [];
+    const result = await pull("/project", async (_cwd, args) => {
+      calls.push(args);
+      return args[0] === "rev-parse" ? "def456\n" : "";
+    });
+    expect(calls).toEqual([["pull", "--ff-only"], ["rev-parse", "--short", "HEAD"]]);
+    expect(result.detail).toBe("Pulled def456");
+  });
+
   it("pushes the current upstream without creating another commit", async () => {
     const calls: string[][] = [];
     const result = await push("/project", async (_cwd, args) => {

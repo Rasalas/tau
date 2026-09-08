@@ -195,6 +195,10 @@ export interface CommitResult {
   detail: string;
 }
 
+export interface PullResult {
+  detail: string;
+}
+
 export interface PushResult {
   detail: string;
 }

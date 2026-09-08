@@ -268,6 +268,18 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       });
+      context.registerCommand("pull", async () => {
+        const project = cwd();
+        try {
+          const result = await workspaceGit.pull(project);
+          git.invalidate(project);
+          services.log("git.pull", result.detail);
+          return result;
+        } catch (error) {
+          git.invalidate(project);
+          throw error;
+        }
+      });
       context.registerCommand("push", async () => {
         const project = cwd();
         try {

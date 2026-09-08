@@ -12,6 +12,7 @@ import type {
   UiWorktreeStatus,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
+  PullResult,
   PushResult,
   WorkbenchActions,
   WorkspaceChangesQuery,
@@ -107,6 +108,7 @@ export interface WorkspaceHostCommands {
   "revert-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "read-file": { input: { relPath: string }; output: UiFileContent };
   "commit": { input: { message: string; push: boolean }; output: CommitResult };
+  "pull": { input: undefined; output: PullResult };
   "push": { input: undefined; output: PushResult };
   /** Reads metadata for a known project without changing the active host workspace. */
   "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceInfo };
@@ -156,6 +158,7 @@ export interface WorkspaceHostClient {
   revertFile(relPath: string): Promise<UiWorkspaceChanges>;
   readFile(relPath: string): Promise<UiFileContent>;
   commit(message: string, push: boolean): Promise<CommitResult>;
+  pull(): Promise<PullResult>;
   push(): Promise<PushResult>;
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
@@ -193,6 +196,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     revertFile: (relPath) => call("revert-file", { relPath }),
     readFile: (relPath) => call("read-file", { relPath }),
     commit: (message, push) => call("commit", { message, push }),
+    pull: () => call("pull", undefined),
     push: () => call("push", undefined),
     getWorkspaceInfo: (workspace) => call("workspace-info", workspace === undefined ? undefined : { workspace }),
     getWorktreeStatuses: (workspace) => call("worktree-statuses", workspace === undefined ? undefined : { workspace }),
