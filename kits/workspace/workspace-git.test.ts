@@ -19,6 +19,7 @@ import {
   getFileDiff,
   getSnapshotFileDiff,
   isLinkedWorktree,
+  isNestedProject,
   MAX_DIFF_BYTES,
   MAX_DIFF_HUNKS,
   parseUnifiedDiff,
@@ -884,6 +885,16 @@ describe("worktree classification", () => {
     await expect(isLinkedWorktree("/tmp/plain", async () => { throw new Error("not a git repository"); }))
       .rejects.toThrow("not a git repository");
     await expect(isLinkedWorktree("/tmp/plain", async () => "\n")).rejects.toThrow("not a Git repository");
+  });
+
+  it("keeps vanished worktree paths out of the project picker", async () => {
+    let gitCalled = false;
+    await expect(isNestedProject(
+      "/repos/tau-worktrees/deleted",
+      async () => { gitCalled = true; return ""; },
+      async () => false,
+    )).resolves.toBe(true);
+    expect(gitCalled).toBe(false);
   });
 });
 

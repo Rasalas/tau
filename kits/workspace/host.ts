@@ -384,7 +384,7 @@ export function createWorkspaceHostExtension(): HostExtension {
             labels.set(project, branch);
             return branch;
           },
-          nested: (project) => workspaceGit.isLinkedWorktree(project),
+          nested: (project) => workspaceGit.isNestedProject(project),
         }),
         // Edits and Git commands run by the agent stale the cache.
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),

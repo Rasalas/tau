@@ -2612,6 +2612,25 @@ export async function isLinkedWorktree(cwd: string, runGit: GitRunner = git): Pr
   return resolve(cwd, gitDir) !== resolve(cwd, commonDir);
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+/** The project list also withholds remembered worktrees after their folders have been removed. */
+export async function isNestedProject(
+  cwd: string,
+  runGit: GitRunner = git,
+  exists: (path: string) => Promise<boolean> = pathExists,
+): Promise<boolean> {
+  return !await exists(cwd) || isLinkedWorktree(cwd, runGit);
+}
+
 /** Returns one stable project name for a repository and all of its linked worktrees. */
 export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
   try {
