@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiFileDiff, UiWorkspaceChanges } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -95,5 +95,22 @@ describe("Review Kit in the workbench", () => {
       files: [{ path: "src/a.ts", added: 1, removed: 0 }],
     })));
     expect(await screen.findByRole("button", { name: "feat(review): describe the change" })).toBeTruthy();
+  });
+
+  it("returns to the thread after committing from the full review", async () => {
+    const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: false, detail: "Committed abc1234" }));
+    const suggest = vi.fn(async () => ({ message: "fix(review): restore commit flow" }));
+    renderApp(workbench({ commit }, suggest), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));
+    const message = await screen.findByRole("button", { name: "fix(review): restore commit flow" });
+    const proposal = message.closest(".commit-proposal");
+    expect(proposal).not.toBeNull();
+
+    fireEvent.click(within(proposal as HTMLElement).getByRole("button", { name: "Commit" }));
+
+    await waitFor(() => expect(commit).toHaveBeenCalledWith("fix(review): restore commit flow", false));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());
   });
 });

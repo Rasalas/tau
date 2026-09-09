@@ -441,9 +441,10 @@ describe("last-turn activity", () => {
     fireEvent.change(composer, { target: { value: "new request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
-    // The composer keeps the text until sendPrompt settles (it never does
-    // here); wait for the transcript's own paragraph, not the textarea echo.
+    // sendPrompt never settles here, but the optimistic transcript row is
+    // already visible and the submitted text has left the composer.
     const newPrompt = await screen.findByText("new request", { selector: "p" });
+    expect(composer).toHaveProperty("value", "");
     expect(newPrompt).toBeDefined();
     expect(newPrompt?.closest(".virtual-transcript-row")?.textContent).not.toContain("Worked for");
     expect(screen.getByText("old request").closest(".virtual-transcript-row")?.textContent).toContain("Worked for");

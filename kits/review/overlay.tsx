@@ -20,7 +20,9 @@ export function createReviewOverlay(plugin: DesktopExtensionContext, workspace: 
     const review = state.review ?? { primaryPush: false };
     const selectPath = useCallback((path: string) => store.selectReviewPath(path), []);
     const closeReview = useCallback(() => { store.closeReview(); onClose(); }, [onClose]);
-    const commit = useCallback((message: string, push: boolean) => void store.commit(message, push), []);
+    const commit = useCallback(async (message: string, push: boolean) => {
+      if (await store.commit(message, push)) closeReview();
+    }, [closeReview]);
     const openInEditor = useCallback((path: string) => void store.openInEditor(path), []);
     const suggestCommitMessage = useCallback(
       (changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]) => store.suggestCommitMessage(changes, diffs),

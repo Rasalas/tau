@@ -1895,7 +1895,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-file-status.deleted { color: var(--removed); }
 .review-file-status.renamed { color: var(--acid-text); }
 .review-stage-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-.review-diff-stream { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 12px 12px 80px; scroll-padding-top: 12px; }
+.review-diff-stream { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 12px 12px 80px; scroll-padding-top: 12px; font: 12px/26px var(--mono); }
 .review-diff-stream .diff-stream-row { border-left: 1px solid var(--line-control); border-right: 1px solid var(--line-control); background: var(--stage); }
 .review-diff-stream .diff-stream-row.file-start { border-top: 1px solid var(--line-control); border-radius: 8px 8px 0 0; }
 .review-diff-stream .diff-stream-row.file-end { border-bottom: 1px solid var(--line-control); border-radius: 0 0 8px 8px; }

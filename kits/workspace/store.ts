@@ -327,16 +327,18 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   stageAll(): Promise<void> { return this.mutate("Staging changes", () => this.host.stageAll()); }
   revertFile(path: string): Promise<void> { return this.mutate("Reverting changes", () => this.host.revertFile(path)); }
 
-  async commit(message: string, push: boolean): Promise<void> {
-    if (!this.allowed("Committing") || !this.requireHost("Committing")) return;
+  async commit(message: string, push: boolean): Promise<boolean> {
+    if (!this.allowed("Committing") || !this.requireHost("Committing")) return false;
     this.update({ committing: true });
     try {
       const result = await this.host.commit(message, push);
       this.update({ changes: result.changes });
       this.notify(result.detail);
       void this.refreshWorkspace();
+      return true;
     } catch (error) {
       this.notify(errorMessage(error));
+      return false;
     } finally {
       this.update({ committing: false });
     }

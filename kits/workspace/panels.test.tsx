@@ -48,7 +48,7 @@ describe("ChangesPanel", () => {
     kitState(workspaceStore, { workspace: { root: CWD, isRepo: true, isDirty: true, upstream: "origin/main", worktrees: [], refs: [], worktreeParent: "/" } });
     const openDiff = vi.spyOn(workspaceStore, "openDiff").mockImplementation(() => undefined);
     const stageAll = vi.spyOn(workspaceStore, "stageAll").mockResolvedValue(undefined);
-    const commit = vi.spyOn(workspaceStore, "commit").mockResolvedValue(undefined);
+    const commit = vi.spyOn(workspaceStore, "commit").mockResolvedValue(true);
     vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
     render(withServices(workspaceStore,
       <WorkbenchContext.Provider value={workbench()}>

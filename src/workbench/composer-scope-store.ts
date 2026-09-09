@@ -298,6 +298,13 @@ export class ComposerScopeStore {
     const attachments = state.attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
     state.pendingSubmissions.set(id, { attachmentIds, textRevision, attachmentRevision, attachmentGeneration, draft: text });
     this.pendingSubmissionPromises.delete(scope);
+    // A submitted message leaves the editor immediately. Keep its captured
+    // draft on the submission so a rejection can restore it without making a
+    // slow host call look like the message is still unsent.
+    state.draft = "";
+    state.revision += 1;
+    // textRevision tracks user edits; leaving it unchanged lets settlement
+    // distinguish this lifecycle clear from text entered for the next message.
     this.notify(scope);
     let settled = false;
     const finalize = (result?: SubmissionResult) => {
@@ -346,6 +353,12 @@ export class ComposerScopeStore {
         state.error = undefined;
       }
     } else {
+      if (sameTextRevision) {
+        state.draft = pending.draft;
+      } else if (pending.draft && state.draft !== pending.draft && !state.draft.includes(pending.draft)) {
+        const separator = pending.draft.endsWith("\n") || state.draft.startsWith("\n") ? "" : "\n\n";
+        state.draft = `${pending.draft}${separator}${state.draft}`;
+      }
       const newerAttachmentError = state.error?.kind === "attachment"
         && state.error.generation > pending.attachmentGeneration;
       const newerSubmissionError = state.error?.kind === "submission"

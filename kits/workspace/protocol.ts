@@ -289,7 +289,8 @@ export interface WorkspaceStoreApi {
   openReview(path?: string, pushPrimary?: boolean): void;
   selectReviewPath(path: string): void;
   closeReview(): void;
-  commit(message: string, push: boolean): Promise<void>;
+  /** Commits the selected changes and reports whether the host accepted them. */
+  commit(message: string, push: boolean): Promise<boolean>;
   openInEditor(relPath?: string, editorOverride?: string): Promise<void>;
   suggestCommitMessage(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined>;
   /** An extension offers to name new worktrees; the picker shows the offer only while one is registered. */

@@ -421,6 +421,11 @@ export function Composer({
       // the host/runtime adapter resolves provider syntax at the boundary.
       const submittedText = handle.text;
       const skillDraft = selectedSkillDraft(submittedText, selectedSkill);
+      // beginSubmission clears the live editor before the host round trip. Keep
+      // the persisted copy in step so a reload cannot resurrect a sent prompt.
+      if (draftStorageKey !== undefined) {
+        writeComposerDraft(clientStorage, submittedScope, scopeStore.getSnapshot(submittedScope).draft);
+      }
       let result: SubmitResult;
       try {
         result = skillDraft

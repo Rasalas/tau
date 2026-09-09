@@ -70,17 +70,19 @@ describe("Composer draft persistence", () => {
     await waitFor(() => expect(readComposerDraft(storage, DRAFT_KEY)).toBe(""));
   });
 
-  it("persists what was typed while the accepted prompt was in flight", async () => {
+  it("clears a submitted sentence immediately and keeps later typing separate", async () => {
     const storage = createMemoryStorage();
     let accept: (result: SubmissionResult) => void = () => {};
     const onSubmit = vi.fn(() => new Promise<SubmissionResult>((resolve) => { accept = resolve; }));
     const textarea = renderComposer(onSubmit, storage);
 
-    fireEvent.change(textarea, { target: { value: "first", selectionStart: 5 } });
+    fireEvent.change(textarea, { target: { value: "first sentence.", selectionStart: 15 } });
+    expect(onSubmit).not.toHaveBeenCalled();
     fireEvent.keyDown(textarea, { key: "Enter" });
-    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    fireEvent.change(textarea, { target: { value: "second", selectionStart: 6 } });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("first sentence.", []));
+    await waitFor(() => expect(textarea.value).toBe(""));
 
+    fireEvent.change(textarea, { target: { value: "second", selectionStart: 6 } });
     accept({ accepted: true });
     await waitFor(() => expect(textarea.value).toBe("second"));
     expect(readComposerDraft(storage, DRAFT_KEY)).toBe("second");
