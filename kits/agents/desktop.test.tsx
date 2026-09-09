@@ -74,7 +74,7 @@ describe("the Agents panel model", () => {
     expect(model.groups[0]).toMatchObject({ parentThreadId: "parent", active: true });
     expect(model.groups[0]!.rows.map((row) => [row.title, row.status, row.costUsd]))
       .toEqual([["Alpha reply", "running", 0.25], ["Beta reply", "completed", 0.25]]);
-    expect(model).toMatchObject({ running: 1, completed: 1, waiting: 0, failed: 0, pending: 0, totalCostUsd: 1, runningElsewhere: 0 });
+    expect(model).toMatchObject({ running: 1, completed: 1, waiting: 0, failed: 0, pending: 0, totalCostUsd: 1 });
     expect(formatCost(model.totalCostUsd)).toBe("$1.00");
     expect(formatCost(undefined)).toBe("–");
   });
@@ -89,13 +89,6 @@ describe("the Agents panel model", () => {
     const model = agentsPanelModel(state, "alpha", threads);
     expect(model.groups.map((group) => group.parentThreadId)).toEqual(["parent"]);
     expect(model.groups[0]!.rows.map((row) => row.id)).toEqual(["alpha", "beta"]);
-  });
-
-  it("offers a jump when the thread on screen has no agents of its own", () => {
-    const model = agentsPanelModel(state, "unrelated", [...threads, session("unrelated", "Something else", 4)]);
-    expect(model.groups).toEqual([]);
-    expect(model.runningElsewhere).toBe(1);
-    expect(model.jumpTo).toEqual({ threadId: "parent", path: "/sessions/parent.jsonl", title: "Parent thread" });
   });
 
   it("groups by parent once depth 2 is in play", () => {

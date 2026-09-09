@@ -1,7 +1,6 @@
 import { formatCost as formatMoney, type UiSession, type UiThreadUsage, type UiToolRun } from "tau";
 import {
   isBusyStatus,
-  isOpenStatus,
   type AgentThreadLink,
   type AgentThreadStatus,
   type AgentWorkspace,
@@ -45,14 +44,10 @@ export interface AgentsPanelModel {
   pending: number;
   /** The active thread's own spend plus every agent's in the panel; undefined when nothing is counted. */
   totalCostUsd?: number;
-  /** Agents working under threads this panel does not show. */
-  runningElsewhere: number;
-  /** A thread to jump to when the panel is empty but work is running elsewhere. */
-  jumpTo?: { threadId: string; path?: string; title: string };
 }
 
 const EMPTY_MODEL: AgentsPanelModel = {
-  groups: [], running: 0, waiting: 0, completed: 0, failed: 0, pending: 0, runningElsewhere: 0,
+  groups: [], running: 0, waiting: 0, completed: 0, failed: 0, pending: 0,
 };
 
 function usageOf(session: UiSession | undefined): UiThreadUsage | undefined {
@@ -99,7 +94,7 @@ function indexRow(session: UiSession): AgentRow {
 /**
  * What the Agents panel draws for the thread on screen: its own agents, and —
  * when that thread is itself an agent — its siblings under the parent it came
- * from. Everything else running is offered as one jump.
+ * from.
  *
  * Rows come from the links the host published and from the thread index, which
  * reads the link off each child's own session file; a fresh machine or a lost
@@ -162,7 +157,6 @@ export function agentsPanelModel(
     }))
     .sort((left, right) => Number(right.active) - Number(left.active) || left.parentTitle.localeCompare(right.parentTitle));
 
-  const shown = new Set(groups.flatMap((group) => group.rows.map((row) => row.id)));
   const counts = { running: 0, waiting: 0, completed: 0, failed: 0, pending: 0 };
   let cost = 0;
   let counted = false;
@@ -175,22 +169,10 @@ export function agentsPanelModel(
   const ownCost = activeThreadId ? usageOf(sessions.get(activeThreadId))?.costUsd : undefined;
   if (ownCost !== undefined) { cost += ownCost; counted = true; }
 
-  const elsewhere = links.filter((link) => !shown.has(link.id) && isOpenStatus(link.status));
-  const jump = elsewhere[0];
-  const jumpParent = jump ? sessions.get(jump.parentThreadId) : undefined;
-
   return {
     groups,
     ...counts,
     ...(counted ? { totalCostUsd: cost } : {}),
-    runningElsewhere: elsewhere.length,
-    ...(jump ? {
-      jumpTo: {
-        threadId: jump.parentThreadId,
-        ...(jumpParent?.path ? { path: jumpParent.path } : {}),
-        title: titleOf(jump.parentThreadId),
-      },
-    } : {}),
   };
 }
 
